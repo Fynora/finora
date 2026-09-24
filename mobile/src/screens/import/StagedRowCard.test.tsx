@@ -38,6 +38,9 @@ const row = (over: Partial<StagedRow> = {}): StagedRow => ({
   duplicateMatch: null,
   rowPosition: null,
   categoryConfidence: null,
+  international: false,
+  foreignCurrency: null,
+  foreignAmount: null,
   ...over,
 });
 
@@ -178,4 +181,31 @@ describe('StagedRowCard — confident-source provenance (Track C/C3)', () => {
       expect(screen.queryByText('From your statement')).toBeNull();
     }
   );
+});
+
+describe('StagedRowCard — international rows', () => {
+  it('marks an international row and shows the foreign amount under the rupee amount', () => {
+    renderCard({
+      row: row({ description: 'SAMPLE CLOUD HOST', amount: 1050, international: true, foreignCurrency: 'USD', foreignAmount: 12.5 }),
+      decision: 'import',
+      included: true,
+    });
+
+    expect(screen.getByText('International')).toBeTruthy();
+    expect(screen.getByText('USD 12.50')).toBeTruthy();
+  });
+
+  it('marks an international GST/markup row that printed no foreign amount', () => {
+    renderCard({ row: row({ international: true }), decision: 'import', included: true });
+
+    expect(screen.getByText('International')).toBeTruthy();
+    expect(screen.queryByText(/^[A-Z]{3} \d/)).toBeNull();
+  });
+
+  it('shows neither for a domestic row', () => {
+    renderCard({ row: row(), decision: 'import', included: true });
+
+    expect(screen.queryByText('International')).toBeNull();
+    expect(screen.queryByText(/^[A-Z]{3} \d/)).toBeNull();
+  });
 });

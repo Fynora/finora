@@ -19,6 +19,7 @@ import { Faq } from './landing/Faq';
 import { FinalCta } from './landing/FinalCta';
 import { SiteFooter } from './landing/SiteFooter';
 import { Transition } from './landing/primitives';
+import { useCanonical } from '../hooks/useCanonical';
 
 /**
  * The landing page, as composition only.
@@ -71,6 +72,7 @@ const DEEP = '#15171C'; // --color-deep-surface -- see index.css's comment on th
 const NAV_HEIGHT_PX = 64;
 
 export default function Landing() {
+  useCanonical('/');
   const heroRef = useRef<HTMLDivElement | null>(null);
   // Hero fills (or exceeds) the viewport at page load -- see the global chrome design spec's note
   // on why observing the Hero element itself (rather than a 1px sentinel at its trailing edge)

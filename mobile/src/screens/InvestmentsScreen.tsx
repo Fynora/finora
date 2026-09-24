@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import {
-  ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text,
-  useWindowDimensions, View,
+  ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text,
+  useWindowDimensions, View
 } from 'react-native';
+import { AppAlert } from '../lib/appAlert';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import { Button } from '../components/Button';
@@ -23,6 +24,7 @@ import { useSingleFlight } from '../lib/useSingleFlight';
 import { parsePositiveAmount } from '../lib/validation';
 import { radius, spacing, useTheme } from '../theme';
 import type { Account } from '../types';
+import { withBypass } from '../lib/changeSync';
 
 // Same options as the web page's <select>.
 const INVESTMENT_KINDS = ['Mutual Fund', 'Stocks', 'FD', 'PPF/NPS', 'Other'];
@@ -91,9 +93,12 @@ export function InvestmentsScreen() {
   const refreshing = (accountsQ.isFetching || netWorthQ.isFetching) && !loading;
 
   function refresh() {
-    void queryClient.invalidateQueries({ queryKey: ['accounts'] });
-    void queryClient.invalidateQueries({ queryKey: ['networth'] });
-    void queryClient.invalidateQueries({ queryKey: [INVESTMENT_ACTIVITY_QUERY_KEY] });
+    // withBypass: a pull is a read, not an edit -- it must not wait for the change stamp (lib/changeSync.ts).
+    withBypass(() => {
+      void queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      void queryClient.invalidateQueries({ queryKey: ['networth'] });
+      void queryClient.invalidateQueries({ queryKey: [INVESTMENT_ACTIVITY_QUERY_KEY] });
+    });
   }
 
   /**
@@ -147,7 +152,7 @@ export function InvestmentsScreen() {
   }
 
   function confirmDelete(h: Account) {
-    Alert.alert('Delete this holding?', `"${h.name}" will be removed from your net worth.`, [
+    AppAlert.alert('Delete this holding?', `"${h.name}" will be removed from your net worth.`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: () => void removeHolding(h) },
     ]);

@@ -7,8 +7,9 @@ import { PasswordInput } from '../../components/PasswordInput';
 import { ReactivateAccountPrompt } from '../../components/ReactivateAccountPrompt';
 import { SocialSignInButtons } from '../../components/SocialSignInButtons';
 import { AuthDivider } from './AuthDivider';
+import { SocialConsentNotice } from './SocialConsentNotice';
 import { SESSION_ENDED_REASON_KEY } from '../../api/client';
-import { AUTH_ACCOUNT_DEACTIVATED } from '../../api/errorCodes';
+import { AUTH_ACCOUNT_DEACTIVATED, AUTH_OTP_INVALID_OR_EXPIRED } from '../../api/errorCodes';
 import { safeStorage } from '../../lib/safeStorage';
 import { looksLikeValidIdentifier, EMAIL_PATTERN } from './identifierPatterns';
 import {
@@ -30,6 +31,17 @@ interface PasswordStepProps {
 // own rate limiting (phone channel) are the real limits either way.
 const OTP_RESEND_COOLDOWN_SECONDS = 30;
 const OTP_RECAPTCHA_CONTAINER_ID = 'password-step-otp-recaptcha';
+
+function friendlyFirebaseVerifyError(err: any): string {
+  switch (err?.code) {
+    case 'auth/invalid-verification-code':
+      return "That code doesn't match — check and try again.";
+    case 'auth/code-expired':
+      return 'This code has expired. Request a new one.';
+    default:
+      return 'Could not verify — try again.';
+  }
+}
 
 export function PasswordStep({ identifier: initialIdentifier, banner, onSuccess, onNotYou }: PasswordStepProps) {
   const { login, loginWithGoogle, loginWithApple, loginWithEmailOtpRequest, loginWithEmailOtpVerify, loginWithPhoneOtp } = useAuth();
@@ -168,7 +180,11 @@ export function PasswordStep({ identifier: initialIdentifier, banner, onSuccess,
       setOtpResendCooldown(OTP_RESEND_COOLDOWN_SECONDS);
     } catch (err: any) {
       if (isEmailIdentifier) {
-        setOtpError(err.response?.data?.message ?? 'Could not send a code right now. Please try again.');
+        setOtpError(
+          err.response?.data?.errorCode === AUTH_OTP_INVALID_OR_EXPIRED
+            ? "We couldn't send a code to that address. Check the email and try again."
+            : err.response?.data?.message ?? 'Could not send a code right now. Please try again.'
+        );
       } else {
         resetPhoneVerification();
         setOtpError(friendlySendError(err));
@@ -197,7 +213,9 @@ export function PasswordStep({ identifier: initialIdentifier, banner, onSuccess,
       if (err.response?.data?.errorCode === AUTH_ACCOUNT_DEACTIVATED) {
         handleAuthError(err, 'Login failed. Check your credentials.');
       } else if (phoneConfirmation) {
-        setOtpError(err.response?.data?.message ?? 'Could not verify — try again.');
+        // A wrong/expired SMS code is rejected by Firebase on-device, so there is no backend
+        // response to read a message from -- map its error code, same wording VerifyPhone.tsx uses.
+        setOtpError(err.response?.data?.message ?? friendlyFirebaseVerifyError(err));
       } else {
         setOtpError(err.response?.data?.message ?? 'That code is invalid or has expired.');
       }
@@ -236,6 +254,7 @@ export function PasswordStep({ identifier: initialIdentifier, banner, onSuccess,
         onError={setError}
         onWidthKnown={setFormWidth}
       />
+      <SocialConsentNotice />
 
       <AuthDivider />
 

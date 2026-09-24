@@ -177,6 +177,9 @@ export interface TransactionFilters {
   // backend has accepted this param since before this session (TransactionController.search's own
   // doc comment names Ledger's Status column filter as the reason it exists); no client used it.
   status?: string;
+  // The statement's own domestic/international split: true for only international transactions,
+  // false for only domestic ones, absent for both. Mirrors frontend/src/api/endpoints.ts.
+  international?: boolean;
   dateFrom?: string;
   dateTo?: string;
   amountMin?: number;
@@ -298,6 +301,10 @@ export interface ConfirmedRowPayload {
   balanceAfter: number | null;
   /** Echoed from StagedRow.rowPosition unchanged -- see that field's own doc comment. */
   rowPosition: number | null;
+  /** Echoed from StagedRow.international/foreignCurrency/foreignAmount unchanged. */
+  international: boolean;
+  foreignCurrency: string | null;
+  foreignAmount: number | null;
   /** Echoed from StagedRow.categoryConfidence unchanged -- see that field's own doc comment. Lands
    *  on Transaction.decisionConfidence at confirm time. */
   categoryConfidence: number | null;
@@ -843,6 +850,24 @@ export const accountAggregatorApi = {
   disconnect: (linkId: string) => api.post(`/integrations/setu/links/${linkId}/disconnect`),
 };
 
+// Backend ChangeStampController: one opaque value per kind of data the app shows, each changing when
+// that kind of data changes for this user. See lib/changeSync.ts.
+export interface ChangeStamp {
+  transactions: string;
+  accounts: string;
+  statementImports: string;
+  budgets: string;
+  goals: string;
+  categories: string;
+  profile: string;
+  preferences: string;
+  billing: string;
+}
+
+export const changesApi = {
+  stamp: () => api.get<ChangeStamp>('/changes/stamp').then((r) => r.data),
+};
+
 export const dashboardApi = {
   summary: () => api.get<DashboardSummary>('/dashboard/summary').then((r) => r.data),
   // Identity Engine (backend TimelineController) -- same three calls as frontend's dashboardApi.
@@ -1121,6 +1146,16 @@ export interface TrendPoint { month: string; totalSpend: number; }
 export interface CategoryConfidencePoint { category: string; avgConfidence: number; merchantCount: number; }
 export interface TopCategory { categoryId: string; categoryName: string; totalSpend: number; transactionCount: number; }
 export interface LearningGrowthPoint { month: string; learnedCount: number; correctedCount: number; }
+// Advanced Reports' "International spend" card. Mirrors AnalyticsDto.InternationalSpend/CurrencySpend
+// and frontend/src/api/endpoints.ts. Rupee figures are what was billed.
+export interface CurrencySpend { currency: string; foreignTotal: number; rupeeTotal: number; transactionCount: number; }
+export interface InternationalSpend {
+  totalSpend: number;
+  transactionCount: number;
+  purchasesSpend: number;
+  otherChargesSpend: number;
+  byCurrency: CurrencySpend[];
+}
 
 // Multi-Year Comparison (issue #1455). Mirrors backend AnalyticsDto exactly.
 export interface MultiYearPoint { year: number; coverageMonths: number; isComplete: boolean; total: number; }
@@ -1156,6 +1191,8 @@ export const analyticsApi = {
     api.get<TopCategory[]>('/analytics/top-categories', { params: month ? { month } : {} }).then((r) => r.data),
   learningGrowth: () =>
     api.get<LearningGrowthPoint[]>('/analytics/learning-growth').then((r) => r.data),
+  international: (month?: string) =>
+    api.get<InternationalSpend>('/analytics/international', { params: month ? { month } : {} }).then((r) => r.data),
   multiYearIncome: () => api.get<MultiYearReport>('/analytics/multi-year/income').then((r) => r.data),
   multiYearSpend: () => api.get<MultiYearReport>('/analytics/multi-year/spend').then((r) => r.data),
   multiYearCategories: () => api.get<MultiYearCategoryReport>('/analytics/multi-year/categories').then((r) => r.data),
@@ -1436,4 +1473,19 @@ export const billingApi = {
   // Razorpay-owned subscription viewed on mobile can still be paused/resumed from here.
   pause: () => api.post<{ message: string }>('/billing/pause').then((r) => r.data),
   resume: () => api.post<{ message: string }>('/billing/resume').then((r) => r.data),
+};
+
+/** GET/PUT /notification-preferences -- only FINANCIAL on EMAIL/PUSH is exposed (see the backend's
+ *  NotificationPreferenceService). Mirrors web's notificationPreferencesApi. */
+export interface NotificationPreference {
+  category: 'FINANCIAL';
+  channel: 'EMAIL' | 'PUSH';
+  enabled: boolean;
+}
+
+export const notificationPreferencesApi = {
+  list: () => api.get<NotificationPreference[]>('/notification-preferences').then((r) => r.data),
+  set: (channel: NotificationPreference['channel'], enabled: boolean) =>
+    api.put<NotificationPreference[]>('/notification-preferences', { category: 'FINANCIAL', channel, enabled })
+      .then((r) => r.data),
 };

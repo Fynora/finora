@@ -78,6 +78,9 @@ function txn(overrides: Partial<Transaction> = {}): Transaction {
     // UNKNOWN by default so the counterparty badge renders nothing unless a test asks for it --
     // every existing assertion in this file predates the badge and should stay unaffected by it.
     counterpartyType: 'UNKNOWN',
+    international: false,
+    foreignCurrency: null,
+    foreignAmount: null,
     ...overrides,
   };
 }
@@ -323,6 +326,41 @@ describe('Ledger — Status filter', () => {
     await waitFor(() =>
       expect(transactionsApi.search).toHaveBeenCalledWith(expect.objectContaining({ status: 'DUPLICATE', page: 0 }))
     );
+  });
+});
+
+describe('Ledger — domestic/international filter', () => {
+  it('sends true, false, or nothing for the chosen region, and counts it as an active filter', async () => {
+    const user = userEvent.setup();
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [], page: 0, size: 10, totalElements: 0, totalPages: 0,
+    });
+    vi.mocked(transactionsApi.needsReview).mockReset().mockResolvedValue([]);
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+    renderLedger();
+
+    await waitFor(() => expect(transactionsApi.search).toHaveBeenCalled());
+    const select = screen.getByLabelText('Domestic or international');
+    expect(screen.getByTitle('Clear all filters')).toBeDisabled();
+
+    vi.mocked(transactionsApi.search).mockClear();
+    await user.selectOptions(select, 'true');
+    await waitFor(() =>
+      expect(transactionsApi.search).toHaveBeenCalledWith(expect.objectContaining({ international: true, page: 0 }))
+    );
+    expect(screen.getByTitle('Clear all filters')).toBeEnabled();
+
+    vi.mocked(transactionsApi.search).mockClear();
+    await user.selectOptions(select, 'false');
+    await waitFor(() =>
+      expect(transactionsApi.search).toHaveBeenCalledWith(expect.objectContaining({ international: false }))
+    );
+
+    vi.mocked(transactionsApi.search).mockClear();
+    await user.click(screen.getByTitle('Clear all filters'));
+    await waitFor(() => expect(transactionsApi.search).toHaveBeenCalled());
+    const calls = vi.mocked(transactionsApi.search).mock.calls;
+    expect(calls[calls.length - 1][0].international).toBeUndefined();
   });
 });
 
@@ -859,6 +897,50 @@ describe('Ledger — Status column shows every applicable badge, not just the hi
     expect(await screen.findByText('Reviewed')).toBeInTheDocument();
     expect(screen.queryByText('Needs Review')).not.toBeInTheDocument();
     expect(screen.queryByText('Recurring')).not.toBeInTheDocument();
+  });
+});
+
+describe('Ledger — international transactions', () => {
+  beforeEach(() => {
+    vi.mocked(transactionsApi.needsReview).mockReset().mockResolvedValue([]);
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+  });
+
+  it('marks an international transaction and shows the foreign amount under the rupee amount', async () => {
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [txn({ international: true, foreignCurrency: 'USD', foreignAmount: 12.5, amount: 1050 })],
+      page: 0, size: 10, totalElements: 1, totalPages: 1,
+    });
+    renderLedger();
+
+    const row = (await screen.findByText('AMAZON PAY')).closest('tr')!;
+    expect(within(row).getByText('International')).toBeInTheDocument();
+    expect(within(row).getByText('USD 12.50')).toBeInTheDocument();
+    // A fact beside the status, never a replacement for it.
+    expect(within(row).getByText('Categorized')).toBeInTheDocument();
+  });
+
+  it('marks an international GST/markup row even though it printed no foreign amount', async () => {
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [txn({ international: true, foreignCurrency: null, foreignAmount: null })],
+      page: 0, size: 10, totalElements: 1, totalPages: 1,
+    });
+    renderLedger();
+
+    const row = (await screen.findByText('AMAZON PAY')).closest('tr')!;
+    expect(within(row).getByText('International')).toBeInTheDocument();
+    expect(within(row).queryByText(/^[A-Z]{3} \d/)).not.toBeInTheDocument();
+  });
+
+  it('shows neither for a domestic transaction', async () => {
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [txn()], page: 0, size: 10, totalElements: 1, totalPages: 1,
+    });
+    renderLedger();
+
+    const row = (await screen.findByText('AMAZON PAY')).closest('tr')!;
+    expect(within(row).queryByText('International')).not.toBeInTheDocument();
+    expect(within(row).queryByText(/^[A-Z]{3} \d/)).not.toBeInTheDocument();
   });
 });
 

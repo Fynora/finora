@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
-import { ActivityIndicator, Modal, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { AppModal } from './AppModal';
 import { useQuery } from '@tanstack/react-query';
 import { transactionsApi } from '../api/endpoints';
 import { Button } from './Button';
@@ -45,7 +46,7 @@ export function TransactionSourceModal({ transactionId, onClose }: { transaction
   if (transactionId === null) return null;
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+    <AppModal visible transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <Card style={styles.card}>
           <SectionHeading title="Where this came from" />
@@ -80,7 +81,7 @@ export function TransactionSourceModal({ transactionId, onClose }: { transaction
           <Button label="Close" variant="link" onPress={onClose} />
         </Card>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

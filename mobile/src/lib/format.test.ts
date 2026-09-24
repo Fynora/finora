@@ -1,8 +1,24 @@
 import {
-  currentYearMonth, fmtCurrency, fmtDate, fmtMonthYear, fmtRelativeFutureTime, fmtRelativeTime,
+  currentYearMonth, fmtCurrency, fmtDate, fmtForeignAmount, fmtMonthYear, fmtRelativeFutureTime, fmtRelativeTime,
   fromLocalDateString, initials, monthDateRange, monthDayRangeLabel, monthLabel, monthLabelLong,
   toLocalDateString,
 } from './format';
+
+describe('fmtForeignAmount', () => {
+  it('renders the currency code and a two-decimal amount', () => {
+    expect(fmtForeignAmount('USD', 12.5)).toBe('USD 12.50');
+    expect(fmtForeignAmount('USD', 40)).toBe('USD 40.00');
+    expect(fmtForeignAmount('EUR', 1234.5)).toBe('EUR 1,234.50');
+    expect(fmtForeignAmount('USD', 0)).toBe('USD 0.00');
+  });
+
+  it('renders nothing unless both halves are present', () => {
+    expect(fmtForeignAmount(null, null)).toBeNull();
+    expect(fmtForeignAmount('USD', null)).toBeNull();
+    expect(fmtForeignAmount(null, 12.5)).toBeNull();
+    expect(fmtForeignAmount('', 12.5)).toBeNull();
+  });
+});
 
 describe('fmtCurrency', () => {
   // The bug this preserves: string-concatenating the symbol produced "₹-500" for a negative.

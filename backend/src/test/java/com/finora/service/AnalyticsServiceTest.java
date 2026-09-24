@@ -397,6 +397,101 @@ class AnalyticsServiceTest {
         assertThat(result.get(1).categoryName()).isEqualTo("Dining");
     }
 
+    // --- categoryBreakdown (Ask Fyn's category list; must match the dashboard's donut) ---
+
+    @Test
+    void categoryBreakdown_groupsLikeTheDashboard_uncategorizedDeletedAndSameNameIncluded() {
+        UUID diningA = UUID.randomUUID();
+        UUID diningB = UUID.randomUUID(); // a second category row also named "Dining"
+        UUID deleted = UUID.randomUUID(); // no longer in categoryRepository
+        Transaction a = expense(null, LocalDate.of(2026, 9, 1), new BigDecimal("300"));
+        a.setCategoryId(diningA);
+        Transaction b = expense(null, LocalDate.of(2026, 9, 2), new BigDecimal("200"));
+        b.setCategoryId(diningB);
+        Transaction none = expense(null, LocalDate.of(2026, 9, 3), new BigDecimal("150"));
+        Transaction orphan = expense(null, LocalDate.of(2026, 9, 4), new BigDecimal("50"));
+        orphan.setCategoryId(deleted);
+        Transaction transfer = expense(null, LocalDate.of(2026, 9, 5), new BigDecimal("9000"));
+        transfer.setTransfer(true);
+
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(
+                eq(userId), eq(LocalDate.of(2026, 9, 1)), eq(LocalDate.of(2026, 9, 30)), any()))
+                .thenReturn(List.of(a, b, none, orphan, transfer));
+        Category dA = new Category();
+        ReflectionTestUtils.setField(dA, "id", diningA);
+        dA.setName("Dining");
+        Category dB = new Category();
+        ReflectionTestUtils.setField(dB, "id", diningB);
+        dB.setName("Dining");
+        when(categoryRepository.findByUserId(userId)).thenReturn(List.of(dA, dB));
+
+        var result = analyticsService.categoryBreakdown(userId, java.time.YearMonth.of(2026, 9));
+
+        assertThat(result).containsExactly(
+                new com.finora.dto.AnalyticsDto.CategorySpend("Dining", new BigDecimal("500"), 2),
+                new com.finora.dto.AnalyticsDto.CategorySpend("Uncategorized", new BigDecimal("200"), 2));
+    }
+
+    // --- internationalSpend (Advanced Reports' "International spend" card) ---
+
+    private Transaction international(LocalDate date, String amount, String currency, String foreignAmount) {
+        Transaction t = expense(null, date, new BigDecimal(amount));
+        t.setAccountId(liveAccount.getId());
+        t.setInternational(true);
+        t.setForeignAmount(currency, foreignAmount == null ? null : new BigDecimal(foreignAmount));
+        return t;
+    }
+
+    @Test
+    void internationalSpend_splitsPurchasesFromTaxesAndFees_andGroupsPurchasesByCurrency() {
+        Transaction usdA = international(LocalDate.of(2026, 8, 24), "1050.00", "USD", "12.50");
+        Transaction usdB = international(LocalDate.of(2026, 9, 8), "410.00", "USD", "4.00");
+        Transaction eur = international(LocalDate.of(2026, 9, 5), "2000.00", "EUR", "20.00");
+        Transaction gst = international(LocalDate.of(2026, 8, 25), "5.00", null, null);
+        Transaction markup = international(LocalDate.of(2026, 9, 20), "30.00", null, null);
+        Transaction domestic = expense(null, LocalDate.of(2026, 9, 6), new BigDecimal("5000.00"));
+        Transaction transferAbroad = international(LocalDate.of(2026, 9, 7), "9000.00", "USD", "100.00");
+        transferAbroad.setTransfer(true);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                .thenReturn(List.of(usdA, usdB, eur, gst, markup, domestic, transferAbroad));
+
+        var result = analyticsService.internationalSpend(userId, null);
+
+        assertThat(result.transactionCount()).isEqualTo(5);
+        assertThat(result.purchasesSpend()).isEqualByComparingTo("3460.00");
+        assertThat(result.otherChargesSpend()).isEqualByComparingTo("35.00");
+        assertThat(result.totalSpend()).isEqualByComparingTo("3495.00");
+        assertThat(result.byCurrency()).extracting(c -> c.currency()).containsExactly("EUR", "USD");
+        var usd = result.byCurrency().get(1);
+        assertThat(usd.foreignTotal()).isEqualByComparingTo("16.50");
+        assertThat(usd.rupeeTotal()).isEqualByComparingTo("1460.00");
+        assertThat(usd.transactionCount()).isEqualTo(2);
+    }
+
+    @Test
+    void internationalSpend_isAllZeroWhenThereIsNothingInternational() {
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                .thenReturn(List.of(expense(null, LocalDate.of(2026, 9, 6), new BigDecimal("5000.00"))));
+
+        var result = analyticsService.internationalSpend(userId, null);
+
+        assertThat(result.transactionCount()).isZero();
+        assertThat(result.totalSpend()).isEqualByComparingTo("0");
+        assertThat(result.byCurrency()).isEmpty();
+    }
+
+    @Test
+    void internationalSpend_forAMonthReadsOnlyThatMonth() {
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(eq(userId), any(), any(), any()))
+                .thenReturn(List.of(international(LocalDate.of(2026, 9, 8), "410.00", "USD", "4.00")));
+
+        var result = analyticsService.internationalSpend(userId, java.time.YearMonth.of(2026, 9));
+
+        verify(transactionRepository).findByUserIdAndTxnDateBetweenAndAccountIdIn(
+                eq(userId), eq(LocalDate.of(2026, 9, 1)), eq(LocalDate.of(2026, 9, 30)), any());
+        assertThat(result.totalSpend()).isEqualByComparingTo("410.00");
+    }
+
     // --- importStatistics ---
 
     @Test

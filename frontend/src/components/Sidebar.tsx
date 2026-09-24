@@ -11,35 +11,39 @@ import { safeStorage } from '../lib/safeStorage';
 import { visiblePlanCode } from '../lib/planDisplay';
 import { entitlementsApi } from '../api/endpoints';
 import { BrandMark } from './BrandMark';
+import { trackNavigation } from '../lib/trackNavigation';
 
 // Persisted so the choice survives a reload/new tab rather than resetting to expanded every
 // time -- same reasoning TopBar's own read-notification tracking and ThemeContext already apply
 // to their own preferences.
 const COLLAPSED_STORAGE_KEY = 'finora_sidebar_collapsed';
 
+// `id` is the shared taxonomy id (src/navigation/taxonomy.ts), carried here so navigation
+// reporting names the same destination the mobile client does. It is deliberately not derived from
+// `to`: the route is a rendering detail that can change without the destination changing.
 const links = [
-  { to: '/app', label: 'Dashboard', icon: LayoutDashboard, end: true, tourId: 'dashboard' },
+  { id: 'home', to: '/app', label: 'Dashboard', icon: LayoutDashboard, end: true, tourId: 'dashboard' },
   // The CSV import pipeline (CsvImportService, /app/import) has existed since early builds but
   // was never reachable from anywhere in the app's navigation — this was the actual reason it
   // looked like the feature didn't exist at all, not just that it needed polish.
-  { to: '/app/import', label: 'Import Statement', icon: UploadCloud, tourId: 'import' },
-  { to: '/app/statements', label: 'Statement History', icon: History },
-  { to: '/app/financial-memory', label: 'Financial Memory', icon: Archive },
-  { to: '/app/accounts', label: 'Accounts', icon: Wallet, tourId: 'accounts' },
-  { to: '/app/transactions', label: 'Transactions', icon: ArrowLeftRight, tourId: 'transactions' },
-  { to: '/app/budgets', label: 'Budgets', icon: PiggyBank, tourId: 'budgets' },
-  { to: '/app/goals', label: 'Goals', icon: Target, tourId: 'goals' },
-  { to: '/app/investments', label: 'Investments', icon: TrendingUp },
+  { id: 'import-statement', to: '/app/import', label: 'Import Statement', icon: UploadCloud, tourId: 'import' },
+  { id: 'statement-history', to: '/app/statements', label: 'Statement History', icon: History },
+  { id: 'financial-memory', to: '/app/financial-memory', label: 'Financial Memory', icon: Archive },
+  { id: 'accounts', to: '/app/accounts', label: 'Accounts', icon: Wallet, tourId: 'accounts' },
+  { id: 'transactions', to: '/app/transactions', label: 'Transactions', icon: ArrowLeftRight, tourId: 'transactions' },
+  { id: 'budgets', to: '/app/budgets', label: 'Budgets', icon: PiggyBank, tourId: 'budgets' },
+  { id: 'goals', to: '/app/goals', label: 'Goals', icon: Target, tourId: 'goals' },
+  { id: 'investments', to: '/app/investments', label: 'Investments', icon: TrendingUp },
   // end: true -- '/app/reports/advanced' below is a nested child route, and NavLink's default
   // (prefix) matching would otherwise also highlight this link whenever Advanced Reports is the
   // active page, showing two nav items selected at once (found live: both got the active
   // background, plus Advanced Reports' own focus ring).
-  { to: '/app/reports', label: 'Reports', icon: BarChart3, end: true },
+  { id: 'reports', to: '/app/reports', label: 'Reports', icon: BarChart3, end: true },
   // Free/no-subscription users still see this link -- clicking it shows the upgrade prompt
   // (PremiumFeatureGate on AdvancedReports.tsx), not a 404 or a hidden nav item. Hiding it
   // entirely would mean a Free user can't discover the feature exists at all.
-  { to: '/app/reports/advanced', label: 'Advanced Reports', icon: Crown },
-  { to: '/app/insights', label: 'Insights', icon: Sparkles, tourId: 'insights' },
+  { id: 'advanced-reports', to: '/app/reports/advanced', label: 'Advanced Reports', icon: Crown },
+  { id: 'insights', to: '/app/insights', label: 'Insights', icon: Sparkles, tourId: 'insights' },
 ];
 
 function initials(name: string | null) {
@@ -81,7 +85,10 @@ export function Sidebar() {
           The collapse toggle sits next to it rather than floating separately, so there's one
           predictable place to look for it regardless of which state the sidebar is already in. */}
       <div className={`flex items-center mb-8 px-1 ${collapsed ? 'flex-col gap-3' : 'justify-between'}`}>
-        <NavLink to="/app" end className="flex items-center gap-2.5 min-w-0">
+        {/* Reported as `group`, the same entry point the Dashboard nav item below uses -- both are
+            the sidebar taking you home, and splitting them would make Home's own number depend on
+            which half of the sidebar someone happened to click. */}
+        <NavLink to="/app" end onClick={() => trackNavigation('home', 'group')} className="flex items-center gap-2.5 min-w-0">
           <div className="w-8 h-8 rounded-lg overflow-hidden flex-shrink-0">
             <BrandMark size={32} invert />
           </div>
@@ -121,13 +128,14 @@ export function Sidebar() {
           a native tooltip so a collapsed item is still identifiable on hover, not just by icon
           shape alone. */}
       <nav className="flex-1 space-y-1">
-        {links.map(({ to, label, icon: Icon, end, tourId }) => (
+        {links.map(({ id, to, label, icon: Icon, end, tourId }) => (
           <NavLink
             key={to}
             to={to}
             end={end}
             title={collapsed ? label : undefined}
             data-tour={tourId}
+            onClick={() => trackNavigation(id, 'group')}
             className={({ isActive }) =>
               // The sidebar is a fixed-dark surface regardless of the app's own light/dark
               // toggle, so the active state can't use the toggling `primary` token (it's dark
@@ -177,28 +185,28 @@ export function Sidebar() {
             <div className="absolute bottom-full left-0 mb-2 w-56 bg-sidebar-hover border border-white/10 rounded-lg shadow-soft py-1.5 z-20">
               <NavLink
                 to="/app/profile"
-                onClick={() => setMenuOpen(false)}
+                onClick={() => { setMenuOpen(false); trackNavigation('profile', 'group'); }}
                 className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-fixed-ink hover:text-white hover:bg-white/5"
               >
                 <User size={15} /> Profile
               </NavLink>
               <NavLink
                 to="/app/billing"
-                onClick={() => setMenuOpen(false)}
+                onClick={() => { setMenuOpen(false); trackNavigation('subscription', 'group'); }}
                 className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-fixed-ink hover:text-white hover:bg-white/5"
               >
                 <CreditCard size={15} /> Billing
               </NavLink>
               <NavLink
                 to="/app/settings"
-                onClick={() => setMenuOpen(false)}
+                onClick={() => { setMenuOpen(false); trackNavigation('settings', 'group'); }}
                 className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-fixed-ink hover:text-white hover:bg-white/5"
               >
                 <SettingsIcon size={15} /> Settings
               </NavLink>
               <NavLink
                 to="/app/referrals"
-                onClick={() => setMenuOpen(false)}
+                onClick={() => { setMenuOpen(false); trackNavigation('referrals', 'group'); }}
                 className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-fixed-ink hover:text-white hover:bg-white/5"
               >
                 <Gift size={15} /> Refer & Earn

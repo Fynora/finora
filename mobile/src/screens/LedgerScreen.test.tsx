@@ -1,4 +1,5 @@
-import { Alert, Platform } from 'react-native';
+import { Platform } from 'react-native';
+import { AppAlert } from '../lib/appAlert';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
@@ -281,6 +282,20 @@ describe('status badges (Phase 5)', () => {
     expect(await screen.findByText('Categorized')).toBeTruthy();
   });
 
+  it('marks an international transaction beside its status, and says so to a screen reader', async () => {
+    transactions.search.mockResolvedValue(page([
+      txn({ id: 't-intl', international: true, foreignCurrency: 'USD', foreignAmount: 12.5 }),
+      txn({ id: 't-home', description: 'Salary' }),
+    ]) as never);
+
+    renderScreen();
+
+    expect(await screen.findByTestId('international-badge-t-intl')).toBeTruthy();
+    expect(screen.queryByTestId('international-badge-t-home')).toBeNull();
+    expect(screen.getAllByText('Categorized')).toHaveLength(2);
+    expect(screen.getByLabelText(/Grocery run.*, international$/)).toBeTruthy();
+  });
+
   it('shows "Reviewed" instead, once the category was set by hand', async () => {
     transactions.search.mockResolvedValue(page([txn({ categoryManuallySet: true })]) as never);
 
@@ -459,6 +474,25 @@ describe('status filter (Phase 4)', () => {
     ));
   });
 
+  it('filters to international transactions when the International chip is on, and back off again', async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+
+    renderScreen();
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ international: undefined })
+    ));
+    fireEvent.press(screen.getByLabelText('Show only international transactions'));
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ international: true })
+    ));
+    expect(await screen.findByText('No transactions match these filters.')).toBeTruthy();
+
+    fireEvent.press(screen.getByLabelText('Show only international transactions'));
+    await waitFor(() => expect(transactions.search).toHaveBeenLastCalledWith(
+      expect.objectContaining({ international: undefined })
+    ));
+  });
+
   it('clears the status filter when Any status is picked again', async () => {
     transactions.search.mockResolvedValue(page([]) as never);
 
@@ -553,7 +587,7 @@ async function confirmLastAlert(alertSpy: jest.SpyInstance, label: string) {
  */
 describe('deleting a transaction from the detail sheet', () => {
   it('confirms before deleting, naming the transaction', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     transactions.search.mockResolvedValue(page([txn()]) as never);
 
     renderScreen();
@@ -570,7 +604,7 @@ describe('deleting a transaction from the detail sheet', () => {
   });
 
   it('keeps the sheet open, showing the row disabled, while the delete is in flight', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     let resolveRemove: () => void = () => {};
     transactions.search.mockResolvedValue(page([txn()]) as never);
     transactions.remove.mockReturnValue(new Promise((resolve) => { resolveRemove = () => resolve(undefined as never); }));
@@ -596,7 +630,7 @@ describe('deleting a transaction from the detail sheet', () => {
   });
 
   it('removes the transaction and closes the sheet once the destructive confirmation settles', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     transactions.search.mockResolvedValue(page([txn()]) as never);
     transactions.remove.mockResolvedValue(undefined as never);
 
@@ -612,7 +646,7 @@ describe('deleting a transaction from the detail sheet', () => {
   });
 
   it('says so and keeps the sheet closed but the row on screen when the delete fails', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     transactions.search.mockResolvedValue(page([txn()]) as never);
     transactions.remove.mockRejectedValue(new Error('network'));
 

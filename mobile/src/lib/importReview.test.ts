@@ -44,6 +44,9 @@ function row(description: string, flagged: boolean, over: Partial<StagedRow> = {
     duplicateMatch: flagged ? match({ existingDescription: description }) : null,
     rowPosition: null,
     categoryConfidence: null,
+    international: false,
+    foreignCurrency: null,
+    foreignAmount: null,
     ...over,
   };
 }

@@ -369,7 +369,10 @@ public class PdfPreviewGenerator {
                                                       TransactionTableDateRangeExtractor.PrintedDateRange printedDateRange,
                                                       LocalDate gridPaymentDueDate, BigDecimal gridCreditLimit,
                                                       String gridAccountNumberMasked) {
-        List<String> columns = section.rows().isEmpty() ? List.of() : List.copyOf(section.rows().get(0).keySet());
+        // Every row's columns, not row 0's alone: a ledger's first row is often a brought-forward
+        // or single-sided row missing the Withdrawals or Deposits cell, and judged on that row
+        // alone a plain savings ledger classified UNKNOWN. Same reasoning as classifySectionAlone.
+        List<String> columns = section.rows().stream().flatMap(row -> row.keySet().stream()).distinct().toList();
         ProductDiscovery.DiscoveredProduct product = productDiscovery.discover(
                 new ProductEvidenceCollector.Section(columns, section.auxiliaryText(), null,
                         section.rows().size(), sectionIndex, sectionCount));
@@ -544,7 +547,7 @@ public class PdfPreviewGenerator {
             BigDecimal balance = CsvParser.parseNumeric(
                     CsvParser.firstNonBlank(row, "balance", "running balance", "closing balance"));
             if (balance != null) {
-                BigDecimal signedAmount = "INCOME".equals(parsed.type()) ? parsed.amount() : parsed.amount().negate();
+                BigDecimal signedAmount = com.finora.imports.BalanceSequenceResolver.signedAmountOf(parsed, row);
                 balancePoints.add(new BalancePoint(parsed.date(), signedAmount, balance, parsed.description()));
             }
         }

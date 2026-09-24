@@ -46,3 +46,7 @@ export const AUTH_PHONE_ALREADY_REGISTERED = 'AUTH_011';
 // already owns it can be signed into instead. Same reasoning as AUTH_PHONE_ALREADY_REGISTERED,
 // one code for email instead of phone.
 export const AUTH_EMAIL_ALREADY_REGISTERED = 'AUTH_012';
+
+// See the web copy: the OTP request step reuses this code for an unknown account, so the screen
+// words that case itself instead of showing "code invalid or expired".
+export const AUTH_OTP_INVALID_OR_EXPIRED = 'AUTH_013';

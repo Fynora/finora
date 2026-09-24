@@ -4,6 +4,7 @@ import { RootNavigator } from './RootNavigator';
 import { useResetPasswordDeepLink } from './useResetPasswordDeepLink';
 import { useAuth } from '../context/AuthContext';
 import { useOnboardingStep } from '../onboarding/OnboardingStepContext';
+import { useChangePolling } from '../lib/useChangePolling';
 
 jest.mock('../context/AuthContext', () => ({
   useAuth: jest.fn(),
@@ -26,6 +27,10 @@ jest.mock('@react-navigation/native', () => ({
   DefaultTheme: { colors: {}, fonts: {} },
   DarkTheme: { colors: {}, fonts: {} },
 }));
+
+// Needs a QueryClient this file never provides; its own behavior is useChangePolling.test.tsx's job.
+// Only the wiring -- when RootNavigator switches it on -- is asserted here.
+jest.mock('../lib/useChangePolling', () => ({ useChangePolling: jest.fn() }));
 
 jest.mock('./useAuthStackInitialRoute', () => ({
   useAuthStackInitialRoute: () => 'AuthEntry',
@@ -122,6 +127,7 @@ jest.mock('../screens/ResetPasswordScreen', () => ({
 jest.mock('../screens/VerifyPhoneScreen', () => ({ VerifyPhoneScreen: () => null }));
 
 const mockedUseAuth = useAuth as jest.MockedFunction<typeof useAuth>;
+const mockedUseChangePolling = useChangePolling as jest.MockedFunction<typeof useChangePolling>;
 const mockedUseOnboardingStep = useOnboardingStep as jest.MockedFunction<typeof useOnboardingStep>;
 
 function authState(overrides: Partial<ReturnType<typeof useAuth>> = {}): ReturnType<typeof useAuth> {
@@ -227,5 +233,42 @@ describe('RootNavigator', () => {
 
     expect(screen.queryByTestId('onboarding-navigator')).toBeNull();
     expect(screen.queryByTestId('app-tabs')).toBeNull();
+  });
+
+  describe('change polling', () => {
+    const lastEnabled = () => mockedUseChangePolling.mock.calls.at(-1)?.[0];
+
+    beforeEach(() => mockedUseChangePolling.mockClear());
+
+    it('is on when the app tabs are showing', () => {
+      mockedUseAuth.mockReturnValue(authState({ token: 'tok', phoneVerified: true, onboardingCompleted: true }));
+      render(<RootNavigator />);
+      expect(lastEnabled()).toBe(true);
+    });
+
+    it('is on during the tour, which shows the real app tabs', () => {
+      mockedUseAuth.mockReturnValue(authState({ token: 'tok', phoneVerified: true, onboardingCompleted: false }));
+      mockedUseOnboardingStep.mockReturnValue({ step: 'tour', setStep: jest.fn() });
+      render(<RootNavigator />);
+      expect(lastEnabled()).toBe(true);
+    });
+
+    it('is off when signed out', () => {
+      mockedUseAuth.mockReturnValue(authState({ token: null }));
+      render(<RootNavigator />);
+      expect(lastEnabled()).toBe(false);
+    });
+
+    it('is off while the phone is unverified: the backend would answer 403 to every poll', () => {
+      mockedUseAuth.mockReturnValue(authState({ token: 'tok', phoneVerified: false }));
+      render(<RootNavigator />);
+      expect(lastEnabled()).toBe(false);
+    });
+
+    it('is off during onboarding before the tour', () => {
+      mockedUseAuth.mockReturnValue(authState({ token: 'tok', phoneVerified: true, onboardingCompleted: false }));
+      render(<RootNavigator />);
+      expect(lastEnabled()).toBe(false);
+    });
   });
 });

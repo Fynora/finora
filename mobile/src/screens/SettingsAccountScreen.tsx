@@ -6,6 +6,7 @@ import { Button } from '../components/Button';
 import { DeactivateAccountSheet } from './settings/DeactivateAccountSheet';
 import { DeleteAccountSheet } from './settings/DeleteAccountSheet';
 import { userApi } from '../api/endpoints';
+import { trackNavigation } from '../lib/trackNavigation';
 import { useAuth } from '../context/AuthContext';
 import { spacing, useTheme } from '../theme';
 import type { MoreStackParamList } from '../navigation/types';
@@ -34,6 +35,9 @@ export function SettingsAccountScreen({ navigation }: Props) {
   function contactSupportForAccountAction() {
     setDeactivateOpen(false);
     setDeleteOpen(false);
+    // entry='contextual', matching SettingsDataScreen's identical dead-end. Both are escape
+    // hatches offered when a flow cannot finish in-app, not menu entries.
+    trackNavigation('support', 'contextual');
     setTimeout(() => navigation.navigate('SupportTickets'), 350);
   }
 

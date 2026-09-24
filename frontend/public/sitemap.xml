@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The public, indexable pages only: the routes in src/App.tsx that are not behind login and not
+     an auth flow. seoFiles.test.tsx fails if a URL here stops being a real route, or is disallowed
+     by robots.txt. No <lastmod>: a hand-typed date goes stale and a wrong one is worse than none. -->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://app.fynora.net/</loc></url>
+  <url><loc>https://app.fynora.net/about</loc></url>
+  <url><loc>https://app.fynora.net/careers</loc></url>
+  <url><loc>https://app.fynora.net/contact</loc></url>
+  <url><loc>https://app.fynora.net/help</loc></url>
+  <url><loc>https://app.fynora.net/trust</loc></url>
+  <url><loc>https://app.fynora.net/your-data</loc></url>
+  <url><loc>https://app.fynora.net/privacy</loc></url>
+  <url><loc>https://app.fynora.net/terms</loc></url>
+  <url><loc>https://app.fynora.net/cookie-policy</loc></url>
+  <url><loc>https://app.fynora.net/refund-policy</loc></url>
+  <url><loc>https://app.fynora.net/shipping-policy</loc></url>
+</urlset>

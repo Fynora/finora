@@ -1,4 +1,4 @@
-import { Alert } from 'react-native';
+import { AppAlert } from '../../lib/appAlert';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DeviceSessionsSection } from './DeviceSessionsSection';
@@ -76,7 +76,7 @@ describe('DeviceSessionsSection', () => {
   });
 
   it('still lets the current device be signed out, with the same confirmation as any other', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     devices.list.mockResolvedValue([session({ current: true, device: 'This Phone', browser: null })]);
     renderSection();
     await screen.findByText('This Phone');

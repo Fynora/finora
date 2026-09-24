@@ -1,15 +1,51 @@
-import type { ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, type ReactNode } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { ArrowLeft, Sparkles } from 'lucide-react';
 import { BrandMark } from './BrandMark';
+import { useCanonical } from '../hooks/useCanonical';
+import { pageDescription } from '../lib/siteUrl';
 
 /**
  * Shared shell for the public/legal pages linked from Landing.tsx's footer (Terms, Privacy,
  * About, Careers, Help Center). Uses the app's real theme tokens (bg/card/ink/muted/primary --
  * the same ones AuthEntry.tsx and the dashboard use), so these pages follow the same light/dark
  * toggle as the rest of the app instead of a fixed-dark palette.
+ *
+ * Also sets the browser-tab / search-result title from `title`. Every one of these pages used to
+ * share index.html's single "Fynora — Personal finance, simplified", so Terms, Privacy, Refunds
+ * and the rest were indistinguishable in tabs, history and search results. The previous title is
+ * restored on unmount so leaving for another route never keeps a stale one.
  */
 export function PublicLayout({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
+  // Each public page names its own canonical URL (absolute, on the one indexed host). The
+  // prerendered copies of these pages carry the same tag in their HTML; see scripts/prerender.mjs.
+  useCanonical(useLocation().pathname);
+
+  useEffect(() => {
+    const previous = document.title;
+    // A title that already names Fynora is used as it is ("About Fynora", not "About Fynora — Fynora").
+    // scripts/prerenderTitle.mjs applies the same rule to the prerendered HTML; a test keeps them equal.
+    document.title = /fynora/i.test(title) ? title : `${title} — Fynora`;
+    return () => {
+      document.title = previous;
+    };
+  }, [title]);
+
+  // The meta description is the page's subtitle (see pageDescription). Social-preview crawlers do
+  // not run JavaScript, so the og: tags exist only in the prerendered HTML; this keeps the plain
+  // description right for pages that are not prerendered and for browsers that render the page.
+  useEffect(() => {
+    const description = pageDescription(subtitle);
+    const tag = document.head.querySelector<HTMLMetaElement>('meta[name="description"]');
+    if (!description || !tag) return;
+    const previous = tag.getAttribute('content');
+    tag.setAttribute('content', description);
+    return () => {
+      if (previous === null) tag.removeAttribute('content');
+      else tag.setAttribute('content', previous);
+    };
+  }, [subtitle]);
+
   return (
     <div className="min-h-screen bg-bg text-ink">
       <header className="sticky top-0 z-30 bg-bg/90 backdrop-blur border-b border-border">
@@ -30,7 +66,7 @@ export function PublicLayout({ title, subtitle, children }: { title: string; sub
             <Sparkles size={12} /> Fynora
           </span>
           <h1 className="text-3xl md:text-4xl font-extrabold text-ink mb-3">{title}</h1>
-          {subtitle && <p className="text-muted text-base max-w-2xl">{subtitle}</p>}
+          {subtitle && <p data-seo="description" className="text-muted text-base max-w-2xl">{subtitle}</p>}
         </div>
       </section>
 

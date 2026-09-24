@@ -1,11 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Alert, AppState, type AppStateStatus } from 'react-native';
+import { AppState, type AppStateStatus } from 'react-native';
+import { AppAlert, clearAppAlerts } from '../lib/appAlert';
 import { useQueryClient } from '@tanstack/react-query';
 import { authApi } from '../api/endpoints';
 import { setSessionCallbacks } from '../api/client';
 import { safeStorage } from '../lib/safeStorage';
 import { clearPersistedQueryCache, pauseQueryPersistence } from '../api/queryClient';
+import { resetChangeSync } from '../lib/changeSync';
 import { sweepFileCache } from '../lib/fileCacheSweep';
+import { purgeSharedContainers } from '../lib/sharedContainerSweep';
 import { signOutOfGoogle } from '../lib/googleSession';
 import * as appLock from '../lib/appLock';
 import { registerDeviceToken, revokeDeviceToken, subscribeToForegroundMessages } from '../lib/pushRegistration';
@@ -185,6 +188,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // race clearPersistedQueryCache's disk delete and could resurrect the departing session's data.
     pauseQueryPersistence();
     queryClient.clear();
+    // The change-stamp baseline belongs to this account: the next one starts from its own.
+    resetChangeSync();
+    // An alert belongs to the session that raised it -- see clearAppAlerts.
+    clearAppAlerts();
     // Item B: same convergence-point reasoning as pauseQueryPersistence/queryClient.clear() above.
     // queryClient.clear() only empties the IN-MEMORY cache -- Item B's
     // AsyncStorage persistence (startQueryPersistence, api/queryClient.ts) means a copy of
@@ -205,6 +212,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // was sitting in the cache for is over -- worth clearing now rather than waiting out the rest
     // of sweepFileCache's own one-hour age margin.
     sweepFileCache();
+    // iOS share-sheet copies sit in the App Group container, outside the cache sweep above; a
+    // sign-out deletes them outright rather than waiting out an age margin. Fire-and-forget, never
+    // rejects.
+    void purgeSharedContainers();
   }, [queryClient]);
 
   // The API client can't import navigation or this context (it's imported BY both), so it calls
@@ -217,6 +228,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       onPhoneVerificationRequired: () => setPhoneVerifiedState(false),
     });
   }, [clearLocalState]);
+
+  /**
+   * Keeps `fullName` in step with the account. It used to be written only at sign-in, so a rename
+   * made on the web (or on Profile, which updates only the ['user-settings'] cache) never reached
+   * the Dashboard greeting or the More menu until the next login.
+   *
+   * The account's name is the ['user-settings'] query -- the Dashboard already fetches it, and the
+   * foreground refetch (startForegroundRefetch) refreshes it when the app comes back. Following the
+   * cache rather than fetching here means no second request, and any screen that writes the fresh
+   * profile (Profile's save) updates the greeting too. Also persisted, so the next cold start
+   * shows the new name from its first frame.
+   *
+   * Only while signed in: logout clears the cache, and a response that lands after that must not
+   * put a name back on a signed-out device. An empty name is ignored rather than blanking the
+   * greeting.
+   */
+  const fullNameRef = useRef(fullName);
+  useEffect(() => {
+    fullNameRef.current = fullName;
+  }, [fullName]);
+  useEffect(() => {
+    if (token === null) return undefined;
+    return queryClient.getQueryCache().subscribe((event) => {
+      if (event.query.queryKey[0] !== 'user-settings') return;
+      const name = (event.query.state.data as { fullName?: unknown } | undefined)?.fullName;
+      if (typeof name !== 'string' || name.trim() === '') return;
+      if (name === fullNameRef.current) return;
+      fullNameRef.current = name;
+      setFullName(name);
+      void safeStorage.setItem(NAME_KEY, name);
+    });
+  }, [token, queryClient]);
 
   /**
    * Task 14. Re-registers the device's push token on every foreground transition (backgrounded ->
@@ -271,12 +314,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    *
    * Bug found in review: appLock.isLocked() is checked on every message, not just at subscribe
    * time -- AppLockGate can lock mid-session (a foreground re-lock check) while this subscription
-   * stays active the whole time, and Alert.alert is a native modal that floats above the entire
-   * React tree regardless of what AppLockGate itself is currently rendering. Without this, a
-   * finance app whose whole point is that a locked session shows nothing (SEC-09) would still pop
-   * a real notification's title and body -- a due-date warning, a low-balance figure -- on top of
-   * the lock screen before the user has authenticated. A suppressed message isn't lost information:
-   * the same data is what Dashboard's own Next Actions card shows once the app is actually open.
+   * stays active the whole time. AppAlert is hidden while the app is locked (unlike the native
+   * Alert.alert this used to call, which floated above the lock screen), so nothing could show over
+   * it -- but a message that arrives locked is still dropped rather than queued, so a real
+   * notification's title and body (a due-date warning, a low-balance figure) never pops up the
+   * instant after unlock either. A suppressed message isn't lost information: the same data is
+   * what Dashboard's own Next Actions card shows once the app is actually open.
    */
   useEffect(() => {
     if (token === null || !phoneVerified) return undefined;
@@ -292,7 +335,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
       isShowingForegroundAlert.current = true;
-      Alert.alert(next.title, next.body, [{ text: 'OK', onPress: showNextForegroundAlert }], { cancelable: false });
+      AppAlert.alert(next.title, next.body, [{ text: 'OK', onPress: showNextForegroundAlert }], { cancelable: false });
     };
 
     const unsubscribe = subscribeToForegroundMessages((message) => {

@@ -13,6 +13,7 @@ import { useSingleFlight } from '../lib/useSingleFlight';
 import { useTransientFlag } from '../lib/useTransientFlag';
 import { parsePositiveAmount } from '../lib/validation';
 import { radius, spacing, THEME_SETTINGS, useTheme, useThemeSetting, type ThemeSetting } from '../theme';
+import { NotificationPreferencesSection } from './settings/NotificationPreferencesSection';
 
 const THEME_LABEL: Record<ThemeSetting, string> = {
   system: 'System',
@@ -80,6 +81,8 @@ export function SettingsGeneralScreen() {
       try {
         const updated = await userApi.update({ lowBalanceThreshold: amount, timezone });
         queryClient.setQueryData(['user-settings'], updated);
+        // Also re-reads the profile: that is what tells the change watch this edit was ours (see lib/changeSync.ts).
+        void queryClient.invalidateQueries({ queryKey: ['user-settings'] });
         setLowBalanceDraft(null);
         setTimezoneDraft(null);
         void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
@@ -187,6 +190,8 @@ export function SettingsGeneralScreen() {
         loading={prefsSaving}
         disabled={!prefsDirty}
       />
+
+      <NotificationPreferencesSection />
 
       {retakeTourError ? <Text style={[styles.error, { color: c.danger }]}>{retakeTourError}</Text> : null}
       <View style={[styles.retakeTourRow, { borderTopColor: c.border }]}>

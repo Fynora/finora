@@ -1,7 +1,10 @@
 package com.finora.util;
 
+import com.finora.entity.Transaction;
+
 import java.time.YearMonth;
 import java.time.ZoneId;
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -81,6 +84,17 @@ import java.util.List;
  * month next to a dashboard figure instead of rendering the one it was given.
  */
 public record ReportingPeriod(String month, boolean isCurrent, String calendarMonth) {
+
+    /**
+     * The {@code monthsWithData} argument {@link #resolve} takes, built from a user's reportable
+     * transactions. One definition so that the dashboard and Ask Fyn cannot disagree about which
+     * month "this month" is: Fyn's spend tools used to have no rule at all and answered over the
+     * user's whole history.
+     */
+    public static List<String> monthsWithData(Collection<Transaction> reportable) {
+        return reportable.stream().map(t -> YearMonth.from(t.getTxnDate()).toString())
+                .distinct().sorted().toList();
+    }
 
     /**
      * Resolves the period from the months a user has data for.

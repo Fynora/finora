@@ -1,0 +1,21 @@
+# Served from app.fynora.net, the host search engines should index (see src/lib/siteUrl.ts).
+#
+# Everything under /app is the signed-in product and everything below it is an auth flow: none of it
+# is public content. /reset-password and /verify-email carry one-time tokens in their URLs, which is
+# a further reason not to have a crawler request them.
+#
+# This file used to not exist at all: /robots.txt fell through to the SPA and returned the app's
+# HTML with a 200.
+User-agent: *
+Disallow: /app/
+Disallow: /app$
+Disallow: /auth
+Disallow: /login
+Disallow: /register
+Disallow: /forgot-password
+Disallow: /reset-password
+Disallow: /verify-email
+Disallow: /verify-phone
+Disallow: /email-change-verify
+
+Sitemap: https://app.fynora.net/sitemap.xml

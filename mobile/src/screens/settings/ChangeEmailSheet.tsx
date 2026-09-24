@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import {
-  KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, Text, View,
+  KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, View
 } from 'react-native';
+import { AppModal } from '../../components/AppModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppleReauthPrompt } from '../../components/AppleReauthPrompt';
 import { Button } from '../../components/Button';
@@ -99,7 +100,7 @@ export function ChangeEmailSheet({ onClose, signInMethod }: {
   const dismissable = !submitting && step !== 'sent';
 
   return (
-    <Modal visible animationType="slide" transparent onRequestClose={dismissable ? onClose : () => {}}>
+    <AppModal visible animationType="slide" transparent onRequestClose={dismissable ? onClose : () => {}}>
       <KeyboardAvoidingView style={styles.flex} behavior="padding">
         <Pressable
           style={styles.backdrop}
@@ -215,7 +216,7 @@ export function ChangeEmailSheet({ onClose, signInMethod }: {
           </ScrollView>
         </View>
       </KeyboardAvoidingView>
-    </Modal>
+    </AppModal>
   );
 }
 

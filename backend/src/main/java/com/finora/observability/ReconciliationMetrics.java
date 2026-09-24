@@ -25,7 +25,8 @@ import org.springframework.stereotype.Component;
  * Neither counter carries a description, a merchant, an amount or any other field that could
  * originate from a bank statement -- the same "allowlist, never denylist" discipline
  * {@code SentryScrubber} applies to Sentry tags applies here for the same reason, even though
- * {@code /actuator/prometheus} is authenticated (see that endpoint's own IT) rather than sent to a
+ * {@code /actuator/prometheus} is private to the management port (see ManagementPortIsolationIT)
+ * rather than sent to a
  * third party: a boolean and a 3-value enum are the only tag values used, both internal and
  * low-cardinality by construction, never customer data.
  */

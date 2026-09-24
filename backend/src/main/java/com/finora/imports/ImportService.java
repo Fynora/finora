@@ -640,15 +640,19 @@ public class ImportService {
     public StagingResponse parseAndStageAnyFormat(UUID userId, String sourceFormat, String filename, byte[] content,
                                                    Integer sourceSectionIndex, String password) throws IOException {
         if ("PDF".equalsIgnoreCase(sourceFormat)) {
-            if (sourceSectionIndex != null) {
-                List<StagedAccountSection> sections = pdfPreviewGenerator.generateSections(userId, filename, content, password);
-                if (sourceSectionIndex >= sections.size()) {
-                    throw new ApiException(HttpStatus.CONFLICT,
-                            "This statement's account sections no longer match what was originally imported -- re-upload the file to import it fresh.");
-                }
-                return toStagingResponse(sections.get(sourceSectionIndex));
+            // Indexed into the SAME filtered list the original upload staged and confirmed against
+            // (parseAndStagePdfWithSession), because sourceSectionIndex was recorded as a position
+            // in that list. Indexing the raw generator output instead picked the wrong section
+            // whenever an empty deposit schedule was printed above the ledger, and a single-account
+            // re-import (no index) took raw section 0, which in that shape is the empty schedule.
+            List<StagedAccountSection> sections = onlySectionsThatAreActuallyAccounts(
+                    pdfPreviewGenerator.generateSections(userId, filename, content, password));
+            int index = sourceSectionIndex == null ? 0 : sourceSectionIndex;
+            if (index >= sections.size()) {
+                throw new ApiException(HttpStatus.CONFLICT,
+                        "This statement's account sections no longer match what was originally imported -- re-upload the file to import it fresh.");
             }
-            return pdfPreviewGenerator.generate(userId, filename, content, password);
+            return toStagingResponse(sections.get(index));
         }
         return parseAndStage(userId, filename, new java.io.ByteArrayInputStream(content));
     }
@@ -734,7 +738,9 @@ public class ImportService {
             }
             ConfirmRequest perAccountRequest = new ConfirmRequest(
                     null, // this section's ConfirmRequest doesn't carry its own sessionId -- the session is claimed once, above, for the whole multi-account request
-                    sectionConfirm.rows(), sectionConfirm.existingAccountId(), sectionConfirm.newAccount(),
+                    // International/foreign amount from this section's own parse, never the client's
+                    // echo -- see ConfirmedRowIntegrity.withStatementFacts.
+                    ConfirmedRowIntegrity.withStatementFacts(stagedSection.rows(), sectionConfirm.rows()), sectionConfirm.existingAccountId(), sectionConfirm.newAccount(),
                     sectionConfirm.statementOpeningBalance(), sectionConfirm.statementClosingBalance(),
                     null, // a multi-section PDF was already unlocked once to be staged; no password to carry here
                     sectionConfirm.statementPeriodStart(), sectionConfirm.statementPeriodEnd(),
@@ -791,6 +797,7 @@ public class ImportService {
         // the same staged rows". Plausibly was not enough -- same count, entirely different rows
         // was accepted, and the ledger recorded transactions the stored document does not contain.
         ConfirmedRowIntegrity.requireSameRows(stagedRows, request.rows());
+        request = request.withRows(ConfirmedRowIntegrity.withStatementFacts(stagedRows, request.rows()));
         var detectedAccount = importSessionService.readDetectedAccount(session);
         // Against this session's own server-derived detection, never request.statementPeriodStart()
         // /End() -- see requireStatementPeriodWithinFreeLimit's own doc comment.
@@ -1115,6 +1122,9 @@ public class ImportService {
             // own doc comment. Null for a client that predates ConfirmedRow.rowPosition, same as
             // every other "carried from staging" field above when an older client omits it.
             t.setSourceRowPosition(row.rowPosition());
+            // See Transaction.international / foreignAmount -- carried from staging, same as above.
+            t.setInternational(Boolean.TRUE.equals(row.international()));
+            t.setForeignAmount(row.foreignCurrency(), row.foreignAmount());
             // MARK_TRANSFER/MARK_INVESTMENT/ADD_TAG rules -- see
             // CategorizationService.applySideEffectRules's doc comment. A MARK_INVESTMENT match
             // returns the new Category -- reassigning `category` keeps the tally below (and any

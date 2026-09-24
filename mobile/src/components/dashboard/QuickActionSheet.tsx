@@ -1,4 +1,5 @@
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppModal } from '../AppModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { radius, spacing, useTheme } from '../../theme';
@@ -23,7 +24,7 @@ export function QuickActionSheet({ visible, onClose, onImportStatement, onAddTra
   }
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <AppModal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" accessibilityRole="button" />
       <View style={[styles.sheet, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md }]}>
         {(
@@ -39,7 +40,7 @@ export function QuickActionSheet({ visible, onClose, onImportStatement, onAddTra
           </Pressable>
         ))}
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

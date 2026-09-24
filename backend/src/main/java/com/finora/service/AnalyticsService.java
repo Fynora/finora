@@ -13,6 +13,7 @@ import com.finora.repository.StatementImportRepository;
 import com.finora.repository.StatementImportRepository.StatementMetadata;
 import com.finora.repository.TransactionRepository;
 import com.finora.repository.UserRepository;
+import com.finora.util.ReportingPeriod;
 import com.finora.util.UserZone;
 import org.springframework.stereotype.Service;
 
@@ -201,6 +202,97 @@ public class AnalyticsService {
                 .sorted(Comparator.comparing(AnalyticsDto.TopCategory::totalSpend).reversed())
                 .limit(TOP_MERCHANTS_LIMIT)
                 .toList();
+    }
+
+    /** The name {@code DashboardService} files spend under when it has no category, or its
+     *  category no longer exists. */
+    static final String UNCATEGORIZED = "Uncategorized";
+
+    /**
+     * Every category's EXPENSE spend for one month, grouped the way the dashboard's {@code
+     * spendByCategory} donut groups it: by category name, with spend that has no category (or a
+     * deleted one) under {@link #UNCATEGORIZED}, investment transfers kept, and no cap on how many
+     * categories come back. {@link #topCategories} differs on all three -- it drops uncategorized
+     * spend and stops at ten -- which is right for the Analytics page's "Top Categories" but left
+     * Ask Fyn listing categories that did not add up to the dashboard's own breakdown.
+     */
+    public List<AnalyticsDto.CategorySpend> categoryBreakdown(UUID userId, YearMonth month) {
+        Map<UUID, String> categoryNames = new HashMap<>();
+        categoryRepository.findByUserId(userId).forEach(c -> categoryNames.put(c.getId(), c.getName()));
+
+        RefundNetting refunds = refundsFor(userId);
+        Map<String, List<Transaction>> byName = activeExpenseTransactions(userId, month).stream()
+                .collect(Collectors.groupingBy(t -> t.getCategoryId() == null ? UNCATEGORIZED
+                        : categoryNames.getOrDefault(t.getCategoryId(), UNCATEGORIZED)));
+
+        return byName.entrySet().stream()
+                .map(e -> new AnalyticsDto.CategorySpend(
+                        e.getKey(),
+                        e.getValue().stream().map(refunds::reportableAmount).reduce(BigDecimal.ZERO, BigDecimal::add),
+                        e.getValue().size()))
+                .sorted(Comparator.comparing(AnalyticsDto.CategorySpend::totalSpend).reversed()
+                        .thenComparing(AnalyticsDto.CategorySpend::categoryName))
+                .toList();
+    }
+
+    /**
+     * The month the dashboard reports on, resolved the same way {@code DashboardService.summarize}
+     * does: the newest month holding a reportable transaction, in the user's zone. For callers that
+     * have to answer "this month" without the user naming one -- Ask Fyn's spend tools passed
+     * {@code null} to {@link #topCategories} for that, which means all time, and told a user with
+     * three months of 22,000 rent that their rent this month was 66,000.
+     */
+    public ReportingPeriod reportingPeriod(UUID userId) {
+        List<UUID> liveAccountIds = liveAccountIds(userId);
+        List<Transaction> all = liveAccountIds.isEmpty() ? List.of()
+                : transactionRepository.findByUserIdAndAccountIdIn(userId, liveAccountIds);
+        List<Transaction> reportable = RefundNetting.reportable(all, transactionGraphService.ccPaymentFromTransactionIds(all));
+        return ReportingPeriod.resolve(ReportingPeriod.monthsWithData(reportable), UserZone.forUser(userRepository, userId));
+    }
+
+    /**
+     * Total EXPENSE spend for one month by the dashboard's {@code monthlyExpense} rule: reportable
+     * rows, refunds netted, investment transfers left out. Unlike summing {@link #topCategories},
+     * which keeps the Investments category and stops at the top ten categories, this is the figure
+     * the dashboard shows as Expenses.
+     */
+    public BigDecimal totalExpense(UUID userId, YearMonth month) {
+        RefundNetting refunds = refundsFor(userId);
+        return RefundNetting.excludingInvestmentTransfers(activeExpenseTransactions(userId, month)).stream()
+                .map(refunds::reportableAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    /** See {@link AnalyticsDto.InternationalSpend}. {@code month} null means all time, same as
+     *  {@link #topCategories}. */
+    public AnalyticsDto.InternationalSpend internationalSpend(UUID userId, YearMonth month) {
+        RefundNetting refunds = refundsFor(userId);
+        List<Transaction> international = activeExpenseTransactions(userId, month).stream()
+                .filter(Transaction::isInternational)
+                .toList();
+
+        BigDecimal purchases = BigDecimal.ZERO;
+        BigDecimal otherCharges = BigDecimal.ZERO;
+        Map<String, List<Transaction>> byCurrency = new java.util.TreeMap<>();
+        for (Transaction t : international) {
+            BigDecimal billed = refunds.reportableAmount(t);
+            if (t.getForeignCurrency() != null) {
+                purchases = purchases.add(billed);
+                byCurrency.computeIfAbsent(t.getForeignCurrency(), k -> new ArrayList<>()).add(t);
+            } else {
+                otherCharges = otherCharges.add(billed);
+            }
+        }
+        List<AnalyticsDto.CurrencySpend> currencies = byCurrency.entrySet().stream()
+                .map(e -> new AnalyticsDto.CurrencySpend(
+                        e.getKey(),
+                        e.getValue().stream().map(Transaction::getForeignAmount).reduce(BigDecimal.ZERO, BigDecimal::add),
+                        e.getValue().stream().map(refunds::reportableAmount).reduce(BigDecimal.ZERO, BigDecimal::add),
+                        e.getValue().size()))
+                .sorted(Comparator.comparing(AnalyticsDto.CurrencySpend::rupeeTotal).reversed())
+                .toList();
+        return new AnalyticsDto.InternationalSpend(purchases.add(otherCharges), international.size(),
+                purchases, otherCharges, currencies);
     }
 
     /** Aggregated over StatementImport -- no new table. lastImportedAt is null for a user who's

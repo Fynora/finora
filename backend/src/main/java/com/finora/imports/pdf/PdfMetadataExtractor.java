@@ -73,7 +73,15 @@ public class PdfMetadataExtractor {
     // additive -- it only adds new matches, it cannot regress a document already matching the
     // literal "Account Number" phrase. Canara's own abbreviation ("A/c", inline mid-sentence) is a
     // structurally different shape -- deliberately not folded in here, see that finding's own note.
-    private static final Pattern ACCOUNT_NUMBER = labelPattern("Account\\s*(?:No\\.?(?![A-Za-z])|Number)");
+    //
+    // The "Alternate" lookbehind: two real HDFC credit-card statements print an "Alternate Account
+    // Number" -- an internal reference, not the card -- beside a CKYC ID. On the older one the label
+    // has no colon, so neither branch here matched and the card-number path (CARD_NUMBER_LABEL)
+    // found the real "Credit Card No." value. The newer (Paytm HDFC) one prints "Alternate Account
+    // Number : <digits> CKYC ID <digits>", the mid-line branch matched it, and the staged account
+    // came back masked with the last four digits of the cardholder's CKYC ID instead of the card.
+    private static final Pattern ACCOUNT_NUMBER =
+            labelPattern("(?<!Alternate\\s)Account\\s*(?:No\\.?(?![A-Za-z])|Number)");
     // Bug fix: verified against a real Union Bank of India statement -- its "Branch Address" line
     // is a two-column SECTION HEADER ("Branch Address" | "Statement Details" side by side, same
     // pattern as an earlier "Your Details" | "Account Details" header higher up the page), not a
@@ -230,8 +238,13 @@ public class PdfMetadataExtractor {
     // vocabulary against raw PositionedText, rather than re-declaring it a second time to drift
     // from this one -- same reuse-over-duplication discipline CreditCardSummaryExtractor's own doc
     // comment already documents for StatementSummaryExtractor's row utilities.
+    //
+    // "Alternate Account Number" is excluded for the same reason ACCOUNT_NUMBER excludes it (see
+    // its own comment): on the Paytm HDFC statement the real "Credit Card No." shares its line
+    // with "Billing Period", which the extract() loop claims first, so the next line's Alternate
+    // Account Number was the first card-number label left for this pattern to find.
     static final String CARD_NUMBER_LABEL_SRC =
-            "(?:(?:Primary\\s+)?(?:Credit\\s+)?Card\\s*(?:No\\.?|Number)|Account\\s*Number)";
+            "(?:(?:Primary\\s+)?(?:Credit\\s+)?Card\\s*(?:No\\.?|Number)|(?<!Alternate\\s)Account\\s*Number)";
     static final Pattern CARD_NUMBER_LABEL = Pattern.compile("(?i)" + CARD_NUMBER_LABEL_SRC);
 
     // CARD_NUMBER_VALUE: a card/account number exactly as a real statement prints it -- either the
@@ -596,6 +609,18 @@ public class PdfMetadataExtractor {
     private static final Pattern LEADING_NAME_LINE = Pattern.compile(
             "^(?:(?i:mr|mrs|ms|dr|m/s)\\.?\\s+)?[A-Z][A-Za-z]*(?:\\s+[A-Z][A-Za-z]*){1,3}\\.?$");
     private static final int LEADING_NAME_LINE_SEARCH_WINDOW = 8;
+
+    // The same unlabeled leading name, sharing its physical line with the right-hand panel's first
+    // label. A real HSBC savings statement lays its page 1 out as two columns -- the holder's name
+    // and address on the left, "Statement Date / Customer Number / Account Number" on the right --
+    // and when the two land on the same line ("<NAME> Statement Date <date>", as the scanned copy
+    // reads through OCR) LEADING_NAME_LINE's whole-line match can never fire. The native copy of
+    // the same bank's layout prints the name on a line of its own and is already recovered there.
+    // Narrow on purpose: only these three panel labels end the name, and the captured name still
+    // has to pass the same title-word and bank-name rejections.
+    private static final Pattern LEADING_NAME_BEFORE_PANEL_LABEL = Pattern.compile(
+            "^((?:(?i:mr|mrs|ms|dr|m/s)\\.?\\s+)?[A-Z][A-Za-z]*(?:\\s+[A-Z][A-Za-z]*){1,3})"
+                    + "\\s+(?:Statement Date|Customer Number|Account Number)\\b");
     // Bug fix: verified against three real HDFC savings statements. A multi-line postal address
     // ("Address : GROUND FLOOR, ...", followed by one or two unlabeled continuation lines wrapping
     // the rest of the value) commonly has a continuation line that shape-matches LEADING_NAME_LINE
@@ -1209,6 +1234,18 @@ public class PdfMetadataExtractor {
                 if (ctx != null) ctx.record("LEADING_NAME_LINE");
                 if (ctx != null) ctx.record("GRID_METADATA_TRAILING_LABEL");
                 continue;
+            }
+            if (accountHolderName == null && i < LEADING_NAME_LINE_SEARCH_WINDOW && !insideAddressContinuation) {
+                Matcher beforePanel = LEADING_NAME_BEFORE_PANEL_LABEL.matcher(line.trim());
+                if (beforePanel.find()) {
+                    String candidate = beforePanel.group(1).trim();
+                    if (containsNoLeadingTitleWord(candidate)
+                            && BankRegistry.UNKNOWN_ID.equals(BankRegistry.detect("", List.of(candidate)).id())) {
+                        accountHolderName = candidate;
+                        if (ctx != null) ctx.record("LEADING_NAME_LINE");
+                        continue;
+                    }
+                }
             }
             if (ifscCode == null) {
                 Matcher ifscMatch = IFSC_SHAPE.matcher(line);

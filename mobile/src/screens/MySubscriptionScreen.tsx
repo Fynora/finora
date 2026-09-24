@@ -1,4 +1,5 @@
-import { ScrollView, Text, StyleSheet, Pressable, Platform, Linking, Alert } from 'react-native';
+import { ScrollView, Text, StyleSheet, Pressable, Platform, Linking } from 'react-native';
+import { AppAlert } from '../lib/appAlert';
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { billingApi } from '../api/endpoints';
@@ -96,7 +97,7 @@ export function MySubscriptionScreen() {
   function confirmPause() {
     // Alert.alert replaces the web's ConfirmDialog, same substitution as every other confirm on
     // these screens (GoalsScreen.confirmDelete, MoreScreen.confirmSignOut).
-    Alert.alert(
+    AppAlert.alert(
       'Pause subscription?',
       `Billing stops right away and ${paidMembershipName()} features turn off until you resume. Your plan and ` +
         'payment setup stay put, so resuming needs no new checkout.',

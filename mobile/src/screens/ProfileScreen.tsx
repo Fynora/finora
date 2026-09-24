@@ -17,6 +17,7 @@ import { useTransientFlag } from '../lib/useTransientFlag';
 import { FULL_NAME_PATTERN } from '../lib/validation';
 import { spacing, useTheme } from '../theme';
 import type { MoreStackParamList } from '../navigation/types';
+import { trackNavigation } from '../lib/trackNavigation';
 
 type Props = NativeStackScreenProps<MoreStackParamList, 'Profile'>;
 
@@ -68,6 +69,8 @@ export function ProfileScreen({ navigation }: Props) {
         // Dashboard greeting both read this name, and a refetch round-trip would leave them
         // showing the old one for a beat after the field already updated.
         queryClient.setQueryData(['user-settings'], updated);
+        // Also re-reads the profile: that is what tells the change watch this edit was ours (see lib/changeSync.ts).
+        void queryClient.invalidateQueries({ queryKey: ['user-settings'] });
         // Draft dropped so the field follows the account again, and shows whatever normalization
         // the server applied rather than the raw text that was typed.
         setNameDraft(null);
@@ -189,7 +192,7 @@ export function ProfileScreen({ navigation }: Props) {
         </View>
 
         <Pressable
-          onPress={() => navigation.navigate('Settings')}
+          onPress={() => { trackNavigation('settings', 'contextual'); navigation.navigate('Settings'); }}
           style={[styles.manageLink, { backgroundColor: c.primaryLight }]}
           accessibilityRole="button"
           accessibilityLabel="Manage security in Settings"

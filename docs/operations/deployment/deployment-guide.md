@@ -18,7 +18,8 @@ from an environment variable, never a hardcoded value in source.
 5. [Before running more than one backend instance](#before-running-more-than-one-backend-instance)
 6. [Cloudflare (both frontends)](#cloudflare-both-frontends)
 7. [Dev environment (admin-portal, frontend, mobile)](#dev-environment-admin-portal-frontend-mobile)
-8. [Frontend environment variables](#frontend-environment-variables)
+8. [Search engines: which host is indexed](#search-engines-which-host-is-indexed)
+9. [Frontend environment variables](#frontend-environment-variables)
 
 ---
 
@@ -470,6 +471,66 @@ environment name for the Dev Firebase config files is only available on a paid E
 equivalent), with the Dev project's `google-services.json`/`GoogleService-Info.plist` physically
 present in `mobile/` at build time — same file-based convention the existing `development` profile
 already uses. See `docs/engineering/mobile/mobile-setup.md` for the full walkthrough.
+
+## Search engines: which host is indexed
+
+**`app.fynora.net` is the one indexed host** (owner decision, 2026-09-24; the constant is
+`SITE_ORIGIN` in `frontend/src/lib/siteUrl.ts`). Checked against production that day: `fynora.net`
+answers with a 301 to `https://app.fynora.net/`, and `www.fynora.net` and `app.fynora.net` both
+serve the site directly. `fynora.net` cannot be canonical while it redirects to `app.`; making it
+canonical is an infrastructure change (serve the apex, redirect `app.*` to it, keep the app-link
+files and CORS working) that has not been made.
+
+What the build produces, all from `frontend/`:
+
+- `public/robots.txt` and `public/sitemap.xml`: keep crawlers out of `/app` and every auth flow, and
+  list the 12 public routes. `scripts/seoFiles.test.tsx` fails if a route in `App.tsx` is neither
+  in the sitemap nor disallowed.
+- Every prerendered public page has its own `<title>`, description, `og:` tags and an absolute
+  canonical. `index.html` deliberately has no canonical and no `og:url`: it is also the SPA fallback
+  for every route the prerender does not list.
+- **Non-production builds are `noindex`** (`scripts/crawlPolicy.mjs`, the last step of `npm run
+  build`): an `X-Robots-Tag` header, a robots meta tag, no canonical, and no Sitemap line. A build is
+  non-production if Cloudflare reports a branch other than `main` (`CF_PAGES=1`, `CF_PAGES_BRANCH`),
+  or if it uses the dev API (`VITE_API_BASE_URL=https://dev-api.fynora.net`, which the Preview
+  bucket sets). A build it cannot identify is treated as production, so a missing variable can never
+  de-index the site. It does not use `Disallow: /`: a crawler that may not fetch a page never sees
+  its noindex.
+- **`X-Robots-Tag` is inserted into the existing `/*` block of `_headers`, never added as a second
+  `/*` block.** Measured on a real preview: with two `/*` blocks Cloudflare stopped sending the
+  first block's headers (no `Content-Security-Policy`, no `Strict-Transport-Security`) while sending
+  the second's. Cloudflare's docs read as if matching blocks merge; deployed, they did not. The same
+  applies to anything else that edits `_headers`.
+
+**Both non-canonical hosts redirect to `app.fynora.net` at Cloudflare's edge, not in this repo.**
+They are two **Page Rules** on the `fynora.net` zone (Rules → Page Rules, 2 of 3 free-plan rules
+used), both "Forwarding URL", 301, destination `https://app.fynora.net/$1`:
+
+| URL pattern | Added |
+|---|---|
+| `fynora.net/*` | earlier (the original apex redirect) |
+| `www.fynora.net/*` | 2026-09-24 (before this, `www` served a full duplicate of the site with a 200) |
+
+It is done at the edge on purpose. Doing it in this repo would need a Pages Function on every
+request, and this project keeps its only Function scoped to `/assets/` for exactly that cost reason.
+Page Rules matching a host name only ever affect that host: `app.fynora.net` and `dev-app.fynora.net`
+are not matched. Path and query string are carried over (`$1`).
+
+Verify after any change to those rules, expecting the first three to be 301 and the last two 200:
+
+```bash
+curl -sI https://www.fynora.net/            # 301, location: https://app.fynora.net/
+curl -sI "https://www.fynora.net/terms?a=1" # 301, location: https://app.fynora.net/terms?a=1
+curl -sI https://fynora.net/terms           # 301, location: https://app.fynora.net/terms
+curl -sI https://app.fynora.net/            # 200
+curl -sI https://dev-app.fynora.net/        # 200
+```
+
+After each deploy that changes the SEO files, check `https://app.fynora.net/robots.txt` returns plain
+text (not the app's HTML). The sitemap `https://app.fynora.net/sitemap.xml` was submitted in Search
+Console on 2026-09-24, under the `fynora.net` **Domain** property (which covers `app.` and every other
+subdomain; a URL-prefix property is not needed and a path-level one, made by pasting the sitemap URL
+into "Add property", is useless).
 
 ## Frontend environment variables
 

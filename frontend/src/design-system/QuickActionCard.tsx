@@ -14,6 +14,10 @@ const MotionLink = motion.create(Link);
  * One of the first two hoverScale adopters named in the animation-polish roadmap (the other being
  * the Dashboard FAB) -- baked in here rather than behind a prop, since every tile in this grid is
  * a prominent, deliberately-clicked action, not a secondary/row-level one.
+ *
+ * `onClick` fires in BOTH shapes. It used to be read only by the `button` branch, so a caller that
+ * passed `to` and `onClick` together had its handler silently dropped -- which is exactly what a
+ * navigation-tracking call site looks like.
  */
 export function QuickActionCard({
   icon: Icon, label, to, onClick,
@@ -32,6 +36,6 @@ export function QuickActionCard({
     </>
   );
   return to
-    ? <MotionLink to={to} className={className} {...motionProps}>{body}</MotionLink>
+    ? <MotionLink to={to} onClick={onClick} className={className} {...motionProps}>{body}</MotionLink>
     : <motion.button type="button" onClick={onClick} className={className} {...motionProps}>{body}</motion.button>;
 }

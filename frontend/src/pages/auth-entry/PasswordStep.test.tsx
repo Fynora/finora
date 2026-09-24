@@ -6,6 +6,7 @@ import { PasswordStep } from './PasswordStep';
 import { AuthProvider } from '../../context/AuthContext';
 import { authApi } from '../../api/endpoints';
 import { AUTH_ACCOUNT_DEACTIVATED } from '../../api/errorCodes';
+import { sendPhoneVerificationCode, confirmPhoneVerificationCode } from '../../lib/phoneAuth';
 
 vi.mock('../../api/endpoints', () => ({
   authApi: {
@@ -145,6 +146,71 @@ describe('PasswordStep', () => {
     expect(authApi.otpEmailLogin).toHaveBeenCalledWith('jane@example.com', '482913');
   });
 
+  // Found by hand-testing: a mistyped email code must say so and leave the code step open for
+  // another try (up to the backend's 5 attempts), not end the session or clear the form.
+  it('email OTP: a wrong code shows an error, keeps the code step open, and a corrected code then signs in', async () => {
+    vi.mocked(authApi.otpEmailRequest).mockResolvedValue({ message: 'sent', devCode: null });
+    vi.mocked(authApi.otpEmailLogin)
+      .mockRejectedValueOnce(Object.assign(new Error('Request failed'), {
+        response: { status: 401, data: { errorCode: 'AUTH_013', message: 'That code is invalid or has expired.' } },
+      }))
+      .mockResolvedValueOnce({
+        data: { token: 't', refreshToken: 'r', email: 'jane@example.com', fullName: 'Jane', phoneVerified: true },
+      } as any);
+    const { onSuccess } = renderStep({ identifier: 'jane@example.com' });
+
+    await userEvent.click(screen.getByRole('button', { name: /login with otp/i }));
+    await userEvent.click(screen.getByRole('button', { name: /send code/i }));
+    await userEvent.type(await screen.findByLabelText(/code/i), '765689');
+    await userEvent.click(screen.getByRole('button', { name: /verify/i }));
+
+    expect(await screen.findByText('That code is invalid or has expired.')).toBeInTheDocument();
+    expect(onSuccess).not.toHaveBeenCalled();
+    // Still on the code step, and the field is still there to retype into.
+    const codeField = screen.getByLabelText(/code/i);
+    await userEvent.clear(codeField);
+    await userEvent.type(codeField, '765678');
+    await userEvent.click(screen.getByRole('button', { name: /verify/i }));
+
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledWith(true));
+    expect(authApi.otpEmailLogin).toHaveBeenLastCalledWith('jane@example.com', '765678');
+  });
+
+  it('phone OTP: a wrong SMS code says it does not match instead of a generic failure, and the code step stays open', async () => {
+    vi.mocked(sendPhoneVerificationCode).mockResolvedValue({} as any);
+    vi.mocked(confirmPhoneVerificationCode).mockRejectedValue(
+      Object.assign(new Error('bad code'), { code: 'auth/invalid-verification-code' })
+    );
+    const { onSuccess } = renderStep({ identifier: '9876543210' }); // synthetic-ok: invented placeholder number
+
+    await userEvent.click(screen.getByRole('button', { name: /login with otp/i }));
+    await userEvent.click(screen.getByRole('button', { name: /send code/i }));
+    await userEvent.type(await screen.findByLabelText(/code/i), '123456');
+    await userEvent.click(screen.getByRole('button', { name: /verify/i }));
+
+    expect(await screen.findByText("That code doesn't match — check and try again.")).toBeInTheDocument();
+    expect(onSuccess).not.toHaveBeenCalled();
+    expect(authApi.otpPhoneLogin).not.toHaveBeenCalled();
+    expect(screen.getByLabelText(/code/i)).toBeInTheDocument();
+  });
+
+  // The request step answers an unknown/mistyped email with the same generic code a wrong code gets
+  // ("That code is invalid or has expired."), which reads as nonsense when no code was ever sent.
+  it('email OTP: an unknown email at the send step says a code could not be sent, not that a code is invalid', async () => {
+    vi.mocked(authApi.otpEmailRequest).mockRejectedValueOnce(Object.assign(new Error('Request failed'), {
+      response: { status: 401, data: { errorCode: 'AUTH_013', message: 'That code is invalid or has expired.' } },
+    }));
+    renderStep({ identifier: 'nobody@example.com' });
+
+    await userEvent.click(screen.getByRole('button', { name: /login with otp/i }));
+    await userEvent.click(screen.getByRole('button', { name: /send code/i }));
+
+    expect(await screen.findByText("We couldn't send a code to that address. Check the email and try again.")).toBeInTheDocument();
+    expect(screen.queryByText('That code is invalid or has expired.')).not.toBeInTheDocument();
+    // Still on the send step, so the address can be corrected and sent again.
+    expect(screen.getByRole('button', { name: /send code/i })).toBeInTheDocument();
+  });
+
   // Regression: a correct OTP still runs into enforceAccountIsSignable on a deactivated account
   // (same as the password path) -- this used to fall into the generic "invalid or expired code"
   // branch with no way forward. It must show the same reactivation prompt password login does.
@@ -173,5 +239,12 @@ describe('PasswordStep', () => {
     expect(await screen.findByText('Welcome back')).toBeInTheDocument();
     expect(screen.getByText('Reactivate my account')).toBeInTheDocument();
     expect(onSuccess).not.toHaveBeenCalled();
+  });
+
+  it('shows the Terms and Privacy notice beside the Google and Apple buttons', () => {
+    renderStep();
+
+    expect(screen.getByText(/continuing with google or apple creates your account/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Terms of Service' })).toHaveAttribute('href', '/terms');
   });
 });

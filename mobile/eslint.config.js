@@ -78,6 +78,36 @@ module.exports = defineConfig([
     },
   },
   {
+    // react-native's <Modal> is presented in its own native layer, above the whole React Native
+    // root, so AppLockGate's lock overlay cannot cover one. The app stays mounted under that
+    // overlay (so an unlock returns to the same screen), which is only safe because every Modal
+    // hides itself while locked -- that is what AppModal does. A direct <Modal> would silently
+    // leave a sheet visible and tappable on top of the lock screen. Alert.alert is the same problem
+    // (a native dialog above the overlay that cannot be closed once open), so it goes through
+    // AppAlert, which AppAlertHost draws inside an AppModal.
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/components/AppModal.tsx', 'src/**/*.test.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'react-native',
+              importNames: ['Modal'],
+              message: "Use AppModal from 'components/AppModal' -- it hides itself while the app is locked.",
+            },
+            {
+              name: 'react-native',
+              importNames: ['Alert'],
+              message: "Use AppAlert from 'lib/appAlert' -- a native Alert cannot be hidden while the app is locked.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // Test files legitimately do things production code must not.
     files: ['**/*.test.ts', '**/*.test.tsx', 'src/test/**'],
     rules: {

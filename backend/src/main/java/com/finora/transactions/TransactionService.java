@@ -178,6 +178,7 @@ public class TransactionService {
                 // search into a prefix search silently. Only the repository term is escaped:
                 // bankManagementService.search() above matches in memory with contains().
                 com.finora.util.LikePatterns.escape(f.keyword()), bankIdsParam, categoryIdsParam, liveAccountIds,
+                f.international(),
                 PageRequest.of(safePage, safeSize, sort)
         );
         Map<UUID, String> namesById = categoryNamesById(userId);

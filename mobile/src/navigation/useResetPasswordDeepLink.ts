@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { Alert, Linking } from 'react-native';
+import { Linking } from 'react-native';
+import { AppAlert } from '../lib/appAlert';
 import type { NavigationContainerRefWithCurrent } from '@react-navigation/native';
 import { createLaunchUrlGuard, parseAppLink } from '../lib/appLinks';
 import type { RootParamList } from './types';
@@ -72,7 +73,7 @@ export function useResetPasswordDeepLink(
         pendingRef.current = null;
         promptedRef.current = false;
       };
-      Alert.alert(
+      AppAlert.alert(
         'Reset your password?',
         "You're signed in. Resetting your password signs you out on all your devices.",
         [
@@ -95,7 +96,7 @@ export function useResetPasswordDeepLink(
       const parsed = parseResetPasswordDeepLink(url);
       if (!parsed) return;
       if (!parsed.token) {
-        Alert.alert('Reset link incomplete', 'This reset link is missing its token. Request a new one from the sign-in screen.');
+        AppAlert.alert('Reset link incomplete', 'This reset link is missing its token. Request a new one from the sign-in screen.');
         return;
       }
       pendingRef.current = parsed.token;

@@ -17,6 +17,7 @@ function txn(id: string, description: string): Transaction {
     description, merchant: '', paymentMethod: '', amount: 100, type: 'EXPENSE', tags: [],
     notes: null, reconciliationStatus: 'OK', recurring: false, needsCategoryReview: true,
     pendingBankCorrection: false, categoryManuallySet: false, counterpartyType: 'UNKNOWN',
+    international: false, foreignCurrency: null, foreignAmount: null,
   };
 }
 

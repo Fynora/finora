@@ -327,7 +327,7 @@ export const everywhere = {
   title: 'One picture. Every device.',
   blurb: 'The same account, the same numbers, wherever you happen to be looking.',
   moments: [
-    { when: 'Morning', what: "Import last month's statement over coffee. Two minutes, done." },
+    { when: 'Morning', what: "Import last month's statement over coffee." },
     { when: 'Afternoon', what: "Check what's left in the food budget before ordering lunch." },
     { when: 'Evening', what: 'Nudge a goal after the salary lands. Same numbers, same account.' },
   ],

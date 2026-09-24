@@ -1,5 +1,6 @@
 import { act, renderHook } from '@testing-library/react-native';
-import { Alert, Linking } from 'react-native';
+import { Linking } from 'react-native';
+import { AppAlert } from '../lib/appAlert';
 import { authApi } from '../api/endpoints';
 import { resetLaunchUrlGuards } from '../lib/appLinks';
 import { useEmailVerificationDeepLink } from './useEmailVerificationDeepLink';
@@ -11,7 +12,7 @@ jest.mock('../api/endpoints', () => ({
 const verifyEmail = authApi.verifyEmail as jest.MockedFunction<typeof authApi.verifyEmail>;
 const getInitialURLSpy = jest.spyOn(Linking, 'getInitialURL');
 const addEventListenerSpy = jest.spyOn(Linking, 'addEventListener');
-const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
 
 describe('useEmailVerificationDeepLink', () => {
   let urlListener: ((event: { url: string }) => void) | null;

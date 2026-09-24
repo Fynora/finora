@@ -140,6 +140,23 @@ describe('Billing', () => {
     expect(toggle).not.toBeDisabled();
   });
 
+  // Bug found in review: this always showed the monthly sticker price, so a yearly subscriber read
+  // "₹249/month" for a subscription billed ₹1,999 a year.
+  it.each([
+    ['MONTHLY', '₹249/month', '/year'],
+    ['YEARLY', '₹1,999/year', '/month'],
+  ])('shows a %s Plus subscriber the price for their own cycle', async (billingCycle, expected, absent) => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle,
+      renewalDate: '2026-11-01', hasBillingSubscription: true,
+    }));
+    renderPage();
+
+    const price = await screen.findByTestId('current-plan-price');
+    expect(price).toHaveTextContent(expected);
+    expect(price).not.toHaveTextContent(absent);
+  });
+
   it('shows an ends-on message and an off auto-renewal toggle once already cancelled', async () => {
     // BillingCheckoutService.cancel() only flips autoRenew -- status/renewalDate/
     // hasBillingSubscription are all untouched until the actual webhook lands (design spec
@@ -399,25 +416,29 @@ describe('Billing', () => {
   it('updates the displayed plan price when the Monthly/Yearly toggle is switched', async () => {
     // Bug: the toggle used to only change what a checkout charged (subscribeToPlan's own
     // targetCycle argument) without ever changing what the card claimed the price was -- a
-    // visitor could toggle to Yearly, read "₹399/month", and be charged ₹3,500 instead.
+    // visitor could toggle to Yearly, read "₹249/month", and be charged ₹1,999 instead.
     vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
     const user = userEvent.setup();
     renderPage();
     await screen.findByTestId('current-plan-name');
 
-    expect(screen.getByTestId('plan-price-plus')).toHaveTextContent('₹399/month');
+    expect(screen.getByTestId('plan-price-plus')).toHaveTextContent('₹249/month');
     expect(screen.getByTestId('plan-price-premium')).toHaveTextContent('₹799/month');
+    // Prices include GST (nothing is added at checkout), and the in-app card says so, as the
+    // landing page does -- Free has no GST note because nothing is charged.
+    expect(screen.getByTestId('plan-gst-plus')).toHaveTextContent('Incl. GST');
+    expect(screen.queryByTestId('plan-gst-free')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Yearly' }));
 
-    expect(screen.getByTestId('plan-price-plus')).toHaveTextContent('₹3,500/year');
+    expect(screen.getByTestId('plan-price-plus')).toHaveTextContent('₹1,999/year');
     expect(screen.getByTestId('plan-price-premium')).toHaveTextContent('₹8,000/year');
     // Free has no secondaryPriceNote -- unaffected by the toggle either way.
     expect(screen.getByTestId('plan-price-free')).toHaveTextContent('₹0/month');
 
     await user.click(screen.getByRole('button', { name: 'Monthly' }));
 
-    expect(screen.getByTestId('plan-price-plus')).toHaveTextContent('₹399/month');
+    expect(screen.getByTestId('plan-price-plus')).toHaveTextContent('₹249/month');
     expect(screen.getByTestId('plan-price-premium')).toHaveTextContent('₹799/month');
   });
 
@@ -429,7 +450,7 @@ describe('Billing', () => {
     renderPage();
     await screen.findByTestId('current-plan-name');
 
-    expect(screen.getByTestId('plan-price-plus')).toHaveTextContent('₹3,500/year');
+    expect(screen.getByTestId('plan-price-plus')).toHaveTextContent('₹1,999/year');
     await waitFor(() => expect(localStorage.getItem(INTENDED_BILLING_CYCLE_KEY)).toBeNull());
   });
 
@@ -447,7 +468,7 @@ describe('Billing', () => {
     await screen.findByTestId('current-plan-name');
 
     // Must snap to the real YEARLY cycle despite the stale MONTHLY carry-through.
-    expect(await screen.findByTestId('plan-price-plus')).toHaveTextContent('₹3,500/year');
+    expect(await screen.findByTestId('plan-price-plus')).toHaveTextContent('₹1,999/year');
     expect(screen.getByRole('button', { name: 'Current Plan' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: /switch to monthly billing/i })).not.toBeInTheDocument();
   });
@@ -890,6 +911,72 @@ describe('Billing', () => {
     await screen.findByTestId('current-plan-name');
     expect(screen.queryByText('Premium Benefits Summary')).not.toBeInTheDocument();
     expect(screen.getAllByText('Referral Rewards').length).toBeGreaterThan(0);
+  });
+
+  // The page used to show every user "₹1,250 earned", "Pending ₹250" and a "₹8,450 Value Received"
+  // panel, all hard-coded (the code's own comments called them illustrative placeholders). The
+  // itemised "Benefits Summary" also didn't add up (1,200 + 2,000 + 500 + 1,250 is 4,950) and billed
+  // "Priority support", which has no implementation.
+  it('shows no invented rupee figures to a paid user with no referrals', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY',
+      renewalDate: '2026-11-01', hasBillingSubscription: true,
+    }));
+    renderPage();
+
+    await screen.findByTestId('current-plan-name');
+    const text = document.body.textContent ?? '';
+    for (const invented of ['8,450', '1,250', '₹250', '1,200', '₹2,000', '₹500']) {
+      expect(text, `found invented figure ${invented}`).not.toContain(invented);
+    }
+    expect(text).not.toMatch(/value received|benefits summary|pending rewards/i);
+    expect(text).not.toMatch(/priority support/i);
+    // The real number for someone who has referred nobody is zero, shown as such.
+    expect(screen.getByText('₹0 earned')).toBeInTheDocument();
+  });
+
+  it('shows the amount referrals actually paid out: REWARDED entries only, summed', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    vi.mocked(referralsApi.mine).mockResolvedValue({
+      code: 'ADA123', walletBalance: 500, referralCount: 3,
+      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+      referrals: [
+        { referralId: 'r1', referredUserFullName: 'A', status: 'REWARDED', reward: 300, createdAt: '2026-09-01T00:00:00Z' },
+        { referralId: 'r2', referredUserFullName: 'B', status: 'REWARDED', reward: 1200, createdAt: '2026-09-02T00:00:00Z' },
+        // Subscribed but not yet rewarded: no payout exists to count.
+        { referralId: 'r3', referredUserFullName: 'C', status: 'SUBSCRIBED', reward: null, createdAt: '2026-09-03T00:00:00Z' },
+      ],
+    });
+    renderPage();
+
+    expect(await screen.findByText('₹1,500 earned')).toBeInTheDocument();
+    expect(screen.getAllByText('₹1,500').length).toBeGreaterThan(0);
+  });
+
+  // "₹0" is a claim ("you have earned nothing"). While the referrals request is pending, or after it
+  // fails, the total is unknown, and showing ₹0 would tell someone who has earned money that they
+  // have not.
+  it('shows a dash, not ₹0, while the referral total is still loading', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    vi.mocked(referralsApi.mine).mockReturnValue(new Promise(() => {})); // never settles
+    renderPage();
+
+    await screen.findByTestId('current-plan-name');
+    // Scoped to the referral figures: "₹0" legitimately appears elsewhere on this page (the Free
+    // plan card's price).
+    expect(screen.queryByText(/₹[\d,]+ earned/)).not.toBeInTheDocument();
+    expect(screen.getByText('Total Earned').parentElement).toHaveTextContent('Total Earned—');
+  });
+
+  it('shows a dash, not ₹0, when the referral request fails', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    vi.mocked(referralsApi.mine).mockRejectedValue(new Error('boom'));
+    renderPage();
+
+    await screen.findByTestId('current-plan-name');
+    await waitFor(() => expect(referralsApi.mine).toHaveBeenCalled());
+    expect(screen.queryByText(/₹[\d,]+ earned/)).not.toBeInTheDocument();
+    expect(screen.getByText('Total Earned').parentElement).toHaveTextContent('Total Earned—');
   });
 
   it('shows the real Smart Insights view count instead of a hardcoded number', async () => {

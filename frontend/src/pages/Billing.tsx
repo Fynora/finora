@@ -12,10 +12,11 @@ import {
 import { openRazorpayCheckout } from '../lib/razorpayCheckout';
 import { downloadBlob } from '../lib/download';
 import { formatDate } from '../utils/date';
-import { FinoraCard, EmptyState, Button, ConfirmDialog, Skeleton, Badge } from '../design-system';
+import { FinoraCard, EmptyState, Button, ConfirmDialog, Skeleton, Badge, useDialogA11y } from '../design-system';
 import { COMPARISON, INTENDED_BILLING_CYCLE_KEY, PLANS, priceForCycle } from './landing/plans';
 import { PREMIUM_PLAN_VISIBLE } from '../lib/premiumVisibility';
 import { isPlanVisible, paidMembershipName, visiblePlanName } from '../lib/planDisplay';
+import { trackNavigation } from '../lib/trackNavigation';
 
 function fmt(amount: number, currency: string) {
   const symbol = currency === 'INR' ? '₹' : currency + ' ';
@@ -154,62 +155,17 @@ function Hero() {
   );
 }
 
-/** Same focusable-elements query ConfirmDialog uses for its own Tab trap. */
-const FOCUSABLE_SELECTOR =
-  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
 /**
- * Read-only content dialog, not a confirm/cancel action -- copies ConfirmDialog's overlay/
- * Escape/focus-trap discipline (design-system/ConfirmDialog.tsx) rather than importing it, since
- * that component's two-button confirm/cancel shape doesn't fit a "just close it" dialog. The trap
+ * Read-only content dialog, not a confirm/cancel action -- shares ConfirmDialog's Escape/focus-trap
+ * discipline through useDialogA11y rather than using ConfirmDialog itself, since that component's
+ * two-button confirm/cancel shape doesn't fit a "just close it" dialog. The trap
  * itself is not optional polish: ConfirmDialog's own doc comment describes a real incident where
  * skipping it let Tab walk out of a "modal" dialog and operate the page underneath while the
  * dialog was still open -- a stray Tab from this modal's Close button could otherwise land on,
  * say, the page's own "Cancel Subscription" button behind the backdrop.
  */
 function FeatureComparisonModal({ onClose }: { onClose: () => void }) {
-  const panelRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-    const panel = panelRef.current;
-    (panel?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR) ?? panel)?.focus();
-    return () => previouslyFocused?.focus?.();
-  }, []);
-
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        onClose();
-        return;
-      }
-      if (e.key !== 'Tab') return;
-
-      const panel = panelRef.current;
-      if (!panel) return;
-      const focusable = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
-      if (focusable.length === 0) {
-        e.preventDefault();
-        panel.focus();
-        return;
-      }
-
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      const active = document.activeElement;
-      const outside = !panel.contains(active);
-
-      if (e.shiftKey && (active === first || outside)) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && (active === last || outside)) {
-        e.preventDefault();
-        first.focus();
-      }
-    }
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  const panelRef = useDialogA11y({ onClose });
 
   return (
     <>
@@ -343,6 +299,19 @@ export default function Billing() {
     queryKey: ['referrals-mine'],
     queryFn: () => referralsApi.mine(),
   });
+  // Real total: what admin-credited REWARDED referrals actually paid out (the same source the
+  // Referrals page's per-row "Earned" uses). This used to be a hard-coded "₹1,250" shown to every
+  // user, whether or not they had ever referred anyone.
+  const referralEarned = (referrals?.referrals ?? []).reduce(
+    (sum, r) => sum + (r.status === 'REWARDED' ? r.reward ?? 0 : 0),
+    0
+  );
+  // Until the referrals request has actually answered (still loading, or it failed), there is no
+  // total to show, and "₹0" would be a false statement to someone who has earned money. A dash says
+  // "not known", which is the truth.
+  const referralEarnedLabel = referrals
+    ? '₹' + Math.round(referralEarned).toLocaleString('en-IN')
+    : '—';
   const { data: accounts } = useQuery({ queryKey: ['accounts'], queryFn: () => accountsApi.list() });
   const { data: goals } = useQuery({ queryKey: ['goals'], queryFn: () => goalsApi.list() });
   const { data: budgets } = useQuery({ queryKey: ['budgets'], queryFn: () => budgetsApi.list() });
@@ -654,7 +623,7 @@ export default function Billing() {
                 {/* A paid-tier plan with hasBillingSubscription false is an admin-granted
                     (complimentary) plan, not a real ₹X/month charge -- same gap as the Payment
                     method rows below, caught on a second review pass. */}
-                <span className="flex items-center gap-1.5 text-xs text-muted">
+                <span data-testid="current-plan-price" className="flex items-center gap-1.5 text-xs text-muted">
                   {/* The one place this KPI card's plan name gets the premium accent -- gated to
                       paid tiers only, never shown for Free (see index.css's --color-premium
                       comment on why this stays rare). */}
@@ -664,7 +633,14 @@ export default function Billing() {
                     : !subscription.hasBillingSubscription
                       ? 'Complimentary'
                       : planMeta?.price
-                        ? `${planMeta.price}${planMeta.cadence ?? ''}`
+                        // The subscriber's own cycle, not always the monthly sticker price: a yearly
+                        // subscriber used to read "₹249/month" here. Still the current list price --
+                        // the subscription API carries no per-subscriber amount, so someone on a
+                        // superseded price (the pre-V224 ₹399 plans) would see today's price here.
+                        ? (() => {
+                            const p = priceForCycle(planMeta, subscription.billingCycle === 'YEARLY' ? 'yearly' : 'monthly');
+                            return `${p.amount}${p.cadence}`;
+                          })()
                         : ''}
                 </span>
                 {/* Bug found in review: this badge ignored PAUSED entirely, so the top-of-page KPI
@@ -705,10 +681,7 @@ export default function Billing() {
         <KpiEntrance index={2} reduceMotion={prefersReducedMotion}>
           <KpiCard
             label="Referral Rewards"
-            // No reward-amount ledger exists on the backend yet (referralsApi.mine() returns only
-            // a code + a count) -- this ₹ figure is a static illustrative placeholder matching the
-            // requested design, not a computed value. See the PR description's gap list.
-            value="₹1,250 earned"
+            value={referrals ? `${referralEarnedLabel} earned` : '—'}
             icon={Gift}
             iconBg="bg-accent-purple-bg"
             iconColor="text-accent-purple"
@@ -772,8 +745,8 @@ export default function Billing() {
               </div>
               <h2 className="text-xl font-bold text-white">Unlock the full power of Fynora</h2>
               <p className="text-sm text-white/60 mt-1.5">
-                Unlimited accounts, advanced analytics, extended history, and priority support — see
-                exactly what each plan adds below.
+                Unlimited accounts, advanced analytics, and extended history — see exactly what
+                each plan adds below.
               </p>
             </div>
             <div className="flex gap-2.5 flex-shrink-0">
@@ -808,7 +781,10 @@ export default function Billing() {
         </FinoraCard>
       ) : (
         <FinoraCard padding="lg">
-          <div className="grid lg:grid-cols-2 gap-6">
+          {/* This card used to be a two-column grid, with the "Value Received" panel in the second
+              column. With that gone, the label/value rows would stretch across the whole card
+              width, so the content is kept to a readable width instead. */}
+          <div className="max-w-lg">
             <div>
               <div className="flex items-center gap-2.5 mb-4">
                 <div className="w-10 h-10 rounded-full bg-primary-light flex items-center justify-center">
@@ -873,21 +849,6 @@ export default function Billing() {
                   cancellation happen there, not here.
                 </div>
               )}
-            </div>
-            <div className="border-t lg:border-t-0 lg:border-l border-border pt-6 lg:pt-0 lg:pl-6">
-              <p className="text-sm font-semibold text-ink mb-1">{paidMembershipName()} Value Received</p>
-              {/* No "value unlocked" calculation exists on the backend -- this whole panel is a
-                  static illustrative figure matching the requested design, not computed from real
-                  usage. See the PR description's gap list. */}
-              <p className="font-display text-3xl font-extrabold text-primary mb-3">₹8,450</p>
-              <p className="text-xs text-muted mb-3">Estimated value unlocked through:</p>
-              <ul className="space-y-1.5">
-                {['Financial insights', 'Budget tracking', 'Goal management', 'Smart categorization', 'Referral rewards'].map((item) => (
-                  <li key={item} className="flex items-center gap-2 text-sm text-ink">
-                    <Check size={14} className="text-success flex-shrink-0" /> {item}
-                  </li>
-                ))}
-              </ul>
             </div>
           </div>
         </FinoraCard>
@@ -985,6 +946,9 @@ export default function Billing() {
                   {price.amount}
                   {price.cadence && <span className="text-sm font-medium text-muted">{price.cadence}</span>}
                 </p>
+                {plan.priceIncludesGst && (
+                  <p data-testid={`plan-gst-${plan.id}`} className="text-xs text-muted mb-1">Incl. GST</p>
+                )}
                 {price.note && <p className="text-xs text-muted mb-3">{price.note}</p>}
                 <ul className="space-y-2 mb-6 flex-1">
                   {plan.features.map((f) => (
@@ -1019,7 +983,7 @@ export default function Billing() {
         </div>
       </div>
 
-      <div className={isFree ? '' : 'grid lg:grid-cols-2 gap-6'}>
+      <div>
         <FinoraCard padding="lg">
           <div className="flex items-center gap-2.5 mb-4">
             <div className="w-9 h-9 rounded-full bg-accent-purple-bg flex items-center justify-center">
@@ -1030,50 +994,22 @@ export default function Billing() {
           <div className="grid grid-cols-2 gap-4 mb-4">
             <div>
               <p className="text-xs uppercase text-muted mb-1">Total Earned</p>
-              {/* Static -- see the KPI row's own note on referralsApi.mine() having no reward
-                  ledger yet. */}
-              <p className="font-display text-xl font-extrabold text-ink">₹1,250</p>
+              <p className="font-display text-xl font-extrabold text-ink">{referralEarnedLabel}</p>
             </div>
             <div>
               <p className="text-xs uppercase text-muted mb-1 flex items-center gap-1"><Users size={12} /> Referrals</p>
               <p className="font-display text-xl font-extrabold text-ink">{referrals?.referralCount ?? 0}</p>
             </div>
-            <div>
-              <p className="text-xs uppercase text-muted mb-1">Pending Rewards</p>
-              <p className="font-display text-xl font-extrabold text-ink">₹250</p>
-            </div>
           </div>
-          <Link to="/app/referrals">
+          <Link to="/app/referrals" onClick={() => trackNavigation('referrals', 'contextual')}>
             <Button hoverScale className="w-full">Invite Friends →</Button>
           </Link>
         </FinoraCard>
-
-        {/* Claims a specific ₹ value "received" from Premium -- wrong to show to a Free user who
-            hasn't unlocked any of it, the same reasoning the main membership panel's own "Premium
-            Value Received" side already applies via its own isFree branch. */}
-        {!isFree && (
-          <FinoraCard padding="lg">
-            <p className="font-semibold text-ink mb-4">{paidMembershipName()} Benefits Summary</p>
-            <ul className="space-y-2.5 mb-4">
-              {[
-                { label: 'Goal insights', value: '₹1,200' },
-                { label: 'Advanced analytics', value: '₹2,000' },
-                { label: 'Priority support', value: '₹500' },
-                { label: 'Referral rewards', value: '₹1,250' },
-              ].map((row) => (
-                <li key={row.label} className="flex items-center justify-between text-sm">
-                  <span className="flex items-center gap-2 text-ink"><Check size={14} className="text-success" /> {row.label}</span>
-                  <span className="font-medium text-ink">{row.value}</span>
-                </li>
-              ))}
-            </ul>
-            <div className="pt-4 border-t border-border flex items-center justify-between">
-              <p className="text-sm font-semibold text-ink">Total Value Received</p>
-              <p className="font-display text-xl font-extrabold text-primary">₹8,450</p>
-            </div>
-            <p className="text-xs text-muted mt-2">Estimated value unlocked with Fynora {paidMembershipName()}.</p>
-          </FinoraCard>
-        )}
+        {/* A "Benefits Summary" / "Total Value Received" card used to sit beside this one. Its
+            ₹ figures (1,200 + 2,000 + 500 + 1,250, totalling a stated 8,450 -- which is not even
+            their sum) were invented, and one line billed "Priority support", which has no
+            implementation. Nothing on the backend computes a "value unlocked", so it was removed
+            rather than reworded. */}
       </div>
 
       <div>

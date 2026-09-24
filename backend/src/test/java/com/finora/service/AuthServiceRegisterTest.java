@@ -240,4 +240,42 @@ class AuthServiceRegisterTest {
         assertThat(created.getEmail()).isEqualTo("supportcreated@example.com");
         verify(userRepository).save(any(User.class));
     }
+
+    /** Self-service sign-up shows the Terms/Privacy notice beside Create Account, so it records acceptance (V223). */
+    @Test
+    void register_recordsAcceptanceOfTheCurrentTerms() {
+        when(userRepository.existsByEmailIgnoreCaseAndAccountScope("terms@example.com", "USER")).thenReturn(false);
+        when(userRepository.existsByPhoneNumberAndAccountScope("+919876500011", "USER")).thenReturn(false);  // synthetic-ok: sequential test number, not a real subscriber
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> {
+            User u = invocation.getArgument(0);
+            ReflectionTestUtils.setField(u, "id", UUID.randomUUID());
+            return u;
+        });
+
+        authService.register(request("terms@example.com", "+919876500011"));  // synthetic-ok: sequential test number, not a real subscriber
+
+        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(captor.capture());
+        assertThat(captor.getValue().getTermsVersion()).isEqualTo(LegalTerms.CURRENT_VERSION);
+        assertThat(captor.getValue().getTermsAcceptedAt()).isNotNull();
+    }
+
+    /** An account an admin creates for someone else was never shown the terms by anyone, so it
+     *  must not carry a consent record the person never gave. */
+    @Test
+    void adminCreateUser_doesNotRecordTermsAcceptanceForSomeoneWhoNeverSawThem() {
+        when(userRepository.existsByEmailIgnoreCaseAndAccountScope("assisted@example.com", "USER")).thenReturn(false);
+        when(userRepository.existsByPhoneNumberAndAccountScope("+919876500012", "USER")).thenReturn(false);  // synthetic-ok: sequential test number, not a real subscriber
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> {
+            User u = invocation.getArgument(0);
+            ReflectionTestUtils.setField(u, "id", UUID.randomUUID());
+            return u;
+        });
+
+        User created = authService.adminCreateUser(
+                request("assisted@example.com", "+919876500012"), UUID.randomUUID());  // synthetic-ok: sequential test number, not a real subscriber
+
+        assertThat(created.getTermsAcceptedAt()).isNull();
+        assertThat(created.getTermsVersion()).isNull();
+    }
 }

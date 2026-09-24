@@ -1,10 +1,11 @@
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AppModal } from '../components/AppModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Button } from '../components/Button';
 import { MerchantLogo } from '../components/MerchantLogo';
 import { counterpartyLabel } from '../lib/counterpartyLabel';
-import { fmtCurrency } from '../lib/format';
+import { fmtCurrency, fmtForeignAmount } from '../lib/format';
 import { reconciliationBadge } from '../lib/reconciliationBadge';
 import { radius, spacing, useTheme } from '../theme';
 import type { Transaction } from '../types';
@@ -78,7 +79,7 @@ export function TransactionDetailSheet({
   } as const;
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={busy ? () => {} : onClose}>
+    <AppModal visible transparent animationType="slide" onRequestClose={busy ? () => {} : onClose}>
       <View style={styles.flex}>
         <Pressable
           style={styles.backdrop}
@@ -135,6 +136,14 @@ export function TransactionDetailSheet({
               <InfoRow label="Date" value={t.date} />
               {t.paymentMethod ? <InfoRow label="Payment Method" value={t.paymentMethod} /> : null}
               {cp ? <InfoRow label="Counterparty" value={cp.full} /> : null}
+              {/* The statement's own domestic/international split, with the original-currency
+                  amount when it printed one (GST and FX-markup rows print none). */}
+              {t.international ? (
+                <InfoRow
+                  label="International"
+                  value={fmtForeignAmount(t.foreignCurrency, t.foreignAmount) ?? 'Yes'}
+                />
+              ) : null}
             </View>
 
             {/* Bug found in review: every row below gets `disabled={busy}` -- while a delete or
@@ -217,7 +226,7 @@ export function TransactionDetailSheet({
           </ScrollView>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

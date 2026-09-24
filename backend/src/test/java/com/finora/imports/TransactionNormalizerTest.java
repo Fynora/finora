@@ -61,6 +61,93 @@ class TransactionNormalizerTest {
         return row;
     }
 
+    // --- International / foreign-currency amount ---
+
+    @Test
+    void normalize_readsTheRupeeAmount_andKeepsThePrintedForeignAmountBesideIt() {
+        DocumentContext ctx = new DocumentContext("PDF", "TransactionNormalizerTest");
+        Map<String, String> row = rowOf(
+                "DATE & TIME", "24/08/2026 | 19:40", "TRANSACTION DESCRIPTION", "SAMPLE CLOUD HOST",
+                "AMOUNT", "USD 12.50  C 1,050.00");
+        ctx.recordInternationalRow(row);
+
+        StagedRow result = normalizer.normalize(userId, row, ctx);
+
+        assertThat(result).isNotNull();
+        assertThat(result.amount()).isEqualByComparingTo("1050.00");
+        assertThat(result.international()).isTrue();
+        assertThat(result.foreignCurrency()).isEqualTo("USD");
+        assertThat(result.foreignAmount()).isEqualByComparingTo("12.50");
+        assertThat(ctx.capabilities()).extracting(c -> c.capability()).contains("FOREIGN_CURRENCY_AMOUNT");
+    }
+
+    @Test
+    void normalize_marksAnInternationalRowWithNoForeignAmount_asInternationalOnly() {
+        DocumentContext ctx = new DocumentContext("PDF", "TransactionNormalizerTest");
+        Map<String, String> row = rowOf(
+                "DATE & TIME", "25/08/2026 | 00:00", "TRANSACTION DESCRIPTION", "IGST SAMPLE", "AMOUNT", " C 5.00");
+        ctx.recordInternationalRow(row);
+
+        StagedRow result = normalizer.normalize(userId, row, ctx);
+
+        assertThat(result.international()).isTrue();
+        assertThat(result.foreignCurrency()).isNull();
+        assertThat(result.foreignAmount()).isNull();
+    }
+
+    @Test
+    void normalize_isInternationalOnlyForTheExactRowTheHeadingApplied_toNotAnEqualCopy() {
+        DocumentContext ctx = new DocumentContext("PDF", "TransactionNormalizerTest");
+        Map<String, String> tagged = rowOf(
+                "DATE & TIME", "25/08/2026 | 00:00", "TRANSACTION DESCRIPTION", "IGST SAMPLE", "AMOUNT", " C 5.00");
+        ctx.recordInternationalRow(tagged);
+        Map<String, String> equalButSeparate = new LinkedHashMap<>(tagged);
+
+        assertThat(normalizer.normalize(userId, equalButSeparate, ctx).international()).isFalse();
+        assertThat(normalizer.normalize(userId, tagged, null).international())
+                .as("no document context, nothing to have read a heading from").isFalse();
+    }
+
+    @Test
+    void normalize_marksARowWithAPrintedForeignAmountInternationalEvenWithNoRegionHeading() {
+        StagedRow result = normalizer.normalize(userId, rowOf(
+                "Date", "10/07/2026", "Description", "SAMPLE HOTEL", "Amount", "EUR 20.00 1,900.00"), null);
+
+        assertThat(result.international()).isTrue();
+        assertThat(result.foreignCurrency()).isEqualTo("EUR");
+        assertThat(result.amount()).isEqualByComparingTo("1900.00");
+    }
+
+    @Test
+    void normalize_leavesAnOrdinaryRowDomesticWithNoForeignAmount() {
+        StagedRow result = normalizer.normalize(userId, rowOf(
+                "Date", "10/07/2026", "Description", "SWIGGY ORDER", "Amount", "486.00", "Type", "DR"));
+
+        assertThat(result.international()).isFalse();
+        assertThat(result.foreignCurrency()).isNull();
+        assertThat(result.foreignAmount()).isNull();
+    }
+
+    // --- A narration column headed "Details" (real HSBC savings statement) ---
+
+    @Test
+    void normalize_readsABareDetailsColumnAsTheDescription() {
+        StagedRow result = normalizer.normalize(userId, rowOf(
+                "Date", "01JUN2026", "Details", "UPI SAMPLE PAYEE", "Withdrawals", "", "Deposits", "10,000.00",
+                "Balance", "144,887.07"));
+
+        assertThat(result.description()).isEqualTo("UPI SAMPLE PAYEE");
+        assertThat(result.type()).isEqualTo("INCOME");
+    }
+
+    @Test
+    void normalize_readsABroughtForwardRowUnderDetailsAsABalanceMarker_notAnUnrecognizedColumn() {
+        Map<String, String> row = rowOf("Date", "30MAY2026", "Details", "BALANCE BROUGHT FORWARD", "Balance", "1,000.00");
+
+        assertThat(normalizer.hasUnrecognizedNonBlankColumn(row)).isFalse();
+        assertThat(normalizer.normalize(userId, row).kind()).isEqualTo(RowKind.BALANCE_MARKER);
+    }
+
     // --- Category confidence ---
 
     @Test

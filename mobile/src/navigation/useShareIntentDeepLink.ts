@@ -160,6 +160,8 @@ export function useShareIntentDeepLink(
     }
     pendingRef.current = null;
     if (pending.kind === 'error') {
+      // Untracked, same reason as usePushNotificationNavigation: an OS share sheet is not an
+      // in-app navigation affordance, and there is no NavEntryPointId that would describe it.
       navigationRef.navigate('Import', { sharedFileError: pending.value });
       return;
     }
@@ -172,6 +174,8 @@ export function useShareIntentDeepLink(
       // to be told about.
       return;
     }
+    // Untracked, same reason as the error branch above: an OS share sheet is not an in-app
+    // navigation affordance.
     navigationRef.navigate('Import', { sharedFile: pending.stored.value });
   }, [navigationRef]);
 

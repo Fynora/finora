@@ -8,6 +8,8 @@ import com.finora.repository.RefreshTokenRepository;
 import com.finora.repository.UserRepository;
 import com.finora.security.mfa.TotpGenerator;
 import com.finora.testsupport.TestSessions;
+import com.finora.testsupport.TotpStepHeadroom;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,6 +36,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @TestPropertySource(properties = {"app.admin-mfa.enabled=true", "app.admin-mfa.enforced=true"})
 class AdminMfaEnforcementIT extends AbstractIntegrationTest {
+
+    /** Every code these tests compute is checked by the server a few HTTP calls later -- see
+     *  TotpStepHeadroom for why a step boundary in between made them fail intermittently. */
+    @BeforeEach
+    void clearOfAStepBoundary() throws InterruptedException {
+        TotpStepHeadroom.await();
+    }
 
     /** Any endpoint an admin reaches with SYSTEM_SETTINGS; what matters is that it is not on the allow-list. */
     private static final String ADMIN_ENDPOINT = "/api/v1/admin/trusted-senders";

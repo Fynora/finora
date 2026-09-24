@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { accountAggregatorApi, accountsApi } from '../api/endpoints';
 import type { Account } from '../types';
+import { trackNavigation } from '../lib/trackNavigation';
 
 // Task 9 (Plan 5). AccountAggregatorLinkController.confirmExistingAccount/confirmNewAccount have
 // existed since Plan 1 with zero frontend callers -- this is the first UI for them, not new
@@ -49,6 +50,11 @@ export default function AccountAggregatorConfirm() {
       // Bug found in a fresh review pass: Settings is a nav+pane shell now, not a single scrolled
       // page -- a bare '/app/settings' lands on General (the default tab) instead of back on Bank
       // Sync, where the user actually came from and where the result of this confirmation shows.
+      //
+      // Deliberately NOT reported to navigation analytics (same for handleConfirmNew below): this
+      // is where a completed action puts you, not an affordance anyone chose. NavEntryPointId has
+      // no value that would describe it honestly, and counting it as `contextual` would credit
+      // Settings with opens nobody navigated to.
       void navigate('/app/settings?tab=bank-sync');
     } catch (err) {
       const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
@@ -76,7 +82,7 @@ export default function AccountAggregatorConfirm() {
       <div>
         <button
           type="button"
-          onClick={() => navigate('/app/settings?tab=bank-sync')}
+          onClick={() => { trackNavigation('settings', 'contextual'); void navigate('/app/settings?tab=bank-sync'); }}
           className="text-xs text-muted hover:text-ink inline-flex items-center gap-1 mb-3"
         >
           <ArrowLeft size={13} /> Settings

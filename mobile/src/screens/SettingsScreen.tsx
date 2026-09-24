@@ -6,6 +6,7 @@ import { SectionCard } from '../components/AccountUI';
 import { FeedbackSheet } from './support/FeedbackSheet';
 import { spacing, useTheme } from '../theme';
 import { openWebUrl } from '../lib/webUrl';
+import { trackNavigation } from '../lib/trackNavigation';
 import { GMAIL_SYNC_UI_ENABLED } from '../lib/features';
 import type { MoreStackParamList } from '../navigation/types';
 
@@ -59,7 +60,7 @@ export function SettingsScreen() {
 
       <SectionCard title="Help & Support" subtitle="File a ticket, check on one, or tell us what's on your mind">
         <Pressable
-          onPress={() => navigation.navigate('SupportTickets')}
+          onPress={() => { trackNavigation('support', 'group'); navigation.navigate('SupportTickets'); }}
           style={[styles.row, { borderBottomColor: c.border }]}
           accessibilityRole="button"
         >

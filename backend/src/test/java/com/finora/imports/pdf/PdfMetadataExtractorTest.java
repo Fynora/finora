@@ -173,6 +173,30 @@ class PdfMetadataExtractorTest {
         assertThat(metadata.accountNumberMasked()).isEqualTo("XXXX XXXX XXXX 1234");
     }
 
+    /**
+     * A real HDFC (Paytm HDFC) statement: the card number shares its line with "Billing Period"
+     * (claimed first by the period field), and the next line is "Alternate Account Number : ...
+     * CKYC ID ..." -- an internal reference, not the card. It used to be taken as the account
+     * number, masked down to the last four digits of the CKYC ID. Null here is correct: the card
+     * number is recovered from positioned text by AccountNumberGridExtractor instead.
+     */
+    @Test
+    void extract_neverTakesTheAlternateAccountNumberAsTheCardNumber() {
+        var metadata = extractor.extract(List.of(
+                "SAMPLE TOWN 000000 UP Credit Card No. : 400000XXXXXX1111 Billing Period 21 Aug, 2026 - 20 Sep, 2026",
+                "Alternate Account Number : 0001000000000002222 CKYC ID 33334444555566"));
+
+        assertThat(metadata.accountNumberMasked()).isNotEqualTo("••••2222").isNotEqualTo("••••5566");
+        assertThat(String.valueOf(metadata.accountNumberFullForHashingOnly())).doesNotContain("2222");
+    }
+
+    @Test
+    void extract_stillReadsAPlainAccountNumberLabel() {
+        var metadata = extractor.extract(List.of("Account Number : 100000009012"));
+
+        assertThat(metadata.accountNumberMasked()).isEqualTo("••••9012");
+    }
+
     @Test
     void extract_recognizesACreditCardNumber_labelledPrimaryCardNumber() {
         var metadata = extractor.extract(List.of("Primary Card Number XXXX XXXX XXXX 5678"));
@@ -1335,5 +1359,24 @@ class PdfMetadataExtractorTest {
         var metadata = extractor.extract(List.of("Please quote your Account No. 500123456789 when calling.")); // synthetic-ok
 
         assertThat(metadata.accountNumberMasked()).isNull();
+    }
+
+    // --- A leading holder name sharing its line with a right-hand panel label (HSBC) ---
+
+    @Test
+    void extract_recoversAHolderNameThatSharesItsLineWithTheStatementDateLabel() {
+        var metadata = extractor.extract(List.of(
+                "Statement of Accounts", "Branch Name: SAMPLE BRANCH", "Statement Details",
+                "SAMPLE HOLDER Statement Date 15MAR2026"));
+
+        assertThat(metadata.accountHolderName()).isEqualTo("SAMPLE HOLDER");
+    }
+
+    @Test
+    void extract_doesNotTakeStatementVocabularyOrABankNameBeforeAPanelLabelAsAHolder() {
+        assertThat(extractor.extract(List.of("Account Statement Statement Date 15MAR2026")).accountHolderName())
+                .isNull();
+        assertThat(extractor.extract(List.of("HSBC Bank Customer Number 100-000000")).accountHolderName())
+                .isNull();
     }
 }

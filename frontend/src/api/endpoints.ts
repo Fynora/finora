@@ -178,6 +178,9 @@ export interface TransactionFilters {
   // like `type` above, since this interface is a thin mirror of the backend's query params, not
   // a place that re-derives the DTO's own typed unions.
   status?: string;
+  // The statement's own domestic/international split: true for only international transactions,
+  // false for only domestic ones, absent for both.
+  international?: boolean;
   dateFrom?: string;
   dateTo?: string;
   amountMin?: number;
@@ -315,6 +318,10 @@ export interface ConfirmedRowPayload {
   categoryConfidence: number | null;
   /** Echoed from StagedRow.rowPosition unchanged -- see that field's own doc comment. */
   rowPosition: number | null;
+  /** Echoed from StagedRow.international/foreignCurrency/foreignAmount unchanged. */
+  international: boolean;
+  foreignCurrency: string | null;
+  foreignAmount: number | null;
   /** What the engine guessed. */
   likelyDuplicate: boolean;
   /**
@@ -1084,6 +1091,16 @@ export interface TrendPoint { month: string; totalSpend: number; }
 export interface CategoryConfidencePoint { category: string; avgConfidence: number; merchantCount: number; }
 export interface TopCategory { categoryId: string; categoryName: string; totalSpend: number; transactionCount: number; }
 export interface LearningGrowthPoint { month: string; learnedCount: number; correctedCount: number; }
+// Advanced Reports' "International spend" card. Mirrors AnalyticsDto.InternationalSpend/CurrencySpend.
+// Rupee figures are what was billed; foreignTotal is the sum of the amounts printed beside them.
+export interface CurrencySpend { currency: string; foreignTotal: number; rupeeTotal: number; transactionCount: number; }
+export interface InternationalSpend {
+  totalSpend: number;
+  transactionCount: number;
+  purchasesSpend: number;
+  otherChargesSpend: number;
+  byCurrency: CurrencySpend[];
+}
 
 // Multi-Year Comparison (issue #1455). Mirrors backend AnalyticsDto exactly.
 export interface MultiYearPoint { year: number; coverageMonths: number; isComplete: boolean; total: number; }
@@ -1119,6 +1136,8 @@ export const analyticsApi = {
     api.get<TopCategory[]>('/analytics/top-categories', { params: month ? { month } : {} }).then((r) => r.data),
   learningGrowth: () =>
     api.get<LearningGrowthPoint[]>('/analytics/learning-growth').then((r) => r.data),
+  international: (month?: string) =>
+    api.get<InternationalSpend>('/analytics/international', { params: month ? { month } : {} }).then((r) => r.data),
   multiYearIncome: () => api.get<MultiYearReport>('/analytics/multi-year/income').then((r) => r.data),
   multiYearSpend: () => api.get<MultiYearReport>('/analytics/multi-year/spend').then((r) => r.data),
   multiYearCategories: () => api.get<MultiYearCategoryReport>('/analytics/multi-year/categories').then((r) => r.data),
@@ -1447,4 +1466,19 @@ export const accountAggregatorApi = {
   confirmNewAccount: (linkId: string) =>
     api.post(`/integrations/setu/links/${linkId}/confirm-new-account`),
   disconnect: (linkId: string) => api.post(`/integrations/setu/links/${linkId}/disconnect`),
+};
+
+/** GET/PUT /notification-preferences -- only FINANCIAL on EMAIL/PUSH is exposed (see the backend's
+ *  NotificationPreferenceService for why SECURITY and MARKETING are not). */
+export interface NotificationPreferenceDto {
+  category: 'FINANCIAL';
+  channel: 'EMAIL' | 'PUSH';
+  enabled: boolean;
+}
+
+export const notificationPreferencesApi = {
+  list: () => api.get<NotificationPreferenceDto[]>('/notification-preferences').then((r) => r.data),
+  set: (channel: NotificationPreferenceDto['channel'], enabled: boolean) =>
+    api.put<NotificationPreferenceDto[]>('/notification-preferences', { category: 'FINANCIAL', channel, enabled })
+      .then((r) => r.data),
 };

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Check, X } from 'lucide-react';
 import { gmailApi, categoriesApi, type GmailReviewItem } from '../api/endpoints';
 import { formatDayMonthYear } from '../components/AccountUI';
+import { trackNavigation } from '../lib/trackNavigation';
 
 // C5.4, D-15: a true per-receipt review queue, not the generic "Continue previous import" list
 // CSV/PDF sessions share -- each Gmail-sourced ImportSession is a single-row session
@@ -79,7 +80,7 @@ export default function GmailReview() {
           // Bug found in a fresh review pass, same as AccountAggregatorConfirm.tsx: Settings is a
           // nav+pane shell now -- a bare '/app/settings' would land on General instead of back on
           // Connected Apps, where the Gmail connection this queue belongs to actually lives.
-          onClick={() => navigate('/app/settings?tab=connected-apps')}
+          onClick={() => { trackNavigation('settings', 'contextual'); void navigate('/app/settings?tab=connected-apps'); }}
           className="text-xs text-muted hover:text-ink inline-flex items-center gap-1 mb-3"
         >
           <ArrowLeft size={13} /> Settings

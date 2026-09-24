@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { ProtectedRoute } from './ProtectedRoute';
 import { useAuth } from '../context/AuthContext';
 import { useOnboardingUI } from '../onboarding/OnboardingUIContext';
@@ -127,5 +127,76 @@ describe('ProtectedRoute', () => {
     renderProtected(true);
 
     expect(screen.getByText('Protected content')).toBeInTheDocument();
+  });
+
+  describe('return-to state', () => {
+    function StateProbe({ label }: { label: string }) {
+      const location = useLocation();
+      return <div data-testid={label}>{JSON.stringify(location.state ?? null)}</div>;
+    }
+
+    function renderAtPath(path: string, allowUnverified?: boolean, state?: unknown) {
+      return render(
+        <MemoryRouter initialEntries={[{ pathname: path.split('?')[0], search: path.includes('?') ? `?${path.split('?')[1]}` : '', state }]}>
+          <Routes>
+            <Route path="/app/*" element={<ProtectedRoute><div>Protected content</div></ProtectedRoute>} />
+            <Route path="/email-change-verify" element={<ProtectedRoute><div>Protected content</div></ProtectedRoute>} />
+            <Route path="/some-other-protected" element={<ProtectedRoute><div>Protected content</div></ProtectedRoute>} />
+            <Route path="/verify-phone" element={
+              <ProtectedRoute allowUnverified={allowUnverified}><StateProbe label="verify-phone" /></ProtectedRoute>
+            } />
+            <Route path="/auth" element={<StateProbe label="auth" />} />
+          </Routes>
+        </MemoryRouter>
+      );
+    }
+
+    it('passes the requested /app path and query to /auth', () => {
+      vi.mocked(useAuth).mockReturnValue({ token: null, bootstrapping: false, phoneVerified: false, onboardingCompleted: true } as ReturnType<typeof useAuth>);
+
+      renderAtPath('/app/settings?tab=notifications');
+
+      expect(screen.getByTestId('auth')).toHaveTextContent(JSON.stringify({ from: '/app/settings?tab=notifications' }));
+    });
+
+    it('passes the requested /app path to /verify-phone for an unverified session', () => {
+      vi.mocked(useAuth).mockReturnValue({ token: 'tok', bootstrapping: false, phoneVerified: false, onboardingCompleted: true } as ReturnType<typeof useAuth>);
+
+      renderAtPath('/app/imports/job-9', true);
+
+      expect(screen.getByTestId('verify-phone')).toHaveTextContent(JSON.stringify({ from: '/app/imports/job-9' }));
+    });
+
+    it('records the emailed email-change link, the one allowed protected route outside /app', () => {
+      vi.mocked(useAuth).mockReturnValue({ token: null, bootstrapping: false, phoneVerified: false, onboardingCompleted: true } as ReturnType<typeof useAuth>);
+
+      renderAtPath('/email-change-verify?sessionId=s1&token=t1');
+
+      expect(screen.getByTestId('auth')).toHaveTextContent(JSON.stringify({ from: '/email-change-verify?sessionId=s1&token=t1' }));
+    });
+
+    it('records no return target for any other protected route outside /app', () => {
+      vi.mocked(useAuth).mockReturnValue({ token: null, bootstrapping: false, phoneVerified: false, onboardingCompleted: true } as ReturnType<typeof useAuth>);
+
+      renderAtPath('/some-other-protected');
+
+      expect(screen.getByTestId('auth')).toHaveTextContent('null');
+    });
+
+    it('a signed-out visit to /verify-phone forwards its own validated from, not /verify-phone', () => {
+      vi.mocked(useAuth).mockReturnValue({ token: null, bootstrapping: false, phoneVerified: false, onboardingCompleted: true } as ReturnType<typeof useAuth>);
+
+      renderAtPath('/verify-phone', true, { fromLogin: true, from: '/app/imports/job-9' });
+
+      expect(screen.getByTestId('auth')).toHaveTextContent(JSON.stringify({ from: '/app/imports/job-9' }));
+    });
+
+    it('drops an invalid forwarded from on the way to /auth', () => {
+      vi.mocked(useAuth).mockReturnValue({ token: null, bootstrapping: false, phoneVerified: false, onboardingCompleted: true } as ReturnType<typeof useAuth>);
+
+      renderAtPath('/verify-phone', true, { from: '//evil.example' });
+
+      expect(screen.getByTestId('auth')).toHaveTextContent('null');
+    });
   });
 });

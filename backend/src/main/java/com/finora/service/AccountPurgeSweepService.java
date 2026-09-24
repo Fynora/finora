@@ -1,6 +1,7 @@
 package com.finora.service;
 
 import com.finora.entity.Account;
+import com.finora.entity.AuditLog;
 import com.finora.entity.Relationship;
 import com.finora.entity.Subscription;
 import com.finora.entity.SubscriptionOrder;
@@ -22,6 +23,7 @@ import com.finora.repository.AccountReactivationTokenRepository;
 import com.finora.repository.EmailLoginOtpRepository;
 import com.finora.repository.EmailVerificationTokenRepository;
 import com.finora.repository.AccountRepository;
+import com.finora.repository.AuditLogRepository;
 import com.finora.repository.AiAuditLogRepository;
 import com.finora.repository.BudgetRepository;
 import com.finora.repository.CategoryRepository;
@@ -139,6 +141,11 @@ public class AccountPurgeSweepService {
 
     private static final Logger log = LoggerFactory.getLogger(AccountPurgeSweepService.class);
 
+    /** Audit actions recording WHO asked for a deletion -- read back by
+     *  selfServiceConfirmationEmail, so the writers use these same constants. */
+    static final String DELETION_REQUESTED_BY_USER = "ACCOUNT_DELETION_REQUESTED";
+    static final String DELETION_REQUESTED_BY_ADMIN = "ACCOUNT_PURGE_REQUESTED_BY_ADMIN";
+
     /** No longer a user-facing safety window (deletion is instant -- see {@code
      *  UserAccountLifecycleService.requestDeletion}'s own doc comment on that product decision).
      *  What this floor still does: bound how soon the crash-recovery sweep retries an account
@@ -246,6 +253,8 @@ public class AccountPurgeSweepService {
     private final AuditService auditService;
     private final PasswordEncoder passwordEncoder;
     private final TransactionTemplate transactionTemplate;
+    private final AuditLogRepository auditLogRepository;
+    private final EmailProvider emailProvider;
 
     public AccountPurgeSweepService(UserRepository userRepository,
                                      GmailConnectionService gmailConnectionService,
@@ -310,7 +319,9 @@ public class AccountPurgeSweepService {
                                      CounterpartyCategoryObservationRepository counterpartyCategoryObservationRepository,
                                      AuditService auditService,
                                      PasswordEncoder passwordEncoder,
-                                     TransactionTemplate transactionTemplate) {
+                                     TransactionTemplate transactionTemplate,
+                                     AuditLogRepository auditLogRepository,
+                                     EmailProvider emailProvider) {
         this.userRepository = userRepository;
         this.gmailConnectionService = gmailConnectionService;
         this.gmailConnectionRepository = gmailConnectionRepository;
@@ -375,6 +386,8 @@ public class AccountPurgeSweepService {
         this.auditService = auditService;
         this.passwordEncoder = passwordEncoder;
         this.transactionTemplate = transactionTemplate;
+        this.auditLogRepository = auditLogRepository;
+        this.emailProvider = emailProvider;
     }
 
     /**
@@ -419,10 +432,16 @@ public class AccountPurgeSweepService {
         int failed = 0;
         for (UUID userId : candidates) {
             try {
+                // Read before purgeOne, which overwrites the address with an anonymized
+                // placeholder as its own last write. Null when no confirmation is owed.
+                String confirmationEmail = selfServiceConfirmationEmail(userId);
                 // No distinct second actor -- this is the sweep resuming a self-service request
                 // the account itself already made (see purgeOne's own doc on the actor param).
                 purgeOne(userId, userId);
                 purged++;
+                if (confirmationEmail != null) {
+                    sendDeletedConfirmation(userId, confirmationEmail);
+                }
             } catch (Exception e) {
                 failed++;
                 String message = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
@@ -431,6 +450,63 @@ public class AccountPurgeSweepService {
             }
         }
         return new Result(purged, failed);
+    }
+
+    /**
+     * The "your account has been deleted" email {@code UserAccountLifecycleService.requestDeletion}
+     * sends once its own synchronous purge finishes -- owed here too when that purge failed and
+     * this sweep is what finally completed it, or the user who asked never hears that it happened.
+     * (Every account stuck by the Gmail-connection purge bug, for days, is exactly that case.)
+     *
+     * <p>Only for a self-service request: the most recent deletion-request audit row decides it.
+     * An admin purge sends no email of its own ({@link #adminPurge}), so finishing a stuck one
+     * here must not start sending one. No duplicate is possible with requestDeletion's own send:
+     * it only sends after purgeOne returns, and then the account is DELETED and never reaches this
+     * sweep again.
+     *
+     * @return the address to confirm to, or {@code null} when no confirmation is owed
+     */
+    private String selfServiceConfirmationEmail(UUID userId) {
+        User user = userRepository.findById(userId).orElse(null);
+        if (user == null || !user.isPendingDeletion()) {
+            return null;
+        }
+        List<AuditLog> requests = auditLogRepository.findTop50ByUserIdAndActionInOrderByCreatedAtDesc(
+                userId, List.of(DELETION_REQUESTED_BY_USER, DELETION_REQUESTED_BY_ADMIN));
+        if (requests.isEmpty() || !DELETION_REQUESTED_BY_USER.equals(requests.get(0).getAction())) {
+            return null;
+        }
+        return user.getEmail();
+    }
+
+    /** Best-effort, same as requestDeletion's own send: the purge has already happened and cannot
+     *  be undone, so a mail failure is logged and audited, never turned into a purge failure. Sent
+     *  only once the account is confirmed DELETED, so a purgeOne that returned early without
+     *  finishing can never produce a false "deleted" email. */
+    private void sendDeletedConfirmation(UUID userId, String email) {
+        try {
+            User user = userRepository.findById(userId).orElse(null);
+            if (user == null || !user.isDeleted()) {
+                return;
+            }
+            EmailResult result = emailProvider.sendAccountDeletedEmail(email, Instant.now());
+            auditService.record(userId, "EMAIL_SENT", "User", userId, Map.of(
+                    "type", "account_deleted", "provider", result.provider().name(),
+                    "success", result.success(), "via", "purge_sweep"));
+        } catch (RuntimeException e) {
+            // Never rethrown, including from the audit write below: sweep() would otherwise count
+            // an account that DID purge as ACCOUNT_PURGE_FAILED.
+            log.error("Account {} was purged but its deletion confirmation email failed: {}",
+                    userId, e.getMessage(), e);
+            try {
+                auditService.record(userId, "EMAIL_SENT", "User", userId, Map.of(
+                        "type", "account_deleted", "success", false, "via", "purge_sweep",
+                        "error", e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
+            } catch (RuntimeException auditFailure) {
+                log.error("Could not record the failed deletion confirmation email for account {}: {}",
+                        userId, auditFailure.getMessage(), auditFailure);
+            }
+        }
     }
 
     /**
@@ -471,7 +547,7 @@ public class AccountPurgeSweepService {
             user.setDeletionRequestedAt(Instant.now());
             userRepository.save(user);
         }
-        auditService.record(userId, "ACCOUNT_PURGE_REQUESTED_BY_ADMIN", "User", userId,
+        auditService.record(userId, DELETION_REQUESTED_BY_ADMIN, "User", userId,
                 Map.of("actorId", actingAdminId.toString()));
         purgeOne(userId, actingAdminId);
     }
@@ -511,8 +587,12 @@ public class AccountPurgeSweepService {
             // Gmail in the first place.
         }
         // Clears PII (googleEmail/googleUserId) from disconnected/revoked history rows too, not
-        // just whatever was live a moment ago.
-        gmailConnectionRepository.deleteByUserId(userId);
+        // just whatever was live a moment ago. Needs its own transaction: this method deliberately
+        // runs outside one, and a derived delete loads each row and calls EntityManager.remove on
+        // it, which throws TransactionRequiredException without one. That left every account with
+        // any gmail_connections row stuck at PENDING_DELETION on every retry, real email still on
+        // the row.
+        transactionTemplate.executeWithoutResult(tx -> gmailConnectionRepository.deleteByUserId(userId));
 
         // Same "outbound HTTPS call, not inside the DB transaction below" reasoning as Gmail
         // disconnect above. A subscription in LIVE_RAZORPAY_MANDATE_STATUSES with a

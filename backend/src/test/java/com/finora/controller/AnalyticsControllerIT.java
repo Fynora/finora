@@ -42,7 +42,7 @@ class AnalyticsControllerIT extends AbstractIntegrationTest {
     private static final List<String> ADVANCED_REPORTS_PATHS = List.of(
             "/api/v1/analytics/top-merchants", "/api/v1/analytics/trend",
             "/api/v1/analytics/category-confidence", "/api/v1/analytics/top-categories",
-            "/api/v1/analytics/learning-growth",
+            "/api/v1/analytics/learning-growth", "/api/v1/analytics/international",
             "/api/v1/analytics/multi-year/income", "/api/v1/analytics/multi-year/spend",
             "/api/v1/analytics/multi-year/categories", "/api/v1/analytics/multi-year/lifestyle-inflation");
 

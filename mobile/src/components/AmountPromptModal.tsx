@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import {
-  KeyboardAvoidingView, Modal, Pressable, StyleSheet, Text, TextInput, View,
+  KeyboardAvoidingView, Pressable, StyleSheet, Text, TextInput, View
 } from 'react-native';
+import { AppModal } from './AppModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { parsePositiveAmount } from '../lib/validation';
 import { radius, spacing, useTheme } from '../theme';
@@ -47,7 +48,7 @@ export function AmountPromptModal({
     // key, and Cancel below. Letting any of them through would dismiss the sheet while the
     // contribution is still on its way to the server: it lands anyway, and the user last saw
     // themselves cancel it. Money must not move after an apparent cancel.
-    <Modal visible animationType="slide" transparent onRequestClose={submitting ? () => {} : onClose}>
+    <AppModal visible animationType="slide" transparent onRequestClose={submitting ? () => {} : onClose}>
       <KeyboardAvoidingView style={styles.flex} behavior="padding">
         <Pressable
           style={styles.backdrop}
@@ -103,7 +104,7 @@ export function AmountPromptModal({
           </View>
         </View>
       </KeyboardAvoidingView>
-    </Modal>
+    </AppModal>
   );
 }
 

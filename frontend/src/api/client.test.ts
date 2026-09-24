@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { api, normalizeApiBase, getAccessToken, setAccessToken } from './client';
+import { api, telemetryApi, normalizeApiBase, getAccessToken, setAccessToken } from './client';
 
 const refreshMock = vi.fn();
 vi.mock('./endpoints', () => ({
@@ -181,6 +181,30 @@ describe('api response interceptor', () => {
     expect(getAccessToken()).toBe('a-stale-access-token-from-a-previous-session');
     expect(localStorage.getItem('finora_session_ended_reason')).toBeNull();
   });
+
+  /**
+   * Regression, found by hand-testing OTP login: a mistyped code is a 401
+   * (AUTH_OTP_INVALID_OR_EXPIRED), and these three endpoints were missing from
+   * AUTH_ENDPOINTS_NO_TOKEN -- so the wrong code ran the refresh-then-clear-session path and
+   * hard-navigated to /auth, wiping the page before "invalid code" could render. Same failure
+   * class as /auth/login and /auth/identify above. The request step 401s too (unknown account),
+   * as does the phone step (AUTH_INVALID_CREDENTIALS).
+   */
+  it.each(['/auth/otp/email/request', '/auth/otp/email/login', '/auth/otp/phone/login'])(
+    'leaves a 401 from %s alone so the caller can show the error instead of signing the user out',
+    async (url) => {
+      setAccessToken('a-stale-access-token-from-a-previous-session');
+
+      await expect(rejectedHandler()({
+        response: { status: 401, data: { message: 'That code is invalid or has expired.', errorCode: 'AUTH_013' } },
+        config: { url, _retried: false, headers: {} },
+      })).rejects.toBeDefined();
+
+      expect(refreshMock).not.toHaveBeenCalled();
+      expect(getAccessToken()).toBe('a-stale-access-token-from-a-previous-session');
+      expect(localStorage.getItem('finora_session_ended_reason')).toBeNull();
+    }
+  );
 
   /** Bug 42, response-interceptor half: an unrelated endpoint must still get the normal
    *  retry-on-401 treatment even when its query string happens to contain an auth path. */
@@ -390,6 +414,36 @@ describe('client identity headers', () => {
 
     expect(result.headers['X-Client-Platform']).toBe('WEB');
     expect(result.headers.Authorization).toBeUndefined();
+  });
+
+  /**
+   * The property `telemetryApi` exists for.
+   *
+   * `api`'s response interceptor turns a 401 on a non-auth endpoint into a token refresh, and a
+   * failed refresh into clearSessionAndRedirect() -- a full `window.location.href` navigation that
+   * signs the user out and destroys React state. Nav-event telemetry originally went through
+   * `api`, which meant a best-effort usage counter could sign someone out mid-click, at a moment
+   * when nothing the user was doing required the network.
+   *
+   * If someone later points telemetry back at `api`, or attaches a response interceptor here,
+   * this fails.
+   */
+  it('telemetryApi has no response interceptor, so a usage counter can never sign anyone out', () => {
+    const handlers = (telemetryApi.interceptors.response as any).handlers ?? [];
+
+    expect(handlers).toHaveLength(0);
+  });
+
+  it('telemetryApi still sends Authorization and the platform, so events stay attributed', () => {
+    setAccessToken('a-telemetry-token');
+    const handlers = (telemetryApi.interceptors.request as any).handlers;
+    const config: any = { url: '/nav-events', headers: {} };
+
+    const result = handlers[handlers.length - 1].fulfilled(config);
+
+    expect(result.headers.Authorization).toBe('Bearer a-telemetry-token');
+    // Without this header the backend resolves every event to WEB, silently mis-tagging mobile.
+    expect(result.headers['X-Client-Platform']).toBe('WEB');
   });
 
   /**

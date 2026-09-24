@@ -41,7 +41,13 @@ const JAR = resolve(
 const CONTAINER = 'finora-e2e-db';
 const DB_PORT = process.env.FINORA_E2E_DB_PORT ?? '5433';
 const API_PORT = process.env.FINORA_E2E_API_PORT ?? '8081';
-const HEALTH = `http://localhost:${API_PORT}/actuator/health`;
+// The backend also binds management.server.port for the actuator context, and its default (9091)
+// is the SAME for every instance -- so a developer with a backend already running on 8080 would
+// find this one failing to start on a port that is never mentioned anywhere in this script.
+// Derived from API_PORT so the two move together, exactly like the CI workflows do it.
+const MGMT_PORT = process.env.FINORA_E2E_MGMT_PORT ?? String(Number(API_PORT) + 1000);
+// /health, not /actuator/health: actuator listens on management.server.port now.
+const HEALTH = `http://localhost:${API_PORT}/health`;
 
 const run = (cmd, args, opts = {}) => spawnSync(cmd, args, { encoding: 'utf-8', ...opts });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -120,6 +126,7 @@ async function startBackend() {
       ...process.env,
       SPRING_PROFILES_ACTIVE: 'dev',
       SERVER_PORT: API_PORT,
+      MANAGEMENT_SERVER_PORT: MGMT_PORT,
       DB_PORT,
       // The suite registers an account per test (isolation) and stages a statement in most of
       // them, so the production per-IP ceilings -- 5 registrations / 5 min, 10 stages / 10 min --
@@ -168,13 +175,14 @@ async function up() {
   if (!apiReady) {
     throw new Error(
       `The backend never reported healthy at ${HEALTH}.\n` +
-        `It runs detached, so check for a port clash on ${API_PORT} or a migration failure by\n` +
+        `It runs detached, so check for a port clash on ${API_PORT} or ${MGMT_PORT} (the actuator\n` +
+        `port -- a second backend on this machine binds it too), or a migration failure, by\n` +
         `starting it in the foreground:\n` +
-        `  cd backend && SERVER_PORT=${API_PORT} DB_PORT=${DB_PORT} java -jar target/finora-backend-*.jar`
+        `  cd backend && SERVER_PORT=${API_PORT} MANAGEMENT_SERVER_PORT=${MGMT_PORT} DB_PORT=${DB_PORT} java -jar target/finora-backend-*.jar`
     );
   }
 
-  console.log(`\nReady.  API ${HEALTH.replace('/actuator/health', '')}   DB localhost:${DB_PORT}\n`);
+  console.log(`\nReady.  API ${HEALTH.replace('/health', '')}   DB localhost:${DB_PORT}\n`);
 }
 
 function down() {

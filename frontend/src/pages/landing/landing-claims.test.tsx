@@ -59,6 +59,13 @@ describe('landing page — marketing claims', () => {
     expect(patterns.filter((p) => p.test(text)).map(String)).toEqual([]);
   });
 
+  it('promises no import duration nobody has measured', () => {
+    renderLanding();
+    // "Two minutes, done." sat in the Everywhere section. Import time depends on the file, and it
+    // ends in a confirm step the user does themselves, so no duration is measured or promised.
+    expect(pageText()).not.toMatch(/two minutes|\bin (under )?\d+ (seconds?|minutes?)\b/i);
+  });
+
   /**
    * Product's Billing Plan Taxonomy Decision (2026-08-12): exactly Free/Plus/Premium, no more,
    * no less. `plans.ts` described Free/Premium/Family/Future for four days after that decision
@@ -138,7 +145,7 @@ describe('landing page — marketing claims', () => {
 
     const rendered = (pricing?.textContent ?? '').match(/₹[\d,]+/g) ?? [];
     // A plan's own price, plus any rupee amount inside its secondaryPriceNote (e.g. "or
-    // ₹3,500/year") -- both trace back to this same plans.ts source of truth, so both are
+    // ₹1,999/year") -- both trace back to this same plans.ts source of truth, so both are
     // legitimate here; the invariant this test guards is "every rendered price is backed by
     // plans.ts," not "only the primary price may ever appear."
     const allowed = PLANS.flatMap((p) => [

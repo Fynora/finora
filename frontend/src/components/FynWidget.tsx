@@ -6,6 +6,7 @@ import type { FynFeedback } from '../api/endpoints';
 import { PremiumFeatureGate } from './PremiumFeatureGate';
 import { useAuth } from '../context/AuthContext';
 import { safeStorage } from '../lib/safeStorage';
+import { trackNavigation } from '../lib/trackNavigation';
 
 // Scoped per-account, same reasoning as TopBar.tsx's own readStorageKey for notifications: on a
 // shared/family computer, a global key would mark User A's still-undiscovered Fyn as "seen" the
@@ -78,6 +79,13 @@ export function FynWidget() {
   }, [open]);
 
   function openDrawer() {
+    // Ask Fyn is a taxonomy destination on both clients, and mobile reports it from its More
+    // menu. Without this, web would report zero ask-fyn opens and the data would say Fyn is a
+    // mobile-only feature -- the exact opposite of the truth, since web is the client that
+    // promoted it to an always-available header icon. `header` (not `group`) because on web that
+    // promotion IS the affordance; the entry point differs by platform even though the
+    // destination does not.
+    trackNavigation('ask-fyn', 'header');
     setOpen(true);
     if (!hasBeenOpened) {
       setHasBeenOpened(true);

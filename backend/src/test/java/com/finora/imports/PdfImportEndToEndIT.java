@@ -331,4 +331,130 @@ class PdfImportEndToEndIT extends AbstractIntegrationTest {
         assertThat(stored.getStatementPeriodStart()).isEqualTo(LocalDate.of(2026, 7, 1));
         assertThat(stored.getStatementPeriodEnd()).isEqualTo(LocalDate.of(2026, 7, 31));
     }
+
+    @Test
+    @DisplayName("an international row's flag and printed foreign amount survive parse, session, confirm and persist")
+    void internationalRowsArePersistedWithTheirForeignAmount() throws Exception {
+        byte[] pdf = PdfFixtureBuilder.buildDomesticInternationalSplitSample();
+        User user = user();
+        Account account = account(user);
+
+        StagingResponse staged = importService.parseAndStageAnyFormat(
+                user.getId(), "PDF", "card-statement.pdf", pdf, null);
+
+        // Read off the fixture's own printed rows.
+        StagedRow domestic = stagedNamed(staged.rows(), "SAMPLE AIRLINE");
+        StagedRow purchase = stagedNamed(staged.rows(), "SAMPLE CLOUD HOST");
+        StagedRow gst = stagedNamed(staged.rows(), "IGST SAMPLE");
+        assertThat(staged.rows()).hasSize(3);
+        assertThat(domestic.international()).isFalse();
+        assertThat(domestic.amount()).isEqualByComparingTo("5000.00");
+        assertThat(purchase.international()).isTrue();
+        assertThat(purchase.amount())
+                .as("the rupee amount billed, never the foreign amount printed beside it")
+                .isEqualByComparingTo("1050.00");
+        assertThat(purchase.foreignCurrency()).isEqualTo("USD");
+        assertThat(purchase.foreignAmount()).isEqualByComparingTo("12.50");
+        assertThat(gst.international()).isTrue();
+        assertThat(gst.foreignCurrency()).isNull();
+
+        // The session stores staged rows as JSON and the resume flow reads them back from there.
+        ImportSession session = importSessionService.createSession(
+                user.getId(), "card-statement.pdf", pdf, staged.rows(), staged.detectedAccount());
+        List<StagedRow> resumed = importSessionService.readStagedRows(session);
+        assertThat(stagedNamed(resumed, "SAMPLE CLOUD HOST").foreignAmount()).isEqualByComparingTo("12.50");
+        assertThat(stagedNamed(resumed, "IGST SAMPLE").international()).isTrue();
+
+        // Confirm exactly as the review screen does: every staged field echoed back.
+        List<ConfirmedRow> rows = resumed.stream()
+                .map(r -> new ConfirmedRow(r.date(), r.description(), r.amount(), r.type(), "Other", true,
+                        "rule", null, false, null, null, false, null, r.rowPosition(),
+                        r.international(), r.foreignCurrency(), r.foreignAmount()))
+                .toList();
+        importService.confirmSession(user.getId(), new ConfirmRequest(
+                session.getId(), rows, account.getId(), null, null, null, null));
+
+        List<Transaction> persisted = transactionRepository.findByUserId(user.getId());
+        assertThat(persisted).hasSize(3);
+        Transaction persistedPurchase = persistedNamed(persisted, "SAMPLE CLOUD HOST");
+        assertThat(persistedPurchase.isInternational()).isTrue();
+        assertThat(persistedPurchase.getAmount()).isEqualByComparingTo("1050.00");
+        assertThat(persistedPurchase.getForeignCurrency()).isEqualTo("USD");
+        assertThat(persistedPurchase.getForeignAmount()).isEqualByComparingTo("12.50");
+        Transaction persistedGst = persistedNamed(persisted, "IGST SAMPLE");
+        assertThat(persistedGst.isInternational()).isTrue();
+        assertThat(persistedGst.getForeignCurrency()).isNull();
+        assertThat(persistedGst.getForeignAmount()).isNull();
+        assertThat(persistedNamed(persisted, "SAMPLE AIRLINE").isInternational()).isFalse();
+
+        // And out through the API's own shape.
+        var dto = com.finora.transactions.TransactionDto.from(persistedPurchase, "Other");
+        assertThat(dto.international()).isTrue();
+        assertThat(dto.foreignCurrency()).isEqualTo("USD");
+        assertThat(dto.foreignAmount()).isEqualByComparingTo("12.50");
+    }
+
+    @Test
+    @DisplayName("an older client that echoes no international fields still stores the statement's own")
+    void aConfirmWithoutTheNewFieldsStillStoresTheStatementsOwnInternationalFacts() throws Exception {
+        // An installed mobile build predates these fields and sends none of them. They are the
+        // statement's facts, so the server takes them from its own parse -- see
+        // ConfirmedRowIntegrity.withStatementFacts.
+        byte[] pdf = PdfFixtureBuilder.buildDomesticInternationalSplitSample();
+        User user = user();
+        Account account = account(user);
+        StagingResponse staged = importService.parseAndStageAnyFormat(
+                user.getId(), "PDF", "card-statement.pdf", pdf, null);
+        ImportSession session = importSessionService.createSession(
+                user.getId(), "card-statement.pdf", pdf, staged.rows(), staged.detectedAccount());
+
+        importService.confirmSession(user.getId(), new ConfirmRequest(
+                session.getId(), confirmAll(staged.rows()), account.getId(), null, null, null, null));
+
+        List<Transaction> persisted = transactionRepository.findByUserId(user.getId());
+        assertThat(persisted).hasSize(3);
+        Transaction purchase = persistedNamed(persisted, "SAMPLE CLOUD HOST");
+        assertThat(purchase.isInternational()).isTrue();
+        assertThat(purchase.getForeignCurrency()).isEqualTo("USD");
+        assertThat(purchase.getForeignAmount()).isEqualByComparingTo("12.50");
+        assertThat(persistedNamed(persisted, "IGST SAMPLE").isInternational()).isTrue();
+        assertThat(persistedNamed(persisted, "SAMPLE AIRLINE").isInternational()).isFalse();
+    }
+
+    @Test
+    @DisplayName("an HSBC-style savings ledger: descriptions, opening balance, product and holder all survive")
+    void anHsbcStyleSavingsLedgerIsReadEndToEnd() throws Exception {
+        // Each assertion below failed on the real (scanned) evidencing statement before its fix:
+        // empty descriptions ("Details" not a recognized narration header), an opening balance of
+        // exactly twice the printed one (the brought-forward marker read as a debit of its own
+        // balance), a "(DR=Debit)" header note staged as an unmatched row, and no holder name (it
+        // shares its line with "Statement Date"), and a product of UNKNOWN.
+        byte[] pdf = PdfFixtureBuilder.buildHsbcStyleSavingsSample();
+        User user = user();
+        Account account = account(user);
+
+        StagingResponse staged = importService.parseAndStageAnyFormat(
+                user.getId(), "PDF", "savings-statement.pdf", pdf, null);
+
+        assertThat(staged.rows()).extracting(StagedRow::description)
+                .containsExactlyInAnyOrder("UPI SAMPLE PAYEE", "ECS SAMPLE LENDER");
+        DetectedAccountInfo detected = staged.detectedAccount();
+        assertThat(detected.openingBalance()).isEqualByComparingTo("1000.00");
+        assertThat(detected.closingBalance()).isEqualByComparingTo("850.00");
+        assertThat(detected.suggestedAccountType()).isEqualTo("SAVINGS");
+        // Row 0 is the brought-forward row, which has no Withdrawals or Deposits cell; discovery
+        // judged the product on that row's columns alone and came back UNKNOWN.
+        assertThat(detected.detectedProduct()).isEqualTo("SAVINGS");
+        assertThat(detected.accountHolderName()).isEqualTo("SAMPLE HOLDER");
+        assertThat(staged.unparseableRows()).extracting(r -> String.valueOf(r.raw().values()))
+                .noneMatch(v -> v.contains("DR=Debit"));
+
+        ImportSession session = importSessionService.createSession(
+                user.getId(), "savings-statement.pdf", pdf, staged.rows(), detected);
+        importService.confirmSession(user.getId(), new ConfirmRequest(
+                session.getId(), confirmAll(staged.rows()), account.getId(), null, null, null, null));
+        assertThat(transactionRepository.findByUserId(user.getId()))
+                .extracting(Transaction::getDescription)
+                .containsExactlyInAnyOrder("UPI SAMPLE PAYEE", "ECS SAMPLE LENDER");
+    }
 }

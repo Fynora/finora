@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator, Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View
 } from 'react-native';
+import { AppAlert } from '../lib/appAlert';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRoute, type RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -197,6 +198,10 @@ export function LedgerScreen() {
   // Phase 4 -- backs the server's own `status` search param (TransactionController.search),
   // unused by any client until now. 'ALL' means no filter, same convention as typeFilter above.
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
+  // The statement's own domestic/international split (Transaction.international). A single
+  // on/off chip rather than web's three-way select: "only international" is the question a phone
+  // user asks; the web Ledger's select also offers domestic-only.
+  const [internationalOnly, setInternationalOnly] = useState(false);
   // Phase 5 (Low-Priority Polish). A manual date-range pick, independent of the drill-through's
   // OWN dateFrom/dateTo below -- a drill-through arrives already scoped to a period (e.g. "August
   // 2026" from a chart), while this is the user picking their own range by hand. Wins over the
@@ -329,6 +334,7 @@ export function LedgerScreen() {
       keyword: drillThroughKeyword ?? (debouncedKeyword || undefined),
       type: typeFilter === 'ALL' ? undefined : typeFilter,
       status: statusFilter === 'ALL' ? undefined : statusFilter,
+      international: internationalOnly ? true : undefined,
       // accountId: Track C/C6 (ImportScreen's "View in Ledger") is the only caller that ever sets
       // this -- needs no name resolution, since ImportScreen already has the confirmed account's
       // real id from the confirm response itself.
@@ -337,7 +343,7 @@ export function LedgerScreen() {
       dateFrom: manualDateFrom ?? activeDrillThrough?.dateFrom ?? undefined,
       dateTo: manualDateTo ?? activeDrillThrough?.dateTo ?? undefined,
     }),
-    [drillThroughKeyword, debouncedKeyword, typeFilter, statusFilter, resolvedCategoryId, activeDrillThrough, manualDateFrom, manualDateTo]
+    [drillThroughKeyword, debouncedKeyword, typeFilter, statusFilter, internationalOnly, resolvedCategoryId, activeDrillThrough, manualDateFrom, manualDateTo]
   );
 
   /**
@@ -367,10 +373,10 @@ export function LedgerScreen() {
   const totalElements = data?.pages[0]?.totalElements ?? 0;
   // Computed fresh every render (cheap: one Date construction) and included below as a memo
   // dependency in its own right, alongside txns. Without it, a mount that goes idle overnight --
-  // this tab stays mounted as a bottom-tab screen, and nothing here refetches on app foreground
-  // (see queryClient.ts's own comment on why refetchOnWindowFocus is deliberately not reimplemented
-  // via AppState) -- would keep showing whichever "Today"/"Yesterday" it computed the last time
-  // txns itself changed, silently mislabeling yesterday's rows as today's once the day rolls over.
+  // this tab stays mounted as a bottom-tab screen, and a foreground refetch (queryClient.ts's
+  // startForegroundRefetch) that returns unchanged data does not change txns either -- would keep
+  // showing whichever "Today"/"Yesterday" it computed the last time txns itself changed, silently
+  // mislabeling yesterday's rows as today's once the day rolls over.
   // Naming it here means ANY re-render after midnight (a keystroke in search, a filter toggle, an
   // unrelated modal opening) corrects the labels, not only one that also happens to refetch data.
   const todayDateKey = new Date().toDateString();
@@ -427,7 +433,7 @@ export function LedgerScreen() {
     // feels acknowledged rather than only its eventual outcome.
     hapticImpact();
     // Alert.alert replaces the web's window.confirm(), which doesn't exist in React Native.
-    Alert.alert(
+    AppAlert.alert(
       'Delete transaction?',
       `"${t.description || t.merchant}" (${fmtCurrency(t.amount)}) can't be recovered.`,
       [
@@ -638,6 +644,24 @@ export function LedgerScreen() {
                   </Pressable>
                 );
               })}
+              <View
+                style={[styles.filterGroupDivider, { backgroundColor: c.border }]}
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+              />
+              <Pressable
+                onPress={() => setInternationalOnly((on) => !on)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: internationalOnly }}
+                accessibilityLabel="Show only international transactions"
+                style={[
+                  styles.chip,
+                  { borderColor: c.border },
+                  internationalOnly && { backgroundColor: c.primaryLight, borderColor: c.primary },
+                ]}
+              >
+                <Text style={[styles.chipText, { color: internationalOnly ? c.primary : c.muted }]}>International</Text>
+              </Pressable>
             </ScrollView>
 
             {/* Phase 5 (Low-Priority Polish). A manual date-range pick -- the drill-through banner
@@ -721,7 +745,7 @@ export function LedgerScreen() {
             </View>
           ) : (
             <Text style={[styles.empty, { color: c.muted }]}>
-              {debouncedKeyword || typeFilter !== 'ALL' || statusFilter !== 'ALL' || activeDrillThrough
+              {debouncedKeyword || typeFilter !== 'ALL' || statusFilter !== 'ALL' || internationalOnly || activeDrillThrough
                 || manualDateFrom || manualDateTo
                 ? 'No transactions match these filters.'
                 : 'No transactions yet. Import a statement to get started.'}
@@ -806,7 +830,7 @@ export function LedgerScreen() {
                 // rather than as a tooltip: there is nowhere else a screen-reader user could
                 // otherwise learn it, since the pill below is grouped into this same atomic node.
                 badge ? `, ${badge.hint}` : ''
-              }, ${badges.map((b) => b.label).join(', ')}`}
+              }, ${badges.map((b) => b.label).join(', ')}${t.international ? ', international' : ''}`}
               // Describes the OUTCOME, not the gesture: VoiceOver and TalkBack both append their
               // own "double tap to activate" to a button, so spelling the gesture out here had the
               // row announce the same instruction twice in conflicting words. Default activation
@@ -853,6 +877,16 @@ export function LedgerScreen() {
                       {b.label}
                     </Text>
                   ))}
+                  {/* A fact the statement printed, not a review state -- neutral, beside the
+                      status badges rather than one of them (same as web's Ledger). */}
+                  {t.international ? (
+                    <Text
+                      testID={`international-badge-${t.id}`}
+                      style={[styles.reconciliationBadge, { backgroundColor: c.border, color: c.mutedInk }]}
+                    >
+                      International
+                    </Text>
+                  ) : null}
                 </View>
               </View>
               {deletingId === t.id ? (

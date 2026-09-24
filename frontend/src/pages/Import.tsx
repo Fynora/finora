@@ -38,11 +38,13 @@ import {
 } from '../lib/importReview';
 import { estimateOpeningBalanceFromTotalDue, toNewAccountPayload } from '../lib/newAccountPayload';
 import { isHeld } from '../lib/importJob';
-import { Button, ConfirmDialog, IconButton, FinoraCard } from '../design-system';
+import { Button, ConfirmDialog, IconButton, FinoraCard, useDialogA11y } from '../design-system';
 import type { ImportNavState } from '../lib/importNavState';
 import { useAuth } from '../context/AuthContext';
 import type { Account, AccountStatementGroup, DetectedAccountInfo, VerificationReport, ImportSummary, StagedAccountSection, StagedRow, SupersedeResult, UnparseableRow } from '../types';
 import { formatDate, formatDateDDMMMYYYY } from '../utils/date';
+import { formatForeignAmount } from '../lib/foreignAmount';
+import { trackNavigation } from '../lib/trackNavigation';
 
 type Step = 'upload' | 'review' | 'summary';
 type AccountChoice = 'existing' | 'new';
@@ -937,7 +939,7 @@ export default function Import() {
         <p className={`text-sm flex items-center gap-2 ${errorActionRequired ? 'text-warning' : 'text-danger'}`}>
           <AlertTriangle size={14} /> {error}
           {errorUpgradeRequired && (
-            <Link to="/app/billing" className="font-semibold underline whitespace-nowrap">
+            <Link to="/app/billing" onClick={() => trackNavigation('subscription', 'contextual')} className="font-semibold underline whitespace-nowrap">
               See Plus plans
             </Link>
           )}
@@ -959,11 +961,11 @@ export default function Import() {
             startOver() happens to maintain today but nothing enforces. */}
         {step === 'summary' && summary ? (
           <motion.div key="summary-single" {...stepMotionProps}>
-            <ImportSummaryScreen summary={summary} onDone={() => navigate('/app')} onImportAnother={startOver} />
+            <ImportSummaryScreen summary={summary} onDone={() => { trackNavigation('home', 'contextual'); void navigate('/app'); }} onImportAnother={startOver} />
           </motion.div>
         ) : step === 'summary' && multiSummary ? (
           <motion.div key="summary-multi" {...stepMotionProps}>
-            <MultiImportSummaryScreen summaries={multiSummary} onDone={() => navigate('/app')} onImportAnother={startOver} />
+            <MultiImportSummaryScreen summaries={multiSummary} onDone={() => { trackNavigation('home', 'contextual'); void navigate('/app'); }} onImportAnother={startOver} />
           </motion.div>
         ) : null}
         {step === 'upload' && (
@@ -1243,7 +1245,7 @@ export default function Import() {
               <FinoraCard>
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="font-semibold text-ink text-sm">Or import for an existing account</h2>
-                  <Link to="/app/accounts" className="text-xs font-semibold text-primary flex items-center gap-1 hover:underline">
+                  <Link to="/app/accounts" onClick={() => trackNavigation('accounts', 'contextual')} className="text-xs font-semibold text-primary flex items-center gap-1 hover:underline">
                     View all <ArrowRight size={12} />
                   </Link>
                 </div>
@@ -1349,7 +1351,7 @@ export default function Import() {
                               match Button's own primary/sm classes instead. */}
                           <Link
                             to="/app/billing"
-                            onClick={() => setShowPlusPop(false)}
+                            onClick={() => { trackNavigation('subscription', 'contextual'); setShowPlusPop(false); }}
                             className="block w-full text-center bg-primary text-on-primary hover:bg-primary-dark rounded-lg font-semibold transition-colors duration-200 ease-out px-3 py-1.5 text-xs"
                           >
                             See Plus plans
@@ -1381,7 +1383,7 @@ export default function Import() {
             <FinoraCard>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="font-semibold text-ink text-sm">Recent Imports</h2>
-                <Link to="/app/statements" className="text-xs font-semibold text-primary flex items-center gap-1 hover:underline">
+                <Link to="/app/statements" onClick={() => trackNavigation('statement-history', 'contextual')} className="text-xs font-semibold text-primary flex items-center gap-1 hover:underline">
                   View all imports <ArrowRight size={12} />
                 </Link>
               </div>
@@ -1740,43 +1742,53 @@ export default function Import() {
         />
       )}
 
-      {infoModal && (
-        <>
-          <div className="fixed inset-0 bg-black/40 z-30" onClick={() => setInfoModal(null)} />
-          <div className="fixed inset-0 z-40 flex items-center justify-center p-4 pointer-events-none">
-            <div className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-sm p-5 pointer-events-auto">
-              <div className="flex items-start justify-between gap-3 mb-3">
-                <h3 className="font-semibold text-ink text-sm">
-                  {infoModal === 'security' ? 'How we protect your data' : 'How to download your statement'}
-                </h3>
-                <button
-                  type="button"
-                  aria-label="Close"
-                  onClick={() => setInfoModal(null)}
-                  className="text-muted hover:text-ink flex-shrink-0"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-              {infoModal === 'security' ? (
-                <p className="text-xs text-muted leading-relaxed">
-                  Every statement you upload is encrypted in transit and at rest. We use it only to extract your
-                  own transactions — it is never shared with anyone else, and a password you enter for a
-                  protected PDF is used once to open the file and is never stored.
-                </p>
-              ) : (
-                <div className="text-xs text-muted leading-relaxed space-y-1.5">
-                  <p>Most banks let you download statements directly from net banking:</p>
-                  <p>1. Log in to your bank's net banking or app</p>
-                  <p>2. Look for "Statements", "e-Statements", or "Account Statement"</p>
-                  <p>3. Choose a date range and download as PDF or CSV</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </>
-      )}
+      {infoModal && <ImportInfoModal kind={infoModal} onClose={() => setInfoModal(null)} />}
     </div>
+  );
+}
+
+
+/** The "How we protect your data" / "How to download your statement" info dialog. Its own component
+ *  (rather than inline in Import) so it can own useDialogA11y's Escape/focus-trap hooks. */
+function ImportInfoModal({ kind, onClose }: { kind: 'security' | 'download'; onClose: () => void }) {
+  const panelRef = useDialogA11y({ onClose });
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/40 z-30" onClick={onClose} />
+      <div className="fixed inset-0 z-40 flex items-center justify-center p-4 pointer-events-none">
+        <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="import-info-title" tabIndex={-1} className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-sm p-5 pointer-events-auto">
+          <div className="flex items-start justify-between gap-3 mb-3">
+            <h3 id="import-info-title" className="font-semibold text-ink text-sm">
+              {kind === 'security' ? 'How we protect your data' : 'How to download your statement'}
+            </h3>
+            <button
+              type="button"
+              aria-label="Close"
+              onClick={onClose}
+              className="text-muted hover:text-ink flex-shrink-0"
+            >
+              <X size={18} />
+            </button>
+          </div>
+          {kind === 'security' ? (
+            <p className="text-xs text-muted leading-relaxed">
+              Every statement you upload is encrypted in transit and at rest. We use it only to extract your
+              own transactions — it is never shown to other users or sold, and a password you enter for a
+              protected PDF is used once to open the file and is never stored. If an import fails, our
+              staff can open the file through a permissioned review queue, and each download is logged.
+            </p>
+          ) : (
+            <div className="text-xs text-muted leading-relaxed space-y-1.5">
+              <p>Most banks let you download statements directly from net banking:</p>
+              <p>1. Log in to your bank's net banking or app</p>
+              <p>2. Look for "Statements", "e-Statements", or "Account Statement"</p>
+              <p>3. Choose a date range and download as PDF or CSV</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -1788,6 +1800,12 @@ export default function Import() {
 // use: a decision computed from the render closure's copy would be lost whenever two updates land
 // in the same React batch (clicking "Import anyway" and then immediately "Apply to N similar" is
 // exactly that), and losing a duplicate decision silently is the failure this whole item is about.
+/** The original-currency amount printed beside an international row's rupee amount, if any. */
+function ForeignAmountNote({ row }: { row: StagedRow }) {
+  const foreign = formatForeignAmount(row.foreignCurrency, row.foreignAmount);
+  return foreign ? <div className="text-2xs text-muted">{foreign}</div> : null;
+}
+
 function updateSection(
   setMultiSections: Dispatch<SetStateAction<SectionState[] | null>>,
   index: number,
@@ -2158,12 +2176,20 @@ function TransactionPreviewTable({
                 {isUnconfirmedGuess(r.categorySource) && (
                   <span className="text-2xs uppercase ml-1" style={{ color: '#d97706' }}>low confidence</span>
                 )}
+                {r.international && <span className="text-2xs uppercase ml-1 text-muted">international</span>}
               </td>
               {/* r.type is the backend's own authoritative direction signal (StagedRow.type,
                   'INCOME' | 'EXPENSE') -- amount itself is always the absolute value, never signed,
-                  so direction must come from type, never inferred from the number's sign. */}
-              <td className="p-1 text-right">{r.type === 'EXPENSE' ? `₹${r.amount}` : '—'}</td>
-              <td className="p-1 text-right">{r.type === 'INCOME' ? `₹${r.amount}` : '—'}</td>
+                  so direction must come from type, never inferred from the number's sign. The
+                  foreign amount, when printed, sits under the rupee amount it was billed as. */}
+              <td className="p-1 text-right">
+                {r.type === 'EXPENSE' ? `₹${r.amount}` : '—'}
+                {r.type === 'EXPENSE' && <ForeignAmountNote row={r} />}
+              </td>
+              <td className="p-1 text-right">
+                {r.type === 'INCOME' ? `₹${r.amount}` : '—'}
+                {r.type === 'INCOME' && <ForeignAmountNote row={r} />}
+              </td>
               <td className="p-1">
                 <select
                   value={chosenCategory[i]}

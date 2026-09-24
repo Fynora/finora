@@ -20,11 +20,12 @@ import { MerchantLogo } from '../components/MerchantLogo';
 import { BankLogo } from '../components/BankLogo';
 import type { Transaction } from '../types';
 import { counterpartyLabel } from '../lib/counterpartyLabel';
-import { ConfirmDialog, Button, IconButton, Skeleton, FinoraCard, Badge } from '../design-system';
+import { ConfirmDialog, Button, IconButton, Skeleton, FinoraCard, Badge, useDialogA11y } from '../design-system';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
 import { useMemoryReinforcement } from '../hooks/useMemoryReinforcement';
 import { MemoryReinforcementToast } from '../components/MemoryReinforcementToast';
 import { ICON_COMPONENTS, COLOR_HEX } from '../lib/categoryIcons';
+import { formatForeignAmount } from '../lib/foreignAmount';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
 // Bounds the client-side aggregation the KPI row and category chips are built from (see
@@ -315,11 +316,13 @@ export default function Ledger() {
 
   const activeFilters = { ...filters, keyword: debouncedKeyword || undefined };
   const hasActiveFilters = !!(activeFilters.type || activeFilters.status || activeFilters.categoryId
+    || activeFilters.international !== undefined
     || activeFilters.dateFrom || activeFilters.dateTo || activeFilters.keyword);
   // Deliberately excludes categoryId, unlike hasActiveFilters above -- the KPI row's numbers
   // (see statsFilters below) never factor in the category chip, so labelling them "filtered"
   // when a chip is the ONLY active filter would be true of the label but false of the value.
   const hasStatsFilters = !!(activeFilters.type || activeFilters.status
+    || activeFilters.international !== undefined
     || activeFilters.dateFrom || activeFilters.dateTo || activeFilters.keyword);
 
   const { data: page, isLoading, isFetching } = useQuery({
@@ -338,6 +341,7 @@ export default function Ledger() {
   const statsFilters: TransactionFilters = {
     type: activeFilters.type,
     status: activeFilters.status,
+    international: activeFilters.international,
     dateFrom: activeFilters.dateFrom,
     dateTo: activeFilters.dateTo,
     keyword: activeFilters.keyword,
@@ -588,7 +592,7 @@ export default function Ledger() {
 
       {/* Filters */}
       <FinoraCard padding="sm" className="space-y-4">
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
+        <div className="grid grid-cols-2 md:grid-cols-7 gap-2">
           <input
             placeholder="Search description, merchant, category, bank, account, branch, IFSC…"
             value={keywordInput}
@@ -621,6 +625,21 @@ export default function Ledger() {
             <option value="REVERSAL">Reversed</option>
             <option value="INVESTMENT_TRANSFER">Investment</option>
             <option value="SUPERSEDED">Superseded</option>
+          </select>
+          {/* The statement's own domestic/international split -- see Transaction.international. */}
+          <select
+            value={filters.international === undefined ? '' : String(filters.international)}
+            aria-label="Domestic or international"
+            className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm"
+            onChange={(e) => setFilters((f) => ({
+              ...f,
+              international: e.target.value === '' ? undefined : e.target.value === 'true',
+              page: 0,
+            }))}
+          >
+            <option value="">Domestic &amp; International</option>
+            <option value="true">International</option>
+            <option value="false">Domestic</option>
           </select>
           <input
             type="date"
@@ -818,10 +837,18 @@ export default function Ledger() {
                     </td>
                     <td className={`p-3 text-right font-medium whitespace-nowrap ${t.type === 'INCOME' ? 'text-success' : 'text-danger'}`}>
                       {t.type === 'INCOME' ? '+' : '-'}{fmt(t.amount)}
+                      {formatForeignAmount(t.foreignCurrency, t.foreignAmount) && (
+                        <div className="text-2xs text-muted font-normal">
+                          {formatForeignAmount(t.foreignCurrency, t.foreignAmount)}
+                        </div>
+                      )}
                     </td>
                     <td className="p-3">
                       <div className="flex flex-col items-start gap-1">
                         {badges.map((b) => <Badge key={b.label} tone={b.tone} label={b.label} />)}
+                        {/* A fact the statement printed, not a status -- so it sits beside the
+                            status badges rather than inside statusBadges' fallback chain. */}
+                        {t.international && <Badge tone="neutral" label="International" />}
                         {badge && (
                           <motion.button
                             type="button"
@@ -1031,13 +1058,15 @@ function ExplanationModal({ transaction, onClose }: { transaction: Transaction; 
     return () => { cancelled = true; };
   }, [transaction.id]);
 
+  const panelRef = useDialogA11y({ onClose });
+
   return (
     <>
       <div className="fixed inset-0 bg-black/40 z-30" onClick={onClose} />
       <div className="fixed inset-0 z-40 flex items-center justify-center p-4 pointer-events-none">
-        <div className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-sm p-5 pointer-events-auto">
+        <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="explanation-title" tabIndex={-1} className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-sm p-5 pointer-events-auto">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold text-ink text-sm">Why this category?</h3>
+            <h3 id="explanation-title" className="font-semibold text-ink text-sm">Why this category?</h3>
             <button type="button" onClick={onClose} aria-label="Close" className="text-muted hover:text-ink">
               <X size={18} />
             </button>
@@ -1140,13 +1169,15 @@ function BankCorrectionModal({
     }
   }
 
+  const panelRef = useDialogA11y({ onClose });
+
   return (
     <>
       <div className="fixed inset-0 bg-black/40 z-30" onClick={onClose} />
       <div className="fixed inset-0 z-40 flex items-center justify-center p-4 pointer-events-none">
-        <div className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-sm p-5 pointer-events-auto">
+        <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="bank-correction-title" tabIndex={-1} className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-sm p-5 pointer-events-auto">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold text-ink text-sm">Bank correction</h3>
+            <h3 id="bank-correction-title" className="font-semibold text-ink text-sm">Bank correction</h3>
             <button type="button" onClick={onClose} aria-label="Close" className="text-muted hover:text-ink">
               <X size={18} />
             </button>
@@ -1232,13 +1263,15 @@ function MarkTransferModal({
     }
   }
 
+  const panelRef = useDialogA11y({ onClose });
+
   return (
     <>
       <div className="fixed inset-0 bg-black/40 z-30" onClick={onClose} />
       <div className="fixed inset-0 z-40 flex items-center justify-center p-4 pointer-events-none">
-        <div className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-md p-5 pointer-events-auto">
+        <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="mark-transfer-title" tabIndex={-1} className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-md p-5 pointer-events-auto">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold text-ink text-sm">Mark as a transfer</h3>
+            <h3 id="mark-transfer-title" className="font-semibold text-ink text-sm">Mark as a transfer</h3>
             <button type="button" onClick={onClose} aria-label="Close" className="text-muted hover:text-ink">
               <X size={18} />
             </button>
@@ -1345,13 +1378,15 @@ function EditTransactionModal({
     }
   }
 
+  const panelRef = useDialogA11y({ onClose });
+
   return (
     <>
       <div className="fixed inset-0 bg-black/40 z-30" onClick={onClose} />
       <div className="fixed inset-0 z-40 flex items-center justify-center p-4 pointer-events-none">
-        <div className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-lg max-h-[85vh] overflow-y-auto p-5 pointer-events-auto">
+        <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="edit-transaction-title" tabIndex={-1} className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-lg max-h-[85vh] overflow-y-auto p-5 pointer-events-auto">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-ink text-sm">Edit Transaction</h3>
+            <h3 id="edit-transaction-title" className="font-semibold text-ink text-sm">Edit Transaction</h3>
             <button type="button" onClick={onClose} aria-label="Close" className="text-muted hover:text-ink">
               <X size={18} />
             </button>

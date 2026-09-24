@@ -4,7 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { ShareIntentProvider } from 'expo-share-intent';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { queryClient, startNetworkMonitoring, startQueryPersistence } from './src/api/queryClient';
+import { queryClient, startForegroundRefetch, startNetworkMonitoring, startQueryPersistence } from './src/api/queryClient';
 import { AppLockGate } from './src/components/AppLockGate';
 import { OfflineBoundary } from './src/components/OfflineBanner';
 import { RootErrorBoundary } from './src/components/RootErrorBoundary';
@@ -14,6 +14,7 @@ import { OnboardingStepProvider } from './src/onboarding/OnboardingStepContext';
 import { ToastProvider } from './src/context/ToastContext';
 import { resetLaunchUrlGuards } from './src/lib/appLinks';
 import { sweepFileCache } from './src/lib/fileCacheSweep';
+import { sweepSharedContainers } from './src/lib/sharedContainerSweep';
 import { initMonitoring, withMonitoring } from './src/lib/monitoring';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { ThemeProvider, useAppFonts } from './src/theme';
@@ -56,6 +57,7 @@ function App() {
   // Subscribing here rather than at module scope keeps the NetInfo listener tied to the app's
   // lifetime and torn down cleanly, instead of leaking across fast-refresh reloads in development.
   useEffect(() => startNetworkMonitoring(), []);
+  useEffect(() => startForegroundRefetch(), []);
   // Warms the query cache from AsyncStorage on cold start and keeps saving it as it changes -- see
   // startQueryPersistence's own doc comment in api/queryClient.ts. Same posture as the
   // network-monitoring effect just above: subscribed here, not at module scope, so it's torn down
@@ -65,6 +67,9 @@ function App() {
   // this backstops and why it's age-based. Once per cold start, same posture as the two effects
   // above.
   useEffect(() => sweepFileCache(), []);
+  // iOS share-sheet copies live in the App Group container, which the cache sweep above never
+  // reaches -- see sharedContainerSweep.ts for why this one cannot use file age.
+  useEffect(() => { void sweepSharedContainers(); }, []);
   // A fresh App mount is a fresh launch: on Android the activity can be re-created for a new emailed
   // link inside the same JS runtime, so the deep-link hooks' "already handled the launch URL" memory
   // must not outlive App. RootErrorBoundary is below App, so its remount keeps that memory -- which is

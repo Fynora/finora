@@ -65,4 +65,32 @@ describe('ExportDataModal', () => {
       expect(onClose).toHaveBeenCalled();
     });
   });
+
+  describe('keyboard', () => {
+    it('closes on Escape', async () => {
+      const user = userEvent.setup();
+      const onClose = vi.fn();
+      render(<ExportDataModal onClose={onClose} signInMethod="PASSWORD" />);
+
+      expect(screen.getByRole('dialog', { name: 'Export My Data' })).toBeInTheDocument();
+      await user.keyboard('{Escape}');
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    // Same rule as the backdrop and the Close button: an export already in flight is not
+    // abandoned by dismissing its dialog.
+    it('ignores Escape while the export request is in flight', async () => {
+      const user = userEvent.setup();
+      const onClose = vi.fn();
+      vi.mocked(accountLifecycleApi.exportData).mockReturnValue(new Promise(() => {}));
+      render(<ExportDataModal onClose={onClose} signInMethod="PASSWORD" />);
+
+      await user.type(screen.getByLabelText(/current password/i), 'OldPass123!');
+      await user.click(screen.getByRole('button', { name: /export my data/i }));
+      await waitFor(() => expect(accountLifecycleApi.exportData).toHaveBeenCalled());
+      await user.keyboard('{Escape}');
+
+      expect(onClose).not.toHaveBeenCalled();
+    });
+  });
 });

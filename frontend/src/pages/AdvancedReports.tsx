@@ -5,10 +5,12 @@ import { Bar, Line } from 'react-chartjs-2';
 import {
   Chart as ChartJS, BarElement, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, Filler,
 } from 'chart.js';
-import { Crown, Lock, Store, Tags, Brain, TrendingUp as TrendingUpIcon } from 'lucide-react';
-import { analyticsApi, reportsApi } from '../api/endpoints';
+import { Crown, Lock, Store, Tags, Brain, Globe, TrendingUp as TrendingUpIcon } from 'lucide-react';
+import { analyticsApi, reportsApi, type InternationalSpend } from '../api/endpoints';
 import { FinoraCard, EmptyState, SectionHeader, ChartContainer, baseChartOptions, Skeleton, useChartColors } from '../design-system';
 import { PremiumFeatureGate } from '../components/PremiumFeatureGate';
+import { formatForeignAmount } from '../lib/foreignAmount';
+import { trackNavigation } from '../lib/trackNavigation';
 
 ChartJS.register(BarElement, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, Filler);
 
@@ -43,7 +45,7 @@ function UpgradePrompt() {
         desc="Top merchants, spend trends, category confidence, and how the categorization engine is learning your habits -- all built from your own transaction history."
         cta={
           <Link
-            to="/app/billing"
+            to="/app/billing" onClick={() => trackNavigation('subscription', 'contextual')}
             className="inline-flex items-center gap-1.5 bg-primary text-on-primary hover:bg-primary-dark rounded-lg px-4 py-2 text-xs font-semibold"
           >
             <Crown size={14} /> View plans
@@ -87,6 +89,60 @@ function RankedBarList({
   );
 }
 
+/**
+ * Spend the statements themselves marked international (an "International Transactions" table),
+ * split into foreign-currency purchases and everything else (GST, FX markup, anything billed in
+ * rupees -- never labelled "fees", since a rupee-billed purchase lands there too), with purchases
+ * grouped by the currency they were made in. Rupee figures are what was billed.
+ */
+function InternationalSpendCard({ data, loading }: { data: InternationalSpend | undefined; loading: boolean }) {
+  return (
+    <FinoraCard padding="lg">
+      <SectionHeader title="International Spend" />
+      {loading ? <ListSkeleton /> : !data || data.transactionCount === 0 ? (
+        <EmptyState
+          icon={Globe}
+          iconBg="bg-primary-light"
+          iconColor="text-primary"
+          title="No international spend"
+          desc="Card transactions your statement lists under International Transactions will appear here."
+        />
+      ) : (
+        <div className="space-y-5">
+          <dl className="grid grid-cols-3 gap-3 text-sm">
+            <div>
+              <dt className="text-2xs uppercase text-muted">Total</dt>
+              <dd className="text-ink font-semibold">{fmt(data.totalSpend)}</dd>
+              <dd className="text-2xs text-muted">{data.transactionCount} txns</dd>
+            </div>
+            <div>
+              <dt className="text-2xs uppercase text-muted">Foreign purchases</dt>
+              <dd className="text-ink font-semibold">{fmt(data.purchasesSpend)}</dd>
+            </div>
+            <div>
+              <dt className="text-2xs uppercase text-muted">Other charges</dt>
+              <dd className="text-ink font-semibold">{fmt(data.otherChargesSpend)}</dd>
+            </div>
+          </dl>
+          <p className="text-2xs text-muted">
+            Other charges are international rows with no foreign amount printed: GST, FX markup, and anything billed in rupees.
+          </p>
+          {data.byCurrency.length > 0 && (
+            <RankedBarList
+              rows={data.byCurrency.map((c) => ({
+                label: c.currency,
+                sub: `${formatForeignAmount(c.currency, c.foreignTotal)} · ${c.transactionCount} txns`,
+                value: c.rupeeTotal,
+              }))}
+              empty={{ icon: Globe, title: '', desc: '' }}
+            />
+          )}
+        </div>
+      )}
+    </FinoraCard>
+  );
+}
+
 function ListSkeleton() {
   return (
     <div className="space-y-3">
@@ -114,6 +170,10 @@ function AdvancedReportsContent() {
   const topCategoriesQ = useQuery({
     queryKey: ['advanced-reports-top-categories', month],
     queryFn: () => analyticsApi.topCategories(month || undefined),
+  });
+  const internationalQ = useQuery({
+    queryKey: ['advanced-reports-international', month],
+    queryFn: () => analyticsApi.international(month || undefined),
   });
   const trendQ = useQuery({ queryKey: ['advanced-reports-trend'], queryFn: () => analyticsApi.trend() });
   const confidenceQ = useQuery({ queryKey: ['advanced-reports-confidence'], queryFn: () => analyticsApi.categoryConfidence() });
@@ -153,7 +213,7 @@ function AdvancedReportsContent() {
             {[...months].reverse().map((m) => <option key={m} value={m}>{monthLabelLong(m)}</option>)}
           </select>
         </div>
-        <p className="text-2xs text-muted max-w-xs">Applies to Top Merchants and Top Categories below. Spend Trend, Category Confidence and Learning Growth always cover your full history.</p>
+        <p className="text-2xs text-muted max-w-xs">Applies to Top Merchants, Top Categories and International Spend below. Spend Trend, Category Confidence and Learning Growth always cover your full history.</p>
       </FinoraCard>
 
       <div className="grid lg:grid-cols-2 gap-6">
@@ -177,6 +237,8 @@ function AdvancedReportsContent() {
           )}
         </FinoraCard>
       </div>
+
+      <InternationalSpendCard data={internationalQ.data} loading={internationalQ.isLoading} />
 
       <FinoraCard padding="lg">
         <SectionHeader title="Spend Trend" />

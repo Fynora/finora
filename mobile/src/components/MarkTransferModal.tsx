@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import {
-  ActivityIndicator, FlatList, KeyboardAvoidingView, Modal, Pressable, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, FlatList, KeyboardAvoidingView, Pressable, StyleSheet, Text, TextInput, View
 } from 'react-native';
+import { AppModal } from './AppModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
 import { transactionsApi } from '../api/endpoints';
@@ -69,7 +70,7 @@ export function MarkTransferModal({
   }
 
   return (
-    <Modal visible animationType="slide" transparent onRequestClose={onClose}>
+    <AppModal visible animationType="slide" transparent onRequestClose={onClose}>
       <KeyboardAvoidingView style={styles.flex} behavior="padding">
         <Pressable
           style={styles.backdrop}
@@ -149,7 +150,7 @@ export function MarkTransferModal({
           )}
         </View>
       </KeyboardAvoidingView>
-    </Modal>
+    </AppModal>
   );
 }
 

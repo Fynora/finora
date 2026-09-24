@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { SocialSignInButtons } from '../../components/SocialSignInButtons';
 import { ReactivateAccountPrompt } from '../../components/ReactivateAccountPrompt';
 import { AuthDivider } from './AuthDivider';
+import { SocialConsentNotice } from './SocialConsentNotice';
 import { AUTH_ACCOUNT_DEACTIVATED } from '../../api/errorCodes';
 import { EMAIL_PATTERN, looksLikeValidIdentifier } from './identifierPatterns';
 
@@ -122,6 +123,7 @@ export function IdentifyStep({ onExists, onContinue, onSuccess }: IdentifyStepPr
         onError={setError}
         onWidthKnown={setFormWidth}
       />
+      <SocialConsentNotice />
 
       <AuthDivider />
 

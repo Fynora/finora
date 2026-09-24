@@ -226,7 +226,10 @@ public class AuthService {
         if (!platformSettingsService.getEntity().isRegistrationsEnabled()) {
             throw new ApiException(HttpStatus.FORBIDDEN, "New registrations are currently disabled.");
         }
-        User user = createUserRecord(request, User.SCOPE_USER);
+        // true only here: the person signing themselves up has seen the "By continuing, you
+        // agree..." notice. adminCreateUser() shares createUserRecord() for someone who has not,
+        // and must not get a consent record they never gave (V223).
+        User user = createUserRecord(request, User.SCOPE_USER, true);
         // D-28 PR4-C: self-service registration only -- adminCreateUser() shares createUserRecord()
         // but never reaches this call, since support-assisted signup has no organic acquisition to
         // track. See ReferralService.redeemCode's own doc comment for why an invalid code is a
@@ -302,7 +305,7 @@ public class AuthService {
      */
     @Transactional
     public User adminCreateUser(RegisterRequest request, UUID actingAdminId, String accountScope) {
-        User user = createUserRecord(request, accountScope);
+        User user = createUserRecord(request, accountScope, false);
         auditService.record(user.getId(), "USER_CREATED_BY_ADMIN", "User", user.getId(),
                 Map.of("createdBy", actingAdminId.toString()));
         return user;
@@ -311,7 +314,7 @@ public class AuthService {
     /** The uniqueness checks + row creation + default-category seeding every user-creation path
      *  needs, regardless of what happens after (register() continues into minting tokens;
      *  adminCreateUser() stops here). */
-    private User createUserRecord(RegisterRequest request, String accountScope) {
+    private User createUserRecord(RegisterRequest request, String accountScope, boolean acceptedTerms) {
         // Trimmed + lowercased once up front and reused everywhere below -- the duplicate check
         // and the saved value must agree on the exact same string, or "  Jane@Example.com" could
         // dodge the uniqueness check against an existing "jane@example.com" and still get
@@ -345,6 +348,9 @@ public class AuthService {
         // must not skip it.
         user.setFullName(request.fullName().trim());
         user.setPhoneNumber(phoneNumber);
+        if (acceptedTerms) {
+            user.recordTermsAcceptance(LegalTerms.CURRENT_VERSION, Instant.now());
+        }
         user = userRepository.save(user);
         passwordHistoryService.record(user.getId(), user.getPasswordHash());
 
@@ -966,6 +972,9 @@ public class AuthService {
         // verified-email claim is itself sufficient proof for this account, unlike the
         // existing-account auto-link case loginWithOAuthIdentity's own doc comment covers.
         user.setEmailVerified(true);
+        // The Google/Apple buttons that reach this from the sign-in screens carry the same Terms
+        // and Privacy notice as the sign-up screen (SocialConsentNotice, web and mobile).
+        user.recordTermsAcceptance(LegalTerms.CURRENT_VERSION, Instant.now());
         user = userRepository.save(user);
         passwordHistoryService.record(user.getId(), user.getPasswordHash());
         seedDefaultCategories(user.getId());
@@ -1447,15 +1456,21 @@ public class AuthService {
      *  once a factor has checked out: enforceAccountIsSignable, the SCOPE_ADMIN TOTP gate, then
      *  issueSessionTokens -- so account-state handling (suspended/deactivated/admin-MFA) can never
      *  drift between the password and OTP entry points. */
-    @Transactional
+    // noRollbackFor is load-bearing, exactly as on login(): this writes and then throws (attempt
+    // counter, LOGIN_FAILED audit row, consuming the code, the reactivation token), and ApiException
+    // is a RuntimeException, so the default rule discarded all of it. See login()'s doc comment, and
+    // EmailLoginOtpAttemptPersistenceIT for the real-database proof mocked tests cannot give.
+    @Transactional(noRollbackFor = ApiException.class)
     public AuthResponse loginWithEmailOtp(EmailOtpLoginRequest request) {
         String scope = User.SCOPE_ADMIN.equalsIgnoreCase(request.scope()) ? User.SCOPE_ADMIN : User.SCOPE_USER;
         String email = resolveEmailForLogin(request.identifier(), scope);
         User user = findUserByEmailIgnoreCaseSafely(email, scope)
                 .orElseThrow(() -> new ApiException(ErrorCode.AUTH_OTP_INVALID_OR_EXPIRED));
 
+        // Locked, not a plain read: see findLiveForVerification for why concurrent verifies must
+        // serialize (the attempt cap under-counted, and one code could be redeemed twice).
         EmailLoginOtp otp = emailLoginOtpRepository
-                .findFirstByEmailAndAccountScopeAndConsumedAtIsNullOrderByCreatedAtDesc(user.getEmail(), scope)
+                .findLiveForVerification(user.getEmail(), scope)
                 .orElseThrow(() -> new ApiException(ErrorCode.AUTH_OTP_INVALID_OR_EXPIRED));
 
         if (otp.getAttemptCount() >= EMAIL_LOGIN_OTP_MAX_ATTEMPTS || otp.getExpiresAt().isBefore(Instant.now())) {
@@ -1506,7 +1521,9 @@ public class AuthService {
      *  Firebase-attested number, then decide what it means for THIS account. Unlike
      *  verifyPhoneWithFirebase() (authenticated, acts on the caller's own account), this is called
      *  pre-login -- the verified number itself is what resolves which account to sign into. */
-    @Transactional
+    // noRollbackFor: same reason as loginWithEmailOtp above -- the LOGIN_FAILED audit row and the
+    // reactivation token are written before the ApiException is thrown.
+    @Transactional(noRollbackFor = ApiException.class)
     public AuthResponse loginWithPhoneOtp(PhoneOtpLoginRequest request) {
         String scope = User.SCOPE_ADMIN.equalsIgnoreCase(request.scope()) ? User.SCOPE_ADMIN : User.SCOPE_USER;
         String verifiedPhoneNumber = phoneVerificationProvider.verifyAndGetPhoneNumber(request.firebaseIdToken());

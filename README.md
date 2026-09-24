@@ -246,7 +246,7 @@ What's in it today:
   (`backend/src/main/java/com/finora/health/`): `AdminHealthRegistryService` auto-collects every
   Spring bean implementing it (`List<HealthProvider>`, zero manual registration) into one
   worst-status-wins rollup, gated behind `SYSTEM_SETTINGS` rather than the public
-  `/actuator/health` endpoint (which deliberately returns no detail — see `application.yml`). Five
+  `/health` endpoint (which deliberately returns no detail — see `HealthController`). Five
   providers exist today, grouped by category: **Platform** — Database (wraps Actuator's own DB/disk-space/ping
   indicators); **Notifications** — Email Provider, SMS Provider; **Financial Intelligence** — Financial
   Intelligence Engine (reconciliation) and Statement Import Pipeline. Adding observability for a new

@@ -165,23 +165,33 @@ class MultiSectionZeroExtractionTest {
      * behaviour this filter needed to change around -- see PdfPreviewGenerator's own doc comment
      * for the full mechanism and the real evidence it was built from.
      *
+     * <p>Raw section count is now 11: the savings ledger, nine fixed deposits and the RD account.
+     * Product discovery reads the columns of every row in a section rather than row 0 alone, so
+     * this trace's FD schedule now validates as FIXED_DEPOSIT, and a validated multi-row FD
+     * schedule is staged as one section per deposit (buildProductSections). None of the nine
+     * carries a transaction or an unparseable row, so the filter drops all of them and the review
+     * screen is still one savings account with its 75 transactions.
+     *
      * <p>Asserted at full detail rather than by row count: the filter's existing behaviour (drop
-     * the two deposit sections, carry their rows onto the survivor as unparseable) collapses this
-     * to a single-account response, and every figure the review screen shows comes out of it.
+     * the deposit sections, carry any rows they could not place onto the survivor as unparseable)
+     * collapses this to a single-account response, and every figure the review screen shows comes
+     * out of it.
      */
     @Test
     void hdfcComposite_threeGenuineProducts_isCompletelyUnaffected() throws Exception {
         PdfStagingSessionResponse response = stage("hdfc-composite-deposit-schedules");
 
         assertThat(rawSectionCountOf("hdfc-composite-deposit-schedules"))
-                .as("three located sections -- the RD account's own summary and installment "
-                        + "schedule now correctly merge into one before this filter's own "
-                        + "no-parser-or-locator-code concern even applies; see this test's own "
-                        + "doc comment")
-                .isEqualTo(3);
+                .as("savings ledger + one section per validated fixed deposit (nine) + the RD "
+                        + "account, whose summary and installment schedule merge into one before "
+                        + "this filter runs; see this test's own doc comment")
+                .isEqualTo(11);
         assertThat(response.multiAccount()).isFalse();
         assertThat(response.staging().rows()).hasSize(75);
         assertThat(response.staging().totalParsed()).isEqualTo(75);
+        // Only the savings ledger's own unplaceable lines. The FD schedule is no longer counted as
+        // "couldn't be matched" -- it is recognised as deposits, which are not imported here.
+        assertThat(response.staging().unparseableRows()).hasSize(9);
         assertThat(response.staging().detectedAccount().openingBalance())
                 .isEqualTo(reference("hdfc-composite-deposit-schedules").detectedAccount().openingBalance());
         assertThat(response.staging().detectedAccount().closingBalance())

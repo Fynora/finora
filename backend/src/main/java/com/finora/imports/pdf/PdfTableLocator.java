@@ -267,6 +267,22 @@ public class PdfTableLocator {
     // exact literal string, since the surrounding asterisk padding is decorative and could vary.
     private static final Pattern STATEMENT_CLOSING_MARKER = Pattern.compile("(?i)end\\s+of\\s+statement");
 
+    // Same capability again (PAGE_BOUNDARY_ISOLATION), for the top of a page rather than its
+    // bottom. Two real HDFC credit-card statements reprint a banner at the top of every page: the
+    // statement title ("<product> HDFC Bank Credit Card Statement", prefixed "DUPLICATE" on a
+    // re-issued copy), "HSN Code: 997113" and "HDFC Bank Credit Cards GSTIN: <15 characters>",
+    // then an "Offers on your card" promo heading. On the Paytm HDFC statement, whose International
+    // table runs from page 1 onto page 2, these dateless lines were merged into real transactions
+    // on either side of the page break: the banner's GSTIN and "Offers" lines onto the page-1
+    // domestic row, the title line onto page 2's first international row. Every alternative is
+    // anchored to the whole line and checked against the full real corpus's pdftotext output --
+    // only page banners and pre-table header text match, never a transaction narration.
+    private static final Pattern PAGE_BANNER = Pattern.compile(
+            "(?i)^\\s*hsn\\s+code\\s*:\\s*\\d+\\s*$"
+                    + "|^\\s*(?:hsn\\s+code\\s*:\\s*\\d+\\s+)?[a-z .]*\\bgstin\\s*:\\s*\\d{2}[a-z0-9]{13}\\s*$"
+                    + "|^\\s*[a-z0-9 .]*\\bcredit\\s+card\\s+statement\\s*$"
+                    + "|^\\s*offers\\s+on\\s+your\\s+card\\s*$");
+
     // PAGE_LEGEND_BLOCK_SUPPRESSED's own opening line -- see pageLegendBlockActive's doc comment
     // for the mechanism this seeds. Matched against this real SBI credit-card statement's exact
     // observed phrasing, the same evidence-before-capability discipline TRAILING_CONTENT_TRIGGERS'
@@ -461,10 +477,42 @@ public class PdfTableLocator {
     // Anchored to the whole line (never a mid-sentence match) and narrow to these three real
     // observed phrases, same "evidence before capability" discipline as every other trigger in this
     // class -- a genuine transaction narration never consists of nothing but one of these phrases.
+    //
+    // The fourth alternative is the same shape from a different bank: two real HDFC credit-card
+    // statements print a cardholder divider -- "<CARDHOLDER NAME> [CKYC ID : <14 digits>]" -- as a
+    // bare line directly under each transaction table's column header. On the newer (Paytm HDFC)
+    // statement it was merged into the Domestic table's only transaction twice over, once from
+    // each table's divider, so that row's description came back with the cardholder's name and
+    // CKYC number printed in it twice. Matched on the bracketed "CKYC ID : <digits>" tail, which no
+    // transaction narration carries.
     private static final Pattern CREDIT_CARD_CATEGORY_HEADER = Pattern.compile(
             "(?i)^\\s*(?:payments\\s+and\\s+other\\s+credits"
                     + "|primary\\s+card\\s+transactions\\b.*"
-                    + "|retail\\s+purchases\\s+and\\s+cash\\s+transactions)\\s*$");
+                    + "|retail\\s+purchases\\s+and\\s+cash\\s+transactions"
+                    + "|[a-z][a-z .']*\\[\\s*ckyc\\s+id\\s*:\\s*\\d+\\s*\\])\\s*$");
+
+    // TRANSACTION_REGION_HEADING. A real HDFC (Paytm HDFC) credit-card statement splits its ledger
+    // into two tables under their own bare headings, "Domestic Transactions" and "International
+    // Transactions", each followed by the same DATE & TIME / TRANSACTION DESCRIPTION / AMOUNT / PI
+    // header -- the International table starting at the bottom of page 1 and continuing on page 2.
+    // The heading is the only place the statement says which transactions are international: the
+    // GST and FX-markup rows under it carry no foreign-currency amount of their own. So the heading
+    // is read as state (every row located after it until the next heading is tagged via
+    // DocumentContext.recordInternationalRow) rather than merged as narration, which is what used
+    // to happen: the page-1 International heading and page-2's top banner fused into one junk
+    // "date" cell. Whole-line anchored -- an ICICI statement's promo panel mentions "international
+    // transactions in a single click" mid-sentence and must not match.
+    // HEADER_ANNOTATION_SUPPRESSED. A short parenthesised note printed under a column header, on a
+    // line of its own, before the table's first row -- a real HSBC savings statement prints
+    // "(DR=Debit)" under its Balance header. Located as a row, it became the section's FIRST row:
+    // it reached the review screen as an "unmatched row", and because product discovery reads the
+    // table's columns from the first row, the section's columns looked like [Balance] alone, so a
+    // plain savings ledger was detected UNKNOWN. Only the whole line, only parentheses, only before
+    // any row of the section exists -- a note between two transactions is not a header annotation.
+    private static final Pattern HEADER_ANNOTATION = Pattern.compile("^\\s*\\([^()]{1,40}\\)\\s*$");
+
+    private static final Pattern TRANSACTION_REGION_HEADING = Pattern.compile(
+            "(?i)^\\s*(domestic|international)\\s+transactions\\s*$");
 
     // MITC_SECTION_CLOSED. A real ICICI Bank credit-card statement prints "MOST IMPORTANT TERMS AND
     // CONDITIONS (MITC)" as an all-caps section heading immediately after the last real transaction
@@ -567,6 +615,32 @@ public class PdfTableLocator {
     private static final Pattern LOAN_SUMMARY_TABLE_MARKER = Pattern.compile(
             "(?i)loan\\s+summary\\s+table");
 
+    // EMI_BALANCES_TABLE_CLOSED. A real Axis Bank credit-card statement (a September 2026 cycle)
+    // prints an "EMI BALANCES" heading directly beneath its last real transaction, followed
+    // by one dateless row per running card EMI: merchant name, EMI reference number and the
+    // outstanding balance. Confirmed via pdftotext and the staged rows: without this trigger the
+    // heading and the whole EMI row -- outstanding balance included -- were swept into the last
+    // real transaction's trailing narration, so a small UPI payment's description came back with
+    // a merchant name and a six-figure loan balance appended to it. Confirmed single-occurrence
+    // across the whole real corpus (`grep -il "emi balances"` over every statement's pdftotext
+    // output), and everything after it in the evidencing document is the per-page cheque/ECS
+    // footer and the legal appendix. Anchored to the whole line: the bare heading is its own
+    // physical row, and a real narration consisting of nothing but these two words is not a shape
+    // any transaction prints ("EMI PRINCIPAL - 1/6", "EMI INTEREST - 1/6" on the same document
+    // never match).
+    private static final Pattern EMI_BALANCES_TABLE_MARKER = Pattern.compile(
+            "(?i)^\\s*emi\\s+balances\\s*$");
+
+    // TRANSACTION_TIME_FOOTNOTE_CLOSED. A real HDFC (Paytm HDFC) credit-card statement closes its
+    // transaction table with a "*Transaction time captured in IST Zone." footnote -- the asterisk
+    // key for the DATE & TIME column -- followed by an "Eligible for EMI ... CONVERT TO EMI" panel,
+    // a rewards-points summary and a GST summary. Without this trigger the footnote and the EMI
+    // panel were swept into the last real transaction's (the FX markup fee's) trailing narration,
+    // and the rewards/GST summaries formed a junk row of their own. Confirmed single-occurrence
+    // (`grep`), after the last real transaction, on the only real document that prints it.
+    private static final Pattern TRANSACTION_TIME_FOOTNOTE_MARKER = Pattern.compile(
+            "(?i)transaction\\s+time\\s+captured\\s+in\\s+ist\\b");
+
     /** One row-shaped trigger the trailing-content suppression gate checks for, paired with the
      *  capability name to record when it fires -- see {@link #trailingContentTriggerCapability}. */
     private record TrailingContentTrigger(Pattern pattern, String capability) {}
@@ -585,7 +659,9 @@ public class PdfTableLocator {
             new TrailingContentTrigger(NEUCOINS_FOOTNOTE_MARKER, "NEUCOINS_FOOTNOTE_CLOSED"),
             new TrailingContentTrigger(SAVINGS_AND_BENEFITS_SECTION_MARKER,
                     "SAVINGS_AND_BENEFITS_SECTION_CLOSED"),
-            new TrailingContentTrigger(LOAN_SUMMARY_TABLE_MARKER, "LOAN_SUMMARY_TABLE_CLOSED"));
+            new TrailingContentTrigger(LOAN_SUMMARY_TABLE_MARKER, "LOAN_SUMMARY_TABLE_CLOSED"),
+            new TrailingContentTrigger(EMI_BALANCES_TABLE_MARKER, "EMI_BALANCES_TABLE_CLOSED"),
+            new TrailingContentTrigger(TRANSACTION_TIME_FOOTNOTE_MARKER, "TRANSACTION_TIME_FOOTNOTE_CLOSED"));
 
     /** The capability name the first matching trigger should record for {@code rowLine}, or null
      *  if none match. */
@@ -619,6 +695,8 @@ public class PdfTableLocator {
             case "NEUCOINS_FOOTNOTE_CLOSED" -> ctx.record("NEUCOINS_FOOTNOTE_CLOSED");
             case "SAVINGS_AND_BENEFITS_SECTION_CLOSED" -> ctx.record("SAVINGS_AND_BENEFITS_SECTION_CLOSED");
             case "LOAN_SUMMARY_TABLE_CLOSED" -> ctx.record("LOAN_SUMMARY_TABLE_CLOSED");
+            case "EMI_BALANCES_TABLE_CLOSED" -> ctx.record("EMI_BALANCES_TABLE_CLOSED");
+            case "TRANSACTION_TIME_FOOTNOTE_CLOSED" -> ctx.record("TRANSACTION_TIME_FOOTNOTE_CLOSED");
             default -> throw new IllegalStateException(
                     "Unknown trailing-content trigger capability: " + capability);
         }
@@ -912,6 +990,47 @@ public class PdfTableLocator {
                                                  float maxPhysicalRowVerticalExtent,
                                                  Map<Integer, Integer> cellCountDistribution) {}
 
+    /**
+     * Which of the document's own "Domestic/International Transactions" regions each staged row
+     * was printed in -- see {@link #TRANSACTION_REGION_HEADING}. Rows are tagged after the fact,
+     * at the top of the next loop iteration, because locateAll stages a row from many branches
+     * (anchor, same-day continuation, opening row) and merges continuations into it later; tagging
+     * the row object once it is in the section's list covers every one of them.
+     */
+    private static final class TransactionRegionTracker {
+        private String region;
+        private List<Map<String, String>> trackedRows;
+        private int tagged;
+        private boolean headingSinceLastRow;
+
+        /** Tags every row staged since the last call with the region in force when it was staged. */
+        void catchUp(List<Map<String, String>> currentRows, DocumentContext ctx) {
+            if (currentRows == null) return;
+            if (currentRows != trackedRows) {
+                trackedRows = currentRows;
+                tagged = 0;
+            }
+            if (currentRows.size() > tagged) headingSinceLastRow = false;
+            for (int i = tagged; i < currentRows.size(); i++) {
+                if ("international".equalsIgnoreCase(region) && ctx != null) {
+                    ctx.recordInternationalRow(currentRows.get(i));
+                }
+            }
+            tagged = currentRows.size();
+        }
+
+        void enter(String heading) {
+            region = heading;
+            headingSinceLastRow = true;
+        }
+
+        /** A new table opened. A heading printed just before it belongs to it; one left over from
+         *  an earlier table does not carry into an unrelated one. */
+        void sectionOpened() {
+            if (!headingSinceLastRow) region = null;
+        }
+    }
+
     public record LocatedDocument(List<LocatedSection> sections,
                                    PhysicalRowFormationEvidence physicalRowFormationEvidence) {}
 
@@ -1112,6 +1231,9 @@ public class PdfTableLocator {
         // them and the last one.
         boolean pageLegendBlockActive = false;
 
+        // TRANSACTION_REGION_HEADING -- see that pattern's own doc comment.
+        TransactionRegionTracker regionTracker = new TransactionRegionTracker();
+
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             List<PositionedText> row = rows.get(rowIndex);
             String rowLine = lineOf(row);
@@ -1131,6 +1253,10 @@ public class PdfTableLocator {
             }
             // The one row of lookahead the trailing/leading split needs -- see belongsToTheRowAbove.
             Float gapToNextRow = gapBetween(row, rowIndex + 1 < rows.size() ? rows.get(rowIndex + 1) : null);
+
+            // Before anything below can close the open section or change the region: rows staged
+            // by earlier iterations take the region that was in force when they were staged.
+            regionTracker.catchUp(currentRows, ctx);
 
             if (trailingContentSuppressed) {
                 pendingAuxiliary.add(rowLine);
@@ -1164,6 +1290,16 @@ public class PdfTableLocator {
                 pendingAccountIdCandidate = null;
                 recordTrailingContentTrigger(ctx, trailingContentTrigger);
                 pendingAuxiliary.add(rowLine);
+                continue;
+            }
+
+            Matcher regionHeading = TRANSACTION_REGION_HEADING.matcher(rowLine);
+            if (regionHeading.matches()) {
+                regionTracker.enter(regionHeading.group(1));
+                if (ctx != null) ctx.record("TRANSACTION_REGION_HEADING");
+                // Before any table has opened, the heading stays auxiliary text exactly as it
+                // always was. Inside a table it is a divider, never narration of a transaction.
+                if (currentRows == null) pendingAuxiliary.add(rowLine);
                 continue;
             }
 
@@ -1528,6 +1664,7 @@ public class PdfTableLocator {
                         sampleRealDataRows(rows, thisHeaderRowIndex + 1, COLUMN_SPAN_SAMPLE_SIZE), yearsByPage);
                 currentHeaderSignature = signature;
                 currentRows = new ArrayList<>();
+                regionTracker.sectionOpened();
                 // The one place currentRows is ever created, so the one place this pairing is made.
                 pendingSectionHeaderRowIndex = thisHeaderRowIndex;
                 lastRowPage = null;
@@ -1611,13 +1748,20 @@ public class PdfTableLocator {
                 if (ctx != null) ctx.record("PAGE_LEGEND_BLOCK_SUPPRESSED");
                 recordIfTransactionShaped(row, "PAGE_LEGEND_BLOCK_SUPPRESSED", pendingDroppedCandidates);
                 continue;
-            } else if (PAGE_FOOTER.matcher(rowLine).find() || STATEMENT_CLOSING_MARKER.matcher(rowLine).find()) {
+            } else if (PAGE_FOOTER.matcher(rowLine).find() || STATEMENT_CLOSING_MARKER.matcher(rowLine).find()
+                    || PAGE_BANNER.matcher(rowLine).find()) {
                 if (ctx != null) ctx.record("PAGE_BOUNDARY_ISOLATION");
                 // Row-accounting evidence: acknowledged, real risk (see this pattern's own doc
                 // comment) -- a genuine transaction description that happens to also match this
                 // loose page-footer shape would otherwise vanish with zero trace at all.
                 recordIfTransactionShaped(row, "PAGE_FOOTER_OR_CLOSING_MARKER", pendingDroppedCandidates);
                 continue; // a page-number line or closing marker is never a transaction or a continuation of one
+            } else if (currentRows.isEmpty() && pendingLeading == null
+                    && HEADER_ANNOTATION.matcher(rowLine).matches()) {
+                // See HEADER_ANNOTATION's own doc comment.
+                if (ctx != null) ctx.record("HEADER_ANNOTATION_SUPPRESSED");
+                recordIfTransactionShaped(row, "HEADER_ANNOTATION_SUPPRESSED", pendingDroppedCandidates);
+                continue;
             } else if (CREDIT_CARD_CATEGORY_HEADER.matcher(rowLine).find()) {
                 // See CREDIT_CARD_CATEGORY_HEADER's own doc comment. Dropped outright, not merged
                 // either direction and not buffered as leading/trailing narration -- a category
@@ -2069,6 +2213,7 @@ public class PdfTableLocator {
                 }
             }
         }
+        regionTracker.catchUp(currentRows, ctx);
         if (currentRows != null) {
             int sectionsBeforeClose = sections.size();
             PendingState closed = closeCurrentSection(currentRows, pendingLeading, headerNames,

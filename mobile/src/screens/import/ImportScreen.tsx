@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View
 } from 'react-native';
+import { AppAlert } from '../../lib/appAlert';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
@@ -46,6 +47,7 @@ import { radius, spacing, useTheme } from '../../theme';
 import type { AppTabParamList } from '../../navigation/types';
 import type { DetectedAccountInfo, ImportSummary, StagedRow, UnparseableRow, VerificationReport } from '../../types';
 import { VerificationPanel } from '../../components/VerificationPanel';
+import { trackNavigation } from '../../lib/trackNavigation';
 
 type Step = 'upload' | 'review' | 'summary';
 type AccountChoice = 'existing' | 'new';
@@ -437,7 +439,7 @@ export function ImportScreen() {
   }
 
   function confirmDiscardSession(sess: { id: string; fileName: string }) {
-    Alert.alert(
+    AppAlert.alert(
       'Discard this import?',
       `"${sess.fileName}" and everything reviewed so far will be removed. The statement itself isn't affected.`,
       [
@@ -647,7 +649,7 @@ export function ImportScreen() {
   }
 
   function confirmOwnershipMismatch() {
-    Alert.alert(
+    AppAlert.alert(
       'Statement Check',
       `The statement holder name ("${detected?.accountHolderName}") differs from your Finora ` +
         `profile name ("${fullName}"). Please confirm you've selected the correct statement ` +
@@ -1007,6 +1009,7 @@ export function ImportScreen() {
                     const period = summary.statementPeriodStart && summary.statementPeriodEnd
                       ? ` · ${summary.statementPeriodStart} to ${summary.statementPeriodEnd}`
                       : '';
+                    trackNavigation('transactions', 'contextual');
                     navigation.navigate('Transactions', {
                       filters: {
                         accountId: summary.account?.id,

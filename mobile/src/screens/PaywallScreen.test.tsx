@@ -57,6 +57,8 @@ describe('PaywallScreen', () => {
       renderScreen();
 
       expect(await screen.findByText('Plus')).toBeTruthy();
+      // Repriced 2026-09-24 (V224); must match what App Store / Play charge for the Plus product.
+      expect(screen.getByText('₹249/mo')).toBeTruthy();
       expect(screen.queryByText('Premium')).toBeNull();
       expect(screen.getAllByText('Subscribe')).toHaveLength(1);
 
@@ -116,14 +118,16 @@ describe('PaywallScreen', () => {
     expect(await screen.findByText(/Activating your Plus plan/i)).toBeTruthy();
     // Real (not faked) timers here -- pollForActivation's setTimeout(2000) is production code, and
     // jest.useFakeTimers() would also fake the timers waitFor's own polling relies on and hang it
-    // (see ImportScreen.test.tsx's identical note, PR #1345). Needs 2 real poll cycles (FREE, FREE,
-    // then PLUS) to resolve, nominally 4000ms -- but under CPU contention from concurrent React
-    // rendering, a real setTimeout(2000) here was directly measured firing at 3949ms and 3051ms,
-    // not ~2000ms, confirmed by instrumenting the actual timer callback, not guessed. The old
-    // 8000ms/12000ms budget left ~1000ms of margin over that measured worst case and failed
-    // deterministically in CI (same root cause class as PR #1345's ImportScreen fix, exposed here
-    // by the jest 29->30 bump in #1300). Matching that fix's proportional margin over the real,
-    // measured worst case rather than the nominal cadence.
-    await waitFor(() => expect(screen.queryByText(/Activating/i)).toBeNull(), { timeout: 20000 });
+    // (see AppLockGate.test.tsx's identical note). Needs 2 real poll cycles (FREE, FREE, then PLUS),
+    // nominally 4000ms.
+    //
+    // not.toBeOnTheScreen(), deliberately not toBeNull(): every waitFor attempt that fails builds
+    // the assertion message eagerly, and toBeNull()'s message pretty-prints the whole React fiber
+    // graph behind the element (the "Received: {"_fiber": ...}" dump). Measured at 1.3-3s of
+    // synchronous work per failed attempt on an idle-ish machine and 4.3-4.8s under CPU load --
+    // time in which the real setTimeout(2000) above cannot fire, so the timer was measured landing
+    // 3.8-13.9s late and the test ran out of budget no matter how large the timeout was made.
+    // not.toBeOnTheScreen()'s message formats only the one host element (measured ~1ms).
+    await waitFor(() => expect(screen.queryByText(/Activating/i)).not.toBeOnTheScreen(), { timeout: 20000 });
   }, 25000);
 });

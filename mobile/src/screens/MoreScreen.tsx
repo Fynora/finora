@@ -1,4 +1,5 @@
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AppAlert } from '../lib/appAlert';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Card } from '../components/Card';
@@ -6,6 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { initials } from '../lib/format';
 import { spacing, useTheme } from '../theme';
 import { useRegisterTourTarget } from '../onboarding/TourTargetRegistry';
+import { trackNavigation } from '../lib/trackNavigation';
 import type { MoreStackParamList } from '../navigation/types';
 
 type Props = NativeStackScreenProps<MoreStackParamList, 'MoreHome'>;
@@ -31,20 +33,23 @@ type MenuRoute =
   | 'Accounts' | 'Investments' | 'Budgets' | 'Goals' | 'Reports' | 'AdvancedReports' | 'Fyn'
   | 'CategoryReview' | 'Statements' | 'FinancialMemory' | 'Subscription' | 'Referrals' | 'Settings';
 
-const MENU_ITEMS: { label: string; route: MenuRoute }[] = [
-  { label: 'Accounts', route: 'Accounts' },
-  { label: 'Investments', route: 'Investments' },
-  { label: 'Budgets', route: 'Budgets' },
-  { label: 'Goals', route: 'Goals' },
-  { label: 'Reports', route: 'Reports' },
-  { label: 'Advanced Reports', route: 'AdvancedReports' },
-  { label: 'Ask Fyn', route: 'Fyn' },
-  { label: 'Review Categories', route: 'CategoryReview' },
-  { label: 'Statement History', route: 'Statements' },
-  { label: 'Financial Memory', route: 'FinancialMemory' },
-  { label: 'Subscription', route: 'Subscription' },
-  { label: 'Refer & Earn', route: 'Referrals' },
-  { label: 'Settings', route: 'Settings' },
+// `id` is the shared taxonomy id (src/navigation/taxonomy.ts), so a destination reports the same
+// name here as it does from the web sidebar. Stored rather than derived from the route: the route
+// is a rendering detail that can change without the destination changing.
+const MENU_ITEMS: { id: string; label: string; route: MenuRoute }[] = [
+  { id: 'accounts', label: 'Accounts', route: 'Accounts' },
+  { id: 'investments', label: 'Investments', route: 'Investments' },
+  { id: 'budgets', label: 'Budgets', route: 'Budgets' },
+  { id: 'goals', label: 'Goals', route: 'Goals' },
+  { id: 'reports', label: 'Reports', route: 'Reports' },
+  { id: 'advanced-reports', label: 'Advanced Reports', route: 'AdvancedReports' },
+  { id: 'ask-fyn', label: 'Ask Fyn', route: 'Fyn' },
+  { id: 'review-categories', label: 'Review Categories', route: 'CategoryReview' },
+  { id: 'statement-history', label: 'Statement History', route: 'Statements' },
+  { id: 'financial-memory', label: 'Financial Memory', route: 'FinancialMemory' },
+  { id: 'subscription', label: 'Subscription', route: 'Subscription' },
+  { id: 'referrals', label: 'Refer & Earn', route: 'Referrals' },
+  { id: 'settings', label: 'Settings', route: 'Settings' },
 ];
 
 export function MoreScreen({ navigation }: Props) {
@@ -66,7 +71,7 @@ export function MoreScreen({ navigation }: Props) {
   };
 
   function confirmSignOut() {
-    Alert.alert('Sign out?', 'You’ll need to sign in again to access your account.', [
+    AppAlert.alert('Sign out?', 'You’ll need to sign in again to access your account.', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Sign out', style: 'destructive', onPress: logout },
     ]);
@@ -82,7 +87,7 @@ export function MoreScreen({ navigation }: Props) {
       {/* The whole card opens Profile -- tapping your own name and photo to edit them is the
           convention on every phone, and it saves a menu row for the same destination. */}
       <Pressable
-        onPress={() => navigation.navigate('Profile')}
+        onPress={() => { trackNavigation('profile', 'group'); navigation.navigate('Profile'); }}
         accessibilityRole="button"
         accessibilityLabel={`Profile: ${fullName ?? email ?? 'your account'}`}
         accessibilityHint="Opens your profile"
@@ -110,11 +115,11 @@ export function MoreScreen({ navigation }: Props) {
       </Pressable>
 
       <Card style={styles.menuCard}>
-        {MENU_ITEMS.map(({ label, route }) => (
+        {MENU_ITEMS.map(({ id, label, route }) => (
           <Pressable
             key={route}
             ref={registerByRoute[route]}
-            onPress={() => navigation.navigate(route)}
+            onPress={() => { trackNavigation(id, 'group'); navigation.navigate(route); }}
             style={[styles.menuRow, { borderBottomColor: c.border }]}
             android_ripple={{ color: c.border }}
             accessibilityRole="button"

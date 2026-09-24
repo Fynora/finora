@@ -327,7 +327,7 @@ app:
     # dependency verification" steps for why: they share a Postgres instance with the boot that
     # follows them, and BootstrapService.run() commits the BOOTSTRAP_ADMIN row immediately
     # (non-transactional, by design) before the installation-key file is written. A smoke-check
-    # step that gets killed the instant /actuator/health reports UP -- which is its whole job --
+    # step that gets killed the instant /health reports UP -- which is its whole job --
     # can land between those two steps, leaving a row with no way to ever regenerate its key for
     # the rest of that Postgres instance's lifetime, since BootstrapService correctly refuses to
     # create a second bootstrap account once one already exists.
@@ -738,17 +738,18 @@ app:
       interval-ms: ${AUDIT_REDACTION_INTERVAL_MS:3600000}
       initial-delay-ms: ${AUDIT_REDACTION_INITIAL_DELAY_MS:300000}
 
-  # Invoice PDF generation (GET /api/v1/billing/history/{paymentId}/invoice). Real values, not
-  # placeholders: gstin is intentionally blank -- Fynora Technovation LLP is not GST-registered
-  # yet, so InvoiceService prints "Not applicable" rather than a fabricated GSTIN. gst-rate-percent
-  # is a deliberate flat 18% applied to every invoice regardless of registration status; this is a
-  # product decision, not a computed/verified tax figure -- see InvoiceService's own class doc.
+  # Invoice PDF generation (GET /api/v1/billing/history/{paymentId}/invoice). Fynora Technovation
+  # LLP is GST-registered (2026-09). gstin has no default on purpose: it is set per environment
+  # (BILLING_INVOICE_GSTIN on Railway), and blank prints "Not applicable" -- a dev deployment must
+  # never print production's GSTIN. sac-code 998315 is the business's chosen GST Services
+  # Accounting Code (hosting and IT infrastructure provisioning). See InvoiceService's class doc.
   billing:
     invoice:
       entity-name: ${BILLING_INVOICE_ENTITY_NAME:Fynora Technovation LLP}
       address: ${BILLING_INVOICE_ADDRESS:Sipri Bazaar, Jhansi, Uttar Pradesh, 284003}
       gstin: ${BILLING_INVOICE_GSTIN:}
       gst-rate-percent: ${BILLING_INVOICE_GST_RATE_PERCENT:18}
+      sac-code: ${BILLING_INVOICE_SAC_CODE:998315}
 
   # Gmail data integration (docs/proposals/gmail-transaction-sync-proposal.md, Phase B). NOT
   # "Sign in with Google" -- a third-party data grant by an already-signed-in user.
@@ -914,6 +915,16 @@ sentry:
   send-default-pii: false
 
 management:
+  server:
+    # The management context listens on its OWN port, separate from server.port. Everything under
+    # /actuator -- health AND prometheus -- moves here; nothing actuator-shaped remains on the
+    # public port. See the block below this `management:` section for why, and for what replaces
+    # /actuator/health as the externally-monitored endpoint.
+    #
+    # 9091, not 9090: ops/monitoring/docker-compose.yml publishes Prometheus itself on host port
+    # 9090, and a local backend binding the same port would clash with the stack used to validate
+    # its own dashboards.
+    port: ${MANAGEMENT_SERVER_PORT:9091}
   endpoints:
     web:
       # prometheus joins health so worker metrics can be scraped. Note what is NOT here: env,
@@ -951,16 +962,21 @@ management:
       export:
         enabled: true
 
-# /actuator/prometheus is NOT publicly reachable, and that is already handled: SecurityConfig
-# permits /actuator/health and nothing else, so the scrape requires a token. Right posture -- the
-# scrape carries queue depths, error rates and JVM internals, which is useful reconnaissance even
-# though it holds no customer data. WorkerMetricsExportIT asserts both halves: anonymous access
-# fails, authenticated access returns the meters.
+# /actuator/prometheus is NOT publicly reachable, and the thing making that true is the port above,
+# not authentication. SecurityConfig permits the scrape anonymously; what stops the internet reading
+# it is that the endpoint is mapped only in the management context, on a port no Railway domain
+# routes to. On the application port it answers 404.
 #
-# The consequence, and the remaining deployment decision: a scraper needs either a credential or a
-# private network path to Railway. Resolving that by adding /actuator/** to permitAll would make
-# Prometheus work and publish the same data to the internet in one move -- which is exactly why the
-# IT asserts the anonymous case. See docs/engineering/observability.md, "Known gaps".
+# This replaced a token-authenticated scrape on the public port. That posture was correct and
+# unusable at the same time: the only credentials this system issues are user access tokens expiring
+# in fifteen minutes, with no service principal to mint one for, so nothing could scrape production
+# and no dashboard was ever built. Moving the port resolved it without publishing anything.
+#
+# The cost of the trade is that a single environment variable -- MANAGEMENT_SERVER_PORT=8080 -- now
+# turns the scrape public, silently, with nothing logged and no test failing at runtime.
+# ManagementPortSeparationGuard therefore refuses to finish booting in that state, and
+# ManagementPortIsolationIT asserts both directions: 404 on the application port, anonymous 200 on
+# the management port. See ops/monitoring/README.md, "Security".
 
 springdoc:
   swagger-ui:

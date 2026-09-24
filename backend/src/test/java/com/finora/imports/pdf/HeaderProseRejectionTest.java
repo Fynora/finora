@@ -265,8 +265,11 @@ class HeaderProseRejectionTest {
         // classification runs -- a correction to the RD account's own extraction, not something
         // this class's own header-prose-rejection concern touches. locateAll's own raw output
         // above stays 4, unaffected; only the generator-level, post-classification count moves.
+        // 11 rather than 3 since product discovery reads every row's columns: the FD schedule now
+        // validates as FIXED_DEPOSIT and is staged one section per deposit (nine, all empty and
+        // dropped before review -- see MultiSectionZeroExtractionTest's control-document test).
         List<StagedAccountSection> generated = generate(CONTROL);
-        assertThat(generated).hasSize(3);
+        assertThat(generated).hasSize(11);
         int staged = generated.stream().mapToInt(s -> s.rows().size()).sum();
         assertThat(staged).as("still 75 staged transactions").isEqualTo(75);
     }

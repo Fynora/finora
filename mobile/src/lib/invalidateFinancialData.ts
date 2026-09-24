@@ -1,4 +1,4 @@
-import type { QueryClient } from '@tanstack/react-query';
+import type { InvalidateOptions, QueryClient } from '@tanstack/react-query';
 
 /**
  * The cascading-refresh set that any write to a transaction, account, or import must trigger.
@@ -64,6 +64,7 @@ export const FINANCIAL_QUERY_KEYS = [
   // assumption this module's whole design exists to replace with an explicit one.
   'advanced-reports-top-merchants',
   'advanced-reports-top-categories',
+  'advanced-reports-international',
   'advanced-reports-trend',
   'advanced-reports-confidence',
   'advanced-reports-learning-growth',
@@ -104,8 +105,20 @@ export const FINANCIAL_QUERY_KEYS = [
   'wrapped',
 ] as const;
 
-export function invalidateFinancialData(queryClient: QueryClient) {
+/** Refreshes the financial queries and nothing else. */
+export function invalidateFinancialQueries(queryClient: QueryClient, options?: InvalidateOptions) {
   FINANCIAL_QUERY_KEYS.forEach((key) => {
-    void queryClient.invalidateQueries({ queryKey: [key] });
+    // Options are passed only when given, so the common call keeps its one-argument shape.
+    if (options) void queryClient.invalidateQueries({ queryKey: [key] }, options);
+    else void queryClient.invalidateQueries({ queryKey: [key] });
   });
+}
+
+/**
+ * What every local write calls after it lands. On the app's real query client this invalidation is
+ * held back for a moment while the change stamp is read (lib/changeSync.ts's GatedQueryClient), so
+ * the app's own edit is not later mistaken for a change made on another device.
+ */
+export function invalidateFinancialData(queryClient: QueryClient) {
+  invalidateFinancialQueries(queryClient);
 }

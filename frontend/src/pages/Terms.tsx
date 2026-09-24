@@ -103,7 +103,9 @@ export default function Terms() {
           Fynora offers Free and Plus plans. Plus is a paid subscription, billed on a
           recurring monthly or yearly cycle depending on the plan you choose — through Razorpay on the web, and
           through the App Store or Google Play on iOS/Android. By subscribing you authorize Fynora (or the
-          relevant app store) to charge your chosen payment method each billing cycle until you cancel. See our{' '}
+          relevant app store) to charge your chosen payment method each billing cycle until you cancel. Prices shown
+          for Plus include GST at the applicable rate; for a subscription bought on the web, your Fynora invoice
+          shows the GST amount separately. See our{' '}
           <Link to="/refund-policy" className="text-primary hover:underline">Refund & Cancellation Policy</Link>{' '}
           for how to cancel and what happens to billing and access when you do.
         </p>

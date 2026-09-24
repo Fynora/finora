@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import {
-  KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View,
+  KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View
 } from 'react-native';
+import { AppModal } from './AppModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from './Button';
 import { CategoryPickerModal } from './CategoryPickerModal';
@@ -72,7 +73,7 @@ export function CategoryDeleteSheet({ category, onClose, onDeleted }: Props) {
   }
 
   return (
-    <Modal visible animationType="slide" transparent onRequestClose={deleting ? () => {} : onClose}>
+    <AppModal visible animationType="slide" transparent onRequestClose={deleting ? () => {} : onClose}>
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <Pressable
           style={styles.backdrop}
@@ -148,7 +149,7 @@ export function CategoryDeleteSheet({ category, onClose, onDeleted }: Props) {
         onSelect={setTarget}
         onClose={() => setPickerOpen(false)}
       />
-    </Modal>
+    </AppModal>
   );
 }
 

@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { X, Check } from 'lucide-react';
 import { feedbackApi, type FeedbackType } from '../api/endpoints';
 import { contextForPath } from '../lib/feedbackContext';
+import { useDialogA11y } from '../design-system';
 
 const TYPES: { value: FeedbackType; label: string }[] = [
   { value: 'BUG', label: 'Something’s broken' },
@@ -43,13 +44,15 @@ export function FeedbackModal({ onClose }: { onClose: () => void }) {
     }
   }
 
+  const panelRef = useDialogA11y({ onClose });
+
   return (
     <>
       <div className="fixed inset-0 bg-black/40 z-30" onClick={onClose} />
       <div className="fixed inset-0 z-40 flex items-center justify-center p-4 pointer-events-none">
-        <div className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-md p-5 pointer-events-auto">
+        <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="feedback-title" tabIndex={-1} className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-md p-5 pointer-events-auto">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-ink text-sm">Send feedback</h3>
+            <h3 id="feedback-title" className="font-semibold text-ink text-sm">Send feedback</h3>
             <button type="button" onClick={onClose} aria-label="Close" className="text-muted hover:text-ink">
               <X size={18} />
             </button>

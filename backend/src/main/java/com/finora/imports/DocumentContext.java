@@ -231,6 +231,29 @@ public class DocumentContext {
         return explicitZeroActivityDeclared;
     }
 
+    // Another claim the document makes about its own content: which located rows it printed under
+    // its own "International Transactions" heading (a real HDFC credit-card statement splits its
+    // ledger into "Domestic Transactions" and "International Transactions"). Held by identity, not
+    // equality -- two genuinely separate rows can carry identical cell values, and only the row
+    // object PdfTableLocator located is the one that heading applied to. Kept here rather than as
+    // a synthetic column on the row itself because a row's key set is read as the table's own
+    // column headers downstream (product discovery, column-ambiguity checks), and a made-up column
+    // would be read as one the bank printed.
+    private final java.util.Set<java.util.Map<String, String>> internationalRows =
+            java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+
+    /** Marks {@code row} as printed under the document's own "International Transactions"
+     *  heading -- see {@link #internationalRows}. */
+    public void recordInternationalRow(java.util.Map<String, String> row) {
+        internationalRows.add(row);
+    }
+
+    /** True when {@code row} (this exact located row object) was printed under the document's own
+     *  "International Transactions" heading. */
+    public boolean isInternationalRow(java.util.Map<String, String> row) {
+        return internationalRows.contains(row);
+    }
+
     public FinancialDocumentMetadata buildMetadata() {
         Set<String> recognized = TransactionNormalizer.recognizedColumnNames();
         List<String> unknownHeaders = new ArrayList<>();

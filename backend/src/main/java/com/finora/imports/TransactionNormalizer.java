@@ -128,9 +128,15 @@ public class TransactionNormalizer {
     // recognise a transaction's own description), and every bank-specific synonym added here
     // (each with its own evidence, above) is exactly the vocabulary that detector also needs to
     // stay in sync with -- one array, not two that can silently drift.
+    // "details" added: a real HSBC savings statement (scanned, read through OCR) heads its
+    // narration column with the bare word "Details". "transaction details" was listed but, since
+    // only the full header name is ever compared, never matched it -- so every one of that
+    // statement's transactions staged with an empty description, and its "BALANCE BROUGHT FORWARD"
+    // row was rejected as having an unrecognized column instead of being read as the opening
+    // balance marker it is. Only a column named exactly "Details" is affected.
     static final String[] DESCRIPTION_HINTS =
             {"description", "narration", "remarks", "particulars", "transaction remarks",
-                    "transaction description", "transaction details", "transaction id"};
+                    "transaction description", "transaction details", "details", "transaction id"};
     private static final String[] CATEGORY_HINTS = {"category"};
     // Phase 1 "capture facts" (docs/engineering/financial-document-intelligence-principles.md):
     // evidenced by a real Canara Bank statement's "Reference / Cheque No." column, silently
@@ -272,6 +278,22 @@ public class TransactionNormalizer {
      * staging loops, which route it to the unparseable-row diagnostic instead.
      */
     public boolean hasUnrecognizedNonBlankColumn(Map<String, String> row) {
+        return unrecognizedNonBlankColumn(row);
+    }
+
+    /**
+     * A BALANCE_MARKER the pipeline is sure of: every column recognized, and no transactional
+     * amount column holding a value that failed to parse. Anything less is a row that may be a real
+     * transaction whose amount could not be read -- both staging loops already route such a row to
+     * the unparseable diagnostic instead of trusting the marker verdict -- so only this kind of
+     * marker may be read as having moved no money. See BalanceSequenceResolver.signedAmountOf.
+     */
+    public static boolean isConfidentBalanceMarker(StagedRow parsed, Map<String, String> row) {
+        return parsed.kind() == RowKind.BALANCE_MARKER
+                && !unrecognizedNonBlankColumn(row) && !unparseableRecognizedAmount(row);
+    }
+
+    private static boolean unrecognizedNonBlankColumn(Map<String, String> row) {
         Set<String> recognized = recognizedColumnNames();
         for (Map.Entry<String, String> e : row.entrySet()) {
             String v = e.getValue();
@@ -308,6 +330,10 @@ public class TransactionNormalizer {
      * unparseable diagnostic instead of silently excluding it.
      */
     public boolean hasUnparseableRecognizedAmount(Map<String, String> row) {
+        return unparseableRecognizedAmount(row);
+    }
+
+    private static boolean unparseableRecognizedAmount(Map<String, String> row) {
         for (String hint : TRANSACTION_AMOUNT_HINTS) {
             for (Map.Entry<String, String> e : row.entrySet()) {
                 if (e.getKey() != null && CsvParser.normalizeHeaderCell(e.getKey()).equalsIgnoreCase(hint)) {
@@ -653,8 +679,20 @@ public class TransactionNormalizer {
             }
         }
 
+        // Read from the SAME cell the amount came from, so a foreign amount is only ever attached to
+        // the rupee amount it was printed beside -- see CsvParser.ForeignCurrencyPrefix.
+        CsvParser.ForeignCurrencyPrefix foreign = CsvParser.foreignCurrencyPrefix(amountRaw);
+        // Either fact is enough: the statement's own "International Transactions" heading, or a
+        // foreign-currency amount printed beside the rupee amount (a layout with no such heading
+        // still bills a foreign purchase in a foreign currency).
+        boolean international = (ctx != null && ctx.isInternationalRow(row)) || foreign != null;
+        if (ctx != null && foreign != null) ctx.record("FOREIGN_CURRENCY_AMOUNT");
+
         return new StagedRow(date, description, amount, type, suggestedCategory, source, ruleId,
                 likelyDuplicate, referenceNumber, balanceAfter, duplicateMatch, kind, null, merchant,
-                merchantConfidence, categoryConfidence);
+                merchantConfidence, categoryConfidence)
+                .withForeignSpend(international,
+                        foreign == null ? null : foreign.currency(),
+                        foreign == null ? null : foreign.amount());
     }
 }

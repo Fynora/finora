@@ -9,6 +9,9 @@ import Contact from '../src/pages/Contact';
 import RefundPolicy from '../src/pages/RefundPolicy';
 import ShippingPolicy from '../src/pages/ShippingPolicy';
 import Help from '../src/pages/Help';
+import CookiePolicy from '../src/pages/CookiePolicy';
+import TrustSecurity from '../src/pages/TrustSecurity';
+import DataPromise from '../src/pages/DataPromise';
 import { HomeCrawlerFallback } from '../src/pages/HomeCrawlerFallback';
 
 /**
@@ -33,4 +36,9 @@ export const routes: Record<string, () => string> = {
   '/refund-policy': page('/refund-policy', RefundPolicy),
   '/shipping-policy': page('/shipping-policy', ShippingPolicy),
   '/help': page('/help', Help),
+  // In the sitemap, so a crawler that does not run JavaScript must get the real page, not the
+  // homepage that index.html serves for every route this file does not list.
+  '/cookie-policy': page('/cookie-policy', CookiePolicy),
+  '/trust': page('/trust', TrustSecurity),
+  '/your-data': page('/your-data', DataPromise),
 };

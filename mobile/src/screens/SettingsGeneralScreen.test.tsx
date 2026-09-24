@@ -8,17 +8,20 @@ jest.mock('../api/endpoints', () => ({
   userApi: { get: jest.fn(), update: jest.fn() },
   onboardingApi: { reset: jest.fn().mockResolvedValue(undefined) },
 }));
+// Self-contained, with its own fetch -- covered by its own test file.
+jest.mock('./settings/NotificationPreferencesSection', () => ({ NotificationPreferencesSection: () => null }));
 jest.mock('../context/AuthContext', () => ({ useAuth: () => ({ setOnboardingCompleted: jest.fn() }) }));
 
 const user = userApi as jest.Mocked<typeof userApi>;
 
 function renderScreen() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-  return render(
+  const utils = render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider><SettingsGeneralScreen /></ThemeProvider>
     </QueryClientProvider>
   );
+  return { ...utils, queryClient };
 }
 
 test('shows an error message, not a blank screen, when the account fails to load', async () => {
@@ -38,4 +41,18 @@ test('saves the low balance threshold', async () => {
   fireEvent.changeText(input, '5000');
   fireEvent.press(screen.getByText('Save preferences'));
   await waitFor(() => expect(user.update).toHaveBeenCalledWith({ lowBalanceThreshold: 5000, timezone: 'Asia/Kolkata' }));
+});
+
+test('re-reads the profile after saving, which is how the change watch learns the edit was our own', async () => {
+  user.get.mockResolvedValue({
+    email: 'a@example.com', fullName: 'Amy', lowBalanceThreshold: 2000, theme: 'system', timezone: 'Asia/Kolkata',
+    phoneNumber: '', phoneVerified: false, createdAt: '2026-01-01T00:00:00Z', passwordChangedAt: null, signInMethod: 'PASSWORD',
+  } as never);
+  user.update.mockResolvedValue({ lowBalanceThreshold: 5000, timezone: 'Asia/Kolkata' } as never);
+  const { queryClient } = renderScreen();
+  const invalidate = jest.spyOn(queryClient, 'invalidateQueries');
+  const input = await screen.findByLabelText('Low balance alert');
+  fireEvent.changeText(input, '5000');
+  fireEvent.press(screen.getByText('Save preferences'));
+  await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ['user-settings'] }));
 });

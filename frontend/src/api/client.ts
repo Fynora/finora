@@ -111,7 +111,7 @@ export interface ApiEnvelope<T> {
 // /auth/apple is listed here too even though this app never calls it (Apple Sign-In is iOS-only,
 // see D-26) -- the checker treats this list as a declared policy, not a per-app usage log, so
 // admin-portal's copy carries it for the same reason.
-const AUTH_ENDPOINTS_NO_TOKEN = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/forgot-password', '/auth/reset-password', '/auth/reactivate', '/auth/google', '/auth/apple', '/auth/identify'];
+const AUTH_ENDPOINTS_NO_TOKEN = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/forgot-password', '/auth/reset-password', '/auth/reactivate', '/auth/google', '/auth/apple', '/auth/identify', '/auth/otp/email/request', '/auth/otp/email/login', '/auth/otp/phone/login', '/auth/mfa/verify'];
 
 // Bug 42. This used to be a plain `.includes(path)` scan, which matches the substring ANYWHERE in
 // the request URL, including a query string -- e.g. `/some/unrelated/endpoint?next=/auth/login`
@@ -150,7 +150,11 @@ export const CLIENT_PLATFORM = 'WEB';
 export const APP_VERSION =
   typeof __APP_RELEASE__ === 'string' ? __APP_RELEASE__.slice(0, 12) : '';
 
-api.interceptors.request.use((config) => {
+// Shared by `api` and `telemetryApi` (below) rather than duplicated, so a telemetry request
+// carries exactly the same Authorization and client-identity headers a normal one does --
+// X-Client-Platform in particular, which is what the backend resolves a nav event's `platform`
+// tag from. A second hand-written copy of this would drift and silently mis-tag one of them.
+function attachClientHeaders<T extends { url?: string; headers: Record<string, unknown> }>(config: T): T {
   const isAuthEndpoint = AUTH_ENDPOINTS_NO_TOKEN.some((path) => pathMatchesAuthEndpoint(config.url, path));
   if (!isAuthEndpoint) {
     const token = getAccessToken();
@@ -163,7 +167,29 @@ api.interceptors.request.use((config) => {
     config.headers['X-App-Version'] = APP_VERSION;
   }
   return config;
-});
+}
+
+api.interceptors.request.use(attachClientHeaders);
+
+/**
+ * For fire-and-forget telemetry ONLY. Authenticated like `api`, but with **no response
+ * interceptor** — and that is the entire point.
+ *
+ * `api`'s response interceptor turns any 401 on a non-auth endpoint into a token refresh, and a
+ * failed refresh into {@link clearSessionAndRedirect} — which ends in `window.location.href`, a
+ * full page navigation that signs the user out and destroys React state.
+ *
+ * A usage counter must never be able to do that. Sending nav events through `api` meant a
+ * best-effort analytics POST could sign someone out mid-click, and could do it at a moment when
+ * nothing they were actually doing required the network. It also added a refresh attempt to every
+ * navigation, which is the exact traffic BH-013 (see refreshAccessToken) shows can trip
+ * reuse-detection and revoke every session on every device.
+ *
+ * A telemetry 401 is simply dropped. If the session really is gone, the user's next real request
+ * finds out through the path built to handle it.
+ */
+export const telemetryApi = axios.create({ baseURL: BASE_URL, withCredentials: true });
+telemetryApi.interceptors.request.use(attachClientHeaders);
 
 /**
  * Where a forced-sign-out reason waits for the login page to pick it up.

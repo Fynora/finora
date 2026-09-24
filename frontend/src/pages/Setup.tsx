@@ -11,6 +11,7 @@ import type { Account, BankInfo } from '../types';
 import { formatDate } from '../utils/date';
 import { ConfirmDialog, Button, IconButton, Skeleton } from '../design-system';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
+import { trackNavigation } from '../lib/trackNavigation';
 
 const TYPE_LABEL: Record<Account['accountType'], string> = {
   SAVINGS: 'Savings Account',
@@ -165,7 +166,7 @@ export default function Setup() {
             <p className="text-xs text-muted">Fynora detects the bank, account, and transactions automatically — no manual setup needed.</p>
           </div>
         </div>
-        <Link to="/app/import" className="bg-primary text-on-primary text-xs font-semibold rounded-lg px-4 py-2.5 flex-shrink-0">
+        <Link to="/app/import" onClick={() => trackNavigation('import-statement', 'contextual')} className="bg-primary text-on-primary text-xs font-semibold rounded-lg px-4 py-2.5 flex-shrink-0">
           Import Statement
         </Link>
       </div>
@@ -253,10 +254,10 @@ export default function Setup() {
                   </div>
                   <p className="text-lg font-bold text-ink flex-shrink-0">{fmt(a.balance)}</p>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    <Link to="/app/statements" className="text-primary border border-primary/30 rounded-lg px-3 py-1.5 text-xs font-medium">
+                    <Link to="/app/statements" onClick={() => trackNavigation('statement-history', 'contextual')} className="text-primary border border-primary/30 rounded-lg px-3 py-1.5 text-xs font-medium">
                       Statements
                     </Link>
-                    <Link to="/app/import" className="bg-primary text-on-primary rounded-lg px-3 py-1.5 text-xs font-medium">
+                    <Link to="/app/import" onClick={() => trackNavigation('import-statement', 'contextual')} className="bg-primary text-on-primary rounded-lg px-3 py-1.5 text-xs font-medium">
                       Import New
                     </Link>
                     <div className="relative">
@@ -276,7 +277,7 @@ export default function Setup() {
                             <button onClick={() => startRename(a)} className="w-full text-left px-3 py-2 text-xs text-ink hover:bg-bg flex items-center gap-2">
                               <Pencil size={13} /> Rename Account
                             </button>
-                            <Link to="/app/statements" onClick={() => setMenuOpenFor(null)} className="w-full text-left px-3 py-2 text-xs text-ink hover:bg-bg flex items-center gap-2">
+                            <Link to="/app/statements" onClick={() => { trackNavigation('statement-history', 'contextual'); setMenuOpenFor(null); }} className="w-full text-left px-3 py-2 text-xs text-ink hover:bg-bg flex items-center gap-2">
                               <FileText size={13} /> View Statements
                             </Link>
                             <button onClick={() => { setMenuOpenFor(null); setConfirmRemoveId(a.id); }} className="w-full text-left px-3 py-2 text-xs text-danger hover:bg-bg flex items-center gap-2">

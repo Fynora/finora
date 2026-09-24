@@ -17,7 +17,7 @@ export const ADMIN_APP = process.env.FINORA_E2E_ADMIN_APP ?? 'http://localhost:5
 
 export async function backendReachable(): Promise<boolean> {
   try {
-    const response = await fetch(`${API_ORIGIN}/actuator/health`);
+    const response = await fetch(`${API_ORIGIN}/health`);
     if (!response.ok) return false;
     const body = await response.json().catch(() => null);
     return body?.status === 'UP';

@@ -134,8 +134,8 @@ export function Pricing() {
                         </span>
                       )}
                     </p>
-                    {plan.priceExcludesGst && (
-                      <p className="text-xs mb-1" style={{ color: 'var(--m-ink-3)' }}>+ 18% GST</p>
+                    {plan.priceIncludesGst && (
+                      <p className="text-xs mb-1" style={{ color: 'var(--m-ink-3)' }}>Incl. GST</p>
                     )}
                   </>
                 ) : (

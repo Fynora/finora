@@ -289,6 +289,22 @@ jobs:
       - name: XML comment check
         run: python3 scripts/check-xml-comments.py
 
+      # The navigation taxonomy exists in three places -- both clients' taxonomy.ts and the
+      # backend's NavDestination enum -- because there is no shared package between frontend and
+      # mobile and the backend needs the enum in Java to validate nav-event ingest. Drift here is
+      # silent rather than loud: a destination missing from one copy simply stops being counted,
+      # and nothing reports it. Same reasoning as the client auth policy check above.
+      - name: Nav taxonomy drift
+        run: python3 scripts/check-nav-taxonomy-drift.py
+
+      # The companion to the check above: the taxonomy can be perfectly consistent and still be
+      # measured wrong, if a link opens a destination without reporting it. That shipped twice --
+      # once for search, once for every in-content link -- and it does not look like a gap in the
+      # data, it looks like a smaller number, which is far harder to notice and impossible to
+      # recollect once a baseline window has closed.
+      - name: Nav tracking coverage
+        run: python3 scripts/check-nav-tracking-coverage.py
+
       # Executable bits was originally ordered before setup-java in `backend`, specifically so the
       # diagnosis arrived before the step that would fail on it (./mvnw committed non-executable).
       # That ordering benefit doesn't carry over to a separate job with no Java setup at all -- kept
@@ -770,9 +786,11 @@ jobs:
         working-directory: frontend
         run: npm test
 
-      # `npm run build` is `tsc -b && vite build && node scripts/prerender.mjs`, so this
-      # type-checks and bundles, then bakes real content into dist/index.html, privacy.html and
-      # terms.html for Google's OAuth-branding crawler (see scripts/prerender.mjs's own comment).
+      # `npm run build` is `tsc -b && vite build && node scripts/prerender.mjs && node
+      # scripts/crawlPolicy.mjs`, so this type-checks and bundles, then bakes real content into
+      # dist/index.html, privacy.html and terms.html for Google's OAuth-branding crawler (see
+      # scripts/prerender.mjs's own comment), then applies noindex to non-production builds only
+      # (scripts/crawlPolicy.mjs; CI is not a Pages build, so it leaves this one indexable).
       - name: Build
         working-directory: frontend
         run: npm run build
@@ -1061,6 +1079,10 @@ jobs:
         env:
           SPRING_PROFILES_ACTIVE: dev
           SERVER_PORT: 18086
+          # Actuator binds its own port now (management.server.port, default 9091). Several
+          # backends start in this one job, so it gets the same distinct-port treatment
+          # SERVER_PORT already has -- otherwise the second boot dies on a bound port.
+          MANAGEMENT_SERVER_PORT: 19086
           DB_PORT: 5433
           # This step's whole job is to kill the backend the instant health goes UP, and it shares
           # this job's Postgres with "Start the backend" below -- so it must never let
@@ -1093,7 +1115,7 @@ jobs:
 
           started=no
           for _ in $(seq 1 45); do
-            if curl -sf "http://localhost:${SERVER_PORT}/actuator/health" 2>/dev/null | grep -q '"UP"'; then
+            if curl -sf "http://localhost:${SERVER_PORT}/health" 2>/dev/null | grep -q '"UP"'; then
               started=yes; break
             fi
             kill -0 "$pid" 2>/dev/null || break
@@ -1138,6 +1160,10 @@ jobs:
         env:
           SPRING_PROFILES_ACTIVE: dev
           SERVER_PORT: 18088
+          # Actuator binds its own port now (management.server.port, default 9091). Several
+          # backends start in this one job, so it gets the same distinct-port treatment
+          # SERVER_PORT already has -- otherwise the second boot dies on a bound port.
+          MANAGEMENT_SERVER_PORT: 19088
           DB_PORT: 5433
           # Same reason as "Production classpath check" above: shares this job's Postgres with the
           # real E2E boot and must not create a BOOTSTRAP_ADMIN row on its behalf.
@@ -1193,6 +1219,10 @@ jobs:
         env:
           SPRING_PROFILES_ACTIVE: dev
           SERVER_PORT: 18081
+          # Actuator binds its own port now (management.server.port, default 9091). Several
+          # backends start in this one job, so it gets the same distinct-port treatment
+          # SERVER_PORT already has -- otherwise the second boot dies on a bound port.
+          MANAGEMENT_SERVER_PORT: 19081
           DB_PORT: 5433
           RATE_LIMIT_REGISTER_MAX: 10000
           RATE_LIMIT_LOGIN_MAX: 10000
@@ -1209,7 +1239,7 @@ jobs:
         run: |
           java -jar target/finora-backend-*.jar > "$RUNNER_TEMP/backend.log" 2>&1 &
           for _ in $(seq 1 60); do
-            if curl -sf http://localhost:18081/actuator/health | grep -q '"UP"'; then
+            if curl -sf http://localhost:18081/health | grep -q '"UP"'; then
               echo "backend up"; exit 0
             fi
             sleep 2

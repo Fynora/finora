@@ -76,6 +76,12 @@ public class AnalyticsController {
         return ApiResponse.ok(analyticsService.topCategories(currentUser.id(), parseMonth(month)));
     }
 
+    @GetMapping("/international")
+    public ApiResponse<AnalyticsDto.InternationalSpend> international(@RequestParam(required = false) String month) {
+        requireAdvancedReports();
+        return ApiResponse.ok(analyticsService.internationalSpend(currentUser.id(), parseMonth(month)));
+    }
+
     @GetMapping("/learning-growth")
     public ApiResponse<List<AnalyticsDto.LearningGrowthPoint>> learningGrowth() {
         requireAdvancedReports();

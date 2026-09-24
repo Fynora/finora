@@ -38,6 +38,7 @@ checked and refused if either sits inside the repository.
 
 import argparse
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -90,17 +91,22 @@ def build_classpath(quiet: bool) -> str:
     return f"{test_classes}:{BACKEND / 'target' / 'classes'}:{CLASSPATH_CACHE.read_text().strip()}"
 
 
-def probe(classpath: str, pdf: Path, timeout: int, synthetic: bool = False) -> dict:
+def probe(classpath: str, pdf: Path, timeout: int, synthetic: bool = False, ocr: bool = False) -> dict:
     """One statement -> one CorpusProbe record. Identical invocation to corpus-run.py's probe().
 
     `synthetic` threads through to CorpusProbe's own --synthetic flag -- only ever set when this
     script's --allow-in-repo-synthetic-corpus was passed, which is the only situation where
     per-row transaction content (the "description" dimension VALUE_DIMENSIONS now compares) is
     safe to reveal at all.
+
+    `ocr` routes CorpusProbe through RoutingTextAcquirer + TesseractRecogniser -- the acquisition
+    path production actually runs. See main() for why this is the gate's default.
     """
     cmd = ["java", "-cp", classpath, PROBE_CLASS]
     if synthetic:
         cmd.append("--synthetic")
+    if ocr:
+        cmd.append("--ocr")
     cmd.append(str(pdf))
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
@@ -178,6 +184,14 @@ def main() -> int:
                           "(default: <corpus>/ground-truth)")
     ap.add_argument("--timeout", type=int, default=180, help="per-statement probe timeout in seconds")
     ap.add_argument("--quiet", action="store_true")
+    # Production's own acquisition path by default. RoutingTextAcquirer is native-first by
+    # construction -- any document with even one native text run returns before a recogniser is
+    # consulted -- so this changes nothing for a statement with a text layer and only reaches OCR
+    # for an image-only scan. Without it the gate judged a path production never runs for those:
+    # a real scanned HSBC statement read 0 of 4 here while production staged all 4 correctly.
+    ap.add_argument("--no-ocr", action="store_true",
+                     help="probe the native text layer only, even for an image-only scan (the gate "
+                          "otherwise uses production's OCR routing whenever tesseract is on PATH)")
     ap.add_argument("--allow-in-repo-synthetic-corpus", action="store_true",
                      help="skip the in-repo refusal for a committed, reviewed SYNTHETIC fixture "
                           "corpus, and probe with CorpusProbe's --synthetic flag. Never pass this "
@@ -197,6 +211,10 @@ def main() -> int:
         sys.exit(f"no .pdf files in {corpus}")
 
     classpath = build_classpath(args.quiet)
+    ocr = not args.no_ocr and shutil.which("tesseract") is not None
+    print(f"  acquisition: {'production routing (native first, OCR for image-only scans)' if ocr else 'native text layer only'}"
+          + ("" if ocr or args.no_ocr else " -- tesseract not on PATH, so an image-only scan cannot be read here"),
+          file=sys.stderr)
 
     rows = []
     any_fail = False
@@ -205,7 +223,7 @@ def main() -> int:
         for i, pdf in enumerate(pdfs, 1):
             if not args.quiet:
                 print(f"  {i:>2}/{len(pdfs)} {pdf.name}", file=sys.stderr)
-            record = probe(classpath, pdf, args.timeout, args.allow_in_repo_synthetic_corpus)
+            record = probe(classpath, pdf, args.timeout, args.allow_in_repo_synthetic_corpus, ocr)
 
             gt_file = ground_truth_dir / (pdf.stem + ".json")
             if not gt_file.is_file():

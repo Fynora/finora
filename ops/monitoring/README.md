@@ -12,12 +12,20 @@ This file is how to run it.
 
 | File | Purpose |
 |---|---|
-| `prometheus.yml` | Scrape config. Reads a bearer token from a gitignored file. |
+| `prometheus.yml` | Scrape config. No credential — it reaches the backend's private management port. |
 | `alerts.yml` | 10 alert rules, every one on a sustained condition. |
 | `grafana/dashboards/worker-health.json` | Worker + queue + infrastructure dashboard. |
 | `grafana/dashboards/reconciliation.json` | Reconciliation transfer-matching and duplicate-override counters (measurement only, no alerts yet). |
+| `grafana/dashboards/auth.json` | Session and authentication counters. |
+| `grafana/dashboards/navigation-usage.json` | Navigation usage baseline. Generated — see below. |
 | `grafana/provisioning/` | Datasource and dashboard provisioning, so the stack works on first run. |
 | `docker-compose.yml` | Local Prometheus + Grafana for validating the above. |
+
+`navigation-usage.json` is the one dashboard here that is generated rather than hand-written, by
+`scripts/build-nav-dashboard.py`. Its panels are repetitive and its grid coordinates have to stay
+consistent, and Grafana does not reject an overlapping layout — it silently relays the panels, so
+the dashboard still provisions and still renders, just not where the file says. The generator
+asserts the layout instead. Edit the script, run it, commit both.
 
 **This is not a production deployment.** Production Prometheus and Grafana are infrastructure
 decisions — retention, HA, auth, network placement — and belong outside this repository. What is
@@ -29,37 +37,37 @@ request and proven to work before it is relied upon.
 ## External monitoring
 
 Production availability is monitored externally through **Better Stack**, using an HTTP(S) monitor
-against `https://api.fynora.net/actuator/health`. The monitor expects HTTP `200` and a body
-containing `"status":"UP"` — a status-code-only check would pass against a misconfigured proxy or a
-maintenance page serving the wrong body, so it checks both.
+against `https://api.fynora.net/health`. The monitor expects HTTP `200` and a body containing
+`"status":"UP"` — a status-code-only check would pass against a misconfigured proxy or a maintenance
+page serving the wrong body, so it checks both.
 
-This is deliberately the only endpoint monitored externally. `/api/v1/**` requires authentication and
-`/actuator/prometheus` / `/swagger-ui.html` are intentionally not `permitAll` (see
-[Security](#security)) — pointing an unauthenticated external monitor at any of them would either
-need a credential it shouldn't hold or report a permanent false "down" against a control that is
-working exactly as designed.
+> **This path changed.** It was `/actuator/health` until actuator moved to its own private port.
+> `/health` (`HealthController`) reports the same aggregate from the same `HealthEndpoint`, so the
+> `200` + `"status":"UP"` contract is unchanged — but **the monitor's URL has to be updated in the
+> Better Stack dashboard**, and it is not configured from this repository. Until someone does that,
+> the monitor reports a permanent false "down". Railway's own deploy healthcheck, `docker-compose`
+> and four CI readiness probes were all pointed at the same path and are updated in-repo.
+
+This is deliberately the only endpoint monitored externally. `/api/v1/**` requires authentication,
+and everything under `/actuator` is no longer routable from the internet at all (see
+[Security](#security)) — pointing an external monitor at any of them would report a permanent false
+"down" against a control that is working exactly as designed.
 
 No Better Stack credentials, API keys, or other provider-specific configuration live in this
-repository — the monitor is configured directly in Better Stack's dashboard, not as code here. This
-closes the gap the rest of this document is honest about above: production Prometheus/Grafana don't
-exist yet, but production is no longer unwatched.
+repository — the monitor is configured directly in Better Stack's dashboard, not as code here.
 
 ---
 
 ## Running it locally
 
-The scrape endpoint is authenticated, so this needs a token. That is deliberate — see
-[Security](#security).
+No token, no setup step. The scrape is open on the backend's management port, which is why
+[Security](#security) is worth reading before changing anything here.
 
 ```bash
 # 1. Start the backend (from the repo root)
 cd backend && ./mvnw spring-boot:run
 
-# 2. Mint a token for an account you control and write it with NO trailing newline.
-#    This file is gitignored.
-printf '%s' '<your-jwt>' > ops/monitoring/scrape-token
-
-# 3. Start the stack
+# 2. Start the stack
 docker compose -f ops/monitoring/docker-compose.yml up
 ```
 
@@ -78,37 +86,165 @@ reach a scrape.
 
 ### If the target is DOWN
 
-Almost always one of three things, in order of likelihood:
+Almost always one of two things:
 
-1. **No token file**, or it has a trailing newline. `printf` rather than `echo`.
-2. **Token expired.** Access tokens are 15 minutes by default.
-3. **Backend not reachable at `host.docker.internal:8080`.** On Linux the compose file declares
-   `host-gateway` for this; check the backend is bound to `0.0.0.0` rather than `127.0.0.1`.
+1. **Backend not reachable at `host.docker.internal:9091`.** Note the port — 9091 is
+   `management.server.port`, not `server.port`. Port 8080 answers `404` for `/actuator/prometheus`,
+   which is the whole design and not a bug. On Linux the compose file declares `host-gateway`;
+   check the backend is bound to `0.0.0.0` rather than `127.0.0.1`.
+2. **The backend refused to start.** `ManagementPortSeparationGuard` fails the boot if actuator
+   ends up on the application port. The exception says so explicitly — read the backend's own log
+   rather than debugging from Prometheus' side.
 
-A 401 renders identically to a down service in Prometheus' target list — check the **Error** column,
-which shows the status code.
+Check Prometheus' **Error** column, which shows the status code: a `404` means you are scraping the
+application port, and a `401` means something has put actuator back behind the main security chain.
 
 ---
 
 ## Security
 
-`/actuator/prometheus` is **authenticated**. `SecurityConfig` permits `/actuator/health` and nothing
-else, and `WorkerMetricsExportIT` asserts that anonymous access fails.
+`/actuator/prometheus` is **unauthenticated, on a port the internet cannot reach**. Those two facts
+are one control, and neither is safe alone.
 
-That assertion exists specifically to catch the tempting fix. Adding `/actuator/**` to `permitAll`
-would make Prometheus work immediately and publish queue depths, error rates and JVM internals to
-the internet in the same move. **The scrape carries no customer data, but it is useful
-reconnaissance.**
+This document used to describe option 1 of three as the preferred production posture. That is what
+is now implemented:
 
-For production, in order of preference:
+| | Before | Now |
+|---|---|---|
+| Application port (`8080`, public) | serves `/actuator/**` behind auth | `/actuator/**` **not mapped** — `404` |
+| Management port (`9091`, private) | did not exist | serves `health` + `prometheus`, no credential |
+| Public liveness | `/actuator/health` | `/health` (`HealthController`) |
+| What protects the scrape | a 15-minute user JWT | no Railway domain routes to `9091` |
 
-1. **Private network scraping.** Prometheus reaches the backend on Railway's internal network; the
-   endpoint is never publicly routable. Best posture, and no long-lived credential to rotate.
-2. **Internal service authentication.** A dedicated scrape principal scoped to metrics only.
-3. **Infrastructure access control.** IP allowlist or mTLS in front of the endpoint.
+**Why the change.** Authentication was the right posture and had one fatal practical problem: the
+only credentials this system issues are user access tokens expiring in fifteen minutes, and there is
+no service principal to mint one for. The endpoint was secure and unscrapeable simultaneously, which
+is why no production dashboard existed. A hand-minted user token was never acceptable in production
+— it carries a real user's authorities and expires on that user's schedule.
 
-A hand-minted user token is fine for local validation and **is not acceptable in production** — it
-carries a real user's authorities and expires on that user's schedule.
+**What holds it up.** Both public Railway domains (`api.fynora.net` and the generated
+`*.up.railway.app`) are pinned to target port `8080`; nothing routes to `9091`. Verified against the
+Railway dashboard, not assumed.
+
+**What enforces it.**
+
+- `ManagementPortIsolationIT` — asserts `404` on the application port *and* an anonymous `200` on
+  the management port. Both directions, because each fails silently on its own: the first publishes
+  the scrape, the second empties every dashboard, and an empty panel looks exactly like a quiet
+  system.
+- `ManagementPortSeparationGuard` — refuses to finish booting if actuator lands on the application
+  port, whether from `MANAGEMENT_SERVER_PORT` being unset or set to `8080`. A single environment
+  variable is otherwise enough to publish the scrape with nothing logged and no test failing.
+
+**If you add a public domain to this service, do not point it at `9091`.** That single action
+undoes all of the above, and nothing in this repository can stop it.
+
+---
+
+## Deploying this to production
+
+Prometheus runs as a Railway service in the same project, with no public domain, scraping the
+backend over the private network. `railway/prometheus/Dockerfile` builds it **from this directory's
+own `prometheus.yml` and `alerts.yml`** — there is no second copy to drift, and the two
+Railway-specific values are substituted at build time with guards that fail the build rather than
+ship a silently wrong target.
+
+### Service settings
+
+| Setting | Where |
+|---|---|
+| Root Directory `ops/monitoring` | Railway service settings |
+| Builder + Dockerfile path | `railway.json`, in this directory — nothing to set by hand |
+| Public domain | **none — do not generate one** |
+| Volume mount path `/prometheus` | Railway service settings |
+
+The builder is pinned in `railway.json` rather than left to detection. Railway looks for a
+Dockerfile at the root of the build context, finds only YAML here, falls back to Railpack's language
+auto-detection and fails — which is how the first deploy of this service actually failed.
+
+Three of those four are load-bearing, and each fails differently:
+
+- **No public domain.** The scrape is served without a credential because the internet cannot reach
+  it. A domain on this service publishes queue depths, error rates and JVM internals — and unlike
+  the backend, nothing here would refuse to start.
+- **A volume at `/prometheus`.** Without one, every redeploy starts an empty database. A baseline
+  that cannot survive a deploy is the precise problem this whole exercise exists to fix.
+
+  Railway mounts volumes **root-owned**, and the `prom/prometheus` image runs as `nobody`, so
+  Prometheus dies on its first write with `open /prometheus/queries.active: permission denied`.
+  `railway/prometheus/entrypoint.sh` chowns the mount and then drops to `nobody` via `chpst`, so
+  only the chown runs privileged.
+
+  This one is worth knowing by name, because of how it presents: **Railway reports the deployment
+  as successful and the service as Online.** The container did start — Prometheus just exited a
+  second later. Nothing outside the container's own log says so, and from the outside it looks
+  like the volume broke the deploy, which sends you off detaching and reattaching it. It cost an
+  hour here before anyone read the container log.
+- **Root Directory `ops/monitoring`.** The Dockerfile copies `prometheus.yml` from its build
+  context, and `railway.json`'s `dockerfilePath` is resolved relative to this directory. Point the
+  context at the repo root and the build fails; point it at `railway/prometheus` and it fails too.
+
+Retention is set to 90 days in the Dockerfile. Prometheus' own default is **15 days**, which would
+delete the start of a four-week window while it was still being collected, leaving no error and no
+gap in the graph to show for it.
+
+### Verifying it
+
+```bash
+# What the image will actually scrape -- no need to start it
+docker run --rm --entrypoint cat <image> /etc/prometheus/prometheus.yml | grep targets:
+
+# Config and alert rules parse
+docker run --rm --entrypoint promtool <image> check config /etc/prometheus/prometheus.yml
+```
+
+Once deployed, the target list is the only thing worth checking: `Status -> Targets` in the
+Prometheus UI, reached through `railway run` or a temporary port-forward rather than a domain.
+
+**The one thing a local build cannot prove** is that the backend's management port is reachable
+across Railway's private network, which is IPv6-only. The listener itself is confirmed to bind in
+production — `ManagementPortSeparationGuard` refuses to start otherwise, and the backend is
+serving — so if the target comes up DOWN, the bind address is the first suspect: set
+`MANAGEMENT_SERVER_ADDRESS=::` on the backend service.
+
+### Grafana
+
+A second Railway service, built by `grafana/Dockerfile`, with the same dashboards and datasource the
+local stack uses baked in.
+
+| Setting | Value |
+|---|---|
+| Root Directory | `ops/monitoring/grafana` |
+| Builder | nothing to set — the Dockerfile is at the root of that context |
+| `GF_SECURITY_ADMIN_PASSWORD` | a long random value, set as a Railway variable |
+| Public domain | generate one **only if** you want browser access |
+| Volume | optional, `/var/lib/grafana` |
+
+**Why the root directory is one level deeper than Prometheus', and not `railway/grafana/`.** Railway
+reads `railway.json` from a service's Root Directory. A second service also rooted at
+`ops/monitoring` would read `ops/monitoring/railway.json`, which names the *Prometheus* Dockerfile,
+and would silently build Prometheus again. Rooting Grafana at `ops/monitoring/grafana` puts its
+Dockerfile where Railway looks by default and removes the collision entirely — no config file, no
+Dockerfile-path field, nothing to get wrong.
+
+**The admin password is not optional and not defaulted.** `require-admin-password.sh` refuses to
+start Grafana if `GF_SECURITY_ADMIN_PASSWORD` is unset, is a well-known default, or is shorter than
+16 characters. Grafana's own behaviour is to start happily on `admin/admin`, which on a service
+carrying a public domain is an administrator account on the internet with the most guessable
+password in existence. The compose stack in this directory uses `admin/admin` deliberately — it is
+throwaway and holds nothing — and copying those values into Railway is the obvious wrong shortcut,
+so it is refused by name.
+
+Anonymous access and sign-up are disabled in the image rather than left to Railway variables, so
+they cannot be lost by someone recreating the service.
+
+**A public domain is a real choice, not a formality.** Grafana holds no customer data — the same
+counters, queue depths and JVM internals the scrape carries — but it is still reconnaissance, and a
+domain puts a login page on the internet. Skip the domain and reach it through Railway's own console
+if the weekly review is rare enough to make that bearable.
+
+If you do generate one, set `GF_SERVER_ROOT_URL` to `https://<that domain>` so login redirects
+resolve correctly behind Railway's proxy.
 
 ---
 

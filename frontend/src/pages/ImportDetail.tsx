@@ -8,6 +8,7 @@ import { PageLoading } from '../components/PageLoading';
 import { isReviewable, label } from '../lib/importJob';
 import { navigateToResumeSession } from '../lib/importNavState';
 import { formatDate } from '../utils/date';
+import { trackNavigation } from '../lib/trackNavigation';
 
 /**
  * The self-service landing page for one past import (Premium Import Reliability v1, §3.2) --
@@ -71,7 +72,7 @@ export default function ImportDetail() {
           This import doesn't exist, or isn't yours to view.
         </p>
         <Link
-          to="/app/statements"
+          to="/app/statements" onClick={() => trackNavigation('statement-history', 'contextual')}
           className="mt-4 inline-block text-xs font-medium text-primary hover:underline"
         >
           Back to Statement History
@@ -85,7 +86,7 @@ export default function ImportDetail() {
   return (
     <div className="space-y-4 max-w-2xl">
       <Link
-        to="/app/statements"
+        to="/app/statements" onClick={() => trackNavigation('statement-history', 'contextual')}
         className="text-xs text-muted hover:text-ink inline-flex items-center gap-1"
       >
         <ArrowLeft size={12} /> Back to Statement History
@@ -129,7 +130,7 @@ export default function ImportDetail() {
         {job.status === 'FAILED' && (
           <button
             type="button"
-            onClick={() => void navigate('/app/import')}
+            onClick={() => { trackNavigation('import-statement', 'contextual'); void navigate('/app/import'); }}
             className="mt-4 bg-primary text-on-primary text-sm font-semibold rounded-lg px-4 py-2 hover:opacity-90"
           >
             Upload a different file

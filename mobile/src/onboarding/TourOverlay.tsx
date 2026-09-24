@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Modal, Text, View, StyleSheet } from 'react-native';
+import { Text, View, StyleSheet } from 'react-native';
+import { AppModal } from '../components/AppModal';
 import { Button } from '../components/Button';
 import { useTheme } from '../theme';
 import type { TourStep } from './tourSteps';
@@ -41,7 +42,7 @@ export function TourOverlay({ steps, navigateToTab, onFinish, onSkip }: Props) {
   // component doesn't resolve yet. The tooltip content and Next/Back/Skip/Finish flow -- the
   // thing every test in this file actually exercises -- ships first.
   return (
-    <Modal transparent animationType="fade">
+    <AppModal transparent animationType="fade">
       <View style={styles.backdrop}>
         <View style={[styles.card, { backgroundColor: c.card }]}>
           <Text style={[styles.title, { color: c.ink }]}>{step.title}</Text>
@@ -60,7 +61,7 @@ export function TourOverlay({ steps, navigateToTab, onFinish, onSkip }: Props) {
           </View>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

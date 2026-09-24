@@ -213,7 +213,14 @@ public class ProductIdentityResolver {
     private FinancialProductType typeOf(Account account) {
         if (account.getProductType() != null) {
             try {
-                return FinancialProductType.valueOf(account.getProductType());
+                FinancialProductType stored = FinancialProductType.valueOf(account.getProductType());
+                // UNKNOWN is "detection could not tell", not a product. Seven of eleven real
+                // credit-card layouts used to detect UNKNOWN (a classifier false contradiction, since
+                // fixed), and the accounts created from them stored it -- so once the same cards
+                // started detecting CREDIT_CARD, the masked-number match (which requires the types to
+                // agree) stopped recognising them. The account type the user confirmed at creation
+                // is the better answer for such an account.
+                if (stored != FinancialProductType.UNKNOWN) return stored;
             } catch (IllegalArgumentException e) {
                 // A value the enum no longer has -- a renamed constant, or a hand-edited row. Fall
                 // through to the account type rather than failing an import over it.

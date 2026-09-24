@@ -1,6 +1,7 @@
 import NetInfo from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { QueryClient, onlineManager } from '@tanstack/react-query';
+import { AppState } from 'react-native';
+import { focusManager, onlineManager } from '@tanstack/react-query';
 import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persister';
 import {
   persistQueryClientRestore,
@@ -8,18 +9,26 @@ import {
 } from '@tanstack/react-query-persist-client';
 import { PERSISTED_QUERY_KEY_PREFIXES, shouldPersistQuery } from './queryPersistence';
 import { decryptFromStorage, encryptForStorage } from '../lib/queryCacheCipher';
+import { GatedQueryClient } from '../lib/changeSync';
+import { shouldRefetchOnFocus } from '../lib/changeWatch';
 
 /**
- * Mirrors the web app's QueryClient config (frontend/src/App.tsx). refetchOnWindowFocus is a
- * browser concept with no native equivalent, and the web app explicitly disables it anyway, so
- * it's simply omitted rather than re-implemented against AppState -- that would enable a behavior
- * the web app deliberately turned off.
+ * Mirrors the web app's QueryClient config (frontend/src/App.tsx), except for refetch-on-focus:
+ * the web app turns it off, but on a phone "focus" is the app coming back to the foreground, and
+ * without it nothing re-fetches while the app is merely backgrounded -- see startForegroundRefetch.
  */
-export const queryClient = new QueryClient({
+// GatedQueryClient: see lib/changeSync.ts -- it keeps the app's own edits from being mistaken for changes
+// made on another device.
+export const queryClient = new GatedQueryClient({
   defaultOptions: {
     queries: {
       retry: 1,
       staleTime: 30_000,
+      // Whether returning to the app refetches a stale query -- see changeWatch.ts for why the ones
+      // the change stamp covers leave it to the stamp.
+      refetchOnWindowFocus: shouldRefetchOnFocus,
+      // Coming back online is the same kind of return: the stamp's check runs then too.
+      refetchOnReconnect: shouldRefetchOnFocus,
     },
   },
 });
@@ -65,6 +74,27 @@ export function startNetworkMonitoring(): () => void {
       state.isInternetReachable ?? state.isConnected ?? true
     );
   });
+}
+
+/**
+ * Teaches React Query what "focused" means on a device: the app is in the foreground.
+ *
+ * React Query's default focus source is the browser's visibilitychange event, which does not exist
+ * in React Native, so refetchOnWindowFocus (on by default, and not overridden above) never fired.
+ * A screen that stayed mounted while the app sat in the background -- every bottom tab does --
+ * kept showing what it had fetched before, so a name changed or a statement imported on the web
+ * was invisible here until the user signed out and back in.
+ *
+ * With this, returning to the app refetches every mounted screen's data that is past its staleTime
+ * (30s by default) and that changeWatch.ts's shouldRefetchOnFocus lets through, and nothing fresher
+ * -- a quick app switch does not hit the network.
+ */
+export function startForegroundRefetch(): () => void {
+  focusManager.setEventListener((handleFocus) => {
+    const subscription = AppState.addEventListener('change', (state) => handleFocus(state === 'active'));
+    return () => subscription.remove();
+  });
+  return () => focusManager.setEventListener(() => () => {});
 }
 
 const PERSIST_KEY = 'finora_query_cache';

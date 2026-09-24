@@ -629,15 +629,24 @@ identical.
 
 ## 10. Known gaps
 
-- **The scrape needs a credential or a private network path.** `/actuator/prometheus` is
-  authenticated (`SecurityConfig` permits only `/actuator/health`), which is the right posture — the
-  scrape carries queue depths, error rates and JVM internals. But it means Prometheus cannot scrape
-  anonymously. **Resolving this by adding `/actuator/**` to `permitAll` would make Prometheus work
-  and publish the same data to the internet in one move** — `WorkerMetricsExportIT` asserts the
-  anonymous case specifically to catch that. The real options are a scrape credential or Railway's
-  private network; that is a deployment decision, not a code one.
-- **No dashboards yet.** The metrics are exported and labelled; Grafana panels and their queries are
-  the next piece, and cannot be built or validated from the repository alone.
+- **~~The scrape needs a credential or a private network path.~~ Closed.** It took the private
+  network path. `/actuator` now listens on `management.server.port`, which no Railway domain routes
+  to, and the scrape is served there with no credential; on the application port nothing under
+  `/actuator` is mapped at all. `ManagementPortIsolationIT` asserts both directions and
+  `ManagementPortSeparationGuard` refuses to boot if the separation is lost. The credential option
+  was never viable in practice — the only tokens this system issues expire in fifteen minutes and
+  belong to real users.
+- **No production Prometheus or Grafana yet.** This is now the whole of the gap: the endpoint is
+  scrapeable, but nothing is scraping it in production, so counters still reset on every deploy and
+  no baseline accumulates. Deploying both as Railway services on the project's private network is
+  sketched in `ops/monitoring/README.md`, "Deploying this to production". Dashboards themselves are
+  in-repo and provisioned from files.
+- **Partly verified: whether the management listener is reachable over Railway's private network.**
+  Railway private networking is IPv6-only. The backend leaves `management.server.address` on the
+  framework default, and that default was measured: a default-configuration boot binds `*:9091` as
+  an IPv6 dual-stack wildcard, identical to how the application port binds `*:8080`. What a local
+  boot cannot settle is the container and the Railway network themselves, so confirm the Prometheus
+  target on the first deploy; `MANAGEMENT_SERVER_ADDRESS=::` is the lever if it does not come up.
 - **No alerting configured.** Thresholds are proposed in §7 but nothing evaluates them.
 - **Import pipeline instrumentation is done at the queue and thin on the synchronous path.**
   `ImportJobWorker` reuses this framework and adds none of its own, as required, and per-import
@@ -742,3 +751,144 @@ motivated raising it from 30 minutes in the first place.
 `ReconciliationMetricsExportIT`'s own pattern exactly — calls `AuthMetrics` directly, scrapes
 `/actuator/prometheus` through a real authenticated request, and asserts all four series are
 present.
+
+## 13. Navigation usage metrics
+
+`NavigationMetrics` (`com.finora.observability`) — three counters, fed by `POST /api/v1/nav-events`
+from both clients. They exist for one reason with a deadline attached: the shared navigation
+taxonomy is going to change how destinations are grouped, and **there is no backfill.** The moment
+that ships, the pre-grouping distribution is gone permanently, so a before/after comparison becomes
+impossible rather than merely difficult. See
+`docs/superpowers/specs/2026-09-23-navigation-analytics-design.md`.
+
+| Metric | Type | Tags | Meaning |
+|---|---|---|---|
+| `finora.nav.destination_opened` | counter | `destination`, `group`, `platform` | A destination was opened, however it was reached. |
+| `finora.nav.entry_point_used` | counter | `entry`, `platform` | Which affordance carried the user there. |
+| `finora.nav.search_used` | counter | `platform` | A navigation search happened. Never what was typed. |
+
+**These carry a platform tag where §12 refuses one**, and the divergence is deliberate rather than
+an oversight. `AuthMetrics` declines it because `X-Client-Platform` is client-asserted and its
+counters are security-relevant. Neither holds here: this is product telemetry, and whether the two
+clients are used differently is the entire question being asked. A client that lies about its
+platform skews a usage chart and nothing else.
+
+**Every tag value is a bounded enum** (`NavDestination`, `NavGroup`, `NavEntryPoint`,
+`ClientPlatform`), and an unrecognised value is **dropped rather than bucketed**. There is no
+`other`. A bucket would keep the cardinality bounded and quietly destroy the thing the counter is
+for — an unknown destination is a client/backend disagreement worth finding, not a row to file.
+
+**What is never here**: no user, account, session or device identifier, and no free text. That
+absence is the basis on which this is collected without a consent prompt at all, so it is a
+constraint to preserve rather than a property of the current shape.
+
+**Dashboard**: `ops/monitoring/grafana/dashboards/navigation-usage.json`, generated by
+`scripts/build-nav-dashboard.py`. Its first row answers "is the baseline accumulating at all"
+before any row answers "what does usage look like", because of a Micrometer property that makes
+those two indistinguishable by default: **a counter that has never been incremented is not exported
+as zero, it is not exported at all.** Every distribution panel therefore renders identically for
+"nobody navigated" and "the clients stopped reporting". The `Navigation events in window` panel
+shows `NO DATA ARRIVING` for the absent case, and `Backend scrapeable` separates a silent client
+from an unreachable scrape.
+
+It defaults to a 30-day window rather than the 6 hours the other dashboards use, because the
+question it is read to answer is whether four weeks *including a complete month-end* have
+accumulated — this product's dominant usage cycle is statement import, which clusters at month end.
+
+**Known gaps, so a zero is not misread as a finding.** Counted from the call sites in both clients,
+not assumed:
+
+| | Tracked | Missing |
+|---|---|---|
+| Web | 18 of 19 | `review-categories` |
+| Mobile | **19 of 19** | — |
+| Either client | **19 of 19** | — |
+
+So full coverage on *Destinations reporting* is **19**.
+
+**`review-categories` has no web destination to track.** Mobile has a dedicated Review Categories screen; web has no such
+destination at all — the same function is a "Needs Review" filter inside the Ledger. The zero is a
+real difference in information architecture, which is precisely the kind of divergence the shared
+taxonomy exists to resolve, and it must not be read as "web users do not review categories" or
+"fix"ed by attaching a tracking call to a screen that does not exist. See the Review Categories
+disjointness constraint in the taxonomy spec.
+
+All six `NavEntryPoint` values are now emitted by at least one client. `contextual` and `search`
+were defined but emitted by neither until the coverage pass described below, so a chart built
+before that date shows two bars reading zero by construction rather than by usage.
+
+**What `destination_opened` deliberately does not count.** It reads "however it was reached", with
+two exceptions, both because no `NavEntryPoint` value describes them honestly:
+
+- **Redirects** — where a completed action decides the destination rather than the person
+  (phone verification landing on the dashboard, a bank-sync confirmation returning to Settings).
+- **Arrivals from outside the app** — a push-notification tap, an OS share sheet.
+
+Counting either as `contextual` would credit a destination with opens nobody navigated to, and the
+comparison this baseline exists to support is between affordances. Each exclusion is listed in
+`scripts/check-nav-tracking-coverage.py` with the snippet it is anchored to, so a stale one fails
+CI rather than quietly widening.
+
+**Coverage is enforced, not reviewed.** `scripts/check-nav-tracking-coverage.py` (CI: *Nav tracking
+coverage*) fails when either client navigates to a taxonomy destination without a `trackNavigation`
+call in reach of it. It exists because this bug shipped twice — first search, which incremented
+`search_used` and opened Transactions without recording the destination, then every in-content link
+in both clients. Neither looked like a gap in the data. **A destination counted on one path and not
+another does not read as missing; it reads as a smaller number**, which is both harder to notice and
+impossible to recollect once the window has closed.
+
+**Verified reaching the scrape**: `NavigationMetricsExportIT`, following `WorkerMetricsExportIT`'s
+pattern — increments the counters, scrapes the management port, and asserts both the series names
+and the tags a dashboard groups by.
+
+### Baseline review protocol
+
+The counters have a deadline, not just a dashboard. This section is release gate 3 of the
+shared-taxonomy plan, and it exists because of a specific, stated failure mode: *metrics ship,
+dashboards never appear, nobody looks, and the counters become dead code carrying a permanent
+privacy surface for no return.* Unreviewed telemetry is worse than no telemetry, because it looks
+like diligence.
+
+**Reviewer:** `@siddharth705`. Sole owner per `.github/CODEOWNERS`, and in practice the only person
+who can reach the data at all — the scrape is on Railway's private network by design (see §10).
+
+**Cadence:** weekly while the baseline window is open, plus one closing review.
+
+**Start condition — the cadence does not begin when this merges.** It begins when a production
+Prometheus is scraping and the dashboard's *Navigation events in window* panel shows a number
+rather than `NO DATA ARRIVING`. Reviewing before then is theatre: the counters live in process
+memory and reset on every deploy, so until something is persisting them there is nothing to review
+and week one would be spent confirming that.
+
+**The weekly check** is four panels on the top row of
+`grafana/dashboards/navigation-usage.json`, and should take about two minutes:
+
+| Panel | Expected | If not |
+|---|---|---|
+| Navigation events in window | a rising number | `NO DATA ARRIVING` means collection is broken — see the row below |
+| Backend scrapeable | `UP` | the scrape is down, not the clients; the app may still be serving users fine |
+| Platforms reporting | `3` | a client has stopped reporting; a baseline missing a platform cannot answer the question |
+| Destinations reporting | steady at `19` | A *drop* means tracking was removed from a screen, most likely by an unrelated refactor. CI's *Nav tracking coverage* check catches a removed call site; it cannot catch a screen that stopped being reachable |
+
+Weekly rather than monthly for one reason: **there is no backfill.** A collection break discovered
+in week four has cost the entire window, and the whole point of the window is that it cannot be
+recreated after the taxonomy ships.
+
+**The closing review** additionally confirms the window actually covered what it had to — at least
+four weeks *including one complete month-end*, visible as a spike on *Opens per rolling 24h*.
+Statement import is this product's dominant usage cycle and it clusters at month end, so a window
+that missed one has not observed the product's busiest navigation period, and would be compared
+against an after-period that does include one.
+
+**If collection breaks mid-window:** extend the window by the length of the gap. If the gap covered
+the month-end, the window restarts instead — a baseline whose busiest week is missing is not a
+short baseline, it is a different one. Recorded here as the default rather than left to be decided
+under pressure on the day; it is the owner's call to overrule.
+
+**Why this is not automated.** A scheduled job that checks the counters and complains would be the
+obvious mechanism, and it is not buildable today: the scrape is reachable only from inside Railway's
+private network, which GitHub Actions is not, and the window's start date is not yet known. Both
+are consequences of decisions made deliberately elsewhere in this document rather than oversights.
+If a production Grafana later gains alerting, a "no navigation events for 24h" rule is the shape
+this should take.
+

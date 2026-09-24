@@ -1,4 +1,4 @@
-import { Alert } from 'react-native';
+import { AppAlert } from '../../lib/appAlert';
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as DocumentPicker from 'expo-document-picker';
@@ -96,6 +96,9 @@ function stagedRow(description: string): StagedRow {
     duplicateMatch: null,
     rowPosition: null,
     categoryConfidence: null,
+    international: false,
+    foreignCurrency: null,
+    foreignAmount: null,
   };
 }
 
@@ -402,8 +405,8 @@ describe('ImportScreen — new-account credit limit and due date fields', () => 
     render(tree());
     fireEvent.press(await screen.findByText('Choose a file'));
     await act(async () => {});
-    // Real (not faked) timer -- see "flashes a Completed checkmark" above for why 8000ms, not 3000.
-    await waitFor(() => expect(screen.queryByTestId('upload-completed')).toBeNull(), { timeout: 8000 });
+    // Real (not faked) timer -- see "flashes a Completed checkmark" above for why not.toBeOnTheScreen().
+    await waitFor(() => expect(screen.queryByTestId('upload-completed')).not.toBeOnTheScreen(), { timeout: 8000 });
     await screen.findByText(/^Import \d+ transaction/);
   }
 
@@ -485,11 +488,16 @@ describe('ImportScreen — upload completion dwell', () => {
     // ...and then it actually does move on to the review step, on its own, with no further
     // interaction. Real (not faked) timers here, same as every other test in this file --
     // jest.useFakeTimers() also fakes the timers waitFor's own polling relies on and would hang it
-    // (see AppLockGate.test.tsx's identical note). UPLOAD_COMPLETE_DWELL_MS alone is 900ms; 8000ms
-    // margin confirmed necessary, not just generous -- reproduced this exact assertion failing at
-    // the old 3000ms under synthetic CPU load with a single worker (no parallel-suite involvement),
-    // i.e. the real setTimeout firing late under contention, not leaked state from another test.
-    await waitFor(() => expect(screen.queryByTestId('upload-completed')).toBeNull(), { timeout: 8000 });
+    // (see AppLockGate.test.tsx's identical note). UPLOAD_COMPLETE_DWELL_MS alone is 900ms.
+    //
+    // not.toBeOnTheScreen(), deliberately not toBeNull() -- and the same in every reachReview()
+    // below. Every waitFor attempt that fails builds its assertion message eagerly, and
+    // toBeNull()'s message pretty-prints the whole React fiber graph behind the element (the
+    // "Received: {"_fiber": ...}" dump): measured at 1.3-3s of synchronous work per failed attempt,
+    // 4.3-4.8s under CPU load. The 900ms dwell timer cannot fire during that work, so it was
+    // measured landing 5.8-8.3s late and these waits failed in full parallel runs even at 8000ms.
+    // not.toBeOnTheScreen()'s message formats only the one host element (measured ~1ms).
+    await waitFor(() => expect(screen.queryByTestId('upload-completed')).not.toBeOnTheScreen(), { timeout: 8000 });
     expect(await screen.findByText(/^Import \d+ transaction/)).toBeTruthy();
   });
 });
@@ -533,8 +541,8 @@ describe('ImportScreen — new-account opening balance field', () => {
     render(tree());
     fireEvent.press(await screen.findByText('Choose a file'));
     await act(async () => {});
-    // Real (not faked) timer -- see "flashes a Completed checkmark" above for why 8000ms, not 3000.
-    await waitFor(() => expect(screen.queryByTestId('upload-completed')).toBeNull(), { timeout: 8000 });
+    // Real (not faked) timer -- see "flashes a Completed checkmark" above for why not.toBeOnTheScreen().
+    await waitFor(() => expect(screen.queryByTestId('upload-completed')).not.toBeOnTheScreen(), { timeout: 8000 });
     await screen.findByText(/^Import \d+ transaction/);
   }
 
@@ -602,8 +610,8 @@ describe('ImportScreen — statement verification panel (Phase 5)', () => {
     render(tree());
     fireEvent.press(await screen.findByText('Choose a file'));
     await settle();
-    // Real (not faked) timer -- see "flashes a Completed checkmark" above for why 8000ms, not 3000.
-    await waitFor(() => expect(screen.queryByTestId('upload-completed')).toBeNull(), { timeout: 8000 });
+    // Real (not faked) timer -- see "flashes a Completed checkmark" above for why not.toBeOnTheScreen().
+    await waitFor(() => expect(screen.queryByTestId('upload-completed')).not.toBeOnTheScreen(), { timeout: 8000 });
     await screen.findByText(/^Import \d+ transaction/);
   }
 
@@ -1144,7 +1152,7 @@ describe('ImportScreen — holder-name mismatch warning (Phase 4)', () => {
   });
 
   it('warns before confirming when the holder name does not match the profile name', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     arriveWithHolderName('Sunil Verma');
     render(tree());
 
@@ -1161,7 +1169,7 @@ describe('ImportScreen — holder-name mismatch warning (Phase 4)', () => {
   });
 
   it('sends userConfirmedContinue only after "Continue Import" is pressed', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     arriveWithHolderName('Sunil Verma');
     render(tree());
 
@@ -1177,7 +1185,7 @@ describe('ImportScreen — holder-name mismatch warning (Phase 4)', () => {
   });
 
   it('returns to the dropzone, importing nothing, from "Upload Different Statement"', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     arriveWithHolderName('Sunil Verma');
     render(tree());
 
@@ -1192,7 +1200,7 @@ describe('ImportScreen — holder-name mismatch warning (Phase 4)', () => {
   });
 
   it('never warns when the statement carries no holder name at all', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     arriveWithHolderName(null);
     render(tree());
 
@@ -1205,7 +1213,7 @@ describe('ImportScreen — holder-name mismatch warning (Phase 4)', () => {
 
   it('never warns when the profile itself has no name to compare against', async () => {
     mockFullName = null;
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     arriveWithHolderName('Sunil Verma');
     render(tree());
 
@@ -1278,7 +1286,7 @@ describe('ImportScreen — AA-linked account in the existing-account picker', ()
     render(tree());
     fireEvent.press(await screen.findByText('Choose a file'));
     await settle();
-    await waitFor(() => expect(screen.queryByTestId('upload-completed')).toBeNull(), { timeout: 8000 });
+    await waitFor(() => expect(screen.queryByTestId('upload-completed')).not.toBeOnTheScreen(), { timeout: 8000 });
     await screen.findByText(/^Import \d+ transaction/);
 
     fireEvent.press(screen.getByText('An existing account'));

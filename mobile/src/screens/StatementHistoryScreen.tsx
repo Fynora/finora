@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import {
-  ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Modal, Pressable, ScrollView,
-  StyleSheet, Text, TextInput, View,
+  ActivityIndicator, FlatList, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet,
+  Text, TextInput, View
 } from 'react-native';
+import { AppAlert } from '../lib/appAlert';
+import { AppModal } from '../components/AppModal';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
@@ -22,6 +24,7 @@ import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList } from '../navigation/types';
 import type { AccountStatementGroup, StatementSummary } from '../types';
+import { trackNavigation } from '../lib/trackNavigation';
 
 /** Mirrors the backend's 7-day retention window for a deleted account's history. */
 function daysUntilRemoved(deletedAt: string): string {
@@ -102,6 +105,7 @@ export function StatementHistoryScreen() {
         // Hand the staged rows to the Import TAB rather than rebuilding the review UI here -- it is
         // the same review and confirm the user already knows. Import lives in the tab navigator and
         // this screen lives in the More stack, so the jump goes through the parent.
+        trackNavigation('import-statement', 'contextual');
         navigation.getParent<BottomTabNavigationProp<AppTabParamList>>()?.navigate('Import', {
           reimport: {
             statementImportId: statement.id,
@@ -129,7 +133,7 @@ export function StatementHistoryScreen() {
   }
 
   function confirmDelete(statement: StatementSummary) {
-    Alert.alert(
+    AppAlert.alert(
       'Delete this import?',
       `This removes only the ${statement.transactionsImported} transaction(s) "${statement.fileName}" imported — nothing else.`,
       [
@@ -352,7 +356,7 @@ function ReimportPasswordModal({
   const [password, setPassword] = useState('');
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={busy ? () => {} : onClose}>
+    <AppModal visible transparent animationType="fade" onRequestClose={busy ? () => {} : onClose}>
       <KeyboardAvoidingView style={styles.flex} behavior="padding">
         <View style={styles.modalBackdrop}>
           <Card style={styles.modalCard}>
@@ -394,7 +398,7 @@ function ReimportPasswordModal({
           </Card>
         </View>
       </KeyboardAvoidingView>
-    </Modal>
+    </AppModal>
   );
 }
 
@@ -410,7 +414,7 @@ function StatementDetailModal({ detail, onClose }: { detail: Detail; onClose: ()
   });
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+    <AppModal visible transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.modalBackdrop}>
         <Card style={styles.detailCard}>
           <SectionHeading title={mode === 'summary' ? 'Import Summary' : 'Imported Transactions'} />
@@ -461,7 +465,7 @@ function StatementDetailModal({ detail, onClose }: { detail: Detail; onClose: ()
           <Button label="Close" variant="link" onPress={onClose} />
         </Card>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

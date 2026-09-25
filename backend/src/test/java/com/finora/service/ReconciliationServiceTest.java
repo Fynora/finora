@@ -230,6 +230,46 @@ class ReconciliationServiceTest {
         assertThat(sip2.getIsDuplicateOf()).isNull();
     }
 
+    @Test
+    void reconcileForUser_marksTheSamePostingImportedFromTwoLayouts_whenRunningBalancesAgree() {
+        UUID accountId = UUID.randomUUID();
+        UUID classicImport = UUID.randomUUID();
+        UUID compositeImport = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 6, 1);
+        Transaction classic = imported(accountId, date, new BigDecimal("1300.00"), Transaction.Type.EXPENSE,
+                "ACH D- CLEARING HOUSE-0000ABCDEFGH", classicImport, 12, Instant.parse("2026-08-01T10:00:00Z"));
+        classic.setBalanceAfter(new BigDecimal("23518.22"));
+        Transaction composite = imported(accountId, date, new BigDecimal("1300.00"), Transaction.Type.EXPENSE,
+                "ACH D- CLEARING HOUSE-0000ABCDEFGHValue Dt 01/06/2026 Ref 000001", compositeImport, 3, Instant.parse("2026-08-02T10:00:00Z"));
+        composite.setBalanceAfter(new BigDecimal("23518.22"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(classic, composite));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(classic.getIsDuplicateOf()).isNull();
+        assertThat(composite.getIsDuplicateOf()).isEqualTo(classic.getId());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> reason = (Map<String, Object>) composite.getReconciliationExplanation().get("reason");
+        assertThat(reason).containsEntry("sameBalance", true);
+    }
+
+    @Test
+    void reconcileForUser_doesNotUseTheBalancePass_whenEitherRowHasNoRunningBalance() {
+        UUID accountId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 6, 1);
+        Transaction withBalance = imported(accountId, date, new BigDecimal("1300.00"), Transaction.Type.EXPENSE,
+                "ACH D- CLEARING HOUSE-0000ABCDEFGH", UUID.randomUUID(), 12, Instant.parse("2026-08-01T10:00:00Z"));
+        withBalance.setBalanceAfter(new BigDecimal("23518.22"));
+        Transaction without = imported(accountId, date, new BigDecimal("1300.00"), Transaction.Type.EXPENSE,
+                "CARD PURCHASE 1300", UUID.randomUUID(), 3, Instant.parse("2026-08-02T10:00:00Z"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(withBalance, without));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(withBalance.getIsDuplicateOf()).isNull();
+        assertThat(without.getIsDuplicateOf()).isNull();
+    }
+
     // --- Deleted-account leak (see DashboardService.summarize for the original fix): a deleted
     // account's transactions deliberately keep deleted_at unset (StatementImportService's 7-day
     // DELETED_ACCOUNT_RETENTION), so reconcileForUser must scope its transaction fetch to exactly

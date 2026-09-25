@@ -338,11 +338,18 @@ public class ReconciliationService {
         for (Transaction t : all) byId.put(t.getId(), t);
 
         Map<String, List<Transaction>> byDuplicateKey = new HashMap<>();
+        Map<String, List<Transaction>> byBalanceKey = new HashMap<>();
         for (Transaction t : all) {
             if (t.getIsDuplicateOf() != null) continue; // already resolved by a prior run
             byDuplicateKey.computeIfAbsent(duplicateKey(t), k -> new java.util.ArrayList<>()).add(t);
+            String bk = balanceKey(t);
+            if (bk != null) byBalanceKey.computeIfAbsent(bk, k -> new java.util.ArrayList<>()).add(t);
         }
-        for (List<Transaction> coarseGroup : byDuplicateKey.values()) {
+        List<List<Transaction>> coarseGroups = new java.util.ArrayList<>(byDuplicateKey.values());
+        // Balance-keyed groups run after the description-keyed ones; a row marked in the first pass
+        // is skipped by the `t.getIsDuplicateOf() != null` checks inside the loop below.
+        coarseGroups.addAll(byBalanceKey.values());
+        for (List<Transaction> coarseGroup : coarseGroups) {
             if (coarseGroup.size() < 2) continue;
             for (List<Transaction> discriminated : splitByDiscriminator(coarseGroup)) {
                 if (discriminated.size() < 2) continue;
@@ -355,6 +362,7 @@ public class ReconciliationService {
                         .min(Comparator.<Transaction>comparingInt(t -> -SourceTrust.of(t.getSource()))
                                 .thenComparing(Transaction::getCreatedAt))
                         .orElseThrow();
+                if (canonical.getIsDuplicateOf() != null) continue;
                 for (Transaction t : group) {
                     if (t == canonical || t.getIsDuplicateOf() != null) continue;
                     // A human already ruled on this row and said it is a real, separate transaction.
@@ -1601,6 +1609,23 @@ public class ReconciliationService {
                 + t.getAmount().stripTrailingZeros().toPlainString() + "|"
                 + (t.getTxnType() == null ? "" : t.getTxnType().name()) + "|"
                 + com.finora.util.DuplicateMatching.normalizeDescription(t.getDescription());
+    }
+
+    /**
+     * Second duplicate key: the same posting in a different narration.
+     *
+     * <p>Two statements of one account can print one transaction differently -- a composite
+     * statement appends the value date and reference to every narration, a CSV export spaces the
+     * segments differently -- and {@link #duplicateKey} then never matches. A running balance is
+     * the bank's own sequence number for the posting: two rows on the same account, day, amount and
+     * direction that leave the same balance behind are the same row. Null when the row carries no
+     * balance, so rows without one never enter this pass.
+     */
+    private String balanceKey(Transaction t) {
+        if (t.getBalanceAfter() == null || t.getAmount() == null || t.getTxnType() == null) return null;
+        return t.getAccountId() + "|" + t.getTxnDate() + "|"
+                + t.getAmount().stripTrailingZeros().toPlainString() + "|"
+                + t.getTxnType().name() + "|bal:" + t.getBalanceAfter().stripTrailingZeros().toPlainString();
     }
 
     /**

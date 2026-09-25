@@ -319,9 +319,13 @@ of the loser tripping `@Version` into a 409, and a token retired by ordinary rot
 (30 s) while its session is still live is answered with another token pair for that session. The
 strict rule is unchanged past the window and for every other kind of revocation: logout, the idle
 and absolute limits, and the theft response itself leave `rotated_at` null. The trade-off is stated
-in `application.yml`: a thief inside the window gets one extra pair for a session the owner still
-holds, and the owner's next ordinary refresh, past the window, is what surfaces it.
-`finora.auth.refresh_replayed_within_grace` counts the grace path.
+in `application.yml` and is real: a thief who replays inside the window gets a token pair of their
+own, and from then on the two chains rotate independently and never collide, so reuse detection
+never fires for that theft. What bounds it is the same set of controls that bound any live session:
+the session shows twice in the owner's device list, the idle and absolute caps end it on schedule,
+and "sign out everywhere" ends it now. A thief who replays after the window, or whose stolen token
+the owner has not yet rotated, is caught exactly as before. `finora.auth.refresh_replayed_within_grace`
+counts the grace path, and a sustained rate on one account is worth a look.
 
 **One refresh cookie per portal.** The user app and the admin portal share the API host, and a
 cookie is keyed by host and name, so signing in to one overwrote the other's refresh cookie and

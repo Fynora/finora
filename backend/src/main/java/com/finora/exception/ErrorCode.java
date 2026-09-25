@@ -290,6 +290,17 @@ public enum ErrorCode {
     AUTH_REFRESH_PORTAL_MISMATCH("AUTH_016", HttpStatus.UNAUTHORIZED,
             "This session belongs to a different portal. Please sign in again."),
 
+    // Uploads (com.finora.uploads.UploadScanGate, audit F-18). Every upload endpoint shares these,
+    // so a client can tell "your file was refused" from "the platform could not check it" by code
+    // rather than by parsing a message. The 503 is an intentional rejection like
+    // IMPORT_SYSTEM_BUSY: the scanner being out is logged once at error level by the gate itself,
+    // and does not need a stack trace per refused upload on top of that.
+    UPLOAD_MALWARE_DETECTED("UPLOAD_001", HttpStatus.BAD_REQUEST,
+            "This file was rejected by the malware scanner and was not processed."),
+    UPLOAD_SCANNER_UNAVAILABLE("UPLOAD_002", HttpStatus.SERVICE_UNAVAILABLE,
+            "Uploads are paused while the malware scanner is unreachable. Please try again in a few minutes.",
+            RetryPolicy.FAIL_FAST, false, true),
+
     // Billing / entitlements (com.finora.service.EntitlementService)
     //
     // The first ErrorCode ever thrown from an EntitlementService.hasEntitlement() check --

@@ -1,6 +1,7 @@
 package com.finora.uploads;
 
 import com.finora.exception.ApiException;
+import com.finora.exception.ErrorCode;
 import com.finora.imports.StatementUpload;
 import com.finora.service.AuditService;
 import com.finora.uploads.MalwareScanner.ScanResult;
@@ -8,7 +9,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -106,16 +106,14 @@ public class UploadScanGate {
                         "context", context,
                         "signature", result.detail(),
                         "actorId", String.valueOf(userId)));
-                throw new ApiException(HttpStatus.BAD_REQUEST,
-                        "This file was rejected by the malware scanner and was not processed.");
+                throw new ApiException(ErrorCode.UPLOAD_MALWARE_DETECTED);
             }
             case UNAVAILABLE -> {
                 if (rejectWhenUnavailable) {
                     log.error("Malware scanner unavailable ({}); refusing upload {} ({}) per "
                             + "app.malware-scan.on-unavailable=reject: {}",
                             active.describe(), fileName, context, result.detail());
-                    throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE,
-                            "Uploads are paused while the malware scanner is unreachable. Please try again in a few minutes.");
+                    throw new ApiException(ErrorCode.UPLOAD_SCANNER_UNAVAILABLE);
                 }
                 log.warn("Malware scanner unavailable ({}); upload {} ({}) allowed through UNSCANNED per "
                         + "app.malware-scan.on-unavailable=allow: {}",

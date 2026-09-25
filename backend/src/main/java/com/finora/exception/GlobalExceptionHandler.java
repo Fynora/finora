@@ -8,8 +8,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.env.Environment;
+import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -185,7 +185,12 @@ public class GlobalExceptionHandler {
      * the loser's write is correctly rejected); this only fixes what the CLIENT sees when that
      * happens, so a UI can tell the user to refresh and retry instead of showing a generic error.
      */
-    @ExceptionHandler(OptimisticLockingFailureException.class)
+    // ConcurrencyFailureException rather than OptimisticLockingFailureException alone (audit F-11,
+    // 2026-09-25): RefreshTokenService.rotate now takes a row lock, and two theft-path rotations
+    // for the same user can deadlock (each holds its own row and updates the other's), which
+    // Postgres resolves by aborting one -- surfacing as CannotAcquireLockException, a sibling of
+    // the optimistic one under the same parent. Same meaning, same 409, same retry advice.
+    @ExceptionHandler(ConcurrencyFailureException.class)
     public ResponseEntity<ApiResponse<Void>> handleOptimisticLock() {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(ApiResponse.error("This record was just updated by another request — refresh and try again.", "CONFLICT"));

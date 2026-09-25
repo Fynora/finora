@@ -43,6 +43,9 @@ import java.util.UUID;
  * A consequence worth knowing: a session that took the grace path holds two live rows until the
  * orphaned one ages out, so it appears twice in the device list and "sign out this device"
  * on one of them leaves the other. The session ends normally at its idle or absolute limit.
+ * The security cost is stated in {@code application.yml}: a thief who replays inside the window
+ * is not detected then or later, because the two chains never collide again; the device list,
+ * the caps and "sign out everywhere" are what bound that session.
  */
 @Service
 public class RefreshTokenService {

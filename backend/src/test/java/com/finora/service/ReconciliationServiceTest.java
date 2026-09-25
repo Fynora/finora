@@ -196,6 +196,40 @@ class ReconciliationServiceTest {
         assertThat(b2.getIsDuplicateOf()).isEqualTo(a2.getId());
     }
 
+    @Test
+    void reconcileForUser_marksAReimportedEmiRow_asDuplicateOfTheOriginal() {
+        UUID accountId = UUID.randomUUID();
+        UUID firstImport = UUID.randomUUID();
+        UUID secondImport = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 9, 6);
+        Transaction original = imported(accountId, date, new BigDecimal("20010.00"), Transaction.Type.EXPENSE,
+                "EMI PRINCIPAL - 1/6, REF# 11111111", firstImport, 36, Instant.parse("2026-09-22T10:00:00Z"));
+        Transaction reimported = imported(accountId, date, new BigDecimal("20010.00"), Transaction.Type.EXPENSE,
+                "EMI PRINCIPAL - 1/6, REF# 11111111", secondImport, 36, Instant.parse("2026-09-23T10:00:00Z"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(original, reimported));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(original.getIsDuplicateOf()).isNull();
+        assertThat(reimported.getIsDuplicateOf()).isEqualTo(original.getId());
+    }
+
+    @Test
+    void reconcileForUser_stillKeepsManualMandateRowsApart() {
+        UUID accountId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 9, 6);
+        Transaction sip1 = txn(UUID.randomUUID(), accountId, date, new BigDecimal("5000.00"),
+                Transaction.Type.EXPENSE, "SIP MUTUAL FUND", Instant.parse("2026-09-06T10:00:00Z"));
+        Transaction sip2 = txn(UUID.randomUUID(), accountId, date, new BigDecimal("5000.00"),
+                Transaction.Type.EXPENSE, "SIP MUTUAL FUND", Instant.parse("2026-09-06T10:05:00Z"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(sip1, sip2));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(sip1.getIsDuplicateOf()).isNull();
+        assertThat(sip2.getIsDuplicateOf()).isNull();
+    }
+
     // --- Deleted-account leak (see DashboardService.summarize for the original fix): a deleted
     // account's transactions deliberately keep deleted_at unset (StatementImportService's 7-day
     // DELETED_ACCOUNT_RETENTION), so reconcileForUser must scope its transaction fetch to exactly

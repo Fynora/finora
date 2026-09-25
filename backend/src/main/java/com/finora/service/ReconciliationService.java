@@ -1653,7 +1653,14 @@ public class ReconciliationService {
         if (group.stream().allMatch(t -> t.getReferenceNumber() != null && !t.getReferenceNumber().isBlank())) {
             return groupBy(group, t -> "ref:" + t.getReferenceNumber());
         }
-        if (looksLikeRecurringMandate(group.get(0).getDescription())) {
+        // A recurring mandate (SIP, EMI, NACH) legitimately repeats with an identical narration, so
+        // rows that carry no import position cannot be told apart and are left alone. Rows from
+        // statement imports carry their printed position, and alignByImportPosition pairs them
+        // across imports without ever pooling two lines of the same statement -- which is exactly
+        // the case this exemption existed to protect. Without this narrowing a re-imported EMI row
+        // was never marked and its amount was added to the balance on every re-import.
+        if (looksLikeRecurringMandate(group.get(0).getDescription())
+                && group.stream().noneMatch(t -> t.getStatementImportId() != null && t.getSourceRowPosition() != null)) {
             return group.stream().map(List::of).toList();
         }
         return List.of(group);

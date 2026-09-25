@@ -599,14 +599,16 @@ public class TransactionNormalizer {
 
         // findMatch, not isLikelyDuplicate: one query either way, but it carries the evidence the
         // review screen needs to let the user decide rather than just flagging the row (WI5).
-        var duplicateMatch = (duplicateIndex != null
-                ? duplicateDetector.findMatch(duplicateIndex, date, amount, description)
-                : duplicateDetector.findMatch(userId, date, amount, description)).orElse(null);
-        boolean likelyDuplicate = duplicateMatch != null;
-
         String referenceNumber = CsvParser.firstNonBlank(row, REFERENCE_HINTS);
         String balanceRaw = firstParseableAmount(row, BALANCE_HINTS);
         BigDecimal balanceAfter = CsvParser.parseNumeric(balanceRaw);
+        // Runs after the balance parse so the index path can match on direction and running
+        // balance when the narration differs (F-31); the repository path stays description-only.
+        var duplicateMatch = (duplicateIndex != null
+                ? duplicateDetector.findMatch(duplicateIndex, date, amount, description,
+                        com.finora.entity.Transaction.Type.valueOf(type), balanceAfter)
+                : duplicateDetector.findMatch(userId, date, amount, description)).orElse(null);
+        boolean likelyDuplicate = duplicateMatch != null;
         if (ctx != null && balanceAfter != null) {
             ctx.record("RUNNING_BALANCE");
             if (CsvParser.hasTrailingDrCrMarker(balanceRaw)) ctx.record("DR_CR_SUFFIX");

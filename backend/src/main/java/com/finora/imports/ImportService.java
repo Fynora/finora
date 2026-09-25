@@ -957,9 +957,10 @@ public class ImportService {
      * build and insert the rows, write the StatementImport, move the balance.
      *
      * <p>Split out of {@code confirm()} for BH-041 so a multi-section import can persist every
-     * section before any reconciliation happens. The counterpart is {@link #summarise}, and the two
-     * are not independently reorderable — see that method on why the BH-003 balance reversal has to
-     * travel with the tally.
+     * section before any reconciliation happens. The counterpart is {@link #summarise}; the balance
+     * this method moves is corrected for duplicates by the reconciliation run in between
+     * (ReconciliationService.reverseBalanceContribution), so the order persist → reconcile →
+     * summarise is load-bearing.
      */
     private PersistedSection persistSection(UUID userId, String fileName, byte[] fileContent, ConfirmRequest request,
                                     Integer sourceSectionIndex,

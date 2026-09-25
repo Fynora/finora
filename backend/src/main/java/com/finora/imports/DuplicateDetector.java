@@ -174,9 +174,11 @@ public class DuplicateDetector {
      * @param duplicates the rows themselves, not just how many. BH-003: {@code ImportService}
      *        moves {@code Account.balance} by the net effect of everything it inserted, and
      *        reconciliation then flags the duplicates and excludes them from every reported total
-     *        -- but nothing reversed the balance movement they had already caused, so re-importing
-     *        a statement left the balance permanently wrong by its net while the ledger view showed
-     *        nothing amiss. Reversing it needs the rows, and the count cannot supply them.
+     *        -- for a long time nothing reversed the balance movement they had already caused, so
+     *        re-importing a statement left the balance permanently wrong by its net while the ledger
+     *        view showed nothing amiss. The reversal now happens inside reconciliation itself
+     *        ({@code ReconciliationService.reverseBalanceContribution}, for every run); the rows are
+     *        still handed back here so the summary can name them, not just count them.
      *
      *        <p>Deliberately NOT the transfers. A transfer-flagged row is excluded from income and
      *        expense totals because it is not spending -- but the money genuinely moved out of this

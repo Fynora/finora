@@ -122,6 +122,14 @@ public final class AccountBalanceConvention {
      *       effect is no longer separately in the balance. Rows that arrived after the SET are.</li>
      * </ul>
      *
+     * <p>Known limitation: the anchor is read as it is NOW. A mark written while an anchor was live
+     * on a row that predates it takes nothing off; if that anchor is later removed (its statement
+     * deleted, restoring the pre-SET balance, or a manual balance edit clearing the pointer) the
+     * row's amount is back in the balance with the mark still standing, and this method then
+     * answers true for it -- an un-mark would add the amount a second time. Correcting that needs
+     * the mark's own timestamp (the DUPLICATE graph edge, as V228 reads it), which no runtime site
+     * does yet.
+     *
      * @param liveAnchorImportedAt when the account's live absolute SET happened, or null when the
      *                             balance has no live anchor (never set, or cleared by a manual edit)
      */

@@ -492,10 +492,10 @@ public class StatementImportService {
                 }
                 if (toRemove.isEmpty()) return;
                 // Excludes an already-DUPLICATE-flagged row: its contribution to Account.balance
-                // was already reversed once, at the original statement's own confirm time
-                // (ImportService.summarise's BH-003 correction) -- summing it again here would
-                // move the balance a second time for a row that currently contributes nothing.
-                // Also excludes SUPERSEDED (#631 missed this second trigger of the same bug):
+                // was already reversed once, by the reconciliation run that marked it
+                // (ReconciliationService.reverseBalanceContribution, BH-003) -- summing it again
+                // here would move the balance a second time for a row that currently contributes
+                // nothing. Also excludes SUPERSEDED (#631 missed this second trigger of the same bug):
                 // StatementImportService.supersede() marks an ADDITIVE-mode original's rows
                 // SUPERSEDED and reverses their contribution in that same call, so a SUPERSEDED
                 // row's current net contribution is zero too -- deleting an already-superseded
@@ -670,10 +670,10 @@ public class StatementImportService {
                 // numeric case.
                 if (replacement.getBalanceApplicationMode() != StatementImport.BalanceApplicationMode.ABSOLUTE) {
                     // Excludes an already-DUPLICATE-flagged row: its contribution to Account.balance
-                    // was already reversed once, at the original statement's own confirm time
-                    // (ImportService.summarise's BH-003 correction) -- summing it again here would
-                    // move the balance a second time for a row that currently contributes nothing.
-                    // TRANSFER/REFUND/REVERSAL/INVESTMENT_TRANSFER rows stay included: those
+                    // was already reversed once, by the reconciliation run that marked it
+                    // (ReconciliationService.reverseBalanceContribution, BH-003) -- summing it again
+                    // here would move the balance a second time for a row that currently contributes
+                    // nothing. TRANSFER/REFUND/REVERSAL/INVESTMENT_TRANSFER rows stay included: those
                     // classifications only affect expense/income REPORTING (RefundNetting.reportable),
                     // not Account.balance -- the cash genuinely moved, so the balance still reflects it.
                     List<Transaction> stillContributing = originalTransactions.stream()

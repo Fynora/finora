@@ -1787,14 +1787,14 @@ public class ReconciliationService {
      *
      * <p>{@code Account.balance} moves with the transactions Finora counts. A row this run has just
      * marked DUPLICATE is no longer counted, so the contribution it made when it arrived comes back
-     * off. ADDITIVE is the only {@link StatementImport.BalanceApplicationMode} under which a row's
-     * own net effect ever went into the balance, so a row from an ABSOLUTE / NONE / UNKNOWN_LEGACY
-     * import, or one with no statement import at all (a manual entry was never reversed and is
-     * never added back either), is left alone. The mirror image lives at every site that clears a
-     * mark: {@code TransactionService.confirmNotDuplicate}, {@code TransactionService
-     * .clearReconciliationPointersTo} and {@code StatementImportService.delete} put exactly these
-     * rows back under exactly this rule, and {@code TransactionService.delete} / {@code update}
-     * skip the balance for them because their contribution is already gone.
+     * off -- when it is in the balance at all, which {@link com.finora.accounts
+     * .AccountBalanceConvention#netEffectIsInBalance} decides (manual rows and rows of ADDITIVE
+     * statement imports, unless a later stated closing balance replaced the history they were part
+     * of). The mirror image lives at every site that clears a mark: {@code TransactionService
+     * .confirmNotDuplicate}, {@code TransactionService.clearReconciliationPointersTo} and {@code
+     * StatementImportService.delete} put exactly these rows back under exactly this rule, and
+     * {@code TransactionService.delete} / {@code update} skip the balance for them because their
+     * contribution is already gone.
      *
      * <p>Until this lived here, only the confirm that inserted a row could reverse it
      * ({@code ImportService.summarise}, scoped to that import's own batch). A mark written by any
@@ -1804,23 +1804,26 @@ public class ReconciliationService {
      */
     private void reverseBalanceContribution(List<Transaction> newlyMarked) {
         if (newlyMarked.isEmpty()) return;
-        Map<UUID, Boolean> additiveByImport = new HashMap<>();
+        Map<UUID, StatementImport> importsById = new HashMap<>();
+        java.util.function.Function<UUID, StatementImport> importOf = id -> id == null ? null
+                : importsById.computeIfAbsent(id, k -> statementImportRepository.findById(k).orElse(null));
         Map<UUID, List<Transaction>> byAccount = new java.util.LinkedHashMap<>();
         for (Transaction t : newlyMarked) {
-            if (t.getStatementImportId() == null || t.getAccountId() == null) continue;
-            boolean additive = additiveByImport.computeIfAbsent(t.getStatementImportId(), id ->
-                    statementImportRepository.findById(id)
-                            .map(si -> si.getBalanceApplicationMode() == StatementImport.BalanceApplicationMode.ADDITIVE)
-                            .orElse(false));
-            if (!additive) continue;
-            byAccount.computeIfAbsent(t.getAccountId(), k -> new java.util.ArrayList<>()).add(t);
+            if (t.getAccountId() != null) byAccount.computeIfAbsent(t.getAccountId(), k -> new java.util.ArrayList<>()).add(t);
         }
         for (Map.Entry<UUID, List<Transaction>> entry : byAccount.entrySet()) {
             // findById is filtered by Account's @SQLRestriction: a since-deleted account has no
             // balance left to correct, same as every other writer treats it.
             accountRepository.findById(entry.getKey()).ifPresent(account -> {
+                StatementImport anchor = importOf.apply(account.getLastAbsoluteSetStatementId());
+                java.time.Instant anchoredAt = anchor == null ? null : anchor.getImportedAt();
+                List<Transaction> inBalance = entry.getValue().stream().filter(t -> {
+                    StatementImport si = importOf.apply(t.getStatementImportId());
+                    return com.finora.accounts.AccountBalanceConvention.netEffectIsInBalance(t.getSource(),
+                            si == null ? null : si.getBalanceApplicationMode(), t.getCreatedAt(), anchoredAt);
+                }).toList();
                 BigDecimal reversal = com.finora.accounts.AccountBalanceConvention
-                        .netDelta(account.getAccountType(), entry.getValue()).negate();
+                        .netDelta(account.getAccountType(), inBalance).negate();
                 if (reversal.signum() != 0) {
                     account.setBalance(account.getBalance().add(reversal));
                     accountRepository.save(account);

@@ -289,10 +289,11 @@ class ReconciliationServiceTest {
         verify(accountRepository, org.mockito.Mockito.never()).save(any(Account.class));
     }
 
-    /** A manual row was counted when it was entered and is never reversed by a mark (and never
-     *  added back by confirmNotDuplicate) -- the rule this pass shares with TransactionService. */
+    /** A manual row was counted when it was entered (TransactionService.create), so its mark takes
+     *  it back off exactly like an ADDITIVE-import row -- the rule this pass shares with
+     *  TransactionService.confirmNotDuplicate, which puts it back. */
     @Test
-    void reconcileForUser_leavesTheBalanceAlone_whenTheMarkedRowIsManual() {
+    void reconcileForUser_takesAMarkedManualRow_backOffTheAccountBalance() {
         UUID accountId = UUID.randomUUID();
         UUID firstImport = UUID.randomUUID();
         Account account = savingsAccount(accountId, "1000.00");
@@ -306,6 +307,57 @@ class ReconciliationServiceTest {
         reconciliationService.reconcileForUser(userId);
 
         assertThat(manual.getIsDuplicateOf()).isEqualTo(original.getId());
+        assertThat(account.getBalance()).isEqualByComparingTo("1250.00");
+        verify(accountRepository).save(account);
+    }
+
+    /** Nothing on the account-aggregator path ever writes Account.balance, so an aggregator row's
+     *  mark has nothing to take off. */
+    @Test
+    void reconcileForUser_leavesTheBalanceAlone_whenTheMarkedRowCameFromTheAggregator() {
+        UUID accountId = UUID.randomUUID();
+        UUID firstImport = UUID.randomUUID();
+        Account account = savingsAccount(accountId, "1000.00");
+        LocalDate date = LocalDate.of(2026, 7, 13);
+        Transaction original = imported(accountId, date, new BigDecimal("250.00"), Transaction.Type.EXPENSE,
+                "METRO FARE", firstImport, 3, Instant.parse("2026-07-20T10:00:00Z"));
+        Transaction aggregator = txn(UUID.randomUUID(), accountId, date, new BigDecimal("250.00"), Transaction.Type.EXPENSE,
+                "METRO FARE", Instant.parse("2026-07-21T10:00:00Z"));
+        aggregator.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(original, aggregator));
+
+        reconciliationService.reconcileForUser(userId);
+
+        // SourceTrust ranks CSV_IMPORT above ACCOUNT_AGGREGATOR, so the aggregator row is the one
+        // marked; nothing on the aggregator path ever put it into the balance, so nothing moves.
+        assertThat(aggregator.getIsDuplicateOf()).isEqualTo(original.getId());
+        assertThat(account.getBalance()).isEqualByComparingTo("1000.00");
+        verify(accountRepository, org.mockito.Mockito.never()).save(any(Account.class));
+    }
+
+    /** The account's balance was SET from a later statement's stated closing figure; a marked row
+     *  that predates that SET is no longer separately in the balance and is left alone. */
+    @Test
+    void reconcileForUser_leavesTheBalanceAlone_whenTheMarkedRowPredatesALiveAbsoluteSet() {
+        UUID accountId = UUID.randomUUID();
+        UUID firstImport = UUID.randomUUID();
+        UUID secondImport = UUID.randomUUID();
+        UUID anchorImport = UUID.randomUUID();
+        statementImport(secondImport, com.finora.entity.StatementImport.BalanceApplicationMode.ADDITIVE);
+        com.finora.entity.StatementImport anchor = statementImport(anchorImport, com.finora.entity.StatementImport.BalanceApplicationMode.ABSOLUTE);
+        ReflectionTestUtils.setField(anchor, "importedAt", Instant.parse("2026-08-01T10:00:00Z"));
+        Account account = savingsAccount(accountId, "1000.00");
+        account.setLastAbsoluteSetStatementId(anchorImport);
+        LocalDate date = LocalDate.of(2026, 7, 13);
+        Transaction original = imported(accountId, date, new BigDecimal("250.00"), Transaction.Type.EXPENSE,
+                "METRO FARE", firstImport, 3, Instant.parse("2026-07-20T10:00:00Z"));
+        Transaction copy = imported(accountId, date, new BigDecimal("250.00"), Transaction.Type.EXPENSE,
+                "METRO FARE", secondImport, 3, Instant.parse("2026-07-21T10:00:00Z"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(original, copy));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(copy.getIsDuplicateOf()).isEqualTo(original.getId());
         assertThat(account.getBalance()).isEqualByComparingTo("1000.00");
         verify(accountRepository, org.mockito.Mockito.never()).save(any(Account.class));
     }

@@ -130,22 +130,24 @@ class NotDuplicateConfirmationIT extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("the balance does not move -- the flag governed reports, never the ledger")
-    void confirmingDoesNotTouchTheAccountBalance() {
+    @DisplayName("the mark took the second fare off the balance; confirming it puts the fare back")
+    void confirmingPutsTheReversedFareBackOnTheBalance() {
         Fixture f = fixture();
         addMetroFare(f);
         addMetroFare(f);
 
         BigDecimal beforeConfirming =
                 accountRepository.findById(f.account().getId()).orElseThrow().getBalance();
-        // Both fares were applied when they were created; a DUPLICATE flag never took one back off.
-        assertThat(beforeConfirming).isEqualByComparingTo("4910.00");
+        // Both fares were applied when they were created; reconciliation marked the second one a
+        // DUPLICATE and, since 2026-09-25, took it back off (AccountBalanceConvention
+        // .netEffectIsInBalance) -- the balance shows one fare, which is what the reports show.
+        assertThat(beforeConfirming).isEqualByComparingTo("4955.00");
 
         transactionService.confirmNotDuplicate(f.user().getId(), fares(f).get(1).getId());
 
         assertThat(accountRepository.findById(f.account().getId()).orElseThrow().getBalance())
-                .as("this decision changes what the REPORTS exclude; the money already moved")
-                .isEqualByComparingTo(beforeConfirming);
+                .as("the row counts in every report again, so the balance counts it again too")
+                .isEqualByComparingTo("4910.00");
     }
 
     @Test

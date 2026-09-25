@@ -1227,10 +1227,10 @@ class TransactionServiceTest {
         assertThat(acct.getBalance()).isEqualByComparingTo("1000");
     }
 
-    /** A manual survivor was never reversed, so un-marking it adds nothing back: only the deleted
-     *  canonical's 200 comes off. */
+    /** A manual survivor was taken off when it was marked, so un-marking it adds its 200 back:
+     *  the deleted canonical's 200 comes off, the survivor's goes on, the balance shows one. */
     @Test
-    void delete_addsNothingBack_forAManualSurvivorItUnmarks() {
+    void delete_addsBackTheContribution_ofAManualSurvivorItUnmarks() {
         UUID txnId = UUID.randomUUID();
         UUID accountId = UUID.randomUUID();
         Transaction canonical = ownedTransaction(txnId, userId);
@@ -1250,19 +1250,40 @@ class TransactionServiceTest {
         transactionService.delete(userId, txnId, userId);
 
         assertThat(survivor.getIsDuplicateOf()).isNull();
-        assertThat(acct.getBalance()).isEqualByComparingTo("800");
+        assertThat(acct.getBalance()).isEqualByComparingTo("1000");
     }
 
-    /** The mirror image: a manual duplicate was counted when entered and never reversed, so its
-     *  delete still moves the balance back, exactly as before. */
+    /** A manual duplicate was counted when entered and taken back off when marked (the same rule
+     *  as an ADDITIVE-import row), so its delete moves nothing either. */
     @Test
-    void delete_stillReversesTheBalance_forAManualDuplicate() {
+    void delete_leavesTheBalanceAlone_forAMarkedManualDuplicate() {
         UUID txnId = UUID.randomUUID();
         UUID accountId = UUID.randomUUID();
         Transaction t = ownedTransaction(txnId, userId);
         t.setAccountId(accountId);
         t.setAmount(BigDecimal.valueOf(200));
         t.setTxnType(Transaction.Type.INCOME);
+        t.setIsDuplicateOf(UUID.randomUUID());
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(t));
+        Account acct = account(accountId, Account.Type.SAVINGS, BigDecimal.valueOf(1000));
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(acct));
+
+        transactionService.delete(userId, txnId, userId);
+
+        assertThat(acct.getBalance()).isEqualByComparingTo("1000");
+    }
+
+    /** An account-aggregator row never moved the balance, so its mark took nothing off and the
+     *  pre-existing delete reversal still applies to it unchanged. */
+    @Test
+    void delete_stillReversesTheBalance_forAMarkedAggregatorRow() {
+        UUID txnId = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+        Transaction t = ownedTransaction(txnId, userId);
+        t.setAccountId(accountId);
+        t.setAmount(BigDecimal.valueOf(200));
+        t.setTxnType(Transaction.Type.INCOME);
+        t.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
         t.setIsDuplicateOf(UUID.randomUUID());
         when(transactionRepository.findById(txnId)).thenReturn(Optional.of(t));
         Account acct = account(accountId, Account.Type.SAVINGS, BigDecimal.valueOf(1000));

@@ -1,6 +1,7 @@
 package com.finora.transactions;
 
 import com.finora.dto.PagedResponse;
+import com.finora.accounts.AccountBalanceConvention;
 import com.finora.entity.Account;
 import com.finora.entity.Category;
 import com.finora.entity.Transaction;
@@ -441,21 +442,32 @@ public class TransactionService {
     /**
      * Whether this row's own net effect is currently sitting in {@code Account.balance}.
      *
-     * <p>False for a row reconciliation has marked DUPLICATE out of an ADDITIVE statement import:
-     * BH-003 ({@code ReconciliationService.reverseBalanceContribution}) took its contribution back
-     * off when the mark was written, and {@link #confirmNotDuplicate} is what puts it back. Deleting
-     * or editing such a row must not move the balance by an amount that is not in it -- that left an
-     * import / mark / delete cycle short by the row. Every other row (manual, or from an ABSOLUTE /
-     * NONE / UNKNOWN_LEGACY import) was never reversed, so its contribution stands and moves as
-     * before. Same rule at every site that writes or clears the mark: ReconciliationService marks
-     * and reverses; confirmNotDuplicate, {@link #clearReconciliationPointersTo} and
+     * <p>False for a row reconciliation has marked DUPLICATE whose effect was in the balance when
+     * the mark was written ({@link AccountBalanceConvention#netEffectIsInBalance}): BH-003
+     * ({@code ReconciliationService.reverseBalanceContribution}) took it back off then, and
+     * {@link #confirmNotDuplicate} is what puts it back. Deleting or editing such a row must not
+     * move the balance by an amount that is not in it -- that left an import / mark / delete cycle
+     * short by the row. Same rule at every site that writes or clears the mark: ReconciliationService
+     * marks and reverses; confirmNotDuplicate, {@link #clearReconciliationPointersTo} and
      * StatementImportService.delete un-mark and add back; delete / update here skip what is gone.
      */
     private boolean contributesToBalance(Transaction t) {
-        if (t.getIsDuplicateOf() == null || t.getStatementImportId() == null) return true;
-        return statementImportRepository.findById(t.getStatementImportId())
-                .map(si -> si.getBalanceApplicationMode() != StatementImport.BalanceApplicationMode.ADDITIVE)
-                .orElse(true);
+        return t.getIsDuplicateOf() == null || !wasReversedWhenMarked(t);
+    }
+
+    /** {@link AccountBalanceConvention#netEffectIsInBalance} with this row's import mode and its
+     *  account's live absolute anchor resolved. A row of a since-deleted account resolves to false:
+     *  there is no balance left to move. */
+    private boolean wasReversedWhenMarked(Transaction t) {
+        Account account = accountRepository.findById(t.getAccountId()).orElse(null);
+        if (account == null) return false;
+        StatementImport.BalanceApplicationMode mode = t.getStatementImportId() == null ? null
+                : statementImportRepository.findById(t.getStatementImportId())
+                        .map(StatementImport::getBalanceApplicationMode).orElse(null);
+        java.time.Instant anchoredAt = account.getLastAbsoluteSetStatementId() == null ? null
+                : statementImportRepository.findById(account.getLastAbsoluteSetStatementId())
+                        .map(StatementImport::getImportedAt).orElse(null);
+        return AccountBalanceConvention.netEffectIsInBalance(t.getSource(), mode, t.getCreatedAt(), anchoredAt);
     }
 
     /**
@@ -649,25 +661,20 @@ public class TransactionService {
         t.setReconciliationExplanation(null);
         Transaction saved = transactionRepository.save(t);
 
-        // Usually the balance is NOT touched: a manually-entered duplicate-flagged row was always
-        // counted in Account.balance (the flag only ever governed what the reports exclude), so
-        // the money never moved and doesn't need to move back.
+        // The mark took this row's net effect off Account.balance when reconciliation wrote it
+        // (BH-003, ReconciliationService.reverseBalanceContribution) -- for every row whose effect
+        // was in the balance to begin with: a manual entry, or a row of an ADDITIVE statement import,
+        // unless a later stated closing balance replaced the history it belonged to. Confirming it
+        // "not a duplicate" means it counts in every report again, so the balance must count it
+        // again too, or it stays permanently short by this row's amount with no way to self-correct.
+        // Same rule, one owner: AccountBalanceConvention.netEffectIsInBalance.
         //
-        // The one exception is BH-003 (ImportService.summarise): a statement-import row flagged
-        // DUPLICATE by reconciliation at its OWN confirm time has its contribution reversed OUT of
-        // Account.balance immediately, precisely so re-importing the same file twice doesn't double
-        // -count it. Such a row currently contributes zero. Confirming it "not a duplicate" here
-        // means it counts in every report again, so the balance must count it again too, or it
-        // stays permanently short by this row's amount with no way to self-correct.
-        //
-        // ADDITIVE is the only mode BH-003 ever reversed under (see StatementImport
-        // .BalanceApplicationMode's own doc) -- ABSOLUTE/NONE never moved the balance via this
-        // row's net effect, and UNKNOWN_LEGACY predates the field, so which branch its own confirm
-        // took was never recorded and is deliberately not guessed here either.
-        if (saved.getStatementImportId() != null) {
-            statementImportRepository.findById(saved.getStatementImportId())
-                    .filter(si -> si.getBalanceApplicationMode() == StatementImport.BalanceApplicationMode.ADDITIVE)
-                    .ifPresent(si -> adjustAccountBalance(saved.getAccountId(), balanceOf(saved)));
+        // Marks written before that rule reached manual rows and later-run marks (2026-09-25) had
+        // nothing taken off; a one-off backfill corrects those, and until it has run a manual row
+        // marked before then and confirmed here is put back by this branch without having been
+        // taken off -- the same overstatement the backfill exists to remove.
+        if (wasReversedWhenMarked(saved)) {
+            adjustAccountBalance(saved.getAccountId(), balanceOf(saved));
         }
 
         reconciliationService.reconcileForUser(userId);
@@ -1013,7 +1020,7 @@ public class TransactionService {
             // canonical row reversed the canonical's contribution AND left the survivor's off: the
             // ledger kept one real transaction and the balance reflected none. Read before the
             // pointer is cleared, since the check keys on it.
-            boolean reversedAtMark = !contributesToBalance(t);
+            boolean reversedAtMark = wasReversedWhenMarked(t);
             t.setIsDuplicateOf(null);
             t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
             if (reversedAtMark) adjustAccountBalance(t.getAccountId(), balanceOf(t));

@@ -97,11 +97,15 @@ public class UploadScanGate {
             case INFECTED -> {
                 log.warn("Upload {} ({} bytes, {}) rejected by {}: {}",
                         fileName, file.getSize(), context, active.describe(), result.detail());
+                // "actorId" alongside the subject, as every admin-reachable audit write does (FG-025):
+                // here they are the same person, since nobody uploads a file on someone else's
+                // behalf -- an admin's analysis upload is the admin's own act.
                 auditService.record(userId, AUDIT_ACTION_REJECTED, "Upload", userId, Map.of(
                         "fileName", fileName,
                         "sizeBytes", file.getSize(),
                         "context", context,
-                        "signature", result.detail()));
+                        "signature", result.detail(),
+                        "actorId", String.valueOf(userId)));
                 throw new ApiException(HttpStatus.BAD_REQUEST,
                         "This file was rejected by the malware scanner and was not processed.");
             }

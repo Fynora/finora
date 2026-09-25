@@ -62,10 +62,14 @@ public class ImportJobController {
     private final ImportJobService importJobService;
     private final CurrentUser currentUser;
 
-    public ImportJobController(ImportJobService importJobService, CurrentUser currentUser) {
+    public ImportJobController(ImportJobService importJobService, CurrentUser currentUser,
+                               com.finora.uploads.UploadScanGate uploadScanGate) {
         this.importJobService = importJobService;
         this.currentUser = currentUser;
+        this.uploadScanGate = uploadScanGate;
     }
+
+    private final com.finora.uploads.UploadScanGate uploadScanGate;
 
     /**
      * Accepts a statement and returns 202 with somewhere to poll.
@@ -93,6 +97,9 @@ public class ImportJobController {
         // of two call sites agreeing rather than of anything being recorded.
         StatementUpload.Format format = ImportJobService.formatOf(file.getOriginalFilename());
         StatementUpload.requireReadable(file, format);
+        // Audit F-18: scanned here, while the user is still looking at the upload dialog, not by
+        // the worker minutes later -- same reasoning as the structural check above.
+        uploadScanGate.requireClean(file, currentUser.id(), "statement-import");
 
         // A protected PDF cannot be queued: the job carries a content address and no password, so
         // the worker would open it minutes later with nobody to ask and fail with a bare "couldn't

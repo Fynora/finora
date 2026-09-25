@@ -731,6 +731,7 @@ with no queue, no retry and no dead-letter concept.
 | `finora.auth.refresh_success` | counter | A refresh token rotated successfully, inside both the idle and absolute windows. |
 | `finora.auth.refresh_expired_idle` | counter | A refresh refused for exceeding `idle-timeout-ms` (`ErrorCode.AUTH_SESSION_IDLE`). |
 | `finora.auth.refresh_expired_absolute` | counter | A refresh refused for exceeding `absolute-session-ms` (`ErrorCode.AUTH_SESSION_MAX_AGE`). |
+| `finora.auth.refresh_replayed_within_grace` | counter | A just-rotated refresh token presented again inside `refresh-reuse-grace-ms` and answered with another token pair for the same session instead of the theft response (audit F-11, 2026-09-24). Bursty and rare is normal (a retry storm on a bad network); a sustained rate from one account is what a thief inside the window would also produce. |
 
 **No tags.** Unlike `ReconciliationMetrics`, none of these four events has a safe, bounded dimension
 worth splitting by. The login method and the client platform are exactly the kind of thing worth

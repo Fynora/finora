@@ -9,6 +9,7 @@ import com.finora.imports.analysis.StatementAnalysisRecorder;
 import com.finora.security.CurrentUser;
 import com.finora.imports.ImportService;
 import com.finora.imports.StatementUpload;
+import com.finora.uploads.UploadScanGate;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -32,10 +33,12 @@ public class ImportController {
     private final ImportConcurrencyLimiter concurrencyLimiter;
     private final CurrentUser currentUser;
     private final StatementAnalysisRecorder analysisRecorder;
+    private final UploadScanGate uploadScanGate;
 
     public ImportController(ImportService importService, ImportSessionService importSessionService,
                              ImportConcurrencyLimiter concurrencyLimiter, CurrentUser currentUser,
-                             StatementAnalysisRecorder analysisRecorder) {
+                             StatementAnalysisRecorder analysisRecorder, UploadScanGate uploadScanGate) {
+        this.uploadScanGate = uploadScanGate;
         this.importService = importService;
         this.importSessionService = importSessionService;
         this.concurrencyLimiter = concurrencyLimiter;
@@ -57,6 +60,9 @@ public class ImportController {
         // endpoint should not consume one of the six permits the expensive work is gated behind
         // (BH-043: an instant accept/reject now, not a queue -- see ImportConcurrencyLimiter).
         StatementUpload.requireReadable(file, StatementUpload.Format.CSV);
+        // After the cheap structural check, before the limiter (audit F-18): a rejected file
+        // costs no scanner round trip if it was never a CSV, and no import permit if it was.
+        uploadScanGate.requireClean(file, currentUser.id(), "statement-import");
         return ResponseEntity.ok(ApiResponse.ok(
                 concurrencyLimiter.runGated(() -> importService.parseAndStageWithSession(currentUser.id(), file))));
     }
@@ -82,6 +88,7 @@ public class ImportController {
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "password", required = false) String password) throws Exception {
         StatementUpload.requireReadable(file, StatementUpload.Format.PDF);
+        uploadScanGate.requireClean(file, currentUser.id(), "statement-import");
         return ResponseEntity.ok(ApiResponse.ok(
                 concurrencyLimiter.runGated(() -> importService.parseAndStagePdfWithSession(currentUser.id(), file, password))));
     }

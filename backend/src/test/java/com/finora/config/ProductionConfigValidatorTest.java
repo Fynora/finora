@@ -248,6 +248,18 @@ class ProductionConfigValidatorTest {
         assertThat(catchNoThrow(validator)).isTrue();
     }
 
+    /** Audit F-18: an unset (or 'none') MALWARE_SCAN_PROVIDER warns and never blocks startup --
+     *  the scanner is a separate service the operator stands up first, and refusing to boot would
+     *  turn that rollout step into an outage. The mocked Environment answers null for the property,
+     *  which is the same branch an absent variable takes. */
+    @Test
+    void run_inProdProfile_withNoMalwareScanProvider_warnsButDoesNotThrow() {
+        Environment environment = envWithProfilesAndDbPassword(new String[]{"prod"}, "a-real-password");
+        var validator = new ProductionConfigValidator(environment, realJwt(), realEmail(), configuredFirebase(), mock(SmsProvider.class), realCrypto());
+
+        assertThat(catchNoThrow(validator)).isTrue();
+    }
+
     /** Same soft-warning treatment as TWO_FACTOR_API_KEY -- an unset TRUST_PROXY_HEADERS must only
      *  warn, never block startup, since correctness depends on deployment topology, not just the
      *  prod profile being active. */

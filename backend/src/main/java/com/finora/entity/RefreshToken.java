@@ -25,6 +25,19 @@ public class RefreshToken {
     private Instant revokedAt;
 
     /**
+     * When this token was retired by ordinary rotation (V227), or null if it was revoked for any
+     * other reason -- logout, the idle or absolute limit, or the account-wide sweep reuse
+     * detection performs. Always accompanied by {@link #revokedAt}, never set on its own.
+     *
+     * <p>This is the one fact that lets {@code RefreshTokenService.rotate} distinguish a token
+     * replayed a moment after its own rotation (a retried request, two instances of the app
+     * refreshing at once) from a token replayed after the session has moved on. Only the first
+     * is granted the grace window; a null here always means theft.
+     */
+    @Column(name = "rotated_at")
+    private Instant rotatedAt;
+
+    /**
      * When the user signed in, carried forward unchanged by every rotation.
      *
      * <p>Distinct from {@link #createdAt}, which rotation resets to the time of the most
@@ -81,6 +94,8 @@ public class RefreshToken {
     public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }
     public Instant getRevokedAt() { return revokedAt; }
     public void setRevokedAt(Instant revokedAt) { this.revokedAt = revokedAt; }
+    public Instant getRotatedAt() { return rotatedAt; }
+    public void setRotatedAt(Instant rotatedAt) { this.rotatedAt = rotatedAt; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getSessionStartedAt() { return sessionStartedAt; }
     public UUID getSessionId() { return sessionId; }

@@ -1,9 +1,13 @@
 package com.finora.security;
 
 import com.finora.entity.User;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import com.finora.repository.UserRepository;
 import com.finora.service.AuthorizationService;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -53,11 +57,17 @@ public class CurrentUserDetailsService implements UserDetailsService {
 
         // Authorities now come from AuthorizationService (docs/engineering-directive-phase1.md,
         // Priority 2) rather than a single hardcoded "ROLE_" + user.getRole() -- see that class
-        // for why this is additive-only relative to the previous behavior.
+        // for why this is additive-only relative to the previous behavior. Read through the
+        // per-user cache (audit F-12): the user row above is still loaded fresh on every call,
+        // because it carries the account's status; only the role/permission resolution is cached.
+        List<GrantedAuthority> authorities = new ArrayList<>();
+        for (String name : authorizationService.cachedAuthorityNames(user)) {
+            authorities.add(new SimpleGrantedAuthority(name));
+        }
         return org.springframework.security.core.userdetails.User
                 .withUsername(user.getId().toString())
                 .password(user.getPasswordHash())
-                .authorities(authorizationService.effectiveAuthorities(user))
+                .authorities(authorities)
                 .build();
     }
 }

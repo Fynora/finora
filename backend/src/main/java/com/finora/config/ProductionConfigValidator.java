@@ -341,6 +341,20 @@ public class ProductionConfigValidator implements SmartInitializingSingleton {
                     + "every admin has enrolled.");
         }
 
+        // Audit F-18 (2026-09-24). Warn, not refuse, for the same reason as admin MFA above: the
+        // scanner is a separate service the operator has to stand up first, and refusing to boot
+        // would turn that rollout step into an outage. But uploads reaching PDFBox, OpenCSV and
+        // Tesseract unscanned -- and admins downloading held statements to their own machines --
+        // is not a state to be in silently. Read as the 1-arg form and null-guarded for the same
+        // mocked-Environment reason the checks above give.
+        String scanProvider = environment.getProperty("app.malware-scan.provider");
+        if (scanProvider == null || scanProvider.isBlank() || "none".equalsIgnoreCase(scanProvider)) {
+            log.warn("MALWARE_SCAN_PROVIDER is unset or 'none'. Every upload (statement imports, "
+                    + "support attachments, Fyn screenshots, admin analyses) reaches the parsers "
+                    + "unscanned. Run a clamd service and set MALWARE_SCAN_PROVIDER=clamav with "
+                    + "CLAMAV_HOST/CLAMAV_PORT -- see the deployment guide, \"Malware scanning\".");
+        }
+
         String corsOrigins = environment.getProperty("app.cors.allowed-origins");
         boolean corsStillOnLocalhostDefault = corsOrigins == null || corsOrigins.isBlank()
                 || Arrays.stream(corsOrigins.split(","))

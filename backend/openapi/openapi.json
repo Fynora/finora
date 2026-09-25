@@ -14847,6 +14847,9 @@
                 "properties": {
                     "refreshToken": {
                         "type": "string"
+                    },
+                    "scope": {
+                        "type": "string"
                     }
                 }
             },
@@ -15011,6 +15014,9 @@
                 "type": "object",
                 "properties": {
                     "refreshToken": {
+                        "type": "string"
+                    },
+                    "scope": {
                         "type": "string"
                     }
                 }

@@ -77,10 +77,20 @@ export const authApi = {
   // on `rawApi`/`api` is what gets it attached. RefreshTokenCookie.resolve() on the backend would
   // still accept a body token as a fallback (mobile has no cookie jar and needs it), but there is
   // nothing here to send. Mirrors frontend/src/api/endpoints.ts's identical authApi.refresh().
+  //
+  // The `scope` in the body is NOT a token and does not weaken the above: it names which portal's
+  // cookie the backend should read. Since audit F-14 (2026-09-24) the admin portal's refresh token
+  // lives in its own HttpOnly cookie (finora_admin_refresh_token) so that signing in here no longer
+  // overwrites the user app's cookie on the shared API host, and the backend selects the cookie by
+  // this hint -- the same field login() already sends. Without it the backend reads the USER
+  // cookie, finds none (or the user app's), and this portal is signed out.
   refresh: () =>
-    rawApi.post<ApiEnvelope<{ token: string; refreshToken: string }>>('/auth/refresh').then((r) => r.data.data),
+    rawApi.post<ApiEnvelope<{ token: string; refreshToken: string }>>('/auth/refresh', { scope: PORTAL_SCOPE })
+      .then((r) => r.data.data),
+  // Same hint on logout, so only THIS portal's cookie is cleared -- not the user app's session in
+  // the same browser.
   logout: () =>
-    api.post('/auth/logout'),
+    api.post('/auth/logout', { scope: PORTAL_SCOPE }),
   // Same /auth/forgot-password and /auth/reset-password endpoints the user app (frontend/)
   // already calls -- there's no separate admin-specific password reset mechanism, just one
   // shared implementation, same reasoning as login() above and the phone verification endpoints.

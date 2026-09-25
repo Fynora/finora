@@ -2,6 +2,7 @@ package com.finora.controller;
 
 import org.springframework.http.HttpHeaders;
 import jakarta.servlet.http.HttpServletRequest;
+import com.finora.security.JwtService;
 import com.finora.security.RefreshTokenCookie;
 import com.finora.exception.ErrorCode;
 import com.finora.exception.ApiException;
@@ -20,14 +21,17 @@ public class AuthController {
 
     private final AuthService authService;
     private final RefreshTokenCookie refreshTokenCookie;
+    private final JwtService jwtService;
     private final GoogleIdTokenVerifierService googleIdTokenVerifierService;
     private final AppleIdTokenVerifierService appleIdTokenVerifierService;
 
     public AuthController(AuthService authService, RefreshTokenCookie refreshTokenCookie,
+                           JwtService jwtService,
                            GoogleIdTokenVerifierService googleIdTokenVerifierService,
                            AppleIdTokenVerifierService appleIdTokenVerifierService) {
         this.refreshTokenCookie = refreshTokenCookie;
         this.authService = authService;
+        this.jwtService = jwtService;
         this.googleIdTokenVerifierService = googleIdTokenVerifierService;
         this.appleIdTokenVerifierService = appleIdTokenVerifierService;
     }
@@ -43,14 +47,14 @@ public class AuthController {
     @PostMapping("/register")
     public ResponseEntity<ApiResponse<AuthResponse>> register(@Valid @RequestBody RegisterRequest request) {
         AuthResponse response = authService.register(request);
-        return withRefreshCookie(response.refreshToken())
+        return withRefreshCookie(response)
                 .body(ApiResponse.ok(response, "Account created"));
     }
 
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<AuthResponse>> login(@Valid @RequestBody LoginRequest request) {
         AuthResponse response = authService.login(request);
-        return withRefreshCookie(response.refreshToken())
+        return withRefreshCookie(response)
                 .body(ApiResponse.ok(response, "Signed in"));
     }
 
@@ -77,7 +81,7 @@ public class AuthController {
     @PostMapping("/mfa/verify")
     public ResponseEntity<ApiResponse<AuthResponse>> verifyMfa(@Valid @RequestBody MfaVerifyRequest request) {
         AuthResponse response = authService.completeMfaLogin(request.challengeToken(), request.code());
-        return withRefreshCookie(response.refreshToken())
+        return withRefreshCookie(response)
                 .body(ApiResponse.ok(response, "Signed in"));
     }
 
@@ -88,7 +92,7 @@ public class AuthController {
     @PostMapping("/reactivate")
     public ResponseEntity<ApiResponse<AuthResponse>> reactivate(@Valid @RequestBody ReactivateRequest request) {
         AuthResponse response = authService.reactivate(request);
-        return withRefreshCookie(response.refreshToken())
+        return withRefreshCookie(response)
                 .body(ApiResponse.ok(response, "Account reactivated"));
     }
 
@@ -105,7 +109,7 @@ public class AuthController {
     @PostMapping("/otp/email/login")
     public ResponseEntity<ApiResponse<AuthResponse>> otpEmailLogin(@Valid @RequestBody EmailOtpLoginRequest request) {
         AuthResponse response = authService.loginWithEmailOtp(request);
-        return withRefreshCookie(response.refreshToken())
+        return withRefreshCookie(response)
                 .body(ApiResponse.ok(response, "Signed in"));
     }
 
@@ -116,13 +120,20 @@ public class AuthController {
     @PostMapping("/otp/phone/login")
     public ResponseEntity<ApiResponse<AuthResponse>> otpPhoneLogin(@Valid @RequestBody PhoneOtpLoginRequest request) {
         AuthResponse response = authService.loginWithPhoneOtp(request);
-        return withRefreshCookie(response.refreshToken())
+        return withRefreshCookie(response)
                 .body(ApiResponse.ok(response, "Signed in"));
     }
 
-    private ResponseEntity.BodyBuilder withRefreshCookie(String rawToken) {
+    /**
+     * Writes the refresh cookie for the portal the session was minted in. The portal is read off
+     * the {@code scope} claim of the access token that was just issued rather than off the request:
+     * the token carries the ACCOUNT's scope, which is authoritative, while the request's hint only
+     * chose which account to authenticate. See {@link RefreshTokenCookie}'s "one cookie per portal".
+     */
+    private ResponseEntity.BodyBuilder withRefreshCookie(AuthResponse response) {
+        String portal = RefreshTokenCookie.portalOf(jwtService.extractAccountScope(response.token()));
         return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, refreshTokenCookie.issue(rawToken).toString());
+                .header(HttpHeaders.SET_COOKIE, refreshTokenCookie.issue(portal, response.refreshToken()).toString());
     }
 
     @PostMapping("/forgot-password")
@@ -161,19 +172,41 @@ public class AuthController {
     public ResponseEntity<ApiResponse<RefreshResponse>> refresh(
             @RequestBody(required = false) RefreshRequest request, HttpServletRequest httpRequest) {
 
-        String token = refreshTokenCookie
-                .resolve(httpRequest, request == null ? null : request.refreshToken())
-                .orElseThrow(() -> new ApiException(ErrorCode.AUTH_TOKEN_EXPIRED,
-                        "No refresh token supplied, in a cookie or in the request body."));
+        // Which portal is asking decides which cookie is read (F-14) and, should this fail with a
+        // session-ending error, which cookie GlobalExceptionHandler clears.
+        String requestedScope = request == null ? null : request.scope();
+        String portal = RefreshTokenCookie.portalOf(requestedScope);
+        httpRequest.setAttribute(RefreshTokenCookie.PORTAL_ATTRIBUTE, portal);
 
-        RefreshResponse response = authService.refresh(new RefreshRequest(token));
+        String token;
+        String enforcedScope;
+        var fromCookie = refreshTokenCookie.fromCookie(httpRequest, portal);
+        if (fromCookie.isPresent()) {
+            // The cookie transport is a browser, and a browser is one portal or the other. The
+            // service then refuses a token that belongs to an account of the other portal, which is
+            // what stops a cookie carrying the wrong portal's token from being honoured.
+            token = fromCookie.get();
+            enforcedScope = portal;
+        } else {
+            token = java.util.Optional.ofNullable(request).map(RefreshRequest::refreshToken)
+                    .filter(t -> !t.isBlank())
+                    .orElseThrow(() -> new ApiException(ErrorCode.AUTH_TOKEN_EXPIRED,
+                            "No refresh token supplied, in a cookie or in the request body."));
+            // A body client (mobile) holds the token it was handed at its own sign-in; it says
+            // nothing about a portal and nothing is checked unless it chose to say so.
+            enforcedScope = requestedScope;
+        }
+
+        RefreshResponse response = authService.refresh(new RefreshRequest(token, enforcedScope));
 
         // Rotation issued a new token, so the cookie has to move with it. Written unconditionally,
         // including for clients that sent a body: a browser only stores this if the request was
         // made with credentials, so it is inert for a client that has not opted in and already
-        // correct for one that has.
+        // correct for one that has. Named for the account's own scope, read off the new access
+        // token, exactly as withRefreshCookie does at sign-in.
+        String issuedPortal = RefreshTokenCookie.portalOf(jwtService.extractAccountScope(response.token()));
         return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, refreshTokenCookie.issue(response.refreshToken()).toString())
+                .header(HttpHeaders.SET_COOKIE, refreshTokenCookie.issue(issuedPortal, response.refreshToken()).toString())
                 .body(ApiResponse.ok(response));
     }
 
@@ -181,16 +214,21 @@ public class AuthController {
     public ResponseEntity<ApiResponse<LogoutResponse>> logout(
             @RequestBody(required = false) LogoutRequest request, HttpServletRequest httpRequest) {
 
+        String portal = RefreshTokenCookie.portalOf(request == null ? null : request.scope());
+        httpRequest.setAttribute(RefreshTokenCookie.PORTAL_ATTRIBUTE, portal);
+
         // Absent is not an error here. Logout is idempotent, and a client whose token has already
         // expired still needs the cookie cleared — failing would leave the credential in place on
         // exactly the request that was trying to get rid of it.
-        var token = refreshTokenCookie.resolve(httpRequest, request == null ? null : request.refreshToken());
+        var token = refreshTokenCookie.resolve(httpRequest, request == null ? null : request.refreshToken(), portal);
         LogoutResponse response = token
                 .map(t -> authService.logout(new LogoutRequest(t)))
                 .orElseGet(() -> new LogoutResponse("Signed out."));
 
+        // Only THIS portal's cookie. The other portal's session in the same browser is a
+        // different sign-in and is not what the user asked to end.
         return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, refreshTokenCookie.clear().toString())
+                .header(HttpHeaders.SET_COOKIE, refreshTokenCookie.clear(portal).toString())
                 .body(ApiResponse.ok(response));
     }
 
@@ -208,7 +246,7 @@ public class AuthController {
     public ResponseEntity<ApiResponse<AuthResponse>> google(@Valid @RequestBody GoogleAuthRequest request) {
         var identity = googleIdTokenVerifierService.verify(request.idToken());
         AuthResponse response = authService.loginWithGoogle(identity);
-        return withRefreshCookie(response.refreshToken())
+        return withRefreshCookie(response)
                 .body(ApiResponse.ok(response, "Signed in with Google"));
     }
 
@@ -224,7 +262,7 @@ public class AuthController {
     public ResponseEntity<ApiResponse<AuthResponse>> apple(@Valid @RequestBody AppleAuthRequest request) {
         var identity = appleIdTokenVerifierService.verify(request.idToken());
         AuthResponse response = authService.loginWithApple(identity, request.fullName());
-        return withRefreshCookie(response.refreshToken())
+        return withRefreshCookie(response)
                 .body(ApiResponse.ok(response, "Signed in with Apple"));
     }
 

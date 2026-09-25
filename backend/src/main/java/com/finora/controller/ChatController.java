@@ -41,9 +41,13 @@ public class ChatController {
     private final CurrentUser currentUser;
     private final FynScreenshotOcrService screenshotOcrService;
 
+    private final com.finora.uploads.UploadScanGate uploadScanGate;
+
     public ChatController(FynChatOrchestrationService orchestrationService,
                            EntitlementService entitlementService, CurrentUser currentUser,
-                           FynScreenshotOcrService screenshotOcrService) {
+                           FynScreenshotOcrService screenshotOcrService,
+                           com.finora.uploads.UploadScanGate uploadScanGate) {
+        this.uploadScanGate = uploadScanGate;
         this.orchestrationService = orchestrationService;
         this.entitlementService = entitlementService;
         this.currentUser = currentUser;
@@ -107,6 +111,8 @@ public class ChatController {
         } catch (IllegalArgumentException e) {
             throw new ApiException(HttpStatus.BAD_REQUEST, e.getMessage());
         }
+        // Audit F-18: after the shape check, before any quota is spent or tesseract is spawned.
+        uploadScanGate.requireClean(image, currentUser.id(), "fyn-screenshot");
         // Fyn's own kill-switch/cost-budget/free-daily-quota preflight, BEFORE OCR runs (audit
         // finding F-05, 2026-09-18) -- a user already over quota, or whose Fyn access is disabled
         // by the cost governor, must not force a tesseract subprocess spawn (up to

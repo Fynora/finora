@@ -250,6 +250,190 @@ class RefreshTokenTransportIT extends AbstractIntegrationTest {
      *  entirely. A raw JDBC update bypasses that without needing this test method itself to be
      *  transactional -- the MockMvc call below opens its own request-scoped transaction and must
      *  see this write already committed, not merely pending in one this method doesn't have. */
+    // ---------------------------------------------------------------- one cookie per portal (F-14)
+
+    private User adminScopeUser() {
+        User admin = new User();
+        admin.setEmail("transport-admin-" + UUID.randomUUID() + "@example.com");
+        admin.setPasswordHash(passwordEncoder.encode("AdminPass123!"));
+        admin.setFullName("Transport Admin");
+        admin.setAccountScope(User.SCOPE_ADMIN);
+        admin.setPhoneVerified(true);
+        return userRepository.save(admin);
+    }
+
+    private String scopeBody(String scope) throws Exception {
+        return objectMapper.writeValueAsString(Map.of("scope", scope));
+    }
+
+    private static String cookieName(String setCookie) {
+        return setCookie.substring(0, setCookie.indexOf('='));
+    }
+
+    @Test
+    void anAdminPortalSignInWritesTheAdminCookie_andAUserSignInWritesTheUserCookie() throws Exception {
+        User admin = adminScopeUser();
+        MvcResult adminLogin = mockMvc.perform(post("/api/v1/auth/login")
+                        .with(fromIp("10.0.4.1"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "identifier", admin.getEmail(), "password", "AdminPass123!", "scope", "ADMIN"))))
+                .andExpect(status().isOk())
+                .andReturn();
+        String adminSetCookie = adminLogin.getResponse().getHeader("Set-Cookie");
+        assertThat(cookieName(adminSetCookie)).isEqualTo(RefreshTokenCookie.ADMIN_NAME);
+        assertSecurityAttributes(adminSetCookie);
+
+        User user = userRepository.findById(userId).orElseThrow();
+        user.setPasswordHash(passwordEncoder.encode("UserPass123!"));
+        userRepository.save(user);
+        MvcResult userLogin = mockMvc.perform(post("/api/v1/auth/login")
+                        .with(fromIp("10.0.4.2"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "identifier", user.getEmail(), "password", "UserPass123!"))))
+                .andExpect(status().isOk())
+                .andReturn();
+        assertThat(cookieName(userLogin.getResponse().getHeader("Set-Cookie"))).isEqualTo(RefreshTokenCookie.NAME);
+    }
+
+    /** The case F-14 is about: one browser, both portals signed in. Each refresh must rotate ITS
+     *  portal's token and leave the other's untouched. */
+    @Test
+    void eachPortalRefreshesFromItsOwnCookieWhenBothArePresent() throws Exception {
+        User admin = adminScopeUser();
+        String adminToken = refreshTokenService.issue(admin.getId()).rawToken();
+
+        MvcResult adminRefresh = mockMvc.perform(post("/api/v1/auth/refresh")
+                        .with(fromIp("10.0.5.1"))
+                        .cookie(new Cookie(RefreshTokenCookie.NAME, rawToken),
+                                new Cookie(RefreshTokenCookie.ADMIN_NAME, adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(scopeBody("ADMIN")))
+                .andExpect(status().isOk())
+                .andReturn();
+        String adminSetCookie = adminRefresh.getResponse().getHeader("Set-Cookie");
+        assertThat(cookieName(adminSetCookie)).isEqualTo(RefreshTokenCookie.ADMIN_NAME);
+        assertThat(cookieValue(adminSetCookie)).isNotEqualTo(adminToken).isNotEqualTo(rawToken);
+
+        // The user app's token was not the one rotated: it still rotates normally, with no hint.
+        MvcResult userRefresh = mockMvc.perform(post("/api/v1/auth/refresh")
+                        .with(fromIp("10.0.5.2"))
+                        .cookie(new Cookie(RefreshTokenCookie.NAME, rawToken),
+                                new Cookie(RefreshTokenCookie.ADMIN_NAME, adminToken)))
+                .andExpect(status().isOk())
+                .andReturn();
+        assertThat(cookieName(userRefresh.getResponse().getHeader("Set-Cookie"))).isEqualTo(RefreshTokenCookie.NAME);
+
+        // Two sessions, two users, both still live -- nothing was signed out on either side.
+        assertThat(refreshTokenRepository.findByUserIdAndRevokedAtIsNull(admin.getId())).hasSize(1);
+        assertThat(refreshTokenRepository.findByUserIdAndRevokedAtIsNull(userId)).hasSize(1);
+    }
+
+    /** The pre-F-14 state in the wild: an admin's token sitting in the user app's cookie. The
+     *  user app must not be handed an ADMIN-scope access token; the cookie is cleared so the next
+     *  sign-in replaces it, and the admin's token itself is left alone. */
+    @Test
+    void aUserCookieHoldingAnAdminTokenIsRefusedAndCleared_notHonoured() throws Exception {
+        User admin = adminScopeUser();
+        String adminToken = refreshTokenService.issue(admin.getId()).rawToken();
+
+        MvcResult result = mockMvc.perform(post("/api/v1/auth/refresh")
+                        .with(fromIp("10.0.6.1"))
+                        .cookie(new Cookie(RefreshTokenCookie.NAME, adminToken)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.errorCode").value("AUTH_016"))
+                .andReturn();
+        String setCookie = result.getResponse().getHeader("Set-Cookie");
+        assertThat(cookieName(setCookie)).isEqualTo(RefreshTokenCookie.NAME);
+        assertThat(setCookie).contains("Max-Age=0");
+
+        // Not rotated, not revoked: the admin portal can still use it in its own cookie.
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .with(fromIp("10.0.6.2"))
+                        .cookie(new Cookie(RefreshTokenCookie.ADMIN_NAME, adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(scopeBody("ADMIN")))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void anAdminPortalRequestWithOnlyAUserCookieGetsNothing_ratherThanTheUsersSession() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .with(fromIp("10.0.7.1"))
+                        .cookie(new Cookie(RefreshTokenCookie.NAME, rawToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(scopeBody("ADMIN")))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.errorCode").value("AUTH_002"));
+
+        // ...and the user's token was not touched by the refusal.
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .with(fromIp("10.0.7.2"))
+                        .cookie(new Cookie(RefreshTokenCookie.NAME, rawToken)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void adminLogoutClearsOnlyTheAdminCookie_leavingTheUserAppSignedIn() throws Exception {
+        User admin = adminScopeUser();
+        String adminToken = refreshTokenService.issue(admin.getId()).rawToken();
+
+        MvcResult result = mockMvc.perform(post("/api/v1/auth/logout")
+                        .with(fromIp("10.0.8.1"))
+                        .cookie(new Cookie(RefreshTokenCookie.NAME, rawToken),
+                                new Cookie(RefreshTokenCookie.ADMIN_NAME, adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(scopeBody("ADMIN")))
+                .andExpect(status().isOk())
+                .andReturn();
+        java.util.List<String> setCookies = result.getResponse().getHeaders("Set-Cookie");
+        assertThat(setCookies).hasSize(1);
+        assertThat(cookieName(setCookies.get(0))).isEqualTo(RefreshTokenCookie.ADMIN_NAME);
+        assertThat(setCookies.get(0)).contains("Max-Age=0");
+
+        assertThat(refreshTokenRepository.findByUserIdAndRevokedAtIsNull(admin.getId()))
+                .as("the admin's token was revoked by the logout").isEmpty();
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .with(fromIp("10.0.8.2"))
+                        .cookie(new Cookie(RefreshTokenCookie.NAME, rawToken)))
+                .andExpect(status().isOk());
+    }
+
+    /** Mobile: a body token and no hint. An ADMIN-scope account has no mobile app, but the
+     *  transport must not start demanding a hint from clients that never sent one. */
+    @Test
+    void aBodyTokenWithNoScopeHintIsNotCheckedAgainstAPortal() throws Exception {
+        User admin = adminScopeUser();
+        String adminToken = refreshTokenService.issue(admin.getId()).rawToken();
+
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .with(fromIp("10.0.9.1"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body(adminToken)))
+                .andExpect(status().isOk());
+    }
+
+    /** A session-ending error on an admin-portal refresh clears the ADMIN cookie, not the user's. */
+    @Test
+    void aSessionEndingErrorOnTheAdminPortalClearsTheAdminCookie() throws Exception {
+        User admin = adminScopeUser();
+        String adminToken = refreshTokenService.issue(admin.getId()).rawToken();
+        refreshTokenService.revoke(adminToken);
+
+        MvcResult result = mockMvc.perform(post("/api/v1/auth/refresh")
+                        .with(fromIp("10.0.10.1"))
+                        .cookie(new Cookie(RefreshTokenCookie.ADMIN_NAME, adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(scopeBody("ADMIN")))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.errorCode").value("AUTH_004"))
+                .andReturn();
+        String setCookie = result.getResponse().getHeader("Set-Cookie");
+        assertThat(cookieName(setCookie)).isEqualTo(RefreshTokenCookie.ADMIN_NAME);
+        assertThat(setCookie).contains("Max-Age=0");
+    }
+
     /** Pushes a rotated token's {@code rotated_at} into the past so a replay lands outside
      *  {@code app.jwt.refresh-reuse-grace-ms} (30 s by default). A raw update for the same reason
      *  {@link #backdate} uses one: the MockMvc call must see it committed. */

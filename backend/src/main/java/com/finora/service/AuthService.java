@@ -19,6 +19,7 @@ import com.finora.repository.CategoryRepository;
 import com.finora.repository.PasswordResetTokenRepository;
 import com.finora.repository.UserRepository;
 import com.finora.security.JwtService;
+import com.finora.security.RefreshTokenCookie;
 import com.finora.util.PhoneMasking;
 import com.finora.util.PhoneNumbers;
 import com.finora.util.AfterCommit;
@@ -1057,6 +1058,15 @@ public class AuthService {
         UUID userId = refreshTokenService.resolveUserId(request.refreshToken());
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "User no longer exists"));
+        // Audit F-14. When the caller named a portal, the token has to belong to an account of
+        // that portal. On the cookie transport the controller always names one, so a user-app
+        // request can never be answered with an ADMIN-scope access token minted off a token that
+        // ended up in its cookie (the pre-F-14 shared-cookie state, or any future mix-up). A
+        // rejection here, like the status checks below, writes nothing: rotate() has not run.
+        if (request.scope() != null
+                && !RefreshTokenCookie.portalOf(request.scope()).equalsIgnoreCase(user.getAccountScope())) {
+            throw new ApiException(ErrorCode.AUTH_REFRESH_PORTAL_MISMATCH);
+        }
         // A suspension that happens mid-session must actually take effect, not just block future
         // logins -- without this check, a suspended user with an unexpired refresh token could
         // keep minting new 15-minute access tokens indefinitely. See login()'s matching check.

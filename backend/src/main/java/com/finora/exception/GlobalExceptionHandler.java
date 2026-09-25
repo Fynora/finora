@@ -1,6 +1,7 @@
 package com.finora.exception;
 
 import com.finora.dto.ApiResponse;
+import com.finora.entity.User;
 import com.finora.security.RefreshTokenCookie;
 import com.finora.util.LogSanitizer;
 import jakarta.servlet.http.HttpServletRequest;
@@ -42,7 +43,10 @@ public class GlobalExceptionHandler {
      * reads as a suspected theft.
      */
     private static final java.util.Set<ErrorCode> TERMINATES_REFRESH_SESSION = java.util.Set.of(
-            ErrorCode.AUTH_SESSION_IDLE, ErrorCode.AUTH_SESSION_MAX_AGE, ErrorCode.AUTH_SESSION_REVOKED);
+            ErrorCode.AUTH_SESSION_IDLE, ErrorCode.AUTH_SESSION_MAX_AGE, ErrorCode.AUTH_SESSION_REVOKED,
+            // F-14: a cookie holding the other portal's token would otherwise be re-presented on
+            // every bootstrap refresh and fail forever; clearing it lets the next sign-in replace it.
+            ErrorCode.AUTH_REFRESH_PORTAL_MISMATCH);
 
     private final Environment environment;
     private final RefreshTokenCookie refreshTokenCookie;
@@ -107,7 +111,12 @@ public class GlobalExceptionHandler {
 
         ResponseEntity.BodyBuilder response = ResponseEntity.status(ex.getStatus());
         if (ex.getCode() != null && TERMINATES_REFRESH_SESSION.contains(ex.getCode())) {
-            response.header(HttpHeaders.SET_COOKIE, refreshTokenCookie.clear().toString());
+            // The portal AuthController recorded for this request (F-14); USER when nothing did,
+            // which is every pre-existing caller. Clearing the other portal's cookie as well would
+            // end a different sign-in in the same browser.
+            Object portal = request.getAttribute(RefreshTokenCookie.PORTAL_ATTRIBUTE);
+            String portalName = portal == null ? User.SCOPE_USER : portal.toString();
+            response.header(HttpHeaders.SET_COOKIE, refreshTokenCookie.clear(portalName).toString());
         }
         return response.body(ApiResponse.error(ex.getMessage(), errorCode, detailsWithActionRequired(ex)));
     }

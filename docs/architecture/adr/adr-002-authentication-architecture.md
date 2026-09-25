@@ -303,6 +303,38 @@ justification for moving them (`AUTH_005` in the logs) is no longer log-grepping
 `finora.auth.refresh_expired_absolute` in production, alongside `login_success`/`refresh_success`,
 so the next revision of these numbers has a real rate to look at instead of another guess.
 
+## Amendment (2026-09-24)
+
+Two changes from the 2026-09-24 production audit (findings F-11 and F-14). Neither alters the
+model above; both fix a place where the model met a browser or a network and produced the wrong
+answer.
+
+**Refresh reuse has a grace window.** "A refresh token presented twice is theft" was true of the
+token and false of the request: a retried POST on a bad mobile network, two instances of the app
+refreshing at once, or a proxy replaying a request all present a token its rightful holder rotated
+a moment ago, and the response was to sign the user out of every device. `RefreshTokenService.rotate`
+now reads the row under `SELECT ... FOR UPDATE`, so two concurrent presentations serialise instead
+of the loser tripping `@Version` into a 409, and a token retired by ordinary rotation
+(`refresh_tokens.rotated_at`, V227) and presented again within `app.jwt.refresh-reuse-grace-ms`
+(30 s) while its session is still live is answered with another token pair for that session. The
+strict rule is unchanged past the window and for every other kind of revocation: logout, the idle
+and absolute limits, and the theft response itself leave `rotated_at` null. The trade-off is stated
+in `application.yml`: a thief inside the window gets one extra pair for a session the owner still
+holds, and the owner's next ordinary refresh, past the window, is what surfaces it.
+`finora.auth.refresh_replayed_within_grace` counts the grace path.
+
+**One refresh cookie per portal.** The user app and the admin portal share the API host, and a
+cookie is keyed by host and name, so signing in to one overwrote the other's refresh cookie and
+the user app's next silent refresh came back holding an `ADMIN`-scope access token. A `USER`-scope
+session now lives in `finora_refresh_token` and an `ADMIN`-scope one in
+`finora_admin_refresh_token`. The portal is chosen from the account's scope claim when the cookie
+is written, and from the request's optional `scope` field (the one `LoginRequest` already carries)
+when it is read: the admin portal sends `ADMIN` on refresh and logout, the user app sends nothing
+and gets the user cookie, mobile sends a body token and is untouched. On the cookie transport the
+service also checks the token belongs to an account of that portal (`AUTH_016`), and the handler
+clears only that portal's cookie on a session-ending error. Consequence at deploy: an admin already
+signed in holds the admin token under the old name and signs in once more.
+
 ## Related
 
 - [ADR-001: One Backend, One Database, Three Clients](adr-001-client-architecture.md) — why all

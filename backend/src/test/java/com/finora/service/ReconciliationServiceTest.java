@@ -196,6 +196,35 @@ class ReconciliationServiceTest {
         assertThat(b2.getIsDuplicateOf()).isEqualTo(a2.getId());
     }
 
+    /**
+     * The balance-keyed pass can meet a row the description-keyed pass already marked: the
+     * original carries no running balance (a card statement, a manual entry), the first re-import
+     * matched it by narration, and a third copy in another layout matches the re-import by balance
+     * only. The third copy must be marked against the original the ledger keeps, not skipped
+     * because the group's best member happens to be marked already.
+     */
+    @Test
+    void reconcileForUser_marksAThirdCopy_againstTheRootOfAnAlreadyMarkedRow() {
+        UUID accountId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 6, 1);
+        Transaction original = imported(accountId, date, new BigDecimal("1300.00"), Transaction.Type.EXPENSE,
+                "TRANSFER TO WALLET 0001", UUID.randomUUID(), 7, Instant.parse("2026-06-10T10:00:00Z"));
+        Transaction reimport = imported(accountId, date, new BigDecimal("1300.00"), Transaction.Type.EXPENSE,
+                "TRANSFER TO WALLET 0001", UUID.randomUUID(), 7, Instant.parse("2026-06-11T10:00:00Z"));
+        reimport.setBalanceAfter(new BigDecimal("500.00"));
+        Transaction otherLayout = imported(accountId, date, new BigDecimal("1300.00"), Transaction.Type.EXPENSE,
+                "TRANSFER TO WALLET 0001 VALUE DT 01/06 REF 000009", UUID.randomUUID(), 7, Instant.parse("2026-06-12T10:00:00Z"));
+        otherLayout.setBalanceAfter(new BigDecimal("500.00"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                .thenReturn(List.of(original, reimport, otherLayout));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(original.getIsDuplicateOf()).isNull();
+        assertThat(reimport.getIsDuplicateOf()).isEqualTo(original.getId());
+        assertThat(otherLayout.getIsDuplicateOf()).isEqualTo(original.getId());
+    }
+
     @Test
     void reconcileForUser_marksAReimportedEmiRow_asDuplicateOfTheOriginal() {
         UUID accountId = UUID.randomUUID();

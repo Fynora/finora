@@ -695,7 +695,6 @@ public class ImportService {
         if (request.sessionId() == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "sessionId is required.");
         }
-        refuseIfContentAlreadyImported(userId, request.sessionId());
         // C-9 shadow mode, before the claim -- see observeClosingBalanceEvidence for why the order
         // is forced. One observation per section, with the same section index the persist loop
         // below uses. Records; decides nothing.
@@ -774,26 +773,11 @@ public class ImportService {
      * lower-level, still-supported entry point since the confirm business logic it tests lives in
      * the byte-array confirm() both paths ultimately share, not duplicated here.
      */
-    /**
-     * F-33 (corpus audit 2026-09-25): a confirmed statement_import already holds these exact bytes.
-     * Checked on the session's own hash (set for every session by ImportSessionService.storeContent)
-     * and before the claim, so a refused confirm leaves the session STAGED for the user to discard.
-     * Both confirm entry points (single- and multi-section) run it. Null-tolerant on the session so
-     * unit tests that stub the session service keep their existing shape.
-     */
-    private void refuseIfContentAlreadyImported(UUID userId, UUID sessionId) {
-        var peek = importSessionService.getOwnedSession(userId, sessionId);
-        if (peek == null || peek.getContentHash() == null) return;
-        statementImportRepository.findFirstByUserIdAndContentHashOrderByImportedAtDesc(userId, peek.getContentHash())
-                .ifPresent(prior -> { throw new ApiException(ErrorCode.IMPORT_STATEMENT_ALREADY_IMPORTED); });
-    }
-
     @Transactional
     public ConfirmResponse confirmSession(UUID userId, ConfirmRequest request) {
         if (request.sessionId() == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "sessionId is required.");
         }
-        refuseIfContentAlreadyImported(userId, request.sessionId());
         // Claimed atomically as the very first thing this method does -- see
         // ImportSessionService.claimForConfirmation's own doc comment. A double-click or a
         // retried request racing a first, still-in-flight confirm for the same session gets
@@ -1233,11 +1217,12 @@ public class ImportService {
             statementImport.setEncryptionKeyId(stored.encryptionKeyId());
         } else {
             statementImport.setFileContent(fileContent);
-            // Without object storage the row keeps the bytes inline and had no hash at all, which
-            // made the F-33 check in confirmSession blind in exactly the local/IT configuration.
-            // objectKey stays null, and StatementContentService.read requires BOTH hash and key
-            // before it looks in storage, so recording the hash changes nothing about where the
-            // bytes are read from.
+            // Without object storage the row keeps the bytes inline and used to carry no hash at
+            // all, so "which file is this" could only be answered by re-hashing the blob. The
+            // session already carries this same value (ImportSessionService.storeContent); the
+            // confirmed row now does too. objectKey stays null, and StatementContentService.read
+            // requires BOTH hash and key before it looks in storage, so recording the hash changes
+            // nothing about where the bytes are read from.
             statementImport.setContentHash(ContentAddress.hashOf(fileContent));
         }
         // Bug fix: this used to fall back further, to minDate/maxDate -- the confirmed rows' own

@@ -172,15 +172,6 @@ public enum ErrorCode {
             "This statement is being reviewed for accuracy and can't be confirmed yet. "
                     + "We'll let you know when it's ready.", true),
 
-    /** A confirmed statement_import for this user already carries this file's content hash. Byte-
-     *  identical content can never be a legitimate replacement (StatementImportService.supersede
-     *  handles a re-upload of the same period with *different* content), so a second confirm would
-     *  only re-insert every row for reconciliation to mark as duplicates -- and, for EMI rows, to
-     *  double-count (corpus audit 2026-09-25, F-30 / F-33). */
-    IMPORT_STATEMENT_ALREADY_IMPORTED("IMPORT_018", HttpStatus.CONFLICT,
-            "This exact statement file has already been imported. Find it under Statement History; "
-                    + "delete that import first if you need to import it again.", true),
-
     // Accounts
     ACCOUNT_NOT_FOUND("ACC_001", HttpStatus.NOT_FOUND, "Account not found"),
     // AccountService.create()'s per-user ceiling on INVESTMENT holdings. NOT a plan gate -- every

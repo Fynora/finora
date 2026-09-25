@@ -362,6 +362,18 @@ public class ReconciliationService {
                         .min(Comparator.<Transaction>comparingInt(t -> -SourceTrust.of(t.getSource()))
                                 .thenComparing(Transaction::getCreatedAt))
                         .orElseThrow();
+                // The best-trusted member can already be marked by this same run: the first,
+                // description-keyed pass marked it against a row that carries no balance (a manual
+                // entry, a Gmail receipt), and this balance-keyed group does not contain that row.
+                // Follow the mark to the row the ledger keeps, so the remaining members are marked
+                // against it rather than skipped -- a skip here is a third copy that stays counted.
+                // Bounded: a mark always points at a row that was unmarked when it was written, so
+                // the chain is short and acyclic; the bound only guards against a corrupt ledger.
+                for (int hop = 0; canonical.getIsDuplicateOf() != null && hop < 8; hop++) {
+                    Transaction root = byId.get(canonical.getIsDuplicateOf());
+                    if (root == null) break; // outside this run's window: nothing safe to mark against
+                    canonical = root;
+                }
                 if (canonical.getIsDuplicateOf() != null) continue;
                 for (Transaction t : group) {
                     if (t == canonical || t.getIsDuplicateOf() != null) continue;

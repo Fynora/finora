@@ -84,12 +84,7 @@ class ErrorCodeTest {
                         // statement is simply still being reviewed. Opts in for the same reason as
                         // the two above it: keep this off the red/danger banner a genuine failure
                         // gets.
-                        ErrorCode.IMPORT_SESSION_HELD_FOR_REVIEW,
-                        // IMPORT_STATEMENT_ALREADY_IMPORTED (2026-09-25, corpus audit F-33) is a
-                        // genuine user action: the file is already in Statement History, and the
-                        // message tells the user to delete that import first if they really want
-                        // it again -- a followable instruction, like the password codes above.
-                        ErrorCode.IMPORT_STATEMENT_ALREADY_IMPORTED);
+                        ErrorCode.IMPORT_SESSION_HELD_FOR_REVIEW);
     }
 
     /** A malformed CSV is the CSV twin of a corrupt PDF: never retried, and plain failed for the same reason. */

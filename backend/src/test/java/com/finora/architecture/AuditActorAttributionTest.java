@@ -96,7 +96,13 @@ class AuditActorAttributionTest {
             // single-actor system pass: they run as a consequence of the owning user's own write,
             // never on an admin's behalf, so there is no second actor to attribute.
             "ReconciliationService.reconcile",          // RECONCILIATION_RUN
-            "RecurringService.detectForUser"            // RECURRING_DETECTION_RUN
+            "RecurringService.detectForUser",           // RECURRING_DETECTION_RUN
+            // UPLOAD_MALWARE_REJECTED (audit F-18). Reachable from AdminStatementAnalysisController
+            // because admins upload too, but there is no on-behalf-of path: the actor is always
+            // the caller who uploaded the file, and that is the id the gate records (as both the
+            // subject and metadata "actorId"). An admin's own analysis upload is attributed to
+            // the admin; a customer's import to the customer. Nobody uploads for someone else.
+            "UploadScanGate.requireClean"               // UPLOAD_MALWARE_REJECTED
     );
 
     private JavaClasses productionClasses() {

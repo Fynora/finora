@@ -1,14 +1,15 @@
 package com.finora.exception;
 
 import com.finora.dto.ApiResponse;
+import com.finora.entity.User;
 import com.finora.security.RefreshTokenCookie;
 import com.finora.util.LogSanitizer;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.env.Environment;
+import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -42,7 +43,10 @@ public class GlobalExceptionHandler {
      * reads as a suspected theft.
      */
     private static final java.util.Set<ErrorCode> TERMINATES_REFRESH_SESSION = java.util.Set.of(
-            ErrorCode.AUTH_SESSION_IDLE, ErrorCode.AUTH_SESSION_MAX_AGE, ErrorCode.AUTH_SESSION_REVOKED);
+            ErrorCode.AUTH_SESSION_IDLE, ErrorCode.AUTH_SESSION_MAX_AGE, ErrorCode.AUTH_SESSION_REVOKED,
+            // F-14: a cookie holding the other portal's token would otherwise be re-presented on
+            // every bootstrap refresh and fail forever; clearing it lets the next sign-in replace it.
+            ErrorCode.AUTH_REFRESH_PORTAL_MISMATCH);
 
     private final Environment environment;
     private final RefreshTokenCookie refreshTokenCookie;
@@ -107,7 +111,12 @@ public class GlobalExceptionHandler {
 
         ResponseEntity.BodyBuilder response = ResponseEntity.status(ex.getStatus());
         if (ex.getCode() != null && TERMINATES_REFRESH_SESSION.contains(ex.getCode())) {
-            response.header(HttpHeaders.SET_COOKIE, refreshTokenCookie.clear().toString());
+            // The portal AuthController recorded for this request (F-14); USER when nothing did,
+            // which is every pre-existing caller. Clearing the other portal's cookie as well would
+            // end a different sign-in in the same browser.
+            Object portal = request.getAttribute(RefreshTokenCookie.PORTAL_ATTRIBUTE);
+            String portalName = portal == null ? User.SCOPE_USER : portal.toString();
+            response.header(HttpHeaders.SET_COOKIE, refreshTokenCookie.clear(portalName).toString());
         }
         return response.body(ApiResponse.error(ex.getMessage(), errorCode, detailsWithActionRequired(ex)));
     }
@@ -176,7 +185,12 @@ public class GlobalExceptionHandler {
      * the loser's write is correctly rejected); this only fixes what the CLIENT sees when that
      * happens, so a UI can tell the user to refresh and retry instead of showing a generic error.
      */
-    @ExceptionHandler(OptimisticLockingFailureException.class)
+    // ConcurrencyFailureException rather than OptimisticLockingFailureException alone (audit F-11,
+    // 2026-09-25): RefreshTokenService.rotate now takes a row lock, and two theft-path rotations
+    // for the same user can deadlock (each holds its own row and updates the other's), which
+    // Postgres resolves by aborting one -- surfacing as CannotAcquireLockException, a sibling of
+    // the optimistic one under the same parent. Same meaning, same 409, same retry advice.
+    @ExceptionHandler(ConcurrencyFailureException.class)
     public ResponseEntity<ApiResponse<Void>> handleOptimisticLock() {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(ApiResponse.error("This record was just updated by another request — refresh and try again.", "CONFLICT"));

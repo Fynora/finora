@@ -18,7 +18,10 @@ import static org.mockito.Mockito.when;
 class AuthControllerOtpTest {
 
     private AuthController controller(AuthService authService) {
+        // A mocked JwtService reports no scope claim on the stub access token, which resolves to
+        // the USER portal -- the pre-F-14 behaviour these tests were written against.
         return new AuthController(authService, new RefreshTokenCookie(new JwtProperties(), "Lax"),
+                mock(com.finora.security.JwtService.class),
                 mock(GoogleIdTokenVerifierService.class), mock(AppleIdTokenVerifierService.class));
     }
 

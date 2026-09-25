@@ -105,6 +105,29 @@ services:
       retries: 6
       start_period: 20s
 
+  # Upload malware scanning (audit F-18). Opt-in: `docker compose --profile scan up`. The image
+  # downloads the signature database on first start (a few hundred MB) and takes a minute or two
+  # to become ready, which is why it is not in the default profile. Point the backend at it with
+  # MALWARE_SCAN_PROVIDER=clamav CLAMAV_HOST=clamav (the service name) -- the backend service above
+  # deliberately does not set these, so a plain `docker compose up` keeps uploads unscanned exactly
+  # as before and the prod profile keeps warning about it.
+  clamav:
+    image: clamav/clamav:stable
+    profiles: ["scan"]
+    ports:
+      # 127.0.0.1-only, same reasoning as postgres/redis above: the backend container reaches
+      # clamd by service name; this mapping is for a host-side `clamdscan`/`nc` check only.
+      - "127.0.0.1:3310:3310"
+    volumes:
+      - finora_clamdb:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
 volumes:
   finora_pgdata:
   finora_redisdata:
+  finora_clamdb:

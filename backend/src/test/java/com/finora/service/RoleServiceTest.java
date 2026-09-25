@@ -36,6 +36,7 @@ class RoleServiceTest {
     private PermissionRepository permissionRepository;
     private UserRepository userRepository;
     private AuditService auditService;
+    private com.finora.security.UserAuthorityCache userAuthorityCache;
     private RoleService roleService;
 
     private final UUID actingAdminId = UUID.randomUUID();
@@ -47,7 +48,9 @@ class RoleServiceTest {
         permissionRepository = mock(PermissionRepository.class);
         userRepository = mock(UserRepository.class);
         auditService = mock(AuditService.class);
-        roleService = new RoleService(roleRepository, permissionRepository, userRepository, auditService);
+        userAuthorityCache = mock(com.finora.security.UserAuthorityCache.class);
+        roleService = new RoleService(roleRepository, permissionRepository, userRepository, auditService,
+                userAuthorityCache);
     }
 
     private User userWith(UUID id) {

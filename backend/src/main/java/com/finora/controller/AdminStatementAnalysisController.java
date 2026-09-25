@@ -58,13 +58,16 @@ public class AdminStatementAnalysisController {
     private final CurrentUser currentUser;
     private final StatementAnalysisRecorder recorder;
     private final IdentityLookup identityLookup;
+    private final com.finora.uploads.UploadScanGate uploadScanGate;
 
     public AdminStatementAnalysisController(StatementAnalysisReportService reportService,
                                             AdminAnalysisService adminAnalysisService,
                                             ImportConcurrencyLimiter concurrencyLimiter,
                                             CurrentUser currentUser,
                                             StatementAnalysisRecorder recorder,
-                                            IdentityLookup identityLookup) {
+                                            IdentityLookup identityLookup,
+                                            com.finora.uploads.UploadScanGate uploadScanGate) {
+        this.uploadScanGate = uploadScanGate;
         this.reportService = reportService;
         this.adminAnalysisService = adminAnalysisService;
         this.concurrencyLimiter = concurrencyLimiter;
@@ -104,6 +107,9 @@ public class AdminStatementAnalysisController {
         // admin analysing a 39-page statement should share the same bound as everyone else
         // (BH-043: an instant accept/reject now, not a queue -- see ImportConcurrencyLimiter)
         // rather than competing with customer imports for the whole thread pool.
+        // Audit F-18. An admin's upload is scanned like a customer's: this file goes through the
+        // same parsers, and the analysis workbench is where a held statement is opened next.
+        uploadScanGate.requireClean(file, currentUser.id(), "admin-analysis");
         String reference = concurrencyLimiter.runGated(
                 () -> adminAnalysisService.analyze(currentUser.id(), file, password));
 

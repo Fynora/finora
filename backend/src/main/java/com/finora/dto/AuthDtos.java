@@ -207,11 +207,29 @@ public class AuthDtos {
 
     public record VerifyResetPasswordPhoneResponse(String message) {}
 
-    public record RefreshRequest(String refreshToken) {}
+    /**
+     * @param scope which portal is refreshing: {@code "USER"} or {@code "ADMIN"}, the same field
+     *        {@link LoginRequest#scope()} carries. Optional, and absent means USER, so a client
+     *        that sends nothing behaves exactly as before. On the cookie transport it selects
+     *        WHICH cookie is read ({@code RefreshTokenCookie}); the admin portal sends
+     *        {@code ADMIN} on every refresh. When present, the token is also checked to belong to
+     *        an account of that portal (audit F-14). Mobile sends a body token and no scope.
+     */
+    public record RefreshRequest(String refreshToken, String scope) {
+        public RefreshRequest(String refreshToken) {
+            this(refreshToken, null);
+        }
+    }
 
     public record RefreshResponse(String token, String refreshToken) {}
 
-    public record LogoutRequest(String refreshToken) {}
+    /** @param scope see {@link RefreshRequest#scope()}: selects which portal's cookie is read and
+     *  cleared. Absent means USER. */
+    public record LogoutRequest(String refreshToken, String scope) {
+        public LogoutRequest(String refreshToken) {
+            this(refreshToken, null);
+        }
+    }
 
     public record LogoutResponse(String message) {}
 

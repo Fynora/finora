@@ -13,6 +13,7 @@ import com.finora.exception.ApiException;
 import com.finora.repository.PermissionRepository;
 import com.finora.repository.RoleRepository;
 import com.finora.repository.UserRepository;
+import com.finora.security.UserAuthorityCache;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,13 +37,16 @@ public class RoleService {
     private final PermissionRepository permissionRepository;
     private final UserRepository userRepository;
     private final AuditService auditService;
+    private final UserAuthorityCache userAuthorityCache;
 
     public RoleService(RoleRepository roleRepository, PermissionRepository permissionRepository,
-                        UserRepository userRepository, AuditService auditService) {
+                        UserRepository userRepository, AuditService auditService,
+                        UserAuthorityCache userAuthorityCache) {
         this.roleRepository = roleRepository;
         this.permissionRepository = permissionRepository;
         this.userRepository = userRepository;
         this.auditService = auditService;
+        this.userAuthorityCache = userAuthorityCache;
     }
 
     @Transactional(readOnly = true)
@@ -94,6 +98,9 @@ public class RoleService {
         userRepository.save(user);
         auditService.record(userId, "ROLE_ASSIGNED", "User", userId,
                 Map.of("role", roleName, "actorId", actingAdminId.toString()));
+        // After commit, so the grant is visible on the user's very next request rather than
+        // after the cache's TTL -- see UserAuthorityCache.
+        userAuthorityCache.evict(userId);
         return toDto(role);
     }
 
@@ -153,6 +160,9 @@ public class RoleService {
         auditService.record(userId, "ROLE_REVOKED", "User", userId,
                 Map.of("role", roleName, "actorId", actingAdminId.toString(),
                         "legacyRoleCleared", Boolean.toString(clearedLegacyRole)));
+        // A revocation is the case where staleness matters most: the removed permissions must
+        // stop working now, not up to a minute from now. See UserAuthorityCache.
+        userAuthorityCache.evict(userId);
     }
 
     /**
@@ -299,6 +309,8 @@ public class RoleService {
             roleRepository.save(role);
             auditService.record(actingAdminId, "ROLE_PERMISSION_GRANTED", "Role", roleId,
                     Map.of("permission", permission.getName()));
+            // Every holder of this role just gained an authority; the cache is keyed by user.
+            userAuthorityCache.clear();
         }
         return toDto(role);
     }
@@ -311,6 +323,7 @@ public class RoleService {
             roleRepository.save(role);
             auditService.record(actingAdminId, "ROLE_PERMISSION_REVOKED", "Role", roleId,
                     Map.of("permission", permission.getName()));
+            userAuthorityCache.clear();
         }
         return toDto(role);
     }

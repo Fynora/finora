@@ -80,6 +80,23 @@ class GlobalExceptionHandlerTest {
      * had no dedicated handler and fell through to handleGeneric() above -- a routine, expected
      * concurrency conflict returned an opaque 500 instead of a clear, actionable 409.
      */
+    /** Audit F-11 (2026-09-25): rotate() takes a row lock, so a deadlock between two theft-path
+     *  rotations aborts one with CannotAcquireLockException. That is the same "someone else got
+     *  there first" condition as the optimistic case and must map to the same 409, not a 500. */
+    @Test
+    void theConflictHandlerCoversPessimisticLockFailuresAsWellAsOptimisticOnes() throws Exception {
+        var annotation = GlobalExceptionHandler.class.getMethod("handleOptimisticLock")
+                .getAnnotation(org.springframework.web.bind.annotation.ExceptionHandler.class);
+
+        assertThat(annotation).isNotNull();
+        var handled = java.util.Arrays.asList(annotation.value());
+        assertThat(handled).anySatisfy(type -> {
+            assertThat(type).isAssignableFrom(org.springframework.dao.OptimisticLockingFailureException.class);
+            assertThat(type).isAssignableFrom(org.springframework.dao.CannotAcquireLockException.class);
+            assertThat(type).isAssignableFrom(org.springframework.dao.PessimisticLockingFailureException.class);
+        });
+    }
+
     @Test
     void handleOptimisticLock_returns409_withAClearRetryMessage_notTheGeneric500() {
         Environment environment = mock(Environment.class);

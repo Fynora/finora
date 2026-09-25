@@ -273,6 +273,23 @@ public class PdfMetadataExtractor {
     private static final Pattern A_C_ACCOUNT_NUMBER_SAME_LINE =
             Pattern.compile("(?i)\\bA/c\\s*:?\\s*(" + CARD_NUMBER_VALUE_SRC + ")\\b");
 
+    // CARDHOLDER_FOR_BANNER: a real IndusInd Bank (CRED RuPay) credit-card statement names its
+    // cardholder and masked card in the banner that opens each of its two ledger sub-tables --
+    // "Payment Details for MR <HOLDER> (Credit Card No. 1234XXXXXXXX5678)" and "Purchases & Cash
+    // Transactions for ..." (shape genericized per the Synthetic Fixture Policy) -- and NOWHERE
+    // else this extractor can see: the document has no "Name"/"Account Holder" field at all, and
+    // the banner sits below the column header, so it reaches this class only because
+    // PdfTableLocator.CARDHOLDER_SUBTABLE_BANNER routes it into the section's auxiliary text. Both
+    // values are captured from the one line: the holder is whatever sits between "for" and the
+    // parenthesised card number, the card number reuses CARD_NUMBER_VALUE_SRC and is validated by
+    // looksLikeCardOrAccountNumber exactly like every other card-number source here. The two
+    // sub-table names are required verbatim (whole-line) rather than any "for <name> (Credit Card
+    // No. ...)" tail, so an unrelated sentence mentioning a card number in parentheses can never
+    // name a holder.
+    private static final Pattern CARDHOLDER_FOR_BANNER = Pattern.compile(
+            "(?i)^\\s*(?:payment\\s+details|purchases\\s*&\\s*cash\\s+transactions)\\s+for\\s+(.+?)\\s*"
+                    + "\\(\\s*credit\\s+card\\s+no\\.?\\s*(" + CARD_NUMBER_VALUE_SRC + ")\\s*\\)\\s*$");
+
     // CARD_NUMBER_TRAILING_LABEL: the same "value before its label" shape as
     // ACCOUNT_NUMBER_TRAILING_LABEL, but tolerant of text AFTER the label too -- verified against
     // a real HDFC credit-card statement, whose line reads "<value> Credit Card No. <HOLDER NAME>":
@@ -650,11 +667,26 @@ public class PdfMetadataExtractor {
     // Deliberately NOT extended to cover a real IndusInd/CRED statement's own leading lines: that
     // document has a whole run of generic banking phrases in a row ("Previous Balance", "Cash
     // Advance", ...), and excluding one just promotes the next -- a finite word list cannot fix
-    // that shape; it needs a different approach, out of scope here.
+    // that shape; it needs a different approach. SUMMARY_GRID_VALUE_LINE below is that approach.
     private static final java.util.Set<String> LEADING_TITLE_WORDS = java.util.Set.of(
             "account", "statement", "card", "credit", "savings", "current", "passbook",
             "details", "summary", "bank", "name", "value", "added", "services",
             "interest", "accrued");
+
+    // The "different approach" the note above asks for, evidenced on two real statements from that
+    // bank (IndusInd/CRED, two consecutive billing cycles): the document opens with a stacked
+    // summary grid -- "Previous Balance" / "0.00 DR" / "Purchases & Other Charges" / "2,776.00" /
+    // "Cash Advance" / "0.00" / ... -- and its first label was captured as the account holder on
+    // both, which the review screen then reported as the statement belonging to someone other than
+    // the user. What separates such a label from a real name is not its words but the line UNDER
+    // it: a grid label is followed by its own bare value (an amount, optionally Dr/Cr-marked),
+    // while a person's name is followed by an address, a label or a title -- never by a lone
+    // figure. Checked on the candidate's immediate successor only, the same one-line reach
+    // GRID_DUE_DATE_LABEL's own grid model already relies on; excluding one label no longer just
+    // promotes the next, because every label in such a grid has a value under it. Optional
+    // currency prefix and Dr/Cr suffix cover the shapes CsvParser.parseNumeric already accepts.
+    private static final Pattern SUMMARY_GRID_VALUE_LINE = Pattern.compile(
+            "(?i)^\\s*(?:rs\\.?|inr|₹|`)?\\s*[\\d,]*\\d\\.\\d{2}\\s*(?:dr|cr)?\\.?\\s*$");
 
     /** Matched with {@link Matcher#matches()} (whole-line), so this describes the ENTIRE line, not
      *  just where the label sits. Two alternatives:
@@ -757,6 +789,12 @@ public class PdfMetadataExtractor {
         // already-found answer. Every GRID_*/TRAILING_LABEL fallback below already guarded its own
         // assignment this way -- these seven are now consistent with that, not exceptions to it.
         boolean insideAddressContinuation = false;
+        // True while accountHolderName came from LEADING_NAME_LINE/LEADING_NAME_BEFORE_PANEL_LABEL,
+        // the weakest of the holder signals (no label at all -- see LEADING_NAME_LINE's own doc
+        // comment). A labelled holder found LATER in the document replaces such a guess; every
+        // other field keeps its first-match-wins guard, which exists to stop boilerplate
+        // overriding a real value, not to let an unlabelled guess outrank a labelled fact.
+        boolean holderFromLeadingLineFallback = false;
         for (int i = 0; i < preTableLines.size(); i++) {
             String line = preTableLines.get(i);
 
@@ -769,9 +807,26 @@ public class PdfMetadataExtractor {
                 insideAddressContinuation = false;
             }
 
-            if (accountHolderName == null) {
+            // CARDHOLDER_FOR_BANNER (see that constant's own doc comment): one line, two fields.
+            // Tried first because it is the most specific shape here, and because it is the one
+            // labelled holder source the weak leading-line fallback has already been wrong against.
+            Matcher cardholderBanner = CARDHOLDER_FOR_BANNER.matcher(line);
+            if (cardholderBanner.matches()) {
+                if (accountHolderName == null || holderFromLeadingLineFallback) {
+                    accountHolderName = cardholderBanner.group(1).trim();
+                    holderFromLeadingLineFallback = false;
+                }
+                if (accountNumberMasked == null && looksLikeCardOrAccountNumber(cardholderBanner.group(2))) {
+                    String[] normalized = normalizeCardOrAccountNumberValue(cardholderBanner.group(2));
+                    accountNumberMasked = normalized[0];
+                    accountNumberFull = normalized[1];
+                }
+                continue;
+            }
+
+            if (accountHolderName == null || holderFromLeadingLineFallback) {
                 String holder = firstGroup(ACCOUNT_HOLDER, line);
-                if (holder != null) { accountHolderName = holder; continue; }
+                if (holder != null) { accountHolderName = holder; holderFromLeadingLineFallback = false; continue; }
             }
 
             if (accountNumberMasked == null) {
@@ -1225,8 +1280,10 @@ public class PdfMetadataExtractor {
                     && !insideAddressContinuation
                     && LEADING_NAME_LINE.matcher(line.trim()).matches()
                     && containsNoLeadingTitleWord(line)
+                    && !isASummaryGridLabel(preTableLines, i)
                     && BankRegistry.UNKNOWN_ID.equals(BankRegistry.detect("", List.of(line)).id())) {
                 accountHolderName = line.trim();
+                holderFromLeadingLineFallback = true;
                 // Wired late. The registry declared LEADING_NAME_LINE and this branch has always
                 // implemented it, but nothing recorded it -- so it reported as never-activated
                 // forever, which is indistinguishable from "no document has needed it". That is the
@@ -1242,6 +1299,7 @@ public class PdfMetadataExtractor {
                     if (containsNoLeadingTitleWord(candidate)
                             && BankRegistry.UNKNOWN_ID.equals(BankRegistry.detect("", List.of(candidate)).id())) {
                         accountHolderName = candidate;
+                        holderFromLeadingLineFallback = true;
                         if (ctx != null) ctx.record("LEADING_NAME_LINE");
                         continue;
                     }
@@ -1399,6 +1457,13 @@ public class PdfMetadataExtractor {
             if (LEADING_TITLE_WORDS.contains(normalized)) return false;
         }
         return true;
+    }
+
+    /** See {@link #SUMMARY_GRID_VALUE_LINE}: a leading-name candidate whose very next line is a
+     *  bare figure is a summary-grid label sitting over its own value, not a person. */
+    private static boolean isASummaryGridLabel(List<String> preTableLines, int i) {
+        return i + 1 < preTableLines.size()
+                && SUMMARY_GRID_VALUE_LINE.matcher(preTableLines.get(i + 1)).matches();
     }
 
     /** "01-07-2026 to 31-07-2026" -> [start, end]. Either element is null if that half didn't

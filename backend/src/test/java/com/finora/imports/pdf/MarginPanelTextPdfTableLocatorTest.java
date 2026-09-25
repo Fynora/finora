@@ -97,6 +97,111 @@ class MarginPanelTextPdfTableLocatorTest {
     }
 
     @Test
+    void aPanelFigureInsideTheLearnedPanelBandIsNotAppendedToTheAmountCell() {
+        // The numeric half of the same real IndusInd layout, one billing cycle later. The panel's
+        // "Total Outstanding" figure (a Dr-suffixed amount, so parseNumeric accepts it) printed
+        // 2.4pt below a real purchase's baseline and 62pt past the table's right edge, and the
+        // numeric exemption above appended it to that purchase's own amount -- "16.96 DR 2,429.08
+        // DR", unparseable, row dropped. The panel's labels on earlier rows have already been
+        // excluded, so the section knows where the panel prints; a figure starting nearer that band
+        // than the table is the panel's. Geometry measured from the real document, text synthetic.
+        List<PositionedText> runs = new ArrayList<>(header());
+        runs.addAll(List.of(
+                run("18/08/2026", 25.9f, 45.0f, 420.0f),
+                run("UPI SAMPLE MERCHANT 000000000001", 72.4f, 122.0f, 420.0f),
+                run("0", 333.2f, 3.6f, 420.0f),
+                run("12.00 CR", 395.4f, 27.2f, 420.0f),
+                run("Statement Date", 479.4f, 48.1f, 417.8f),   // the panel label: teaches the band
+                run("19/08/2026", 25.9f, 45.0f, 460.0f),
+                run("UPI SAMPLE MERCHANT 000000000003", 72.4f, 127.3f, 460.0f),
+                run("COMPUTERS", 222.4f, 40.6f, 460.0f),
+                run("0", 333.2f, 3.6f, 460.0f),
+                run("16.96 DR", 395.5f, 27.1f, 460.0f),
+                run("2,429.08 DR", 480.3f, 44.9f, 462.4f)));  // the panel figure, same physical row
+
+        DocumentContext ctx = new DocumentContext("PDF", "test");
+        var table = new PdfTableLocator().locate(runs, ctx);
+
+        assertThat(table.rows()).hasSize(2);
+        assertThat(table.rows().get(1).get("Amount (in `)")).isEqualTo("16.96 DR");
+        assertThat(ctx.capabilities().stream().map(c -> c.capability()))
+                .contains("MARGIN_PANEL_TEXT_EXCLUDED");
+    }
+
+    @Test
+    void aNumberNearerTheTableThanTheLearnedPanelBandIsStillKept() {
+        // The Kotak guard, with a panel present: a label has taught the band (x=479.4), but a
+        // figure at 430.0 sits on the table's side of the midpoint between the header end (417.9)
+        // and the band, so it is a right-aligned value overflowing its own column and stays.
+        List<PositionedText> runs = new ArrayList<>(header());
+        runs.addAll(List.of(
+                run("18/08/2026", 25.9f, 45.0f, 420.0f),
+                run("UPI SAMPLE MERCHANT 000000000001", 72.4f, 122.0f, 420.0f),
+                run("Statement Date", 479.4f, 48.1f, 417.8f),
+                run("19/08/2026", 25.9f, 45.0f, 440.0f),
+                run("UPI SAMPLE MERCHANT 000000000002", 72.4f, 122.0f, 440.0f),
+                run("99,999.00", 430.0f, 40.0f, 440.0f)));
+
+        var table = new PdfTableLocator().locate(runs, null);
+
+        assertThat(table.rows()).hasSize(2);
+        assertThat(String.join(" ", table.rows().get(1).values())).contains("99,999.00");
+    }
+
+    @Test
+    void aSubTableTotalRowIsStillRecognisedWhenAPanelValueSharesItsLine() {
+        // The other half of the same real collision: the ledger's "Total 0 1,285.00" sub-table
+        // total row carried the panel's "Statement Date" VALUE (a date, 2.3pt above its baseline)
+        // on the same physical row, so the whole-line PAGE_LEGEND_BLOCK_START alternative written
+        // for exactly that row never matched -- the total row was merged into the payment above
+        // it as a wrapped description ("BBPS PAYMENT Total 1,285.00"), and with no legend block
+        // open, the divider line under it was merged into the purchase below. rowLine is now the
+        // table's own text, so the total row matches and the divider is suppressed.
+        List<PositionedText> runs = new ArrayList<>(header());
+        runs.addAll(List.of(
+                run("01/09/2026", 25.9f, 33.2f, 420.0f),
+                run("SAMPLE PAYMENT", 72.4f, 49.8f, 420.0f),
+                run("0", 333.2f, 3.6f, 420.0f),
+                run("1,285.00 CR", 386.3f, 36.3f, 420.0f),
+                run("Statement Date", 479.4f, 48.1f, 417.8f),
+                run("Total", 25.9f, 17.9f, 433.3f),
+                run("0", 332.9f, 4.2f, 432.7f),
+                run("1,285.00", 381.4f, 29.2f, 432.7f),
+                run("22/09/2026", 482.7f, 40.0f, 430.4f),
+                run("Some divider words printed between the two sub tables", 25.9f, 200.0f, 445.8f),
+                run("24/08/2026", 25.9f, 33.2f, 460.0f),
+                run("UPI SAMPLE MERCHANT 000000000003", 72.4f, 127.3f, 460.0f),
+                run("0", 333.2f, 3.6f, 460.0f),
+                run("16.96 DR", 395.5f, 27.1f, 460.0f)));
+
+        DocumentContext ctx = new DocumentContext("PDF", "test");
+        var table = new PdfTableLocator().locate(runs, ctx);
+
+        assertThat(table.rows()).hasSize(2);
+        assertThat(table.rows().get(0).get("Transaction Details")).isEqualTo("SAMPLE PAYMENT");
+        assertThat(table.rows().get(1).get("Transaction Details")).isEqualTo("UPI SAMPLE MERCHANT 000000000003");
+        assertThat(ctx.capabilities().stream().map(c -> c.capability()))
+                .contains("PAGE_LEGEND_BLOCK_SUPPRESSED");
+    }
+
+    @Test
+    void aRowMadeOnlyOfPanelTextKeepsItsOwnLineText() {
+        // A physical row with nothing of the table's on it is not scoped to the table at all --
+        // its text is whatever the page printed there, exactly as before this change.
+        List<PositionedText> runs = new ArrayList<>(header());
+        runs.addAll(List.of(
+                run("23/08/2026 To 22/09/2026", 455.8f, 93.8f, 397.4f),
+                run("18/08/2026", 25.9f, 45.0f, 420.0f),
+                run("UPI SAMPLE MERCHANT 000000000001", 72.4f, 122.0f, 420.0f),
+                run("12.00 CR", 395.4f, 27.2f, 420.0f)));
+
+        var table = new PdfTableLocator().locate(runs, null);
+
+        assertThat(table.rows()).hasSize(1);
+        assertThat(table.rows().get(0).get("Amount (in `)")).isEqualTo("12.00 CR");
+    }
+
+    @Test
     void withoutMeasuredWidthsNothingIsExcluded() {
         // Hand-built fixtures and traces recorded before run widths existed carry width 0, so
         // headerEnds degenerates to a copy of headerAnchors. The rightmost ANCHOR sits in the

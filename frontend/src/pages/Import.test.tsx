@@ -265,6 +265,27 @@ describe('Import — file-type routing', () => {
     expect(importApi.stageCsv).not.toHaveBeenCalled();
   });
 
+  it('lets the user reveal the statement password they typed before uploading', async () => {
+    // A bank's statement password has no confirmation field; the only other feedback is the
+    // upload failing with "wrong password". The panel's field is the shared PasswordInput, so its
+    // show/hide toggle is what lets the user check what they typed first.
+    const user = userEvent.setup();
+    renderImport();
+    await user.upload(screen.getByTestId('statement-file-input'), pdfFile());
+    await screen.findByTestId('pdf-password-panel');
+
+    const field = screen.getByLabelText(/statement password/i);
+    await user.type(field, 'sidd1008');
+    expect(field).toHaveAttribute('type', 'password');
+
+    await user.click(screen.getByRole('button', { name: 'Show password' }));
+    expect(field).toHaveAttribute('type', 'text');
+    expect(field).toHaveValue('sidd1008');
+
+    await user.click(screen.getByRole('button', { name: 'Hide password' }));
+    expect(field).toHaveAttribute('type', 'password');
+  });
+
   it('uploads a .csv immediately, with no password step in the way', async () => {
     const user = userEvent.setup();
     renderImport();

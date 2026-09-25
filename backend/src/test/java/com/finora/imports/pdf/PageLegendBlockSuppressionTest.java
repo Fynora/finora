@@ -103,6 +103,42 @@ class PageLegendBlockSuppressionTest {
     }
 
     @Test
+    void aLegendBlocksOwnTwoLineHeading_isNotStagedAsADatelessRow() {
+        // A real IndusInd credit-card statement sets its CRED-points legend as a paragraph beside
+        // a two-line left-column label, the label's second line 3.2pt above the paragraph's
+        // baseline (measured; text below is the bank's own structural wording, which the
+        // redactor also preserves). Both label lines were buffered as leading narration, refused by
+        // the next page's first transaction, and staged as an unmatched "CRED Points Transferred*"
+        // row on every statement from this bank.
+        List<PositionedText> positioned = new ArrayList<>();
+        positioned.add(run("Date", 40.9f, 14.3f, 393.4f, 0));
+        positioned.add(run("Transaction Details", 117.4f, 57.7f, 393.4f, 0));
+        positioned.add(run("Amount (in `)", 376.0f, 41.9f, 393.4f, 0));
+        positioned.add(run("26/08/2026", 25.9f, 33.2f, 544.0f, 0));
+        positioned.add(run("UPI SAMPLE MERCHANT 000000000001", 72.4f, 127.3f, 544.0f, 0));
+        positioned.add(run("37.94 DR", 395.5f, 27.1f, 544.0f, 0));
+        positioned.add(run("CRED Points", 38.5f, 38.0f, 570.0f, 0));
+        positioned.add(run("Transferred*", 37.6f, 39.7f, 578.0f, 0));
+        positioned.add(run("NOTE: CRED Points earned via spending on your sample credit card during the "
+                + "current billing cycle are mentioned", 99.4f, 321.1f, 581.2f, 0));
+        positioned.add(run("against each transactions. It may take up to 2-3 business days for the points "
+                + "to reflect.", 99.4f, 289.8f, 587.7f, 0));
+        positioned.add(run("26/08/2026", 25.9f, 33.2f, 120.1f, 1));
+        positioned.add(run("UPI SAMPLE MERCHANT 000000000002", 72.4f, 121.3f, 120.1f, 1));
+        positioned.add(run("24.00 DR", 395.5f, 27.1f, 120.1f, 1));
+
+        DocumentContext ctx = new DocumentContext("PDF", "test");
+        PdfTableLocator.LocatedDocument doc = new PdfTableLocator().locateAll(positioned, ctx);
+
+        assertThat(doc.sections()).hasSize(1);
+        var section = doc.sections().get(0);
+        assertThat(section.rows()).hasSize(2);
+        assertThat(section.rows().get(0).get("Transaction Details")).isEqualTo("UPI SAMPLE MERCHANT 000000000001");
+        assertThat(section.rows().get(1).get("Transaction Details")).isEqualTo("UPI SAMPLE MERCHANT 000000000002");
+        assertThat(section.auxiliaryText()).anyMatch(line -> line.contains("CRED Points Transferred*"));
+    }
+
+    @Test
     void chequePayableFooter_onANonFinalPage_doesNotPolluteTheTransactionAboveIt_andRealRowsResumeLater() {
         // Real bug, reported directly by a user: a real Axis Bank credit-card statement's own
         // 2-page ledger (108 transactions total, 28 on page 0) ends page 0 with "Your cheque should

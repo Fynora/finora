@@ -26,6 +26,22 @@ describe('PasswordInput', () => {
     expect(input).toHaveAttribute('type', 'password');
   });
 
+  it('forwards disabled, aria-describedby and the ref to the input, and disables the toggle with it', () => {
+    const ref = { current: null as HTMLInputElement | null };
+    render(
+      <>
+        <PasswordInput id="p" value="x" onChange={() => {}} disabled aria-describedby="p-help" ref={ref} />
+        <p id="p-help">help</p>
+      </>,
+    );
+
+    const input = screen.getByDisplayValue('x');
+    expect(input).toBeDisabled();
+    expect(input).toHaveAccessibleDescription('help');
+    expect(ref.current).toBe(input);
+    expect(screen.getByRole('button', { name: 'Show password' })).toBeDisabled();
+  });
+
   it('calls onChange with the new value as the user types', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

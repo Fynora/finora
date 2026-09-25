@@ -354,6 +354,9 @@ function ReimportPasswordModal({
 }) {
   const c = useTheme();
   const [password, setPassword] = useState('');
+  // Show/hide for the password -- see ImportScreen's passwordRevealed for why this field carries
+  // the toggle inline rather than through TextField.
+  const [passwordRevealed, setPasswordRevealed] = useState(false);
 
   return (
     <AppModal visible transparent animationType="fade" onRequestClose={busy ? () => {} : onClose}>
@@ -367,21 +370,32 @@ function ReimportPasswordModal({
             </Text>
 
             <Text style={[styles.fieldLabel, { color: c.ink }]}>Statement password</Text>
-            <TextInput
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoFocus
-              // The bank's password for one document, not a Fynora credential -- it does not belong
-              // in the OS keychain alongside real logins, and it changes every statement.
-              autoComplete="off"
-              textContentType="none"
-              accessibilityLabel="Statement password"
-              editable={!busy}
-              style={[styles.input, { color: c.ink, borderColor: c.border, backgroundColor: c.inputBg }]}
-            />
+            <View style={[styles.passwordRow, { borderColor: c.border, backgroundColor: c.inputBg }]}>
+              <TextInput
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!passwordRevealed}
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoFocus
+                // The bank's password for one document, not a Fynora credential -- it does not belong
+                // in the OS keychain alongside real logins, and it changes every statement.
+                autoComplete="off"
+                textContentType="none"
+                accessibilityLabel="Statement password"
+                editable={!busy}
+                style={[styles.passwordInput, { color: c.ink }]}
+              />
+              <Pressable
+                onPress={() => setPasswordRevealed((r) => !r)}
+                hitSlop={8}
+                disabled={busy}
+                accessibilityRole="button"
+                accessibilityLabel={passwordRevealed ? 'Hide password' : 'Show password'}
+              >
+                <Text style={[styles.passwordToggle, { color: c.primary }]}>{passwordRevealed ? 'Hide' : 'Show'}</Text>
+              </Pressable>
+            </View>
             <Text style={[styles.helpText, { color: prompt.wrong ? c.danger : c.mutedInk }]}>
               {prompt.wrong
                 ? "That password didn't open this statement — check it and try again."
@@ -504,6 +518,13 @@ const styles = StyleSheet.create({
   fieldLabel: { fontSize: 12, fontWeight: '500', marginBottom: 4 },
   helpText: { fontSize: 12, lineHeight: 17 },
   input: { borderWidth: 1, borderRadius: radius.md, paddingHorizontal: 12, minHeight: 48, fontSize: 15 },
+  // `input`'s geometry split across a row so the Show/Hide toggle sits inside the field's border.
+  passwordRow: {
+    flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: radius.md,
+    paddingHorizontal: 12, minHeight: 48,
+  },
+  passwordInput: { flex: 1, fontSize: 15, paddingVertical: 12 },
+  passwordToggle: { fontSize: 13, fontWeight: '600', paddingLeft: 8 },
   txnRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     gap: spacing.sm, paddingVertical: 8, borderBottomWidth: 1,

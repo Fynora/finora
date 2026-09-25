@@ -151,6 +151,16 @@ public final class PdfTraceRedactor {
             // already-covered trailing-content marker. None of these identify anybody.
             "payments", "other", "primary", "transactions", "retail", "purchases", "cash",
             "remember", "pay", "by", "your", "bills", "using", "following",
+            // A real IndusInd (CRED RuPay) credit-card statement's own header and legend furniture.
+            // Its amount header reads "Amount (in `)" and its rewards column "CRED Points"; masked,
+            // the header runs lose their measured widths (see redact's own width rule), the table
+            // has no right edge, and MARGIN_PANEL_TEXT_EXCLUDED -- the capability the trace was
+            // captured to protect -- cannot activate on the fixture at all. "CRED Points earned via
+            // spending" is PAGE_LEGEND_BLOCK_START's own trigger sentence for this layout, and the
+            // two-line "CRED Points / Transferred*" heading beside it is what the legend suppression
+            // now keeps out of the leading-narration buffer. A product name, a rewards label and
+            // connective words; none of them identify anybody.
+            "in", "merchant", "category", "cred", "points", "earned", "via", "spending", "transferred",
             // "Rs" -- the Indian Rupee abbreviation this same statement's own amount-column header
             // uses ("Amount (Rs.)R", the trailing "R" its own separate text run), distinct from
             // "inr" above (already allowlisted).

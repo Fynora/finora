@@ -9,6 +9,7 @@ import {
 import { importJobsApi, statementImportsApi, type ImportJobProgress } from '../api/endpoints';
 import { PDF_PASSWORD_INVALID, PDF_PASSWORD_REQUIRED } from '../api/errorCodes';
 import { BankLogo } from '../components/BankLogo';
+import { PasswordInput } from '../components/PasswordInput';
 import { recentImportsRefetchIntervalMs, label as jobLabel } from '../lib/importJob';
 import { navigateToReimport } from '../lib/importNavState';
 import type { AccountStatementGroup, StatementSummary, Transaction } from '../types';
@@ -701,16 +702,18 @@ function ReimportPasswordModal({
             <label htmlFor="reimport-password" className="block text-sm font-medium text-ink mb-1">
               Statement password
             </label>
-            <input
+            {/* PasswordInput for the same reason Import's upload panel uses it: the statement
+                password has no confirmation field, so the show/hide toggle is the one way to check
+                it before the request goes out. */}
+            <PasswordInput
               id="reimport-password"
-              type="password"
               // The bank's password for one document, not a Fynora credential -- it doesn't belong
               // in the user's password manager next to real logins.
               autoComplete="off"
               autoFocus
-              className="w-full border border-border rounded px-3 py-2 text-sm"
+              className="w-full border border-border rounded px-3 py-2 pr-10 text-sm"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={setPassword}
               disabled={busy}
               aria-describedby="reimport-password-help"
             />

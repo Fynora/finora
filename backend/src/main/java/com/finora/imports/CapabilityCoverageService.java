@@ -377,7 +377,15 @@ public class CapabilityCoverageService {
             // Standard Chartered savings statement, both of which located a table with 2-3 garbled
             // columns instead of 6-7 and staged zero transaction rows. See
             // PdfTableLocator.mergeHeaderLinesAdmittingInteriorTierColumns.
-            "WRAPPED_HEADER_INTERIOR_TIER_COLUMNS");
+            "WRAPPED_HEADER_INTERIOR_TIER_COLUMNS",
+            // A credit-card ledger split into sub-tables under one header, each opened by a banner
+            // naming the cardholder and masked card ("Payment Details for <holder> (Credit Card
+            // No. <masked>)") -- found on two real IndusInd statements, where the banner was staged
+            // as an unmatched row while the holder name it carried went unread and the document's
+            // first summary-grid label was reported as the holder instead. Routed to the section's
+            // auxiliary text so PdfMetadataExtractor reads both values from it. See
+            // PdfTableLocator.CARDHOLDER_SUBTABLE_BANNER.
+            "CARDHOLDER_SUBTABLE_BANNER");
 
     /**
      * @param importsAnalysed    how many imports these counts are drawn from -- a coverage figure

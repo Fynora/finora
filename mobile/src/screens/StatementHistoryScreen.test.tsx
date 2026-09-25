@@ -159,6 +159,24 @@ describe('StatementHistoryScreen — re-importing a password-protected statement
     expect(mockNavigateToImport).not.toHaveBeenCalled();
   });
 
+  it('lets the user reveal the password they typed into the unlock prompt', async () => {
+    // The bank's statement password has no confirmation field and the only other feedback is the
+    // re-import failing again, so the prompt carries the same Show/Hide control TextField renders.
+    api.reimport.mockReset().mockRejectedValue(rejectWith(PDF_PASSWORD_REQUIRED));
+    renderScreen();
+
+    await tapReimport();
+    const field = await screen.findByLabelText('Statement password');
+    fireEvent.changeText(field, 'AAAA1234');
+    expect(field.props.secureTextEntry).toBe(true);
+
+    fireEvent.press(screen.getByLabelText('Show password'));
+    expect(screen.getByLabelText('Statement password').props.secureTextEntry).toBe(false);
+
+    fireEvent.press(screen.getByLabelText('Hide password'));
+    expect(screen.getByLabelText('Statement password').props.secureTextEntry).toBe(true);
+  });
+
   it('retries with the password and continues to the Import tab', async () => {
     api.reimport.mockReset()
       .mockRejectedValueOnce(rejectWith(PDF_PASSWORD_REQUIRED))

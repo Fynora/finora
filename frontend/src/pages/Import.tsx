@@ -15,6 +15,7 @@ import {
 import { importFailureMessage } from '../api/importFailureMessages';
 import importHero from '../assets/import/import-hero.png';
 import { BankLogo } from '../components/BankLogo';
+import { PasswordInput } from '../components/PasswordInput';
 import { MaskedAccountNumber } from '../components/MaskedAccountNumber';
 import { VerificationPanel } from '../components/VerificationPanel';
 import { matchExistingAccount } from '../lib/accountMatch';
@@ -1056,18 +1057,20 @@ export default function Import() {
                 <label htmlFor="pdf-password" className="block text-sm font-medium text-ink mb-1">
                   Statement password <span className="font-normal text-muted">(optional)</span>
                 </label>
-                <input
+                {/* PasswordInput rather than a bare type="password": a bank's statement password is
+                    typed once with no confirmation field, and the only other feedback is the upload
+                    failing -- the show/hide toggle lets the user check what they typed first. */}
+                <PasswordInput
                   id="pdf-password"
                   ref={passwordInput}
-                  type="password"
                   // This is the bank's password for this document, not a Fynora credential -- offering
                   // to save it in a password manager would put it in the user's vault alongside real
                   // logins, and it changes with every statement anyway.
                   autoComplete="off"
-                  className="w-full border border-border rounded px-3 py-2 text-sm"
+                  className="w-full border border-border rounded px-3 py-2 pr-10 text-sm"
                   placeholder="Leave blank if the file isn't protected"
                   value={pdfPassword}
-                  onChange={(e) => setPdfPassword(e.target.value)}
+                  onChange={setPdfPassword}
                   disabled={uploading}
                   aria-describedby="pdf-password-help"
                 />

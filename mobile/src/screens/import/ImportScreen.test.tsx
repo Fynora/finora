@@ -785,6 +785,30 @@ describe('ImportScreen — arriving via Android share sheet', () => {
     expect(screen.getByText('statement.pdf')).toBeTruthy();
   });
 
+  it('lets the user reveal the statement password they typed before uploading', async () => {
+    // Same Show/Hide control TextField renders: a bank's statement password has no confirmation
+    // field, and the only other feedback is the upload failing with "wrong password".
+    mockRouteParams = {
+      sharedFile: {
+        file: { uri: 'file:///cache/statement.pdf', name: 'statement.pdf', type: 'application/pdf' },
+        format: 'PDF',
+        nonce: 1,
+      },
+    };
+    render(tree());
+    await screen.findByTestId('pdf-password-panel');
+
+    const field = screen.getByLabelText('Statement password');
+    fireEvent.changeText(field, 'AAAA1234');
+    expect(field.props.secureTextEntry).toBe(true);
+
+    fireEvent.press(screen.getByLabelText('Show password'));
+    expect(screen.getByLabelText('Statement password').props.secureTextEntry).toBe(false);
+
+    fireEvent.press(screen.getByLabelText('Hide password'));
+    expect(screen.getByLabelText('Statement password').props.secureTextEntry).toBe(true);
+  });
+
   it('uploads a shared CSV immediately, the same as a manually picked one', async () => {
     api.import.stageCsv.mockReset().mockResolvedValue({
       sessionId: 'session-1',

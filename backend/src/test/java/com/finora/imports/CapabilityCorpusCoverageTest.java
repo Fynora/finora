@@ -304,17 +304,6 @@ class CapabilityCorpusCoverageTest {
                         + "PdfTableLocator.locateAll, and capture of the evidencing document was refused (see "
                         + "above). Covered by TransactionNormalizerTest, CsvParserTest and PdfImportEndToEndIT."
                         + realCorpusVerified);
-        DECLARED_WITHOUT_A_TRACE.put("RECONCILED_HEADER_SECTIONS_REMERGED",
-                "no trace yet -- evidenced from the real sbi-credit-card-statement and "
-                        + "indusland-credit-card-account-number-inheritance documents, which HAVE "
-                        + "committed traces, but both traces (captured 2026-08-12 and 2026-09-01) "
-                        + "predate this trigger, the same reason already documented for "
-                        + "SAVINGS_AND_BENEFITS_SECTION_CLOSED above -- confirmed directly, neither trace "
-                        + "exercises this capability as committed. "
-                        + "Real-corpus behavior verified via the ground-truth gate "
-                        + "(scripts/run-corpus-ground-truth.py) against the original files. Covered "
-                        + "instead by ReconciledHeaderSectionsRemergedPdfTableLocatorTest's fully "
-                        + "hand-synthesized fixture.");
         DECLARED_WITHOUT_A_TRACE.put("EMPTY_SECTION_DROPPED",
                 "no trace yet -- evidenced from a real Shivani_HDFC.pdf statement with no committed "
                         + "trace in this corpus. Real-corpus behavior verified via the ground-truth gate "

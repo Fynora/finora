@@ -491,6 +491,29 @@ public class PdfTableLocator {
                     + "|retail\\s+purchases\\s+and\\s+cash\\s+transactions"
                     + "|[a-z][a-z .']*\\[\\s*ckyc\\s+id\\s*:\\s*\\d+\\s*\\])\\s*$");
 
+    // CARDHOLDER_SUBTABLE_BANNER. A real IndusInd Bank (CRED RuPay) credit-card statement splits
+    // its ledger into two sub-tables under one shared column header, each opened by a banner that
+    // names the cardholder and the masked card: "Payment Details for <HOLDER> (Credit Card No.
+    // <masked>)" and "Purchases & Cash Transactions for <HOLDER> (Credit Card No. <masked>)". The
+    // banner sits BELOW the header, so it is never part of the pre-table text PdfMetadataExtractor
+    // reads, and it is dateless, so the row loop treated it as a row: on two real statements from
+    // this bank it was staged as a standalone row whose Date cell held the whole sentence (surfacing
+    // on the review screen as an unmatched row), and on one of them the ordinary leading-narration
+    // merge prepended it to the first purchase's own description. Meanwhile the section's holder
+    // name and card number -- both printed right here and nowhere else the extractor could see --
+    // stayed unknown, and the holder-name fallback filled the gap with the document's first
+    // summary-panel label instead ("Previous Balance"; see PdfMetadataExtractor.LEADING_NAME_LINE).
+    //
+    // Same structural role as CREDIT_CARD_CATEGORY_HEADER above (a category divider between two
+    // real transactions, never a transaction), but routed to auxiliaryText rather than dropped,
+    // because unlike Kotak's bare category names this line IS the section's identity evidence:
+    // PdfMetadataExtractor.CARDHOLDER_FOR_BANNER reads the holder and the card number out of it
+    // there. Whole-line anchored, and the parenthesised "(Credit Card No. <value>)" tail is
+    // required -- a transaction narration never ends in one.
+    private static final Pattern CARDHOLDER_SUBTABLE_BANNER = Pattern.compile(
+            "(?i)^\\s*(?:payment\\s+details|purchases\\s*&\\s*cash\\s+transactions)\\s+for\\s+\\S.*"
+                    + "\\(\\s*credit\\s+card\\s+no\\.?\\s*[\\dXx*][\\dXx*\\s-]*\\)\\s*$");
+
     // TRANSACTION_REGION_HEADING. A real HDFC (Paytm HDFC) credit-card statement splits its ledger
     // into two tables under their own bare headings, "Domestic Transactions" and "International
     // Transactions", each followed by the same DATE & TIME / TRANSACTION DESCRIPTION / AMOUNT / PI
@@ -1131,6 +1154,9 @@ public class PdfTableLocator {
         // numeric values -- see bucketRow's RIGHT_ALIGNED_AMOUNTS block for why a left edge alone
         // cannot separate two adjacent amount columns.
         List<Float> headerEnds = null;
+        // MARGIN_PANEL_TEXT_EXCLUDED, the numeric half -- see MarginPanelBand's own doc comment.
+        // One per section, created where the header opens it and dropped where the header is.
+        MarginPanelBand marginPanelBand = null;
         // COLUMN_SPAN_PLACEMENT. Measured ONCE per header (see the recomputation right after
         // ctx.recordHeaders below), from real sampled data rather than from the header LABELS
         // headerAnchors/headerEnds hold -- see measureTextColumnSpans's own doc comment for why a
@@ -1236,7 +1262,12 @@ public class PdfTableLocator {
 
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             List<PositionedText> row = rows.get(rowIndex);
-            String rowLine = lineOf(row);
+            // Scoped to the table once a header is active -- see tableRunsOf. Every whole-line
+            // pattern below reads this, and a margin-panel run sharing the physical row would
+            // otherwise defeat any of them (a real IndusInd statement's "Total 0 1,285.00" sub-table
+            // total row carried its right-margin "Statement Date" value on the same line, so the
+            // PAGE_LEGEND_BLOCK_START alternative written for exactly that row never matched it).
+            String rowLine = lineOf(tableRunsOf(row, rightEdgeOfTable(headerAnchors, headerEnds), marginPanelBand));
 
             // Captured here, at the top, because several branches below `continue` past the end of
             // the body -- a page footer still sits physically above the next row and still sets the
@@ -1369,6 +1400,7 @@ public class PdfTableLocator {
                 headerNames = null;
                 headerAnchors = null;
                 headerEnds = null;
+                marginPanelBand = null;
                 textColumnSpans = null;
                 currentHeaderSignature = null;
                 currentSectionAccountId = markerAccountId;
@@ -1600,6 +1632,7 @@ public class PdfTableLocator {
                 headerNames = new ArrayList<>();
                 headerAnchors = new ArrayList<>();
                 headerEnds = new ArrayList<>();
+                marginPanelBand = new MarginPanelBand();
                 // Sorted by x, matching the invariant mergeHeaderLines already establishes and
                 // documents for the wrapped-header path ("the whole pipeline downstream of here
                 // reads header cells in left-to-right order"). This single-line path never had that
@@ -1747,6 +1780,30 @@ public class PdfTableLocator {
                 pageLegendBlockActive = true;
                 if (ctx != null) ctx.record("PAGE_LEGEND_BLOCK_SUPPRESSED");
                 recordIfTransactionShaped(row, "PAGE_LEGEND_BLOCK_SUPPRESSED", pendingDroppedCandidates);
+                // The block's own heading. A real IndusInd credit-card statement sets its
+                // "CRED Points earned via spending..." legend as a paragraph beside a two-line
+                // left-column label ("CRED Points" / "Transferred*"), the label's second line
+                // 3.2pt above the paragraph's baseline -- one visual band, split into separate
+                // physical rows only because ROW_Y_TOLERANCE is 3.0. Both label lines are
+                // dateless narration, so they were buffered as leading narration for the next
+                // transaction; the trigger sentence then suppressed everything AFTER it but
+                // never touched that buffer, which the next anchor (on the following page)
+                // refused as its own narration and staged as a dateless row -- surfacing on the
+                // review screen as an unmatched "CRED Points Transferred*" row on every statement
+                // from this bank. A narration-only buffer whose last row sits within twice the
+                // row tolerance of the trigger line is that line's own heading, not a
+                // transaction's, and goes where the legend's other text goes: kept as auxiliary
+                // text rather than dropped. Bounded that tightly on purpose -- a transaction's
+                // genuine leading narration separated from the legend by an ordinary line pitch
+                // is left exactly as before.
+                if (pendingLeading != null && gapFromPreviousRow != null
+                        && gapFromPreviousRow <= 2 * ROW_Y_TOLERANCE && isNarrationOnly(pendingLeading)) {
+                    pendingAuxiliary.add(String.join(" ", pendingLeading.values()));
+                    pendingLeading = null;
+                    pendingLeadingFromProximity = false;
+                    pendingLeadingAllBelongAbove = true;
+                    leadingCount = 0;
+                }
                 continue;
             } else if (PAGE_FOOTER.matcher(rowLine).find() || STATEMENT_CLOSING_MARKER.matcher(rowLine).find()
                     || PAGE_BANNER.matcher(rowLine).find()) {
@@ -1761,6 +1818,14 @@ public class PdfTableLocator {
                 // See HEADER_ANNOTATION's own doc comment.
                 if (ctx != null) ctx.record("HEADER_ANNOTATION_SUPPRESSED");
                 recordIfTransactionShaped(row, "HEADER_ANNOTATION_SUPPRESSED", pendingDroppedCandidates);
+                continue;
+            } else if (CARDHOLDER_SUBTABLE_BANNER.matcher(rowLine).matches()) {
+                // See CARDHOLDER_SUBTABLE_BANNER's own doc comment. Neither a row nor narration for
+                // one; kept as this section's own auxiliary text so the holder name and card number
+                // it carries reach PdfMetadataExtractor, which nothing else in this document gives.
+                if (ctx != null) ctx.record("CARDHOLDER_SUBTABLE_BANNER");
+                recordIfTransactionShaped(row, "CARDHOLDER_SUBTABLE_BANNER", pendingDroppedCandidates);
+                pendingAuxiliary.add(rowLine);
                 continue;
             } else if (CREDIT_CARD_CATEGORY_HEADER.matcher(rowLine).find()) {
                 // See CREDIT_CARD_CATEGORY_HEADER's own doc comment. Dropped outright, not merged
@@ -1781,7 +1846,7 @@ public class PdfTableLocator {
                 // stored in that anchor's own date cell.
                 List<PositionedText> resolvedRow = substituteYearlessDates(row, rowCandidateYears);
                 Map<String, String> bucketed = bucketRow(resolvedRow, headerNames, headerAnchors, headerEnds, ctx,
-                        rowCandidateYears, textColumnSpans);
+                        rowCandidateYears, textColumnSpans, marginPanelBand);
                 if (bucketed.isEmpty()) {
                     // Row-accounting evidence: the row survived every structural gate up to
                     // bucketing and still produced literally nothing -- the strongest "we don't
@@ -5166,7 +5231,7 @@ public class PdfTableLocator {
 
     private Map<String, String> bucketRow(List<PositionedText> row, List<String> headerNames, List<Float> headerAnchors,
                                            List<Float> headerEnds, DocumentContext ctx, PageDateEvidence candidateYears) {
-        return bucketRow(row, headerNames, headerAnchors, headerEnds, ctx, candidateYears, null);
+        return bucketRow(row, headerNames, headerAnchors, headerEnds, ctx, candidateYears, null, null);
     }
 
     /** Same as the six-argument overload, plus {@code textColumnSpans} -- see {@link ColumnSpan}'s
@@ -5178,6 +5243,16 @@ public class PdfTableLocator {
     private Map<String, String> bucketRow(List<PositionedText> row, List<String> headerNames, List<Float> headerAnchors,
                                            List<Float> headerEnds, DocumentContext ctx, PageDateEvidence candidateYears,
                                            ColumnSpan[] textColumnSpans) {
+        return bucketRow(row, headerNames, headerAnchors, headerEnds, ctx, candidateYears, textColumnSpans, null);
+    }
+
+    /** Same again, plus {@code marginPanelBand} -- see {@link MarginPanelBand}'s own doc comment.
+     *  {@code null} everywhere except {@code locateAll}'s own committed-header usage, for the same
+     *  reason {@code textColumnSpans} is: a speculative probe and the headerless path have no
+     *  section-scoped panel evidence to consult, and must judge a row exactly as before. */
+    private Map<String, String> bucketRow(List<PositionedText> row, List<String> headerNames, List<Float> headerAnchors,
+                                           List<Float> headerEnds, DocumentContext ctx, PageDateEvidence candidateYears,
+                                           ColumnSpan[] textColumnSpans, MarginPanelBand marginPanelBand) {
         Map<String, String> result = new LinkedHashMap<>();
         float tableRightEdge = rightEdgeOfTable(headerAnchors, headerEnds);
         for (PositionedText t : row) {
@@ -5217,8 +5292,20 @@ public class PdfTableLocator {
             // of any amount or balance column, which is the only kind of column that legitimately
             // overflows its header this way. That is the whole margin-panel case: prose labels, not
             // figures.
-            if (tableRightEdge > 0 && t.x() > tableRightEdge
-                    && CsvParser.parseNumeric(t.text().trim()) == null) {
+            //
+            // ...except for the panel's own figures. The restriction above kept every numeric run
+            // out there, and on the same real IndusInd layout the panel's values are numbers too:
+            // one statement from that bank printed its "Total Outstanding" figure ("2,429.08 DR",
+            // starting 62pt past the table's right edge) within 2.4pt of a real purchase's baseline,
+            // so groupIntoRows put the two on one physical row and this method appended the panel
+            // figure to the purchase's own amount cell -- "16.96 DR 2,429.08 DR", which fails
+            // parseNumeric, so TransactionNormalizer dropped the row. Confirmed by dumping that
+            // document's physical rows. The previous cycle's statement from the same bank parsed
+            // completely, purely because its panel values happened to land between ledger rows.
+            // The distinction the Kotak guard needs is still honoured -- see MarginPanelBand: a
+            // number out there is excluded only once this section's own excluded panel LABELS have
+            // shown where the panel is, and only when it sits nearer that panel than the table.
+            if (isMarginPanelRun(t, tableRightEdge, marginPanelBand)) {
                 if (ctx != null) ctx.record("MARGIN_PANEL_TEXT_EXCLUDED");
                 continue;
             }
@@ -5646,6 +5733,65 @@ public class PdfTableLocator {
             if (headerEnds.get(i) > headerAnchors.get(i)) anyRealWidth = true;
         }
         return anyRealWidth && widestEnd > widestAnchor ? widestEnd : 0f;
+    }
+
+    /**
+     * Where a section's right-margin summary panel prints, learned from the panel's own labels.
+     *
+     * <p>MARGIN_PANEL_TEXT_EXCLUDED's original rule (see {@link #bucketRow}) excludes a NON-numeric
+     * run printed beyond the table's right edge and keeps every numeric one, because a real Kotak
+     * savings statement right-aligns its balances past a header narrower than the values under it
+     * (see MarginPanelTextPdfTableLocatorTest.aNumberBeyondTheRightmostHeaderEndIsKept). A panel's
+     * own figures are numbers out there too, and a fixed distance tolerance would have to guess
+     * how far "too far" is for every layout at once. This records instead what the document has
+     * already proved: every excluded label's x is a place the panel is known to print, and its
+     * leftmost one bounds the panel on the table's side. A numeric run is then the panel's only when
+     * it starts nearer that bound than the table's own right edge -- an overflowing balance starts
+     * a few points past the header end, on the table's side of that midpoint; the IndusInd figure
+     * that motivated this starts 62pt past it, well inside the panel's own band. A section that
+     * never excludes a label (Kotak) never learns a band, and every number stays exactly as before.
+     */
+    static final class MarginPanelBand {
+        private Float leftX;
+
+        void observeLabel(float x) {
+            leftX = leftX == null ? x : Math.min(leftX, x);
+        }
+
+        boolean claims(float x, float tableRightEdge) {
+            return leftX != null && x >= tableRightEdge + (leftX - tableRightEdge) / 2f;
+        }
+    }
+
+    /** The MARGIN_PANEL_TEXT_EXCLUDED predicate, shared by {@link #bucketRow} and
+     *  {@link #tableRunsOf} so the two can never disagree about which runs are the table's. A
+     *  non-numeric run beyond the table's right edge is the panel's, and teaches {@code band}
+     *  where the panel is; a numeric one is the panel's only on {@link MarginPanelBand#claims}'
+     *  evidence. Never fires without a measured right edge (width-0 fixtures and pre-v3 traces). */
+    private boolean isMarginPanelRun(PositionedText t, float tableRightEdge, MarginPanelBand band) {
+        if (tableRightEdge <= 0 || t.x() <= tableRightEdge) return false;
+        if (CsvParser.parseNumeric(t.text().trim()) == null) {
+            if (band != null) band.observeLabel(t.x());
+            return true;
+        }
+        return band != null && band.claims(t.x(), tableRightEdge);
+    }
+
+    /**
+     * The runs of {@code row} that belong to the active table -- {@code row} itself while no
+     * header is active, or when nothing on the row is the table's at all (a physical row made only
+     * of panel text is not a table row that needs scoping; it keeps its own text, exactly as
+     * before). The result feeds {@code rowLine}, so every whole-line pattern in the row loop judges
+     * the table's own text rather than the table's text plus whatever the margin panel printed at
+     * the same height.
+     */
+    private List<PositionedText> tableRunsOf(List<PositionedText> row, float tableRightEdge, MarginPanelBand band) {
+        if (tableRightEdge <= 0) return row;
+        List<PositionedText> kept = new ArrayList<>(row.size());
+        for (PositionedText t : row) {
+            if (!isMarginPanelRun(t, tableRightEdge, band)) kept.add(t);
+        }
+        return kept.isEmpty() || kept.size() == row.size() ? row : kept;
     }
 
     private int nearestColumn(float x, List<Float> anchors) {

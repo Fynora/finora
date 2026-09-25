@@ -832,6 +832,56 @@ class PdfMetadataExtractorTest {
     }
 
     @Test
+    void extract_doesNotReadASummaryGridLabel_asTheAccountHolderName() {
+        // Verified against two real IndusInd (CRED RuPay) credit-card statements: the document
+        // opens with a stacked summary grid whose labels shape-match LEADING_NAME_LINE exactly,
+        // and its first label was reported as the holder on both. What a label has that a name
+        // never does is a bare figure on the line directly under it -- see SUMMARY_GRID_VALUE_LINE.
+        var metadata = extractor.extract(List.of(
+                "Previous Balance", "0.00 DR",
+                "Purchases & Other Charges", "2,776.00",
+                "Cash Advance", "0.00",
+                "Payments & Other Credits", "1,491.00"));
+
+        assertThat(metadata.accountHolderName()).isNull();
+    }
+
+    @Test
+    void extract_readsTheCardholderAndCardNumber_fromASubTableBanner() {
+        // The same real statements name their holder in ONE place only: the banner that opens each
+        // ledger sub-table, routed here by PdfTableLocator.CARDHOLDER_SUBTABLE_BANNER after the
+        // pre-table grid above it. Name and number genericized.
+        var metadata = extractor.extract(List.of(
+                "Previous Balance", "0.00 DR",
+                "Cash Advance", "0.00",
+                "Payment Due Date", "11/09/2026",
+                "Payment Details for MR RAVI KUMAR (Credit Card No. 1234XXXXXXXX5678)",
+                "Purchases & Cash Transactions for MR RAVI KUMAR (Credit Card No. 1234XXXXXXXX5678)"));
+
+        assertThat(metadata.accountHolderName()).isEqualTo("MR RAVI KUMAR");
+        assertThat(metadata.accountNumberMasked()).isEqualTo("1234XXXXXXXX5678");
+    }
+
+    @Test
+    void extract_letsALabelledHolderReplaceALeadingLineGuess_butNotTheOtherWayRound() {
+        // LEADING_NAME_LINE is the weakest holder signal (no label at all); a labelled holder
+        // found later in the document outranks it. A labelled holder found FIRST keeps
+        // first-match-wins exactly as before.
+        var guessThenBanner = extractor.extract(List.of(
+                "Plain Words",
+                "Payment Details for MR RAVI KUMAR (Credit Card No. 1234XXXXXXXX5678)"));
+        assertThat(guessThenBanner.accountHolderName()).isEqualTo("MR RAVI KUMAR");
+
+        var guessThenLabel = extractor.extract(List.of("Plain Words", "Customer Name: Priya Nair"));
+        assertThat(guessThenLabel.accountHolderName()).isEqualTo("Priya Nair");
+
+        var labelThenBanner = extractor.extract(List.of(
+                "Customer Name: Priya Nair",
+                "Payment Details for MR RAVI KUMAR (Credit Card No. 1234XXXXXXXX5678)"));
+        assertThat(labelThenBanner.accountHolderName()).isEqualTo("Priya Nair");
+    }
+
+    @Test
     void extract_doesNotApplyTheLeadingNameLineFallback_beyondTheSearchWindow() {
         // Eight filler lines that each contain a digit (so none of them shape-match
         // LEADING_NAME_LINE themselves -- it requires letters-only words) push the real name to

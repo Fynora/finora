@@ -189,6 +189,12 @@ export function ImportScreen() {
   // document picker. CSV keeps its original pick-and-go behaviour -- there's nothing to unlock.
   const [pendingPdf, setPendingPdf] = useState<RNFile | null>(null);
   const [pdfPassword, setPdfPassword] = useState('');
+  // The show/hide toggle's own state -- the same control TextField renders for `secure`, inlined
+  // here because this field keeps its own help line under the input where TextField reserves an
+  // error slot. A bank's statement password has no confirmation field and no feedback other than
+  // the upload failing, so being able to read it back before uploading matters more than on a
+  // login form. Re-masked whenever the password itself is cleared.
+  const [passwordRevealed, setPasswordRevealed] = useState(false);
   // Which of the two backend password outcomes we last saw, or null before we've tried.
   const [passwordState, setPasswordState] = useState<'required' | 'invalid' | null>(null);
 
@@ -346,6 +352,7 @@ export function ImportScreen() {
     setSelectedAccountId('');
     setPendingPdf(null);
     setPdfPassword('');
+    setPasswordRevealed(false);
     setPasswordState(null);
     setReimport(null);
   }
@@ -362,6 +369,7 @@ export function ImportScreen() {
     if (picked.format === 'PDF') {
       setPendingPdf(picked.file);
       setPdfPassword('');
+    setPasswordRevealed(false);
       setPasswordState(null);
       return;
     }
@@ -541,6 +549,7 @@ export function ImportScreen() {
         const accepted = await importJobsApi.submit(file, setUploadProgress, controller.signal);
         setPendingPdf(null);
         setPdfPassword('');
+    setPasswordRevealed(false);
         setPasswordState(null);
         setJobId(accepted.jobId);
       } catch (e) {
@@ -585,6 +594,7 @@ export function ImportScreen() {
       // The document opened, so the password has done its whole job -- drop it and the file.
       setPendingPdf(null);
       setPdfPassword('');
+    setPasswordRevealed(false);
       setPasswordState(null);
 
       // A single PDF can describe more than one account (a composite statement bundling savings
@@ -819,21 +829,31 @@ export function ImportScreen() {
                   {pendingPdf.name}
                 </Text>
                 <Text style={[styles.fieldLabel, { color: c.ink }]}>Statement password (optional)</Text>
-                <TextInput
-                  value={pdfPassword}
-                  onChangeText={setPdfPassword}
-                  placeholder="Leave blank if the file isn't protected"
-                  placeholderTextColor={c.muted}
-                  secureTextEntry
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  // The bank's password for one document, not a Fynora credential -- it doesn't
-                  // belong in the OS keychain alongside real logins, and it changes every month.
-                  autoComplete="off"
-                  textContentType="none"
-                  accessibilityLabel="Statement password"
-                  style={[styles.input, { color: c.ink, borderColor: c.border, backgroundColor: c.inputBg }]}
-                />
+                <View style={[styles.passwordRow, { borderColor: c.border, backgroundColor: c.inputBg }]}>
+                  <TextInput
+                    value={pdfPassword}
+                    onChangeText={setPdfPassword}
+                    placeholder="Leave blank if the file isn't protected"
+                    placeholderTextColor={c.muted}
+                    secureTextEntry={!passwordRevealed}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    // The bank's password for one document, not a Fynora credential -- it doesn't
+                    // belong in the OS keychain alongside real logins, and it changes every month.
+                    autoComplete="off"
+                    textContentType="none"
+                    accessibilityLabel="Statement password"
+                    style={[styles.passwordInput, { color: c.ink }]}
+                  />
+                  <Pressable
+                    onPress={() => setPasswordRevealed((r) => !r)}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel={passwordRevealed ? 'Hide password' : 'Show password'}
+                  >
+                    <Text style={[styles.passwordToggle, { color: c.primary }]}>{passwordRevealed ? 'Hide' : 'Show'}</Text>
+                  </Pressable>
+                </View>
                 <Text
                   style={[styles.helpText, { color: passwordState === 'invalid' ? c.danger : c.muted }]}
                 >
@@ -853,6 +873,7 @@ export function ImportScreen() {
                   onPress={() => {
                     setPendingPdf(null);
                     setPdfPassword('');
+    setPasswordRevealed(false);
                     setPasswordState(null);
                     setError(null);
                   }}
@@ -1401,6 +1422,18 @@ const styles = StyleSheet.create({
   accountRowDisabled: { opacity: 0.4 },
   accountName: { fontSize: 14, fontWeight: '500' },
   fieldLabel: { fontSize: 12, fontWeight: '500', marginBottom: 6 },
+  // The same geometry as `input` below, split so the Show/Hide toggle sits inside the field's
+  // border -- mirrors TextField's inputRow/input/toggle.
+  passwordRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingHorizontal: 12,
+    minHeight: 48,
+  },
+  passwordInput: { flex: 1, fontSize: 15, paddingVertical: 12 },
+  passwordToggle: { fontSize: 13, fontWeight: '600', paddingLeft: 8 },
   input: {
     borderWidth: 1,
     borderRadius: radius.md,

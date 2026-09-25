@@ -274,6 +274,11 @@ class MultiSectionZeroExtractionTest {
         // plans -- see AccountNumberInheritanceRegressionTest, which verifies this trace's actual
         // content, not this row count) -- listed here only so this inventory sweep accounts for it.
         m.put("indusland-credit-card-account-number-inheritance", 8);
+        // Captured for the margin-panel collision fix and the cardholder sub-table banner (see
+        // MarginPanelCollisionRegressionTest, which verifies this trace's actual content: 1 payment
+        // + 20 purchases, reconciling to the statement's own printed totals) -- listed here only so
+        // this inventory sweep accounts for it.
+        m.put("indusind-credit-card-margin-panel-collision", 21);
         // Captured for AccountNumberTransactionHeaderExtractor -- same real document as
         // icici-credit-card-statement above (3 real transactions), captured separately because that
         // trace predates this fix. See AccountNumberTransactionHeaderRegressionTest, which verifies

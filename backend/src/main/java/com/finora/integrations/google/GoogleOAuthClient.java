@@ -88,6 +88,10 @@ public class GoogleOAuthClient {
      * Finora and then disconnected would reconnect and receive no refresh token at all, leaving a
      * connection that works until the access token expires an hour later and then silently cannot
      * be renewed. Re-prompting costs one extra consent screen and removes that whole failure mode.
+     *
+     * <p>{@code include_granted_scopes=false} so the grant carries only the scopes requested here,
+     * rather than also every scope the user granted this client earlier. Google's OAuth verification
+     * team asked for this value once {@code gmail.readonly} had been removed from the consent screen.
      */
     public String buildAuthorizationUrl(String state) {
         String scope = String.join(" ", properties.getScopes());
@@ -98,7 +102,7 @@ public class GoogleOAuthClient {
                 + "&scope=" + encode(scope)
                 + "&access_type=offline"
                 + "&prompt=consent"
-                + "&include_granted_scopes=true"
+                + "&include_granted_scopes=false"
                 + "&state=" + encode(state);
     }
 

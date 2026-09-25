@@ -43,6 +43,9 @@ Options (all recorded into the trace, so it can explain itself later):
                           would have caught the deposit-vocabulary incident.
   --regressions "#12,#14" issue identifiers this trace closes
   --why "<text>"          one sentence: what this document taught the engine
+  --password "<text>"     the statement's own PDF password, for a protected statement (every
+                          credit-card statement in the real corpus is one). Passed straight to
+                          the extractor; never recorded into the trace.
 
 Example:
   ./scripts/trace-capture.sh composite-deposit-schedules ~/statements/hdfc-june.pdf \
@@ -65,6 +68,7 @@ CAPABILITIES=""
 REQUIRES=""
 REGRESSIONS=""
 WHY=""
+PASSWORD=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -73,6 +77,7 @@ while [ $# -gt 0 ]; do
     --requires)     REQUIRES="$2"; shift 2 ;;
     --regressions)  REGRESSIONS="$2"; shift 2 ;;
     --why)          WHY="$2"; shift 2 ;;
+    --password)     PASSWORD="$2"; shift 2 ;;
     *) echo "Unknown option: $1" >&2; usage ;;
   esac
 done
@@ -117,6 +122,7 @@ cd "$(dirname "$0")/../backend"
 echo "Capturing $TRACE_NAME from $PDF_PATH ..."
 ./mvnw -q -o test -Dtest='PdfPipelineDiagnostic#captureRedactedTrace' -DfailIfNoTests=false \
   -DpdfPath="$PDF_PATH" \
+  -DpdfPassword="$PASSWORD" \
   -DtraceName="$TRACE_NAME" \
   -Dsource="$SOURCE" \
   -Dcapabilities="$CAPABILITIES" \

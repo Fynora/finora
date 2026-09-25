@@ -45,6 +45,9 @@ import static org.mockito.Mockito.when;
  *   mvn test -Dtest=PdfPipelineDiagnostic#runFromSystemProperty -DpdfPath=scratch-pdf/whatever.pdf
  * </pre>
  *
+ * A password-protected statement (every real credit-card statement in this corpus is one) takes
+ * its password as {@code -DpdfPassword=...}, on both this entry point and the capture below.
+ *
  * Reports, per section: detected capabilities, full auxiliary text (for spotting a metadata
  * pattern the extractor doesn't handle yet), detected metadata vs. what's still null, and for
  * every row that failed to normalize, a specific reason -- not just the raw row -- so the
@@ -119,7 +122,8 @@ class PdfPipelineDiagnostic {
         Assumptions.assumeTrue(pathArg != null && traceName != null,
                 "Set -DpdfPath=<file> -DtraceName=<name> to capture a trace fixture");
 
-        List<PositionedText> positioned = new PdfTextExtractor().extract(Files.readAllBytes(Path.of(pathArg)));
+        List<PositionedText> positioned = new PdfTextExtractor()
+                .extract(Files.readAllBytes(Path.of(pathArg)), System.getProperty("pdfPassword"));
         List<PositionedText> redacted = PdfTraceRedactor.redact(positioned);
 
         TraceMetadata metadata = new TraceMetadata(
@@ -162,8 +166,9 @@ class PdfPipelineDiagnostic {
         byte[] bytes = Files.readAllBytes(pdfPath);
         System.out.println("=== Diagnosing: " + pdfPath + " (" + bytes.length + " bytes) ===\n");
 
+        String password = System.getProperty("pdfPassword");
         PdfTextExtractor textExtractor = new PdfTextExtractor();
-        List<PositionedText> positioned = textExtractor.extract(bytes);
+        List<PositionedText> positioned = textExtractor.extract(bytes, password);
         System.out.println("Stage 1 -- Text extraction: " + positioned.size() + " positioned text runs");
         // Auxiliary text (printed further below, per section) is already a lossy, line-joined
         // reconstruction -- it collapses real x/y geometry into a single string per visual row, so
@@ -283,7 +288,7 @@ class PdfPipelineDiagnostic {
 
         PdfPreviewGenerator generator = new PdfPreviewGenerator(textExtractor, tableLocator, metadataExtractor, transactionNormalizer, com.finora.imports.product.ProductDiscovery.standard(), new com.finora.imports.product.ProductAttributeExtractor(), new com.finora.imports.ImportVerifier(new com.finora.imports.BalanceChainValidator(), new com.finora.imports.StatementTotalsValidator(), new com.finora.imports.SummaryTotalsValidator(), new com.finora.imports.ColumnAmbiguityValidator(), new com.finora.imports.RowAccountingValidator(), new com.finora.imports.CreditCardStatementTotalsValidator(), new com.finora.imports.CreditCardFlowReconciliationValidator(), new com.finora.imports.DescriptionCorruptionValidator()), com.finora.imports.TestRuleEngines.empty());
         var generated = generator.generateSectionsWithContext(
-                UUID.randomUUID(), pdfPath.getFileName().toString(), bytes, null);
+                UUID.randomUUID(), pdfPath.getFileName().toString(), bytes, password);
         List<StagedAccountSection> finalSections = generated.sections();
         System.out.println("=== Final staged output: " + finalSections.size() + " account section(s) ===");
         for (var s : finalSections) {

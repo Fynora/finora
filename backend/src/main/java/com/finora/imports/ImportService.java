@@ -695,6 +695,7 @@ public class ImportService {
         if (request.sessionId() == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "sessionId is required.");
         }
+        refuseIfContentAlreadyImported(userId, request.sessionId());
         // C-9 shadow mode, before the claim -- see observeClosingBalanceEvidence for why the order
         // is forced. One observation per section, with the same section index the persist loop
         // below uses. Records; decides nothing.
@@ -773,19 +774,26 @@ public class ImportService {
      * lower-level, still-supported entry point since the confirm business logic it tests lives in
      * the byte-array confirm() both paths ultimately share, not duplicated here.
      */
+    /**
+     * F-33 (corpus audit 2026-09-25): a confirmed statement_import already holds these exact bytes.
+     * Checked on the session's own hash (set for every session by ImportSessionService.storeContent)
+     * and before the claim, so a refused confirm leaves the session STAGED for the user to discard.
+     * Both confirm entry points (single- and multi-section) run it. Null-tolerant on the session so
+     * unit tests that stub the session service keep their existing shape.
+     */
+    private void refuseIfContentAlreadyImported(UUID userId, UUID sessionId) {
+        var peek = importSessionService.getOwnedSession(userId, sessionId);
+        if (peek == null || peek.getContentHash() == null) return;
+        statementImportRepository.findFirstByUserIdAndContentHashOrderByImportedAtDesc(userId, peek.getContentHash())
+                .ifPresent(prior -> { throw new ApiException(ErrorCode.IMPORT_STATEMENT_ALREADY_IMPORTED); });
+    }
+
     @Transactional
     public ConfirmResponse confirmSession(UUID userId, ConfirmRequest request) {
         if (request.sessionId() == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "sessionId is required.");
         }
-        // F-33: a confirmed statement_import already holds these exact bytes. Checked on the
-        // session's own hash (set for every session by ImportSessionService.storeContent) and before
-        // the claim, so a refused confirm leaves the session STAGED for the user to discard.
-        var peek = importSessionService.getOwnedSession(userId, request.sessionId());
-        if (peek != null && peek.getContentHash() != null) {
-            statementImportRepository.findFirstByUserIdAndContentHashOrderByImportedAtDesc(userId, peek.getContentHash())
-                    .ifPresent(prior -> { throw new ApiException(ErrorCode.IMPORT_STATEMENT_ALREADY_IMPORTED); });
-        }
+        refuseIfContentAlreadyImported(userId, request.sessionId());
         // Claimed atomically as the very first thing this method does -- see
         // ImportSessionService.claimForConfirmation's own doc comment. A double-click or a
         // retried request racing a first, still-in-flight confirm for the same session gets

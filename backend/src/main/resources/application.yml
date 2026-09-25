@@ -355,6 +355,27 @@ app:
     # "contact support" rejection instead of a token-bearing reactivation prompt.
     reactivation-window-enabled: ${ACCOUNT_REACTIVATION_WINDOW_ENABLED:false}
     reactivation-window-days: ${ACCOUNT_REACTIVATION_WINDOW_DAYS:3}
+  # Audit F-18 (2026-09-24). Every upload endpoint (statement import, sync and queued; admin
+  # analysis; support attachments; Fyn screenshots) runs the file through UploadScanGate before
+  # any parser sees it. `none` registers no scanner and uploads pass unscanned -- the safe default
+  # for tests, local dev and CI, and a startup warning in the prod profile. `clamav` speaks clamd's
+  # INSTREAM protocol to the host/port below; on Railway that is a `clamav/clamav` service on the
+  # private network (see docs/operations/deployment/deployment-guide.md, "Malware scanning").
+  malware-scan:
+    provider: ${MALWARE_SCAN_PROVIDER:none}
+    # What to do when the scanner is configured but cannot answer (down, timing out, replying
+    # nonsense). `reject` refuses the upload with a 503 and an error-level log line; `allow`
+    # lets it through unscanned with a warning. Reject by default: for statements and tax
+    # documents, "not right now" is the honest answer while the scanner is out.
+    on-unavailable: ${MALWARE_SCAN_ON_UNAVAILABLE:reject}
+    clamav:
+      host: ${CLAMAV_HOST:localhost}
+      port: ${CLAMAV_PORT:3310}
+      connect-timeout-ms: ${CLAMAV_CONNECT_TIMEOUT_MS:2000}
+      # Scanning a 10 MB PDF is well under a second on clamd; this bounds a hung daemon, not a
+      # slow scan, and sits under the import concurrency limiter's own patience.
+      read-timeout-ms: ${CLAMAV_READ_TIMEOUT_MS:30000}
+
   admin-mfa:
     # Off by default so a bare boot (tests, local dev) is unaffected. The whole feature -- TOTP
     # enrollment, the login challenge, recovery codes -- is behind this flag, and the admin portal

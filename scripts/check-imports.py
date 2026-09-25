@@ -110,7 +110,7 @@ ACCEPTED_FALSE_POSITIVES = [
     Accepted(
         path="backend/src/main/java/com/finora/service/TwoFactorSmsProvider.java",
         type_name="Status",
-        declared_in="com.finora.entity, com.finora.integrations.google, com.finora.integrations.google.merchant",
+        declared_in="com.finora.entity, com.finora.integrations.google, com.finora.integrations.google.merchant, com.finora.uploads",
         reason=(
             "Not a type reference. The file declares\n"
             "      `private record TwoFactorResponse(String Status, String Details) {}` -- 'Status'\n"

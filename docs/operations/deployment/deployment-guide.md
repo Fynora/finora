@@ -61,6 +61,10 @@ to leave at its default: local dev defaults, or must be explicitly set.
 | `ADMIN_MFA_ENABLED` / `ADMIN_MFA_ENFORCED` | **Yes, in prod** | `false` / `false` | Admin-portal two-factor authentication (`AdminMfaService`, `AdminMfaEnrollmentFilter`). `ENABLED` turns the feature on; `ENFORCED` refuses admin-portal requests from an account that has not enrolled. See `docs/security/admin-mfa-recovery.md` for the rollout order. | **No.** With both off, a phished admin password is full access to every user's financial data. `ProductionConfigValidator` logs a warning in `prod` when `ENFORCED` is not `true`; it does not refuse to boot, because enforcement must follow enrolment. |
 | `SENTRY_DSN` / `SENTRY_ENVIRONMENT` | **Yes, in prod** | empty / `development` | Backend error reporting (`sentry.dsn` in `application.yml`; `send-default-pii` is off). Distinct from `VITE_SENTRY_DSN` below, which is the two SPAs' own DSN. | **No** — unset, backend exceptions are visible only in Railway's log stream, and nothing pages anyone. Set `SENTRY_ENVIRONMENT=prod` alongside it so events are filterable. |
 | `FINORA_BOOTSTRAP_ENABLED` | Recommended `false` once setup is done | `true` | Whether the first-boot bootstrap account may be created (`SetupService`). Its one-time password is written in plaintext to `.finora/installation.key` inside the container until setup completes. | Set `false` after the first SUPER_ADMIN exists; the account is suspended at that point anyway, this just removes the file-writing path. |
+| `MALWARE_SCAN_PROVIDER` | **Yes, in prod** | `none` | Which scanner every upload (statement import, admin analysis, support attachments, Fyn screenshots) goes through before a parser sees it: `none` or `clamav`. See "Malware scanning" under the Railway section. | **No** — at `none` uploads are unscanned and `ProductionConfigValidator` warns at boot. |
+| `CLAMAV_HOST` / `CLAMAV_PORT` | With `clamav` | `localhost` / `3310` | Where clamd listens. On Railway: the ClamAV service's private-network hostname. | Only when the provider is `clamav`. |
+| `MALWARE_SCAN_ON_UNAVAILABLE` | No | `reject` | What an upload gets when the scanner is configured but cannot answer: `reject` (503, error-level log) or `allow` (passes unscanned, warning). | Yes — `reject` is the safe default. |
+| `CLAMAV_CONNECT_TIMEOUT_MS` / `CLAMAV_READ_TIMEOUT_MS` | No | `2000` / `30000` | Socket timeouts for one scan. | Yes |
 | `IMPORT_QUEUE_ENABLED` (`app.import.queue.enabled`) | No | `false` | Whether statement uploads go through the async `ImportJobWorker` (claim locking, retries, dead-letter alerts) or are parsed on the request thread. | The async path is built and tested but not yet rolled out; leave `false` until the queue-activation rollout in the import reliability plan is done. |
 | `RATE_LIMIT_AUTH_GLOBAL_MAX` / `_WINDOW_SECONDS` | No | `600` / `60` | Shared ceiling across ALL clients for the bcrypt-cost auth routes (login, register, email OTP request/login, MFA verify) — the per-IP limits bound one client, this bounds the instance's password-hashing budget against many. | Yes for one instance; scale it with instance size, not with user count. |
 | `TRUST_PROXY_HEADERS` | **Yes, on Railway** | `false` | Whether `RateLimitFilter` trusts `X-Forwarded-For` for the real client IP | **Must be `true` on Railway** (or any deployment behind a real reverse proxy) — otherwise every user shares one rate-limit bucket. Must stay `false` anywhere not behind a trusted proxy, or rate limiting can be bypassed by spoofing the header. Like `TWO_FACTOR_API_KEY` above, `ProductionConfigValidator` only logs a startup warning if this is left at its default in `prod` — it never refuses to boot over this one. |
@@ -156,6 +160,34 @@ If `FINORA_SETUP_KEY` isn't set, the app starts fine — first-run bootstrap jus
 writing/logging a generated key instead (see `docs/bootstrap-setup-future-work.md`).
 **`GOOGLE_APPLICATION_CREDENTIALS` is different: it's a hard boot-time requirement, same as
 `RESEND_API_KEY`** — see the next paragraph.
+
+### Malware scanning (ClamAV service on Railway)
+
+Audit F-18 (2026-09-24). The backend scans every upload before any parser touches it, but only
+when a scanner is configured; the code ships with `MALWARE_SCAN_PROVIDER=none`, under which
+uploads pass unscanned and the prod profile prints one warning line at boot. To turn it on:
+
+1. In the Railway project, add a new service from the Docker image `clamav/clamav:stable`.
+   Give it a volume mounted at `/var/lib/clamav` (the signature database is a few hundred MB
+   and is refreshed by the image's own `freshclam`; without a volume it is re-downloaded on
+   every deploy). It needs no public domain: enable **private networking** only. First start
+   takes a minute or two while the database downloads; the service is ready once its logs show
+   `clamd started`.
+2. On the backend service, set `MALWARE_SCAN_PROVIDER=clamav`, `CLAMAV_HOST=<the ClamAV
+   service's private hostname, e.g. clamav.railway.internal>` and `CLAMAV_PORT=3310`.
+3. Redeploy the backend and confirm the boot log line `Upload malware scanning enabled: ClamAV
+   (clamd INSTREAM at ...)` replaces the `MALWARE_SCAN_PROVIDER is unset` warning.
+4. Prove it end to end once: upload the EICAR test file (the 68-byte standard string, available
+   from eicar.org) as a CSV statement. Expect a 400 "rejected by the malware scanner" and an
+   `UPLOAD_MALWARE_REJECTED` row in the admin audit log.
+
+While the scanner is down, uploads answer 503 "Uploads are paused while the malware scanner is
+unreachable" and the backend logs at error level -- that is the default `reject` policy. Set
+`MALWARE_SCAN_ON_UNAVAILABLE=allow` only for a deliberate decision to keep imports running
+unscanned through a scanner incident; put it back afterwards.
+
+Locally, `docker compose --profile scan up` starts the same image beside Postgres and Redis;
+point a locally run backend at it with `MALWARE_SCAN_PROVIDER=clamav CLAMAV_HOST=localhost`.
 
 ### Generating `JWT_SECRET` — use hex
 

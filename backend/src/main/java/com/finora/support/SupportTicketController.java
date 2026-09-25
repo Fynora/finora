@@ -37,10 +37,14 @@ public class SupportTicketController {
     private final SupportTicketService supportTicketService;
     private final CurrentUser currentUser;
 
-    public SupportTicketController(SupportTicketService supportTicketService, CurrentUser currentUser) {
+    public SupportTicketController(SupportTicketService supportTicketService, CurrentUser currentUser,
+                                   com.finora.uploads.UploadScanGate uploadScanGate) {
         this.supportTicketService = supportTicketService;
         this.currentUser = currentUser;
+        this.uploadScanGate = uploadScanGate;
     }
+
+    private final com.finora.uploads.UploadScanGate uploadScanGate;
 
     @PostMapping(consumes = "multipart/form-data")
     public ApiResponse<SupportTicketDto.Detail> create(
@@ -48,6 +52,10 @@ public class SupportTicketController {
             @RequestParam("subject") String subject,
             @RequestParam("description") String description,
             @RequestParam(value = "file", required = false) MultipartFile file) {
+        // Audit F-18. A support attachment is opened by a person on the admin side, which is the
+        // most direct path an uploaded file has to someone's machine. Absent or empty passes;
+        // SupportAttachmentUpload.validate handles those.
+        uploadScanGate.requireClean(file, currentUser.id(), "support-attachment");
         return ApiResponse.ok(
                 supportTicketService.create(currentUser.id(), category, subject, description, file),
                 "Support ticket created");

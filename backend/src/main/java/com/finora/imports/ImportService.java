@@ -1420,6 +1420,9 @@ public class ImportService {
                 // about this statement's own rows or opening/closing arithmetic can reconstruct it
                 // after the fact.
                 java.math.BigDecimal priorBalance = account.getBalance();
+                // And which SET that prior balance was standing on, so reversing this one can hand
+                // the anchor back (see StatementImport.previousAbsoluteSetStatementId).
+                savedImport.setPreviousAbsoluteSetStatementId(account.getLastAbsoluteSetStatementId());
                 account.setBalance(request.statementClosingBalance());
                 account.setLastAbsoluteSetStatementId(savedImport.getId());
                 accountRepository.save(account);

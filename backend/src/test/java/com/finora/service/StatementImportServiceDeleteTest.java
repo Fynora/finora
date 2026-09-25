@@ -196,6 +196,120 @@ class StatementImportServiceDeleteTest {
         verify(transactionRepository).saveAll(List.of(held));
     }
 
+    private StatementImportRepository.AnchorSnapshot snapshot(UUID id, String before, String closing,
+                                                              UUID previous, UUID supersededBy, boolean deleted) {
+        StatementImportRepository.AnchorSnapshot s = mock(StatementImportRepository.AnchorSnapshot.class);
+        when(s.getId()).thenReturn(id);
+        when(s.getBalanceBeforeAbsoluteSet()).thenReturn(before == null ? null : new BigDecimal(before));
+        when(s.getClosingBalance()).thenReturn(closing == null ? null : new BigDecimal(closing));
+        when(s.getPreviousAbsoluteSetStatementId()).thenReturn(previous);
+        when(s.getSupersededBy()).thenReturn(supersededBy);
+        when(s.getDeleted()).thenReturn(deleted);
+        return s;
+    }
+
+    private StatementImport absoluteStatement(UUID id, UUID accountId, String before, String closing, UUID previous) {
+        StatementImport si = new StatementImport();
+        ReflectionTestUtils.setField(si, "id", id);
+        si.setUserId(userId);
+        si.setFileName(id + ".csv");
+        si.setAccountId(accountId);
+        si.setBalanceApplicationMode(StatementImport.BalanceApplicationMode.ABSOLUTE);
+        si.setClosingBalance(new BigDecimal(closing));
+        si.setBalanceBeforeAbsoluteSet(new BigDecimal(before));
+        si.setPreviousAbsoluteSetStatementId(previous);
+        when(statementImportRepository.findById(id)).thenReturn(Optional.of(si));
+        return si;
+    }
+
+    private Transaction heldRow(UUID accountId, UUID anchorId, java.time.Instant createdAt) {
+        Transaction t = transaction(UUID.randomUUID());
+        t.setAccountId(accountId);
+        t.setIsDuplicateOf(UUID.randomUUID());
+        t.setReconciliationStatus(Transaction.ReconciliationStatus.DUPLICATE);
+        t.setDuplicateBalanceAnchorId(anchorId);
+        ReflectionTestUtils.setField(t, "createdAt", createdAt);
+        return t;
+    }
+
+    /** The reversed SET replaced an earlier one that is still live: the restored balance is
+     *  standing on that earlier figure, so it becomes the anchor again. A held row older than it
+     *  stays behind a SET (handed to it, nothing released); a held row younger than it is in the
+     *  restored balance and comes off. */
+    @Test
+    void delete_ofTheLiveAbsoluteAnchor_restoresThePreviousAnchor_andReleasesOnlyTheRowsItCovered() {
+        UUID accountId = UUID.randomUUID();
+        UUID earlierId = UUID.randomUUID();
+        StatementImport earlier = absoluteStatement(earlierId, accountId, "12000.00", "10000.00", null);
+        earlier.setImportedAt(java.time.Instant.parse("2026-08-01T10:00:00Z"));
+        absoluteStatement(statementImportId, accountId, "10000.00", "9500.00", earlierId);
+        StatementImportRepository.AnchorSnapshot earlierLink = snapshot(earlierId, "12000.00", "10000.00", null, null, false);
+        when(statementImportRepository.findAnchorSnapshotIncludingDeleted(any(), any(), eq(earlierId)))
+                .thenReturn(Optional.of(earlierLink));
+        when(transactionRepository.findByStatementImportId(statementImportId))
+                .thenReturn(List.of(transaction(UUID.randomUUID())));
+
+        Transaction olderThanEarlier = heldRow(accountId, statementImportId, java.time.Instant.parse("2026-07-15T10:00:00Z"));
+        Transaction betweenTheTwo = heldRow(accountId, statementImportId, java.time.Instant.parse("2026-08-15T10:00:00Z"));
+        when(transactionRepository.findByDuplicateBalanceAnchorId(statementImportId))
+                .thenReturn(List.of(olderThanEarlier, betweenTheTwo));
+
+        Account account = new Account();
+        ReflectionTestUtils.setField(account, "id", accountId);
+        account.setUserId(userId);
+        account.setAccountType(Account.Type.SAVINGS);
+        account.setBalance(new BigDecimal("9500.00"));
+        account.setLastAbsoluteSetStatementId(statementImportId);
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(account));
+
+        service.delete(userId, statementImportId, userId);
+
+        // 9500 + (10000 - 9500) restored, + 100 for the one released expense.
+        assertThat(account.getBalance()).isEqualByComparingTo("10100.00");
+        assertThat(account.getLastAbsoluteSetStatementId()).isEqualTo(earlierId);
+        assertThat(olderThanEarlier.isDuplicateBalanceReversed()).isFalse();
+        assertThat(olderThanEarlier.getDuplicateBalanceAnchorId()).isEqualTo(earlierId);
+        assertThat(betweenTheTwo.isDuplicateBalanceReversed()).isTrue();
+        assertThat(betweenTheTwo.getDuplicateBalanceAnchorId()).isNull();
+    }
+
+    /** The earlier SET was deleted while this one stood over it (its reversal was moot then), so
+     *  its SET is reversed now too, its held rows released with this one's, and the chain ends
+     *  with no anchor. */
+    @Test
+    void delete_ofTheLiveAbsoluteAnchor_alsoReversesAnEarlierSetDeletedWhileItWasMoot() {
+        UUID accountId = UUID.randomUUID();
+        UUID earlierId = UUID.randomUUID();
+        absoluteStatement(statementImportId, accountId, "10000.00", "9500.00", earlierId);
+        StatementImportRepository.AnchorSnapshot deletedLink = snapshot(earlierId, "12000.00", "10000.00", null, null, true);
+        when(statementImportRepository.findAnchorSnapshotIncludingDeleted(any(), any(), eq(earlierId)))
+                .thenReturn(Optional.of(deletedLink));
+        when(transactionRepository.findByStatementImportId(statementImportId))
+                .thenReturn(List.of(transaction(UUID.randomUUID())));
+
+        Transaction heldByEarlier = heldRow(accountId, earlierId, java.time.Instant.parse("2026-07-15T10:00:00Z"));
+        Transaction heldByThis = heldRow(accountId, statementImportId, java.time.Instant.parse("2026-08-15T10:00:00Z"));
+        when(transactionRepository.findByDuplicateBalanceAnchorId(statementImportId)).thenReturn(List.of(heldByThis));
+        when(transactionRepository.findByDuplicateBalanceAnchorId(earlierId)).thenReturn(List.of(heldByEarlier));
+
+        Account account = new Account();
+        ReflectionTestUtils.setField(account, "id", accountId);
+        account.setUserId(userId);
+        account.setAccountType(Account.Type.SAVINGS);
+        account.setBalance(new BigDecimal("9500.00"));
+        account.setLastAbsoluteSetStatementId(statementImportId);
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(account));
+
+        service.delete(userId, statementImportId, userId);
+
+        // 9500 + 500 (this SET) + 2000 (the earlier SET) + 200 (two released expenses).
+        assertThat(account.getBalance()).isEqualByComparingTo("12200.00");
+        assertThat(account.getLastAbsoluteSetStatementId()).isNull();
+        assertThat(heldByEarlier.isDuplicateBalanceReversed()).isTrue();
+        assertThat(heldByThis.isDuplicateBalanceReversed()).isTrue();
+        verify(statementImportRepository, never()).findById(earlierId);
+    }
+
     /** A held row that has since been un-marked or already reversed is not touched twice. */
     @Test
     void delete_ofTheLiveAbsoluteAnchor_skipsAHeldRowThatNoLongerCarriesAMark() {

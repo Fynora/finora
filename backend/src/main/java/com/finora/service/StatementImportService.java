@@ -559,6 +559,17 @@ public class StatementImportService {
      * balance was before the SET. Guessing risks the exact corruption this exists to prevent, so
      * this is treated the same conservative way {@code UNKNOWN_LEGACY} already is: no reversal,
      * caller surfaces a warning instead.
+     *
+     * <p>The anchor chain. The restored pre-SET balance is standing on whatever SET was live when
+     * {@code original} replaced it ({@link StatementImport#getPreviousAbsoluteSetStatementId()}),
+     * so that statement becomes the live anchor again -- if it is still live. If it was deleted or
+     * superseded while {@code original} stood over it, its own reversal was {@code MOOT} then
+     * (nothing to undo, {@code original}'s figure covered it) and is due now: its SET is reversed
+     * in the same move and the chain continues to ITS previous anchor. The pointer used to go
+     * null here, leaving the balance standing on a SET nothing could name: a later duplicate mark
+     * on a row older than that SET took the row's amount off a balance that never separately held
+     * it, and deleting that earlier statement afterwards reversed nothing. A link with no snapshot
+     * (confirmed before V121) or none at all ends the chain the conservative way, with no anchor.
      */
     private ReversalOutcome reverseAbsoluteContribution(StatementImport original, Account account) {
         if (original.getBalanceBeforeAbsoluteSet() == null) {
@@ -568,41 +579,81 @@ public class StatementImportService {
             return ReversalOutcome.MOOT;
         }
         BigDecimal delta = original.getBalanceBeforeAbsoluteSet().subtract(original.getClosingBalance());
+        List<UUID> reversedIds = new ArrayList<>();
+        reversedIds.add(original.getId());
+        StatementImport restored = null;
+        UUID previousId = original.getPreviousAbsoluteSetStatementId();
+        while (previousId != null) {
+            StatementImportRepository.AnchorSnapshot previous = statementImportRepository
+                    .findAnchorSnapshotIncludingDeleted(account.getUserId(), account.getId(), previousId).orElse(null);
+            if (previous == null) {
+                log.warn("Absolute-SET anchor chain of statement {} names {} which does not exist for this "
+                        + "account; the balance is left with no anchor.", original.getId(), previousId);
+                break;
+            }
+            if (!Boolean.TRUE.equals(previous.getDeleted()) && previous.getSupersededBy() == null) {
+                restored = statementImportRepository.findById(previousId).orElse(null);
+                break;
+            }
+            if (previous.getBalanceBeforeAbsoluteSet() == null || previous.getClosingBalance() == null) {
+                log.warn("Absolute-SET anchor chain of statement {} reaches {} (deleted or superseded) with "
+                        + "no pre-SET snapshot; its SET cannot be reversed and the balance is left with no "
+                        + "anchor. Verify manually if needed.", original.getId(), previousId);
+                break;
+            }
+            delta = delta.add(previous.getBalanceBeforeAbsoluteSet().subtract(previous.getClosingBalance()));
+            reversedIds.add(previousId);
+            previousId = previous.getPreviousAbsoluteSetStatementId();
+        }
         if (delta.signum() != 0) {
             account.setBalance(account.getBalance().add(delta));
         }
-        account.setLastAbsoluteSetStatementId(null);
-        releaseDuplicateMarksHeldBy(original, account);
+        account.setLastAbsoluteSetStatementId(restored == null ? null : restored.getId());
+        releaseDuplicateMarksHeldBy(reversedIds, restored, account);
         accountRepository.save(account);
         return ReversalOutcome.REVERSED;
     }
 
     /**
-     * The other half of reversing a SET. A row marked DUPLICATE while {@code anchor} was the live
-     * SET, and older than it, had nothing taken off the balance -- the stated figure had replaced
-     * the history the row's effect was part of -- and reconciliation recorded the SET on the row
-     * ({@link Transaction#getDuplicateBalanceAnchorId()}). The pre-SET balance just restored is
-     * that history, so the row's effect is in the balance again, hidden behind a standing mark:
-     * exactly what the mark exists to take off. Taken off here, and the row's record updated to
-     * say so, so its un-mark puts the effect back and its delete moves nothing -- the same state a
-     * mark written with no SET in the way would have left.
+     * The other half of reversing a SET. A row marked DUPLICATE while one of {@code reversedAnchorIds}
+     * was the live SET, and older than it, had nothing taken off the balance -- the stated figure
+     * had replaced the history the row's effect was part of -- and reconciliation recorded the SET
+     * on the row ({@link Transaction#getDuplicateBalanceAnchorId()}). The pre-SET balance just
+     * restored is that history, so the row's effect is in the balance again, hidden behind a
+     * standing mark: exactly what the mark exists to take off. Taken off here, and the row's record
+     * updated to say so, so its un-mark puts the effect back and its delete moves nothing -- the
+     * same state a mark written with no SET in the way would have left.
+     *
+     * <p>Unless the restored balance is itself standing on an earlier SET ({@code restoredAnchor})
+     * that the row also predates: then the row's effect is still not separately in the balance,
+     * and the mark is handed to that anchor instead, to be released if that SET is ever reversed.
      *
      * <p>A row the SET held that was deleted in the meantime is not here (soft-deleted rows are
      * out of every finder's reach) and must not be: its delete already took its effect off, under
      * {@code TransactionService.contributesToBalance}'s rule for a mark that took nothing off.
      */
-    private void releaseDuplicateMarksHeldBy(StatementImport anchor, Account account) {
-        List<Transaction> held = transactionRepository.findByDuplicateBalanceAnchorId(anchor.getId()).stream()
+    private void releaseDuplicateMarksHeldBy(List<UUID> reversedAnchorIds, StatementImport restoredAnchor,
+                                             Account account) {
+        List<Transaction> held = reversedAnchorIds.stream()
+                .flatMap(id -> transactionRepository.findByDuplicateBalanceAnchorId(id).stream())
                 .filter(t -> t.getIsDuplicateOf() != null && !t.isDuplicateBalanceReversed())
                 .toList();
         if (held.isEmpty()) return;
-        BigDecimal reversal = AccountBalanceConvention.netDelta(account.getAccountType(), held).negate();
-        if (reversal.signum() != 0) {
-            account.setBalance(account.getBalance().add(reversal));
-        }
+        List<Transaction> released = new ArrayList<>();
         for (Transaction t : held) {
+            boolean stillBehindASet = restoredAnchor != null && t.getCreatedAt() != null
+                    && t.getCreatedAt().isBefore(restoredAnchor.getImportedAt());
+            if (stillBehindASet) {
+                t.setDuplicateBalanceAnchorId(restoredAnchor.getId());
+                continue;
+            }
             t.setDuplicateBalanceReversed(true);
             t.setDuplicateBalanceAnchorId(null);
+            released.add(t);
+        }
+        BigDecimal reversal = AccountBalanceConvention.netDelta(account.getAccountType(), released).negate();
+        if (reversal.signum() != 0) {
+            account.setBalance(account.getBalance().add(reversal));
         }
         transactionRepository.saveAll(held);
     }

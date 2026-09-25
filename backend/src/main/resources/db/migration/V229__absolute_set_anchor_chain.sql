@@ -1,0 +1,20 @@
+-- The absolute-SET anchor chain. Design: docs/superpowers/specs/2026-08-30-absolute-balance-reversal-design.md
+-- ("live anchor"), extended here.
+--
+-- When an ABSOLUTE-mode confirm SETs Account.balance, ImportService.persistSection records which
+-- statement was the account's live anchor at that moment (accounts.last_absolute_set_statement_id
+-- just before the overwrite; NULL when there was none, or a manual balance edit had cleared it).
+--
+-- StatementImportService.reverseAbsoluteContribution reads it when the SET is reversed: the restored
+-- pre-SET balance is standing on that earlier SET's figure, so the earlier statement becomes the live
+-- anchor again if it is still live; if it was deleted or superseded in the meantime (its own reversal
+-- was moot then, because this SET stood over it) its SET is reversed now, and the chain continues.
+-- Without this the pointer went NULL and the balance was left standing on a SET nothing could name:
+-- a later duplicate mark on a row older than that SET took the row's amount off a balance that never
+-- separately held it, and deleting that earlier statement afterwards reversed nothing.
+--
+-- NULL for every statement confirmed before this migration -- never backfilled, the same "never guess,
+-- never reconstruct" stance V121 took for balance_before_absolute_set. Reversing such a SET restores no
+-- anchor, exactly as before. No FOREIGN KEY, for V121's reason: the referenced statement may be
+-- soft-deleted later, and the chain must still be able to read it then.
+ALTER TABLE statement_imports ADD COLUMN previous_absolute_set_statement_id UUID NULL;

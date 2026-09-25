@@ -197,6 +197,76 @@ class RetroactiveDuplicateBalanceIT extends AbstractIntegrationTest {
         return marked;
     }
 
+    /** A second ABSOLUTE statement, September, on top of {@link #fareMarkedBehindASet}'s August one:
+     *  SETs the balance to 750.00 (opening 800 - 50), records August as the SET it replaced. */
+    private UUID septemberSet(Fixture f) throws Exception {
+        importService.confirm(f.user().getId(), file("september.csv"), new ConfirmRequest(null,
+                List.of(new ConfirmedRow(LocalDate.of(2026, 9, 30), "FEES", new BigDecimal("50.00"), "EXPENSE",
+                        "Other", true, "rule", null, false, null, null, false)),
+                f.account().getId(), null, new BigDecimal("800.00"), new BigDecimal("750.00"), null,
+                LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 30)));
+        assertThat(balanceOf(f)).isEqualByComparingTo("750.00");
+        return accountRepository.findById(f.account().getId()).orElseThrow().getLastAbsoluteSetStatementId();
+    }
+
+    private com.finora.entity.StatementImport statement(UUID id) {
+        return statementImportRepository.findById(id).orElseThrow();
+    }
+
+    @Autowired private com.finora.repository.StatementImportRepository statementImportRepository;
+
+    @Test
+    void deletingASet_handsTheAnchorBackToTheSetItReplaced_andKeepsOlderMarksBehindIt() throws Exception {
+        Fixture f = fixture();
+        Transaction marked = fareMarkedBehindASet(f);
+        UUID august = marked.getDuplicateBalanceAnchorId();
+        UUID september = septemberSet(f);
+        assertThat(statement(september).getPreviousAbsoluteSetStatementId()).isEqualTo(august);
+        // The mark was written while August was live; September replaced it. Still held by August.
+        assertThat(transactionRepository.findById(marked.getId()).orElseThrow().getDuplicateBalanceAnchorId()).isEqualTo(august);
+
+        statementImportService.delete(f.user().getId(), september, f.user().getId());
+
+        // 750 + (800 - 750): standing on August's figure again, which is the anchor again. The
+        // fare predates August, so nothing of it is in this balance and nothing is released.
+        assertThat(balanceOf(f)).isEqualByComparingTo("800.00");
+        assertThat(accountRepository.findById(f.account().getId()).orElseThrow().getLastAbsoluteSetStatementId()).isEqualTo(august);
+        Transaction stillHeld = transactionRepository.findById(marked.getId()).orElseThrow();
+        assertThat(stillHeld.isDuplicateBalanceReversed()).isFalse();
+        assertThat(stillHeld.getDuplicateBalanceAnchorId()).isEqualTo(august);
+
+        statementImportService.delete(f.user().getId(), august, f.user().getId());
+
+        // 800 + (910 - 800) + 45 released: one fare counted, no anchor.
+        assertThat(balanceOf(f)).isEqualByComparingTo("955.00");
+        assertThat(accountRepository.findById(f.account().getId()).orElseThrow().getLastAbsoluteSetStatementId()).isNull();
+        Transaction released = transactionRepository.findById(marked.getId()).orElseThrow();
+        assertThat(released.isDuplicateBalanceReversed()).isTrue();
+        assertThat(released.getDuplicateBalanceAnchorId()).isNull();
+    }
+
+    @Test
+    void deletingASet_alsoReversesTheEarlierSetDeletedWhileItStoodOverIt() throws Exception {
+        Fixture f = fixture();
+        Transaction marked = fareMarkedBehindASet(f);
+        UUID august = marked.getDuplicateBalanceAnchorId();
+        UUID september = septemberSet(f);
+
+        // August deleted while September is the live SET: moot, nothing moves.
+        statementImportService.delete(f.user().getId(), august, f.user().getId());
+        assertThat(balanceOf(f)).isEqualByComparingTo("750.00");
+        assertThat(accountRepository.findById(f.account().getId()).orElseThrow().getLastAbsoluteSetStatementId()).isEqualTo(september);
+
+        statementImportService.delete(f.user().getId(), september, f.user().getId());
+
+        // 750 + (800 - 750) + (910 - 800) + 45 released: both SETs undone, the fare counted once.
+        assertThat(balanceOf(f)).isEqualByComparingTo("955.00");
+        assertThat(accountRepository.findById(f.account().getId()).orElseThrow().getLastAbsoluteSetStatementId()).isNull();
+        Transaction released = transactionRepository.findById(marked.getId()).orElseThrow();
+        assertThat(released.isDuplicateBalanceReversed()).isTrue();
+        assertThat(released.getDuplicateBalanceAnchorId()).isNull();
+    }
+
     private MockMultipartFile file(String name) {
         return new MockMultipartFile("file", name, "text/csv", name.getBytes(StandardCharsets.UTF_8));
     }

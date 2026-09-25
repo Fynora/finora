@@ -270,6 +270,22 @@ class ReconciliationServiceTest {
         assertThat(without.getIsDuplicateOf()).isNull();
     }
 
+    @Test
+    void reconcileForUser_keepsAManualMandateRowApartFromAnImportedOne() {
+        UUID accountId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 9, 6);
+        Transaction manual = txn(UUID.randomUUID(), accountId, date, new BigDecimal("5000.00"),
+                Transaction.Type.EXPENSE, "SIP MUTUAL FUND", Instant.parse("2026-09-06T10:00:00Z"));
+        Transaction fromStatement = imported(accountId, date, new BigDecimal("5000.00"), Transaction.Type.EXPENSE,
+                "SIP MUTUAL FUND", UUID.randomUUID(), 7, Instant.parse("2026-09-20T10:00:00Z"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(manual, fromStatement));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(manual.getIsDuplicateOf()).isNull();
+        assertThat(fromStatement.getIsDuplicateOf()).isNull();
+    }
+
     // --- Deleted-account leak (see DashboardService.summarize for the original fix): a deleted
     // account's transactions deliberately keep deleted_at unset (StatementImportService's 7-day
     // DELETED_ACCOUNT_RETENTION), so reconcileForUser must scope its transaction fetch to exactly

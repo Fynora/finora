@@ -1685,7 +1685,7 @@ public class ReconciliationService {
         // the case this exemption existed to protect. Without this narrowing a re-imported EMI row
         // was never marked and its amount was added to the balance on every re-import.
         if (looksLikeRecurringMandate(group.get(0).getDescription())
-                && group.stream().noneMatch(t -> t.getStatementImportId() != null && t.getSourceRowPosition() != null)) {
+                && group.stream().filter(t -> t.getStatementImportId() != null && t.getSourceRowPosition() != null).count() < 2) {
             return group.stream().map(List::of).toList();
         }
         return List.of(group);

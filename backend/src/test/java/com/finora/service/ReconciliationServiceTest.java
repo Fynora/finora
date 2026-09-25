@@ -128,6 +128,74 @@ class ReconciliationServiceTest {
         return t;
     }
 
+    /** {@code txn(...)} for a row that came from a statement import at a known printed position. */
+    private Transaction imported(UUID accountId, LocalDate date, BigDecimal amount, Transaction.Type type,
+                                 String description, UUID statementImportId, int rowPosition, Instant createdAt) {
+        Transaction t = txn(UUID.randomUUID(), accountId, date, amount, type, description, createdAt);
+        t.setSource(Transaction.Source.CSV_IMPORT);
+        t.setStatementImportId(statementImportId);
+        t.setSourceRowPosition(rowPosition);
+        return t;
+    }
+
+    @Test
+    void reconcileForUser_keepsTwoIdenticalLinesOfOneStatement_asTwoTransactions() {
+        UUID accountId = UUID.randomUUID();
+        UUID importId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 7, 13);
+        Instant at = Instant.parse("2026-07-20T10:00:00Z");
+        Transaction first = imported(accountId, date, new BigDecimal("10.00"), Transaction.Type.EXPENSE,
+                "FUEL SURCHARGE", importId, 148, at);
+        Transaction second = imported(accountId, date, new BigDecimal("10.00"), Transaction.Type.EXPENSE,
+                "FUEL SURCHARGE", importId, 155, at);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(first, second));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(first.getIsDuplicateOf()).isNull();
+        assertThat(second.getIsDuplicateOf()).isNull();
+    }
+
+    @Test
+    void reconcileForUser_neverPairsACreditWithADebitOfTheSameAmount() {
+        UUID accountId = UUID.randomUUID();
+        UUID importId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 1, 23);
+        Instant at = Instant.parse("2026-02-01T10:00:00Z");
+        Transaction credit = imported(accountId, date, new BigDecimal("3829.33"), Transaction.Type.INCOME,
+                "INSTALMENT PLAN MERCHANT", importId, 34, at);
+        Transaction debit = imported(accountId, date, new BigDecimal("3829.33"), Transaction.Type.EXPENSE,
+                "INSTALMENT PLAN MERCHANT", importId, 36, at);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(credit, debit));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(credit.getIsDuplicateOf()).isNull();
+        assertThat(debit.getIsDuplicateOf()).isNull();
+    }
+
+    @Test
+    void reconcileForUser_pairsRepeatedLinesOfAReimportedStatement_byRowRank() {
+        UUID accountId = UUID.randomUUID();
+        UUID firstImport = UUID.randomUUID();
+        UUID secondImport = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 7, 13);
+        Instant earlier = Instant.parse("2026-07-20T10:00:00Z");
+        Instant later = Instant.parse("2026-07-21T10:00:00Z");
+        Transaction a1 = imported(accountId, date, new BigDecimal("10.00"), Transaction.Type.EXPENSE, "FUEL SURCHARGE", firstImport, 148, earlier);
+        Transaction a2 = imported(accountId, date, new BigDecimal("10.00"), Transaction.Type.EXPENSE, "FUEL SURCHARGE", firstImport, 155, earlier);
+        Transaction b1 = imported(accountId, date, new BigDecimal("10.00"), Transaction.Type.EXPENSE, "FUEL SURCHARGE", secondImport, 148, later);
+        Transaction b2 = imported(accountId, date, new BigDecimal("10.00"), Transaction.Type.EXPENSE, "FUEL SURCHARGE", secondImport, 155, later);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(a1, a2, b1, b2));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(a1.getIsDuplicateOf()).isNull();
+        assertThat(a2.getIsDuplicateOf()).isNull();
+        assertThat(b1.getIsDuplicateOf()).isEqualTo(a1.getId());
+        assertThat(b2.getIsDuplicateOf()).isEqualTo(a2.getId());
+    }
+
     // --- Deleted-account leak (see DashboardService.summarize for the original fix): a deleted
     // account's transactions deliberately keep deleted_at unset (StatementImportService's 7-day
     // DELETED_ACCOUNT_RETENTION), so reconcileForUser must scope its transaction fetch to exactly

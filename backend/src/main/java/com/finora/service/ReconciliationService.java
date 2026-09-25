@@ -344,8 +344,9 @@ public class ReconciliationService {
         }
         for (List<Transaction> coarseGroup : byDuplicateKey.values()) {
             if (coarseGroup.size() < 2) continue;
-            for (List<Transaction> group : splitByDiscriminator(coarseGroup)) {
-                if (group.size() < 2) continue;
+            for (List<Transaction> discriminated : splitByDiscriminator(coarseGroup)) {
+                if (discriminated.size() < 2) continue;
+                for (List<Transaction> group : alignByImportPosition(discriminated)) {
                 // Canonical selection: higher SourceTrust wins outright (Phase 1 of the reconciliation
                 // roadmap); creation order is only the tiebreak between two rows from the same source,
                 // which is what this comparison degrades to when SourceTrust can't distinguish them --
@@ -413,6 +414,7 @@ public class ReconciliationService {
                             TransactionRelationship.RelationshipType.DUPLICATE, t.getAmount(), duplicateConfidence,
                             SourceTrust.of(t.getSource()), statusFor(duplicateConfidence),
                             TransactionRelationship.DetectionMethod.RULE_ENGINE, explanation));
+                }
                 }
             }
         }
@@ -1597,6 +1599,7 @@ public class ReconciliationService {
         // duplicate paths have to answer identically -- see that class's own comment.
         return t.getAccountId() + "|" + t.getTxnDate() + "|"
                 + t.getAmount().stripTrailingZeros().toPlainString() + "|"
+                + (t.getTxnType() == null ? "" : t.getTxnType().name()) + "|"
                 + com.finora.util.DuplicateMatching.normalizeDescription(t.getDescription());
     }
 
@@ -1683,6 +1686,51 @@ public class ReconciliationService {
             byKey.computeIfAbsent(keyFn.apply(t), k -> new java.util.ArrayList<>()).add(t);
         }
         return new java.util.ArrayList<>(byKey.values());
+    }
+
+    /**
+     * Rows that came from statement imports are paired by their printed position, not pooled.
+     *
+     * <p>Two lines of one statement that carry the same date, amount, type and narration are two
+     * transactions the bank printed twice (a repeated fuel surcharge, two identical recharges), never
+     * duplicates of each other. A re-import of that statement prints them twice again, and the k-th
+     * repeat of the new import is the duplicate of the k-th repeat of the old one. Rows with no
+     * import position (manual, Gmail, legacy) join the first rank so they keep matching as before.
+     *
+     * @return the sets that may contain duplicates; every set holds at most one row per statement
+     *         import, and sets of one row are dropped
+     */
+    static List<List<Transaction>> alignByImportPosition(List<Transaction> group) {
+        List<Transaction> unpositioned = new java.util.ArrayList<>();
+        Map<UUID, List<Transaction>> byImport = new java.util.LinkedHashMap<>();
+        for (Transaction t : group) {
+            if (t.getStatementImportId() == null || t.getSourceRowPosition() == null) {
+                unpositioned.add(t);
+            } else {
+                byImport.computeIfAbsent(t.getStatementImportId(), k -> new java.util.ArrayList<>()).add(t);
+            }
+        }
+        if (byImport.size() < 2 && unpositioned.isEmpty()) {
+            // Everything comes from one import: each row is its own printed line.
+            return List.of();
+        }
+        if (byImport.isEmpty()) {
+            return List.of(group);
+        }
+        for (List<Transaction> rows : byImport.values()) {
+            rows.sort(Comparator.comparingInt(Transaction::getSourceRowPosition));
+        }
+        int deepest = byImport.values().stream().mapToInt(List::size).max().orElse(0);
+        List<List<Transaction>> sets = new java.util.ArrayList<>();
+        for (int rank = 0; rank < deepest; rank++) {
+            List<Transaction> set = new java.util.ArrayList<>();
+            for (List<Transaction> rows : byImport.values()) {
+                if (rank < rows.size()) set.add(rows.get(rank));
+            }
+            if (rank == 0) set.addAll(unpositioned);
+            if (set.size() >= 2) sets.add(set);
+        }
+        return sets;
     }
 
     // --- Date-windowed candidate lookup -------------------------------------------------------

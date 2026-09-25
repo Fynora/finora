@@ -154,6 +154,29 @@ class StatementImportServiceSupersedeTest {
         assertThat(account.getBalance()).isEqualByComparingTo("10000.00");
     }
 
+    /** A marked row whose mark took nothing off (held behind an absolute SET) is still in the
+     *  balance, so the supersede takes it off with the real rows -- and records that on the row,
+     *  so reversing the SET later does not take it off a second time. */
+    @Test
+    void additive_reversal_takesOffAHeldMarkedRow_andRecordsItAsReversed() {
+        StatementImport old = statement(oldId, StatementImport.BalanceApplicationMode.ADDITIVE);
+        stub(old, statement(newId, StatementImport.BalanceApplicationMode.ADDITIVE));
+        Transaction realExpense = transaction(oldId, "500.00", Transaction.ReconciliationStatus.OK);
+        Transaction held = transaction(oldId, "300.00", Transaction.ReconciliationStatus.DUPLICATE);
+        held.setIsDuplicateOf(UUID.randomUUID());
+        held.setDuplicateBalanceAnchorId(UUID.randomUUID());
+        when(transactionRepository.findByStatementImportId(oldId)).thenReturn(List.of(realExpense, held));
+        Account account = account(new BigDecimal("9200.00"));
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(account));
+
+        service.supersede(userId, oldId, newId);
+
+        assertThat(account.getBalance()).isEqualByComparingTo("10000.00");
+        assertThat(held.isDuplicateBalanceReversed()).isTrue();
+        assertThat(held.getDuplicateBalanceAnchorId()).isNull();
+        assertThat(held.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.DUPLICATE);
+    }
+
     @Test
     void additive_skipsReversalWhenReplacementIsAbsolute() {
         // Mirror image of the ABSOLUTE-original reversal case below, but this direction needs no

@@ -1001,6 +1001,7 @@ public class TransactionService {
         // `removed` is a Set rather than the original List: contains() ran per candidate row
         // against a list of up to 500 ids, three times over.
         java.util.Set<Transaction> dirty = new java.util.LinkedHashSet<>();
+        java.util.Map<UUID, Boolean> supersededImports = new java.util.HashMap<>();
         for (Transaction t : transactionRepository.findByIsDuplicateOfIn(removedIds)) {
             if (removed.contains(t.getId())) continue;
             // Un-marking makes this survivor counted again. If BH-003 took its contribution off
@@ -1012,6 +1013,16 @@ public class TransactionService {
             boolean reversedAtMark = t.isDuplicateBalanceReversed();
             t.setIsDuplicateOf(null);
             t.setDuplicateBalanceReversed(false);
+            // A survivor whose own statement has since been superseded is not resurrected: it
+            // stays out of every total as SUPERSEDED and nothing goes back on the balance -- the
+            // same refusal confirmNotDuplicate makes for that row. Its held-anchor record, if any,
+            // is kept: the effect is still in that SET's snapshot.
+            if (t.getStatementImportId() != null && supersededImports.computeIfAbsent(t.getStatementImportId(),
+                    id -> statementImportRepository.findById(id).map(si -> si.getSupersededBy() != null).orElse(false))) {
+                t.setReconciliationStatus(Transaction.ReconciliationStatus.SUPERSEDED);
+                dirty.add(t);
+                continue;
+            }
             t.setDuplicateBalanceAnchorId(null);
             t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
             if (reversedAtMark) adjustAccountBalance(t.getAccountId(), balanceOf(t));

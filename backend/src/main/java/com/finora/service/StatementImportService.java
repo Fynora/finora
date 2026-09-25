@@ -426,6 +426,15 @@ public class StatementImportService {
                 boolean reversedAtMark = t.isDuplicateBalanceReversed();
                 t.setIsDuplicateOf(null);
                 t.setDuplicateBalanceReversed(false);
+                // A survivor whose own statement has since been superseded is not resurrected: it
+                // stays out of every total as SUPERSEDED, and nothing goes back on the balance --
+                // the same refusal TransactionService.confirmNotDuplicate makes for that row. Its
+                // held-anchor record, if any, is kept: the effect is still in that SET's snapshot.
+                if (isSuperseded(t.getStatementImportId())) {
+                    t.setReconciliationStatus(Transaction.ReconciliationStatus.SUPERSEDED);
+                    transactionRepository.save(t);
+                    continue;
+                }
                 t.setDuplicateBalanceAnchorId(null);
                 t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
                 transactionRepository.save(t);
@@ -542,6 +551,12 @@ public class StatementImportService {
 
     private enum ReversalOutcome { REVERSED, MOOT, NO_SNAPSHOT }
 
+    /** Whether a row's own statement import has been replaced by a later re-upload. */
+    private boolean isSuperseded(UUID statementImportId) {
+        return statementImportId != null && statementImportRepository.findById(statementImportId)
+                .map(si -> si.getSupersededBy() != null).orElse(false);
+    }
+
     /**
      * Reverses an ABSOLUTE-mode statement's contribution to {@code Account.balance} -- the SET
      * {@code ImportService.persistSection} performed at this statement's own confirm time. Shared
@@ -634,9 +649,12 @@ public class StatementImportService {
      */
     private void releaseDuplicateMarksHeldBy(List<UUID> reversedAnchorIds, StatementImport restoredAnchor,
                                              Account account) {
+        // Keyed on the record alone, not on the mark: a survivor of a superseded statement keeps
+        // its held record after its mark is cleared (see delete's survivor loop), and its effect
+        // is in the snapshot all the same.
         List<Transaction> held = reversedAnchorIds.stream()
                 .flatMap(id -> transactionRepository.findByDuplicateBalanceAnchorId(id).stream())
-                .filter(t -> t.getIsDuplicateOf() != null && !t.isDuplicateBalanceReversed())
+                .filter(t -> !t.isDuplicateBalanceReversed())
                 .toList();
         if (held.isEmpty()) return;
         List<Transaction> released = new ArrayList<>();
@@ -770,6 +788,16 @@ public class StatementImportService {
                                 account.get().setBalance(account.get().getBalance().add(reversal));
                                 accountRepository.save(account.get());
                                 balanceReversed = true;
+                            }
+                            // A marked row summed here was one whose mark took nothing off (held
+                            // behind an absolute SET). Its effect is off now, by this reversal, and
+                            // the row records that -- so reversing the SET later does not take it
+                            // off a second time, and an un-mark knows to put it back.
+                            for (Transaction t : stillContributing) {
+                                if (t.getIsDuplicateOf() == null) continue;
+                                t.setDuplicateBalanceReversed(true);
+                                t.setDuplicateBalanceAnchorId(null);
+                                transactionRepository.save(t);
                             }
                         }
                     }

@@ -310,9 +310,79 @@ class StatementImportServiceDeleteTest {
         verify(statementImportRepository, never()).findById(earlierId);
     }
 
-    /** A held row that has since been un-marked or already reversed is not touched twice. */
+    /** A survivor in another statement that has itself been superseded is not resurrected by this
+     *  delete: it stays SUPERSEDED and nothing goes back on the balance. */
     @Test
-    void delete_ofTheLiveAbsoluteAnchor_skipsAHeldRowThatNoLongerCarriesAMark() {
+    void delete_keepsASurvivorOfASupersededStatementSuperseded_andAddsNothingBack() {
+        UUID accountId = UUID.randomUUID();
+        StatementImport statementImport = new StatementImport();
+        ReflectionTestUtils.setField(statementImport, "id", statementImportId);
+        statementImport.setUserId(userId);
+        statementImport.setFileName("statement.csv");
+        statementImport.setAccountId(accountId);
+        when(statementImportRepository.findById(statementImportId)).thenReturn(Optional.of(statementImport));
+        Transaction canonical = transaction(UUID.randomUUID());
+        canonical.setAmount(new BigDecimal("500.00"));
+        when(transactionRepository.findByStatementImportId(statementImportId)).thenReturn(List.of(canonical));
+
+        UUID supersededImportId = UUID.randomUUID();
+        StatementImport supersededImport = new StatementImport();
+        ReflectionTestUtils.setField(supersededImport, "id", supersededImportId);
+        supersededImport.setSupersededBy(UUID.randomUUID());
+        when(statementImportRepository.findById(supersededImportId)).thenReturn(Optional.of(supersededImport));
+        Transaction survivor = transaction(UUID.randomUUID());
+        survivor.setAmount(new BigDecimal("500.00"));
+        survivor.setAccountId(accountId);
+        survivor.setStatementImportId(supersededImportId);
+        survivor.setIsDuplicateOf(canonical.getId());
+        survivor.setDuplicateBalanceReversed(true);
+        survivor.setReconciliationStatus(Transaction.ReconciliationStatus.DUPLICATE);
+        when(transactionRepository.findByIsDuplicateOfIn(List.of(canonical.getId()))).thenReturn(List.of(survivor));
+
+        Account account = new Account();
+        account.setAccountType(Account.Type.SAVINGS);
+        account.setBalance(new BigDecimal("9500.00"));
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(account));
+
+        service.delete(userId, statementImportId, userId);
+
+        assertThat(survivor.getIsDuplicateOf()).isNull();
+        assertThat(survivor.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.SUPERSEDED);
+        // This statement's 500 comes off; the superseded survivor's 500 stays off.
+        assertThat(account.getBalance()).isEqualByComparingTo("10000.00");
+    }
+
+    /** A held row un-marked as SUPERSEDED (its statement replaced) keeps its held record, and its
+     *  effect is in the snapshot all the same: reversing the SET releases it by the record alone. */
+    @Test
+    void delete_ofTheLiveAbsoluteAnchor_releasesAHeldRowUnmarkedAsSuperseded() {
+        UUID accountId = UUID.randomUUID();
+        absoluteStatement(statementImportId, accountId, "10000.00", "9500.00", null);
+        when(transactionRepository.findByStatementImportId(statementImportId))
+                .thenReturn(List.of(transaction(UUID.randomUUID())));
+        Transaction superseded = heldRow(accountId, statementImportId, java.time.Instant.parse("2026-07-15T10:00:00Z"));
+        superseded.setIsDuplicateOf(null);
+        superseded.setReconciliationStatus(Transaction.ReconciliationStatus.SUPERSEDED);
+        when(transactionRepository.findByDuplicateBalanceAnchorId(statementImportId)).thenReturn(List.of(superseded));
+        Account account = new Account();
+        ReflectionTestUtils.setField(account, "id", accountId);
+        account.setUserId(userId);
+        account.setAccountType(Account.Type.SAVINGS);
+        account.setBalance(new BigDecimal("9500.00"));
+        account.setLastAbsoluteSetStatementId(statementImportId);
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(account));
+
+        service.delete(userId, statementImportId, userId);
+
+        assertThat(account.getBalance()).isEqualByComparingTo("10100.00");
+        assertThat(superseded.isDuplicateBalanceReversed()).isTrue();
+        assertThat(superseded.getDuplicateBalanceAnchorId()).isNull();
+    }
+
+    /** A row the SET took nothing off, then a whole-statement reversal did (recorded as reversed),
+     *  is not touched twice. */
+    @Test
+    void delete_ofTheLiveAbsoluteAnchor_skipsAHeldRowAlreadyRecordedAsReversed() {
         UUID accountId = UUID.randomUUID();
         StatementImport statementImport = new StatementImport();
         ReflectionTestUtils.setField(statementImport, "id", statementImportId);
@@ -328,6 +398,8 @@ class StatementImportServiceDeleteTest {
 
         Transaction stale = transaction(UUID.randomUUID());
         stale.setAccountId(accountId);
+        stale.setIsDuplicateOf(UUID.randomUUID());
+        stale.setDuplicateBalanceReversed(true);
         stale.setDuplicateBalanceAnchorId(statementImportId);
         when(transactionRepository.findByDuplicateBalanceAnchorId(statementImportId)).thenReturn(List.of(stale));
 

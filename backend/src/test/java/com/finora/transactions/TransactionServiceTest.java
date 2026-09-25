@@ -1225,6 +1225,43 @@ class TransactionServiceTest {
         assertThat(acct.getBalance()).isEqualByComparingTo("1000");
     }
 
+    /** A survivor whose own statement was superseded is not resurrected by the canonical's
+     *  delete: it stays SUPERSEDED, out of every total, and nothing goes back on the balance --
+     *  the refusal confirmNotDuplicate makes for the same row. */
+    @Test
+    void delete_keepsASurvivorOfASupersededStatementSuperseded_andAddsNothingBack() {
+        UUID txnId = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+        UUID importId = UUID.randomUUID();
+        Transaction canonical = ownedTransaction(txnId, userId);
+        canonical.setAccountId(accountId);
+        canonical.setAmount(BigDecimal.valueOf(200));
+        canonical.setTxnType(Transaction.Type.INCOME);
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(canonical));
+        Transaction survivor = ownedTransaction(UUID.randomUUID(), userId);
+        survivor.setAccountId(accountId);
+        survivor.setAmount(BigDecimal.valueOf(200));
+        survivor.setTxnType(Transaction.Type.INCOME);
+        survivor.setStatementImportId(importId);
+        survivor.setIsDuplicateOf(txnId);
+        survivor.setDuplicateBalanceReversed(true);
+        survivor.setReconciliationStatus(Transaction.ReconciliationStatus.DUPLICATE);
+        when(transactionRepository.findByIsDuplicateOfIn(List.of(txnId))).thenReturn(List.of(survivor));
+        StatementImport superseded = new StatementImport();
+        superseded.setSupersededBy(UUID.randomUUID());
+        when(statementImportRepository.findById(importId)).thenReturn(Optional.of(superseded));
+        Account acct = account(accountId, Account.Type.SAVINGS, BigDecimal.valueOf(1000));
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(acct));
+
+        transactionService.delete(userId, txnId, userId);
+
+        assertThat(survivor.getIsDuplicateOf()).isNull();
+        assertThat(survivor.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.SUPERSEDED);
+        assertThat(survivor.isDuplicateBalanceReversed()).isFalse();
+        // Only the canonical's 200 comes off; the superseded survivor's stays off.
+        assertThat(acct.getBalance()).isEqualByComparingTo("800");
+    }
+
     /** A survivor whose mark took nothing off -- it was held behind an absolute SET -- is
      *  un-marked without anything going back on, and no longer held: it is an ordinary row now. */
     @Test

@@ -439,6 +439,26 @@ public class TransactionService {
     }
 
     /**
+     * Whether this row's own net effect is currently sitting in {@code Account.balance}.
+     *
+     * <p>False for a row reconciliation has marked DUPLICATE out of an ADDITIVE statement import:
+     * BH-003 ({@code ReconciliationService.reverseBalanceContribution}) took its contribution back
+     * off when the mark was written, and {@link #confirmNotDuplicate} is what puts it back. Deleting
+     * or editing such a row must not move the balance by an amount that is not in it -- that left an
+     * import / mark / delete cycle short by the row. Every other row (manual, or from an ABSOLUTE /
+     * NONE / UNKNOWN_LEGACY import) was never reversed, so its contribution stands and moves as
+     * before. Same rule at every site that writes or clears the mark: ReconciliationService marks
+     * and reverses; confirmNotDuplicate, {@link #clearReconciliationPointersTo} and
+     * StatementImportService.delete un-mark and add back; delete / update here skip what is gone.
+     */
+    private boolean contributesToBalance(Transaction t) {
+        if (t.getIsDuplicateOf() == null || t.getStatementImportId() == null) return true;
+        return statementImportRepository.findById(t.getStatementImportId())
+                .map(si -> si.getBalanceApplicationMode() != StatementImport.BalanceApplicationMode.ADDITIVE)
+                .orElse(true);
+    }
+
+    /**
      * SEC-13 (docs/quality/bug-reports/2026-08-19-security-review-findings.md). The DB column
      * (NUMERIC(14,2)) already stops anything past 12 integer digits, but as a raw
      * DataIntegrityViolationException rather than a validation error naming the field -- and 12
@@ -523,7 +543,7 @@ public class TransactionService {
         Transaction saved = transactionRepository.save(t);
 
         BigDecimal newDelta = balanceOf(saved);
-        adjustAccountBalance(saved.getAccountId(), newDelta.subtract(oldDelta));
+        if (contributesToBalance(saved)) adjustAccountBalance(saved.getAccountId(), newDelta.subtract(oldDelta));
 
         // Amount/date/type edits can change which surviving transactions look like duplicates or
         // transfer partners of this one, so re-run reconciliation rather than leaving stale flags.
@@ -924,7 +944,7 @@ public class TransactionService {
     public void delete(UUID userId, UUID txnId, UUID actingAdminId) {
         Transaction t = getOwned(userId, txnId);
         clearReconciliationPointersTo(List.of(t.getId()));
-        adjustAccountBalance(t.getAccountId(), balanceOf(t).negate());
+        if (contributesToBalance(t)) adjustAccountBalance(t.getAccountId(), balanceOf(t).negate());
         transactionRepository.delete(t); // soft delete via @SQLDelete on the entity
         // Removing a transaction can break a recurring group's pattern (e.g. deleting one of
         // three regularly-spaced charges), same reasoning as the reconciliation re-run below.
@@ -945,7 +965,7 @@ public class TransactionService {
         List<Transaction> owned = getOwnedAll(userId, ids);
         clearReconciliationPointersTo(owned.stream().map(Transaction::getId).toList());
         for (Transaction t : owned) {
-            adjustAccountBalance(t.getAccountId(), balanceOf(t).negate());
+            if (contributesToBalance(t)) adjustAccountBalance(t.getAccountId(), balanceOf(t).negate());
             transactionRepository.delete(t);
         }
         reconciliationService.reconcileForUser(userId);
@@ -987,8 +1007,16 @@ public class TransactionService {
         java.util.Set<Transaction> dirty = new java.util.LinkedHashSet<>();
         for (Transaction t : transactionRepository.findByIsDuplicateOfIn(removedIds)) {
             if (removed.contains(t.getId())) continue;
+            // Un-marking makes this survivor counted again. If BH-003 took its contribution off
+            // when it was marked (an ADDITIVE-import row -- see contributesToBalance), it goes back
+            // on now, the same way confirmNotDuplicate puts it back. Without this, deleting the
+            // canonical row reversed the canonical's contribution AND left the survivor's off: the
+            // ledger kept one real transaction and the balance reflected none. Read before the
+            // pointer is cleared, since the check keys on it.
+            boolean reversedAtMark = !contributesToBalance(t);
             t.setIsDuplicateOf(null);
             t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
+            if (reversedAtMark) adjustAccountBalance(t.getAccountId(), balanceOf(t));
             dirty.add(t);
         }
         for (Transaction t : transactionRepository.findByTransferPairIdIn(removedIds)) {

@@ -116,6 +116,47 @@ class StatementImportServiceDeleteTest {
         verify(reconciliationService, never()).reconcileForUser(any());
     }
 
+    /** A survivor in ANOTHER statement that pointed at one of this statement's rows is un-marked
+     *  and counted again. Out of an ADDITIVE import its contribution was reversed when it was
+     *  marked, so it goes back on: this statement's 500 comes off, the survivor's 500 goes back. */
+    @Test
+    void delete_addsBackTheContribution_ofAnAdditiveImportSurvivorItUnmarks() {
+        UUID accountId = UUID.randomUUID();
+        StatementImport statementImport = new StatementImport();
+        ReflectionTestUtils.setField(statementImport, "id", statementImportId);
+        statementImport.setUserId(userId);
+        statementImport.setFileName("statement.csv");
+        statementImport.setAccountId(accountId);
+        when(statementImportRepository.findById(statementImportId)).thenReturn(Optional.of(statementImport));
+
+        Transaction canonical = transaction(UUID.randomUUID());
+        canonical.setAmount(new BigDecimal("500.00"));
+        when(transactionRepository.findByStatementImportId(statementImportId)).thenReturn(List.of(canonical));
+
+        UUID otherImportId = UUID.randomUUID();
+        StatementImport otherImport = new StatementImport();
+        ReflectionTestUtils.setField(otherImport, "id", otherImportId);
+        otherImport.setBalanceApplicationMode(StatementImport.BalanceApplicationMode.ADDITIVE);
+        when(statementImportRepository.findById(otherImportId)).thenReturn(Optional.of(otherImport));
+        Transaction survivor = transaction(UUID.randomUUID());
+        survivor.setAmount(new BigDecimal("500.00"));
+        survivor.setAccountId(accountId);
+        survivor.setStatementImportId(otherImportId);
+        survivor.setIsDuplicateOf(canonical.getId());
+        survivor.setReconciliationStatus(Transaction.ReconciliationStatus.DUPLICATE);
+        when(transactionRepository.findByIsDuplicateOfIn(List.of(canonical.getId()))).thenReturn(List.of(survivor));
+
+        Account account = new Account();
+        account.setAccountType(Account.Type.SAVINGS);
+        account.setBalance(new BigDecimal("9500.00"));
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(account));
+
+        service.delete(userId, statementImportId, userId);
+
+        assertThat(survivor.getIsDuplicateOf()).isNull();
+        assertThat(account.getBalance()).isEqualByComparingTo("9500.00");
+    }
+
     @Test
     void delete_reversal_excludesATransactionAlreadyFlaggedDuplicate() {
         // A DUPLICATE-flagged row's contribution to Account.balance was already reversed once, at

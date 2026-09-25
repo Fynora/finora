@@ -418,9 +418,28 @@ public class StatementImportService {
         if (!removedIds.isEmpty()) {
             for (Transaction t : transactionRepository.findByIsDuplicateOfIn(removedIds)) {
                 if (removedIds.contains(t.getId())) continue;
+                // Un-marking makes this survivor counted again. BH-003 (ReconciliationService
+                // .reverseBalanceContribution) took an ADDITIVE-import row's contribution off when
+                // it was marked, so it goes back on now -- the same re-add TransactionService
+                // .confirmNotDuplicate and .clearReconciliationPointersTo perform. A survivor from
+                // any other import mode, or a manual row, was never reversed and is left alone.
+                boolean reversedAtMark = t.getStatementImportId() != null
+                        && statementImportRepository.findById(t.getStatementImportId())
+                                .map(si -> si.getBalanceApplicationMode() == StatementImport.BalanceApplicationMode.ADDITIVE)
+                                .orElse(false);
                 t.setIsDuplicateOf(null);
                 t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
                 transactionRepository.save(t);
+                if (reversedAtMark) {
+                    accountRepository.findById(t.getAccountId()).ifPresent(account -> {
+                        BigDecimal back = AccountBalanceConvention.balanceDelta(
+                                account.getAccountType(), t.getTxnType(), t.getAmount());
+                        if (back.signum() != 0) {
+                            account.setBalance(account.getBalance().add(back));
+                            accountRepository.save(account);
+                        }
+                    });
+                }
             }
             for (Transaction t : transactionRepository.findByTransferPairIdIn(removedIds)) {
                 if (removedIds.contains(t.getId())) continue;

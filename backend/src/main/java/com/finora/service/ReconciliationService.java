@@ -324,6 +324,8 @@ public class ReconciliationService {
         // distinct rows are never interchangeable even when their fields match (that is the whole
         // subject of the duplicate pass).
         Set<Transaction> dirty = new LinkedHashSet<>();
+        // Rows this run marks DUPLICATE, for reverseBalanceContribution at the end -- see it.
+        List<Transaction> newlyMarked = new java.util.ArrayList<>();
 
         // Every graph edge the four passes below produce, written once via TransactionGraphService
         // .linkAll(...) at the end -- same reasoning as `dirty` above, and for the same run: an
@@ -407,6 +409,7 @@ public class ReconciliationService {
                     clearStaleTransferPairing(t, byId, dirty);
                     t.setIsDuplicateOf(canonical.getId());
                     t.setReconciliationStatus(Transaction.ReconciliationStatus.DUPLICATE);
+                    newlyMarked.add(t);
                     // t and canonical are members of the same splitByDiscriminator sub-group, so
                     // when that group was split by balance/reference, EVERY member (both of these
                     // included) shares the identical value by construction -- a direct pairwise
@@ -1049,6 +1052,7 @@ public class ReconciliationService {
                 clearStaleTransferPairing(gmailTxn, byId, dirty);
                 gmailTxn.setIsDuplicateOf(matched.getId());
                 gmailTxn.setReconciliationStatus(Transaction.ReconciliationStatus.DUPLICATE);
+                newlyMarked.add(gmailTxn);
                 long daysApart = Math.abs(ChronoUnit.DAYS.between(gmailTxn.getTxnDate(), matched.getTxnDate()));
                 Map<String, Object> explanation = new java.util.LinkedHashMap<>();
                 explanation.put("type", "ACCOUNT_AGGREGATOR_GMAIL_AUTO_EXCLUDE");
@@ -1185,6 +1189,7 @@ public class ReconciliationService {
         // Hibernate's configured batch_size/order_updates can actually apply -- they could do
         // nothing when this was a save() per match.
         if (!dirty.isEmpty()) transactionRepository.saveAll(dirty);
+        reverseBalanceContribution(newlyMarked);
         // Captured rather than discarded: linkAll returns only the edges it actually wrote, never
         // the ones its own idempotent dedup skipped (see that method's own doc comment) -- the
         // Gmail pass above re-evaluates every GMAIL_IMPORT transaction on every run with no
@@ -1775,6 +1780,53 @@ public class ReconciliationService {
             if (set.size() >= 2) sets.add(set);
         }
         return sets;
+    }
+
+    /**
+     * BH-003, owned here for every run rather than only at confirm time.
+     *
+     * <p>{@code Account.balance} moves with the transactions Finora counts. A row this run has just
+     * marked DUPLICATE is no longer counted, so the contribution it made when it arrived comes back
+     * off. ADDITIVE is the only {@link StatementImport.BalanceApplicationMode} under which a row's
+     * own net effect ever went into the balance, so a row from an ABSOLUTE / NONE / UNKNOWN_LEGACY
+     * import, or one with no statement import at all (a manual entry was never reversed and is
+     * never added back either), is left alone. The mirror image lives at every site that clears a
+     * mark: {@code TransactionService.confirmNotDuplicate}, {@code TransactionService
+     * .clearReconciliationPointersTo} and {@code StatementImportService.delete} put exactly these
+     * rows back under exactly this rule, and {@code TransactionService.delete} / {@code update}
+     * skip the balance for them because their contribution is already gone.
+     *
+     * <p>Until this lived here, only the confirm that inserted a row could reverse it
+     * ({@code ImportService.summarise}, scoped to that import's own batch). A mark written by any
+     * later run -- an edit that made an old narration match, a delete, a later import whose row
+     * became the canonical one, the balance-keyed pass meeting an older ledger -- left the balance
+     * permanently overstated by that row, with the row itself hidden from the ledger view.
+     */
+    private void reverseBalanceContribution(List<Transaction> newlyMarked) {
+        if (newlyMarked.isEmpty()) return;
+        Map<UUID, Boolean> additiveByImport = new HashMap<>();
+        Map<UUID, List<Transaction>> byAccount = new java.util.LinkedHashMap<>();
+        for (Transaction t : newlyMarked) {
+            if (t.getStatementImportId() == null || t.getAccountId() == null) continue;
+            boolean additive = additiveByImport.computeIfAbsent(t.getStatementImportId(), id ->
+                    statementImportRepository.findById(id)
+                            .map(si -> si.getBalanceApplicationMode() == StatementImport.BalanceApplicationMode.ADDITIVE)
+                            .orElse(false));
+            if (!additive) continue;
+            byAccount.computeIfAbsent(t.getAccountId(), k -> new java.util.ArrayList<>()).add(t);
+        }
+        for (Map.Entry<UUID, List<Transaction>> entry : byAccount.entrySet()) {
+            // findById is filtered by Account's @SQLRestriction: a since-deleted account has no
+            // balance left to correct, same as every other writer treats it.
+            accountRepository.findById(entry.getKey()).ifPresent(account -> {
+                BigDecimal reversal = com.finora.accounts.AccountBalanceConvention
+                        .netDelta(account.getAccountType(), entry.getValue()).negate();
+                if (reversal.signum() != 0) {
+                    account.setBalance(account.getBalance().add(reversal));
+                    accountRepository.save(account);
+                }
+            });
+        }
     }
 
     // --- Date-windowed candidate lookup -------------------------------------------------------

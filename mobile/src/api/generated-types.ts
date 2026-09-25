@@ -6326,6 +6326,7 @@ export interface components {
         };
         RefreshRequest: {
             refreshToken?: string;
+            scope?: string;
         };
         ApiResponseRefreshResponse: {
             success?: boolean;
@@ -6381,6 +6382,7 @@ export interface components {
         };
         LogoutRequest: {
             refreshToken?: string;
+            scope?: string;
         };
         ApiResponseLogoutResponse: {
             success?: boolean;

@@ -279,6 +279,11 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
      */
     Optional<StatementImport> findByImportJobId(UUID importJobId);
 
+    /** The most recent confirmed import of exactly these bytes, for this user, across all of their
+     *  accounts -- soft-deleted rows are excluded by the entity's @SQLRestriction. Read by
+     *  ImportService.confirmSession to refuse a second confirm of identical content (F-33). */
+    Optional<StatementImport> findFirstByUserIdAndContentHashOrderByImportedAtDesc(UUID userId, String contentHash);
+
     // Admin Portal, Operational Dashboard + Statement Import health provider -- a statement_imports
     // row can only ever represent a completed import (CsvImportService/StatementImportService both
     // throw synchronously on a parse failure rather than persisting a row for it; V81 removed the

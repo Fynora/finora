@@ -778,6 +778,14 @@ public class ImportService {
         if (request.sessionId() == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "sessionId is required.");
         }
+        // F-33: a confirmed statement_import already holds these exact bytes. Checked on the
+        // session's own hash (set for every session by ImportSessionService.storeContent) and before
+        // the claim, so a refused confirm leaves the session STAGED for the user to discard.
+        var peek = importSessionService.getOwnedSession(userId, request.sessionId());
+        if (peek != null && peek.getContentHash() != null) {
+            statementImportRepository.findFirstByUserIdAndContentHashOrderByImportedAtDesc(userId, peek.getContentHash())
+                    .ifPresent(prior -> { throw new ApiException(ErrorCode.IMPORT_STATEMENT_ALREADY_IMPORTED); });
+        }
         // Claimed atomically as the very first thing this method does -- see
         // ImportSessionService.claimForConfirmation's own doc comment. A double-click or a
         // retried request racing a first, still-in-flight confirm for the same session gets
@@ -1217,6 +1225,12 @@ public class ImportService {
             statementImport.setEncryptionKeyId(stored.encryptionKeyId());
         } else {
             statementImport.setFileContent(fileContent);
+            // Without object storage the row keeps the bytes inline and had no hash at all, which
+            // made the F-33 check in confirmSession blind in exactly the local/IT configuration.
+            // objectKey stays null, and StatementContentService.read requires BOTH hash and key
+            // before it looks in storage, so recording the hash changes nothing about where the
+            // bytes are read from.
+            statementImport.setContentHash(ContentAddress.hashOf(fileContent));
         }
         // Bug fix: this used to fall back further, to minDate/maxDate -- the confirmed rows' own
         // date range, which is only ever a LOWER bound on the statement's true period whenever a

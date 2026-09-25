@@ -143,6 +143,7 @@ class StatementImportServiceSupersedeTest {
         Transaction realExpense = transaction(oldId, "500.00", Transaction.ReconciliationStatus.OK);
         Transaction alreadyDuplicate = transaction(oldId, "300.00", Transaction.ReconciliationStatus.DUPLICATE);
         alreadyDuplicate.setIsDuplicateOf(UUID.randomUUID());
+        alreadyDuplicate.setDuplicateBalanceReversed(true);
         when(transactionRepository.findByStatementImportId(oldId)).thenReturn(List.of(realExpense, alreadyDuplicate));
         Account account = account(new BigDecimal("9500.00"));
         when(accountRepository.findById(accountId)).thenReturn(Optional.of(account));

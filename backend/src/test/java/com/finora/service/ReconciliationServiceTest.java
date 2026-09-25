@@ -266,6 +266,9 @@ class ReconciliationServiceTest {
         // any more, so it comes back.
         assertThat(account.getBalance()).isEqualByComparingTo("1250.00");
         verify(accountRepository).save(account);
+        // Recorded on the row, for the un-mark and delete sites.
+        assertThat(copy.isDuplicateBalanceReversed()).isTrue();
+        assertThat(copy.getDuplicateBalanceAnchorId()).isNull();
     }
 
     @Test
@@ -287,6 +290,9 @@ class ReconciliationServiceTest {
         assertThat(copy.getIsDuplicateOf()).isEqualTo(original.getId());
         assertThat(account.getBalance()).isEqualByComparingTo("1000.00");
         verify(accountRepository, org.mockito.Mockito.never()).save(any(Account.class));
+        // Never in the balance: not reversed, and not held by any SET either.
+        assertThat(copy.isDuplicateBalanceReversed()).isFalse();
+        assertThat(copy.getDuplicateBalanceAnchorId()).isNull();
     }
 
     /** A manual row was counted when it was entered (TransactionService.create), so its mark takes
@@ -309,6 +315,7 @@ class ReconciliationServiceTest {
         assertThat(manual.getIsDuplicateOf()).isEqualTo(original.getId());
         assertThat(account.getBalance()).isEqualByComparingTo("1250.00");
         verify(accountRepository).save(account);
+        assertThat(manual.isDuplicateBalanceReversed()).isTrue();
     }
 
     /** Nothing on the account-aggregator path ever writes Account.balance, so an aggregator row's
@@ -333,10 +340,13 @@ class ReconciliationServiceTest {
         assertThat(aggregator.getIsDuplicateOf()).isEqualTo(original.getId());
         assertThat(account.getBalance()).isEqualByComparingTo("1000.00");
         verify(accountRepository, org.mockito.Mockito.never()).save(any(Account.class));
+        assertThat(aggregator.isDuplicateBalanceReversed()).isFalse();
+        assertThat(aggregator.getDuplicateBalanceAnchorId()).isNull();
     }
 
     /** The account's balance was SET from a later statement's stated closing figure; a marked row
-     *  that predates that SET is no longer separately in the balance and is left alone. */
+     *  that predates that SET is no longer separately in the balance and is left alone -- and the
+     *  row records which SET stood in the way, so reversing that SET later reverses the row too. */
     @Test
     void reconcileForUser_leavesTheBalanceAlone_whenTheMarkedRowPredatesALiveAbsoluteSet() {
         UUID accountId = UUID.randomUUID();
@@ -360,6 +370,8 @@ class ReconciliationServiceTest {
         assertThat(copy.getIsDuplicateOf()).isEqualTo(original.getId());
         assertThat(account.getBalance()).isEqualByComparingTo("1000.00");
         verify(accountRepository, org.mockito.Mockito.never()).save(any(Account.class));
+        assertThat(copy.isDuplicateBalanceReversed()).isFalse();
+        assertThat(copy.getDuplicateBalanceAnchorId()).isEqualTo(anchorImport);
     }
 
     @Test

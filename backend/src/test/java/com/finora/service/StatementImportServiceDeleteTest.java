@@ -134,15 +134,12 @@ class StatementImportServiceDeleteTest {
         when(transactionRepository.findByStatementImportId(statementImportId)).thenReturn(List.of(canonical));
 
         UUID otherImportId = UUID.randomUUID();
-        StatementImport otherImport = new StatementImport();
-        ReflectionTestUtils.setField(otherImport, "id", otherImportId);
-        otherImport.setBalanceApplicationMode(StatementImport.BalanceApplicationMode.ADDITIVE);
-        when(statementImportRepository.findById(otherImportId)).thenReturn(Optional.of(otherImport));
         Transaction survivor = transaction(UUID.randomUUID());
         survivor.setAmount(new BigDecimal("500.00"));
         survivor.setAccountId(accountId);
         survivor.setStatementImportId(otherImportId);
         survivor.setIsDuplicateOf(canonical.getId());
+        survivor.setDuplicateBalanceReversed(true);
         survivor.setReconciliationStatus(Transaction.ReconciliationStatus.DUPLICATE);
         when(transactionRepository.findByIsDuplicateOfIn(List.of(canonical.getId()))).thenReturn(List.of(survivor));
 
@@ -154,7 +151,82 @@ class StatementImportServiceDeleteTest {
         service.delete(userId, statementImportId, userId);
 
         assertThat(survivor.getIsDuplicateOf()).isNull();
+        assertThat(survivor.isDuplicateBalanceReversed()).isFalse();
         assertThat(account.getBalance()).isEqualByComparingTo("9500.00");
+    }
+
+    /** A marked row this statement's SET held out of the balance (its effect is in the pre-SET
+     *  snapshot, not separately reversed) comes back off when the SET is reversed: the snapshot
+     *  restores 10000.00, which includes the held 100.00 expense, so the release takes it off
+     *  again and records the row as reversed like any other mark. */
+    @Test
+    void delete_ofTheLiveAbsoluteAnchor_reversesTheMarksItHeld() {
+        UUID accountId = UUID.randomUUID();
+        StatementImport statementImport = new StatementImport();
+        ReflectionTestUtils.setField(statementImport, "id", statementImportId);
+        statementImport.setUserId(userId);
+        statementImport.setFileName("statement.csv");
+        statementImport.setAccountId(accountId);
+        statementImport.setBalanceApplicationMode(StatementImport.BalanceApplicationMode.ABSOLUTE);
+        statementImport.setClosingBalance(new BigDecimal("9500.00"));
+        statementImport.setBalanceBeforeAbsoluteSet(new BigDecimal("10000.00"));
+        when(statementImportRepository.findById(statementImportId)).thenReturn(Optional.of(statementImport));
+        when(transactionRepository.findByStatementImportId(statementImportId))
+                .thenReturn(List.of(transaction(UUID.randomUUID())));
+
+        Transaction held = transaction(UUID.randomUUID());
+        held.setAccountId(accountId);
+        held.setIsDuplicateOf(UUID.randomUUID());
+        held.setReconciliationStatus(Transaction.ReconciliationStatus.DUPLICATE);
+        held.setDuplicateBalanceAnchorId(statementImportId);
+        when(transactionRepository.findByDuplicateBalanceAnchorId(statementImportId)).thenReturn(List.of(held));
+
+        Account account = new Account();
+        account.setAccountType(Account.Type.SAVINGS);
+        account.setBalance(new BigDecimal("9500.00"));
+        account.setLastAbsoluteSetStatementId(statementImportId);
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(account));
+
+        service.delete(userId, statementImportId, userId);
+
+        assertThat(account.getBalance()).isEqualByComparingTo("10100.00");
+        assertThat(account.getLastAbsoluteSetStatementId()).isNull();
+        assertThat(held.isDuplicateBalanceReversed()).isTrue();
+        assertThat(held.getDuplicateBalanceAnchorId()).isNull();
+        verify(transactionRepository).saveAll(List.of(held));
+    }
+
+    /** A held row that has since been un-marked or already reversed is not touched twice. */
+    @Test
+    void delete_ofTheLiveAbsoluteAnchor_skipsAHeldRowThatNoLongerCarriesAMark() {
+        UUID accountId = UUID.randomUUID();
+        StatementImport statementImport = new StatementImport();
+        ReflectionTestUtils.setField(statementImport, "id", statementImportId);
+        statementImport.setUserId(userId);
+        statementImport.setFileName("statement.csv");
+        statementImport.setAccountId(accountId);
+        statementImport.setBalanceApplicationMode(StatementImport.BalanceApplicationMode.ABSOLUTE);
+        statementImport.setClosingBalance(new BigDecimal("9500.00"));
+        statementImport.setBalanceBeforeAbsoluteSet(new BigDecimal("10000.00"));
+        when(statementImportRepository.findById(statementImportId)).thenReturn(Optional.of(statementImport));
+        when(transactionRepository.findByStatementImportId(statementImportId))
+                .thenReturn(List.of(transaction(UUID.randomUUID())));
+
+        Transaction stale = transaction(UUID.randomUUID());
+        stale.setAccountId(accountId);
+        stale.setDuplicateBalanceAnchorId(statementImportId);
+        when(transactionRepository.findByDuplicateBalanceAnchorId(statementImportId)).thenReturn(List.of(stale));
+
+        Account account = new Account();
+        account.setAccountType(Account.Type.SAVINGS);
+        account.setBalance(new BigDecimal("9500.00"));
+        account.setLastAbsoluteSetStatementId(statementImportId);
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(account));
+
+        service.delete(userId, statementImportId, userId);
+
+        assertThat(account.getBalance()).isEqualByComparingTo("10000.00");
+        verify(transactionRepository, org.mockito.Mockito.never()).saveAll(any());
     }
 
     @Test
@@ -181,6 +253,7 @@ class StatementImportServiceDeleteTest {
         alreadyDuplicate.setAmount(new BigDecimal("300.00"));
         alreadyDuplicate.setReconciliationStatus(Transaction.ReconciliationStatus.DUPLICATE);
         alreadyDuplicate.setIsDuplicateOf(UUID.randomUUID());
+        alreadyDuplicate.setDuplicateBalanceReversed(true);
 
         when(transactionRepository.findByStatementImportId(statementImportId))
                 .thenReturn(List.of(realExpense, alreadyDuplicate));

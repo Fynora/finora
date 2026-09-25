@@ -420,20 +420,17 @@ public class StatementImportService {
                 if (removedIds.contains(t.getId())) continue;
                 // Un-marking makes this survivor counted again. BH-003 (ReconciliationService
                 // .reverseBalanceContribution) took its contribution off when it was marked, if the
-                // contribution was in the balance at all (AccountBalanceConvention
-                // .netEffectIsInBalance), so it goes back on now -- the same re-add TransactionService
-                // .confirmNotDuplicate and .clearReconciliationPointersTo perform.
+                // contribution was in the balance at all, and recorded that on the row
+                // (Transaction.duplicateBalanceReversed), so it goes back on now -- the same re-add
+                // TransactionService.confirmNotDuplicate and .clearReconciliationPointersTo perform.
+                boolean reversedAtMark = t.isDuplicateBalanceReversed();
                 t.setIsDuplicateOf(null);
+                t.setDuplicateBalanceReversed(false);
+                t.setDuplicateBalanceAnchorId(null);
                 t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
                 transactionRepository.save(t);
+                if (!reversedAtMark) continue;
                 accountRepository.findById(t.getAccountId()).ifPresent(account -> {
-                    StatementImport.BalanceApplicationMode mode = t.getStatementImportId() == null ? null
-                            : statementImportRepository.findById(t.getStatementImportId())
-                                    .map(StatementImport::getBalanceApplicationMode).orElse(null);
-                    java.time.Instant anchoredAt = account.getLastAbsoluteSetStatementId() == null ? null
-                            : statementImportRepository.findById(account.getLastAbsoluteSetStatementId())
-                                    .map(StatementImport::getImportedAt).orElse(null);
-                    if (!AccountBalanceConvention.netEffectIsInBalance(t.getSource(), mode, t.getCreatedAt(), anchoredAt)) return;
                     BigDecimal back = AccountBalanceConvention.balanceDelta(
                             account.getAccountType(), t.getTxnType(), t.getAmount());
                     if (back.signum() != 0) {
@@ -491,11 +488,12 @@ public class StatementImportService {
                     return;
                 }
                 if (toRemove.isEmpty()) return;
-                // Excludes an already-DUPLICATE-flagged row: its contribution to Account.balance
-                // was already reversed once, by the reconciliation run that marked it
-                // (ReconciliationService.reverseBalanceContribution, BH-003) -- summing it again
-                // here would move the balance a second time for a row that currently contributes
-                // nothing. Also excludes SUPERSEDED (#631 missed this second trigger of the same bug):
+                // Excludes a DUPLICATE-flagged row whose mark took its contribution off Account
+                // .balance (ReconciliationService.reverseBalanceContribution, BH-003; recorded as
+                // Transaction.duplicateBalanceReversed) -- summing it again here would move the
+                // balance a second time for a row that currently contributes nothing. A marked row
+                // the mark did not take off is still summed, the same rule as TransactionService
+                // .contributesToBalance. Also excludes SUPERSEDED (#631 missed this second trigger of the same bug):
                 // StatementImportService.supersede() marks an ADDITIVE-mode original's rows
                 // SUPERSEDED and reverses their contribution in that same call, so a SUPERSEDED
                 // row's current net contribution is zero too -- deleting an already-superseded
@@ -504,7 +502,7 @@ public class StatementImportService {
                 // classifications only affect expense/income REPORTING (RefundNetting.reportable),
                 // not Account.balance -- the cash genuinely moved, so the balance still reflects it.
                 List<Transaction> stillContributing = toRemove.stream()
-                        .filter(t -> t.getIsDuplicateOf() == null
+                        .filter(t -> (t.getIsDuplicateOf() == null || !t.isDuplicateBalanceReversed())
                                 && t.getReconciliationStatus() != Transaction.ReconciliationStatus.SUPERSEDED)
                         .toList();
                 BigDecimal reversal = AccountBalanceConvention
@@ -574,8 +572,39 @@ public class StatementImportService {
             account.setBalance(account.getBalance().add(delta));
         }
         account.setLastAbsoluteSetStatementId(null);
+        releaseDuplicateMarksHeldBy(original, account);
         accountRepository.save(account);
         return ReversalOutcome.REVERSED;
+    }
+
+    /**
+     * The other half of reversing a SET. A row marked DUPLICATE while {@code anchor} was the live
+     * SET, and older than it, had nothing taken off the balance -- the stated figure had replaced
+     * the history the row's effect was part of -- and reconciliation recorded the SET on the row
+     * ({@link Transaction#getDuplicateBalanceAnchorId()}). The pre-SET balance just restored is
+     * that history, so the row's effect is in the balance again, hidden behind a standing mark:
+     * exactly what the mark exists to take off. Taken off here, and the row's record updated to
+     * say so, so its un-mark puts the effect back and its delete moves nothing -- the same state a
+     * mark written with no SET in the way would have left.
+     *
+     * <p>A row the SET held that was deleted in the meantime is not here (soft-deleted rows are
+     * out of every finder's reach) and must not be: its delete already took its effect off, under
+     * {@code TransactionService.contributesToBalance}'s rule for a mark that took nothing off.
+     */
+    private void releaseDuplicateMarksHeldBy(StatementImport anchor, Account account) {
+        List<Transaction> held = transactionRepository.findByDuplicateBalanceAnchorId(anchor.getId()).stream()
+                .filter(t -> t.getIsDuplicateOf() != null && !t.isDuplicateBalanceReversed())
+                .toList();
+        if (held.isEmpty()) return;
+        BigDecimal reversal = AccountBalanceConvention.netDelta(account.getAccountType(), held).negate();
+        if (reversal.signum() != 0) {
+            account.setBalance(account.getBalance().add(reversal));
+        }
+        for (Transaction t : held) {
+            t.setDuplicateBalanceReversed(true);
+            t.setDuplicateBalanceAnchorId(null);
+        }
+        transactionRepository.saveAll(held);
     }
 
     /**
@@ -669,15 +698,17 @@ public class StatementImportService {
                 // and SupersedeSkipsReversalWhenReplacementOverwritesTheBalanceIT for the concrete
                 // numeric case.
                 if (replacement.getBalanceApplicationMode() != StatementImport.BalanceApplicationMode.ABSOLUTE) {
-                    // Excludes an already-DUPLICATE-flagged row: its contribution to Account.balance
-                    // was already reversed once, by the reconciliation run that marked it
-                    // (ReconciliationService.reverseBalanceContribution, BH-003) -- summing it again
-                    // here would move the balance a second time for a row that currently contributes
-                    // nothing. TRANSFER/REFUND/REVERSAL/INVESTMENT_TRANSFER rows stay included: those
+                    // Excludes a DUPLICATE-flagged row whose mark took its contribution off Account
+                    // .balance (ReconciliationService.reverseBalanceContribution, BH-003; recorded
+                    // as Transaction.duplicateBalanceReversed) -- summing it again here would move
+                    // the balance a second time for a row that currently contributes nothing. A
+                    // marked row the mark did not take off is still summed, the same rule as
+                    // TransactionService.contributesToBalance and delete() above.
+                    // TRANSFER/REFUND/REVERSAL/INVESTMENT_TRANSFER rows stay included: those
                     // classifications only affect expense/income REPORTING (RefundNetting.reportable),
                     // not Account.balance -- the cash genuinely moved, so the balance still reflects it.
                     List<Transaction> stillContributing = originalTransactions.stream()
-                            .filter(t -> t.getIsDuplicateOf() == null)
+                            .filter(t -> t.getIsDuplicateOf() == null || !t.isDuplicateBalanceReversed())
                             .toList();
                     if (!stillContributing.isEmpty()) {
                         Optional<Account> account = accountRepository.findById(original.getAccountId());

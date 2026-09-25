@@ -122,13 +122,15 @@ public final class AccountBalanceConvention {
      *       effect is no longer separately in the balance. Rows that arrived after the SET are.</li>
      * </ul>
      *
-     * <p>Known limitation: the anchor is read as it is NOW. A mark written while an anchor was live
-     * on a row that predates it takes nothing off; if that anchor is later removed (its statement
-     * deleted, restoring the pre-SET balance, or a manual balance edit clearing the pointer) the
-     * row's amount is back in the balance with the mark still standing, and this method then
-     * answers true for it -- an un-mark would add the amount a second time. Correcting that needs
-     * the mark's own timestamp (the DUPLICATE graph edge, as V228 reads it), which no runtime site
-     * does yet.
+     * <p>Asked once, when the mark is written, and the answer is recorded on the row
+     * ({@code Transaction.duplicateBalanceReversed}, with {@code duplicateBalanceAnchorId} naming
+     * the SET when the fourth case is the only reason for "no"). The un-mark and delete sites read
+     * the record instead of asking again: the state this rule reads -- the live anchor above all --
+     * can change between the mark and the un-mark, and re-deriving it then gave the wrong answer
+     * for a mark held behind a SET that was later reversed (its pre-SET balance restored, the
+     * row's amount back in it, the mark standing). {@code StatementImportService
+     * .reverseAbsoluteContribution} reverses the rows a SET held when it reverses the SET;
+     * {@code AccountService.update} rebases them when a manual balance edit replaces the anchor.
      *
      * @param liveAnchorImportedAt when the account's live absolute SET happened, or null when the
      *                             balance has no live anchor (never set, or cleared by a manual edit)

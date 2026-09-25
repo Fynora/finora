@@ -44,7 +44,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * exactly as it sat there before 2026-09-25.
  *
  * <p>One row per bucket, in one or two accounts, and the assertion is the balance the runtime
- * would have produced had the rule always existed -- plus the audit row that reports every bucket.
+ * would have produced had the rule always existed -- plus the audit row that reports every bucket,
+ * and the record V228 writes on each row of what its mark did (the runtime writes it at mark time
+ * now; before the rule nothing did, so the columns are reset to their defaults first).
  */
 class DuplicateMarkBalanceBackfillIT extends AbstractIntegrationTest {
 
@@ -201,7 +203,7 @@ class DuplicateMarkBalanceBackfillIT extends AbstractIntegrationTest {
         aggregator.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
         aggregator.setIsDuplicateOf(lunchCopy.getIsDuplicateOf());
         aggregator.setReconciliationStatus(Transaction.ReconciliationStatus.DUPLICATE);
-        transactionRepository.save(aggregator);
+        Transaction aggregatorRow = transactionRepository.save(aggregator);
 
         // What the balance is with the rule applied everywhere: the runtime reversed both REVERSE
         // rows at their marks, and the two confirm-time marks at theirs.
@@ -221,10 +223,30 @@ class DuplicateMarkBalanceBackfillIT extends AbstractIntegrationTest {
         a2.setLastAbsoluteSetStatementId(anchorImportId);
         accountRepository.save(a2);
 
+        // Before 2026-09-25 no site recorded what a mark did.
+        jdbc.update("UPDATE transactions SET duplicate_balance_reversed = false, duplicate_balance_anchor_id = NULL "
+                + "WHERE user_id = ?", user.getId());
+
         runV228();
 
         assertThat(balanceOf(account)).isEqualByComparingTo(correct);
         assertThat(balanceOf(anchored)).isEqualByComparingTo(anchoredBefore);
+
+        // The record, per bucket: REVERSE and ASSUMED_REVERSED were taken off (now, or at their
+        // confirm); UNCLASSIFIED is recorded as reversed by the stated assumption; the aggregator
+        // row never was; the anchored manual row is held by the SET that stood in the way.
+        assertThat(marked(user, "MANUAL FARE").get(0).isDuplicateBalanceReversed()).isTrue();
+        assertThat(marked(user, "METRO FARE").get(0).isDuplicateBalanceReversed()).isTrue();
+        Transaction coffeeCopy = marked(user, "COFFEE").stream()
+                .filter(t -> t.getSource() != Transaction.Source.ACCOUNT_AGGREGATOR).findFirst().orElseThrow();
+        assertThat(coffeeCopy.isDuplicateBalanceReversed()).isTrue();
+        assertThat(transactionRepository.findById(lunchCopy.getId()).orElseThrow().isDuplicateBalanceReversed()).isTrue();
+        Transaction aggregatorAfter = transactionRepository.findById(aggregatorRow.getId()).orElseThrow();
+        assertThat(aggregatorAfter.isDuplicateBalanceReversed()).isFalse();
+        assertThat(aggregatorAfter.getDuplicateBalanceAnchorId()).isNull();
+        Transaction oldFareCopy = marked(user, "OLD FARE").get(0);
+        assertThat(oldFareCopy.isDuplicateBalanceReversed()).isFalse();
+        assertThat(oldFareCopy.getDuplicateBalanceAnchorId()).isEqualTo(anchorImportId);
 
         Map<String, Object> main = auditFor(account);
         assertThat(main.get("migration")).isEqualTo("V228");
@@ -233,11 +255,13 @@ class DuplicateMarkBalanceBackfillIT extends AbstractIntegrationTest {
         assertThat(((Number) main.get("assumedReversedRows")).intValue()).isEqualTo(1);
         assertThat(((Number) main.get("unclassifiedRows")).intValue()).isEqualTo(1);
         assertThat(((Number) main.get("anchoredRows")).intValue()).isEqualTo(0);
+        assertThat(((Number) main.get("anchoredHeldRows")).intValue()).isEqualTo(0);
         assertThat(((Number) main.get("neverInBalanceRows")).intValue()).isEqualTo(1);
 
         Map<String, Object> second = auditFor(anchored);
         assertThat(((Number) second.get("reversedRows")).intValue()).isEqualTo(0);
         assertThat(((Number) second.get("anchoredRows")).intValue()).isEqualTo(1);
+        assertThat(((Number) second.get("anchoredHeldRows")).intValue()).isEqualTo(1);
         assertThat(new BigDecimal(second.get("anchoredNet").toString())).isEqualByComparingTo("45.00");
     }
 }

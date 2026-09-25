@@ -466,6 +466,14 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     List<Transaction> findByIsDuplicateOfIn(List<UUID> ids);
     List<Transaction> findByTransferPairIdIn(List<UUID> ids);
 
+    /** The marked rows whose net effect an absolute SET holds out of the balance (see {@link
+     *  Transaction#getDuplicateBalanceAnchorId()}) -- read once, when that SET is reversed. */
+    List<Transaction> findByDuplicateBalanceAnchorId(UUID statementImportId);
+
+    /** Every live row of an account that currently carries a DUPLICATE mark -- what a manual
+     *  balance edit rebases (AccountService.update). */
+    List<Transaction> findByAccountIdAndIsDuplicateOfIsNotNull(UUID accountId);
+
     /** Backs the Statement Imports page's per-import "duplicate count" (Financial Intelligence
      *  Workspace, Statement Imports module) -- one grouped COUNT query for the whole user rather
      *  than one query per statement, same AccountTransactionCount-style projection used by

@@ -1188,8 +1188,10 @@ public class ReconciliationService {
         // One write for the whole run. Ordered and de-duplicated by the LinkedHashSet above, so
         // Hibernate's configured batch_size/order_updates can actually apply -- they could do
         // nothing when this was a save() per match.
-        if (!dirty.isEmpty()) transactionRepository.saveAll(dirty);
+        // Before the save: it records on each newly marked row what its mark did to the balance,
+        // and every one of those rows is in `dirty`.
         reverseBalanceContribution(newlyMarked);
+        if (!dirty.isEmpty()) transactionRepository.saveAll(dirty);
         // Captured rather than discarded: linkAll returns only the edges it actually wrote, never
         // the ones its own idempotent dedup skipped (see that method's own doc comment) -- the
         // Gmail pass above re-evaluates every GMAIL_IMPORT transaction on every run with no
@@ -1817,11 +1819,23 @@ public class ReconciliationService {
             accountRepository.findById(entry.getKey()).ifPresent(account -> {
                 StatementImport anchor = importOf.apply(account.getLastAbsoluteSetStatementId());
                 java.time.Instant anchoredAt = anchor == null ? null : anchor.getImportedAt();
-                List<Transaction> inBalance = entry.getValue().stream().filter(t -> {
+                List<Transaction> inBalance = new java.util.ArrayList<>();
+                for (Transaction t : entry.getValue()) {
                     StatementImport si = importOf.apply(t.getStatementImportId());
-                    return com.finora.accounts.AccountBalanceConvention.netEffectIsInBalance(t.getSource(),
-                            si == null ? null : si.getBalanceApplicationMode(), t.getCreatedAt(), anchoredAt);
-                }).toList();
+                    StatementImport.BalanceApplicationMode mode = si == null ? null : si.getBalanceApplicationMode();
+                    boolean reversed = com.finora.accounts.AccountBalanceConvention
+                            .netEffectIsInBalance(t.getSource(), mode, t.getCreatedAt(), anchoredAt);
+                    // Recorded on the row, for the sites that later clear the mark or remove the
+                    // row (see Transaction.duplicateBalanceReversed). A row kept out of the balance
+                    // only by the live SET has its effect in that SET's pre-set snapshot: it is
+                    // held by the SET, and reversed if the SET ever is.
+                    boolean heldByAnchor = !reversed && anchor != null
+                            && com.finora.accounts.AccountBalanceConvention
+                                    .netEffectIsInBalance(t.getSource(), mode, t.getCreatedAt(), null);
+                    t.setDuplicateBalanceReversed(reversed);
+                    t.setDuplicateBalanceAnchorId(heldByAnchor ? anchor.getId() : null);
+                    if (reversed) inBalance.add(t);
+                }
                 BigDecimal reversal = com.finora.accounts.AccountBalanceConvention
                         .netDelta(account.getAccountType(), inBalance).negate();
                 if (reversal.signum() != 0) {

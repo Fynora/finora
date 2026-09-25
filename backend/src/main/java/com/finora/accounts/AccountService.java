@@ -3,6 +3,7 @@ package com.finora.accounts;
 import com.finora.entity.Account;
 import com.finora.entity.FeatureEntitlement;
 import com.finora.entity.Transaction;
+import com.finora.entity.StatementImport;
 import com.finora.exception.ApiException;
 import com.finora.exception.ErrorCode;
 import com.finora.repository.AccountRepository;
@@ -227,6 +228,38 @@ public class AccountService {
         return AccountDto.from(saved, bankManagementService.resolve(saved.getBankId()));
     }
 
+    /**
+     * A typed balance is a baseline for the ledger as it stands: every row still counted is in
+     * it, and a row hidden behind a DUPLICATE mark is not -- the bank's own figure carries a real
+     * transaction once. The rows' records of what their marks did ({@link
+     * Transaction#isDuplicateBalanceReversed()}) are brought in line with that, so that from here
+     * on an un-mark puts the row's effect on top of the figure and a delete of the marked row
+     * moves nothing -- the same pair of moves a mark written after this edit would leave. Nothing
+     * moves the balance here: the figure is the user's, whole.
+     *
+     * <p>In particular this releases every mark the outgoing SET held ({@link
+     * Transaction#getDuplicateBalanceAnchorId()}); the SET's pre-set snapshot is unreachable once
+     * the pointer is cleared, so nothing else could. A mark whose row was never in any balance
+     * (an aggregator row, a row of a non-ADDITIVE import) stays recorded as taking nothing off.
+     */
+    private void rebaseDuplicateMarks(Account account) {
+        List<Transaction> marked = transactionRepository.findByAccountIdAndIsDuplicateOfIsNotNull(account.getId());
+        if (marked.isEmpty()) return;
+        Map<UUID, StatementImport.BalanceApplicationMode> modes = new HashMap<>();
+        List<Transaction> dirty = new java.util.ArrayList<>();
+        for (Transaction t : marked) {
+            if (t.isDuplicateBalanceReversed() && t.getDuplicateBalanceAnchorId() == null) continue;
+            StatementImport.BalanceApplicationMode mode = t.getStatementImportId() == null ? null
+                    : modes.computeIfAbsent(t.getStatementImportId(), id -> statementImportRepository.findById(id)
+                            .map(StatementImport::getBalanceApplicationMode).orElse(null));
+            t.setDuplicateBalanceReversed(AccountBalanceConvention.netEffectIsInBalance(
+                    t.getSource(), mode, t.getCreatedAt(), null));
+            t.setDuplicateBalanceAnchorId(null);
+            dirty.add(t);
+        }
+        if (!dirty.isEmpty()) transactionRepository.saveAll(dirty);
+    }
+
     /** Bug fix: same atomicity gap as {@link #create} between the account save and the audit
      *  write, and same missing-actingAdminId gap -- see that method's own doc comment. */
     @Transactional
@@ -249,6 +282,7 @@ public class AccountService {
             // "absolute balance reversal" design spec's Case D / product-decision note: automatic
             // balance lineage is intentionally abandoned once a manual edit occurs.
             a.setLastAbsoluteSetStatementId(null);
+            rebaseDuplicateMarks(a);
         }
         if (req.creditLimit() != null) a.setCreditLimit(req.creditLimit());
         if (req.dueDate() != null) a.setDueDate(req.dueDate());

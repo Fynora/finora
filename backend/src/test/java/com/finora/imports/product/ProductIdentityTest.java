@@ -230,6 +230,26 @@ class ProductIdentityTest {
     }
 
     @Test
+    void theSameCardMaskedWithMoreOrLessOfItsBinVisible_stillMatches() {
+        // A sentence capture ("card ending with 7550") against a BIN-plus-last-four mask of the same
+        // card: mask verbosity is cosmetic, the four discriminating digits are the same.
+        var bareLastFour = ProductIdentity.of("AXIS", FinancialProductType.CREDIT_CARD, null, "7550");
+        var binAndLastFour = ProductIdentity.of("AXIS", FinancialProductType.CREDIT_CARD, null, "653047******7550");
+
+        assertThat(bareLastFour.matches(binAndLastFour)).isEqualTo(ProductIdentity.Match.EXACT);
+        assertThat(binAndLastFour.matches(bareLastFour)).isEqualTo(ProductIdentity.Match.EXACT);
+    }
+
+    @Test
+    void aTwoDigitMask_neverBorrowsTheOtherSidesEntropy() {
+        var twoDigits = ProductIdentity.of("SBI", FinancialProductType.CREDIT_CARD, null, "XXXX XXXX XXXX XX14");
+        var fourDigits = ProductIdentity.of("SBI", FinancialProductType.CREDIT_CARD, null, "5514");
+
+        assertThat(fourDigits.matches(twoDigits)).isNotEqualTo(ProductIdentity.Match.EXACT);
+        assertThat(twoDigits.matches(fourDigits)).isNotEqualTo(ProductIdentity.Match.EXACT);
+    }
+
+    @Test
     void sbiStyleMask_withTwoDigits_staysProbable() {
         var first = ProductIdentity.of("SBI", FinancialProductType.CREDIT_CARD, null, "XXXX XXXX XXXX XX14");
         var second = ProductIdentity.of("SBI", FinancialProductType.CREDIT_CARD, null, "XXXX XXXX XXXX XX14");

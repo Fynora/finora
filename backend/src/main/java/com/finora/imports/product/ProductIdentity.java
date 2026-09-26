@@ -202,9 +202,19 @@ public record ProductIdentity(String institutionId, FinancialProductType type, S
         if (other == null || institutionId == null || !institutionId.equals(other.institutionId)) return 0;
         if (strongKey != null || other.strongKey != null) return 0;
         if (type != FinancialProductType.CREDIT_CARD || other.type != FinancialProductType.CREDIT_CARD) return 0;
-        if (maskedNumber == null || !maskedNumber.equals(other.maskedNumber)) return 0;
-        int dEff = MaskCensus.of(printedMask).dEff();
+        if (!sameCardDigits(maskedNumber, other.maskedNumber)) return 0;
+        int dEff = Math.min(MaskCensus.of(printedMask).dEff(), MaskCensus.of(other.printedMask).dEff());
         return dEff >= CARD_MASK_D_EFF_FLOOR ? dEff : 0;
+    }
+
+    /** The two masks' visible digits name the same card: equal, or one a suffix of the other when
+     *  both keep at least four digits -- the same card printed with more or less of its BIN
+     *  visible on two statements (the study: mask verbosity is cosmetic). The clients' account
+     *  matchers apply the same suffix rule. The census is taken on BOTH sides, and the smaller
+     *  count decides, so a bare last-four capture never lends a two-digit mask its entropy. */
+    private static boolean sameCardDigits(String a, String b) {
+        if (a == null || b == null || a.length() < 4 || b.length() < 4) return false;
+        return a.equals(b) || a.endsWith(b) || b.endsWith(a);
     }
 
     public Match matches(ProductIdentity other) {

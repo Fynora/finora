@@ -71,5 +71,15 @@ public record DashboardRangeSummaryDto(
         BigDecimal previousBalance,
         LocalDate previousBalanceAsOf,
         Double balanceDeltaPct,
-        String balanceGateReason
+        String balanceGateReason,
+
+        /*
+         * Credits in [startDate, endDate] Fynora cannot yet call income -- money from a person, an
+         * unexplained credit-card credit. Excluded from incomeTotal and savingsRatePct, surfaced here
+         * for the banner beside the income card. Same meaning as DashboardSummaryDto's fields of the
+         * same names, over this range instead of the reporting month.
+         */
+        BigDecimal unresolvedInflow,
+        int unresolvedInflowCount,
+        String unresolvedTopReason
 ) {}

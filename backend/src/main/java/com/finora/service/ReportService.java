@@ -57,8 +57,9 @@ public class ReportService {
         // account's transactions deliberately keep deleted_at unset, so findByUserId-rooted queries
         // alone would keep feeding this report a deleted account's rows forever, not just during
         // StatementImportService's 7-day grace window.
-        List<UUID> liveAccountIds = accountRepository.findByUserId(userId).stream()
-                .map(com.finora.entity.Account::getId).toList();
+        List<com.finora.entity.Account> accounts = accountRepository.findByUserId(userId);
+        List<UUID> liveAccountIds = accounts.stream().map(com.finora.entity.Account::getId).toList();
+        Map<UUID, com.finora.entity.Account.Type> accountTypes = FlowTotals.accountTypes(accounts);
         RefundNetting refunds = liveAccountIds.isEmpty() ? RefundNetting.from(List.of())
                 : RefundNetting.from(transactionRepository.findByUserIdAndReconciliationStatusInAndAccountIdIn(
                         userId, java.util.List.of(Transaction.ReconciliationStatus.REFUND, Transaction.ReconciliationStatus.REVERSAL),
@@ -72,7 +73,9 @@ public class ReportService {
         // `txns` so an Investments line still shows up in the report's own category table.
         List<Transaction> txnsForTotals = RefundNetting.excludingInvestmentTransfers(txns);
 
-        BigDecimal income = txnsForTotals.stream().filter(t -> t.getTxnType() == Transaction.Type.INCOME)
+        // Only flow-classified income: a credit from a person, a card credit, an investment
+        // redemption or a loan disbursal is money in, not income. See FlowClassifier.
+        BigDecimal income = txnsForTotals.stream().filter(t -> FlowTotals.countsAsIncome(t, accountTypes))
                 .map(refunds::reportableAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal expense = txnsForTotals.stream().filter(t -> t.getTxnType() == Transaction.Type.EXPENSE)
                 .map(refunds::reportableAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -88,7 +91,8 @@ public class ReportService {
                 .map(e -> new ReportDto.CategoryAmount(e.getKey(), e.getValue()))
                 .toList();
 
-        return new ReportDto(monthStr, income, expense, categories);
+        return new ReportDto(monthStr, income, expense, categories,
+                FlowTotals.unresolvedInflow(txnsForTotals, accountTypes));
     }
 
     /**
@@ -102,8 +106,9 @@ public class ReportService {
      */
     @Transactional(readOnly = true)
     public RangeTotals forRange(UUID userId, LocalDate from, LocalDate to) {
-        List<UUID> liveAccountIds = accountRepository.findByUserId(userId).stream()
-                .map(com.finora.entity.Account::getId).toList();
+        List<com.finora.entity.Account> accounts = accountRepository.findByUserId(userId);
+        List<UUID> liveAccountIds = accounts.stream().map(com.finora.entity.Account::getId).toList();
+        Map<UUID, com.finora.entity.Account.Type> accountTypes = FlowTotals.accountTypes(accounts);
         RefundNetting refunds = liveAccountIds.isEmpty() ? RefundNetting.from(List.of())
                 : RefundNetting.from(transactionRepository.findByUserIdAndReconciliationStatusInAndAccountIdIn(
                         userId, List.of(Transaction.ReconciliationStatus.REFUND, Transaction.ReconciliationStatus.REVERSAL),
@@ -114,18 +119,34 @@ public class ReportService {
                 rangeTxns, transactionGraphService.ccPaymentFromTransactionIds(rangeTxns));
         List<Transaction> txnsForTotals = RefundNetting.excludingInvestmentTransfers(txns);
 
-        BigDecimal income = txnsForTotals.stream().filter(t -> t.getTxnType() == Transaction.Type.INCOME)
+        // Only flow-classified income: a credit from a person, a card credit, an investment
+        // redemption or a loan disbursal is money in, not income. See FlowClassifier.
+        BigDecimal income = txnsForTotals.stream().filter(t -> FlowTotals.countsAsIncome(t, accountTypes))
                 .map(refunds::reportableAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal expense = txnsForTotals.stream().filter(t -> t.getTxnType() == Transaction.Type.EXPENSE)
                 .map(refunds::reportableAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
-        return new RangeTotals(income, expense, txnsForTotals.size());
+        FlowClassifier.FlowReason topReason = FlowTotals.unresolvedTopReason(txnsForTotals, accountTypes);
+        return new RangeTotals(income, expense, txnsForTotals.size(),
+                FlowTotals.unresolvedInflow(txnsForTotals, accountTypes),
+                FlowTotals.unresolvedInflowCount(txnsForTotals, accountTypes),
+                topReason == null ? null : topReason.name());
     }
 
     /** @param transactionCount how many (refund-netted, transfer-excluded) transactions the totals
      *                          above were built from -- DashboardRangeService's comparison gating
      *                          needs this to decide whether a period is thin enough that a stray
-     *                          row or two could dominate its own delta. */
-    public record RangeTotals(BigDecimal income, BigDecimal expense, int transactionCount) {}
+     *                          row or two could dominate its own delta.
+     *  @param unresolvedInflow credits in the range Fynora cannot yet call income (see FlowTotals);
+     *                          never part of {@code income}. {@code unresolvedTopReason} is the
+     *                          FlowReason name carrying most of it, null when there is none. */
+    public record RangeTotals(BigDecimal income, BigDecimal expense, int transactionCount,
+                              BigDecimal unresolvedInflow, int unresolvedInflowCount, String unresolvedTopReason) {
+
+        /** Totals with nothing unresolved -- for callers that only have income and expense. */
+        public RangeTotals(BigDecimal income, BigDecimal expense, int transactionCount) {
+            this(income, expense, transactionCount, BigDecimal.ZERO, 0, null);
+        }
+    }
 
     /**
      * Which months have at least one transaction — backs the Reports page's month dropdown.

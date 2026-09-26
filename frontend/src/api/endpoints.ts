@@ -463,6 +463,17 @@ export interface StagingResult {
   verification?: VerificationReport | null;
 }
 
+// F-33 (corpus audit 2026-09-25): an earlier confirmed import of these exact file bytes. The review
+// step shows it as a notice and never blocks on it -- a repeat upload is always allowed, its rows are
+// flagged as duplicates, and the user may still import them. Null/absent when there is none.
+export interface PreviousImport {
+  statementImportId: string;
+  importedAt: string;
+  accountId?: string | null;
+  accountName?: string | null;
+  transactionsImported: number;
+}
+
 // A PDF upload can now detect more than one account section in a single file (e.g. an
 // HSBC-style "Composite Statement" bundling a savings account and a credit-card account) --
 // see ImportDto.PdfStagingSessionResponse on the backend. Exactly one of staging/sections is
@@ -474,6 +485,7 @@ interface PdfStagingSessionResult {
   multiAccount: boolean;
   staging: StagingResult | null;
   sections: StagedAccountSection[] | null;
+  previousImport?: PreviousImport | null;
 }
 
 // Reports 0-100 upload progress via axios's onUploadProgress -- purely the network-transfer
@@ -500,7 +512,7 @@ export const importApi = {
     const form = new FormData();
     form.append('file', file);
     return api
-      .post<{ sessionId: string; staging: StagingResult }>('/import/csv/stage', form, {
+      .post<{ sessionId: string; staging: StagingResult; previousImport?: PreviousImport | null }>('/import/csv/stage', form, {
         headers: { 'Content-Type': 'multipart/form-data' },
         ...toUploadProgressConfig(onProgress),
       })
@@ -542,7 +554,7 @@ export const importApi = {
   // session (e.g. after a reload) instead of it silently sitting there until it expires.
   listSessions: () => api.get<ImportSessionSummary[]>('/import/sessions').then((r) => r.data),
   getSession: (id: string) =>
-    api.get<{ sessionId: string; staging: StagingResult }>(`/import/sessions/${id}`).then((r) => r.data),
+    api.get<{ sessionId: string; staging: StagingResult; previousImport?: PreviousImport | null }>(`/import/sessions/${id}`).then((r) => r.data),
   discardSession: (id: string) => api.delete(`/import/sessions/${id}`),
   // "Your recent failed imports" -- Premium Import Reliability v1, §2.1. A document that never got
   // far enough to become an ImportSession (no header found, zero transactions, a scanned PDF)

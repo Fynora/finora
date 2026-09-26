@@ -672,6 +672,75 @@ describe('ImportScreen — statement verification panel (Phase 5)', () => {
 });
 
 /**
+ * F-33 of the 2026-09-25 corpus audit, as a notice: the backend names an earlier import of these
+ * exact bytes (previousImport) and the review step says so, without blocking the import -- a repeat
+ * upload is never refused (the product contract e2e smoke test 4 pins).
+ */
+describe('ImportScreen — re-upload notice', () => {
+  beforeEach(() => {
+    mockRouteParams = undefined;
+    mockNavigate.mockClear();
+    api.accounts.list.mockReset().mockResolvedValue([]);
+    api.categories.list.mockReset().mockResolvedValue([]);
+    api.import.listSessions.mockReset().mockResolvedValue([]);
+    jest.mocked(DocumentPicker.getDocumentAsync).mockReset().mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///statement.csv', name: 'statement.csv' } as never],
+    } as never);
+  });
+
+  function stagingWith(previousImport: unknown) {
+    return {
+      sessionId: 'session-1',
+      multiAccount: false,
+      sections: null,
+      previousImport,
+      staging: {
+        rows: [stagedRow('Groceries')],
+        totalParsed: 1,
+        flaggedDuplicates: 0,
+        detectedAccount: detected,
+        unparseableRows: [],
+      },
+    };
+  }
+
+  async function reachReview() {
+    render(tree());
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+    await waitFor(() => expect(screen.queryByTestId('upload-completed')).not.toBeOnTheScreen(), { timeout: 8000 });
+    await screen.findByText(/^Import \d+ transaction/);
+  }
+
+  it('names the earlier import when the same file was already imported', async () => {
+    api.import.stageCsv.mockReset().mockResolvedValue(stagingWith({
+      statementImportId: 'stmt-1',
+      importedAt: '2026-07-05T10:00:00Z',
+      accountId: 'acct-1',
+      accountName: 'Sample Savings',
+      transactionsImported: 12,
+    }) as never);
+
+    await reachReview();
+
+    const notice = await screen.findByTestId('previous-import-notice');
+    expect(notice).toHaveTextContent(/already imported this file/i);
+    expect(notice).toHaveTextContent(/Sample Savings/);
+    // A notice, never a gate: the import button is still offered.
+    expect(screen.getByText(/^Import \d+ transaction/)).toBeOnTheScreen();
+  });
+
+  it('shows no notice for a file that was never imported', async () => {
+    api.import.stageCsv.mockReset().mockResolvedValue(stagingWith(null) as never);
+
+    await reachReview();
+
+    expect(screen.queryByTestId('previous-import-notice')).not.toBeOnTheScreen();
+  });
+});
+
+/**
  * The synchronous upload path (used when a password is typed, or the queue is off). It must speak the
  * same plain language as the queued card: the curated sentence for the failure, not the server's own
  * wording, which is written for logs and support ("... -- the file appears to be damaged").

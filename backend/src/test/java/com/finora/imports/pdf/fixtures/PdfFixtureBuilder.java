@@ -797,6 +797,23 @@ public final class PdfFixtureBuilder {
         return render(List.of(page));
     }
 
+    /** A card statement whose holder is the leftmost run of a page-top line that shares its
+     *  physical line with a marketing sentence starting at mid-page, and no holder label anywhere. */
+    public static byte[] buildCardStatementWithHolderBesideProseSample() throws IOException {
+        float[] nameAndProse = {LEFT_MARGIN, 276f};
+        float[] col = {LEFT_MARGIN, 150f, 470f};
+        PageBuilder page = new PageBuilder();
+        page.line("CREDIT CARD STATEMENT")
+                .row(nameAndProse, "MS SAMPLE HOLDER", "Download the mobile app to -")
+                .row(nameAndProse, "12 SAMPLE STREET", "View statement instantly")
+                .line("Sample City 100001")
+                .blankLine()
+                .row(col, "Date", "Transaction Details", "Amount")
+                .row(col, "01/07/2026", "SAMPLE STORE", "1,000.00")
+                .row(col, "02/07/2026", "SAMPLE PAYMENT RECEIVED", "500.00 CR");
+        return render(List.of(page));
+    }
+
     public static byte[] buildOffsetColumnAnchorsSample() throws IOException {
         float[] headerCol = {LEFT_MARGIN, 183.5f, 386.5f, 514f};
         float[] dataCol = {35f, 90f, 372f, 500f};

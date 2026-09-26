@@ -347,6 +347,7 @@ public class PdfPreviewGenerator {
         result = attachCardGridFactsToTheSoleCandidate(result, doc, gridCreditLimit, gridPaymentDueDate,
                 gridAccountNumberMasked, ctx);
         result = inheritAccountNumberAcrossSections(result);
+        result = fillHolderFromLeadingRun(result, positioned, ctx);
         // One document's worth, across every section -- the DocumentContext is per-file, and a
         // combined statement's sections all failed (or didn't) as part of the same parse run.
         ctx.recordUnparseable(unparseableAcrossDocument);
@@ -880,6 +881,36 @@ public class PdfPreviewGenerator {
         List<StagedAccountSection> revised = new ArrayList<>(sections);
         revised.set(i, new StagedAccountSection(updated, s.rows(), s.totalParsed(), s.flaggedDuplicates(),
                 s.unparseableRows(), s.verification()));
+        return revised;
+    }
+
+    /**
+     * Post-pass: a document whose line-based extraction found no holder anywhere gets the holder
+     * printed as the leftmost run of a page-top line (LeadingNameRunExtractor), on every section
+     * still lacking one -- the holder is a property of the document, not of one section.
+     */
+    private List<StagedAccountSection> fillHolderFromLeadingRun(List<StagedAccountSection> sections,
+                                                             List<PositionedText> positioned, DocumentContext ctx) {
+        boolean anyHolder = sections.stream().anyMatch(s -> s.detectedAccount() != null
+                && s.detectedAccount().accountHolderName() != null);
+        if (anyHolder) return sections;
+        String holder = LeadingNameRunExtractor.extract(positioned, ctx);
+        if (holder == null) return sections;
+        List<StagedAccountSection> revised = new ArrayList<>(sections.size());
+        for (StagedAccountSection s : sections) {
+            DetectedAccountInfo acc = s.detectedAccount();
+            if (acc == null || acc.accountHolderName() != null) { revised.add(s); continue; }
+            DetectedAccountInfo updated = new DetectedAccountInfo(
+                    acc.suggestedName(), acc.suggestedAccountType(), acc.openingBalance(), acc.closingBalance(),
+                    acc.statementPeriodStart(), acc.statementPeriodEnd(), acc.accountNumberMasked(), acc.creditLimit(),
+                    acc.totalAmountDue(), acc.paymentDueDate(), holder, acc.branchName(),
+                    acc.ifscCode(), acc.bank(), acc.detectedProduct(), acc.productConfidence(),
+                    acc.productNeedsReview(), acc.productEvidence(), acc.productIdentityHash(),
+                    acc.principalAmount(), acc.interestRate(), acc.maturityDate(), acc.maturityAmount(),
+                    acc.installmentAmount(), acc.installmentsPaid(), acc.installmentsTotal());
+            revised.add(new StagedAccountSection(updated, s.rows(), s.totalParsed(), s.flaggedDuplicates(),
+                    s.unparseableRows(), s.verification()));
+        }
         return revised;
     }
 

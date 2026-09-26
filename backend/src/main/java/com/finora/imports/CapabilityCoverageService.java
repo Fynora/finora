@@ -92,6 +92,11 @@ public class CapabilityCoverageService {
             // withheld because several sections could be the card. See
             // PdfPreviewGenerator.attachCardGridFactsToTheSoleCandidate.
             "CARD_GRID_FACTS_ATTACHED_TO_SOLE_UNKNOWN_SECTION", "CARD_GRID_FACTS_WITHHELD_AMBIGUOUS",
+            // The holder read from a "Hello, <name>" greeting line (a real AU card), and the holder
+            // read at run level as the leftmost run of a page-top line that shares its physical
+            // line with unrelated prose (a real ICICI card). See PdfMetadataExtractor.GREETING_NAME_LINE
+            // and LeadingNameRunExtractor.
+            "ACCOUNT_HOLDER_FROM_GREETING", "ACCOUNT_HOLDER_FROM_LEADING_RUN",
             "GRID_METADATA_FALLBACK", "GRID_METADATA_TRAILING_LABEL",
             "LEADING_NAME_LINE", "LEADING_NARRATION_CONTINUATION",
             "FINANCIAL_PRODUCT_CLASSIFICATION",

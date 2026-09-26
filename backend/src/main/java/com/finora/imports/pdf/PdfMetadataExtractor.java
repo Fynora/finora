@@ -624,7 +624,7 @@ public class PdfMetadataExtractor {
     // Case ("Ravi Kumar") and ALL CAPS ("RAVI KUMAR") -- both real, observed holder-name renderings
     // (genericized per the Synthetic Fixture Policy) -- while finally rejecting all-lowercase prose.
     private static final Pattern LEADING_NAME_LINE = Pattern.compile(
-            "^(?:(?i:mr|mrs|ms|dr|m/s)\\.?\\s+)?[A-Z][A-Za-z]*(?:\\s+[A-Z][A-Za-z]*){1,3}\\.?$");
+            "^(?:(?i:mr|mrs|ms|miss|mx|dr|m/s)\\.?\\s+)?[A-Z][A-Za-z]*(?:\\s+[A-Z][A-Za-z]*){1,3}\\.?$");
     private static final int LEADING_NAME_LINE_SEARCH_WINDOW = 8;
 
     // The same unlabeled leading name, sharing its physical line with the right-hand panel's first
@@ -635,9 +635,29 @@ public class PdfMetadataExtractor {
     // the same bank's layout prints the name on a line of its own and is already recovered there.
     // Narrow on purpose: only these three panel labels end the name, and the captured name still
     // has to pass the same title-word and bank-name rejections.
+    // Label vocabulary widened 2026-09-26 from the three HSBC panel labels to the labels the
+    // extractor already owns, each traced on a real document whose holder was null: "BRANCH :"
+    // (a Standard Chartered export), "Credit Card No." (an HDFC card), "Credit Card Number" (an
+    // SBI card, whose holder is initials plus a surname), "Your Base Branch:" (an ICICI savings
+    // statement). Case-insensitive on the label only; the name words keep their capitalisation
+    // requirement. "MISS" and "MX" join the courtesy titles (a real Union Bank statement).
     private static final Pattern LEADING_NAME_BEFORE_PANEL_LABEL = Pattern.compile(
-            "^((?:(?i:mr|mrs|ms|dr|m/s)\\.?\\s+)?[A-Z][A-Za-z]*(?:\\s+[A-Z][A-Za-z]*){1,3})"
-                    + "\\s+(?:Statement Date|Customer Number|Account Number)\\b");
+            "^((?:(?i:mr|mrs|ms|miss|mx|dr|m/s)\\.?\\s+)?[A-Z][A-Za-z]*(?:\\s+[A-Z][A-Za-z]*){1,3})"
+                    + "\\s+(?i:Statement Date|Customer Number|Account Number|Branch|Credit Card No\\.?|Credit Card Number"
+                    + "|Customer(?:/CIF)?\\s*ID|CIF\\s*ID|Billing Period|Statement Period|Your Base Branch)\\b");
+
+    // GREETING_NAME_LINE: "Hello, <name>" -- a real AU Small Finance Bank card statement opens with
+    // the holder greeted by name and never labels the name anywhere else. The greeting is the
+    // label; the same name-shape and title-word rules apply to what follows it.
+    private static final Pattern GREETING_NAME_LINE = Pattern.compile(
+            "^(?i:hello|hi|dear),?\\s+((?:(?i:mr|mrs|ms|miss|mx|dr|m/s)\\.?\\s+)?[A-Z][A-Za-z]*(?:\\s+[A-Z][A-Za-z]*){1,3})\\s*[,!.]?$");
+
+    // ACCOUNT_NAME_MID_LABEL: "... Account Name <name>" with the value AFTER the label and no
+    // colon, ending the line -- a real Union Bank statement's details grid, where an address
+    // fragment precedes the label on the same joined line. ACCOUNT_NAME_TRAILING_LABEL handles
+    // the opposite order (value, then the label); labelPattern's mid-line branch needs a colon.
+    private static final Pattern ACCOUNT_NAME_MID_LABEL = Pattern.compile(
+            "(?i:\\bAccount\\s*Name)\\s+((?:(?i:mr|mrs|ms|miss|mx|dr|m/s)\\.?\\s+)?[A-Z][A-Za-z]*(?:\\s+[A-Z][A-Za-z]*){1,3})\\s*$");
     // Bug fix: verified against three real HDFC savings statements. A multi-line postal address
     // ("Address : GROUND FLOOR, ...", followed by one or two unlabeled continuation lines wrapping
     // the rest of the value) commonly has a continuation line that shape-matches LEADING_NAME_LINE
@@ -826,9 +846,46 @@ public class PdfMetadataExtractor {
 
             if (accountHolderName == null || holderFromLeadingLineFallback) {
                 String holder = firstGroup(ACCOUNT_HOLDER, line);
-                if (holder != null) { accountHolderName = holder; holderFromLeadingLineFallback = false; continue; }
+                if (holder != null) {
+                    // A labelled holder value runs to the end of the line, and on a real IOB
+                    // statement the line continues with the address ("<name> <city>-<pin>,<city>").
+                    // The name ends at the first token holding a digit.
+                    accountHolderName = cutAtFirstTokenWithADigit(holder);
+                    holderFromLeadingLineFallback = false;
+                    continue;
+                }
+                Matcher greeting = GREETING_NAME_LINE.matcher(line.trim());
+                if (greeting.matches() && containsNoLeadingTitleWord(greeting.group(1))) {
+                    accountHolderName = greeting.group(1).trim();
+                    holderFromLeadingLineFallback = false;
+                    if (ctx != null) ctx.record("ACCOUNT_HOLDER_FROM_GREETING");
+                    continue;
+                }
+                Matcher midLabel = ACCOUNT_NAME_MID_LABEL.matcher(line.trim());
+                if (midLabel.find() && containsNoLeadingTitleWord(midLabel.group(1))) {
+                    accountHolderName = midLabel.group(1).trim();
+                    holderFromLeadingLineFallback = false;
+                    if (ctx != null) ctx.record("GRID_METADATA_TRAILING_LABEL");
+                    continue;
+                }
             }
 
+            // Read BEFORE the label rules below: the same line carries a label those rules act on
+            // ("BRANCH :", "Credit Card No.", "Your Base Branch:") and each of them `continue`s, so
+            // placed after them this never saw the line (measured: three real documents' holders
+            // stayed null). No `continue` here -- the label's own value is still wanted.
+            if (accountHolderName == null && i < LEADING_NAME_LINE_SEARCH_WINDOW && !insideAddressContinuation) {
+                Matcher beforePanel = LEADING_NAME_BEFORE_PANEL_LABEL.matcher(line.trim());
+                if (beforePanel.find()) {
+                    String candidate = beforePanel.group(1).trim();
+                    if (containsNoLeadingTitleWord(candidate)
+                            && BankRegistry.UNKNOWN_ID.equals(BankRegistry.detect("", List.of(candidate)).id())) {
+                        accountHolderName = candidate;
+                        holderFromLeadingLineFallback = true;
+                        if (ctx != null) ctx.record("LEADING_NAME_LINE");
+                    }
+                }
+            }
             if (accountNumberMasked == null) {
                 String acctNo = firstGroup(ACCOUNT_NUMBER, line);
                 // Only a value that holds at least four digits. A grid's header row ("Account
@@ -1298,19 +1355,6 @@ public class PdfMetadataExtractor {
                 if (ctx != null) ctx.record("GRID_METADATA_TRAILING_LABEL");
                 continue;
             }
-            if (accountHolderName == null && i < LEADING_NAME_LINE_SEARCH_WINDOW && !insideAddressContinuation) {
-                Matcher beforePanel = LEADING_NAME_BEFORE_PANEL_LABEL.matcher(line.trim());
-                if (beforePanel.find()) {
-                    String candidate = beforePanel.group(1).trim();
-                    if (containsNoLeadingTitleWord(candidate)
-                            && BankRegistry.UNKNOWN_ID.equals(BankRegistry.detect("", List.of(candidate)).id())) {
-                        accountHolderName = candidate;
-                        holderFromLeadingLineFallback = true;
-                        if (ctx != null) ctx.record("LEADING_NAME_LINE");
-                        continue;
-                    }
-                }
-            }
             if (ifscCode == null) {
                 Matcher ifscMatch = IFSC_SHAPE.matcher(line);
                 if (ifscMatch.find()) {
@@ -1457,6 +1501,28 @@ public class PdfMetadataExtractor {
 
     /** See {@link #LEADING_TITLE_WORDS}'s own doc comment -- true unless one of the line's own
      *  words (case-insensitive, punctuation-stripped) is a generic statement-vocabulary word. */
+    /** {@link #containsNoLeadingTitleWord} for callers outside the instance (LeadingNameRunExtractor). */
+    static boolean containsNoLeadingTitleWordStatic(String line) {
+        for (String word : line.trim().split("\\s+")) {
+            String normalized = word.toLowerCase(Locale.ROOT).replaceAll("[^a-z]", "");
+            if (LEADING_TITLE_WORDS.contains(normalized)) return false;
+        }
+        return true;
+    }
+
+    /** The tokens before the first one holding a digit, or the whole value when none does or
+     *  when nothing would be left. */
+    static String cutAtFirstTokenWithADigit(String value) {
+        String[] tokens = value.trim().split("\\s+");
+        StringBuilder kept = new StringBuilder();
+        for (String token : tokens) {
+            if (token.chars().anyMatch(Character::isDigit)) break;
+            if (kept.length() > 0) kept.append(' ');
+            kept.append(token);
+        }
+        return kept.length() == 0 ? value.trim() : kept.toString();
+    }
+
     private boolean containsNoLeadingTitleWord(String line) {
         for (String word : line.trim().split("\\s+")) {
             String normalized = word.toLowerCase(Locale.ROOT).replaceAll("[^a-z]", "");

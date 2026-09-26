@@ -6,7 +6,7 @@ sections: 1
   rows: 183
   auxLines: 121
   accountNumberMasked: ••••9999
-  accountHolderName: null
+  accountHolderName: XX XXXXXXX XXXXXXXX XXXXXXXX
   ifscCode: SCBL0XXXXXX   MICR
   statementPeriod: null .. null
   product: UNKNOWN (53%, UNIDENTIFIED)

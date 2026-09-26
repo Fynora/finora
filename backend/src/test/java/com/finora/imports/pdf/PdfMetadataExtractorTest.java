@@ -1440,4 +1440,53 @@ class PdfMetadataExtractorTest {
                 "123456******7890 30,000.00 25,000.00 5,000.00"));
         assertThat(metadata.accountNumberMasked()).isNull();
     }
+
+    // ---- holder shapes traced on real documents whose holder was null (plan 3, Task 6) ----
+
+    @Test
+    void extract_readsTheHolder_fromAGreetingLine() {
+        var metadata = extractor.extract(List.of(
+                "Hello, SAMPLE PERSON KUMAR",
+                "12, SAMPLE APARTMENTS SAMPLE ROAD NO. 1 SAMPLE CITY, ST",
+                "Statement for your credit card ending with 1234 (01 Mar - 31 Mar 2026)"));
+        assertThat(metadata.accountHolderName()).isEqualTo("SAMPLE PERSON KUMAR");
+    }
+
+    @Test
+    void extract_readsTheHolder_afterAMidLineAccountNameLabelWithNoColon() {
+        // A details grid joined into one line: an address fragment, the label, then the name.
+        var metadata = extractor.extract(List.of(
+                "Savings Account",
+                "Address 12 ROAD NO 1,BEHIND  Account Name SAMPLE PERSON KUMAR",
+                "Account Number 100000000000001"));
+        assertThat(metadata.accountHolderName()).isEqualTo("SAMPLE PERSON KUMAR");
+    }
+
+    @Test
+    void extract_readsTheHolder_beforeABranchLabel_orACardNumberLabel_orABaseBranchLabel() {
+        assertThat(extractor.extract(List.of("ACCOUNT STATEMENT", "MR SAMPLE PERSON KUMAR BRANCH                  : Sample Nagar"))
+                .accountHolderName()).isEqualTo("MR SAMPLE PERSON KUMAR");
+        assertThat(extractor.extract(List.of("Sample Card Statement", "SAMPLE PERSON Credit Card No. 400000XXXXXX0004"))
+                .accountHolderName()).isEqualTo("SAMPLE PERSON");
+        assertThat(extractor.extract(List.of("GSTIN of Sample Card : 22AAAAA0000A1Z5", "T S SAMPLE Credit Card Number", "XXXX XXXX XXXX XX04"))
+                .accountHolderName()).as("initials count as name words").isEqualTo("T S SAMPLE");
+        assertThat(extractor.extract(List.of("1", "Statement of Transactions in Saving Account no. 000000000001 in INR for the period July 1, 2026 - August 1, 2026",
+                        "SAMPLE PERSON KUMAR Your Base Branch:  SAMPLE BANK LIMITED,"))
+                .accountHolderName()).isEqualTo("SAMPLE PERSON KUMAR");
+        assertThat(extractor.extract(List.of("MISS SAMPLE PERSON Customer/CIF ID 100000001")).accountHolderName())
+                .as("MISS is a courtesy title").isEqualTo("MISS SAMPLE PERSON");
+    }
+
+    @Test
+    void extract_cutsALabelledHolderValue_atTheFirstTokenHoldingADigit() {
+        var metadata = extractor.extract(List.of(
+                "Account Holder Name : SAMPLE PERSON KUMAR SAMPLECITY-100001,SAMPLECITY,SAMPLECITY"));
+        assertThat(metadata.accountHolderName()).isEqualTo("SAMPLE PERSON KUMAR");
+    }
+
+    @Test
+    void extract_aGreetingFollowedByProse_isNotAHolder() {
+        var metadata = extractor.extract(List.of("Hello, please find your statement below"));
+        assertThat(metadata.accountHolderName()).isNull();
+    }
 }

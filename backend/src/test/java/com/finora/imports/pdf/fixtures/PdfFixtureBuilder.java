@@ -685,6 +685,35 @@ public final class PdfFixtureBuilder {
         return render(List.of(page));
     }
 
+    /**
+     * A savings ledger whose statement ALSO prints a card-summary grid with a bare "Credit Limit"
+     * label -- the shape of a real bank's composite relationship statement, where the summary page
+     * lists the customer's credit card next to the savings account whose transactions follow. The
+     * grid is document-wide, so {@code CreditLimitGridExtractor} reads it; the limit belongs to the
+     * card, not to the savings section this document stages. Values synthetic per the Synthetic
+     * Fixture Policy.
+     */
+    public static byte[] buildSavingsLedgerWithCardLimitGridSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 130f, 300f, 380f, 460f};
+
+        // The grid's cells are separate text runs, as a real statement's table cells are, so the
+        // bare "Credit Limit" label is its own run for CreditLimitGridExtractor's exact match.
+        float[] gridCol = {LEFT_MARGIN, 200f, 300f, 430f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("Relationship Summary")
+                .row(gridCol, "Credit Card Number", "Credit Limit", "Available Credit Limit", "Available Cash Limit")
+                .row(gridCol, "123456******7890", "30,000.00", "25,000.00", "5,000.00")
+                .blankLine()
+                .line("SAVINGS ACCOUNT  - 10000000000001")
+                .row(col, "Date", "Narration", "Withdrawal", "Deposit", "Balance")
+                .row(col, "01/06/2026", "Opening Balance", null, null, "7,277.40")
+                .row(col, "05/06/2026", "UPI SAMPLE GROCER", "200.00", null, "7,077.40")
+                .row(col, "12/06/2026", "SALARY SAMPLE EMPLOYER", null, "1,000.00", "8,077.40");
+
+        return render(List.of(page));
+    }
+
     // ==================== OFFSET_COLUMN_ANCHORS ====================
 
     /**

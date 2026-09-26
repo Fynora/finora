@@ -82,6 +82,11 @@ public class CapabilityCoverageService {
             // transaction after the banner gets only its own narration. Traced on a real Bank of
             // Baroda statement. See PdfTableLocator's REPEATED_ACCOUNT_BANNER / REPEATED_HEADER sites.
             "LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER",
+            // A credit limit printed on the document (grid or line-based) was read but not
+            // attached, because the section it would have gone to is not a credit card (a real
+            // composite relationship statement lists the card's limit beside a savings account).
+            // See PdfPreviewGenerator.creditLimitAppliesTo.
+            "CREDIT_LIMIT_WITHHELD_FROM_NON_CARD_SECTION",
             "GRID_METADATA_FALLBACK", "GRID_METADATA_TRAILING_LABEL",
             "LEADING_NAME_LINE", "LEADING_NARRATION_CONTINUATION",
             "FINANCIAL_PRODUCT_CLASSIFICATION",

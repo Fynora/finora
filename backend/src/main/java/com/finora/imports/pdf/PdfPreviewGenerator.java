@@ -424,9 +424,14 @@ public class PdfPreviewGenerator {
             // deposit schedule the way it does to a ledger's own transaction date range.
             // No payment-summary panel applies to a deposit schedule -- totalAmountDue is a
             // credit-card-ledger-only concept.
+            // No credit limit either: a deposit is never a credit card, and the line-based
+            // reading is document-wide -- see CREDIT_LIMIT_WITHHELD_FROM_NON_CARD_SECTION.
+            if (facts.metadata().creditLimit() != null && ctx != null) {
+                ctx.record("CREDIT_LIMIT_WITHHELD_FROM_NON_CARD_SECTION");
+            }
             DetectedAccountInfo detected = facts.toDetectedAccountInfo(product, suggestedAccountType,
                     null, null, facts.metadata().statementPeriodStart(), facts.metadata().statementPeriodEnd(), attrs,
-                    null, facts.metadata().paymentDueDate(), facts.metadata().creditLimit(), null);
+                    null, facts.metadata().paymentDueDate(), null, null);
             result.add(new StagedAccountSection(detected, List.of(), 0, 0, List.of()));
         }
         return result;
@@ -580,7 +585,7 @@ public class PdfPreviewGenerator {
         int dupCount = (int) staged.stream().filter(StagedRow::likelyDuplicate).count();
         DetectedAccountInfo detected = buildDetectedAccountInfo(filename, section, balancePoints, product, ctx,
                 printedCreditCardSummary, printedDateRange, gridPaymentDueDate, gridCreditLimit,
-                gridAccountNumberMasked);
+                gridAccountNumberMasked, creditLimitAppliesTo(product, sectionCount));
         // Per section rather than per file: a composite statement's sections have separate balance
         // chains, and one can verify while another does not.
         var verification = importVerifier.verify(documentOrder,
@@ -850,6 +855,19 @@ public class PdfPreviewGenerator {
                 section.flaggedDuplicates(), unparseable, section.verification());
     }
 
+    /**
+     * Whether a printed credit limit may be attached to a section: only a credit card has one. A
+     * single-section document whose product could not be classified at all keeps it -- a bare
+     * card statement the classifier did not recognise must not lose its limit -- but a section
+     * classified as anything else, and any section of a multi-section document that is not a
+     * card, never carries a limit printed elsewhere on the page.
+     */
+    private static boolean creditLimitAppliesTo(ProductDiscovery.DiscoveredProduct product, int sectionCount) {
+        if (product == null) return sectionCount == 1;
+        if (product.type() == FinancialProductType.CREDIT_CARD) return true;
+        return product.type() == FinancialProductType.UNKNOWN && sectionCount == 1;
+    }
+
     private record BalancePoint(LocalDate date, BigDecimal signedAmount, BigDecimal balance,
                                  String description) implements com.finora.imports.BalanceSequenceResolver.DatedLink {
         @Override public BigDecimal balanceAfter() { return balance; }
@@ -862,7 +880,8 @@ public class PdfPreviewGenerator {
                                                            CreditCardSummaryEvidence printedCreditCardSummary,
                                                            TransactionTableDateRangeExtractor.PrintedDateRange printedDateRange,
                                                            LocalDate gridPaymentDueDate, BigDecimal gridCreditLimit,
-                                                           String gridAccountNumberMasked) {
+                                                           String gridAccountNumberMasked,
+                                                           boolean creditLimitApplies) {
         LocalDate statementStart = null;
         LocalDate statementEnd = null;
         BigDecimal openingBalance = null;
@@ -931,8 +950,19 @@ public class PdfPreviewGenerator {
         // "Credit Limit" text run this extractor's exact-match label requires -- AU's is "Total
         // Credit Limit:", ICICI's is "Credit Limit (Including cash)", neither an exact match), so
         // inverting the precedence cannot change their already-correct result.
-        BigDecimal creditLimit = gridCreditLimit != null
+        BigDecimal printedCreditLimit = gridCreditLimit != null
                 ? gridCreditLimit : facts.metadata().creditLimit();
+        // CREDIT_LIMIT_WITHHELD_FROM_NON_CARD_SECTION. Both readings above are document-wide: the
+        // grid extractor scans every positioned run, and the line-based label is read from
+        // whatever text precedes this section's table. A credit limit is a credit-card fact, so
+        // it is attached only where creditLimitAppliesTo says the section can be a card. Found on
+        // a real composite relationship statement whose summary page lists the customer's card
+        // and its limit beside the savings account whose transactions the document carries: the
+        // savings section was staged with the card's limit as its own.
+        BigDecimal creditLimit = creditLimitApplies ? printedCreditLimit : null;
+        if (!creditLimitApplies && printedCreditLimit != null && ctx != null) {
+            ctx.record("CREDIT_LIMIT_WITHHELD_FROM_NON_CARD_SECTION");
+        }
 
         return facts.toDetectedAccountInfo(product, suggestedAccountTypeFor(product, facts.creditCardSignals()),
                 openingBalance, closingBalance, statementStart, statementEnd, ProductAttributes.empty(),

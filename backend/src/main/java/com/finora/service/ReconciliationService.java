@@ -48,6 +48,19 @@ public class ReconciliationService {
             "refund", "returned", "chargeback", "credit adjustment", "cancelled", "canceled");
     private static final Set<String> REVERSAL_KEYWORDS = Set.of("reversal", "payment reversed");
 
+    /**
+     * The order the transfer and refund passes walk their candidates in: by date (the windowed
+     * lookups binary-search on it), then by what the row itself says, so that rows tying on date
+     * sort the same way however many times the same statements are imported. The id, a random
+     * UUID, only separates rows identical in every one of those fields.
+     */
+    private static final Comparator<Transaction> CANDIDATE_ORDER = Comparator.comparing(Transaction::getTxnDate)
+            .thenComparing(Transaction::getAmount)
+            .thenComparing(Transaction::getTxnType)
+            .thenComparing(Transaction::getDescription, Comparator.nullsFirst(Comparator.naturalOrder()))
+            .thenComparing(Transaction::getSourceRowPosition, Comparator.nullsFirst(Comparator.naturalOrder()))
+            .thenComparing(Transaction::getId);
+
     // A run past this is worth a log line on its own. Chosen against the measurement in
     // scaling-triggers.md rather than picked as a round number: the windowed passes take ~105 ms
     // at 1k transactions and ~450 ms at 10k, so a second means either an unusually large history
@@ -229,6 +242,12 @@ public class ReconciliationService {
     private void reconcile(UUID userId, List<Transaction> all, Map<String, Object> scopeAudit,
                            boolean alwaysRecord) {
         long startedAtNanos = System.nanoTime();
+        // Both callers load `all` with no ORDER BY, and several passes below keep the first of
+        // equally-ranked candidates in `all` order (the duplicate pass's canonical row, the Gmail
+        // and AA matches' max()). The AA-vs-Gmail pass turns that into money: whether two receipts
+        // converge on one bank row, and so both stay counted, depended on which row the database
+        // returned first. One fixed order for every pass.
+        all = all.stream().sorted(CANDIDATE_ORDER).toList();
 
         // General retroactive edge cleanup (docs/proposals/reconciliation-evolution-roadmap-
         // proposal.md, Part 3's supersession gap). AccountService.delete() rejects graph edges for
@@ -469,14 +488,19 @@ public class ReconciliationService {
 
         // 2) Transfers
         //
-        // Ordered by (txnDate, id), which does two things at once.
+        // Ordered by date, then by the row's own content (see CANDIDATE_ORDER), which does two
+        // things at once.
         //
         // Determinism first: findByUserId() carries no ORDER BY, so the order this pass used to
         // see was whatever Postgres happened to return -- unstable across plan changes and vacuum.
-        // Both passes below stop at the first acceptable match, so that unspecified order was
-        // silently deciding WHICH of several equally-valid pairs got matched. Sorting by date
-        // makes that repeatable; the id tiebreak is what makes it repeatable on the same date too,
-        // which is exactly when a same-day pair is most likely to have more than one candidate.
+        // Both passes below keep the first of several equally-ranked matches, and the refund pass
+        // visits income rows in this order while they draw down a shared capacity, so list order
+        // decides real outcomes whenever rows tie. Sorting by date makes that repeatable; the
+        // content keys make it repeatable on the same date too, which is exactly when a same-day
+        // pair is most likely to have more than one candidate. The id is only the last resort --
+        // it used to come straight after the date, and ids are random UUIDs, so importing the same
+        // statements into a fresh database linked refunds to different purchases on each run and
+        // moved the spending total by the refund's amount.
         //
         // And it is what lets the windowed lookups below work at all: both remaining passes only
         // ever match inside a bounded date range, so a sorted list turns "scan everything and
@@ -484,7 +508,7 @@ public class ReconciliationService {
         // see docs/engineering/scaling-triggers.md.
         List<Transaction> candidates = all.stream()
                 .filter(t -> t.getIsDuplicateOf() == null && !t.isTransfer())
-                .sorted(Comparator.comparing(Transaction::getTxnDate).thenComparing(Transaction::getId))
+                .sorted(CANDIDATE_ORDER)
                 .toList();
 
         // Fetched ONCE per reconcileForUser() call (not once per candidate, and not once per
@@ -557,7 +581,7 @@ public class ReconciliationService {
             // Collects every qualifying candidate and scores it, rather than committing to the
             // first one found (reconciliation benchmark finding: docs/proposals/
             // reconciliation-benchmark/remaining-failures-classification.md, "first-match-wins"
-            // misclassification). `candidates` is sorted by (date, id) for determinism (see its own
+            // misclassification). `candidates` is sorted by CANDIDATE_ORDER for determinism (see its own
             // comment above), but sort order is not plausibility: a coincidental same-amount match
             // several days away previously won over the real transfer leg one day away, purely
             // because it happened to sort earlier -- transferCandidateScore below ranks every
@@ -741,8 +765,7 @@ public class ReconciliationService {
                 // all three being absent means there's no actual evidence this is a refund (or a
                 // reversal) at all. The matching mechanism itself doesn't care which of the two
                 // this turns out to be -- that's decided once, after a match is found, below.
-                boolean sameMerchant = expense.getMerchant() != null && !expense.getMerchant().isBlank()
-                        && expense.getMerchant().equalsIgnoreCase(income.getMerchant());
+                boolean sameMerchant = isSameMerchant(expense, income);
                 if (!refundKeyword && !reversalKeyword && !sameMerchant) continue;
 
                 // BH-007: capacity is what's LEFT of the expense, not its original amount -- an
@@ -1130,12 +1153,16 @@ public class ReconciliationService {
             // edge to a different charge set each time -- and since nothing supersedes the earlier
             // edge, contradictory live edges from one payment would accumulate across runs even
             // though any single run stays internally consistent. Earliest due date first (settle
-            // the oldest bill first) is a reasonable tiebreak, not just an arbitrary stable one;
-            // statement id breaks a further tie on the same due date.
+            // the oldest bill first) is a reasonable tiebreak, not just an arbitrary stable one.
+            // On the same due date, the statement imported first goes first, by the same
+            // settle-the-oldest reasoning. The statement id is only the last resort: it is a
+            // random UUID, so on its own it made the winner differ between two imports of the
+            // same statements into fresh databases.
             ccStatements = ccStatements.stream()
                     .filter(s -> liveAccountIds.contains(s.getAccountId()))
                     .sorted(Comparator.comparing(StatementImport::getPaymentDueDate,
                                     Comparator.nullsLast(Comparator.naturalOrder()))
+                            .thenComparing(StatementImport::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder()))
                             .thenComparing(StatementImport::getId))
                     .toList();
         }
@@ -1494,13 +1521,20 @@ public class ReconciliationService {
         // coincidence. Failing that, an EXACT-amount candidate beats a partial/overpaid one --
         // relevant only in the requireExactAmount=false phase, since the true-amount phase never
         // sees a partial/overpaid candidate at all. Among whatever's left tied on both, closest
-        // to the printed due date wins, same tiebreak shape as the other passes above.
+        // to the printed due date wins, same tiebreak shape as the other passes above. Still tied,
+        // the payment closest in amount to what the statement said was owed -- the same amount
+        // factor ConfidenceScorer scores this edge on. Only then CANDIDATE_ORDER: `all` comes from
+        // a query with no ORDER BY, and min() keeps the first of equal elements, so without these
+        // two a tie went to whichever row the database returned first -- and the same statements
+        // imported into two fresh databases excluded a different payment from spending.
         Transaction payment = paymentCandidates.stream()
                 .min(Comparator
                         .comparing((Transaction t) -> thisCardLast4 == null
                                 || !last4CandidatesIn(t.getDescription()).contains(thisCardLast4))
                         .thenComparing((Transaction t) -> t.getAmount().compareTo(statement.getTotalAmountDue()) != 0)
-                        .thenComparingLong(t -> Math.abs(ChronoUnit.DAYS.between(t.getTxnDate(), statement.getPaymentDueDate()))))
+                        .thenComparingLong(t -> Math.abs(ChronoUnit.DAYS.between(t.getTxnDate(), statement.getPaymentDueDate())))
+                        .thenComparing(t -> t.getAmount().subtract(statement.getTotalAmountDue()).abs())
+                        .thenComparing(CANDIDATE_ORDER))
                 .orElseThrow();
         boolean matchedByLast4 = thisCardLast4 != null
                 && last4CandidatesIn(payment.getDescription()).contains(thisCardLast4);
@@ -1855,7 +1889,7 @@ public class ReconciliationService {
     // of synchronous work on a request-handling thread, run after every transaction create,
     // update, delete, import confirm and statement delete.
     //
-    // These take a list already sorted by (txnDate, id) -- see where `candidates` is built -- and
+    // These take a list already sorted by date (CANDIDATE_ORDER) -- see where `candidates` is built -- and
     // return the contiguous slice that could possibly match. Every predicate the loops applied
     // before is still applied; this changes only how many candidates are offered to them, never
     // which ones qualify.
@@ -1907,7 +1941,22 @@ public class ReconciliationService {
     /** Exact-amount matches always outrank partial-amount matches; among equally-good matches,
      *  the temporally closer original purchase wins -- a simple, explainable tie-break rather
      *  than a scored heuristic, consistent with how this whole engine favors deterministic rules
-     *  over ML-style scoring wherever a deterministic rule is adequate. */
+     *  over ML-style scoring wherever a deterministic rule is adequate.
+     *
+     *  <p>Those two alone left every same-day partial candidate tied whenever the income carried
+     *  a refund keyword (the keyword admits every purchase that can cover it), and the tie fell to
+     *  list order. Three more rules, each on evidence the pass already has, settle it instead:
+     *  <ol>
+     *    <li>A purchase at the income's own merchant -- the one signal that names which purchase
+     *        the money came back for.</li>
+     *    <li>A purchase that still counts as spending ({@code OK}) over one excluded from it (an
+     *        investment outflow): the refund is netted against the purchase it points at, and
+     *        total spending leaves investment outflows out (RefundNetting.excludingInvestmentTransfers),
+     *        so pointing it at one takes it out of income without reducing total spending.</li>
+     *    <li>The purchase closest in amount -- the same factor ConfidenceScorer already scores
+     *        a refund edge on.</li>
+     *  </ol>
+     *  Only a candidate identical on all of these falls back to CANDIDATE_ORDER. */
     private boolean isCloserRefundMatch(Transaction candidate, Transaction currentBest, Transaction income) {
         boolean candidateExact = candidate.getAmount().compareTo(income.getAmount()) == 0;
         boolean currentExact = currentBest.getAmount().compareTo(income.getAmount()) == 0;
@@ -1915,6 +1964,21 @@ public class ReconciliationService {
 
         long candidateDays = ChronoUnit.DAYS.between(candidate.getTxnDate(), income.getTxnDate());
         long currentDays = ChronoUnit.DAYS.between(currentBest.getTxnDate(), income.getTxnDate());
-        return candidateDays < currentDays;
+        if (candidateDays != currentDays) return candidateDays < currentDays;
+
+        boolean candidateSameMerchant = isSameMerchant(candidate, income);
+        boolean currentSameMerchant = isSameMerchant(currentBest, income);
+        if (candidateSameMerchant != currentSameMerchant) return candidateSameMerchant;
+
+        boolean candidateCounted = candidate.getReconciliationStatus() == Transaction.ReconciliationStatus.OK;
+        boolean currentCounted = currentBest.getReconciliationStatus() == Transaction.ReconciliationStatus.OK;
+        if (candidateCounted != currentCounted) return candidateCounted;
+
+        return candidate.getAmount().compareTo(currentBest.getAmount()) < 0;
+    }
+
+    private static boolean isSameMerchant(Transaction expense, Transaction income) {
+        return expense.getMerchant() != null && !expense.getMerchant().isBlank()
+                && expense.getMerchant().equalsIgnoreCase(income.getMerchant());
     }
 }

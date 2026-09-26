@@ -4,7 +4,7 @@
 # allowlistFingerprint: A3C0126B
 # capturedAt: 2026-08-12
 # generatedFrom: Axis Bank credit card statement
-# capabilities: WRAPPED_DESCRIPTION, LEADING_NARRATION_CONTINUATION, OFFSET_COLUMN_ANCHORS, PAGE_BOUNDARY_ISOLATION, REPEATED_HEADER
+# capabilities: TRAILING_REFUSED_BEHIND_LEADING_BUFFER, LEADING_NARRATION_CONTINUATION, OFFSET_COLUMN_ANCHORS, PAGE_BOUNDARY_ISOLATION, REPEATED_HEADER
 # regressions: 
 # requiredHeaders: Total Payment Due, Minimum Payment Due, Credit Limit, Available Credit Limit, Credit Card Number, Payment Due Date, Total Amount Due, Minimum Amount Due
 # motivation: real-world validation sweep for credit-card classifier evidence, PM-requested

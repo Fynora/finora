@@ -681,7 +681,14 @@ public class PdfPreviewGenerator {
      * classification of the SECOND section, run the identical way {@link #buildSections} will run
      * it for real, must also come back exactly {@link FinancialProductType#UNKNOWN} -- a section
      * that already classifies as something else (a genuinely separate, distinct account) is never
-     * absorbed. Running the real, same-signature classification twice for a merge candidate (once
+     * absorbed. A fragment whose trial classification lands on the SAME product as the first
+     * section but cannot prove it (UNPROVEN, below the validation bar) is absorbed too: measured on
+     * the same real HDFC composite once page boilerplate stopped being merged into the schedule's
+     * last row (see PdfTableLocator's TRAILING_REFUSED_BEHIND_LEADING_BUFFER), the schedule's own
+     * auxiliary text picked up an interest mention, its standalone score rose from 50% (UNKNOWN)
+     * to 66% (RECURRING_DEPOSIT, unproven), and the strict UNKNOWN test then left it standing as a
+     * phantom fourth section -- same product, no identity of its own, and still not an account.
+     * Running the real, same-signature classification twice for a merge candidate (once
      * here to decide, once again inside {@code buildSections} on whatever the pre-pass leaves
      * behind) is redundant work, not redundant risk: both calls are pure functions of the same
      * evidence, so the second call simply confirms what the first already found.
@@ -729,7 +736,8 @@ public class PdfPreviewGenerator {
 
         ProductDiscovery.DiscoveredProduct second =
                 classifySectionAlone(sections.get(index + 1), index + 1, sectionCount);
-        return second.type() == FinancialProductType.UNKNOWN;
+        if (second.type() == FinancialProductType.UNKNOWN) return true;
+        return second.type() == first.type() && !second.validation().isValidated();
     }
 
     /**

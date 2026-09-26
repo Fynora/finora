@@ -1879,6 +1879,72 @@ public class PdfTableLocator {
                 // crossing a header/section boundary above.
                 boolean samePage = lastRowPage != null && !row.isEmpty() && row.get(0).pageIndex() == lastRowPage;
 
+                // The shape of a trailing continuation, evaluated once so the page gate below
+                // can also report when it -- and it alone -- refused a row of this shape.
+                boolean trailingShape =
+                        // Explicit currentRows.isEmpty() guard, found via a real corpus crash: with
+                        // TWO+ consecutive narration-only lines before the first anchor, the first
+                        // one's own leading-narration bookkeeping already sets lastRowPage/lastRowY
+                        // (the same fields every branch here updates), which makes samePage true for
+                        // the second one even though currentRows is still genuinely empty --
+                        // crashing this branch's own currentRows.get(currentRows.size() - 1) on an
+                        // empty list. "Trailing continuation" only means anything once something
+                        // real exists to trail from.
+                        (continuesTheBlock(row, lastRowY, blockPitch, blockSeparation,
+                                    trailingCountSinceLastAnchor)
+                            || isChequeReferenceTrailer(rowLine)
+                            || (isNarrationOnly(bucketed)
+                                    // A narration-only row is placed by WHERE IT IS PRINTED, not
+                                    // by how many came before it. belongsToTheRowAbove was already
+                                    // computed and already wired in here, but it sat behind the
+                                    // count cap and so could never be reached on the documents
+                                    // that need it most: a layout whose lines are all set on one
+                                    // uniform pitch gives continuesTheBlock's separatesItsBlocks
+                                    // guard nothing to work with, which left the constant 2 as the
+                                    // only rule in force. Measured, a real HDFC savings statement
+                                    // sets EVERY line 17.20pt apart and wraps a third and fourth
+                                    // narration line on half its transactions; the over-cap lines
+                                    // were buffered forward, refused, and staged as their own
+                                    // dateless rows -- each one a narration truncated mid-word
+                                    // above it and an unparseable row below it.
+                                    //
+                                    // The count cap is kept for the OTHER sub-branch, and that is
+                                    // the important half of this condition: a dateless row that
+                                    // carries a figure is not narration, and proximity has no
+                                    // business moving it (see isNarrationOnly's own doc comment for
+                                    // the two real rows that changed value when it was allowed to).
+                                    // One real corpus statement prints every transaction with a
+                                    // second, genuinely dateless line carrying its reference,
+                                    // amounts and balance -- that row must keep the count cap.
+                                    //
+                                    // MAX_BLOCK_CONTINUATION_ROWS, not unbounded, for the reason
+                                    // its own doc comment already gives: a ceiling against
+                                    // pathology, not a model of narration.
+                                    ? (belongsToTheRowAbove(gapFromPreviousRow, gapToNextRow)
+                                        && (trailingCountSinceLastAnchor < MAX_TRAILING_CONTINUATION_ROWS
+                                            // Past the count cap, and ONLY past it, the row must also
+                                            // start where this block's own narration starts. Within
+                                            // the cap nothing changes -- the first continuation is
+                                            // what TEACHES the block its left edge, so requiring the
+                                            // edge before it is known would refuse every block's
+                                            // first line and the edge would never be learned at all.
+                                            // anchorCarriedItsOwnNarration is what makes the
+                                            // left-edge test safe. On a statement that prints a
+                                            // transaction's narration BEFORE its date row, the next
+                                            // transaction's leading narration is printed in the same
+                                            // column, at the same left edge, at the same pitch as
+                                            // this transaction's trailing narration -- the three
+                                            // signals are identical and no geometry separates them.
+                                            // The count cap is the only thing that ever did, and on
+                                            // such a document it stays in force. Where the anchor
+                                            // carries its own narration there is no leading-narration
+                                            // ambiguity to begin with: every dateless row after it
+                                            // continues the cell that started on the anchor row.
+                                            || (anchorCarriedItsOwnNarration
+                                                && alignsWithTheBlocksNarration(row, blockNarrationLeftX)
+                                                && trailingCountSinceLastAnchor < MAX_ALIGNED_CONTINUATION_ROWS)))
+                                    : trailingCountSinceLastAnchor < MAX_TRAILING_CONTINUATION_ROWS));
+
                 // SAME_DAY_CONTINUATION_TRANSACTION. The date-anchor model above assumes every real
                 // transaction prints its own date value -- true everywhere else in this class, false
                 // on a real HSBC savings statement (OCR-acquired, but the mechanism is generic to any
@@ -2108,69 +2174,22 @@ public class PdfTableLocator {
                     blockSeparation = null;
                     blockNarrationLeftX = null;
                     trailingCountSinceLastAnchor = MAX_TRAILING_CONTINUATION_ROWS;
-                } else if (!currentRows.isEmpty() && samePage
-                        // Explicit currentRows.isEmpty() guard, found via a real corpus crash: with
-                        // TWO+ consecutive narration-only lines before the first anchor, the first
-                        // one's own leading-narration bookkeeping already sets lastRowPage/lastRowY
-                        // (the same fields every branch here updates), which makes samePage true for
-                        // the second one even though currentRows is still genuinely empty --
-                        // crashing this branch's own currentRows.get(currentRows.size() - 1) on an
-                        // empty list. "Trailing continuation" only means anything once something
-                        // real exists to trail from.
-                        && (continuesTheBlock(row, lastRowY, blockPitch, blockSeparation,
-                                    trailingCountSinceLastAnchor)
-                            || isChequeReferenceTrailer(rowLine)
-                            || (isNarrationOnly(bucketed)
-                                    // A narration-only row is placed by WHERE IT IS PRINTED, not
-                                    // by how many came before it. belongsToTheRowAbove was already
-                                    // computed and already wired in here, but it sat behind the
-                                    // count cap and so could never be reached on the documents
-                                    // that need it most: a layout whose lines are all set on one
-                                    // uniform pitch gives continuesTheBlock's separatesItsBlocks
-                                    // guard nothing to work with, which left the constant 2 as the
-                                    // only rule in force. Measured, a real HDFC savings statement
-                                    // sets EVERY line 17.20pt apart and wraps a third and fourth
-                                    // narration line on half its transactions; the over-cap lines
-                                    // were buffered forward, refused, and staged as their own
-                                    // dateless rows -- each one a narration truncated mid-word
-                                    // above it and an unparseable row below it.
-                                    //
-                                    // The count cap is kept for the OTHER sub-branch, and that is
-                                    // the important half of this condition: a dateless row that
-                                    // carries a figure is not narration, and proximity has no
-                                    // business moving it (see isNarrationOnly's own doc comment for
-                                    // the two real rows that changed value when it was allowed to).
-                                    // One real corpus statement prints every transaction with a
-                                    // second, genuinely dateless line carrying its reference,
-                                    // amounts and balance -- that row must keep the count cap.
-                                    //
-                                    // MAX_BLOCK_CONTINUATION_ROWS, not unbounded, for the reason
-                                    // its own doc comment already gives: a ceiling against
-                                    // pathology, not a model of narration.
-                                    ? (belongsToTheRowAbove(gapFromPreviousRow, gapToNextRow)
-                                        && (trailingCountSinceLastAnchor < MAX_TRAILING_CONTINUATION_ROWS
-                                            // Past the count cap, and ONLY past it, the row must also
-                                            // start where this block's own narration starts. Within
-                                            // the cap nothing changes -- the first continuation is
-                                            // what TEACHES the block its left edge, so requiring the
-                                            // edge before it is known would refuse every block's
-                                            // first line and the edge would never be learned at all.
-                                            // anchorCarriedItsOwnNarration is what makes the
-                                            // left-edge test safe. On a statement that prints a
-                                            // transaction's narration BEFORE its date row, the next
-                                            // transaction's leading narration is printed in the same
-                                            // column, at the same left edge, at the same pitch as
-                                            // this transaction's trailing narration -- the three
-                                            // signals are identical and no geometry separates them.
-                                            // The count cap is the only thing that ever did, and on
-                                            // such a document it stays in force. Where the anchor
-                                            // carries its own narration there is no leading-narration
-                                            // ambiguity to begin with: every dateless row after it
-                                            // continues the cell that started on the anchor row.
-                                            || (anchorCarriedItsOwnNarration
-                                                && alignsWithTheBlocksNarration(row, blockNarrationLeftX)
-                                                && trailingCountSinceLastAnchor < MAX_ALIGNED_CONTINUATION_ROWS)))
-                                    : trailingCountSinceLastAnchor < MAX_TRAILING_CONTINUATION_ROWS))) {
+                } else if (!currentRows.isEmpty() && samePage && pendingLeading == null && trailingShape) {
+                    // TRAILING_REFUSED_BEHIND_LEADING_BUFFER (the pendingLeading == null gate):
+                    // once a dateless line has been buffered as the NEXT transaction's leading
+                    // narration, no line printed below it can be this transaction's trailing
+                    // continuation -- text does not interleave. Traced on a real Canara Bank
+                    // statement, in two variants with one root: (1) across a page break, the next
+                    // transaction's first line was refused here (different page) and buffered,
+                    // which moved lastRowPage to the new page; its second line then passed samePage,
+                    // the count cap still had room, the spacing was a tie, and it was merged into
+                    // the previous page's transaction. (2) On one page, the first line sat visibly
+                    // nearer the transaction below (buffered by proximity) and the second line, at
+                    // the leading pitch, tied and was merged above. Either way the transaction
+                    // above ended with a fragment of the next one's address, and the next one
+                    // lost its second line. Where buffered lines really did belong above, the
+                    // buffer split below (LEADING_BUFFER_SPLIT_AT_ITS_OWN_BOUNDARY) is the one
+                    // route back, and it moves the whole buffer in order.
                     // The pitch this block prints its own wrapped lines at, learned from the first
                     // one and never revised -- so a later line that breaks the pitch cannot quietly
                     // redefine it and chain the whole page together (see BLOCK_PITCH_TOLERANCE).
@@ -2215,6 +2234,14 @@ public class PdfTableLocator {
                     // footer or repeated title banner (which must never cross a page boundary into
                     // the wrong row), genuine leading narration legitimately can span a page break
                     // -- verified against the real Canara statement this capability is modeled on.
+                    //
+                    // TRAILING_REFUSED_BEHIND_LEADING_BUFFER: recorded only when the open leading
+                    // buffer is the ONE thing that refused this row as a trailing continuation --
+                    // same page, trailing shape, and a line already buffered for the next anchor.
+                    // See the trailing branch's own comment for the two real-document variants.
+                    if (ctx != null && !currentRows.isEmpty() && samePage && pendingLeading != null && trailingShape) {
+                        ctx.record("TRAILING_REFUSED_BEHIND_LEADING_BUFFER");
+                    }
                     if (leadingCount >= MAX_LEADING_CONTINUATION_ROWS) {
                         // Past the point where "leading narration" is a credible explanation. A
                         // dozen consecutive rows with no date does not mean one very wordy

@@ -246,7 +246,16 @@ class SplitHeaderRunsPdfTableLocatorTest {
         // PHANTOM transaction (no real date, but its aggregate debit/credit totals landed in real
         // amount columns), which is exactly the one row each count drops. See
         // theRowsThemselvesAreUnchangedInNumber below for the full before/after content.
-        List<Integer> expected = List.of(241, 359, 8);
+        // hdfc-savings-ledger-validation moved 241 -> 243 when TRAILING_REFUSED_BEHIND_LEADING_BUFFER
+        // was added: the last transaction on each page used to absorb the page footer ("*Closing
+        // balance includes...", the bank's registered-address block) as trailing continuation
+        // text, and on two of those rows the footer's words landed in the Deposit Amt. cell while
+        // the row's own withdrawal (a second physical line) never reached it. Individually
+        // confirmed on the trace: the two rows that now count carry their real Withdrawal Amt.
+        // and Value Dt, and every other last-row-of-page lost only footer text -- no row was
+        // added or removed. hdfc-savings-multi-page-ledger moved 359 -> 360 the same way, one
+        // last-row-of-page regaining its withdrawal (row count 397 before and after).
+        List<Integer> expected = List.of(243, 360, 8);
         String[] transactionAmountColumns = {"withdrawal amt", "deposit amt", "amount", "debit",
                 "credit", "deposit", "withdrawal", "deposits", "withdrawals"};
 

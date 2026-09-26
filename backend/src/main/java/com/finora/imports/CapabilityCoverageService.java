@@ -72,6 +72,11 @@ public class CapabilityCoverageService {
             // above: the bank printed the date once for a run of same-day transactions (a real
             // Standard Chartered export). See PdfTableLocator.inheritDittoDate.
             "DITTO_DATE_INHERITED",
+            // A trailing-shaped dateless line refused as a continuation because a line above it
+            // is already buffered as the next transaction's leading narration: text does not
+            // interleave. Traced on a real Canara Bank statement, across a page break and on one
+            // page by proximity. See PdfTableLocator's trailing branch (pendingLeading == null).
+            "TRAILING_REFUSED_BEHIND_LEADING_BUFFER",
             "GRID_METADATA_FALLBACK", "GRID_METADATA_TRAILING_LABEL",
             "LEADING_NAME_LINE", "LEADING_NARRATION_CONTINUATION",
             "FINANCIAL_PRODUCT_CLASSIFICATION",

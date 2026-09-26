@@ -832,6 +832,20 @@ public final class PdfFixtureBuilder {
         return render(List.of(page));
     }
 
+    /** A savings ledger whose narrations wrap by width through a UPI handle and after a field
+     *  separator -- the two wrap shapes that hold on any bank (plan 4, NarrationLineBreaks). */
+    public static byte[] buildLedgerWithNarrationsWrappedThroughIdentifiersSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 130f, 380f, 470f};
+        PageBuilder page = new PageBuilder();
+        page.line("Sample Bank Savings Account Statement")
+                .row(col, "Date", "Narration", "Withdrawal", "Balance")
+                .row(col, "01/07/2026", "UPI-SAMPLE STORE-900000001@", "100.00", "900.00")
+                .row(col, null, "okaxis-UPI", null, null)
+                .row(col, "02/07/2026", "NEFT-", "200.00", "700.00")
+                .row(col, null, "100000000001-SAMPLE PAYEE", null, null);
+        return render(List.of(page));
+    }
+
     /** A card statement that prints "OPENING BALANCE" in its summary -- the previous statement's
      *  dues on a real HSBC card, not a ledger opening balance. */
     public static byte[] buildCardStatementWithPrintedOpeningBalanceSample() throws IOException {

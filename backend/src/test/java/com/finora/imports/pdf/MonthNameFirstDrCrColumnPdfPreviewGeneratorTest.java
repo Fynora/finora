@@ -136,8 +136,12 @@ class MonthNameFirstDrCrColumnPdfPreviewGeneratorTest {
         // were printed under, in the order they were printed.
         StagingResponse response = generate();
 
+        // The two later breaks rejoin without a space (NarrationLineBreaks): a line ending in the
+        // field separator '/' followed by a token carrying '@' or a digit is one UPI narration field
+        // cut by the wrap, and a UPI narration prints its fields with no spaces around '/'. The first
+        // break is followed by a plain name, which carries no such evidence, so it keeps its space.
         assertThat(rowDated(response, LocalDate.of(2026, 8, 22)).description())
-                .isEqualTo("UPI/DR/D100000000001/ Generic Merchant/abc/ merchant@abc/UPI/ "
+                .isEqualTo("UPI/DR/D100000000001/ Generic Merchant/abc/merchant@abc/UPI/"
                         + "ABC000000000000000000000000000001");
     }
 }

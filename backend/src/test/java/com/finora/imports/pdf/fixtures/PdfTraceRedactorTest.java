@@ -44,9 +44,26 @@ class PdfTraceRedactorTest {
             "RTGS/NEFT IFSC : HDFC0XXXXXX",
             "Opening Balance Debit Amount Credit Amount Closing Balance",
             "0.00 538.00 25,000.00 24,462.00",
+            // Named-month dates with spaces (a real card statement's rows, a real savings export's
+            // Date/Value Date cells) -- preserved whole, or every date row loses its anchor.
+            "06 Jul 26 XXXXXXXX 1,234.00 Cr",
+            "May 04 May 03 UPI 999999999999",
+            "16 February 2026",
     })
     void statementStructureSurvivesUntouched(String structuralLine) {
         assertThat(redact(structuralLine)).isEqualTo(structuralLine);
+    }
+
+    @Test
+    void aSpacedNamedMonthDate_keepsOnlyTheDate_andMasksTheNarrationAroundIt() {
+        assertThat(redact("06 Jul 26 SAMPLE ZORBLAT 000000000001 1,234.00 Cr"))
+                .isEqualTo("06 Jul 26 XXXXXX XXXXXXX 999999999999 1,234.00 Cr");
+        // A month name with no day number beside it is an ordinary word and is still masked.
+        assertThat(redact("Mayfair Stores")).isEqualTo("Xxxxxxx Xxxxxx");
+        assertThat(redact("May Flowers")).isEqualTo("Xxx Xxxxxxx");
+        // A word that merely begins with a month abbreviation is not a month.
+        assertThat(redact("Martin 12 Marketing")).isEqualTo("Xxxxxx 99 Xxxxxxxxx");
+        assertThat(redact("12 Marketing")).isEqualTo("99 Xxxxxxxxx");
     }
 
     @Test

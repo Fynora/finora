@@ -1239,6 +1239,7 @@ public class PdfTableLocator {
         // first transaction's reference on every page was refused as its trailing line and
         // prepended to the transaction after it.
         boolean pageRepeatSinceLastAnchor = false;
+        Integer lastAnchorPage = null; // page index of the most recent anchor admission in currentRows
         // TRAILING_CONTENT_SUPPRESSED (ILLUSTRATIVE_BLOCK_SUPPRESSED / TRANSACTION_TABLE_CLOSED).
         // One-way: once either trigger below is seen, every row for the REST OF THE DOCUMENT is
         // treated the same as today's dateless no-header-found rows -- folded into
@@ -1393,7 +1394,24 @@ public class PdfTableLocator {
                     // -- the same footer text, cut into more pieces. Auxiliary is where page
                     // furniture already goes (see the abandoned-rows branch and the page-footer
                     // block), and PdfMetadataExtractor still reads it.
-                    if (currentRows != null && pendingLeading != null) {
+                    //
+                    // A repeat printed on the last anchor's own page, with nothing waiting in the
+                    // leading buffer, is mid-table: nothing ended there, the trail of the row above
+                    // is still open and a line after it is read by the ordinary geometry. Without
+                    // this check such a repeat handed the row's wrapped tail, and the next
+                    // transaction's own narration line, to a dateless leftover row
+                    // (RepeatedBannerLeadingNarrationPdfTableLocatorTest). A repeat on a later page
+                    // is page-top furniture as before. So is a same-page repeat that arrives with
+                    // text already buffered: the table has stopped producing rows before it.
+                    // Measured on the real Bank of Baroda trace, whose closing block prints a legend
+                    // and then a nominee line carrying the account number on the last transaction's
+                    // page -- gated on the page alone, that legend stayed in the buffer and staged
+                    // as row text instead of going to auxiliary (the golden snapshot caught it). No
+                    // document in the real corpus prints a repeat mid-table; that half of the gate
+                    // is exercised synthetically.
+                    boolean pageTopRepeat = currentRows != null
+                            && (pendingLeading != null || lastAnchorPage == null || lastAnchorPage != rowPageIndex);
+                    if (pageTopRepeat && pendingLeading != null) {
                         pendingAuxiliary.add(String.join(" ", pendingLeading.values()));
                         pendingLeading = null;
                         pendingLeadingFromProximity = false;
@@ -1407,7 +1425,7 @@ public class PdfTableLocator {
                     // trailing count is deliberately left alone: the leading branch reads it to
                     // decide whether a line sits nearer the transaction below, and the first
                     // narration line after the repeat must still be read that way.
-                    if (currentRows != null) pageRepeatSinceLastAnchor = true;
+                    if (pageTopRepeat) pageRepeatSinceLastAnchor = true;
                     // Row-accounting evidence: this line is about to be discarded with NO other
                     // trace at all (unlike the "different account" path below, whose banner line
                     // survives into the new section's own auxiliary text) -- the one case in this
@@ -1452,6 +1470,7 @@ public class PdfTableLocator {
                 currentHeaderSignature = null;
                 currentSectionAccountId = markerAccountId;
                 lastRowPage = null;
+                lastAnchorPage = null;
                 lastRowY = null;
                 blockPitch = null;
                 blockSeparation = null;
@@ -1500,7 +1519,24 @@ public class PdfTableLocator {
                     // -- the same footer text, cut into more pieces. Auxiliary is where page
                     // furniture already goes (see the abandoned-rows branch and the page-footer
                     // block), and PdfMetadataExtractor still reads it.
-                    if (currentRows != null && pendingLeading != null) {
+                    //
+                    // A repeat printed on the last anchor's own page, with nothing waiting in the
+                    // leading buffer, is mid-table: nothing ended there, the trail of the row above
+                    // is still open and a line after it is read by the ordinary geometry. Without
+                    // this check such a repeat handed the row's wrapped tail, and the next
+                    // transaction's own narration line, to a dateless leftover row
+                    // (RepeatedBannerLeadingNarrationPdfTableLocatorTest). A repeat on a later page
+                    // is page-top furniture as before. So is a same-page repeat that arrives with
+                    // text already buffered: the table has stopped producing rows before it.
+                    // Measured on the real Bank of Baroda trace, whose closing block prints a legend
+                    // and then a nominee line carrying the account number on the last transaction's
+                    // page -- gated on the page alone, that legend stayed in the buffer and staged
+                    // as row text instead of going to auxiliary (the golden snapshot caught it). No
+                    // document in the real corpus prints a repeat mid-table; that half of the gate
+                    // is exercised synthetically.
+                    boolean pageTopRepeat = currentRows != null
+                            && (pendingLeading != null || lastAnchorPage == null || lastAnchorPage != rowPageIndex);
+                    if (pageTopRepeat && pendingLeading != null) {
                         pendingAuxiliary.add(String.join(" ", pendingLeading.values()));
                         pendingLeading = null;
                         pendingLeadingFromProximity = false;
@@ -1514,7 +1550,7 @@ public class PdfTableLocator {
                     // trailing count is deliberately left alone: the leading branch reads it to
                     // decide whether a line sits nearer the transaction below, and the first
                     // narration line after the repeat must still be read that way.
-                    if (currentRows != null) pageRepeatSinceLastAnchor = true;
+                    if (pageTopRepeat) pageRepeatSinceLastAnchor = true;
                     // Reconfirming the section's own id clears any stale mismatch an EARLIER,
                     // different-looking identity line left pending (e.g. a stray misread digit
                     // run) -- found by adversarial review. Left set, a same-shaped header right
@@ -1811,6 +1847,7 @@ public class PdfTableLocator {
                 // The one place currentRows is ever created, so the one place this pairing is made.
                 pendingSectionHeaderRowIndex = thisHeaderRowIndex;
                 lastRowPage = null;
+                lastAnchorPage = null;
                 lastRowY = null;
                 blockPitch = null;
                 blockSeparation = null;
@@ -2171,12 +2208,14 @@ public class PdfTableLocator {
                     // more split and never a chain.
                     trailingCountSinceLastAnchor = closesOnBalance ? 0 : trailingCountSinceLastAnchor + 1;
                     pageRepeatSinceLastAnchor = false;
+                    lastAnchorPage = rowPageIndex;
                 } else if (hasDateValue(bucketed, yearsByPage.getOrDefault(rowPageIndex, PageDateEvidence.NONE))) {
                     // DITTO_DATE_INHERITED. Before anything else touches this row: a blank posting
                     // Date beside a printed Value Date is the bank's "ditto" for the date of the row
                     // above, and it is filled in here, first, so that the leading-narration prepend
                     // below sees an already-valid date it must not overwrite. See inheritDittoDate.
-                    if (inheritDittoDate(bucketed, currentRows, headerNames) && ctx != null) {
+                    if (inheritDittoDate(bucketed, currentRows, headerNames,
+                            yearsByPage.getOrDefault(rowPageIndex, PageDateEvidence.NONE)) && ctx != null) {
                         ctx.record("DITTO_DATE_INHERITED");
                     }
                     // Read BEFORE any leading narration is merged in: the question is whether this
@@ -2217,6 +2256,7 @@ public class PdfTableLocator {
                     blockNarrationLeftX = null;
                     trailingCountSinceLastAnchor = 0;
                     pageRepeatSinceLastAnchor = false;
+                    lastAnchorPage = rowPageIndex;
                 } else if (currentRows.isEmpty() && (!isNarrationOnly(bucketed)
                         // A row that populates MORE THAN ONE column, even carrying no date/number
                         // value of its own, reads as a genuine structured summary/identity row (a
@@ -2294,6 +2334,7 @@ public class PdfTableLocator {
                     blockNarrationLeftX = null;
                     trailingCountSinceLastAnchor = MAX_TRAILING_CONTINUATION_ROWS;
                     pageRepeatSinceLastAnchor = false;
+                    lastAnchorPage = rowPageIndex;
                 } else if (!currentRows.isEmpty() && samePage && pendingLeading == null
                         && !pageRepeatSinceLastAnchor && trailingShape) {
                     // TRAILING_REFUSED_BEHIND_LEADING_BUFFER (the pendingLeading == null gate):
@@ -5967,9 +6008,19 @@ public class PdfTableLocator {
      * cell, and only when it holds a parseable date -- the first row of a table, or one under a
      * row whose date is itself missing, is left exactly as before (the normalizer still falls
      * back to its value date). Returns true when a date was written.
+     *
+     * <p>A Date cell that holds text is treated as blank when no token of that text is a date: a
+     * wrapped narration run whose x lands nearest the Date anchor buckets there (the same
+     * mis-bucketing mergeInto redirects for continuation lines), and the row is still admitted on
+     * its Value Date. Left alone, the fragment reached the normalizer as the row's "date" and the
+     * transaction was dropped. The fragment is moved to the front of the description cell -- it
+     * was printed left of the description text -- and the date is inherited as above. A cell
+     * holding ANY date token (the row's own date, even with stray text beside it) is never
+     * overwritten. No document in the real corpus prints this shape; the rule is bounded by the
+     * same three preconditions as the blank case and exercised synthetically.
      */
     private boolean inheritDittoDate(Map<String, String> bucketed, List<Map<String, String>> currentRows,
-                                     List<String> headerNames) {
+                                     List<String> headerNames, PageDateEvidence candidateYears) {
         if (headerNames == null || currentRows == null || currentRows.isEmpty()) return false;
         String dateColumn = null, valueDateColumn = null;
         for (String column : headerNames) {
@@ -5978,11 +6029,19 @@ public class PdfTableLocator {
         }
         if (dateColumn == null || valueDateColumn == null) return false;
         String own = bucketed.get(dateColumn);
-        if (own != null && !own.isBlank()) return false;
+        boolean ownHoldsText = own != null && !own.isBlank();
+        if (ownHoldsText && cellHoldsADateToken(own, candidateYears)) return false;
         String valueDate = bucketed.get(valueDateColumn);
         if (valueDate == null || valueDate.isBlank()) return false;
         String above = currentRows.get(currentRows.size() - 1).get(dateColumn);
         if (above == null || above.isBlank() || CsvParser.parseDate(above.trim()) == null) return false;
+        if (ownHoldsText) {
+            String keep = descriptionColumnIn(bucketed, headerNames);
+            if (keep == null) keep = firstUnstructuredColumn(bucketed, headerNames);
+            if (keep == null) return false;   // nowhere to keep the fragment: the row is left untouched
+            String existing = bucketed.get(keep);
+            bucketed.put(keep, existing == null || existing.isBlank() ? own.trim() : own.trim() + " " + existing);
+        }
         bucketed.put(dateColumn, above);
         return true;
     }
@@ -5993,8 +6052,26 @@ public class PdfTableLocator {
             if (!isDateColumn(column)) continue;
             String value = bucketed.get(column);
             if (value == null || value.isBlank()) continue;
-            for (String token : value.trim().split("\\s+")) {
-                if (CsvParser.parseDate(token) != null) return true;
+            if (cellHoldsADateToken(value, PageDateEvidence.NONE)) return true;
+        }
+        return false;
+    }
+
+    /** True when the whole cell, or any span of up to three consecutive whitespace-separated
+     *  tokens of it, parses as a date -- with a year, or yearless against the page's own year
+     *  evidence. Three tokens because a spelled-out date ("05 May 2026") is three words; a
+     *  single-token check saw only "05", "May", "2026" and missed it. */
+    private boolean cellHoldsADateToken(String value, PageDateEvidence candidateYears) {
+        String whole = value.trim();
+        if (CsvParser.parseDate(whole) != null || resolveYearlessDate(whole, candidateYears) != null) return true;
+        String[] tokens = whole.split("\\s+");
+        for (int start = 0; start < tokens.length; start++) {
+            StringBuilder span = new StringBuilder();
+            for (int end = start; end < tokens.length && end < start + 3; end++) {
+                if (end > start) span.append(' ');
+                span.append(tokens[end]);
+                String candidate = span.toString();
+                if (CsvParser.parseDate(candidate) != null || resolveYearlessDate(candidate, candidateYears) != null) return true;
             }
         }
         return false;

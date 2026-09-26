@@ -1,0 +1,15 @@
+trace: savings-ditto-posting-date-beside-value-date
+sections: 1
+
+[section 0]
+  columns: [Value Date, Balance]
+  rows: 183
+  auxLines: 121
+  accountNumberMasked: ••••9999
+  accountHolderName: null
+  ifscCode: SCBL0XXXXXX   MICR
+  statementPeriod: null .. null
+  product: UNKNOWN (53%, UNIDENTIFIED)
+  mayCreateAutomatically: false
+
+capabilities: [DITTO_DATE_INHERITED, LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER, LEADING_BUFFER_SPLIT_AT_ITS_OWN_BOUNDARY, LEADING_NARRATION_CONTINUATION, OFFSET_COLUMN_ANCHORS, PAGE_BOUNDARY_ISOLATION, REPEATED_ACCOUNT_BANNER, REPEATED_HEADER, SAME_DAY_CONTINUATION_TRANSACTION, WRAPPED_DESCRIPTION, WRAPPED_DESCRIPTION_BEYOND_COUNT_CAP, WRAPPED_HEADER]

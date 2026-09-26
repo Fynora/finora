@@ -1,5 +1,7 @@
 package com.finora.imports.pdf;
 
+import com.finora.imports.DocumentContext;
+
 import com.finora.imports.TestAccountRepositories;
 
 import com.finora.dto.ImportDto.StagingResponse;
@@ -81,18 +83,23 @@ class ParenthesizedDrCrRunningBalancePdfPreviewGeneratorTest {
     }
 
     @Test
-    void generate_surfacesTheTitleBannerAsUnparseable_ratherThanSilentlyDroppingIt() throws Exception {
+    void generate_keepsTheTitleBannerAsAuxiliaryText_ratherThanSilentlyDroppingIt() throws Exception {
         // "Never lose information" (see the engineering principles doc): the page-2 title banner
         // ("Savings Account," no date, no amount) correctly never becomes a staged transaction --
-        // but it also isn't just gone. It shows up here, with a specific, actionable reason, not
-        // merely absent from the row count the way it would have been before this capability.
+        // but it also isn't just gone. Until LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER it surfaced
+        // as an unparseable row ("didn't match any known date format"); a page banner is not a row
+        // the user should be asked to look at, so it is now the section's auxiliary text, where
+        // PdfMetadataExtractor and product discovery still read it. It is nowhere in the rows.
         StagingResponse response = generate();
+        assertThat(response.unparseableRows()).noneMatch(r -> "Savings Account".equals(r.raw().get("Date")));
 
-        assertThat(response.unparseableRows()).isNotEmpty();
-        var banner = response.unparseableRows().stream()
-                .filter(r -> "Savings Account".equals(r.raw().get("Date")))
-                .findFirst().orElseThrow();
-        assertThat(banner.reason()).contains("didn't match any known date format");
+        PdfTableLocator.LocatedDocument located = new PdfTableLocator().locateAll(
+                new PdfTextExtractor().extract(PdfFixtureBuilder.buildParenthesizedDrCrRunningBalanceSample()),
+                new DocumentContext("PDF", "test"));
+        assertThat(located.sections()).hasSize(1);
+        assertThat(located.sections().get(0).auxiliaryText())
+                .as("the banner is kept as the section's own auxiliary text")
+                .anyMatch(line -> line.contains("Savings Account"));
     }
 
     @Test

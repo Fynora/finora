@@ -336,7 +336,9 @@ class SplitHeaderRunsPdfTableLocatorTest {
         // 110, not 111: TRANSACTION_TABLE_CLOSED (PdfTableLocator.STATEMENT_CLOSING_MARKER) now
         // stops bucketing at this trace's own "*** End of Statement ***" line, one row earlier than
         // before -- see docs/architecture/system-design/transaction-boundary-phase2a-investigation.md.
-        assertThat(doc.sections().get(0).rows()).hasSize(110);
+        // 109, not 110, since LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER moved one page-furniture
+        // line from a dateless row to auxiliary text (dated rows verified identical).
+        assertThat(doc.sections().get(0).rows()).hasSize(109);
         assertThat(doc.sections().stream().flatMap(s -> s.rows().stream())
                 .flatMap(r -> r.keySet().stream()).distinct())
                 .as("no column named out of a fine-print sentence")
@@ -364,7 +366,7 @@ class SplitHeaderRunsPdfTableLocatorTest {
         PdfTableLocator.LocatedDocument composite = new PdfTableLocator()
                 .locateAll(PdfTrace.load("hdfc-composite-deposit-schedules"), ctx);
         assertThat(composite.sections()).hasSize(4);
-        assertThat(composite.sections().get(0).rows()).hasSize(84);
+        assertThat(composite.sections().get(0).rows()).hasSize(77); // 84 before LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER, see corpus() below
         assertThat(ctx.capabilities()).extracting("capability").contains("WRAPPED_HEADER");
     }
 
@@ -444,9 +446,14 @@ class SplitHeaderRunsPdfTableLocatorTest {
                 // dropped section was a misdetected payment-summary panel, not fine print. 110, not
                 // 111, since TRANSACTION_TABLE_CLOSED (STATEMENT_CLOSING_MARKER) started stopping at
                 // this trace's own "*** End of Statement ***" line.
-                Map.entry("axis-credit-card-statement", List.of(1, 110)),
-                Map.entry("bob-repeated-account-banner", List.of(1, 58)),
-                Map.entry("bob-savings-ledger-validation", List.of(1, 58)),
+                // LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER: page furniture buffered before a
+                // repeated banner/header is auxiliary text, not a dateless row -- Axis 110 -> 109,
+                // BOB 58 -> 56, the HDFC composite's ledger 84 -> 77, Union Bank 20 -> 19. Dated
+                // rows verified identical on every trace except the two BOB ones, where two
+                // transactions regain the narration line their page break had cost them.
+                Map.entry("axis-credit-card-statement", List.of(1, 109)),
+                Map.entry("bob-repeated-account-banner", List.of(1, 56)),
+                Map.entry("bob-savings-ledger-validation", List.of(1, 56)),
                 // 61, not 60: SAME_DAY_CONTINUATION_TRANSACTION now recognizes this trace's dateless
                 // "Closing Balance" marker (it restates the last transaction's own balance, same
                 // shape as the "Opening Balance" row already at row 0) as its own row instead of
@@ -458,7 +465,7 @@ class SplitHeaderRunsPdfTableLocatorTest {
                 // WrappedHeaderOnAScoringLinePdfTableLocatorTest. Every other entry here is
                 // untouched by both fixes.
                 Map.entry("central-bank-savings-ledger-validation", List.of(1, 223)),
-                Map.entry("hdfc-composite-deposit-schedules", List.of(4, 84, 9, 2, 7)),
+                Map.entry("hdfc-composite-deposit-schedules", List.of(4, 77, 9, 2, 7)),
                 // 2 sections before looksLikePaymentSummaryPanel, 1 after -- same panel shape.
                 Map.entry("hdfc-credit-card-ledger-validation", List.of(1, 4)),
                 Map.entry("hdfc-txn-date-narration-header", List.of(1, 5)),
@@ -482,7 +489,7 @@ class SplitHeaderRunsPdfTableLocatorTest {
                 // 4 sections before looksLikePaymentSummaryPanel, 3 after -- one of the four was
                 // itself a payment-summary panel (see this file's other tests for the detail).
                 Map.entry("sbi-credit-card-statement", List.of(3, 1, 2, 2)),
-                Map.entry("union-bank-savings-ledger-validation", List.of(1, 20)));
+                Map.entry("union-bank-savings-ledger-validation", List.of(1, 19)));
 
         for (Map.Entry<String, List<Integer>> e : expected.entrySet()) {
             PdfTableLocator.LocatedDocument doc =

@@ -1223,6 +1223,22 @@ public class PdfTableLocator {
         // Parallel to pendingLeading: how many rows have merged into it since the last date
         // anchor. Reset wherever pendingLeading is, or the cap would leak across sections.
         int leadingCount = 0;
+        // LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER: true from a repeated per-page banner or
+        // identity line until the page's repeated table header or the next anchor, whichever
+        // comes first -- the page-top furniture zone. While set, nothing may be handed to the row
+        // above: neither by the trailing branch nor by the leading buffer's own split (which
+        // otherwise reads "buffered lines sat nearer the row above" across the page break).
+        // Measured on a real Standard Chartered export: without this, the page-top "NOMINEE
+        // REGISTERED" line was split back onto the previous page's last transaction on 36 of 37
+        // pages. Cleared at the repeated header rather than held to the next anchor because the
+        // same export, and a real HDFC composite, carry a transaction's wrapped narration across
+        // the page break UNDER the repeated header, where the ordinary geometry places it
+        // correctly; held past the header, that narration was lost to auxiliary text on 43 rows.
+        // Cleared at every anchor because a real Central Bank export prints each transaction's
+        // reference on the line under its date row: with the flag still set from the header, the
+        // first transaction's reference on every page was refused as its trailing line and
+        // prepended to the transaction after it.
+        boolean pageRepeatSinceLastAnchor = false;
         // TRAILING_CONTENT_SUPPRESSED (ILLUSTRATIVE_BLOCK_SUPPRESSED / TRANSACTION_TABLE_CLOSED).
         // One-way: once either trigger below is seen, every row for the REST OF THE DOCUMENT is
         // treated the same as today's dateless no-header-found rows -- folded into
@@ -1361,6 +1377,37 @@ public class PdfTableLocator {
                 pendingAccountIdCandidate = null;
                 if (sameAccountBannerRepeated) {
                     if (ctx != null) ctx.record("REPEATED_ACCOUNT_BANNER");
+                    // LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER: whatever was buffered as leading
+                    // narration before this per-page repeat belongs to the page that ended, never
+                    // to the first transaction printed after it. Traced on a real Bank of Baroda
+                    // statement: its page footer (page number, helplines, a URL) was buffered,
+                    // survived the repeated banner and header untouched, and the next transaction's
+                    // own narration line was appended to it; the whole buffer was then refused at
+                    // that transaction's date row and staged as one unparseable row, footer plus
+                    // narration plus reference number, leaving the transaction with a fragment.
+                    //
+                    // Kept as auxiliary text, not as a row. A dateless buffer can never stage as a
+                    // transaction; as a row it only ever surfaces as "unparseable", and measured on
+                    // a real 37-page Standard Chartered export, closing the buffer as a row at each
+                    // page's repeated banner AND repeated header turned 38 unparseable rows into 92
+                    // -- the same footer text, cut into more pieces. Auxiliary is where page
+                    // furniture already goes (see the abandoned-rows branch and the page-footer
+                    // block), and PdfMetadataExtractor still reads it.
+                    if (currentRows != null && pendingLeading != null) {
+                        pendingAuxiliary.add(String.join(" ", pendingLeading.values()));
+                        pendingLeading = null;
+                        pendingLeadingFromProximity = false;
+                        pendingLeadingAllBelongAbove = true;
+                        leadingCount = 0;
+                        if (ctx != null) ctx.record("LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER");
+                    }
+                    // The page that ended is closed for good: nothing after this repeat trails
+                    // its last transaction (the trailing branch checks this flag), and nothing
+                    // buffered from here is placed above it (the buffer split checks it too). The
+                    // trailing count is deliberately left alone: the leading branch reads it to
+                    // decide whether a line sits nearer the transaction below, and the first
+                    // narration line after the repeat must still be read that way.
+                    if (currentRows != null) pageRepeatSinceLastAnchor = true;
                     // Row-accounting evidence: this line is about to be discarded with NO other
                     // trace at all (unlike the "different account" path below, whose banner line
                     // survives into the new section's own auxiliary text) -- the one case in this
@@ -1413,6 +1460,7 @@ public class PdfTableLocator {
                 pendingLeading = null;
                 pendingLeadingFromProximity = false;
                 leadingCount = 0;
+                pageRepeatSinceLastAnchor = false;
                 pageLegendBlockActive = false;
                 pendingAuxiliary.add(rowLine);
                 continue;
@@ -1436,6 +1484,37 @@ public class PdfTableLocator {
                         && plainAccountId.equals(currentSectionAccountId);
                 if (sameAccountIdentityRepeated) {
                     if (ctx != null) ctx.record("REPEATED_ACCOUNT_BANNER");
+                    // LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER: whatever was buffered as leading
+                    // narration before this per-page repeat belongs to the page that ended, never
+                    // to the first transaction printed after it. Traced on a real Bank of Baroda
+                    // statement: its page footer (page number, helplines, a URL) was buffered,
+                    // survived the repeated banner and header untouched, and the next transaction's
+                    // own narration line was appended to it; the whole buffer was then refused at
+                    // that transaction's date row and staged as one unparseable row, footer plus
+                    // narration plus reference number, leaving the transaction with a fragment.
+                    //
+                    // Kept as auxiliary text, not as a row. A dateless buffer can never stage as a
+                    // transaction; as a row it only ever surfaces as "unparseable", and measured on
+                    // a real 37-page Standard Chartered export, closing the buffer as a row at each
+                    // page's repeated banner AND repeated header turned 38 unparseable rows into 92
+                    // -- the same footer text, cut into more pieces. Auxiliary is where page
+                    // furniture already goes (see the abandoned-rows branch and the page-footer
+                    // block), and PdfMetadataExtractor still reads it.
+                    if (currentRows != null && pendingLeading != null) {
+                        pendingAuxiliary.add(String.join(" ", pendingLeading.values()));
+                        pendingLeading = null;
+                        pendingLeadingFromProximity = false;
+                        pendingLeadingAllBelongAbove = true;
+                        leadingCount = 0;
+                        if (ctx != null) ctx.record("LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER");
+                    }
+                    // The page that ended is closed for good: nothing after this repeat trails
+                    // its last transaction (the trailing branch checks this flag), and nothing
+                    // buffered from here is placed above it (the buffer split checks it too). The
+                    // trailing count is deliberately left alone: the leading branch reads it to
+                    // decide whether a line sits nearer the transaction below, and the first
+                    // narration line after the repeat must still be read that way.
+                    if (currentRows != null) pageRepeatSinceLastAnchor = true;
                     // Reconfirming the section's own id clears any stale mismatch an EARLIER,
                     // different-looking identity line left pending (e.g. a stray misread digit
                     // run) -- found by adversarial review. Left set, a same-shaped header right
@@ -1562,6 +1641,37 @@ public class PdfTableLocator {
                 if (currentRows != null && signature.equals(currentHeaderSignature) && !identityContradicts) {
                     if (ctx != null) ctx.record("REPEATED_HEADER");
                     pageLegendBlockActive = false;
+                    // LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER: whatever was buffered as leading
+                    // narration before this per-page repeat belongs to the page that ended, never
+                    // to the first transaction printed after it. Traced on a real Bank of Baroda
+                    // statement: its page footer (page number, helplines, a URL) was buffered,
+                    // survived the repeated banner and header untouched, and the next transaction's
+                    // own narration line was appended to it; the whole buffer was then refused at
+                    // that transaction's date row and staged as one unparseable row, footer plus
+                    // narration plus reference number, leaving the transaction with a fragment.
+                    //
+                    // Kept as auxiliary text, not as a row. A dateless buffer can never stage as a
+                    // transaction; as a row it only ever surfaces as "unparseable", and measured on
+                    // a real 37-page Standard Chartered export, closing the buffer as a row at each
+                    // page's repeated banner AND repeated header turned 38 unparseable rows into 92
+                    // -- the same footer text, cut into more pieces. Auxiliary is where page
+                    // furniture already goes (see the abandoned-rows branch and the page-footer
+                    // block), and PdfMetadataExtractor still reads it.
+                    if (currentRows != null && pendingLeading != null) {
+                        pendingAuxiliary.add(String.join(" ", pendingLeading.values()));
+                        pendingLeading = null;
+                        pendingLeadingFromProximity = false;
+                        pendingLeadingAllBelongAbove = true;
+                        leadingCount = 0;
+                        if (ctx != null) ctx.record("LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER");
+                    }
+                    // The table resumes here: from this line on, a dateless line may again be the
+                    // previous page's last transaction's own wrapped continuation (a real Standard
+                    // Chartered export and a real HDFC composite both carry a narration across the
+                    // page break, under the repeated header) and the ordinary geometry decides.
+                    // Only the furniture zone between a page's repeated banner and its repeated
+                    // header is closed to the row above -- see pageRepeatSinceLastAnchor.
+                    pageRepeatSinceLastAnchor = false;
                     continue; // repeated header of the table already in progress -- not a data row
                 }
                 if (currentRows != null) {
@@ -1709,6 +1819,7 @@ public class PdfTableLocator {
                 pendingLeading = null;
                 pendingLeadingFromProximity = false;
                 leadingCount = 0;
+                pageRepeatSinceLastAnchor = false;
                 pageLegendBlockActive = false;
                 continue;
             }
@@ -1803,6 +1914,7 @@ public class PdfTableLocator {
                     pendingLeadingFromProximity = false;
                     pendingLeadingAllBelongAbove = true;
                     leadingCount = 0;
+                    pageRepeatSinceLastAnchor = false;
                 }
                 continue;
             } else if (PAGE_FOOTER.matcher(rowLine).find() || STATEMENT_CLOSING_MARKER.matcher(rowLine).find()
@@ -2039,6 +2151,7 @@ public class PdfTableLocator {
                         pendingLeadingFromProximity = false;
                         pendingLeadingAllBelongAbove = true;
                         leadingCount = 0;
+                        pageRepeatSinceLastAnchor = false;
                     }
                     mergeInto(sameDayRow, bucketed, headerNames);
                     currentRows.add(sameDayRow);
@@ -2054,6 +2167,7 @@ public class PdfTableLocator {
                     // the continuation it would otherwise have been, so it can seed at most one
                     // more split and never a chain.
                     trailingCountSinceLastAnchor = closesOnBalance ? 0 : trailingCountSinceLastAnchor + 1;
+                    pageRepeatSinceLastAnchor = false;
                 } else if (hasDateValue(bucketed, yearsByPage.getOrDefault(rowPageIndex, PageDateEvidence.NONE))) {
                     // DITTO_DATE_INHERITED. Before anything else touches this row: a blank posting
                     // Date beside a printed Value Date is the bank's "ditto" for the date of the row
@@ -2081,6 +2195,7 @@ public class PdfTableLocator {
                         pendingLeadingFromProximity = false;
                         pendingLeadingAllBelongAbove = true;
                         leadingCount = 0;
+                        pageRepeatSinceLastAnchor = false;
                     }
                     currentRows.add(bucketed);
                     // How far this anchor sits below whatever preceded it -- the document's own
@@ -2098,6 +2213,7 @@ public class PdfTableLocator {
                     blockPitch = null;
                     blockNarrationLeftX = null;
                     trailingCountSinceLastAnchor = 0;
+                    pageRepeatSinceLastAnchor = false;
                 } else if (currentRows.isEmpty() && (!isNarrationOnly(bucketed)
                         // A row that populates MORE THAN ONE column, even carrying no date/number
                         // value of its own, reads as a genuine structured summary/identity row (a
@@ -2174,7 +2290,9 @@ public class PdfTableLocator {
                     blockSeparation = null;
                     blockNarrationLeftX = null;
                     trailingCountSinceLastAnchor = MAX_TRAILING_CONTINUATION_ROWS;
-                } else if (!currentRows.isEmpty() && samePage && pendingLeading == null && trailingShape) {
+                    pageRepeatSinceLastAnchor = false;
+                } else if (!currentRows.isEmpty() && samePage && pendingLeading == null
+                        && !pageRepeatSinceLastAnchor && trailingShape) {
                     // TRAILING_REFUSED_BEHIND_LEADING_BUFFER (the pendingLeading == null gate):
                     // once a dateless line has been buffered as the NEXT transaction's leading
                     // narration, no line printed below it can be this transaction's trailing
@@ -2298,7 +2416,7 @@ public class PdfTableLocator {
                     boolean decisivelyBelongsBelow = isNarrationOnly(bucketed)
                             && !belongsToTheRowAbove(gapFromPreviousRow, gapToNextRow);
                     if (decisivelyBelongsBelow && pendingLeading != null
-                            && pendingLeadingAllBelongAbove && !currentRows.isEmpty()) {
+                            && pendingLeadingAllBelongAbove && !pageRepeatSinceLastAnchor && !currentRows.isEmpty()) {
                         appendNarrationTo(currentRows.get(currentRows.size() - 1), pendingLeading,
                                 headerNames);
                         if (ctx != null) ctx.record("LEADING_BUFFER_SPLIT_AT_ITS_OWN_BOUNDARY");

@@ -77,6 +77,11 @@ public class CapabilityCoverageService {
             // interleave. Traced on a real Canara Bank statement, across a page break and on one
             // page by proximity. See PdfTableLocator's trailing branch (pendingLeading == null).
             "TRAILING_REFUSED_BEHIND_LEADING_BUFFER",
+            // Dateless text buffered as leading narration before a repeated per-page banner or
+            // header is closed off there (kept as its own unparseable row) so the first
+            // transaction after the banner gets only its own narration. Traced on a real Bank of
+            // Baroda statement. See PdfTableLocator's REPEATED_ACCOUNT_BANNER / REPEATED_HEADER sites.
+            "LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER",
             "GRID_METADATA_FALLBACK", "GRID_METADATA_TRAILING_LABEL",
             "LEADING_NAME_LINE", "LEADING_NARRATION_CONTINUATION",
             "FINANCIAL_PRODUCT_CLASSIFICATION",

@@ -347,14 +347,21 @@ export function ReferralsScreen() {
 
       {celebratingTier && <MobileUpgradeCelebration tier={visiblePlanCode(celebratingTier)} c={c} />}
 
-      <Image
-        source={HERO_ILLUSTRATION}
-        style={{ width: '100%', aspectRatio: HERO_ASPECT_RATIO }}
-        resizeMode="contain"
-        accessibilityIgnoresInvertColors
-        accessible
-        accessibilityLabel="Two friends checking Fynora on their phones"
-      />
+      {/* aspectRatio lives on this View, not the Image: on the Image, iOS kept the PNG's
+          intrinsic 620pt height and ignored the ratio, rendering a screen-tall crop of the
+          illustration (reproduced on a simulator). A View has no intrinsic size to override
+          it, and the Image just fills the box. The frame matches the Cards below so the PNG's
+          opaque near-white background reads as a banner rather than a hard-edged slab. */}
+      <View testID="referral-hero" style={[styles.hero, { borderColor: c.border }]}>
+        <Image
+          source={HERO_ILLUSTRATION}
+          style={styles.heroImage}
+          resizeMode="cover"
+          accessibilityIgnoresInvertColors
+          accessible
+          accessibilityLabel="Two friends checking Fynora on their phones"
+        />
+      </View>
 
       <Card>
         <View style={styles.stepsRow}>
@@ -519,6 +526,13 @@ const styles = StyleSheet.create({
   content: { padding: spacing.md, paddingBottom: spacing.xl, gap: spacing.md },
 
   screenTitle: { fontSize: 28, fontWeight: '800', letterSpacing: -0.3 },
+  // backgroundColor is the illustration's own edge color, not a theme token, so the frame
+  // never shows a seam against the image while it loads or at sub-pixel edges.
+  hero: {
+    width: '100%', aspectRatio: HERO_ASPECT_RATIO,
+    borderRadius: radius.lg, borderWidth: 1, overflow: 'hidden', backgroundColor: '#FEFEFE',
+  },
+  heroImage: { width: '100%', height: '100%' },
   screenSubtitle: { fontSize: 14, marginTop: -4, lineHeight: 19 },
 
   stepsRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },

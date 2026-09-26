@@ -89,6 +89,26 @@ describe('ReferralsScreen', () => {
     }
   });
 
+  it('sizes the hero illustration from its wrapper, not the Image, so iOS cannot fall back to the PNG height', async () => {
+    // With aspectRatio on the Image itself, iOS rendered it at the PNG's intrinsic 620pt height --
+    // a screen-tall crop. The ratio must sit on the wrapping View, with the Image filling it.
+    api.mine.mockResolvedValue({
+      code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+    });
+    renderScreen();
+    await screen.findByText('ABCD1234');
+
+    const hero = StyleSheet.flatten(screen.getByTestId('referral-hero').props.style);
+    expect(hero.aspectRatio).toBeCloseTo(1300 / 620);
+    expect(hero.width).toBe('100%');
+    expect(hero.overflow).toBe('hidden');
+
+    const image = StyleSheet.flatten(screen.getByLabelText('Two friends checking Fynora on their phones').props.style);
+    expect(image.aspectRatio).toBeUndefined();
+    expect(image).toMatchObject({ width: '100%', height: '100%' });
+  });
+
   it('shows the code, a zero count, and a zero earned amount for a user with no referrals yet', async () => {
     api.mine.mockResolvedValue({
       code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,

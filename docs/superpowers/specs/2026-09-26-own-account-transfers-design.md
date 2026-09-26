@@ -68,14 +68,14 @@ shapes observed in the corpus:
 
 | Rail | Shape (synthetic) | Slot |
 |---|---|---|
-| UPI, dash | `UPI-ASHA VERMA-asha@okbank-IFSC0000001-111111111111-UPI` | 2nd field |
+| UPI, dash | `UPI-ASHA VERMA-asha@okbank-HDFC0XXXXXX-111111111111-UPI` | 2nd field |
 | UPI, slash | `UPI/CR/111111111111/ASHA VERMA/BANK/...`, `UPI/DR/...` | after the reference |
 | UPI, slash | `UPIAB/111111111111/CR/ASHA VERMA/BANK/...`, `UPIAR/.../DR/...` | after CR/DR |
 | UPI, tail | `UPI/RRN 111111111111/UPI_ASHA VERMA` | after `UPI_` |
 | IMPS | `MOB-IMPS-CR/ASHA VERMA/BANK/...` | after `IMPS-CR/` |
-| IMPS, glued | `SentIMPS111111111111ASHA VERMA/IFSC0000001/...` | after the reference |
-| NEFT credit | `NEFT CR-IFSC0000001-<remitter>-<beneficiary>-<ref>` | remitter only |
-| NEFT credit, star | `NEFT*IFSC0000001*<ref>*<remitter> ...` | remitter only |
+| IMPS, glued | `SentIMPS111111111111ASHA VERMA/HDFC0XXXXXX/...` | after the reference |
+| NEFT credit | `NEFT CR-HDFC0XXXXXX-<remitter>-<beneficiary>-<ref>` | remitter only |
+| NEFT credit, star | `NEFT*HDFC0XXXXXX*<ref>*<remitter> ...` | remitter only |
 
 The NEFT beneficiary slot is never read: it is the account holder on every NEFT credit, including salary.
 

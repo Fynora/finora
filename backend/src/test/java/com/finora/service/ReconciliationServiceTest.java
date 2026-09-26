@@ -1019,7 +1019,7 @@ class ReconciliationServiceTest {
         UUID hdfc = UUID.randomUUID();
         UUID union = UUID.randomUUID();
         Transaction out = txn(UUID.randomUUID(), hdfc, LocalDate.of(2026, 5, 1), new BigDecimal("50000.00"),
-                Transaction.Type.EXPENSE, "UPI-ASHA VERMA-asha@okbank-IFSC0000001-111111111111-UPI", Instant.now());
+                Transaction.Type.EXPENSE, "UPI-ASHA VERMA-asha@okbank-HDFC0XXXXXX-111111111111-UPI", Instant.now());
         Transaction in = txn(UUID.randomUUID(), union, LocalDate.of(2026, 5, 1), new BigDecimal("50000.00"),
                 Transaction.Type.INCOME, "UPIAB/111111111111/CR/ASHA /BANK/asha@okbank", Instant.now());
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(out, in));
@@ -1038,7 +1038,7 @@ class ReconciliationServiceTest {
         UUID kotak = UUID.randomUUID();
         UUID canara = UUID.randomUUID();
         Transaction out = txn(UUID.randomUUID(), kotak, LocalDate.of(2026, 7, 9), new BigDecimal("25000.00"),
-                Transaction.Type.EXPENSE, "SentIMPS111111111111Asha Verma/IFSC0000001/IMPS", Instant.now());
+                Transaction.Type.EXPENSE, "SentIMPS111111111111Asha Verma/HDFC0XXXXXX/IMPS", Instant.now());
         Transaction in = txn(UUID.randomUUID(), canara, LocalDate.of(2026, 7, 10), new BigDecimal("25000.00"),
                 Transaction.Type.INCOME, "999-UPI-111111111111 Value Dt 10/07/2026", Instant.now());
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(out, in));
@@ -1053,9 +1053,9 @@ class ReconciliationServiceTest {
         UUID a = UUID.randomUUID();
         UUID b = UUID.randomUUID();
         Transaction out = txn(UUID.randomUUID(), a, LocalDate.of(2026, 5, 3), new BigDecimal("200.00"),
-                Transaction.Type.EXPENSE, "UPI-RAVI KUMAR-ravi@okbank-IFSC0000001-111111111111-UPI", Instant.now());
+                Transaction.Type.EXPENSE, "UPI-RAVI KUMAR-ravi@okbank-HDFC0XXXXXX-111111111111-UPI", Instant.now());
         Transaction in = txn(UUID.randomUUID(), b, LocalDate.of(2026, 5, 3), new BigDecimal("200.00"),
-                Transaction.Type.INCOME, "UPI-NEHA JAIN-neha@okbank-IFSC0000001-222222222222-UPI", Instant.now());
+                Transaction.Type.INCOME, "UPI-NEHA JAIN-neha@okbank-HDFC0XXXXXX-222222222222-UPI", Instant.now());
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(out, in));
 
         reconciliationService.reconcileForUser(userId);
@@ -1074,9 +1074,9 @@ class ReconciliationServiceTest {
         UUID b = UUID.randomUUID();
         LocalDate d = LocalDate.of(2026, 6, 28);
         Transaction out1 = txn(UUID.randomUUID(), a, d, new BigDecimal("500.00"), Transaction.Type.EXPENSE,
-                "UPI-ASHA VERMA-asha@okbank-IFSC0000001-111111111111-PAYMENT FROM PHONE", Instant.now());
+                "UPI-ASHA VERMA-asha@okbank-HDFC0XXXXXX-111111111111-PAYMENT FROM PHONE", Instant.now());
         Transaction out2 = txn(UUID.randomUUID(), a, d, new BigDecimal("500.00"), Transaction.Type.EXPENSE,
-                "UPI-ASHA VERMA-asha@okbank-IFSC0000001-222222222222-PAYMENT FROM PHONE", Instant.now());
+                "UPI-ASHA VERMA-asha@okbank-HDFC0XXXXXX-222222222222-PAYMENT FROM PHONE", Instant.now());
         Transaction in2 = txn(UUID.randomUUID(), b, d, new BigDecimal("500.00"), Transaction.Type.INCOME,
                 "UPIAB/222222222222/CR/ASHA /BANK/PAYMENT RECEIVED", Instant.now());
         // in1 lands a day later, so date proximity alone would hand out1 the wrong credit (in2).
@@ -1155,7 +1155,7 @@ class ReconciliationServiceTest {
     void reconcileForUser_aDebitPaidToTheUserIsAOneSidedTransfer() {
         UUID savings = UUID.randomUUID();
         Transaction out = ownRow(savings, "8000.00", Transaction.Type.EXPENSE,
-                "UPI-ASHA VERMA-asha@oksbi-IFSC0000001-111111111111-PAYMENT FROM PHONE");
+                "UPI-ASHA VERMA-asha@oksbi-HDFC0XXXXXX-111111111111-PAYMENT FROM PHONE");
         holder(savings, "ASHA VERMA");
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(out));
 
@@ -1171,7 +1171,7 @@ class ReconciliationServiceTest {
     void reconcileForUser_salaryNamingTheUserAsBeneficiaryStaysIncome() {
         UUID savings = UUID.randomUUID();
         Transaction salary = ownRow(savings, "96000.00", Transaction.Type.INCOME,
-                "NEFT CR-IFSC0000001-EMPLOYERCO PVT LTD-ASHA VERMA-REF1 SALARY FOR JUN 2026");
+                "NEFT CR-HDFC0XXXXXX-EMPLOYERCO PVT LTD-ASHA VERMA-REF1 SALARY FOR JUN 2026");
         holder(savings, "ASHA VERMA");
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(salary));
 
@@ -1184,7 +1184,7 @@ class ReconciliationServiceTest {
     void reconcileForUser_theOwnerInTheNeftRemitterSlotIsAOneSidedTransfer() {
         UUID savings = UUID.randomUUID();
         Transaction in = ownRow(savings, "40000.00", Transaction.Type.INCOME,
-                "NEFT CR-IFSC0000001-ASHA VERMA S O SH R VERMA-ASHA VERMA-REF1");
+                "NEFT CR-HDFC0XXXXXX-ASHA VERMA S O SH R VERMA-ASHA VERMA-REF1");
         holder(savings, "ASHA VERMA");
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(in));
 
@@ -1197,11 +1197,11 @@ class ReconciliationServiceTest {
     void reconcileForUser_rule2SkipsCardsBusinessesOtherPeopleAndRejectedRows() {
         UUID savings = UUID.randomUUID();
         UUID card = UUID.randomUUID();
-        Transaction onCard = ownRow(card, "500.00", Transaction.Type.INCOME, "UPI-ASHA VERMA-asha@okbank-IFSC0000001-111111111111-UPI");
-        Transaction business = ownRow(savings, "700.00", Transaction.Type.INCOME, "UPI-ASHA VERMA-asha@okbank-IFSC0000001-222222222222-UPI");
+        Transaction onCard = ownRow(card, "500.00", Transaction.Type.INCOME, "UPI-ASHA VERMA-asha@okbank-HDFC0XXXXXX-111111111111-UPI");
+        Transaction business = ownRow(savings, "700.00", Transaction.Type.INCOME, "UPI-ASHA VERMA-asha@okbank-HDFC0XXXXXX-222222222222-UPI");
         business.setCounterpartyType(com.finora.util.CounterpartyType.BUSINESS);
-        Transaction otherAsha = ownRow(savings, "764.00", Transaction.Type.INCOME, "UPI-ASHA PATEL-ashap@okbank-IFSC0000001-111111111111-UPI");
-        Transaction rejected = ownRow(savings, "900.00", Transaction.Type.EXPENSE, "UPI-ASHA VERMA-asha@okbank-IFSC0000001-222222222222-UPI");
+        Transaction otherAsha = ownRow(savings, "764.00", Transaction.Type.INCOME, "UPI-ASHA PATEL-ashap@okbank-HDFC0XXXXXX-111111111111-UPI");
+        Transaction rejected = ownRow(savings, "900.00", Transaction.Type.EXPENSE, "UPI-ASHA VERMA-asha@okbank-HDFC0XXXXXX-222222222222-UPI");
         rejected.setTransferRejectedAt(Instant.now());
         Transaction freeText = ownRow(savings, "49.40", Transaction.Type.EXPENSE, "IGST DB @ 18.00% TRANSACTIONS FOR ASHA VERMA");
         holder(savings, "ASHA VERMA");
@@ -1222,9 +1222,9 @@ class ReconciliationServiceTest {
     void reconcileForUser_aCardBillPaidToTheUsersOwnCardIsNotAOneSidedTransfer() {
         UUID savings = UUID.randomUUID();
         Transaction bill = ownRow(savings, "18000.00", Transaction.Type.EXPENSE,
-                "UPI-ASHA VERMA-cc.1111@okbank-IFSC0000001-111111111111-CREDIT CARD BILL");
+                "UPI-ASHA VERMA-cc.1111@okbank-HDFC0XXXXXX-111111111111-CREDIT CARD BILL");
         Transaction ccPayment = ownRow(savings, "9000.00", Transaction.Type.EXPENSE,
-                "UPI-ASHA VERMA-cc.1111@okbank-IFSC0000001-222222222222-CC PAYMENT");
+                "UPI-ASHA VERMA-cc.1111@okbank-HDFC0XXXXXX-222222222222-CC PAYMENT");
         holder(savings, "ASHA VERMA");
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(bill, ccPayment));
 

@@ -200,9 +200,19 @@ public final class CategoryRules {
         return desc.toLowerCase().replaceAll("[^a-z0-9 ]", " ").replaceAll("\\s+", " ").trim();
     }
 
+    // A clock time in a UPI narration (Bank of Baroda prints hh:mm:ss after the RRN) and the literal
+    // RRN label (Central Bank prints "UPI/RRN <n>/...") name no counterparty. Left in, they became the
+    // merchant ("upi 02 44 32", "upi rrn upi ...") and, through MerchantNormalizationEngine's grouping
+    // key, pooled unrelated payees under one merchant: measured on the real corpus, all 218 Central
+    // Bank UPI rows under one merchant and every Bank of Baroda UPI row under a time of day.
+    private static final Pattern CLOCK_TIME = Pattern.compile("\\b\\d{1,2}:\\d{2}(?::\\d{2})?\\b");
+    private static final Pattern RRN_LABEL = Pattern.compile("(?i)\\bRRN\\b[\\s:.#-]*\\d*");
+
     /** Strips numeric reference codes to surface a clean merchant token, e.g. "SWIGGY*ORDR9182" -> "swiggy". */
     public static String extractMerchant(String desc) {
-        String n = normalize(desc).replaceAll("\\b[a-z]*\\d{4,}[a-z]*\\b", " ").replaceAll("\\s+", " ").trim();
+        String cleaned = desc == null ? null
+                : RRN_LABEL.matcher(CLOCK_TIME.matcher(desc).replaceAll(" ")).replaceAll(" ");
+        String n = normalize(cleaned).replaceAll("\\b[a-z]*\\d{4,}[a-z]*\\b", " ").replaceAll("\\s+", " ").trim();
         String[] tokens = n.split(" ");
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < Math.min(4, tokens.length); i++) {

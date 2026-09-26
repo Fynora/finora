@@ -11141,6 +11141,9 @@
                     },
                     "foreignAmount": {
                         "type": "number"
+                    },
+                    "awaitingTransferPartner": {
+                        "type": "boolean"
                     }
                 }
             },
@@ -13907,6 +13910,33 @@
                         "items": {
                             "$ref": "#/components/schemas/StagedAccountSection"
                         }
+                    },
+                    "previousImport": {
+                        "$ref": "#/components/schemas/PreviousImport"
+                    }
+                }
+            },
+            "PreviousImport": {
+                "type": "object",
+                "properties": {
+                    "statementImportId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "importedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "accountId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "accountName": {
+                        "type": "string"
+                    },
+                    "transactionsImported": {
+                        "type": "integer",
+                        "format": "int32"
                     }
                 }
             },
@@ -14205,6 +14235,9 @@
                     },
                     "staging": {
                         "$ref": "#/components/schemas/StagingResponse"
+                    },
+                    "previousImport": {
+                        "$ref": "#/components/schemas/PreviousImport"
                     }
                 }
             },

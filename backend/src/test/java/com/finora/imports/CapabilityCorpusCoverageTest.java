@@ -435,6 +435,14 @@ class CapabilityCorpusCoverageTest {
         DECLARED_WITHOUT_A_TRACE.put("ACCOUNT_HOLDER_FROM_GREETING",
                 "no trace -- fires in PdfMetadataExtractor; the evidencing card statement has no committed "
                         + "trace. PdfMetadataExtractorTest covers the greeting shape.");
+        DECLARED_WITHOUT_A_TRACE.put("NARRATION_CONTROL_CHARACTER_AS_LINE_BREAK",
+                "no trace -- only the real Standard Chartered export carries a carriage return inside a text "
+                        + "run, and its committed trace (savings-ditto-posting-date-beside-value-date) was captured "
+                        + "without it. NarrationLineBreaksTest covers the rule, including a break ending a run.");
+        DECLARED_WITHOUT_A_TRACE.put("REFERENCE_KEPT_IN_ITS_COLUMN",
+                "no trace -- the only real document with this shape (an Indian Overseas Bank statement) has no "
+                        + "committed trace. IobThreeLineTransactionPdfPreviewGeneratorTest reproduces its geometry and "
+                        + "ColumnSpanPlacementPdfTableLocatorTest pins the narration-spill case the guard must leave alone.");
         DECLARED_WITHOUT_A_TRACE.put("ACCOUNT_HOLDER_FROM_LEADING_RUN",
                 "no trace -- fires in LeadingNameRunExtractor, called from PdfPreviewGenerator's post-pass. "
                         + "LeadingNameRunExtractorTest and LeadingNameRunPdfPreviewGeneratorTest cover it.");

@@ -304,7 +304,15 @@ class SplitHeaderRunsPdfTableLocatorTest {
         // 568 -> 397: same mechanism as hdfc-savings-ledger-validation above -- this
         // export's third and later wrapped narration lines are merged back into their own
         // transactions rather than left as standalone dateless rows.
-        List<Integer> expected = List.of(266, 397, 8);
+        // 397 -> 389 (plan 4, LEADING_BUFFER_REPEATED_PAGE_FURNITURE_DIVERTED): the bank-name footer
+        // block printed at the foot of every page no longer opens a leading buffer. Before, it
+        // formed one junk row per page (37, all footer and disclaimer text) and swept the replay's
+        // page-end narration tails into auxiliary text with it; now the footer lines are auxiliary
+        // text one by one and those tails (bucketed in the Date column in this redacted replay,
+        // never attached to a transaction before or after) stand as their own undated rows. All 360
+        // dated rows are unchanged apart from rejoined wraps; on the real statement the tails attach
+        // and no undated row remains.
+        List<Integer> expected = List.of(266, 389, 8);
         for (int i = 0; i < HDFC_SAVINGS_TRACES.size(); i++) {
             assertThat(locate(HDFC_SAVINGS_TRACES.get(i)).size())
                     .as("%s", HDFC_SAVINGS_TRACES.get(i)).isEqualTo(expected.get(i));

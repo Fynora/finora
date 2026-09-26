@@ -229,7 +229,15 @@ class WrappedHeaderOnAScoringLinePdfTableLocatorTest {
         // trace's own trace used to form -- see SplitHeaderRunsPdfTableLocatorTest's own comment.
         // 568 -> 397: WRAPPED_DESCRIPTION_BEYOND_COUNT_CAP, same mechanism and same
         // justification as hdfc-savings-ledger-validation above.
-        expected.put("hdfc-savings-multi-page-ledger", new int[]{1, 397});
+        // 397 -> 389 (plan 4, LEADING_BUFFER_REPEATED_PAGE_FURNITURE_DIVERTED): the bank-name footer
+        // block printed at the foot of every page no longer opens a leading buffer. Before, it
+        // formed one junk row per page (37, all footer and disclaimer text) and swept the replay's
+        // page-end narration tails into auxiliary text with it; now the footer lines are auxiliary
+        // text one by one and those tails (bucketed in the Date column in this redacted replay,
+        // never attached to a transaction before or after) stand as their own undated rows. All 360
+        // dated rows are unchanged apart from rejoined wraps; on the real statement the tails attach
+        // and no undated row remains.
+        expected.put("hdfc-savings-multi-page-ledger", new int[]{1, 389});
         // 9 -> 8: STATEMENT_SUMMARY_BLOCK_CLOSED removes a phantom trailing-summary row, same shape
         // as hdfc-savings-multi-page-ledger above.
         expected.put("hdfc-savings-single-page-ledger", new int[]{1, 8});

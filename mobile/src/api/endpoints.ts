@@ -434,11 +434,22 @@ export interface StagingResult {
   verification?: VerificationReport | null;
 }
 
+// F-33 (corpus audit 2026-09-25): an earlier confirmed import of these exact file bytes, shown on the
+// review step as a notice and never a gate. Mirrors frontend/src/api/endpoints.ts's identical type.
+export interface PreviousImport {
+  statementImportId: string;
+  importedAt: string;
+  accountId?: string | null;
+  accountName?: string | null;
+  transactionsImported: number;
+}
+
 interface PdfStagingSessionResult {
   sessionId: string;
   multiAccount: boolean;
   staging: StagingResult | null;
   sections: StagedAccountSection[] | null;
+  previousImport?: PreviousImport | null;
 }
 
 type ProgressCallback = (percent: number) => void;
@@ -524,7 +535,7 @@ export const importApi = {
     form.append('file', file as unknown as Blob);
     return stageWithRetry(() =>
       api
-        .post<{ sessionId: string; staging: StagingResult }>('/import/csv/stage', form, toUploadProgressConfig(onProgress, signal))
+        .post<{ sessionId: string; staging: StagingResult; previousImport?: PreviousImport | null }>('/import/csv/stage', form, toUploadProgressConfig(onProgress, signal))
         .then((r) => r.data)
     );
   },
@@ -548,7 +559,7 @@ export const importApi = {
     api.post<{ perAccount: ImportSummary[] }>('/import/pdf/confirm-multi', payload).then((r) => r.data),
   listSessions: () => api.get<ImportSessionSummary[]>('/import/sessions').then((r) => r.data),
   getSession: (id: string) =>
-    api.get<{ sessionId: string; staging: StagingResult }>(`/import/sessions/${id}`).then((r) => r.data),
+    api.get<{ sessionId: string; staging: StagingResult; previousImport?: PreviousImport | null }>(`/import/sessions/${id}`).then((r) => r.data),
   discardSession: (id: string) => api.delete(`/import/sessions/${id}`),
   // "Your recent failed imports" -- Premium Import Reliability v1, §2.1. A document that never got
   // far enough to become an ImportSession (no header found, zero transactions, a scanned PDF)

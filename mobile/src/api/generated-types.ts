@@ -4960,6 +4960,7 @@ export interface components {
             international?: boolean;
             foreignCurrency?: string;
             foreignAmount?: number;
+            awaitingTransferPartner?: boolean;
         };
         UpdatePreferenceRequest: {
             /** @enum {string} */
@@ -5978,6 +5979,18 @@ export interface components {
             multiAccount?: boolean;
             staging?: components["schemas"]["StagingResponse"];
             sections?: components["schemas"]["StagedAccountSection"][];
+            previousImport?: components["schemas"]["PreviousImport"];
+        };
+        PreviousImport: {
+            /** Format: uuid */
+            statementImportId?: string;
+            /** Format: date-time */
+            importedAt?: string;
+            /** Format: uuid */
+            accountId?: string;
+            accountName?: string;
+            /** Format: int32 */
+            transactionsImported?: number;
         };
         StagedAccountSection: {
             detectedAccount?: components["schemas"]["DetectedAccountInfo"];
@@ -6092,6 +6105,7 @@ export interface components {
             /** Format: uuid */
             sessionId?: string;
             staging?: components["schemas"]["StagingResponse"];
+            previousImport?: components["schemas"]["PreviousImport"];
         };
         ApiResponseGoalDto: {
             success?: boolean;

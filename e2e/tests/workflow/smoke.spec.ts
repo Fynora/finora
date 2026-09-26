@@ -48,6 +48,8 @@ test.describe('@smoke — the product works end to end', () => {
     await uploadStatement(userPage, 'statement.csv', 'text/csv', csv(STATEMENT));
 
     await expect(userPage.getByText(/3 row\(s\) parsed/i)).toBeVisible({ timeout: 30_000 });
+    // A first upload of these bytes has nothing earlier to name (F-33 notice).
+    await expect(userPage.getByTestId('previous-import-notice')).toHaveCount(0);
     await userPage.getByRole('button', { name: /confirm import/i }).click();
     await expect(userPage.getByText('Import complete')).toBeVisible({ timeout: 30_000 });
 
@@ -73,6 +75,9 @@ test.describe('@smoke — the product works end to end', () => {
       await userPage.goto('/app/import');
       await uploadStatement(userPage, 'again.csv', 'text/csv', csv(STATEMENT));
       await expect(userPage.getByTestId('duplicate-review')).toBeVisible({ timeout: 30_000 });
+      // The same bytes were imported a moment ago: the review says so (F-33), as a notice only --
+      // what blocks confirm below is the unanswered duplicate rows, never the notice.
+      await expect(userPage.getByTestId('previous-import-notice')).toBeVisible();
       await expect(userPage.getByRole('button', { name: /confirm import/i })).toBeDisabled();
 
       for (let i = 0; i < STATEMENT.length; i++) {

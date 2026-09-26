@@ -1106,6 +1106,7 @@ public class PdfTableLocator {
         // Computed once, up front, for hasDateValue's yearless-date fallback (see that method's
         // own doc comment) -- every call site below reads this rather than recomputing it per row.
         Map<Integer, PageDateEvidence> yearsByPage = yearsByPage(rows);
+        Set<String> repeatedFurniture = repeatedPageFurniture(rows);
 
         List<LocatedSection> sections = new ArrayList<>();
         // The row index of the header that opened the section currently accumulating into
@@ -2004,6 +2005,21 @@ public class PdfTableLocator {
                     continue;
                 }
 
+                // LEADING_BUFFER_REPEATED_PAGE_FURNITURE_DIVERTED. A dateless line whose exact text
+                // is printed at the same height on two or more pages is page furniture, never a
+                // transaction's narration. Traced on the real HDFC statements: the bank's name is
+                // printed in the date column's x-range at the foot of every page, was buffered as
+                // leading narration and glued onto the next page's first transaction (51 rows
+                // across three documents), which also made it that row's merchant. Checked before
+                // both the trailing and the leading branch because the same footer reaches the
+                // row above it when the page has room (the synthetic fixture shows that path).
+                if (repeatedFurniture.contains(furnitureKey(row))
+                        && !hasDateValue(bucketed, yearsByPage.getOrDefault(rowPageIndex, PageDateEvidence.NONE))) {
+                    pendingAuxiliary.add(rowLine);
+                    if (ctx != null) ctx.record("LEADING_BUFFER_REPEATED_PAGE_FURNITURE_DIVERTED");
+                    continue;
+                }
+
                 // Bug fix: a description that wraps onto a second visual row (HDFC's layout --
                 // see this method's own doc comment) used to be handled by a y-distance heuristic
                 // ("fold anything within N points of the previous row that has no date/amount
@@ -2602,7 +2618,7 @@ public class PdfTableLocator {
         remergeSameTableSections(sections, ctx);
         dropCompletelyEmptySections(sections, ctx);
         if (ctx != null) ctx.recordTables(sections.size());
-        return new LocatedDocument(sections, physicalRowFormationEvidence);
+        return NarrationLineBreaks.resolveAll(new LocatedDocument(sections, physicalRowFormationEvidence), ctx);
     }
 
     /**
@@ -2738,7 +2754,43 @@ public class PdfTableLocator {
         if (text.length() == 0) return;
         String existing = target.get(descriptionColumn);
         target.put(descriptionColumn,
-                existing == null || existing.isBlank() ? text.toString() : existing + " " + text);
+                existing == null || existing.isBlank() ? text.toString() : NarrationLineBreaks.joinLines(existing, text.toString()));
+    }
+
+    /**
+     * Text-at-height keys printed on nearly every page: page furniture (a footer, a letterhead, a
+     * column heading the bank repeats at one fixed spot). "Nearly every" is load-bearing: measured
+     * on the real corpus, statements that print rows on a fixed grid put a recurring payee's
+     * narration line at the same height on two to five pages, and a two-page rule stripped real
+     * narration from about 180 rows. Furniture there sits on every page (24 of 24, 37 of 37); no
+     * narration line reaches {@value #FURNITURE_PAGE_SHARE} of the pages. A statement shorter than
+     * {@value #MIN_FURNITURE_PAGES} pages cannot tell a footer from a coincidence and keeps the
+     * previous handling. Too short a text is never counted.
+     */
+    private static final int MIN_FURNITURE_PAGES = 3;
+    private static final double FURNITURE_PAGE_SHARE = 0.8;
+
+    private Set<String> repeatedPageFurniture(List<List<PositionedText>> rows) {
+        Map<String, Set<Integer>> pagesByKey = new HashMap<>();
+        for (List<PositionedText> row : rows) {
+            String key = furnitureKey(row);
+            if (key != null) pagesByKey.computeIfAbsent(key, k -> new HashSet<>()).add(row.get(0).pageIndex());
+        }
+        Set<Integer> allPages = new HashSet<>();
+        for (List<PositionedText> row : rows) if (!row.isEmpty()) allPages.add(row.get(0).pageIndex());
+        Set<String> out = new HashSet<>();
+        for (Map.Entry<String, Set<Integer>> e : pagesByKey.entrySet()) {
+            int pages = e.getValue().size();
+            if (pages >= MIN_FURNITURE_PAGES && pages >= FURNITURE_PAGE_SHARE * allPages.size()) out.add(e.getKey());
+        }
+        return out;
+    }
+
+    private String furnitureKey(List<PositionedText> row) {
+        if (row.isEmpty()) return null;
+        String text = lineOf(row).trim().replaceAll("\\s+", " ");
+        if (text.length() < 4) return null;
+        return Math.round(row.get(0).y()) + "|" + text;
     }
 
     /** The x of this row's leftmost non-blank run, or null for a row with nothing in it. */
@@ -3317,6 +3369,12 @@ public class PdfTableLocator {
                     && CsvParser.parseDate(existing.trim()) != null;
             boolean wouldBreakValidAmount = isAmountColumn(e.getKey()) && existing != null
                     && CsvParser.parseNumeric(existing.trim()) != null;
+            // VALUE DATE UNDER THE POSTING DATE. A date column headed as holding both dates
+            // ("Date(Value Date)" on the real Indian Overseas Bank statement) prints the value date
+            // in brackets on the line under the posting date. It is a date, not narration: sent to
+            // the description by the guard below, it landed mid-narration on every row. Value date
+            // is not a staged field, and the posting date above it is kept.
+            if (wouldBreakValidDate && isBracketedValueDateUnder(e.getKey(), e.getValue())) continue;
             if (wouldBreakValidDate || wouldBreakValidAmount) {
                 String descriptionColumn = descriptionColumnIn(target, headerNames);
                 if (descriptionColumn == null) {
@@ -3333,17 +3391,22 @@ public class PdfTableLocator {
                     if (fallback != null) {
                         String current = target.get(fallback);
                         target.put(fallback, (current == null || current.isBlank())
-                                ? e.getValue() : current + " " + e.getValue());
+                                ? e.getValue() : NarrationLineBreaks.joinLines(current, e.getValue()));
                     }
                     continue;
                 }
                 String currentDescription = target.get(descriptionColumn);
                 target.put(descriptionColumn, (currentDescription == null || currentDescription.isBlank())
-                        ? e.getValue() : currentDescription + " " + e.getValue());
+                        ? e.getValue() : NarrationLineBreaks.joinLines(currentDescription, e.getValue()));
                 continue;
             }
 
-            target.put(e.getKey(), (existing == null || existing.isBlank()) ? e.getValue() : existing + " " + e.getValue());
+            // A date or amount cell keeps the plain space: a split date ("13 Jul" + "2026") must still
+            // parse. Every other cell keeps the printed line break for NarrationLineBreaks to resolve.
+            target.put(e.getKey(), (existing == null || existing.isBlank()) ? e.getValue()
+                    : (isDateColumn(e.getKey()) || isAmountColumn(e.getKey()))
+                            ? existing + " " + e.getValue()
+                            : NarrationLineBreaks.joinLines(existing, e.getValue()));
         }
     }
 
@@ -3433,7 +3496,7 @@ public class PdfTableLocator {
             if (e.getValue() == null || e.getValue().isBlank()) continue;
             String column = wouldInvalidate(target, e.getKey(), e.getValue()) ? rehome : e.getKey();
             String existing = target.get(column);
-            target.put(column, (existing == null || existing.isBlank()) ? e.getValue() : e.getValue() + " " + existing);
+            target.put(column, (existing == null || existing.isBlank()) ? e.getValue() : NarrationLineBreaks.joinLines(e.getValue(), existing));
         }
         return true;
     }
@@ -5715,7 +5778,34 @@ public class PdfTableLocator {
             // fixes, and why this specific ordering. Guards 1+2 are enforced structurally:
             // measureTextColumnSpans never populates a span for a date or amount column, so neither
             // can ever be a redirect target here.
-            if (textColumnSpans != null && nearest == originalNearest
+            // REFERENCE_KEPT_IN_ITS_COLUMN. A single identifier-shaped token already sitting in a
+            // reference/cheque column is that column's value, never an overspill of the narration
+            // to its left -- the same trust the amount-overshoot guard above extends to a reference
+            // column. Traced on the real Indian Overseas Bank statement: its first narration lines
+            // run up to the reference column's edge, so Particulars' measured span covered the
+            // reference column's position and every separately printed reference was re-homed into
+            // the narration, mid-sentence (15 of 15 rows).
+            // Two conditions, each measured: the token is reference-shaped, and it starts at or
+            // after the reference column's own header position. The second is what keeps a
+            // narration tail that spills past the midpoint ("... FOR 123456" on a real HDFC
+            // statement) in the narration: it starts left of the reference header.
+            boolean keptAsReference = isReferenceColumn(columnName) && looksLikeReferenceToken(t.text())
+                    && headerAnchors != null && nearest < headerAnchors.size()
+                    && t.x() >= headerAnchors.get(nearest) - 1f;
+            if (keptAsReference && textColumnSpans != null && ctx != null && nearest == originalNearest) {
+                // Recorded only where it changed the outcome: another column's measured span claims
+                // this position and would otherwise have taken the token.
+                ColumnSpan ownSpan = textColumnSpans[nearest];
+                if (ownSpan == null || !ownSpan.contains(t.x())) {
+                    for (int i = 0; i < textColumnSpans.length; i++) {
+                        if (i != nearest && textColumnSpans[i] != null && textColumnSpans[i].contains(t.x())) {
+                            ctx.record("REFERENCE_KEPT_IN_ITS_COLUMN");
+                            break;
+                        }
+                    }
+                }
+            }
+            if (textColumnSpans != null && nearest == originalNearest && !keptAsReference
                     && !isDateColumn(columnName) && !isAmountColumn(columnName)) {
                 ColumnSpan ownSpan = textColumnSpans[nearest];
                 if (ownSpan == null || !ownSpan.contains(t.x())) {
@@ -6111,6 +6201,23 @@ public class PdfTableLocator {
     /** True for a reference/cheque-number column -- see the OFFSET_COLUMN_ANCHORS guard in
      *  {@link #bucketRow} that this exists for: unlike a merchant-category or description column,
      *  this kind of column legitimately holds nothing but digits. */
+    private static boolean isBracketedValueDateUnder(String dateColumn, String fragment) {
+        if (dateColumn == null || !dateColumn.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z]", "").contains("valuedate")) {
+            return false;
+        }
+        String v = fragment.trim();
+        return v.length() > 2 && v.startsWith("(") && v.endsWith(")")
+                && CsvParser.parseDate(v.substring(1, v.length() - 1).trim()) != null;
+    }
+
+    /** One token, no blanks, 6 to 30 characters, carrying a digit: a cheque number, a UTR, a bank's
+     *  own reference -- not a word of narration. */
+    private static boolean looksLikeReferenceToken(String text) {
+        String v = text == null ? "" : text.trim();
+        return v.length() >= 6 && v.length() <= 30 && !v.contains(" ")
+                && v.matches("[A-Za-z0-9/\\-.]+") && v.chars().anyMatch(Character::isDigit);
+    }
+
     private boolean isReferenceColumn(String columnName) {
         return REFERENCE_COLUMN_PATTERN.matcher(CsvParser.normalizeHeaderCell(columnName)).find();
     }

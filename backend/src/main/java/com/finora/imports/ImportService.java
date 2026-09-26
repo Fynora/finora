@@ -210,7 +210,8 @@ public class ImportService {
                 userId, ContentAddress.hashOf(fileContent));
         if (alreadyStaged.isPresent()) {
             ImportSession session = alreadyStaged.get();
-            return new StagingSessionResponse(session.getId(), rebuildStagingResponse(session));
+            return new StagingSessionResponse(session.getId(), rebuildStagingResponse(session),
+                    previousImportOf(userId, session.getContentHash()));
         }
 
         long startedAtMs = System.currentTimeMillis();
@@ -243,7 +244,7 @@ public class ImportService {
             // checked", distinct from a report saying NOT_APPLICABLE) and List.of would throw on it.
             verificationRecorder.recordForAnalysis(reference,
                     java.util.Collections.singletonList(staged.verification()));
-            return new StagingSessionResponse(session.getId(), staged);
+            return new StagingSessionResponse(session.getId(), staged, previousImportOf(userId, session.getContentHash()));
         } catch (RuntimeException e) {
             // BH-028. This caught ApiException only, so a document that made the PARSER FALL OVER
             // -- an index out of bounds in column bucketing, a PDFBox failure, anything unchecked
@@ -327,7 +328,7 @@ public class ImportService {
         Optional<ImportSession> alreadyStaged = importSessionService.findLiveSessionByContentHash(
                 userId, ContentAddress.hashOf(fileContent));
         if (alreadyStaged.isPresent()) {
-            return rebuildPdfStagingSessionResponse(alreadyStaged.get());
+            return rebuildPdfStagingSessionResponse(userId, alreadyStaged.get());
         }
 
         long startedAtMs = System.currentTimeMillis();
@@ -377,7 +378,8 @@ public class ImportService {
                 recordPdfParsed(userId, fileName, fileContent.length, fingerprint, sections.size(), startedAtMs,
                         diagnostics, session.getId(),
                         java.util.Collections.singletonList(staged.verification()));
-                return new PdfStagingSessionResponse(session.getId(), false, staged, null);
+                return new PdfStagingSessionResponse(session.getId(), false, staged, null,
+                        previousImportOf(userId, session.getContentHash()));
             }
 
             var session = importSessionService.createMultiSection(userId, fileName, fileContent, sections,
@@ -388,7 +390,8 @@ public class ImportService {
             recordPdfParsed(userId, fileName, fileContent.length, fingerprint, sections.size(), startedAtMs,
                     diagnostics, session.getId(),
                     sections.stream().map(StagedAccountSection::verification).toList());
-            return new PdfStagingSessionResponse(session.getId(), true, null, sections);
+            return new PdfStagingSessionResponse(session.getId(), true, null, sections,
+                    previousImportOf(userId, session.getContentHash()));
         } catch (RuntimeException e) {
             // The whole point of the evidence table. A password failure carries no fingerprint --
             // the document was never opened -- but IMPORT_001 and IMPORT_007 do, and those are the
@@ -513,11 +516,28 @@ public class ImportService {
     /** PDF equivalent of {@link #rebuildStagingResponse} -- branches on the found session's own
      *  kind rather than assuming single-account, since a duplicate PDF upload can match either
      *  shape depending on what the original upload staged. */
-    private PdfStagingSessionResponse rebuildPdfStagingSessionResponse(ImportSession session) {
+    private PdfStagingSessionResponse rebuildPdfStagingSessionResponse(UUID userId, ImportSession session) {
+        PreviousImport previous = previousImportOf(userId, session.getContentHash());
         if (ImportSession.KIND_MULTI_ACCOUNT.equals(session.getSessionKind())) {
-            return new PdfStagingSessionResponse(session.getId(), true, null, importSessionService.readSections(session));
+            return new PdfStagingSessionResponse(session.getId(), true, null, importSessionService.readSections(session), previous);
         }
-        return new PdfStagingSessionResponse(session.getId(), false, rebuildStagingResponse(session), null);
+        return new PdfStagingSessionResponse(session.getId(), false, rebuildStagingResponse(session), null, previous);
+    }
+
+    /**
+     * F-33 of the 2026-09-25 corpus audit, as a notice: the newest live import of these exact bytes by
+     * this user, or null. Staging never refuses a repeat upload -- the product contract pinned by e2e
+     * smoke test 4 and {@code StatementReimportMarksDuplicatesIT} is that the rows stage, reconciliation
+     * marks them, and the user may still import them. This only tells the user before they review.
+     */
+    public PreviousImport previousImportOf(UUID userId, String contentHash) {
+        if (userId == null || contentHash == null) return null;
+        return statementImportRepository.findFirstByUserIdAndContentHashOrderByImportedAtDesc(userId, contentHash)
+                .map(si -> new PreviousImport(si.getId(), si.getImportedAt(), si.getAccountId(),
+                        si.getAccountId() == null ? null
+                                : accountRepository.findById(si.getAccountId()).map(Account::getName).orElse(null),
+                        si.getTransactionsImported()))
+                .orElse(null);
     }
 
     private void recordPdfParsed(UUID userId, String fileName, long byteSize, String fingerprint,

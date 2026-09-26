@@ -84,7 +84,8 @@ class CreditCardPaymentBenchmark extends ReconciliationBenchmarkSupport {
         // Exactly settles cardA; also happens to sit inside cardB's 0.05-2.5x ratio window
         // (1000/1050 ≈ 0.95) -- the two-phase design (exact resolved globally before any partial/
         // overpayment search runs) exists precisely so cardB's wider search can't claim it first.
-        Transaction payment = txn(savings, LocalDate.of(2026, 7, 10), "1000.00", Transaction.Type.EXPENSE, "NEFT TRANSFER");
+        // Says it is a card payment without naming either card, so it qualifies for both.
+        Transaction payment = txn(savings, LocalDate.of(2026, 7, 10), "1000.00", Transaction.Type.EXPENSE, "NEFT CC PAYMENT");
         ccStatement(cardA, "1000.00", LocalDate.of(2026, 7, 10), chargeA);
         ccStatement(cardB, "1050.00", LocalDate.of(2026, 7, 12), chargeB);
         loadTransactions(chargeA, chargeB, payment);
@@ -209,13 +210,13 @@ class CreditCardPaymentBenchmark extends ReconciliationBenchmarkSupport {
     }
 
     @Test
-    @DisplayName("BASELINE (documents an attribution risk, not a totals defect): with no card reference in the description, a payment plausible for two cards is silently attributed to whichever card is processed first")
-    void ambiguousPaymentDescription_noCardReference_attributionDecidedByProcessingOrderNotEvidence() {
-        // Neither card's total is an exact match for this payment, and neither payment description
-        // carries any last-4 evidence -- the two candidate cards are evaluated in due-date order and
-        // the payment is claimed by whichever is tried first, with no comparison against the other
-        // card's equally plausible claim. The payment IS correctly excluded from spend either way
-        // (that part is right); WHICH card's balance is treated as settled is what's unverified.
+    @DisplayName("BASELINE (known-good): with no card reference in the description and neither total an exact match, a payment plausible for two cards is attributed to neither")
+    void ambiguousPaymentDescription_noCardReference_isAttributedToNeitherCard() {
+        // Neither card's total is an exact match for this payment, and its description carries no
+        // evidence at all. This scenario used to document the payment being claimed by whichever
+        // card was processed first (earlier due date), with no comparison against the other card's
+        // equally plausible claim. A non-exact amount now needs the narration to name the card or
+        // a card payment, so neither card claims it: which card was settled is not guessed.
         Account savings = account();
         Account cardA = cardAccount("1111");
         Account cardB = cardAccount("2222");
@@ -228,10 +229,9 @@ class CreditCardPaymentBenchmark extends ReconciliationBenchmarkSupport {
 
         run();
 
-        assertThat(edgeBetween(ambiguousPayment, chargeA, TransactionRelationship.RelationshipType.CC_PAYMENT))
-                .as("cardA is processed first (earlier due date) and claims the only candidate payment "
-                        + "outright -- cardB, an equally plausible match (both within ratio range, both "
-                        + "3 days from their own due date), is never even considered")
-                .isNotNull();
+        assertThat(capturedEdges())
+                .as("a non-exact payment with no card evidence settles neither card")
+                .noneMatch(e -> e.relationshipType() == TransactionRelationship.RelationshipType.CC_PAYMENT
+                        && e.fromTransactionId().equals(ambiguousPayment.getId()));
     }
 }

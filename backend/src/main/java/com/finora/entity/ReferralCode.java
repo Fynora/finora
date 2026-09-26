@@ -27,9 +27,13 @@ public class ReferralCode {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
+    // Retired: the 3-referral Plus reward was removed, so nothing increments or reads this any more.
+    // Still mapped because the column exists (V207); dropping it is a separate, destructive step.
     @Column(name = "plus_milestone_counter", nullable = false)
     private int plusMilestoneCounter = 0;
 
+    // The one milestone counter, toward ReferralService.MILESTONE_REFERRALS (7 -> a month of Plus).
+    // Named for the retired 7-referral Premium reward it used to track.
     @Column(name = "premium_milestone_counter", nullable = false)
     private int premiumMilestoneCounter = 0;
 

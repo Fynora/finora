@@ -301,4 +301,76 @@ class PersonToPersonTransferDetectorTest {
         assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
                 "UPIZZZQQ-SUNIL VERMA-sampleuser@ybl-REF54")).isFalse();
     }
+
+    // ---- Slash-delimited UPI shapes: the counterparty sits in a fixed slot, often as a single
+    // first name. Shapes are synthetic; the slot positions are what several banks print. ----
+
+    @Test
+    void slashUpiNameSlotBeforeABankCode_isAPerson_evenAsASingleFirstName() {
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/CR/REF901/NITIKA N/SBIN/sampleuser@okicici/UPI")).isTrue();
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/CR/REF902/KRITISHA/HDFC/sampleuser2/")).isTrue();
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPIAB/REF903/CR/SHIVANI /HDFC/sampleuser3")).isTrue();
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/DR/REF904/RAVI/PUNB/sampleuser4@axl/Pay")).isTrue();
+    }
+
+    @Test
+    void slashUpiNameSlotWithAReferenceAndDateMixedIn_isAPerson() {
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/REF905/CR/DILEEP  S905 (05-Aug-26) KUMAR S/HDF/UPI")).isTrue();
+    }
+
+    @Test
+    void underscoreNameTail_isAPerson_includingATruncatedRepeatedName() {
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/RRN REF906/Payment from PhonePe_KANCHAN")).isTrue();
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/RRN REF907/UPI_AMAN KUMAR SINGH AMAN KUM")).isTrue();
+    }
+
+    @Test
+    void slashUpiSlot_stillVetoedByAKnownMerchantBusinessWordOrAcquirerRail() {
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/CR/REF908/SWIGGY/ICIC/sampleuser5/")).isFalse();
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/CR/REF909/SHARMA TRADERS/SBIN/sampleuser6/")).isFalse();
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/CR/REF910/RAVI/SBIN/paytmqr6nu5ur@ptys/")).isFalse();
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/RRN REF911/Payment from PhonePe_SWIGGY")).isFalse();
+    }
+
+    @Test
+    void slashUpiSlotHoldingNoNameAtAll_isNotAPerson() {
+        // A numeric handle or a bare time in the slot position carries no name to claim.
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/REF912/17:29:53/UPI/98765-3 @ybl/Pa")).isFalse();
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/CR/REF913/UPI/SBIN/x/")).isFalse();
+    }
+
+    @Test
+    void slashUpiSlotHoldingABankTruncatedBrand_isNotAPerson() {
+        // Some banks cut the slot to 8 characters, so a known merchant arrives as a fragment the
+        // whole-word merchant lookup cannot match. Shapes mirror corpus rows, names are brands.
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/DR/REF920/Domino s/YESB/sampleuser7/")).isFalse();
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/DR/REF921/ZERODH A B/ICIC/sampleuser8/")).isFalse();
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/DR/REF922/Indian R/SBIN/sampleuser9/")).isFalse();
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/DR/REF923/Google I/UTIB/sampleuser10/")).isFalse();
+    }
+
+    @Test
+    void anEightCharacterTruncatedPersonName_isStillAPerson() {
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/DR/REF924/Siddhart/BDBL/sampleuser11/")).isTrue();
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/CR/REF925/VAISHNAV/BARB/sampleuser12/")).isTrue();
+    }
 }

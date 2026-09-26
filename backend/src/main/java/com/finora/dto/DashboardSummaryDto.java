@@ -206,7 +206,20 @@ public record DashboardSummaryDto(
          * which month "last month" means.
          */
         String priorMonth,
-        BigDecimal incomePrior
+        BigDecimal incomePrior,
+
+        /*
+         * This reporting month's credits Fynora cannot yet call income -- money from a person, an
+         * unexplained credit-card credit. Excluded from monthlyIncome and savingsRatePct, surfaced
+         * here so it is never silently lost: the dashboard banner shows it. See FlowClassifier.
+         * unresolvedInflowCount is how many transactions make it up; unresolvedTopReason is the
+         * FlowClassifier.FlowReason name carrying the most of its value (e.g. "PERSON_INFLOW"), null
+         * when there is none -- a String rather than the enum so a reason added later degrades on an
+         * older client instead of failing to parse.
+         */
+        BigDecimal unresolvedInflow,
+        int unresolvedInflowCount,
+        String unresolvedTopReason
 ) {
     public record CategoryMover(String category, BigDecimal currentAmount, BigDecimal priorAmount, Double pctChange) {}
 

@@ -533,6 +533,24 @@ export function DashboardScreen() {
         ) : (
           <SkeletonCard lines={4} />
         )}
+        {/* Money that came in this reporting month but is not counted in Income -- a transfer from
+            a person, an unexplained credit on a card (see FlowClassifier on the backend). Without
+            it, income that drops because a parent's transfer stopped counting drops with no
+            explanation. Display-only for now; mirrors frontend/src/pages/Dashboard.tsx. */}
+        {summary && summary.unresolvedInflowCount > 0 ? (
+          <Card style={styles.unresolvedBanner} testID="unresolved-inflow-banner">
+            <Text style={[styles.unresolvedTitle, { color: c.ink }]}>
+              {summary.unresolvedInflowCount}{' '}
+              {summary.unresolvedInflowCount === 1 ? 'transaction needs' : 'transactions need'} classification
+              {' · '}{fmtCurrency(summary.unresolvedInflow)} not counted as income
+            </Text>
+            {summary.unresolvedTopReason && UNRESOLVED_REASON_LINE[summary.unresolvedTopReason] ? (
+              <Text style={[styles.unresolvedBody, { color: c.mutedInk }]}>
+                {UNRESOLVED_REASON_LINE[summary.unresolvedTopReason]}
+              </Text>
+            ) : null}
+          </Card>
+        ) : null}
       </View>
 
       {summary ? (
@@ -1095,4 +1113,15 @@ const styles = StyleSheet.create({
   limitedHistoryBanner: { marginBottom: spacing.md },
   limitedHistoryTitle: { fontSize: 14, fontWeight: '600' },
   limitedHistoryBody: { fontSize: 12, lineHeight: 17, marginTop: 2 },
+  unresolvedBanner: { marginTop: spacing.md },
+  unresolvedTitle: { fontSize: 14, fontWeight: '500' },
+  unresolvedBody: { fontSize: 12, lineHeight: 17, marginTop: 2 },
 });
+
+// The unresolved-inflow banner's second line, keyed by the backend's FlowReason name. Any other
+// value -- including a reason a newer server adds later -- renders no line rather than a wrong one.
+// Mirrors frontend/src/pages/Dashboard.tsx.
+const UNRESOLVED_REASON_LINE: Record<string, string> = {
+  PERSON_INFLOW: 'Mostly money received from people',
+  CARD_UNEXPLAINED_CREDIT: 'Mostly credits on your cards',
+};

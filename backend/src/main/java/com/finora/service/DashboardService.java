@@ -143,10 +143,22 @@ public class DashboardService {
         // "vs last month". See ReportingPeriod.priorMonth.
         String priorMonth = period.priorMonth();
 
-        BigDecimal incomeCur = sumForMonth(activeForTotals, currentMonth, Transaction.Type.INCOME, refunds);
-        BigDecimal expenseCur = sumForMonth(activeForTotals, currentMonth, Transaction.Type.EXPENSE, refunds);
-        BigDecimal incomePrior = sumForMonth(activeForTotals, priorMonth, Transaction.Type.INCOME, refunds);
-        BigDecimal expensePrior = sumForMonth(activeForTotals, priorMonth, Transaction.Type.EXPENSE, refunds);
+        // Income is flow-classified (FlowTotals), not "every credit": money from a person, a card
+        // credit, an investment redemption or a loan disbursal is money in, not income. Spend is
+        // every reportable debit, less the refunds and card adjustments reconciliation could not
+        // link to a purchase -- see RefundNetting.withUnlinkedOffsets.
+        FlowTotals.Context flow = FlowTotals.context(accounts, categoriesById.values());
+        RefundNetting spend = refunds.withUnlinkedOffsets(active, flow);
+        java.util.function.Predicate<Transaction> isIncome = t -> FlowTotals.countsAsIncome(t, flow);
+        BigDecimal incomeCur = sumForMonth(activeForTotals, currentMonth, isIncome, refunds);
+        BigDecimal expenseCur = spendForMonth(activeForTotals, currentMonth, spend);
+        BigDecimal incomePrior = sumForMonth(activeForTotals, priorMonth, isIncome, refunds);
+        BigDecimal expensePrior = spendForMonth(activeForTotals, priorMonth, spend);
+        List<Transaction> currentMonthRows = currentMonth == null ? List.of() : activeForTotals.stream()
+                .filter(t -> YearMonth.from(t.getTxnDate()).toString().equals(currentMonth)).toList();
+        BigDecimal unresolvedCur = FlowTotals.unresolvedInflow(currentMonthRows, flow);
+        int unresolvedCountCur = FlowTotals.unresolvedInflowCount(currentMonthRows, flow);
+        FlowClassifier.FlowReason unresolvedTopReason = FlowTotals.unresolvedTopReason(currentMonthRows, flow);
         BigDecimal netCur = incomeCur.subtract(expenseCur);
         BigDecimal netPrior = incomePrior.subtract(expensePrior);
 
@@ -171,7 +183,7 @@ public class DashboardService {
                 ? netCur.divide(incomeCur, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100))
                 : BigDecimal.ZERO;
 
-        var health = computeHealthScore(accounts, activeForTotals, months, liquid, refunds);
+        var health = computeHealthScore(accounts, activeForTotals, months, liquid, spend, flow);
 
         // Write-on-read: keeps this month's snapshot fresh the moment the user opens their
         // dashboard. HealthScoreSnapshotSweepService covers users who don't. Never runs for an
@@ -187,12 +199,7 @@ public class DashboardService {
                     health.breakdown().get("Cash Flow Stability"));
         }
 
-        Map<String, BigDecimal> spendByCategory = active.stream()
-                .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE
-                        && Objects.equals(YearMonth.from(t.getTxnDate()).toString(), currentMonth))
-                .collect(Collectors.groupingBy(
-                        t -> categoriesById.getOrDefault(t.getCategoryId(), unknownCategory()).getName(),
-                        Collectors.reducing(BigDecimal.ZERO, refunds::reportableAmount, BigDecimal::add)));
+        Map<String, BigDecimal> spendByCategory = categorySpendForMonth(active, currentMonth, categoriesById, spend);
 
         // Which categories are actually behind a real (non-gated) Total Expenses delta -- e.g.
         // "Dining spend rose 42%" instead of leaving "expenses are up 12%" unexplained. Deliberately
@@ -203,7 +210,7 @@ public class DashboardService {
         // prevent. Empty whenever expenseDeltaPct itself is null: there's nothing to explain about a
         // number that isn't being shown, and #490's "Why?" disclosure already covers that case.
         List<DashboardSummaryDto.CategoryMover> expenseCategoryMovers = expenseDeltaPct != null
-                ? categoryMovers(spendByCategory, categorySpendForMonth(active, priorMonth, categoriesById, refunds))
+                ? categoryMovers(spendByCategory, categorySpendForMonth(active, priorMonth, categoriesById, spend))
                 : List.of();
 
         // "Other" (CategorizationService/CategoryRules's literal fallback name when nothing matched
@@ -281,12 +288,12 @@ public class DashboardService {
         // uses the reporting month: an allowance is the one thing that must not be evaluated
         // against a period it does not belong to. BudgetService.listForUser is the definition this
         // now agrees with.
-        Map<UUID, BigDecimal> spendByCategoryId = active.stream()
-                .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE
+        Map<UUID, BigDecimal> spendByCategoryId = RefundNetting.withoutNegativeSpend(active.stream()
+                .filter(t -> spend.countsAsSpend(t)
                         && t.getCategoryId() != null
                         && Objects.equals(YearMonth.from(t.getTxnDate()).toString(), period.calendarMonth()))
                 .collect(Collectors.groupingBy(Transaction::getCategoryId,
-                        Collectors.reducing(BigDecimal.ZERO, refunds::reportableAmount, BigDecimal::add)));
+                        Collectors.reducing(BigDecimal.ZERO, spend::spendAmount, BigDecimal::add))));
         List<Budget> budgets = budgetRepository.findByUserId(userId);
         Optional<User> user = userRepository.findById(userId);
         BigDecimal lowBalanceThreshold = user.map(User::getLowBalanceThreshold).orElse(null);
@@ -355,7 +362,8 @@ public class DashboardService {
                 expenseCategoryMovers,
                 duplicates.size(), detectedDuplicates,
                 categorizationConfidenceScore, categorizationConfidenceTransactionCount, MIN_TRANSACTIONS_FOR_CONFIDENCE_SCORE,
-                incomeDeltaPct != null ? priorMonth : null, incomeDeltaPct != null ? incomePrior : null
+                incomeDeltaPct != null ? priorMonth : null, incomeDeltaPct != null ? incomePrior : null,
+                unresolvedCur, unresolvedCountCur, unresolvedTopReason == null ? null : unresolvedTopReason.name()
         );
     }
 
@@ -400,12 +408,22 @@ public class DashboardService {
 
     /** BH-005: sums the REPORTABLE amount, not the raw one -- a refunded purchase contributes what
      *  it actually cost. See {@link RefundNetting}. */
-    private BigDecimal sumForMonth(List<Transaction> txns, String month, Transaction.Type type,
-                                    RefundNetting refunds) {
+    private BigDecimal sumForMonth(List<Transaction> txns, String month,
+                                    java.util.function.Predicate<Transaction> counts, RefundNetting refunds) {
         if (month == null) return BigDecimal.ZERO;
         return txns.stream()
-                .filter(t -> t.getTxnType() == type && YearMonth.from(t.getTxnDate()).toString().equals(month))
+                .filter(t -> counts.test(t) && YearMonth.from(t.getTxnDate()).toString().equals(month))
                 .map(refunds::reportableAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    /** A month's spend: every reportable debit netted of its linked refunds, less the unlinked
+     *  refunds and card adjustments {@code spend} carries -- floored at zero. See
+     *  {@link RefundNetting#withUnlinkedOffsets}. */
+    private static BigDecimal spendForMonth(List<Transaction> txns, String month, RefundNetting spend) {
+        if (month == null) return BigDecimal.ZERO;
+        return RefundNetting.floorAtZero(txns.stream()
+                .filter(t -> spend.countsAsSpend(t) && YearMonth.from(t.getTxnDate()).toString().equals(month))
+                .map(spend::spendAmount).reduce(BigDecimal.ZERO, BigDecimal::add));
     }
 
     private Double pct(BigDecimal current, BigDecimal prior, boolean priorReliable) {
@@ -421,11 +439,12 @@ public class DashboardService {
                                                             Map<UUID, Category> categoriesById, RefundNetting refunds) {
         if (month == null) return Map.of();
         return active.stream()
-                .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE
+                .filter(t -> refunds.countsAsSpend(t)
                         && Objects.equals(YearMonth.from(t.getTxnDate()).toString(), month))
-                .collect(Collectors.groupingBy(
+                .collect(Collectors.collectingAndThen(Collectors.groupingBy(
                         t -> categoriesById.getOrDefault(t.getCategoryId(), unknownCategory()).getName(),
-                        Collectors.reducing(BigDecimal.ZERO, refunds::reportableAmount, BigDecimal::add)));
+                        Collectors.reducing(BigDecimal.ZERO, refunds::spendAmount, BigDecimal::add)),
+                        RefundNetting::withoutNegativeSpend));
     }
 
     /** The categories behind an expense delta, ranked by rupee contribution rather than percentage:
@@ -561,7 +580,7 @@ public class DashboardService {
      *  transactions; this covers the gap between zero and "enough," which that gate never did. */
     private HealthResult computeHealthScore(List<Account> accounts, List<Transaction> active,
                                              List<String> months, BigDecimal liquid,
-                                             RefundNetting refunds) {
+                                             RefundNetting refunds, FlowTotals.Context flow) {
         if (active.size() < MIN_TRANSACTIONS_FOR_HEALTH_SCORE) {
             return new HealthResult(null, null, Map.of(), Map.of(), false, active.size(), MIN_TRANSACTIONS_FOR_HEALTH_SCORE);
         }
@@ -570,8 +589,9 @@ public class DashboardService {
         // BH-005: the same netting the headline KPIs use. The score's savings-rate and cash-flow
         // components are built from these two series, so an overstated expense month moved the
         // score as well as the tiles.
-        List<BigDecimal> monthlyExpense = last6.stream().map(m -> sumForMonth(active, m, Transaction.Type.EXPENSE, refunds)).toList();
-        List<BigDecimal> monthlyIncome = last6.stream().map(m -> sumForMonth(active, m, Transaction.Type.INCOME, refunds)).toList();
+        java.util.function.Predicate<Transaction> isIncome = t -> FlowTotals.countsAsIncome(t, flow);
+        List<BigDecimal> monthlyExpense = last6.stream().map(m -> spendForMonth(active, m, refunds)).toList();
+        List<BigDecimal> monthlyIncome = last6.stream().map(m -> sumForMonth(active, m, isIncome, refunds)).toList();
 
         // `months` buckets by exact calendar month, so a user whose entire imported history is one
         // continuous ~30-day statement window that happens to straddle a month boundary (e.g. Jun

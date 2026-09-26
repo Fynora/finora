@@ -32,16 +32,19 @@ public class ReferralDtos {
      *  redesign PR this work does not touch) already reads {@code referralCount} off this same
      *  endpoint's pre-existing MVP shape; removing it would silently break that page's build. It
      *  is always {@code referrals.size()}, never independently computed.
-     *  {@code plusMilestoneCounter}/{@code premiumMilestoneCounter} are TWO INDEPENDENT counters
-     *  (design spec section 2) -- referrals reaching SUBSCRIBED since that specific tier was last
-     *  redeemed (or ever, if never redeemed). Redeeming one never resets or affects the other; the
-     *  UI shows both as persistent progress toward each reward, not a single count that vanishes
-     *  once you redeem. {@code grants} is this user's own referral-grant history, newest first;
+     *  {@code premiumMilestoneCounter} is the ONE milestone counter: referrals reaching SUBSCRIBED
+     *  not yet spent on a reward. Each redemption takes ReferralService.MILESTONE_REFERRALS (7)
+     *  off it for a free month of Plus, so anything past 7 carries over. The name is historical (it used to track a 7-referral Premium
+     *  reward) and is kept so app builds already on phones keep parsing this response.
+     *  {@code plusMilestoneCounter} is always 0 -- the 3-referral Plus reward was removed, and a real
+     *  value would make older app builds offer a Redeem the server now rejects. {@code grants} is this user's own referral-grant history, newest first;
      *  the UI reads it to show an ACTIVE grant's expiry or a queued PENDING one. */
     public record MyReferralsDto(String code, List<MyReferralDto> referrals, BigDecimal walletBalance,
             int referralCount, int plusMilestoneCounter, int premiumMilestoneCounter, List<ReferralGrantDto> grants) {}
 
-    /** POST /api/v1/referrals/redeem. {@code tier}: ReferralGrant.TIER_PLUS or TIER_PREMIUM. */
+    /** POST /api/v1/referrals/redeem. {@code tier}: ReferralGrant.TIER_PLUS or TIER_PREMIUM -- both
+     *  redeem the one 7-referral milestone and grant Plus (PREMIUM is still accepted from older
+     *  app builds). */
     public record RedeemMilestoneRequest(@NotBlank String tier) {}
 
     /** One row in a user's own grant history (GET /api/v1/referrals/mine) -- mirrors

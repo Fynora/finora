@@ -898,6 +898,9 @@ export interface ReportData {
   income: number;
   expense: number;
   categories: { category: string; amount: number }[];
+  /** Credits this month Fynora cannot yet call income (money from a person, an unexplained card
+   *  credit) -- never part of `income`. Optional: an older server does not send it. */
+  unresolvedInflow?: number;
 }
 export const reportsApi = {
   availableMonths: () => api.get<string[]>('/reports/months').then((r) => r.data),
@@ -1351,7 +1354,10 @@ export interface MyReferralsDto {
   referralCount: number;
   /** Two INDEPENDENT counters -- redeeming one never resets or affects the other. Referrals
    *  reaching SUBSCRIBED since that tier was last redeemed (or ever, if never redeemed). */
+  /** Always 0 -- the 3-referral Plus reward was removed. */
   plusMilestoneCounter: number;
+  /** The one milestone counter: referrals toward 7, which earn a free month of Plus. Named for
+   *  the retired 7-referral Premium reward it used to track. */
   premiumMilestoneCounter: number;
   grants: ReferralGrantEntry[];
 }

@@ -274,6 +274,16 @@ export interface DashboardSummary {
    */
   priorMonth: string | null;
   incomePrior: number | null;
+  /**
+   * This reporting month's credits Fynora cannot yet call income -- money from a person, an
+   * unexplained credit-card credit. Never part of monthlyIncome; shown in the banner beside it.
+   * unresolvedTopReason is the backend FlowReason carrying most of the value ('PERSON_INFLOW',
+   * 'CARD_UNEXPLAINED_CREDIT', ...), null when nothing is unresolved. A string, not a union: a
+   * reason added later must degrade to "no reason line", not a type error.
+   */
+  unresolvedInflow: number;
+  unresolvedInflowCount: number;
+  unresolvedTopReason: string | null;
 }
 
 export type DashboardRangeType = 'LAST_3_MONTHS' | 'LAST_6_MONTHS' | 'LAST_12_MONTHS' | 'LAST_24_MONTHS' | 'CUSTOM';
@@ -324,6 +334,10 @@ export interface DashboardRangeSummary {
   previousBalanceAsOf: string | null;
   balanceDeltaPct: number | null;
   balanceGateReason: 'NO_SNAPSHOT_AT_PRIOR_DATE' | null;
+  /** Same as DashboardSummary.unresolvedInflow, over [startDate, endDate] -- never part of incomeTotal. */
+  unresolvedInflow: number;
+  unresolvedInflowCount: number;
+  unresolvedTopReason: string | null;
 }
 
 export interface CategoryMover {

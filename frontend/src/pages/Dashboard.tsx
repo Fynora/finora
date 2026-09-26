@@ -11,7 +11,7 @@ import {
   Wallet, ArrowDownCircle, ArrowUpCircle, PieChart,
   ShoppingBag, Sparkles, Plus, PiggyBank, TrendingUp, TrendingDown, Target, ShieldCheck, Repeat,
   UploadCloud, Receipt, LineChart as LineChartIcon, Mail, AlertTriangle, ListChecks, Copy, BadgeCheck,
-  ChevronDown, X, Check,
+  ChevronDown, X, Check, Info,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { BankLogo } from '../components/BankLogo';
@@ -38,6 +38,14 @@ ChartJS.register(ArcElement, LineElement, PointElement, LinearScale, CategorySca
 // QuickActionCard.tsx, used here for the floating action button (the other named hoverScale
 // adopter in the animation-polish roadmap alongside Quick Action tiles).
 const MotionLink = motion.create(Link);
+
+// The unresolved-inflow banner's third line, keyed by the backend's FlowReason name. Any other
+// value -- including a reason a newer server adds later -- renders no third line rather than a
+// wrong one.
+const UNRESOLVED_REASON_LINE: Record<string, string> = {
+  PERSON_INFLOW: 'Mostly money received from people',
+  CARD_UNEXPLAINED_CREDIT: 'Mostly credits on your cards',
+};
 
 function fmt(n: number) {
   // Negative amounts (e.g. a month where spend exceeded income) must render as "-₹500",
@@ -642,6 +650,7 @@ export default function Dashboard() {
           {(rangeSummaryQ.error as any)?.response?.data?.message ?? "Couldn't load your KPI cards — please try again later."}
         </p>
       ) : (
+        <>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
           {kpis.map((k) => (
             <MetricCard
@@ -660,6 +669,29 @@ export default function Dashboard() {
             />
           ))}
         </div>
+        {/* Money that came in over this range but is not counted in the Income card -- a transfer
+            from a person, an unexplained credit on a card (see FlowClassifier on the backend).
+            Without this line a user whose income drops because a parent's transfer stopped
+            counting sees the number fall with no explanation. Display-only for now. */}
+        {rangeSummary.unresolvedInflowCount > 0 && (
+          <div
+            className="bg-card border border-border rounded-xl2 px-5 py-3.5 flex items-start gap-2.5 mb-6"
+            data-testid="unresolved-inflow-banner"
+          >
+            <Info size={16} className="text-muted flex-shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-ink">
+                {rangeSummary.unresolvedInflowCount}{' '}
+                {rangeSummary.unresolvedInflowCount === 1 ? 'transaction needs' : 'transactions need'} classification
+                {' · '}{fmt(rangeSummary.unresolvedInflow)} not counted as income
+              </p>
+              {rangeSummary.unresolvedTopReason && UNRESOLVED_REASON_LINE[rangeSummary.unresolvedTopReason] && (
+                <p className="text-xs text-muted mt-0.5">{UNRESOLVED_REASON_LINE[rangeSummary.unresolvedTopReason]}</p>
+              )}
+            </div>
+          </div>
+        )}
+        </>
       )}
 
       {/* Financial Health Score — DashboardService.computeHealthScore has always returned this

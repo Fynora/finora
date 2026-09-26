@@ -1003,6 +1003,9 @@ export interface ReportData {
   income: number;
   expense: number;
   categories: { category: string; amount: number }[];
+  /** Credits this month Fynora cannot yet call income (money from a person, an unexplained card
+   *  credit) -- never part of `income`. Optional: an older server does not send it. */
+  unresolvedInflow?: number;
 }
 export interface IncomeTrendPoint {
   month: string;
@@ -1399,7 +1402,10 @@ export interface MyReferralsDto {
   /** Always referrals.length -- kept for web Billing.tsx's own copy of this field; see that
    *  file's ported comment above. */
   referralCount: number;
+  /** Always 0 -- the 3-referral Plus reward was removed. */
   plusMilestoneCounter: number;
+  /** The one milestone counter: referrals toward 7, which earn a free month of Plus. Named for
+   *  the retired 7-referral Premium reward it used to track. */
   premiumMilestoneCounter: number;
   grants: ReferralGrantEntry[];
 }

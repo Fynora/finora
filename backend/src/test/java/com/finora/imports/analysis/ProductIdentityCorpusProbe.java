@@ -1,37 +1,18 @@
 package com.finora.imports.analysis;
 
-import com.finora.imports.TestAccountRepositories;
 
 import com.finora.dto.ImportDto.DetectedAccountInfo;
 import com.finora.dto.ImportDto.StagedAccountSection;
-import com.finora.imports.BalanceChainValidator;
-import com.finora.imports.ColumnAmbiguityValidator;
-import com.finora.imports.DuplicateDetector;
-import com.finora.imports.ImportVerifier;
-import com.finora.imports.StatementTotalsValidator;
-import com.finora.imports.SummaryTotalsValidator;
-import com.finora.imports.TestRuleEngines;
-import com.finora.imports.TransactionNormalizer;
-import com.finora.imports.pdf.PdfMetadataExtractor;
 import com.finora.imports.pdf.PdfPreviewGenerator;
-import com.finora.imports.pdf.PdfTableLocator;
-import com.finora.imports.pdf.PdfTextExtractor;
 import com.finora.imports.product.FinancialProductType;
-import com.finora.imports.product.ProductAttributeExtractor;
-import com.finora.imports.product.ProductDiscovery;
 import com.finora.imports.product.ProductIdentity;
 import com.finora.imports.product.ProductIdentityResolver;
-import com.finora.repository.TransactionRepository;
-import com.finora.service.CategorizationService;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.UUID;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 /**
  * ProductIdentityResolver audit, Phase 3. Answers a question {@link CorpusProbe} cannot: given a
@@ -83,15 +64,8 @@ public final class ProductIdentityCorpusProbe {
     static boolean probeOne(Path pdf) throws Exception {
         byte[] bytes = Files.readAllBytes(pdf);
 
-        // Constructed exactly as CorpusProbe.probe does, so this cannot drift onto a different
-        // pipeline than the one already validated against the corpus for classification.
-        PdfPreviewGenerator generator = new PdfPreviewGenerator(
-                new PdfTextExtractor(), new PdfTableLocator(), new PdfMetadataExtractor(),
-                stubbedNormalizer(), ProductDiscovery.standard(), new ProductAttributeExtractor(),
-                new ImportVerifier(new BalanceChainValidator(), new StatementTotalsValidator(),
-                        new SummaryTotalsValidator(), new ColumnAmbiguityValidator(), new com.finora.imports.RowAccountingValidator(),
-                        new com.finora.imports.CreditCardStatementTotalsValidator(), new com.finora.imports.CreditCardFlowReconciliationValidator(), new com.finora.imports.DescriptionCorruptionValidator()),
-                TestRuleEngines.empty());
+        // Shared with every manual corpus probe -- see ProbePipelines for why it lives in one place.
+        PdfPreviewGenerator generator = ProbePipelines.standardGenerator();
 
         var generated = generator.generateSectionsWithContext(
                 UUID.randomUUID(), pdf.getFileName().toString(), bytes, null);
@@ -183,20 +157,6 @@ public final class ProductIdentityCorpusProbe {
         } catch (IllegalArgumentException e) {
             return FinancialProductType.UNKNOWN;
         }
-    }
-
-    /** Identical to {@link CorpusProbe}'s -- see its own doc for why both collaborators are stubbed. */
-    private static TransactionNormalizer stubbedNormalizer() {
-        CategorizationService categorization = mock(CategorizationService.class);
-        var suggestion = new CategorizationService.Suggestion("Uncategorized", "default", null, null, null);
-        when(categorization.suggestReadOnly(any(), any(), any(), any())).thenReturn(suggestion);
-        when(categorization.suggestReadOnly(any(), any(), any(), any(), any())).thenReturn(suggestion);
-        when(categorization.suggestReadOnly(any(), any(), any(), any(), any(), any(), any(), any()))
-                .thenReturn(suggestion);
-        TransactionRepository transactions = mock(TransactionRepository.class);
-        when(transactions.findPotentialDuplicatesByUserAndAccountIdIn(any(), any(), any(), any(), any())).thenReturn(List.of());
-        return new TransactionNormalizer(categorization, new DuplicateDetector(transactions, TestAccountRepositories.anyLive()),
-                TestRuleEngines.empty());
     }
 
     private ProductIdentityCorpusProbe() {}

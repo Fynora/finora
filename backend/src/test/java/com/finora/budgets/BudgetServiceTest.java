@@ -375,4 +375,60 @@ class BudgetServiceTest {
         verify(timelineEventService).record(eq(userId), eq(TimelineEventType.FIRST_BUDGET_CREATED),
                 isNull(), anyString(), isNull(), any());
     }
+
+    // ---- an unlinked refund gives the budget back what came back ----
+
+    private Transaction unlinkedRefund(BigDecimal amount, UUID categoryId) {
+        Transaction t = new Transaction();
+        ReflectionTestUtils.setField(t, "id", UUID.randomUUID());
+        t.setUserId(userId);
+        t.setAmount(amount);
+        t.setTxnType(Transaction.Type.INCOME);
+        t.setTxnDate(LocalDate.now());
+        t.setCategoryId(categoryId);
+        t.setDescription("REFUND FROM MERCHANTCO ORDER 1");
+        t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
+        t.setSource(Transaction.Source.CSV_IMPORT);
+        return t;
+    }
+
+    @Test
+    void listForUser_unlinkedRefundInTheCategory_reducesSpent() {
+        Category dining = category("Dining");
+        when(categoryRepository.findByUserId(userId)).thenReturn(List.of(dining));
+        when(budgetRepository.findByUserId(userId)).thenReturn(List.of(budget(dining.getId(), new BigDecimal("5000.00"))));
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
+                .thenReturn(List.of(expense(new BigDecimal("1200.00"), dining.getId()),
+                        unlinkedRefund(new BigDecimal("200.00"), dining.getId())));
+
+        assertThat(budgetService.listForUser(userId).get(0).spentThisMonth()).isEqualByComparingTo("1000.00");
+    }
+
+    @Test
+    void listForUser_refundInAnotherCategory_leavesThisBudgetAlone() {
+        Category dining = category("Dining");
+        Category shopping = category("Shopping");
+        when(categoryRepository.findByUserId(userId)).thenReturn(List.of(dining, shopping));
+        when(budgetRepository.findByUserId(userId)).thenReturn(List.of(budget(dining.getId(), new BigDecimal("5000.00"))));
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
+                .thenReturn(List.of(expense(new BigDecimal("1200.00"), dining.getId()),
+                        unlinkedRefund(new BigDecimal("200.00"), shopping.getId())));
+
+        assertThat(budgetService.listForUser(userId).get(0).spentThisMonth()).isEqualByComparingTo("1200.00");
+    }
+
+    @Test
+    void upsert_unlinkedRefundLargerThanSpend_reportsZeroNotNegative() {
+        Category dining = category("Dining");
+        when(categoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc(userId, "Dining")).thenReturn(List.of(dining));
+        when(budgetRepository.findByUserIdAndCategoryId(userId, dining.getId())).thenReturn(Optional.empty());
+        when(budgetRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(eq(userId), any(), any(), any()))
+                .thenReturn(List.of(expense(new BigDecimal("100.00"), dining.getId()),
+                        unlinkedRefund(new BigDecimal("400.00"), dining.getId())));
+
+        BudgetDto result = budgetService.upsert(userId, new BudgetDto.UpsertRequest("Dining", new BigDecimal("5000.00")));
+
+        assertThat(result.spentThisMonth()).isEqualByComparingTo("0");
+    }
 }

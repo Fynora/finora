@@ -163,6 +163,9 @@ function summary(overrides: Partial<DashboardSummary> = {}): DashboardSummary {
     // before these fields existed.
     priorMonth: null,
     incomePrior: null,
+    unresolvedInflow: 0,
+    unresolvedInflowCount: 0,
+    unresolvedTopReason: null,
     ...overrides,
   };
 }
@@ -193,6 +196,9 @@ function rangeSummary(overrides: Partial<DashboardRangeSummary> = {}): Dashboard
     previousBalanceAsOf: null,
     balanceDeltaPct: null,
     balanceGateReason: null,
+    unresolvedInflow: 0,
+    unresolvedInflowCount: 0,
+    unresolvedTopReason: null,
     ...overrides,
   };
 }
@@ -1898,5 +1904,83 @@ describe('Dashboard — hero pinned first', () => {
     const checklistHeading = await screen.findByText('Getting Started');
 
     expect(heading.compareDocumentPosition(checklistHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
+describe('Dashboard — unresolved inflow banner', () => {
+  beforeEach(() => {
+    vi.mocked(dashboardApi.summary).mockReset().mockResolvedValue(summary());
+    vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [], page: 0, size: 4, totalElements: 12, totalPages: 3,
+    });
+    vi.mocked(goalsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(insightsApi.get).mockReset().mockResolvedValue({ sentences: [], movers: [] });
+    vi.mocked(userApi.get).mockReset().mockResolvedValue({
+      email: 'amy@example.test', fullName: 'Amy Santiago', lowBalanceThreshold: 2000,
+      theme: 'system', timezone: 'Asia/Kolkata', phoneNumber: '+919876500000',
+      phoneVerified: true, createdAt: '2026-01-01T00:00:00Z', passwordChangedAt: null, signInMethod: 'PASSWORD',
+      onboardingCompleted: true,
+    });
+    vi.mocked(budgetsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(reportsApi.availableMonths).mockReset().mockResolvedValue(['2026-08']);
+    vi.mocked(reportsApi.forMonth).mockReset().mockResolvedValue({
+      month: '2026-08', income: 80000, expense: 45000, categories: [],
+    });
+    vi.mocked(recurringApi.list).mockReset().mockResolvedValue([]);
+  });
+
+  it('says how many transactions and how much money are not counted as income', async () => {
+    vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
+      unresolvedInflow: 84500, unresolvedInflowCount: 12, unresolvedTopReason: null,
+    }));
+    renderDashboard();
+
+    expect(await screen.findByText('12 transactions need classification · ₹84,500 not counted as income'))
+      .toBeInTheDocument();
+  });
+
+  it('uses the singular for one transaction', async () => {
+    vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
+      unresolvedInflow: 1479, unresolvedInflowCount: 1, unresolvedTopReason: null,
+    }));
+    renderDashboard();
+
+    expect(await screen.findByText('1 transaction needs classification · ₹1,479 not counted as income'))
+      .toBeInTheDocument();
+  });
+
+  it('is absent when nothing is unresolved', async () => {
+    vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
+      unresolvedInflow: 0, unresolvedInflowCount: 0, unresolvedTopReason: null,
+    }));
+    renderDashboard();
+
+    await screen.findByText(/^Income \(/); // wait for the KPI cards
+    expect(screen.queryByTestId('unresolved-inflow-banner')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['PERSON_INFLOW', 'Mostly money received from people'],
+    ['CARD_UNEXPLAINED_CREDIT', 'Mostly credits on your cards'],
+  ])('explains a %s top reason', async (reason, line) => {
+    vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
+      unresolvedInflow: 5000, unresolvedInflowCount: 2, unresolvedTopReason: reason,
+    }));
+    renderDashboard();
+
+    expect(await screen.findByText(line)).toBeInTheDocument();
+  });
+
+  it('shows no reason line for a reason this client does not know', async () => {
+    vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
+      unresolvedInflow: 5000, unresolvedInflowCount: 2, unresolvedTopReason: 'SOME_FUTURE_REASON',
+    }));
+    renderDashboard();
+
+    const banner = await screen.findByTestId('unresolved-inflow-banner');
+    expect(banner.querySelectorAll('p')).toHaveLength(1);
+    expect(screen.queryByText('SOME_FUTURE_REASON')).not.toBeInTheDocument();
   });
 });

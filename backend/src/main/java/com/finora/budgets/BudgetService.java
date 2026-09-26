@@ -85,11 +85,13 @@ public class BudgetService {
         List<UUID> liveAccountIds = liveAccountIds(userId);
         List<Transaction> monthTxns = liveAccountIds.isEmpty() ? List.of()
                 : transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(userId, from, to, liveAccountIds);
-        Map<UUID, BigDecimal> spendByCategory = RefundNetting.reportable(
-                        monthTxns, transactionGraphService.ccPaymentFromTransactionIds(monthTxns)).stream()
-                .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE && t.getCategoryId() != null)
+        List<Transaction> reportable = RefundNetting.reportable(
+                monthTxns, transactionGraphService.ccPaymentFromTransactionIds(monthTxns));
+        RefundNetting spend = withUnlinkedOffsets(userId, refunds, reportable);
+        Map<UUID, BigDecimal> spendByCategory = RefundNetting.withoutNegativeSpend(reportable.stream()
+                .filter(t -> spend.countsAsSpend(t) && t.getCategoryId() != null)
                 .collect(Collectors.groupingBy(Transaction::getCategoryId,
-                        Collectors.reducing(BigDecimal.ZERO, refunds::reportableAmount, BigDecimal::add)));
+                        Collectors.reducing(BigDecimal.ZERO, spend::spendAmount, BigDecimal::add))));
 
         return budgetRepository.findByUserId(userId).stream().map(b -> {
             Category cat = categoriesById.get(b.getCategoryId());
@@ -183,10 +185,20 @@ public class BudgetService {
         List<UUID> liveAccountIds = liveAccountIds(userId);
         List<Transaction> monthTxns = liveAccountIds.isEmpty() ? List.of()
                 : transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(userId, from, to, liveAccountIds);
-        return RefundNetting.reportable(monthTxns, transactionGraphService.ccPaymentFromTransactionIds(monthTxns)).stream()
-                .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE && categoryId.equals(t.getCategoryId()))
-                .map(refunds::reportableAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        List<Transaction> reportable = RefundNetting.reportable(
+                monthTxns, transactionGraphService.ccPaymentFromTransactionIds(monthTxns));
+        RefundNetting spend = withUnlinkedOffsets(userId, refunds, reportable);
+        return RefundNetting.floorAtZero(reportable.stream()
+                .filter(t -> spend.countsAsSpend(t) && categoryId.equals(t.getCategoryId()))
+                .map(spend::spendAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add));
+    }
+
+    /** An unlinked refund or card adjustment in this month gives spend back to its own category --
+     *  the same rule the dashboard and reports use. See RefundNetting.withUnlinkedOffsets. */
+    private RefundNetting withUnlinkedOffsets(UUID userId, RefundNetting refunds, List<Transaction> reportable) {
+        return refunds.withUnlinkedOffsets(reportable, com.finora.service.FlowTotals.context(
+                accountRepository.findByUserId(userId), categoryRepository.findByUserId(userId)));
     }
 
     /**

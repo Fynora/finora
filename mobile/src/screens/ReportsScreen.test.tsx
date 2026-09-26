@@ -274,3 +274,25 @@ describe('screen capture protection (Track D/D3)', () => {
     expect(usePreventScreenCapture).toHaveBeenCalled();
   });
 });
+
+describe('money not counted as income', () => {
+  beforeEach(() => {
+    api.availableMonths.mockReset().mockResolvedValue(MONTHS);
+  });
+
+  it('says how much came in but is not counted as income', async () => {
+    api.forMonth.mockImplementation(async (m: string) => ({ ...reportFor(m), unresolvedInflow: 84500 }));
+    renderScreen();
+    await loadedReport();
+
+    expect(screen.getByText('₹84,500 not counted as income')).toBeOnTheScreen();
+  });
+
+  it('says nothing when the server reports nothing unresolved', async () => {
+    api.forMonth.mockImplementation(async (m: string) => ({ ...reportFor(m), unresolvedInflow: 0 }));
+    renderScreen();
+    await loadedReport();
+
+    expect(screen.queryByText(/not counted as income/)).not.toBeOnTheScreen();
+  });
+});

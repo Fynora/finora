@@ -300,4 +300,142 @@ class ReportServiceTest {
         assertThat(reportService.incomeTrend(userId)).isEmpty();
         verify(transactionRepository, never()).findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any());
     }
+
+    // ---- flow classification: only real income counts as income ----
+
+    @Test
+    void forMonth_moneyFromAPersonIsUnresolved_notIncome() {
+        liveAccount.setAccountType(Account.Type.SAVINGS);
+        Transaction salary = txn(new BigDecimal("50000.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
+        salary.setAccountId(liveAccount.getId());
+        salary.setDescription("NEFT ACME TECHNOLOGIES SALARY JUL");
+        Transaction fromPerson = txn(new BigDecimal("1000.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
+        fromPerson.setAccountId(liveAccount.getId());
+        fromPerson.setDescription("UPI-SUNIL VERMA-sampleuser@ybl-REF1");
+        fromPerson.setCounterpartyType(com.finora.util.CounterpartyType.PERSON);
+        fromPerson.setSource(Transaction.Source.CSV_IMPORT); // imported: a hand-entered credit is the user saying "income"
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
+                .thenReturn(List.of(salary, fromPerson));
+
+        ReportDto report = reportService.forMonth(userId, "2026-07");
+
+        assertThat(report.income()).isEqualByComparingTo("50000.00");
+        assertThat(report.unresolvedInflow()).isEqualByComparingTo("1000.00");
+    }
+
+    @Test
+    void forMonth_creditCardCreditsNeverCountAsIncome() {
+        Account card = new Account();
+        ReflectionTestUtils.setField(card, "id", UUID.randomUUID());
+        card.setUserId(userId);
+        card.setAccountType(Account.Type.CREDIT_CARD);
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of(liveAccount, card));
+        Transaction billPaid = txn(new BigDecimal("20000.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
+        billPaid.setAccountId(card.getId());
+        billPaid.setDescription("PAYMENT RECEIVED THANK YOU");
+        Transaction merchantCredit = txn(new BigDecimal("1479.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
+        merchantCredit.setAccountId(card.getId());
+        merchantCredit.setDescription("UPI MERCHANTCO 111111111111");
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
+                .thenReturn(List.of(billPaid, merchantCredit));
+
+        ReportDto report = reportService.forMonth(userId, "2026-07");
+
+        assertThat(report.income()).isEqualByComparingTo("0");
+        // The bill payment is a transfer, so only the merchant credit is unresolved.
+        assertThat(report.unresolvedInflow()).isEqualByComparingTo("1479.00");
+    }
+
+    @Test
+    void forRange_incomeUsesTheSameFlowRules() {
+        liveAccount.setAccountType(Account.Type.SAVINGS);
+        Transaction fdClosure = txn(new BigDecimal("100000.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
+        fdClosure.setAccountId(liveAccount.getId());
+        fdClosure.setDescription("FD CLOSURE PROCEEDS 000123");
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
+                .thenReturn(List.of(fdClosure));
+
+        var totals = reportService.forRange(userId, LocalDate.of(2026, 7, 1), LocalDate.of(2026, 7, 31));
+
+        assertThat(totals.income()).isEqualByComparingTo("0");
+        // An FD closure is an investment withdrawal, not unresolved -- nothing for the banner.
+        assertThat(totals.unresolvedInflow()).isEqualByComparingTo("0");
+        assertThat(totals.unresolvedInflowCount()).isZero();
+        assertThat(totals.unresolvedTopReason()).isNull();
+    }
+
+    @Test
+    void forRange_reportsUnresolvedInflowWithItsTopReason() {
+        liveAccount.setAccountType(Account.Type.SAVINGS);
+        Transaction fromPerson = txn(new BigDecimal("2500.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
+        fromPerson.setAccountId(liveAccount.getId());
+        fromPerson.setDescription("UPI-SUNIL VERMA-sampleuser@ybl-REF1");
+        fromPerson.setCounterpartyType(com.finora.util.CounterpartyType.PERSON);
+        fromPerson.setSource(Transaction.Source.CSV_IMPORT); // imported: a hand-entered credit is the user saying "income"
+        Transaction salary = txn(new BigDecimal("50000.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
+        salary.setAccountId(liveAccount.getId());
+        salary.setDescription("NEFT ACME TECHNOLOGIES SALARY JUL");
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
+                .thenReturn(List.of(fromPerson, salary));
+
+        var totals = reportService.forRange(userId, LocalDate.of(2026, 7, 1), LocalDate.of(2026, 7, 31));
+
+        assertThat(totals.income()).isEqualByComparingTo("50000.00");
+        assertThat(totals.unresolvedInflow()).isEqualByComparingTo("2500.00");
+        assertThat(totals.unresolvedInflowCount()).isEqualTo(1);
+        assertThat(totals.unresolvedTopReason()).isEqualTo("PERSON_INFLOW");
+    }
+
+    // ---- unlinked refunds give spend back instead of vanishing ----
+
+    private Transaction unlinkedRefund(String amount) {
+        Transaction t = txn(new BigDecimal(amount), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
+        t.setAccountId(liveAccount.getId());
+        t.setDescription("REFUND FROM MERCHANTCO ORDER 1");
+        t.setSource(Transaction.Source.CSV_IMPORT);
+        return t;
+    }
+
+    @Test
+    void forMonth_unlinkedRefund_reducesExpenseAndItsCategory_notIncome() {
+        liveAccount.setAccountType(Account.Type.SAVINGS);
+        Transaction purchase = txn(new BigDecimal("1000.00"), Transaction.Type.EXPENSE, Transaction.ReconciliationStatus.OK);
+        purchase.setAccountId(liveAccount.getId());
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
+                .thenReturn(List.of(purchase, unlinkedRefund("300.00")));
+
+        ReportDto report = reportService.forMonth(userId, "2026-07");
+
+        assertThat(report.expense()).isEqualByComparingTo("700.00");
+        assertThat(report.income()).isEqualByComparingTo("0");
+        assertThat(report.unresolvedInflow()).isEqualByComparingTo("0");
+        assertThat(report.categories()).singleElement()
+                .satisfies(c -> assertThat(c.amount()).isEqualByComparingTo("700.00"));
+    }
+
+    @Test
+    void forMonth_refundLargerThanTheMonthsSpend_floorsAtZeroAndDropsTheCategory() {
+        liveAccount.setAccountType(Account.Type.SAVINGS);
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
+                .thenReturn(List.of(unlinkedRefund("300.00")));
+
+        ReportDto report = reportService.forMonth(userId, "2026-07");
+
+        assertThat(report.expense()).isEqualByComparingTo("0");
+        assertThat(report.categories()).isEmpty();
+    }
+
+    @Test
+    void forRange_unlinkedRefund_reducesExpense() {
+        liveAccount.setAccountType(Account.Type.SAVINGS);
+        Transaction purchase = txn(new BigDecimal("1000.00"), Transaction.Type.EXPENSE, Transaction.ReconciliationStatus.OK);
+        purchase.setAccountId(liveAccount.getId());
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
+                .thenReturn(List.of(purchase, unlinkedRefund("300.00")));
+
+        var totals = reportService.forRange(userId, LocalDate.of(2026, 7, 1), LocalDate.of(2026, 7, 31));
+
+        assertThat(totals.expense()).isEqualByComparingTo("700.00");
+        assertThat(totals.income()).isEqualByComparingTo("0");
+    }
 }

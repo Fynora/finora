@@ -20,8 +20,11 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -137,8 +140,19 @@ public class ReferralGrantSweepService {
                     NotificationPriority.NORMAL,
                     "REFERRAL_GRANT_ACTIVATED_" + next.getId(),
                     Set.of(NotificationChannel.PUSH, NotificationChannel.EMAIL),
-                    Map.of("tier", next.getTier(), "expiresAt", next.getExpiresAt().toString())));
+                    Map.of("tier", tierDisplayName(next.getTier()),
+                            "expiresAt", EXPIRY_DATE_FORMAT.format(next.getExpiresAt()))));
             return true;
         }));
+    }
+
+    // These fill a customer-facing push/email ("Your free month of {{tier}} runs until
+    // {{expiresAt}}."). The raw values rendered as "PLUS" and "2026-10-26T14:03:11.123Z".
+    // Same date format and zone as InvoiceService.
+    public static final DateTimeFormatter EXPIRY_DATE_FORMAT =
+            DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.ENGLISH).withZone(ZoneId.of("Asia/Kolkata"));
+
+    public static String tierDisplayName(String tier) {
+        return ReferralGrant.TIER_PREMIUM.equals(tier) ? "Premium" : "Plus";
     }
 }

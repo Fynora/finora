@@ -59,7 +59,8 @@ class HealthScoreSnapshotSweepServiceTest {
                 List.of(),
                 0, List.of(),
                 null, 0, 5,
-                null, null
+                null, null,
+                BigDecimal.ZERO, 0, null
         );
     }
 

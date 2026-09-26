@@ -614,6 +614,7 @@ class AnalyticsServiceTest {
         Transaction fromPerson = income(LocalDate.of(2025, 3, 5), new BigDecimal("10000"));
         fromPerson.setDescription("UPI-SUNIL VERMA-sampleuser@ybl-REF3");
         fromPerson.setCounterpartyType(com.finora.util.CounterpartyType.PERSON);
+        fromPerson.setSource(Transaction.Source.CSV_IMPORT); // imported: a hand-entered credit is the user saying "income"
         when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(
                 eq(userId), any(), any(), any()))
                 .thenReturn(List.of(salary, fromPerson));

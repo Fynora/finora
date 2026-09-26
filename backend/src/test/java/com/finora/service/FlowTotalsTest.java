@@ -1,6 +1,7 @@
 package com.finora.service;
 
 import com.finora.entity.Account;
+import com.finora.entity.Category;
 import com.finora.entity.Transaction;
 import com.finora.util.CounterpartyType;
 import org.junit.jupiter.api.Test;
@@ -29,18 +30,19 @@ class FlowTotalsTest {
         t.setAmount(new BigDecimal(amount));
         t.setDescription(description);
         t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
+        t.setSource(Transaction.Source.CSV_IMPORT); // imported unless a test says otherwise
         return t;
     }
 
     @Test void countsAsIncome_salaryOnSavings() {
         Account savings = account(Account.Type.SAVINGS);
-        Map<UUID, Account.Type> types = FlowTotals.accountTypes(List.of(savings));
+        FlowTotals.Context types = ctx(List.of(savings));
         assertThat(FlowTotals.countsAsIncome(credit(savings, "50000.00", "NEFT ACME SALARY JUL"), types)).isTrue();
     }
 
     @Test void countsAsIncome_neverForAnUnexplainedCardCredit() {
         Account card = account(Account.Type.CREDIT_CARD);
-        Map<UUID, Account.Type> types = FlowTotals.accountTypes(List.of(card));
+        FlowTotals.Context types = ctx(List.of(card));
         assertThat(FlowTotals.countsAsIncome(credit(card, "1479.00", "UPI MERCHANTCO 111111111111"), types)).isFalse();
     }
 
@@ -48,11 +50,11 @@ class FlowTotalsTest {
         Account savings = account(Account.Type.SAVINGS);
         Transaction t = credit(savings, "10.00", "NEFT ACME SALARY");
         t.setTxnType(Transaction.Type.EXPENSE);
-        assertThat(FlowTotals.countsAsIncome(t, FlowTotals.accountTypes(List.of(savings)))).isFalse();
+        assertThat(FlowTotals.countsAsIncome(t, ctx(List.of(savings)))).isFalse();
     }
 
     @Test void countsAsIncome_rowWithUnknownAccount_isTreatedAsNonCard() {
-        assertThat(FlowTotals.countsAsIncome(credit(null, "100.00", "NEFT CLIENTCO PVT LTD"), Map.of())).isTrue();
+        assertThat(FlowTotals.countsAsIncome(credit(null, "100.00", "NEFT CLIENTCO PVT LTD"), ctx(List.of()))).isTrue();
     }
 
     @Test void unresolvedInflow_sumsOnlyUnresolvedCredits() {
@@ -64,7 +66,7 @@ class FlowTotalsTest {
         Transaction salary = credit(savings, "50000.00", "NEFT ACME SALARY");
         Transaction payment = credit(card, "5000.00", "PAYMENT RECEIVED THANK YOU");
         List<Transaction> rows = List.of(person, cardCredit, salary, payment);
-        Map<UUID, Account.Type> types = FlowTotals.accountTypes(List.of(savings, card));
+        FlowTotals.Context types = ctx(List.of(savings, card));
 
         assertThat(FlowTotals.unresolvedInflow(rows, types)).isEqualByComparingTo("1012.00");
         assertThat(FlowTotals.unresolvedInflowCount(rows, types)).isEqualTo(2);
@@ -74,10 +76,105 @@ class FlowTotalsTest {
     @Test void unresolvedTopReason_isNullWhenNothingIsUnresolved() {
         Account savings = account(Account.Type.SAVINGS);
         assertThat(FlowTotals.unresolvedTopReason(List.of(credit(savings, "100.00", "NEFT ACME SALARY")),
-                FlowTotals.accountTypes(List.of(savings)))).isNull();
+                ctx(List.of(savings)))).isNull();
     }
 
-    @Test void accountTypes_skipsAccountsWithNoType() {
-        assertThat(FlowTotals.accountTypes(List.of(account(null)))).isEmpty();
+    @Test void context_skipsAccountsWithNoType() {
+        assertThat(ctx(List.of(account(null))).accountTypes()).isEmpty();
+    }
+
+    // ---- the user's own word outranks a person-shaped narration ----
+
+    private static final UUID SALARY_ID = UUID.randomUUID();
+
+    private static FlowTotals.Context ctx(List<Account> accounts) {
+        Category salary = new Category();
+        ReflectionTestUtils.setField(salary, "id", SALARY_ID);
+        salary.setName("Salary");
+        Category dining = new Category();
+        ReflectionTestUtils.setField(dining, "id", UUID.randomUUID());
+        dining.setName("Dining");
+        return FlowTotals.context(accounts, List.of(salary, dining));
+    }
+
+    private static Transaction fromAPerson(Account on, String amount) {
+        Transaction t = credit(on, amount, "UPI-SUNIL VERMA-sampleuser@ybl-REF1");
+        t.setCounterpartyType(CounterpartyType.PERSON);
+        t.setSource(Transaction.Source.CSV_IMPORT);
+        return t;
+    }
+
+    @Test void personInflow_importedAndUncategorised_isUnresolved() {
+        Account savings = account(Account.Type.SAVINGS);
+        Transaction t = fromAPerson(savings, "20000.00");
+        assertThat(FlowTotals.countsAsIncome(t, ctx(List.of(savings)))).isFalse();
+        assertThat(FlowTotals.isUnresolvedInflow(t, ctx(List.of(savings)))).isTrue();
+    }
+
+    @Test void personInflow_enteredByHandAsIncome_countsAsIncome() {
+        Account savings = account(Account.Type.SAVINGS);
+        Transaction t = fromAPerson(savings, "20000.00");
+        t.setSource(Transaction.Source.MANUAL);
+        assertThat(FlowTotals.countsAsIncome(t, ctx(List.of(savings)))).isTrue();
+        assertThat(FlowTotals.isUnresolvedInflow(t, ctx(List.of(savings)))).isFalse();
+    }
+
+    @Test void personInflow_putInSalaryByTheUser_countsAsIncome() {
+        Account savings = account(Account.Type.SAVINGS);
+        Transaction t = fromAPerson(savings, "45000.00");
+        t.setCategoryId(SALARY_ID);
+        t.setCategoryManuallySet(true);
+        assertThat(FlowTotals.countsAsIncome(t, ctx(List.of(savings)))).isTrue();
+    }
+
+    @Test void personInflow_putInSalaryByARuleTheUserTaught_countsAsIncome() {
+        Account savings = account(Account.Type.SAVINGS);
+        for (Transaction.DecisionSource taught : List.of(Transaction.DecisionSource.USER_RULE,
+                Transaction.DecisionSource.LEARNED_PATTERN, Transaction.DecisionSource.MANUAL)) {
+            Transaction t = fromAPerson(savings, "45000.00");
+            t.setCategoryId(SALARY_ID);
+            t.setDecisionSource(taught);
+            assertThat(FlowTotals.countsAsIncome(t, ctx(List.of(savings)))).as(taught.name()).isTrue();
+        }
+    }
+
+    @Test void personInflow_putInSalaryByTheAiFallbackOrAGlobalRule_staysUnresolved() {
+        Account savings = account(Account.Type.SAVINGS);
+        for (Transaction.DecisionSource guessed : List.of(Transaction.DecisionSource.AI_FALLBACK,
+                Transaction.DecisionSource.GLOBAL_RULE, Transaction.DecisionSource.SHARED_CORPUS)) {
+            Transaction t = fromAPerson(savings, "45000.00");
+            t.setCategoryId(SALARY_ID);
+            t.setDecisionSource(guessed);
+            assertThat(FlowTotals.isUnresolvedInflow(t, ctx(List.of(savings)))).as(guessed.name()).isTrue();
+        }
+    }
+
+    @Test void personInflow_inANonSalaryCategorySetByTheUser_staysUnresolved() {
+        Account savings = account(Account.Type.SAVINGS);
+        Transaction t = fromAPerson(savings, "800.00");
+        t.setCategoryId(UUID.randomUUID());
+        t.setCategoryManuallySet(true);
+        assertThat(FlowTotals.isUnresolvedInflow(t, ctx(List.of(savings)))).isTrue();
+    }
+
+    @Test void enteredByHand_aRefundIsStillARefund() {
+        Account savings = account(Account.Type.SAVINGS);
+        Transaction t = credit(savings, "499.00", "Refund from store");
+        t.setSource(Transaction.Source.MANUAL);
+        assertThat(FlowTotals.countsAsIncome(t, ctx(List.of(savings)))).isFalse();
+    }
+
+    @Test void enteredByHandOnACard_isStillNotIncome() {
+        Account card = account(Account.Type.CREDIT_CARD);
+        Transaction t = credit(card, "2000.00", "Money from a friend");
+        t.setSource(Transaction.Source.MANUAL);
+        assertThat(FlowTotals.countsAsIncome(t, ctx(List.of(card)))).isFalse();
+    }
+
+    @Test void context_findsSalaryByNameIgnoringCaseAndSpaces() {
+        Category c = new Category();
+        ReflectionTestUtils.setField(c, "id", UUID.randomUUID());
+        c.setName(" salary ");
+        assertThat(FlowTotals.context(List.of(), List.of(c)).salaryCategoryIds()).containsExactly(c.getId());
     }
 }

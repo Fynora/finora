@@ -313,6 +313,7 @@ class ReportServiceTest {
         fromPerson.setAccountId(liveAccount.getId());
         fromPerson.setDescription("UPI-SUNIL VERMA-sampleuser@ybl-REF1");
         fromPerson.setCounterpartyType(com.finora.util.CounterpartyType.PERSON);
+        fromPerson.setSource(Transaction.Source.CSV_IMPORT); // imported: a hand-entered credit is the user saying "income"
         when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
                 .thenReturn(List.of(salary, fromPerson));
 
@@ -370,6 +371,7 @@ class ReportServiceTest {
         fromPerson.setAccountId(liveAccount.getId());
         fromPerson.setDescription("UPI-SUNIL VERMA-sampleuser@ybl-REF1");
         fromPerson.setCounterpartyType(com.finora.util.CounterpartyType.PERSON);
+        fromPerson.setSource(Transaction.Source.CSV_IMPORT); // imported: a hand-entered credit is the user saying "income"
         Transaction salary = txn(new BigDecimal("50000.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
         salary.setAccountId(liveAccount.getId());
         salary.setDescription("NEFT ACME TECHNOLOGIES SALARY JUL");

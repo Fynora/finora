@@ -1394,6 +1394,7 @@ class DashboardServiceTest {
         fromPerson.setAccountId(savings.getId());
         fromPerson.setDescription("UPI-SUNIL VERMA-sampleuser@ybl-REF1");
         fromPerson.setCounterpartyType(com.finora.util.CounterpartyType.PERSON);
+        fromPerson.setSource(Transaction.Source.CSV_IMPORT); // imported: a hand-entered credit is the user saying "income"
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(salary, fromPerson));
 
         DashboardSummaryDto summary = dashboardService.summarize(userId);
@@ -1411,6 +1412,7 @@ class DashboardServiceTest {
         fromPerson.setAccountId(savings.getId());
         fromPerson.setDescription("UPI-SUNIL VERMA-sampleuser@ybl-REF2");
         fromPerson.setCounterpartyType(com.finora.util.CounterpartyType.PERSON);
+        fromPerson.setSource(Transaction.Source.CSV_IMPORT); // imported: a hand-entered credit is the user saying "income"
         Transaction rent = txn(new BigDecimal("15000.00"), Transaction.Type.EXPENSE, july, Transaction.ReconciliationStatus.OK);
         rent.setAccountId(savings.getId());
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(fromPerson, rent));

@@ -123,6 +123,7 @@ public final class FlowClassCorpusProbe {
                 t.setAmount(row.amount());
                 t.setDescription(row.description());
                 t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
+                t.setSource(Transaction.Source.CSV_IMPORT); // what ImportService writes; the entity default is MANUAL
                 t.setCounterpartyType(CounterpartyClassifier.classify(row.description()));
                 FlowClassifier.FlowDecision d = FlowClassifier.classify(t, accountType);
                 String key = accountType + " " + d.flowClass() + "/" + d.reason();

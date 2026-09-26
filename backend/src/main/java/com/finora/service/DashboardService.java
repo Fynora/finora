@@ -146,17 +146,17 @@ public class DashboardService {
         // Income is flow-classified (FlowTotals), not "every credit": money from a person, a card
         // credit, an investment redemption or a loan disbursal is money in, not income. Expense is
         // unchanged -- still every reportable debit.
-        Map<UUID, Account.Type> accountTypes = FlowTotals.accountTypes(accounts);
-        java.util.function.Predicate<Transaction> isIncome = t -> FlowTotals.countsAsIncome(t, accountTypes);
+        FlowTotals.Context flow = FlowTotals.context(accounts, categoriesById.values());
+        java.util.function.Predicate<Transaction> isIncome = t -> FlowTotals.countsAsIncome(t, flow);
         BigDecimal incomeCur = sumForMonth(activeForTotals, currentMonth, isIncome, refunds);
         BigDecimal expenseCur = sumForMonth(activeForTotals, currentMonth, IS_EXPENSE, refunds);
         BigDecimal incomePrior = sumForMonth(activeForTotals, priorMonth, isIncome, refunds);
         BigDecimal expensePrior = sumForMonth(activeForTotals, priorMonth, IS_EXPENSE, refunds);
         List<Transaction> currentMonthRows = currentMonth == null ? List.of() : activeForTotals.stream()
                 .filter(t -> YearMonth.from(t.getTxnDate()).toString().equals(currentMonth)).toList();
-        BigDecimal unresolvedCur = FlowTotals.unresolvedInflow(currentMonthRows, accountTypes);
-        int unresolvedCountCur = FlowTotals.unresolvedInflowCount(currentMonthRows, accountTypes);
-        FlowClassifier.FlowReason unresolvedTopReason = FlowTotals.unresolvedTopReason(currentMonthRows, accountTypes);
+        BigDecimal unresolvedCur = FlowTotals.unresolvedInflow(currentMonthRows, flow);
+        int unresolvedCountCur = FlowTotals.unresolvedInflowCount(currentMonthRows, flow);
+        FlowClassifier.FlowReason unresolvedTopReason = FlowTotals.unresolvedTopReason(currentMonthRows, flow);
         BigDecimal netCur = incomeCur.subtract(expenseCur);
         BigDecimal netPrior = incomePrior.subtract(expensePrior);
 
@@ -181,7 +181,7 @@ public class DashboardService {
                 ? netCur.divide(incomeCur, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100))
                 : BigDecimal.ZERO;
 
-        var health = computeHealthScore(accounts, activeForTotals, months, liquid, refunds);
+        var health = computeHealthScore(accounts, activeForTotals, months, liquid, refunds, flow);
 
         // Write-on-read: keeps this month's snapshot fresh the moment the user opens their
         // dashboard. HealthScoreSnapshotSweepService covers users who don't. Never runs for an
@@ -575,7 +575,7 @@ public class DashboardService {
      *  transactions; this covers the gap between zero and "enough," which that gate never did. */
     private HealthResult computeHealthScore(List<Account> accounts, List<Transaction> active,
                                              List<String> months, BigDecimal liquid,
-                                             RefundNetting refunds) {
+                                             RefundNetting refunds, FlowTotals.Context flow) {
         if (active.size() < MIN_TRANSACTIONS_FOR_HEALTH_SCORE) {
             return new HealthResult(null, null, Map.of(), Map.of(), false, active.size(), MIN_TRANSACTIONS_FOR_HEALTH_SCORE);
         }
@@ -584,8 +584,7 @@ public class DashboardService {
         // BH-005: the same netting the headline KPIs use. The score's savings-rate and cash-flow
         // components are built from these two series, so an overstated expense month moved the
         // score as well as the tiles.
-        Map<UUID, Account.Type> accountTypes = FlowTotals.accountTypes(accounts);
-        java.util.function.Predicate<Transaction> isIncome = t -> FlowTotals.countsAsIncome(t, accountTypes);
+        java.util.function.Predicate<Transaction> isIncome = t -> FlowTotals.countsAsIncome(t, flow);
         List<BigDecimal> monthlyExpense = last6.stream().map(m -> sumForMonth(active, m, IS_EXPENSE, refunds)).toList();
         List<BigDecimal> monthlyIncome = last6.stream().map(m -> sumForMonth(active, m, isIncome, refunds)).toList();
 

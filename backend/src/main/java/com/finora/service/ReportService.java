@@ -59,7 +59,7 @@ public class ReportService {
         // StatementImportService's 7-day grace window.
         List<com.finora.entity.Account> accounts = accountRepository.findByUserId(userId);
         List<UUID> liveAccountIds = accounts.stream().map(com.finora.entity.Account::getId).toList();
-        Map<UUID, com.finora.entity.Account.Type> accountTypes = FlowTotals.accountTypes(accounts);
+        FlowTotals.Context flow = FlowTotals.context(accounts, categoriesById.values());
         RefundNetting refunds = liveAccountIds.isEmpty() ? RefundNetting.from(List.of())
                 : RefundNetting.from(transactionRepository.findByUserIdAndReconciliationStatusInAndAccountIdIn(
                         userId, java.util.List.of(Transaction.ReconciliationStatus.REFUND, Transaction.ReconciliationStatus.REVERSAL),
@@ -75,7 +75,7 @@ public class ReportService {
 
         // Only flow-classified income: a credit from a person, a card credit, an investment
         // redemption or a loan disbursal is money in, not income. See FlowClassifier.
-        BigDecimal income = txnsForTotals.stream().filter(t -> FlowTotals.countsAsIncome(t, accountTypes))
+        BigDecimal income = txnsForTotals.stream().filter(t -> FlowTotals.countsAsIncome(t, flow))
                 .map(refunds::reportableAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal expense = txnsForTotals.stream().filter(t -> t.getTxnType() == Transaction.Type.EXPENSE)
                 .map(refunds::reportableAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -92,7 +92,7 @@ public class ReportService {
                 .toList();
 
         return new ReportDto(monthStr, income, expense, categories,
-                FlowTotals.unresolvedInflow(txnsForTotals, accountTypes));
+                FlowTotals.unresolvedInflow(txnsForTotals, flow));
     }
 
     /**
@@ -108,7 +108,7 @@ public class ReportService {
     public RangeTotals forRange(UUID userId, LocalDate from, LocalDate to) {
         List<com.finora.entity.Account> accounts = accountRepository.findByUserId(userId);
         List<UUID> liveAccountIds = accounts.stream().map(com.finora.entity.Account::getId).toList();
-        Map<UUID, com.finora.entity.Account.Type> accountTypes = FlowTotals.accountTypes(accounts);
+        FlowTotals.Context flow = FlowTotals.context(accounts, categoryRepository.findByUserId(userId));
         RefundNetting refunds = liveAccountIds.isEmpty() ? RefundNetting.from(List.of())
                 : RefundNetting.from(transactionRepository.findByUserIdAndReconciliationStatusInAndAccountIdIn(
                         userId, List.of(Transaction.ReconciliationStatus.REFUND, Transaction.ReconciliationStatus.REVERSAL),
@@ -121,14 +121,14 @@ public class ReportService {
 
         // Only flow-classified income: a credit from a person, a card credit, an investment
         // redemption or a loan disbursal is money in, not income. See FlowClassifier.
-        BigDecimal income = txnsForTotals.stream().filter(t -> FlowTotals.countsAsIncome(t, accountTypes))
+        BigDecimal income = txnsForTotals.stream().filter(t -> FlowTotals.countsAsIncome(t, flow))
                 .map(refunds::reportableAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal expense = txnsForTotals.stream().filter(t -> t.getTxnType() == Transaction.Type.EXPENSE)
                 .map(refunds::reportableAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
-        FlowClassifier.FlowReason topReason = FlowTotals.unresolvedTopReason(txnsForTotals, accountTypes);
+        FlowClassifier.FlowReason topReason = FlowTotals.unresolvedTopReason(txnsForTotals, flow);
         return new RangeTotals(income, expense, txnsForTotals.size(),
-                FlowTotals.unresolvedInflow(txnsForTotals, accountTypes),
-                FlowTotals.unresolvedInflowCount(txnsForTotals, accountTypes),
+                FlowTotals.unresolvedInflow(txnsForTotals, flow),
+                FlowTotals.unresolvedInflowCount(txnsForTotals, flow),
                 topReason == null ? null : topReason.name());
     }
 

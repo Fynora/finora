@@ -28,12 +28,14 @@ import java.util.List;
  */
 public final class FlowClassifier {
 
-    public static final short VERSION = 1;
+    // 2: a credit the user entered by hand, or put in their Salary category themselves (or through a
+    //    rule they taught), is income even when the narration names a person.
+    public static final short VERSION = 2;
 
     public enum FlowClass { INCOME, EXPENSE, REFUND, TRANSFER, INVESTMENT, LIABILITY, ADJUSTMENT, UNRESOLVED }
 
     public enum FlowReason {
-        SALARY, INTEREST, REWARD, TAX_REFUND, OTHER_INCOME,
+        SALARY, INTEREST, REWARD, TAX_REFUND, OTHER_INCOME, USER_ENTERED,
         PURCHASE,
         LINKED_REFUND, UNLINKED_REFUND, REVERSAL, CARD_ADJUSTMENT,
         OWN_ACCOUNT_TRANSFER, CARD_PAYMENT_RECEIVED,
@@ -61,7 +63,15 @@ public final class FlowClassifier {
 
     /** @param accountType the owning account's type; null is treated as a non-card account */
     public static FlowDecision classify(Transaction t, Account.Type accountType) {
-        return t.getTxnType() == Transaction.Type.EXPENSE ? outflow(t) : inflow(t, accountType);
+        return classify(t, accountType, false);
+    }
+
+    /**
+     * @param inUsersSalaryCategory whether the row sits in the user's own Salary category -- the
+     *                              caller resolves the id, since this class never loads categories
+     */
+    public static FlowDecision classify(Transaction t, Account.Type accountType, boolean inUsersSalaryCategory) {
+        return t.getTxnType() == Transaction.Type.EXPENSE ? outflow(t) : inflow(t, accountType, inUsersSalaryCategory);
     }
 
     private static FlowDecision outflow(Transaction t) {
@@ -72,7 +82,7 @@ public final class FlowClassifier {
         return of(FlowClass.EXPENSE, FlowReason.PURCHASE);
     }
 
-    private static FlowDecision inflow(Transaction t, Account.Type accountType) {
+    private static FlowDecision inflow(Transaction t, Account.Type accountType, boolean inUsersSalaryCategory) {
         if (t.isTransfer()) return of(FlowClass.TRANSFER, FlowReason.OWN_ACCOUNT_TRANSFER);
         if (t.getReconciliationStatus() == Transaction.ReconciliationStatus.REFUND) {
             return of(FlowClass.REFUND, FlowReason.LINKED_REFUND);
@@ -108,8 +118,25 @@ public final class FlowClassifier {
         if ("Salary".equals(suggested)) return of(FlowClass.INCOME, FlowReason.SALARY);
         if (hasAny(text, INTEREST_KEYWORDS)) return of(FlowClass.INCOME, FlowReason.INTEREST);
         if (hasAny(text, REWARD_KEYWORDS)) return of(FlowClass.INCOME, FlowReason.REWARD);
+        // The user's own word outranks the narration's shape, and only the person rule below needs
+        // outranking: everything above it is a mechanism (a refund, a card, an investment, a loan)
+        // the Income/Expense choice on the add form cannot express. Without these, a freelance fee
+        // typed in by hand, or a person's UPI the user taught Fynora is their salary, would silently
+        // leave income because the narration names a person.
+        if (t.getSource() == Transaction.Source.MANUAL) return of(FlowClass.INCOME, FlowReason.USER_ENTERED);
+        if (inUsersSalaryCategory && salaryCategoryIsTheUsersChoice(t)) return of(FlowClass.INCOME, FlowReason.SALARY);
         if (t.getCounterpartyType() == CounterpartyType.PERSON) return of(FlowClass.UNRESOLVED, FlowReason.PERSON_INFLOW);
         return of(FlowClass.INCOME, FlowReason.OTHER_INCOME);
+    }
+
+    /** A person, or a rule or pattern learned from them, put the row in Salary -- not a global rule
+     *  or the AI fallback, which can guess Salary for a person's transfer. */
+    private static boolean salaryCategoryIsTheUsersChoice(Transaction t) {
+        if (t.isCategoryManuallySet()) return true;
+        Transaction.DecisionSource source = t.getDecisionSource();
+        return source == Transaction.DecisionSource.MANUAL
+                || source == Transaction.DecisionSource.USER_RULE
+                || source == Transaction.DecisionSource.LEARNED_PATTERN;
     }
 
     /** Word-START match on the space-padded normalised text: "reward" matches "rewards", but

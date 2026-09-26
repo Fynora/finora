@@ -1,13 +1,16 @@
 package com.finora.service;
 
 import com.finora.entity.Account;
+import com.finora.entity.Category;
 import com.finora.entity.Transaction;
 
 import java.math.BigDecimal;
 import java.util.Collection;
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -22,42 +25,52 @@ public final class FlowTotals {
 
     private FlowTotals() {}
 
-    public static Map<UUID, Account.Type> accountTypes(Collection<Account> accounts) {
+    /** What the classifier needs about the user beyond the row itself: each account's type (a card
+     *  credit is never income) and which category ids are the user's Salary category. */
+    public record Context(Map<UUID, Account.Type> accountTypes, Set<UUID> salaryCategoryIds) {}
+
+    public static Context context(Collection<Account> accounts, Collection<Category> categories) {
         Map<UUID, Account.Type> types = new HashMap<>();
         for (Account a : accounts) {
             if (a.getId() != null && a.getAccountType() != null) types.put(a.getId(), a.getAccountType());
         }
-        return types;
+        // By name, case-insensitively: "Salary" is the seeded system category (AuthService), and a
+        // user who deleted and recreated it still means the same thing.
+        Set<UUID> salary = new HashSet<>();
+        for (Category c : categories) {
+            if (c.getId() != null && c.getName() != null && c.getName().trim().equalsIgnoreCase("Salary")) salary.add(c.getId());
+        }
+        return new Context(types, salary);
     }
 
-    public static boolean countsAsIncome(Transaction t, Map<UUID, Account.Type> accountTypes) {
+    public static boolean countsAsIncome(Transaction t, Context ctx) {
         return t.getTxnType() == Transaction.Type.INCOME
-                && decide(t, accountTypes).flowClass() == FlowClassifier.FlowClass.INCOME;
+                && decide(t, ctx).flowClass() == FlowClassifier.FlowClass.INCOME;
     }
 
-    public static boolean isUnresolvedInflow(Transaction t, Map<UUID, Account.Type> accountTypes) {
+    public static boolean isUnresolvedInflow(Transaction t, Context ctx) {
         return t.getTxnType() == Transaction.Type.INCOME
-                && decide(t, accountTypes).flowClass() == FlowClassifier.FlowClass.UNRESOLVED;
+                && decide(t, ctx).flowClass() == FlowClassifier.FlowClass.UNRESOLVED;
     }
 
     /** Money that came in and that Fynora cannot yet say is income -- shown beside income, never in it. */
-    public static BigDecimal unresolvedInflow(Collection<Transaction> reportable, Map<UUID, Account.Type> accountTypes) {
-        return reportable.stream().filter(t -> isUnresolvedInflow(t, accountTypes))
+    public static BigDecimal unresolvedInflow(Collection<Transaction> reportable, Context ctx) {
+        return reportable.stream().filter(t -> isUnresolvedInflow(t, ctx))
                 .map(Transaction::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     /** How many rows {@link #unresolvedInflow} summed -- the "N transactions need classification" count. */
-    public static int unresolvedInflowCount(Collection<Transaction> reportable, Map<UUID, Account.Type> accountTypes) {
-        return (int) reportable.stream().filter(t -> isUnresolvedInflow(t, accountTypes)).count();
+    public static int unresolvedInflowCount(Collection<Transaction> reportable, Context ctx) {
+        return (int) reportable.stream().filter(t -> isUnresolvedInflow(t, ctx)).count();
     }
 
     /** The reason carrying the most unresolved VALUE -- the banner's "Mostly money from people". Null when none. */
     public static FlowClassifier.FlowReason unresolvedTopReason(Collection<Transaction> reportable,
-                                                                Map<UUID, Account.Type> accountTypes) {
+                                                                Context ctx) {
         Map<FlowClassifier.FlowReason, BigDecimal> byReason = new EnumMap<>(FlowClassifier.FlowReason.class);
         for (Transaction t : reportable) {
-            if (!isUnresolvedInflow(t, accountTypes)) continue;
-            byReason.merge(decide(t, accountTypes).reason(), t.getAmount(), BigDecimal::add);
+            if (!isUnresolvedInflow(t, ctx)) continue;
+            byReason.merge(decide(t, ctx).reason(), t.getAmount(), BigDecimal::add);
         }
         // Ties break on enum declaration order, which EnumMap iterates in -- deterministic.
         FlowClassifier.FlowReason top = null;
@@ -71,7 +84,9 @@ public final class FlowTotals {
         return top;
     }
 
-    private static FlowClassifier.FlowDecision decide(Transaction t, Map<UUID, Account.Type> accountTypes) {
-        return FlowClassifier.classify(t, t.getAccountId() == null ? null : accountTypes.get(t.getAccountId()));
+    private static FlowClassifier.FlowDecision decide(Transaction t, Context ctx) {
+        return FlowClassifier.classify(t,
+                t.getAccountId() == null ? null : ctx.accountTypes().get(t.getAccountId()),
+                t.getCategoryId() != null && ctx.salaryCategoryIds().contains(t.getCategoryId()));
     }
 }

@@ -24,6 +24,7 @@ class FlowClassifierTest {
         t.setAmount(new BigDecimal("100.00"));
         t.setDescription(description);
         t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
+        t.setSource(Transaction.Source.CSV_IMPORT); // the entity defaults to MANUAL, which is the user's own word
         return t;
     }
 

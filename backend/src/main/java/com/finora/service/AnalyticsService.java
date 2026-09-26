@@ -434,12 +434,12 @@ public class AnalyticsService {
     private List<Transaction> activeIncomeTransactions(UUID userId, LocalDate from, LocalDate to) {
         List<com.finora.entity.Account> accounts = accountRepository.findByUserId(userId);
         List<UUID> liveAccountIds = accounts.stream().map(com.finora.entity.Account::getId).toList();
-        Map<UUID, com.finora.entity.Account.Type> accountTypes = FlowTotals.accountTypes(accounts);
+        FlowTotals.Context flow = FlowTotals.context(accounts, categoryRepository.findByUserId(userId));
         List<Transaction> rangeTxns = liveAccountIds.isEmpty() ? List.of()
                 : transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(userId, from, to, liveAccountIds);
         // Flow-classified income, the same rule the dashboard and reports use -- see FlowTotals.
         return RefundNetting.reportable(rangeTxns, transactionGraphService.ccPaymentFromTransactionIds(rangeTxns)).stream()
-                .filter(t -> FlowTotals.countsAsIncome(t, accountTypes))
+                .filter(t -> FlowTotals.countsAsIncome(t, flow))
                 .toList();
     }
 

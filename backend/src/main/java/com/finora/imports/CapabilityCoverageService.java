@@ -116,6 +116,10 @@ public class CapabilityCoverageService {
             // A line separator inside a PDF text run (a real Standard Chartered export prints its
             // narration lines with a carriage return) read as a line break instead of being stored.
             "NARRATION_CONTROL_CHARACTER_AS_LINE_BREAK",
+            // A dateless line printed at the same height on nearly every page (a footer, a
+            // letterhead line) kept out of the rows as page furniture -- the real HDFC bank-name
+            // footer and Standard Chartered's footer date. See PdfTableLocator.repeatedPageFurniture.
+            "LEADING_BUFFER_REPEATED_PAGE_FURNITURE_DIVERTED",
             "STATEMENT_PERIOD_FROM_STATEMENT_DATE_RANGE", "STATEMENT_PERIOD_UNLABELLED_RANGE",
             "CARD_NUMBER_FROM_UNLABELLED_MASK",
             "GRID_METADATA_FALLBACK", "GRID_METADATA_TRAILING_LABEL",

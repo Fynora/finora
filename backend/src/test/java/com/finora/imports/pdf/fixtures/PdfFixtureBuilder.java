@@ -157,6 +157,13 @@ public final class PdfFixtureBuilder {
             y -= ROW_HEIGHT;
             return this;
         }
+
+        /** A single-cell line at a fixed height, outside the top-down flow -- page furniture a bank
+         *  prints at the same spot on every page (a footer). */
+        PageBuilder at(float fixedY, String text) {
+            rows.add(new Row(fixedY, List.of(new Cell(LEFT_MARGIN, text))));
+            return this;
+        }
     }
 
     private static byte[] render(List<PageBuilder> pages) throws IOException {
@@ -844,6 +851,65 @@ public final class PdfFixtureBuilder {
                 .row(col, "02/07/2026", "NEFT-", "200.00", "700.00")
                 .row(col, null, "100000000001-SAMPLE PAYEE", null, null);
         return render(List.of(page));
+    }
+
+    /** Three ledger pages, each ending with the same bank-name footer in the date column's x-range at
+     *  the same height -- the real HDFC shape whose footer was glued onto the next page's first
+     *  transaction as leading narration (plan 4, F-03). */
+    public static byte[] buildLedgerWithBankNameFooterOnEveryPageSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 130f, 380f, 470f};
+        PageBuilder p1 = new PageBuilder();
+        p1.line("Sample Bank Savings Account Statement")
+                .row(col, "Date", "Narration", "Withdrawal", "Balance")
+                .row(col, "01/07/2026", "UPI-SAMPLE STORE-PAYMENT", "100.00", "900.00")
+                .row(col, "02/07/2026", "UPI-SAMPLE GROCER-PAYMENT", "50.00", "850.00")
+                .at(40f, "SAMPLE BANK LIMITED");
+        PageBuilder p2 = new PageBuilder();
+        p2.row(col, "Date", "Narration", "Withdrawal", "Balance")
+                .row(col, "03/07/2026", "UPI-SAMPLE CAFE-PAYMENT", "20.00", "830.00")
+                .row(col, "04/07/2026", "UPI-SAMPLE CHEMIST-PAYMENT", "30.00", "800.00")
+                .at(40f, "SAMPLE BANK LIMITED");
+        PageBuilder p3 = new PageBuilder();
+        p3.row(col, "Date", "Narration", "Withdrawal", "Balance")
+                .row(col, "05/07/2026", "UPI-SAMPLE BAKERY-PAYMENT", "10.00", "790.00")
+                .at(40f, "SAMPLE BANK LIMITED");
+        return render(List.of(p1, p2, p3));
+    }
+
+    /** Two pages, the bank-name line printed on page one only: nothing repeats it, so nothing marks
+     *  it as furniture and it keeps today's handling. */
+    public static byte[] buildLedgerWithBankNameFooterOnOnePageSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 130f, 380f, 470f};
+        PageBuilder p1 = new PageBuilder();
+        p1.line("Sample Bank Savings Account Statement")
+                .row(col, "Date", "Narration", "Withdrawal", "Balance")
+                .row(col, "01/07/2026", "UPI-SAMPLE STORE-PAYMENT", "100.00", "900.00")
+                .row(col, "02/07/2026", "UPI-SAMPLE GROCER-PAYMENT", "50.00", "850.00")
+                .at(40f, "SAMPLE BANK LIMITED");
+        PageBuilder p2 = new PageBuilder();
+        p2.row(col, "Date", "Narration", "Withdrawal", "Balance")
+                .row(col, "03/07/2026", "UPI-SAMPLE CAFE-PAYMENT", "20.00", "830.00")
+                .row(col, "04/07/2026", "UPI-SAMPLE CHEMIST-PAYMENT", "30.00", "800.00");
+        return render(List.of(p1, p2));
+    }
+
+    /** Four ledger pages printed on a fixed row grid, where the same wrapped narration line lands at the
+     *  same height on two of them -- a recurring payee, not page furniture. */
+    public static byte[] buildLedgerWithARecurringNarrationLineOnTwoPagesSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 130f, 380f, 470f};
+        List<PageBuilder> pages = new ArrayList<>();
+        String[][] first = {{"01/07/2026", "UPI-SAMPLE PAYEE-PAYMENT", "100.00", "900.00"},
+                {"02/07/2026", "UPI-SAMPLE PAYEE-PAYMENT", "100.00", "800.00"},
+                {"03/07/2026", "UPI-SAMPLE CAFE-PAYMENT", "20.00", "780.00"},
+                {"04/07/2026", "UPI-SAMPLE CHEMIST-PAYMENT", "30.00", "750.00"}};
+        for (int i = 0; i < 4; i++) {
+            PageBuilder page = new PageBuilder();
+            page.row(col, "Date", "Narration", "Withdrawal", "Balance")
+                    .row(col, first[i]);
+            if (i < 2) page.row(col, null, "SENT FROM PHONE", null, null);
+            pages.add(page);
+        }
+        return render(pages);
     }
 
     /** A card statement that prints "OPENING BALANCE" in its summary -- the previous statement's

@@ -1106,6 +1106,7 @@ public class PdfTableLocator {
         // Computed once, up front, for hasDateValue's yearless-date fallback (see that method's
         // own doc comment) -- every call site below reads this rather than recomputing it per row.
         Map<Integer, PageDateEvidence> yearsByPage = yearsByPage(rows);
+        Set<String> repeatedFurniture = repeatedPageFurniture(rows);
 
         List<LocatedSection> sections = new ArrayList<>();
         // The row index of the header that opened the section currently accumulating into
@@ -2004,6 +2005,21 @@ public class PdfTableLocator {
                     continue;
                 }
 
+                // LEADING_BUFFER_REPEATED_PAGE_FURNITURE_DIVERTED. A dateless line whose exact text
+                // is printed at the same height on two or more pages is page furniture, never a
+                // transaction's narration. Traced on the real HDFC statements: the bank's name is
+                // printed in the date column's x-range at the foot of every page, was buffered as
+                // leading narration and glued onto the next page's first transaction (51 rows
+                // across three documents), which also made it that row's merchant. Checked before
+                // both the trailing and the leading branch because the same footer reaches the
+                // row above it when the page has room (the synthetic fixture shows that path).
+                if (repeatedFurniture.contains(furnitureKey(row))
+                        && !hasDateValue(bucketed, yearsByPage.getOrDefault(rowPageIndex, PageDateEvidence.NONE))) {
+                    pendingAuxiliary.add(rowLine);
+                    if (ctx != null) ctx.record("LEADING_BUFFER_REPEATED_PAGE_FURNITURE_DIVERTED");
+                    continue;
+                }
+
                 // Bug fix: a description that wraps onto a second visual row (HDFC's layout --
                 // see this method's own doc comment) used to be handled by a y-distance heuristic
                 // ("fold anything within N points of the previous row that has no date/amount
@@ -2739,6 +2755,42 @@ public class PdfTableLocator {
         String existing = target.get(descriptionColumn);
         target.put(descriptionColumn,
                 existing == null || existing.isBlank() ? text.toString() : NarrationLineBreaks.joinLines(existing, text.toString()));
+    }
+
+    /**
+     * Text-at-height keys printed on nearly every page: page furniture (a footer, a letterhead, a
+     * column heading the bank repeats at one fixed spot). "Nearly every" is load-bearing: measured
+     * on the real corpus, statements that print rows on a fixed grid put a recurring payee's
+     * narration line at the same height on two to five pages, and a two-page rule stripped real
+     * narration from about 180 rows. Furniture there sits on every page (24 of 24, 37 of 37); no
+     * narration line reaches {@value #FURNITURE_PAGE_SHARE} of the pages. A statement shorter than
+     * {@value #MIN_FURNITURE_PAGES} pages cannot tell a footer from a coincidence and keeps the
+     * previous handling. Too short a text is never counted.
+     */
+    private static final int MIN_FURNITURE_PAGES = 3;
+    private static final double FURNITURE_PAGE_SHARE = 0.8;
+
+    private Set<String> repeatedPageFurniture(List<List<PositionedText>> rows) {
+        Map<String, Set<Integer>> pagesByKey = new HashMap<>();
+        for (List<PositionedText> row : rows) {
+            String key = furnitureKey(row);
+            if (key != null) pagesByKey.computeIfAbsent(key, k -> new HashSet<>()).add(row.get(0).pageIndex());
+        }
+        Set<Integer> allPages = new HashSet<>();
+        for (List<PositionedText> row : rows) if (!row.isEmpty()) allPages.add(row.get(0).pageIndex());
+        Set<String> out = new HashSet<>();
+        for (Map.Entry<String, Set<Integer>> e : pagesByKey.entrySet()) {
+            int pages = e.getValue().size();
+            if (pages >= MIN_FURNITURE_PAGES && pages >= FURNITURE_PAGE_SHARE * allPages.size()) out.add(e.getKey());
+        }
+        return out;
+    }
+
+    private String furnitureKey(List<PositionedText> row) {
+        if (row.isEmpty()) return null;
+        String text = lineOf(row).trim().replaceAll("\\s+", " ");
+        if (text.length() < 4) return null;
+        return Math.round(row.get(0).y()) + "|" + text;
     }
 
     /** The x of this row's leftmost non-blank run, or null for a row with nothing in it. */

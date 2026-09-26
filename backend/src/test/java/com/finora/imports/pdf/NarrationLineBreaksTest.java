@@ -166,4 +166,39 @@ class NarrationLineBreaksTest {
         assertThat(cell.get(0)).hasSize(40);
         assertThat(NarrationLineBreaks.resolveCell(cell, 40)).isEqualTo("NACH SAMPLE PAYMENT RF/SAMPLE/18/07/2026 15:52:30/SAMPLE");
     }
+
+    // ---- F-05: a control character inside a PDF text run is a line break, never stored ----
+
+    @Test
+    void aCarriageReturnInsideACell_isResolvedLikeAWrap() {
+        var out = NarrationLineBreaks.resolveAll(
+                docWith("UPI/100000000001/\r SAMPLE STORE/SAMPLE@PAY\r 100000000002/UPI/"), null);
+        assertThat(narrationOf(out)).isEqualTo("UPI/100000000001/ SAMPLE STORE/SAMPLE@PAY 100000000002/UPI/");
+    }
+
+    @Test
+    void aCarriageReturnBeforeAnIdentifierAfterASeparator_glues_andIsRecorded() {
+        var ctx = new com.finora.imports.DocumentContext("PDF", "test");
+        var out = NarrationLineBreaks.resolveAll(docWith("UPI/SAMPLE/UPIINTENT/\r 100000000002/UTIB"), ctx);
+        assertThat(narrationOf(out)).isEqualTo("UPI/SAMPLE/UPIINTENT/100000000002/UTIB");
+        assertThat(ctx.capabilities()).extracting(c -> c.capability())
+                .contains("NARRATION_CONTROL_CHARACTER_AS_LINE_BREAK", "NARRATION_WRAP_JOINED_AT_SEPARATOR");
+    }
+
+    @Test
+    void theOtherLineSeparators_areLineBreaksToo() {
+        assertThat(narrationOf(NarrationLineBreaks.resolveAll(docWith("SAMPLE\u0085STORE\u2028PAYMENT\u2029DONE"), null)))
+                .isEqualTo("SAMPLE STORE PAYMENT DONE");
+    }
+
+    @Test
+    void aCarriageReturnEndingARunThatIsThenJoined_isOneBreak_notTwo() {
+        // Measured on a real export: the text run ends in "\r" and the next line arrives through a
+        // join, so the cell holds "\r" then the join's break. Two breaks left an empty piece that
+        // doubled the space and hid the separator from the rule.
+        assertThat(narrationOf(NarrationLineBreaks.resolveAll(docWith("UPI/SAMPLE/UPIINTENT/\r\n100000000002/UTIB"), null)))
+                .isEqualTo("UPI/SAMPLE/UPIINTENT/100000000002/UTIB");
+        assertThat(narrationOf(NarrationLineBreaks.resolveAll(docWith("UPI/100000000001/\r \n SAMPLE STORE"), null)))
+                .isEqualTo("UPI/100000000001/ SAMPLE STORE");
+    }
 }

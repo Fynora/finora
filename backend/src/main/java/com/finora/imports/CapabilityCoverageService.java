@@ -113,6 +113,9 @@ public class CapabilityCoverageService {
             // NarrationLineBreaks.
             "NARRATION_WRAP_JOINED_AT_HANDLE", "NARRATION_WRAP_JOINED_AT_SEPARATOR",
             "NARRATION_WRAP_JOINED_AT_CHARACTER_WIDTH", "NARRATION_CHARACTER_WRAP_WIDTH_DETECTED",
+            // A line separator inside a PDF text run (a real Standard Chartered export prints its
+            // narration lines with a carriage return) read as a line break instead of being stored.
+            "NARRATION_CONTROL_CHARACTER_AS_LINE_BREAK",
             "STATEMENT_PERIOD_FROM_STATEMENT_DATE_RANGE", "STATEMENT_PERIOD_UNLABELLED_RANGE",
             "CARD_NUMBER_FROM_UNLABELLED_MASK",
             "GRID_METADATA_FALLBACK", "GRID_METADATA_TRAILING_LABEL",

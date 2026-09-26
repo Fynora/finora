@@ -46,6 +46,11 @@ final class NarrationLineBreaks {
     private static final double MIN_CONSISTENT_SHARE = 0.85;
     private static final int MIN_FULL_LINE_BREAKS = 10;
 
+    /** A line separator a PDF text run can carry inside one cell (a real Standard Chartered export
+     *  prints its narration lines with {@code \r}), with the blanks around it. Stored verbatim it
+     *  broke merchant extraction on every row of that document; it is a line break like any other. */
+    private static final Pattern CONTROL_LINE_BREAK = Pattern.compile("[ \\t]*[\\r\\u0085\\u2028\\u2029][ \\t]*");
+
     private static final String SEPARATORS = "-/._";
     private static final Pattern SEGMENT_BOUNDARY = Pattern.compile("[-/@._:\\s]");
     private static final Pattern ENDS_WITH_DATE = Pattern.compile(".*\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4}$");
@@ -67,12 +72,21 @@ final class NarrationLineBreaks {
         for (PdfTableLocator.LocatedSection section : doc.sections()) {
             for (Map<String, String> row : section.rows()) {
                 for (String v : row.values()) {
-                    if (v != null && v.indexOf(MARK) >= 0) cells.add(piecesOf(v));
+                    String n = withControlBreaksAsMarks(v);
+                    if (n != null && n.indexOf(MARK) >= 0) cells.add(piecesOf(n));
                 }
             }
         }
         Integer width = characterWrapWidth(cells);
         Set<Rule> fired = EnumSet.noneOf(Rule.class);
+        boolean controlBreaks = false;
+        for (PdfTableLocator.LocatedSection section : doc.sections()) {
+            for (Map<String, String> row : section.rows()) {
+                for (String v : row.values()) {
+                    if (v != null && CONTROL_LINE_BREAK.matcher(v).find()) controlBreaks = true;
+                }
+            }
+        }
 
         List<PdfTableLocator.LocatedSection> sections = new ArrayList<>(doc.sections().size());
         for (PdfTableLocator.LocatedSection section : doc.sections()) {
@@ -83,6 +97,7 @@ final class NarrationLineBreaks {
             sections.add(new PdfTableLocator.LocatedSection(section.auxiliaryText(), rows, section.evidence()));
         }
         if (ctx != null) {
+            if (controlBreaks) ctx.record("NARRATION_CONTROL_CHARACTER_AS_LINE_BREAK");
             if (width != null) ctx.record("NARRATION_CHARACTER_WRAP_WIDTH_DETECTED");
             if (fired.contains(Rule.HANDLE)) ctx.record("NARRATION_WRAP_JOINED_AT_HANDLE");
             if (fired.contains(Rule.SEPARATOR)) ctx.record("NARRATION_WRAP_JOINED_AT_SEPARATOR");
@@ -94,15 +109,26 @@ final class NarrationLineBreaks {
     private static Map<String, String> resolveRow(Map<String, String> row, Integer width, Set<Rule> fired) {
         boolean anyBreak = false;
         for (String v : row.values()) {
-            if (v != null && v.indexOf(MARK) >= 0) { anyBreak = true; break; }
+            String n = withControlBreaksAsMarks(v);
+            if (n != null && n.indexOf(MARK) >= 0) { anyBreak = true; break; }
         }
         if (!anyBreak) return row;
         Map<String, String> resolved = new LinkedHashMap<>();
         for (Map.Entry<String, String> cell : row.entrySet()) {
-            String v = cell.getValue();
-            resolved.put(cell.getKey(), v == null || v.indexOf(MARK) < 0 ? v : resolveCell(piecesOf(v), width, fired));
+            String n = withControlBreaksAsMarks(cell.getValue());
+            resolved.put(cell.getKey(), n == null || n.indexOf(MARK) < 0 ? n : resolveCell(piecesOf(n), width, fired));
         }
         return resolved;
+    }
+
+    /** A control line break that ends a text run is often followed by a join's own break: that is
+     *  one printed line end, so a run of breaks with only blanks between them collapses to one. */
+    private static final Pattern REPEATED_BREAKS = Pattern.compile("\n(?:[ \t]*\n)+[ \t]*");
+
+    private static String withControlBreaksAsMarks(String v) {
+        if (v == null || !CONTROL_LINE_BREAK.matcher(v).find()) return v;
+        String marked = CONTROL_LINE_BREAK.matcher(v).replaceAll(String.valueOf(MARK));
+        return REPEATED_BREAKS.matcher(marked).replaceAll(String.valueOf(MARK));
     }
 
     private static List<String> piecesOf(String v) {

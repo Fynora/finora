@@ -1,0 +1,13 @@
+-- Which of a transaction's statement-derived fields the user has changed by hand.
+--
+-- A statement refresh re-reads a stored statement with an improved parser and patches its
+-- transactions in place. It must not undo a user's correction: if they fixed a date or an amount,
+-- the refresh keeps their value. Until now only the category recorded who set it
+-- (category_manually_set); a corrected date, description, merchant, amount or type was
+-- indistinguishable from the parser's own value.
+--
+-- Values: DATE, DESCRIPTION, MERCHANT, AMOUNT, TYPE. Written by TransactionService.update only when
+-- the submitted value differs from the stored one -- both clients send every field on every save.
+-- Category stays on category_manually_set. No backfill: edits made before this column existed were
+-- never recorded anywhere, so there is nothing to recover them from.
+ALTER TABLE transactions ADD COLUMN user_edited_fields VARCHAR(16)[] NOT NULL DEFAULT '{}';

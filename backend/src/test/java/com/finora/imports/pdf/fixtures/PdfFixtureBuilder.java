@@ -662,6 +662,59 @@ public final class PdfFixtureBuilder {
         return render(List.of(page));
     }
 
+    /**
+     * {@link #buildOrphanedInvestmentScheduleSample()} with the disclaimer paragraph a real HDFC
+     * composite prints under its installment schedule -- text that names the product and mentions
+     * interest. On its own that text lifts the schedule's trial classification from UNKNOWN to the
+     * same product as the summary, still unproven; the two must still merge into one section.
+     */
+    public static byte[] buildOrphanedInvestmentScheduleWithDisclaimerSample() throws IOException {
+        float[] summaryCol = {LEFT_MARGIN, 170f, 290f, 400f};
+        float[] scheduleCol = {LEFT_MARGIN, 180f, 290f, 400f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("RD ACCOUNT SUMMARY")
+                .row(summaryCol, "Account No", "Installment Amount", "Maturity Date", "Rate Of Interest")
+                .row(summaryCol, "555123456", "1000.00", "20/03/2030", "6.75")
+                .row(scheduleCol, "Sequence Number", "Due Date", "Amount Paid", "Installment Frequency")
+                .row(scheduleCol, "1", "01/04/2026", "1000.00", "Monthly")
+                .row(scheduleCol, "2", "01/05/2026", "1000.00", "Monthly")
+                .line("Disclaimer: TDS across your recurring deposits may be recovered from a linked account;")
+                .line("interest accrued is apportioned uniformly across all your recurring deposits.");
+
+        return render(List.of(page));
+    }
+
+    /**
+     * A savings ledger whose statement ALSO prints a card-summary grid with a bare "Credit Limit"
+     * label -- the shape of a real bank's composite relationship statement, where the summary page
+     * lists the customer's credit card next to the savings account whose transactions follow. The
+     * grid is document-wide, so {@code CreditLimitGridExtractor} reads it; the limit belongs to the
+     * card, not to the savings section this document stages. Values synthetic per the Synthetic
+     * Fixture Policy.
+     */
+    public static byte[] buildSavingsLedgerWithCardLimitGridSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 130f, 300f, 380f, 460f};
+
+        // The grid's cells are separate text runs, as a real statement's table cells are, so the
+        // bare "Credit Limit" label is its own run for CreditLimitGridExtractor's exact match.
+        float[] gridCol = {LEFT_MARGIN, 200f, 300f, 430f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("Relationship Summary")
+                .row(gridCol, "Credit Card Number", "Credit Limit", "Available Credit Limit", "Available Cash Limit")
+                .row(gridCol, "123456******7890", "30,000.00", "25,000.00", "5,000.00")
+                .line("Payment Due Date : 20/07/2026")
+                .blankLine()
+                .line("SAVINGS ACCOUNT  - 10000000000001")
+                .row(col, "Date", "Narration", "Withdrawal", "Deposit", "Balance")
+                .row(col, "01/06/2026", "Opening Balance", null, null, "7,277.40")
+                .row(col, "05/06/2026", "UPI SAMPLE GROCER", "200.00", null, "7,077.40")
+                .row(col, "12/06/2026", "SALARY SAMPLE EMPLOYER", null, "1,000.00", "8,077.40");
+
+        return render(List.of(page));
+    }
+
     // ==================== OFFSET_COLUMN_ANCHORS ====================
 
     /**

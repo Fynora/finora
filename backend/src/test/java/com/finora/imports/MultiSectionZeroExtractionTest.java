@@ -191,7 +191,10 @@ class MultiSectionZeroExtractionTest {
         assertThat(response.staging().totalParsed()).isEqualTo(75);
         // Only the savings ledger's own unplaceable lines. The FD schedule is no longer counted as
         // "couldn't be matched" -- it is recognised as deposits, which are not imported here.
-        assertThat(response.staging().unparseableRows()).hasSize(9);
+        // 9 -> 2 with LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER: the seven lines this ledger prints
+        // between each page's repeated banner and its repeated header are auxiliary text now, not
+        // rows the user is asked to look at. The 75 transactions are unchanged.
+        assertThat(response.staging().unparseableRows()).hasSize(2);
         assertThat(response.staging().detectedAccount().openingBalance())
                 .isEqualTo(reference("hdfc-composite-deposit-schedules").detectedAccount().openingBalance());
         assertThat(response.staging().detectedAccount().closingBalance())

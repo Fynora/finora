@@ -134,9 +134,14 @@ class MonthFirstYearlessDatePdfTableLocatorTest {
     void secondTransactionsDateSurvivesEvenWithNoPlainDateColumnValueAtAll() {
         // Transaction 2 carries no value in the plain "Date" column at all -- the real
         // statement's own predominant shape. hasDateValue has to recognize "Value Date" alone.
+        // Once admitted, DITTO_DATE_INHERITED fills the blank Date from the row above (the bank
+        // prints the posting date once per run of same-day transactions; see
+        // DittoDatePdfTableLocatorTest) -- so the row now carries BOTH dates, its own Value Date
+        // untouched. Before that rule the Date key was absent and the normalizer fell back to the
+        // value date, which is what mis-dated 26 rows of the real statement.
         Map<String, String> second = locate(null).sections().get(0).rows().get(1);
 
-        assertThat(second).doesNotContainKey("Date");
+        assertThat(second).containsEntry("Date", "01 May 2026");
         assertThat(second).containsEntry("Value Date", "02 May 2026");
     }
 }

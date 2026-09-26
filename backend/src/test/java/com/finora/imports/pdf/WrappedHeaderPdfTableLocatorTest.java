@@ -154,7 +154,11 @@ class WrappedHeaderPdfTableLocatorTest {
         PdfTableLocator.LocatedSection savings = new PdfTableLocator()
                 .locateAll(PdfTrace.load("hdfc-composite-deposit-schedules"), null).sections().get(0);
 
-        assertThat(savings.rows()).hasSize(84);
+        // 84 -> 77 with LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER: seven page-furniture lines this
+        // ledger prints between each page's repeated banner and its repeated header used to be
+        // located as dateless rows; they are now the section's auxiliary text. Verified by
+        // dumping the trace under both locators: the 89 dated rows are identical.
+        assertThat(savings.rows()).hasSize(77);
         assertThat(savings.rows().get(0).keySet())
                 .containsExactly("Txn Date", "Narration", "Withdrawals", "Deposits", "Closing Balance");
         long dated = savings.rows().stream()

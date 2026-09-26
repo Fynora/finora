@@ -424,9 +424,16 @@ public class PdfPreviewGenerator {
             // deposit schedule the way it does to a ledger's own transaction date range.
             // No payment-summary panel applies to a deposit schedule -- totalAmountDue is a
             // credit-card-ledger-only concept.
+            // No credit limit and no payment due date either: a deposit is never a credit card,
+            // and both line-based readings are document-wide -- see
+            // CREDIT_LIMIT_WITHHELD_FROM_NON_CARD_SECTION. (On a real composite statement the due
+            // date label matched the recurring deposit's own "Due Date" column heading.)
+            if (facts.metadata().creditLimit() != null && ctx != null) {
+                ctx.record("CREDIT_LIMIT_WITHHELD_FROM_NON_CARD_SECTION");
+            }
             DetectedAccountInfo detected = facts.toDetectedAccountInfo(product, suggestedAccountType,
                     null, null, facts.metadata().statementPeriodStart(), facts.metadata().statementPeriodEnd(), attrs,
-                    null, facts.metadata().paymentDueDate(), facts.metadata().creditLimit(), null);
+                    null, null, null, null);
             result.add(new StagedAccountSection(detected, List.of(), 0, 0, List.of()));
         }
         return result;
@@ -580,7 +587,7 @@ public class PdfPreviewGenerator {
         int dupCount = (int) staged.stream().filter(StagedRow::likelyDuplicate).count();
         DetectedAccountInfo detected = buildDetectedAccountInfo(filename, section, balancePoints, product, ctx,
                 printedCreditCardSummary, printedDateRange, gridPaymentDueDate, gridCreditLimit,
-                gridAccountNumberMasked);
+                gridAccountNumberMasked, creditLimitAppliesTo(product, sectionCount));
         // Per section rather than per file: a composite statement's sections have separate balance
         // chains, and one can verify while another does not.
         var verification = importVerifier.verify(documentOrder,
@@ -681,7 +688,14 @@ public class PdfPreviewGenerator {
      * classification of the SECOND section, run the identical way {@link #buildSections} will run
      * it for real, must also come back exactly {@link FinancialProductType#UNKNOWN} -- a section
      * that already classifies as something else (a genuinely separate, distinct account) is never
-     * absorbed. Running the real, same-signature classification twice for a merge candidate (once
+     * absorbed. A fragment whose trial classification lands on the SAME product as the first
+     * section but cannot prove it (UNPROVEN, below the validation bar) is absorbed too: measured on
+     * the same real HDFC composite once page boilerplate stopped being merged into the schedule's
+     * last row (see PdfTableLocator's TRAILING_REFUSED_BEHIND_LEADING_BUFFER), the schedule's own
+     * auxiliary text picked up an interest mention, its standalone score rose from 50% (UNKNOWN)
+     * to 66% (RECURRING_DEPOSIT, unproven), and the strict UNKNOWN test then left it standing as a
+     * phantom fourth section -- same product, no identity of its own, and still not an account.
+     * Running the real, same-signature classification twice for a merge candidate (once
      * here to decide, once again inside {@code buildSections} on whatever the pre-pass leaves
      * behind) is redundant work, not redundant risk: both calls are pure functions of the same
      * evidence, so the second call simply confirms what the first already found.
@@ -729,7 +743,8 @@ public class PdfPreviewGenerator {
 
         ProductDiscovery.DiscoveredProduct second =
                 classifySectionAlone(sections.get(index + 1), index + 1, sectionCount);
-        return second.type() == FinancialProductType.UNKNOWN;
+        if (second.type() == FinancialProductType.UNKNOWN) return true;
+        return second.type() == first.type() && !second.validation().isValidated();
     }
 
     /**
@@ -842,6 +857,20 @@ public class PdfPreviewGenerator {
                 section.flaggedDuplicates(), unparseable, section.verification());
     }
 
+    /**
+     * Whether a printed credit limit or payment due date may be attached to a section: only a
+     * credit card has either. A
+     * single-section document whose product could not be classified at all keeps it -- a bare
+     * card statement the classifier did not recognise must not lose its limit -- but a section
+     * classified as anything else, and any section of a multi-section document that is not a
+     * card, never carries a limit printed elsewhere on the page.
+     */
+    private static boolean creditLimitAppliesTo(ProductDiscovery.DiscoveredProduct product, int sectionCount) {
+        if (product == null) return sectionCount == 1;
+        if (product.type() == FinancialProductType.CREDIT_CARD) return true;
+        return product.type() == FinancialProductType.UNKNOWN && sectionCount == 1;
+    }
+
     private record BalancePoint(LocalDate date, BigDecimal signedAmount, BigDecimal balance,
                                  String description) implements com.finora.imports.BalanceSequenceResolver.DatedLink {
         @Override public BigDecimal balanceAfter() { return balance; }
@@ -854,7 +883,8 @@ public class PdfPreviewGenerator {
                                                            CreditCardSummaryEvidence printedCreditCardSummary,
                                                            TransactionTableDateRangeExtractor.PrintedDateRange printedDateRange,
                                                            LocalDate gridPaymentDueDate, BigDecimal gridCreditLimit,
-                                                           String gridAccountNumberMasked) {
+                                                           String gridAccountNumberMasked,
+                                                           boolean creditLimitApplies) {
         LocalDate statementStart = null;
         LocalDate statementEnd = null;
         BigDecimal openingBalance = null;
@@ -905,8 +935,13 @@ public class PdfPreviewGenerator {
         // line-based field wins when present, and the positioned-text grid reading is only tried
         // once that comes up empty -- see PaymentDueDateGridExtractor's own doc comment for why
         // its two real evidencing documents (Axis, SBI) can never be read the line-based way.
-        LocalDate paymentDueDate = facts.metadata().paymentDueDate() != null
+        LocalDate printedPaymentDueDate = facts.metadata().paymentDueDate() != null
                 ? facts.metadata().paymentDueDate() : gridPaymentDueDate;
+        // A payment due date is a credit-card fact exactly as the credit limit below is, and it is
+        // read the same document-wide way: on a real composite statement the line-based label
+        // matched the recurring deposit's own "Due Date" column heading and the savings and fixed
+        // deposit sections were staged with an installment due date as a payment due date.
+        LocalDate paymentDueDate = creditLimitApplies ? printedPaymentDueDate : null;
 
         // INVERTED precedence from paymentDueDate above -- the positioned-text grid wins here, and
         // PdfMetadataExtractor's own line-based reading (GRID_CREDIT_LIMIT_LABEL's findGridValue
@@ -923,8 +958,19 @@ public class PdfPreviewGenerator {
         // "Credit Limit" text run this extractor's exact-match label requires -- AU's is "Total
         // Credit Limit:", ICICI's is "Credit Limit (Including cash)", neither an exact match), so
         // inverting the precedence cannot change their already-correct result.
-        BigDecimal creditLimit = gridCreditLimit != null
+        BigDecimal printedCreditLimit = gridCreditLimit != null
                 ? gridCreditLimit : facts.metadata().creditLimit();
+        // CREDIT_LIMIT_WITHHELD_FROM_NON_CARD_SECTION. Both readings above are document-wide: the
+        // grid extractor scans every positioned run, and the line-based label is read from
+        // whatever text precedes this section's table. A credit limit is a credit-card fact, so
+        // it is attached only where creditLimitAppliesTo says the section can be a card. Found on
+        // a real composite relationship statement whose summary page lists the customer's card
+        // and its limit beside the savings account whose transactions the document carries: the
+        // savings section was staged with the card's limit as its own.
+        BigDecimal creditLimit = creditLimitApplies ? printedCreditLimit : null;
+        if (!creditLimitApplies && printedCreditLimit != null && ctx != null) {
+            ctx.record("CREDIT_LIMIT_WITHHELD_FROM_NON_CARD_SECTION");
+        }
 
         return facts.toDetectedAccountInfo(product, suggestedAccountTypeFor(product, facts.creditCardSignals()),
                 openingBalance, closingBalance, statementStart, statementEnd, ProductAttributes.empty(),

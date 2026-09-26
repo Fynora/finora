@@ -1223,6 +1223,22 @@ public class PdfTableLocator {
         // Parallel to pendingLeading: how many rows have merged into it since the last date
         // anchor. Reset wherever pendingLeading is, or the cap would leak across sections.
         int leadingCount = 0;
+        // LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER: true from a repeated per-page banner or
+        // identity line until the page's repeated table header or the next anchor, whichever
+        // comes first -- the page-top furniture zone. While set, nothing may be handed to the row
+        // above: neither by the trailing branch nor by the leading buffer's own split (which
+        // otherwise reads "buffered lines sat nearer the row above" across the page break).
+        // Measured on a real Standard Chartered export: without this, the page-top "NOMINEE
+        // REGISTERED" line was split back onto the previous page's last transaction on 36 of 37
+        // pages. Cleared at the repeated header rather than held to the next anchor because the
+        // same export, and a real HDFC composite, carry a transaction's wrapped narration across
+        // the page break UNDER the repeated header, where the ordinary geometry places it
+        // correctly; held past the header, that narration was lost to auxiliary text on 43 rows.
+        // Cleared at every anchor because a real Central Bank export prints each transaction's
+        // reference on the line under its date row: with the flag still set from the header, the
+        // first transaction's reference on every page was refused as its trailing line and
+        // prepended to the transaction after it.
+        boolean pageRepeatSinceLastAnchor = false;
         // TRAILING_CONTENT_SUPPRESSED (ILLUSTRATIVE_BLOCK_SUPPRESSED / TRANSACTION_TABLE_CLOSED).
         // One-way: once either trigger below is seen, every row for the REST OF THE DOCUMENT is
         // treated the same as today's dateless no-header-found rows -- folded into
@@ -1361,6 +1377,37 @@ public class PdfTableLocator {
                 pendingAccountIdCandidate = null;
                 if (sameAccountBannerRepeated) {
                     if (ctx != null) ctx.record("REPEATED_ACCOUNT_BANNER");
+                    // LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER: whatever was buffered as leading
+                    // narration before this per-page repeat belongs to the page that ended, never
+                    // to the first transaction printed after it. Traced on a real Bank of Baroda
+                    // statement: its page footer (page number, helplines, a URL) was buffered,
+                    // survived the repeated banner and header untouched, and the next transaction's
+                    // own narration line was appended to it; the whole buffer was then refused at
+                    // that transaction's date row and staged as one unparseable row, footer plus
+                    // narration plus reference number, leaving the transaction with a fragment.
+                    //
+                    // Kept as auxiliary text, not as a row. A dateless buffer can never stage as a
+                    // transaction; as a row it only ever surfaces as "unparseable", and measured on
+                    // a real 37-page Standard Chartered export, closing the buffer as a row at each
+                    // page's repeated banner AND repeated header turned 38 unparseable rows into 92
+                    // -- the same footer text, cut into more pieces. Auxiliary is where page
+                    // furniture already goes (see the abandoned-rows branch and the page-footer
+                    // block), and PdfMetadataExtractor still reads it.
+                    if (currentRows != null && pendingLeading != null) {
+                        pendingAuxiliary.add(String.join(" ", pendingLeading.values()));
+                        pendingLeading = null;
+                        pendingLeadingFromProximity = false;
+                        pendingLeadingAllBelongAbove = true;
+                        leadingCount = 0;
+                        if (ctx != null) ctx.record("LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER");
+                    }
+                    // The page that ended is closed for good: nothing after this repeat trails
+                    // its last transaction (the trailing branch checks this flag), and nothing
+                    // buffered from here is placed above it (the buffer split checks it too). The
+                    // trailing count is deliberately left alone: the leading branch reads it to
+                    // decide whether a line sits nearer the transaction below, and the first
+                    // narration line after the repeat must still be read that way.
+                    if (currentRows != null) pageRepeatSinceLastAnchor = true;
                     // Row-accounting evidence: this line is about to be discarded with NO other
                     // trace at all (unlike the "different account" path below, whose banner line
                     // survives into the new section's own auxiliary text) -- the one case in this
@@ -1413,6 +1460,7 @@ public class PdfTableLocator {
                 pendingLeading = null;
                 pendingLeadingFromProximity = false;
                 leadingCount = 0;
+                pageRepeatSinceLastAnchor = false;
                 pageLegendBlockActive = false;
                 pendingAuxiliary.add(rowLine);
                 continue;
@@ -1436,6 +1484,37 @@ public class PdfTableLocator {
                         && plainAccountId.equals(currentSectionAccountId);
                 if (sameAccountIdentityRepeated) {
                     if (ctx != null) ctx.record("REPEATED_ACCOUNT_BANNER");
+                    // LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER: whatever was buffered as leading
+                    // narration before this per-page repeat belongs to the page that ended, never
+                    // to the first transaction printed after it. Traced on a real Bank of Baroda
+                    // statement: its page footer (page number, helplines, a URL) was buffered,
+                    // survived the repeated banner and header untouched, and the next transaction's
+                    // own narration line was appended to it; the whole buffer was then refused at
+                    // that transaction's date row and staged as one unparseable row, footer plus
+                    // narration plus reference number, leaving the transaction with a fragment.
+                    //
+                    // Kept as auxiliary text, not as a row. A dateless buffer can never stage as a
+                    // transaction; as a row it only ever surfaces as "unparseable", and measured on
+                    // a real 37-page Standard Chartered export, closing the buffer as a row at each
+                    // page's repeated banner AND repeated header turned 38 unparseable rows into 92
+                    // -- the same footer text, cut into more pieces. Auxiliary is where page
+                    // furniture already goes (see the abandoned-rows branch and the page-footer
+                    // block), and PdfMetadataExtractor still reads it.
+                    if (currentRows != null && pendingLeading != null) {
+                        pendingAuxiliary.add(String.join(" ", pendingLeading.values()));
+                        pendingLeading = null;
+                        pendingLeadingFromProximity = false;
+                        pendingLeadingAllBelongAbove = true;
+                        leadingCount = 0;
+                        if (ctx != null) ctx.record("LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER");
+                    }
+                    // The page that ended is closed for good: nothing after this repeat trails
+                    // its last transaction (the trailing branch checks this flag), and nothing
+                    // buffered from here is placed above it (the buffer split checks it too). The
+                    // trailing count is deliberately left alone: the leading branch reads it to
+                    // decide whether a line sits nearer the transaction below, and the first
+                    // narration line after the repeat must still be read that way.
+                    if (currentRows != null) pageRepeatSinceLastAnchor = true;
                     // Reconfirming the section's own id clears any stale mismatch an EARLIER,
                     // different-looking identity line left pending (e.g. a stray misread digit
                     // run) -- found by adversarial review. Left set, a same-shaped header right
@@ -1562,6 +1641,37 @@ public class PdfTableLocator {
                 if (currentRows != null && signature.equals(currentHeaderSignature) && !identityContradicts) {
                     if (ctx != null) ctx.record("REPEATED_HEADER");
                     pageLegendBlockActive = false;
+                    // LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER: whatever was buffered as leading
+                    // narration before this per-page repeat belongs to the page that ended, never
+                    // to the first transaction printed after it. Traced on a real Bank of Baroda
+                    // statement: its page footer (page number, helplines, a URL) was buffered,
+                    // survived the repeated banner and header untouched, and the next transaction's
+                    // own narration line was appended to it; the whole buffer was then refused at
+                    // that transaction's date row and staged as one unparseable row, footer plus
+                    // narration plus reference number, leaving the transaction with a fragment.
+                    //
+                    // Kept as auxiliary text, not as a row. A dateless buffer can never stage as a
+                    // transaction; as a row it only ever surfaces as "unparseable", and measured on
+                    // a real 37-page Standard Chartered export, closing the buffer as a row at each
+                    // page's repeated banner AND repeated header turned 38 unparseable rows into 92
+                    // -- the same footer text, cut into more pieces. Auxiliary is where page
+                    // furniture already goes (see the abandoned-rows branch and the page-footer
+                    // block), and PdfMetadataExtractor still reads it.
+                    if (currentRows != null && pendingLeading != null) {
+                        pendingAuxiliary.add(String.join(" ", pendingLeading.values()));
+                        pendingLeading = null;
+                        pendingLeadingFromProximity = false;
+                        pendingLeadingAllBelongAbove = true;
+                        leadingCount = 0;
+                        if (ctx != null) ctx.record("LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER");
+                    }
+                    // The table resumes here: from this line on, a dateless line may again be the
+                    // previous page's last transaction's own wrapped continuation (a real Standard
+                    // Chartered export and a real HDFC composite both carry a narration across the
+                    // page break, under the repeated header) and the ordinary geometry decides.
+                    // Only the furniture zone between a page's repeated banner and its repeated
+                    // header is closed to the row above -- see pageRepeatSinceLastAnchor.
+                    pageRepeatSinceLastAnchor = false;
                     continue; // repeated header of the table already in progress -- not a data row
                 }
                 if (currentRows != null) {
@@ -1709,6 +1819,7 @@ public class PdfTableLocator {
                 pendingLeading = null;
                 pendingLeadingFromProximity = false;
                 leadingCount = 0;
+                pageRepeatSinceLastAnchor = false;
                 pageLegendBlockActive = false;
                 continue;
             }
@@ -1803,6 +1914,7 @@ public class PdfTableLocator {
                     pendingLeadingFromProximity = false;
                     pendingLeadingAllBelongAbove = true;
                     leadingCount = 0;
+                    pageRepeatSinceLastAnchor = false;
                 }
                 continue;
             } else if (PAGE_FOOTER.matcher(rowLine).find() || STATEMENT_CLOSING_MARKER.matcher(rowLine).find()
@@ -1879,6 +1991,72 @@ public class PdfTableLocator {
                 // crossing a header/section boundary above.
                 boolean samePage = lastRowPage != null && !row.isEmpty() && row.get(0).pageIndex() == lastRowPage;
 
+                // The shape of a trailing continuation, evaluated once so the page gate below
+                // can also report when it -- and it alone -- refused a row of this shape.
+                boolean trailingShape =
+                        // Explicit currentRows.isEmpty() guard, found via a real corpus crash: with
+                        // TWO+ consecutive narration-only lines before the first anchor, the first
+                        // one's own leading-narration bookkeeping already sets lastRowPage/lastRowY
+                        // (the same fields every branch here updates), which makes samePage true for
+                        // the second one even though currentRows is still genuinely empty --
+                        // crashing this branch's own currentRows.get(currentRows.size() - 1) on an
+                        // empty list. "Trailing continuation" only means anything once something
+                        // real exists to trail from.
+                        (continuesTheBlock(row, lastRowY, blockPitch, blockSeparation,
+                                    trailingCountSinceLastAnchor)
+                            || isChequeReferenceTrailer(rowLine)
+                            || (isNarrationOnly(bucketed)
+                                    // A narration-only row is placed by WHERE IT IS PRINTED, not
+                                    // by how many came before it. belongsToTheRowAbove was already
+                                    // computed and already wired in here, but it sat behind the
+                                    // count cap and so could never be reached on the documents
+                                    // that need it most: a layout whose lines are all set on one
+                                    // uniform pitch gives continuesTheBlock's separatesItsBlocks
+                                    // guard nothing to work with, which left the constant 2 as the
+                                    // only rule in force. Measured, a real HDFC savings statement
+                                    // sets EVERY line 17.20pt apart and wraps a third and fourth
+                                    // narration line on half its transactions; the over-cap lines
+                                    // were buffered forward, refused, and staged as their own
+                                    // dateless rows -- each one a narration truncated mid-word
+                                    // above it and an unparseable row below it.
+                                    //
+                                    // The count cap is kept for the OTHER sub-branch, and that is
+                                    // the important half of this condition: a dateless row that
+                                    // carries a figure is not narration, and proximity has no
+                                    // business moving it (see isNarrationOnly's own doc comment for
+                                    // the two real rows that changed value when it was allowed to).
+                                    // One real corpus statement prints every transaction with a
+                                    // second, genuinely dateless line carrying its reference,
+                                    // amounts and balance -- that row must keep the count cap.
+                                    //
+                                    // MAX_BLOCK_CONTINUATION_ROWS, not unbounded, for the reason
+                                    // its own doc comment already gives: a ceiling against
+                                    // pathology, not a model of narration.
+                                    ? (belongsToTheRowAbove(gapFromPreviousRow, gapToNextRow)
+                                        && (trailingCountSinceLastAnchor < MAX_TRAILING_CONTINUATION_ROWS
+                                            // Past the count cap, and ONLY past it, the row must also
+                                            // start where this block's own narration starts. Within
+                                            // the cap nothing changes -- the first continuation is
+                                            // what TEACHES the block its left edge, so requiring the
+                                            // edge before it is known would refuse every block's
+                                            // first line and the edge would never be learned at all.
+                                            // anchorCarriedItsOwnNarration is what makes the
+                                            // left-edge test safe. On a statement that prints a
+                                            // transaction's narration BEFORE its date row, the next
+                                            // transaction's leading narration is printed in the same
+                                            // column, at the same left edge, at the same pitch as
+                                            // this transaction's trailing narration -- the three
+                                            // signals are identical and no geometry separates them.
+                                            // The count cap is the only thing that ever did, and on
+                                            // such a document it stays in force. Where the anchor
+                                            // carries its own narration there is no leading-narration
+                                            // ambiguity to begin with: every dateless row after it
+                                            // continues the cell that started on the anchor row.
+                                            || (anchorCarriedItsOwnNarration
+                                                && alignsWithTheBlocksNarration(row, blockNarrationLeftX)
+                                                && trailingCountSinceLastAnchor < MAX_ALIGNED_CONTINUATION_ROWS)))
+                                    : trailingCountSinceLastAnchor < MAX_TRAILING_CONTINUATION_ROWS));
+
                 // SAME_DAY_CONTINUATION_TRANSACTION. The date-anchor model above assumes every real
                 // transaction prints its own date value -- true everywhere else in this class, false
                 // on a real HSBC savings statement (OCR-acquired, but the mechanism is generic to any
@@ -1929,13 +2107,44 @@ public class PdfTableLocator {
                 // the chain at its first link: there is no genuine date to share when the anchor
                 // never had one, so this branch now correctly declines and the row falls through to
                 // whatever handled it before this branch existed.
+                //
+                // DATELESS_AMOUNT_ROW_SPLIT widens this by exactly one more signal, on the evidence
+                // the paragraph above asked for: a dateless row carrying its own CURRENCY value in
+                // an amount column the open anchor already filled. A real credit-card statement
+                // prints a fee and the tax on that fee as two consecutive lines under one date, the
+                // second with its own amount and its own debit indicator; that line reached the
+                // trailing branch below, and mergeInto's guard against invalidating an already-valid
+                // amount rehomed the figure into the description. The document printed one more
+                // transaction than was staged, and its amount survived only as digits inside the
+                // previous line's narration. "Repeat blank" is still not a collision: both cells
+                // must hold a value, and each must look like currency (parseable, with a decimal
+                // point -- the same guard the Balance rule uses, for the same reason: a wrapped
+                // reference tail whose digit run lands in the amount column's x-range parses as a
+                // number and is not one). Balance is left to the rule above.
+                //
+                // Unlike the Balance rule, this one is gated on samePage, on the trailing count
+                // cap and on the page-top furniture zone being open (pageRepeatSinceLastAnchor --
+                // like every other route to the row above), and a row it splits off does NOT
+                // reset that cap (see below): measured on the
+                // committed traces, without those two gates a card statement's illustrative
+                // interest panel -- fifty-odd lines of fine print, each with a figure in the
+                // Amount column's x-range, printed under the page's last transaction and running
+                // onto the next page -- was split into fifty-odd transactions, each one seeding the
+                // next. A second transaction printed under one date sits directly under the first,
+                // on the same page; a paragraph does not.
                 if (!hasDateValue(bucketed, yearsByPage.getOrDefault(rowPageIndex, PageDateEvidence.NONE))
                         && !currentRows.isEmpty()
                         && hasDateValue(currentRows.get(currentRows.size() - 1),
                                 yearsByPage.getOrDefault(rowPageIndex, PageDateEvidence.NONE))
-                        && closesADifferentTransactionThanTheOpenAnchor(bucketed,
-                                currentRows.get(currentRows.size() - 1), headerNames)) {
+                        && (closesADifferentTransactionThanTheOpenAnchor(bucketed,
+                                currentRows.get(currentRows.size() - 1), headerNames)
+                            || (samePage
+                                && !pageRepeatSinceLastAnchor
+                                && trailingCountSinceLastAnchor < MAX_TRAILING_CONTINUATION_ROWS
+                                && repeatsAnAmountColumnOf(bucketed,
+                                        currentRows.get(currentRows.size() - 1), headerNames)))) {
                     Map<String, String> openAnchor = currentRows.get(currentRows.size() - 1);
+                    boolean closesOnBalance = closesADifferentTransactionThanTheOpenAnchor(bucketed, openAnchor, headerNames);
                     Map<String, String> sameDayRow = new LinkedHashMap<>();
                     headerNames.stream().filter(this::isDateColumn).findFirst()
                             .ifPresent(dateColumn -> sameDayRow.put(dateColumn, openAnchor.get(dateColumn)));
@@ -1945,18 +2154,31 @@ public class PdfTableLocator {
                         pendingLeadingFromProximity = false;
                         pendingLeadingAllBelongAbove = true;
                         leadingCount = 0;
+                        pageRepeatSinceLastAnchor = false;
                     }
                     mergeInto(sameDayRow, bucketed, headerNames);
                     currentRows.add(sameDayRow);
-                    if (ctx != null) ctx.record("SAME_DAY_CONTINUATION_TRANSACTION");
+                    if (ctx != null) ctx.record(closesOnBalance ? "SAME_DAY_CONTINUATION_TRANSACTION" : "DATELESS_AMOUNT_ROW_SPLIT");
                     anchorCarriedItsOwnNarration = hasNarrationOfItsOwn(bucketed, headerNames);
                     if (gapFromPreviousRow != null) blockSeparation = gapFromPreviousRow;
                     lastRowPage = row.get(0).pageIndex();
                     lastRowY = row.get(0).y();
                     blockPitch = null;
                     blockNarrationLeftX = null;
-                    trailingCountSinceLastAnchor = 0;
+                    // A row admitted on its own Balance is a full anchor and reopens the cap. A row
+                    // admitted on its amount alone is counted against the dated anchor's cap like
+                    // the continuation it would otherwise have been, so it can seed at most one
+                    // more split and never a chain.
+                    trailingCountSinceLastAnchor = closesOnBalance ? 0 : trailingCountSinceLastAnchor + 1;
+                    pageRepeatSinceLastAnchor = false;
                 } else if (hasDateValue(bucketed, yearsByPage.getOrDefault(rowPageIndex, PageDateEvidence.NONE))) {
+                    // DITTO_DATE_INHERITED. Before anything else touches this row: a blank posting
+                    // Date beside a printed Value Date is the bank's "ditto" for the date of the row
+                    // above, and it is filled in here, first, so that the leading-narration prepend
+                    // below sees an already-valid date it must not overwrite. See inheritDittoDate.
+                    if (inheritDittoDate(bucketed, currentRows, headerNames) && ctx != null) {
+                        ctx.record("DITTO_DATE_INHERITED");
+                    }
                     // Read BEFORE any leading narration is merged in: the question is whether this
                     // transaction printed its own narration on its own date row, which merging a
                     // buffered leading line would otherwise disguise.
@@ -1976,6 +2198,7 @@ public class PdfTableLocator {
                         pendingLeadingFromProximity = false;
                         pendingLeadingAllBelongAbove = true;
                         leadingCount = 0;
+                        pageRepeatSinceLastAnchor = false;
                     }
                     currentRows.add(bucketed);
                     // How far this anchor sits below whatever preceded it -- the document's own
@@ -1993,6 +2216,7 @@ public class PdfTableLocator {
                     blockPitch = null;
                     blockNarrationLeftX = null;
                     trailingCountSinceLastAnchor = 0;
+                    pageRepeatSinceLastAnchor = false;
                 } else if (currentRows.isEmpty() && (!isNarrationOnly(bucketed)
                         // A row that populates MORE THAN ONE column, even carrying no date/number
                         // value of its own, reads as a genuine structured summary/identity row (a
@@ -2069,69 +2293,24 @@ public class PdfTableLocator {
                     blockSeparation = null;
                     blockNarrationLeftX = null;
                     trailingCountSinceLastAnchor = MAX_TRAILING_CONTINUATION_ROWS;
-                } else if (!currentRows.isEmpty() && samePage
-                        // Explicit currentRows.isEmpty() guard, found via a real corpus crash: with
-                        // TWO+ consecutive narration-only lines before the first anchor, the first
-                        // one's own leading-narration bookkeeping already sets lastRowPage/lastRowY
-                        // (the same fields every branch here updates), which makes samePage true for
-                        // the second one even though currentRows is still genuinely empty --
-                        // crashing this branch's own currentRows.get(currentRows.size() - 1) on an
-                        // empty list. "Trailing continuation" only means anything once something
-                        // real exists to trail from.
-                        && (continuesTheBlock(row, lastRowY, blockPitch, blockSeparation,
-                                    trailingCountSinceLastAnchor)
-                            || isChequeReferenceTrailer(rowLine)
-                            || (isNarrationOnly(bucketed)
-                                    // A narration-only row is placed by WHERE IT IS PRINTED, not
-                                    // by how many came before it. belongsToTheRowAbove was already
-                                    // computed and already wired in here, but it sat behind the
-                                    // count cap and so could never be reached on the documents
-                                    // that need it most: a layout whose lines are all set on one
-                                    // uniform pitch gives continuesTheBlock's separatesItsBlocks
-                                    // guard nothing to work with, which left the constant 2 as the
-                                    // only rule in force. Measured, a real HDFC savings statement
-                                    // sets EVERY line 17.20pt apart and wraps a third and fourth
-                                    // narration line on half its transactions; the over-cap lines
-                                    // were buffered forward, refused, and staged as their own
-                                    // dateless rows -- each one a narration truncated mid-word
-                                    // above it and an unparseable row below it.
-                                    //
-                                    // The count cap is kept for the OTHER sub-branch, and that is
-                                    // the important half of this condition: a dateless row that
-                                    // carries a figure is not narration, and proximity has no
-                                    // business moving it (see isNarrationOnly's own doc comment for
-                                    // the two real rows that changed value when it was allowed to).
-                                    // One real corpus statement prints every transaction with a
-                                    // second, genuinely dateless line carrying its reference,
-                                    // amounts and balance -- that row must keep the count cap.
-                                    //
-                                    // MAX_BLOCK_CONTINUATION_ROWS, not unbounded, for the reason
-                                    // its own doc comment already gives: a ceiling against
-                                    // pathology, not a model of narration.
-                                    ? (belongsToTheRowAbove(gapFromPreviousRow, gapToNextRow)
-                                        && (trailingCountSinceLastAnchor < MAX_TRAILING_CONTINUATION_ROWS
-                                            // Past the count cap, and ONLY past it, the row must also
-                                            // start where this block's own narration starts. Within
-                                            // the cap nothing changes -- the first continuation is
-                                            // what TEACHES the block its left edge, so requiring the
-                                            // edge before it is known would refuse every block's
-                                            // first line and the edge would never be learned at all.
-                                            // anchorCarriedItsOwnNarration is what makes the
-                                            // left-edge test safe. On a statement that prints a
-                                            // transaction's narration BEFORE its date row, the next
-                                            // transaction's leading narration is printed in the same
-                                            // column, at the same left edge, at the same pitch as
-                                            // this transaction's trailing narration -- the three
-                                            // signals are identical and no geometry separates them.
-                                            // The count cap is the only thing that ever did, and on
-                                            // such a document it stays in force. Where the anchor
-                                            // carries its own narration there is no leading-narration
-                                            // ambiguity to begin with: every dateless row after it
-                                            // continues the cell that started on the anchor row.
-                                            || (anchorCarriedItsOwnNarration
-                                                && alignsWithTheBlocksNarration(row, blockNarrationLeftX)
-                                                && trailingCountSinceLastAnchor < MAX_ALIGNED_CONTINUATION_ROWS)))
-                                    : trailingCountSinceLastAnchor < MAX_TRAILING_CONTINUATION_ROWS))) {
+                    pageRepeatSinceLastAnchor = false;
+                } else if (!currentRows.isEmpty() && samePage && pendingLeading == null
+                        && !pageRepeatSinceLastAnchor && trailingShape) {
+                    // TRAILING_REFUSED_BEHIND_LEADING_BUFFER (the pendingLeading == null gate):
+                    // once a dateless line has been buffered as the NEXT transaction's leading
+                    // narration, no line printed below it can be this transaction's trailing
+                    // continuation -- text does not interleave. Traced on a real Canara Bank
+                    // statement, in two variants with one root: (1) across a page break, the next
+                    // transaction's first line was refused here (different page) and buffered,
+                    // which moved lastRowPage to the new page; its second line then passed samePage,
+                    // the count cap still had room, the spacing was a tie, and it was merged into
+                    // the previous page's transaction. (2) On one page, the first line sat visibly
+                    // nearer the transaction below (buffered by proximity) and the second line, at
+                    // the leading pitch, tied and was merged above. Either way the transaction
+                    // above ended with a fragment of the next one's address, and the next one
+                    // lost its second line. Where buffered lines really did belong above, the
+                    // buffer split below (LEADING_BUFFER_SPLIT_AT_ITS_OWN_BOUNDARY) is the one
+                    // route back, and it moves the whole buffer in order.
                     // The pitch this block prints its own wrapped lines at, learned from the first
                     // one and never revised -- so a later line that breaks the pitch cannot quietly
                     // redefine it and chain the whole page together (see BLOCK_PITCH_TOLERANCE).
@@ -2176,6 +2355,14 @@ public class PdfTableLocator {
                     // footer or repeated title banner (which must never cross a page boundary into
                     // the wrong row), genuine leading narration legitimately can span a page break
                     // -- verified against the real Canara statement this capability is modeled on.
+                    //
+                    // TRAILING_REFUSED_BEHIND_LEADING_BUFFER: recorded only when the open leading
+                    // buffer is the ONE thing that refused this row as a trailing continuation --
+                    // same page, trailing shape, and a line already buffered for the next anchor.
+                    // See the trailing branch's own comment for the two real-document variants.
+                    if (ctx != null && !currentRows.isEmpty() && samePage && pendingLeading != null && trailingShape) {
+                        ctx.record("TRAILING_REFUSED_BEHIND_LEADING_BUFFER");
+                    }
                     if (leadingCount >= MAX_LEADING_CONTINUATION_ROWS) {
                         // Past the point where "leading narration" is a credible explanation. A
                         // dozen consecutive rows with no date does not mean one very wordy
@@ -2232,7 +2419,7 @@ public class PdfTableLocator {
                     boolean decisivelyBelongsBelow = isNarrationOnly(bucketed)
                             && !belongsToTheRowAbove(gapFromPreviousRow, gapToNextRow);
                     if (decisivelyBelongsBelow && pendingLeading != null
-                            && pendingLeadingAllBelongAbove && !currentRows.isEmpty()) {
+                            && pendingLeadingAllBelongAbove && !pageRepeatSinceLastAnchor && !currentRows.isEmpty()) {
                         appendNarrationTo(currentRows.get(currentRows.size() - 1), pendingLeading,
                                 headerNames);
                         if (ctx != null) ctx.record("LEADING_BUFFER_SPLIT_AT_ITS_OWN_BOUNDARY");
@@ -5670,6 +5857,164 @@ public class PdfTableLocator {
 
     private boolean looksLikeAGenuineBalanceValue(String value) {
         return value != null && value.contains(".") && CsvParser.parseNumeric(value) != null;
+    }
+
+    /** True when {@code bucketed} and {@code openAnchor} each carry their own currency-looking
+     *  value in the same amount column, on a table that has no running-balance column -- see
+     *  DATELESS_AMOUNT_ROW_SPLIT at the caller.
+     *
+     *  <p>Two guards beyond {@link #closesADifferentTransactionThanTheOpenAnchor}'s own (a date
+     *  column must exist; both values must look like currency), both found regression-testing the
+     *  first draft of this rule against the full real corpus, where it also split a running-balance
+     *  ledger's totals line, a closing-summary block and a page footer's balance figure into
+     *  transactions of their own:
+     *
+     *  <p>First, the table must have NO balance column. A running-balance ledger prints a balance
+     *  on every transaction, so a dateless line there carrying an amount and no balance is a total
+     *  or a footer, never a ledger entry -- and a genuine second same-day entry carries its balance
+     *  and is already caught by the Balance rule. The amount is the only singular-per-transaction
+     *  signal precisely on the layouts that print no balance at all: credit-card tables.
+     *
+     *  <p>Second, the colliding column must be NAMED as an amount column -- its first or last word
+     *  one of the amount hints -- not merely contain one. {@link #isAmountColumn} matches any word,
+     *  so a card statement's summary grid ("Available Credit Limit", a date-bearing "Payment Due
+     *  Date" beside it) satisfied the loose test and had its grid rows split, which broke the
+     *  metadata extraction that consumes that grid.
+     *
+     *  <p>Third, the row must be as structurally complete as the anchor: every column the anchor
+     *  fills that is neither date, description nor amount (a reference number, a debit/credit
+     *  indicator, a points column) must be filled on the dateless row too. A second transaction
+     *  prints its own reference and indicator; a line of fine print with a figure in the amount
+     *  column's x-range prints neither. Found on a committed trace of a card statement whose
+     *  illustrative interest panel sat under its last transaction. A layout with no such columns
+     *  is unaffected (nothing to require).
+     *
+     *  <p>Fourth, the row's own date cell must hold no date token at all. A row whose date cell
+     *  reads "5,000.00 07/10/2025" is not dateless: its date failed to bucket because a figure
+     *  was joined onto it, which is a different problem, and copying the anchor's date over it
+     *  would replace a printed date with an inherited one. Found on a committed trace of a
+     *  composite statement's deposit schedule. The row this rule exists for carries narration in
+     *  its date cell (mis-bucketed leftward, exactly as wrapped lines do), never a date.
+     *
+     *  <p>Fifth, no text cell of the row may begin with a totals word. A card table's column total
+     *  ("Total ... Charges  5,178.69") is printed directly under the last transaction, on the same
+     *  page, complete in every column the transactions fill, with a currency figure in the Amount
+     *  column -- it passes every guard above by construction. The real document that prints it
+     *  is closed by {@link #TRANSACTION_TABLE_TOTAL_MARKER} before this rule ever sees the line,
+     *  but that trigger is narrow to one exact wording, and the redacted committed trace of the
+     *  same document showed what happens when the wording differs: the total was promoted into a
+     *  transaction. A second transaction's narration never begins with "Total". */
+    private boolean repeatsAnAmountColumnOf(Map<String, String> bucketed, Map<String, String> openAnchor,
+                                            List<String> headerNames) {
+        if (headerNames == null) return false;
+        if (headerNames.stream().noneMatch(this::isDateColumn)) return false;
+        if (headerNames.stream().anyMatch(h -> matchesAnyHint(h, BALANCE_COLUMN_HINT))) return false;
+        if (dateCellHoldsADateToken(bucketed, headerNames)) return false;
+        if (aTextCellBeginsWithATotalsWord(bucketed, headerNames)) return false;
+        boolean repeats = false;
+        for (String column : headerNames) {
+            if (isDateColumn(column) || matchesAnyHint(column, DESCRIPTION_COLUMN_HINTS)) continue;
+            String anchorValue = openAnchor.get(column);
+            if (anchorValue == null || anchorValue.isBlank()) continue;
+            String value = bucketed.get(column);
+            if (isNamedAsAnAmountColumn(column)) {
+                if (looksLikeAGenuineBalanceValue(value) && looksLikeAGenuineBalanceValue(anchorValue)) repeats = true;
+                continue;
+            }
+            if (isAmountColumn(column)) continue;
+            if (value == null || value.isBlank()) return false; // the anchor fills it, this row does not
+        }
+        return repeats;
+    }
+
+    private static final Pattern TOTALS_WORD_AT_START =
+            Pattern.compile("(?i)^\\s*(grand\\s+total|sub\\s*-?\\s*total|total)\\b");
+
+    /** True when any cell that is not an amount-named column starts with "Total", "Sub total" or
+     *  "Grand total" -- see the fifth guard on {@link #repeatsAnAmountColumnOf}. */
+    private boolean aTextCellBeginsWithATotalsWord(Map<String, String> bucketed, List<String> headerNames) {
+        for (String column : headerNames) {
+            if (isNamedAsAnAmountColumn(column)) continue;
+            String value = bucketed.get(column);
+            if (value != null && TOTALS_WORD_AT_START.matcher(value).find()) return true;
+        }
+        return false;
+    }
+
+    private static final List<String> VALUE_DATE_HINTS = List.of("value date", "value dt", "val date", "val dt");
+
+    /** The header literally names the value date ("Value Date", "Val Dt"). A combined
+     *  "Date(Value Date)" column normalizes to a bare "date" and is not one. */
+    private boolean isValueDateColumn(String columnName) {
+        return VALUE_DATE_HINTS.contains(CsvParser.normalizeHeaderCell(columnName));
+    }
+
+    /**
+     * DITTO_DATE_INHERITED. On a table that prints BOTH a posting Date column and a Value Date
+     * column, a row whose Date cell is blank takes the Date of the row above it.
+     *
+     * <p>Measured on a real Standard Chartered export (163 rows): 91 rows print no Date at all --
+     * the bank prints the posting date once for a run of same-day transactions and the value date
+     * on every row. Each such row was admitted as an anchor on its Value Date (correct: it is a
+     * transaction), and the normalizer's first-non-blank date lookup then stored the value date as
+     * the transaction date. For the 26 rows whose value date fell on a weekend and whose posting
+     * date was the following Monday, that was the wrong date, and the rows sorted out of order.
+     * The PDF's own text layer confirms the Date cell is genuinely empty on those rows, not
+     * mis-bucketed: "May 04  May 03  UPI/..." on the first row of the run, then "May 03  UPI/..."
+     * on the next.
+     *
+     * <p>Never inferred from the value date itself. The only source is the row above's own Date
+     * cell, and only when it holds a parseable date -- the first row of a table, or one under a
+     * row whose date is itself missing, is left exactly as before (the normalizer still falls
+     * back to its value date). Returns true when a date was written.
+     */
+    private boolean inheritDittoDate(Map<String, String> bucketed, List<Map<String, String>> currentRows,
+                                     List<String> headerNames) {
+        if (headerNames == null || currentRows == null || currentRows.isEmpty()) return false;
+        String dateColumn = null, valueDateColumn = null;
+        for (String column : headerNames) {
+            if (isValueDateColumn(column)) { if (valueDateColumn == null) valueDateColumn = column; }
+            else if (isDateColumn(column)) { if (dateColumn == null) dateColumn = column; }
+        }
+        if (dateColumn == null || valueDateColumn == null) return false;
+        String own = bucketed.get(dateColumn);
+        if (own != null && !own.isBlank()) return false;
+        String valueDate = bucketed.get(valueDateColumn);
+        if (valueDate == null || valueDate.isBlank()) return false;
+        String above = currentRows.get(currentRows.size() - 1).get(dateColumn);
+        if (above == null || above.isBlank() || CsvParser.parseDate(above.trim()) == null) return false;
+        bucketed.put(dateColumn, above);
+        return true;
+    }
+
+    /** True when any whitespace-separated token of any date-role cell parses as a date. */
+    private boolean dateCellHoldsADateToken(Map<String, String> bucketed, List<String> headerNames) {
+        for (String column : headerNames) {
+            if (!isDateColumn(column)) continue;
+            String value = bucketed.get(column);
+            if (value == null || value.isBlank()) continue;
+            for (String token : value.trim().split("\\s+")) {
+                if (CsvParser.parseDate(token) != null) return true;
+            }
+        }
+        return false;
+    }
+
+    private static final List<String> BALANCE_COLUMN_HINT = List.of("balance");
+    private static final List<String> STRICT_AMOUNT_COLUMN_WORDS =
+            List.of("amount", "amt", "debit", "credit", "deposit", "deposits", "withdrawal", "withdrawals");
+
+    /** The header's first or last word is an amount word ("Amount", "Transaction Amount",
+     *  "Withdrawal Amt.", "Debit"), as opposed to a header that merely contains one somewhere
+     *  ("Available Credit Limit"). Edge punctuation stripped per word as {@link #matchesAnyHint}
+     *  does. */
+    private boolean isNamedAsAnAmountColumn(String columnName) {
+        String normalized = CsvParser.normalizeHeaderCell(columnName);
+        if (normalized.isBlank()) return false;
+        String[] words = normalized.split("\\s+");
+        String first = words[0].replaceAll("^[^a-z0-9]+|[^a-z0-9]+$", "");
+        String last = words[words.length - 1].replaceAll("^[^a-z0-9]+|[^a-z0-9]+$", "");
+        return STRICT_AMOUNT_COLUMN_WORDS.contains(first) || STRICT_AMOUNT_COLUMN_WORDS.contains(last);
     }
 
     // Word-boundary regex, not matchesAnyHint's per-word exact match and not a plain substring

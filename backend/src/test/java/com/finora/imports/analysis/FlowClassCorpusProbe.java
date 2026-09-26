@@ -59,6 +59,11 @@ public final class FlowClassCorpusProbe {
     private static final Map<FlowPatternAnalysis.Rhythm, Integer> RHYTHMS = new EnumMap<>(FlowPatternAnalysis.Rhythm.class);
     private static final List<String> FAILED = new ArrayList<>();
 
+    /** Every dated row in the corpus, for the cross-statement checks run after all files. */
+    record CorpusRow(String file, Account.Type accountType, java.time.LocalDate date, BigDecimal amount, boolean credit,
+                     String description, String flow) {}
+    private static final List<CorpusRow> ALL_ROWS = new ArrayList<>();
+
     public static void main(String[] args) {
         if (args.length < 1) {
             System.err.println("Usage: FlowClassCorpusProbe <path-to.pdf> [<path-to.pdf> ...]");
@@ -83,6 +88,8 @@ public final class FlowClassCorpusProbe {
             }
         }
         printSummary();
+        printCrossStatementPairs();
+        printMissedPersonShapes();
         System.exit(0);
     }
 
@@ -105,7 +112,11 @@ public final class FlowClassCorpusProbe {
                 if (row.amount() == null || row.date() == null) continue;
                 boolean credit = "INCOME".equals(row.type());
                 patternRows.add(new FlowPatternAnalysis.Row(row.date(), row.amount(), credit, row.description()));
-                if (!credit) { debits++; continue; }
+                if (!credit) {
+                    debits++;
+                    ALL_ROWS.add(new CorpusRow(file, accountType, row.date(), row.amount(), false, row.description(), "DEBIT"));
+                    continue;
+                }
                 credits++;
                 Transaction t = new Transaction();
                 t.setTxnType(Transaction.Type.INCOME);
@@ -118,6 +129,8 @@ public final class FlowClassCorpusProbe {
                 merge(TOTAL, key, row.amount());
                 statementCredits = statementCredits.add(row.amount());
                 String token = CategoryRules.extractMerchant(row.description());
+                ALL_ROWS.add(new CorpusRow(file, accountType, row.date(), row.amount(), true, row.description(),
+                        d.flowClass() + "/" + d.reason()));
                 if (d.flowClass() == FlowClassifier.FlowClass.INCOME) {
                     statementKept = statementKept.add(row.amount());
                 } else {
@@ -221,6 +234,86 @@ public final class FlowClassCorpusProbe {
                 v[0].toPlainString(), v[1].toPlainString(), v[2].toPlainString()));
         System.out.println("  rhythm sections: " + RHYTHMS);
         System.out.println("== FAILED statements: " + (FAILED.isEmpty() ? "none" : FAILED));
+    }
+
+    /**
+     * How much of each flow class a SAME-AMOUNT DEBIT IN ANOTHER STATEMENT (within 3 days) could
+     * explain -- the ceiling on what the live transfer matcher could pair if one user imported both
+     * statements. A ceiling, not a claim: the live pass also needs its own "looks like transfer"
+     * gate, and two statements here can belong to different people. One-to-one, greedy by date gap.
+     */
+    private static void printCrossStatementPairs() {
+        List<CorpusRow> debits = new ArrayList<>(ALL_ROWS.stream().filter(r -> !r.credit()).toList());
+        Map<String, BigDecimal[]> byFlow = new TreeMap<>();
+        List<String> pairs = new ArrayList<>();
+        for (CorpusRow c : ALL_ROWS.stream().filter(CorpusRow::credit)
+                .filter(r -> r.accountType() != Account.Type.CREDIT_CARD).toList()) {
+            CorpusRow best = null;
+            long bestGap = Long.MAX_VALUE;
+            for (CorpusRow d : debits) {
+                if (d.file().equals(c.file()) || d.amount().compareTo(c.amount()) != 0) continue;
+                long gap = Math.abs(java.time.temporal.ChronoUnit.DAYS.between(d.date(), c.date()));
+                if (gap <= 3 && gap < bestGap) { best = d; bestGap = gap; }
+            }
+            if (best == null) continue;
+            debits.remove(best);
+            // The live transfer pass only evaluates a pair when one leg "looks like a transfer" (no
+            // user-configured own-account identifiers exist in a corpus run, so only the text half applies).
+            boolean gate = looksLikeTransferText(c.description()) || looksLikeTransferText(best.description());
+            merge(byFlow, c.flow() + (gate ? " [gate passes]" : " [gate FAILS]"), c.amount());
+            pairs.add(String.format("  %-24s <- %-24s %12s  %s  gap=%dd gate=%s", c.file(), best.file(), c.amount().toPlainString(),
+                    c.flow(), bestGap, gate ? "pass" : "FAIL"));
+        }
+        System.out.println("== CROSS-STATEMENT same-amount debit within 3 days (non-card credits) -- ceiling, NOT for the repo");
+        byFlow.forEach((k, v) -> System.out.printf("  %-40s %6s  %15s%n", k, v[0].toPlainString(), v[1].toPlainString()));
+        pairs.forEach(System.out::println);
+    }
+
+    /**
+     * The narration SHAPES of non-card credits that stayed income as OTHER_INCOME and are not typed
+     * PERSON -- where a missed individual would hide. Letters outside a small rail vocabulary become
+     * W and digit runs become 9, so a shape carries no name, handle or reference.
+     */
+    private static void printMissedPersonShapes() {
+        Map<String, BigDecimal[]> shapes = new TreeMap<>();
+        Map<String, String> classified = new HashMap<>();
+        for (CorpusRow r : ALL_ROWS) {
+            if (!r.credit() || r.accountType() == Account.Type.CREDIT_CARD || !"INCOME/OTHER_INCOME".equals(r.flow())) continue;
+            String shape = shape(r.description());
+            merge(shapes, shape, r.amount());
+            String key = com.finora.util.CounterpartyIdentity.keyOf(r.description());
+            classified.putIfAbsent(shape, CounterpartyClassifier.classify(r.description()) + " key="
+                    + (key == null ? "none" : key.substring(0, key.indexOf(':') + 1) + "..."));
+        }
+        System.out.println("== OTHER_INCOME narration shapes (count, value, counterpartyType of first example)");
+        shapes.entrySet().stream().sorted((a, b) -> b.getValue()[1].compareTo(a.getValue()[1]))
+                .forEach(e -> System.out.printf("  %6s %12s  %-18s %s%n", e.getValue()[0].toPlainString(),
+                        e.getValue()[1].toPlainString(), classified.get(e.getKey()), e.getKey()));
+    }
+
+    /** Text half of ReconciliationService's transfer gate, mirrored: "payment" in the narration, or
+     *  the narration categorising as Transfer. */
+    static boolean looksLikeTransferText(String description) {
+        return CategoryRules.normalize(description).contains("payment")
+                || "Transfer".equals(CategoryRules.suggestCategory(description));
+    }
+
+    private static final Set<String> RAIL_WORDS = Set.of("UPI", "CR", "DR", "NEFT", "IMPS", "RTGS", "MOB", "BY", "TO",
+            "FROM", "TRANSFER", "TRF", "FT", "PAYMENT", "REF", "RRN", "P2A", "P2P", "INB", "NET", "CASH", "DEP", "DEPOSIT",
+            "SALARY", "SAL", "INT", "INTEREST", "REFUND", "REV", "UPIAB", "UPIRET", "BANK", "LIMITED", "LTD", "PVT",
+            "HDFC", "SBI", "ICICI", "AXIS", "KOTAK", "YBL", "OKSBI", "OKAXIS", "OKHDFCBANK", "OKICICI", "PAYTM", "IBL", "AXL");
+
+    static String shape(String description) {
+        if (description == null) return "<null>";
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("[A-Za-z]+|[0-9]+").matcher(description);
+        StringBuilder out = new StringBuilder();
+        while (m.find()) {
+            String tok = m.group();
+            String rep = Character.isDigit(tok.charAt(0)) ? "9" : RAIL_WORDS.contains(tok.toUpperCase()) ? tok.toUpperCase() : "W";
+            m.appendReplacement(out, rep);
+        }
+        m.appendTail(out);
+        return out.toString().replaceAll("W( W)+", "W+").replaceAll("\\s+", " ").trim();
     }
 
     private static Account.Type accountTypeOf(StagedAccountSection section) {

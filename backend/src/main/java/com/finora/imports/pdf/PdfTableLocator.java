@@ -2602,7 +2602,7 @@ public class PdfTableLocator {
         remergeSameTableSections(sections, ctx);
         dropCompletelyEmptySections(sections, ctx);
         if (ctx != null) ctx.recordTables(sections.size());
-        return new LocatedDocument(sections, physicalRowFormationEvidence);
+        return NarrationLineBreaks.resolveAll(new LocatedDocument(sections, physicalRowFormationEvidence), ctx);
     }
 
     /**
@@ -2738,7 +2738,7 @@ public class PdfTableLocator {
         if (text.length() == 0) return;
         String existing = target.get(descriptionColumn);
         target.put(descriptionColumn,
-                existing == null || existing.isBlank() ? text.toString() : existing + " " + text);
+                existing == null || existing.isBlank() ? text.toString() : NarrationLineBreaks.joinLines(existing, text.toString()));
     }
 
     /** The x of this row's leftmost non-blank run, or null for a row with nothing in it. */
@@ -3333,17 +3333,22 @@ public class PdfTableLocator {
                     if (fallback != null) {
                         String current = target.get(fallback);
                         target.put(fallback, (current == null || current.isBlank())
-                                ? e.getValue() : current + " " + e.getValue());
+                                ? e.getValue() : NarrationLineBreaks.joinLines(current, e.getValue()));
                     }
                     continue;
                 }
                 String currentDescription = target.get(descriptionColumn);
                 target.put(descriptionColumn, (currentDescription == null || currentDescription.isBlank())
-                        ? e.getValue() : currentDescription + " " + e.getValue());
+                        ? e.getValue() : NarrationLineBreaks.joinLines(currentDescription, e.getValue()));
                 continue;
             }
 
-            target.put(e.getKey(), (existing == null || existing.isBlank()) ? e.getValue() : existing + " " + e.getValue());
+            // A date or amount cell keeps the plain space: a split date ("13 Jul" + "2026") must still
+            // parse. Every other cell keeps the printed line break for NarrationLineBreaks to resolve.
+            target.put(e.getKey(), (existing == null || existing.isBlank()) ? e.getValue()
+                    : (isDateColumn(e.getKey()) || isAmountColumn(e.getKey()))
+                            ? existing + " " + e.getValue()
+                            : NarrationLineBreaks.joinLines(existing, e.getValue()));
         }
     }
 
@@ -3433,7 +3438,7 @@ public class PdfTableLocator {
             if (e.getValue() == null || e.getValue().isBlank()) continue;
             String column = wouldInvalidate(target, e.getKey(), e.getValue()) ? rehome : e.getKey();
             String existing = target.get(column);
-            target.put(column, (existing == null || existing.isBlank()) ? e.getValue() : e.getValue() + " " + existing);
+            target.put(column, (existing == null || existing.isBlank()) ? e.getValue() : NarrationLineBreaks.joinLines(e.getValue(), existing));
         }
         return true;
     }

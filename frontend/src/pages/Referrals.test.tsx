@@ -232,6 +232,9 @@ describe('Referrals', () => {
       renderPage();
 
       expect(await screen.findByText(/Plus queued/i)).toBeInTheDocument();
+      // Not "activates automatically": for a paying Plus subscriber it never would.
+      expect(screen.getByText("starts when you're not already on Plus")).toBeInTheDocument();
+      expect(screen.queryByText(/activates automatically/i)).not.toBeInTheDocument();
     });
 
     it('shows nothing for an EXPIRED grant with no other active/pending ones', async () => {
@@ -308,6 +311,9 @@ describe('Referrals', () => {
       renderPage();
 
       expect(await screen.findByText(/Plus queued/i)).toBeInTheDocument();
+      // Not "activates automatically": for a paying Plus subscriber it never would.
+      expect(screen.getByText("starts when you're not already on Plus")).toBeInTheDocument();
+      expect(screen.queryByText(/activates automatically/i)).not.toBeInTheDocument();
       expect(screen.queryByText(/Premium/i)).not.toBeInTheDocument();
     });
   });

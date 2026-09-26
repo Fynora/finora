@@ -398,6 +398,9 @@ describe('ReferralsScreen', () => {
       renderScreen();
 
       expect(await screen.findByText(/Plus queued/i)).toBeTruthy();
+      // Not "activates automatically": for a paying Plus subscriber it never would.
+      expect(screen.getByText("starts when you're not already on Plus")).toBeTruthy();
+      expect(screen.queryByText(/activates automatically/i)).toBeNull();
     });
   });
 

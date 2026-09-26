@@ -467,7 +467,12 @@ export function ReferralsScreen() {
           {[...data.grants].filter((g) => g.status === 'PENDING').reverse().map((g) => (
             <View key={g.id} style={styles.rewardRow}>
               <Text style={[styles.rewardLabel, { color: c.ink }]}>{visiblePlanCode(g.tier) === 'PREMIUM' ? 'Premium' : 'Plus'} queued</Text>
-              <Text style={[styles.rewardMeta, { color: c.muted }]}>activates automatically</Text>
+              {/* A grant queues while the user is already on that plan -- paying for it, or on
+                  another free month -- and the hourly sweep starts it once they are not. For a
+                  paying subscriber that can be never, so "activates automatically" misled. */}
+              <Text style={[styles.rewardMeta, { color: c.muted }]}>
+                starts when you&apos;re not already on {visiblePlanCode(g.tier) === 'PREMIUM' ? 'Premium' : 'Plus'}
+              </Text>
             </View>
           ))}
         </Card>

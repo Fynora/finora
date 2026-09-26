@@ -194,7 +194,12 @@ export default function Referrals() {
             {[...mine.grants].filter((g) => g.status === 'PENDING').reverse().map((g) => (
               <div key={g.id} className="flex items-center justify-between text-sm">
                 <span className="text-ink font-medium">{visiblePlanCode(g.tier) === 'PREMIUM' ? 'Premium' : 'Plus'} queued</span>
-                <span className="text-xs text-muted">activates automatically</span>
+                {/* A grant queues while the user is already on that plan -- paying for it, or on
+                    another free month -- and the hourly sweep starts it once they are not. For a
+                    paying subscriber that can be never, so "activates automatically" misled. */}
+                <span className="text-xs text-muted">
+                  starts when you&apos;re not already on {visiblePlanCode(g.tier) === 'PREMIUM' ? 'Premium' : 'Plus'}
+                </span>
               </div>
             ))}
           </div>

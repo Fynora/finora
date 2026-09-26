@@ -1989,6 +1989,13 @@ public class PdfTableLocator {
                     // more split and never a chain.
                     trailingCountSinceLastAnchor = closesOnBalance ? 0 : trailingCountSinceLastAnchor + 1;
                 } else if (hasDateValue(bucketed, yearsByPage.getOrDefault(rowPageIndex, PageDateEvidence.NONE))) {
+                    // DITTO_DATE_INHERITED. Before anything else touches this row: a blank posting
+                    // Date beside a printed Value Date is the bank's "ditto" for the date of the row
+                    // above, and it is filled in here, first, so that the leading-narration prepend
+                    // below sees an already-valid date it must not overwrite. See inheritDittoDate.
+                    if (inheritDittoDate(bucketed, currentRows, headerNames) && ctx != null) {
+                        ctx.record("DITTO_DATE_INHERITED");
+                    }
                     // Read BEFORE any leading narration is merged in: the question is whether this
                     // transaction printed its own narration on its own date row, which merging a
                     // buffered leading line would otherwise disguise.
@@ -5784,6 +5791,52 @@ public class PdfTableLocator {
             if (value != null && TOTALS_WORD_AT_START.matcher(value).find()) return true;
         }
         return false;
+    }
+
+    private static final List<String> VALUE_DATE_HINTS = List.of("value date", "value dt", "val date", "val dt");
+
+    /** The header literally names the value date ("Value Date", "Val Dt"). A combined
+     *  "Date(Value Date)" column normalizes to a bare "date" and is not one. */
+    private boolean isValueDateColumn(String columnName) {
+        return VALUE_DATE_HINTS.contains(CsvParser.normalizeHeaderCell(columnName));
+    }
+
+    /**
+     * DITTO_DATE_INHERITED. On a table that prints BOTH a posting Date column and a Value Date
+     * column, a row whose Date cell is blank takes the Date of the row above it.
+     *
+     * <p>Measured on a real Standard Chartered export (163 rows): 91 rows print no Date at all --
+     * the bank prints the posting date once for a run of same-day transactions and the value date
+     * on every row. Each such row was admitted as an anchor on its Value Date (correct: it is a
+     * transaction), and the normalizer's first-non-blank date lookup then stored the value date as
+     * the transaction date. For the 26 rows whose value date fell on a weekend and whose posting
+     * date was the following Monday, that was the wrong date, and the rows sorted out of order.
+     * The PDF's own text layer confirms the Date cell is genuinely empty on those rows, not
+     * mis-bucketed: "May 04  May 03  UPI/..." on the first row of the run, then "May 03  UPI/..."
+     * on the next.
+     *
+     * <p>Never inferred from the value date itself. The only source is the row above's own Date
+     * cell, and only when it holds a parseable date -- the first row of a table, or one under a
+     * row whose date is itself missing, is left exactly as before (the normalizer still falls
+     * back to its value date). Returns true when a date was written.
+     */
+    private boolean inheritDittoDate(Map<String, String> bucketed, List<Map<String, String>> currentRows,
+                                     List<String> headerNames) {
+        if (headerNames == null || currentRows == null || currentRows.isEmpty()) return false;
+        String dateColumn = null, valueDateColumn = null;
+        for (String column : headerNames) {
+            if (isValueDateColumn(column)) { if (valueDateColumn == null) valueDateColumn = column; }
+            else if (isDateColumn(column)) { if (dateColumn == null) dateColumn = column; }
+        }
+        if (dateColumn == null || valueDateColumn == null) return false;
+        String own = bucketed.get(dateColumn);
+        if (own != null && !own.isBlank()) return false;
+        String valueDate = bucketed.get(valueDateColumn);
+        if (valueDate == null || valueDate.isBlank()) return false;
+        String above = currentRows.get(currentRows.size() - 1).get(dateColumn);
+        if (above == null || above.isBlank() || CsvParser.parseDate(above.trim()) == null) return false;
+        bucketed.put(dateColumn, above);
+        return true;
     }
 
     /** True when any whitespace-separated token of any date-role cell parses as a date. */

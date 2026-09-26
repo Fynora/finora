@@ -68,6 +68,10 @@ public class CapabilityCoverageService {
             // statement's fee-and-tax pair), not a wrapped description. See the SAME_DAY branch in
             // PdfTableLocator.locateAll.
             "DATELESS_AMOUNT_ROW_SPLIT",
+            // A blank posting-Date cell beside a printed Value Date inherits the Date of the row
+            // above: the bank printed the date once for a run of same-day transactions (a real
+            // Standard Chartered export). See PdfTableLocator.inheritDittoDate.
+            "DITTO_DATE_INHERITED",
             "GRID_METADATA_FALLBACK", "GRID_METADATA_TRAILING_LABEL",
             "LEADING_NAME_LINE", "LEADING_NARRATION_CONTINUATION",
             "FINANCIAL_PRODUCT_CLASSIFICATION",

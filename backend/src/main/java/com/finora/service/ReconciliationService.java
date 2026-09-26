@@ -242,6 +242,12 @@ public class ReconciliationService {
     private void reconcile(UUID userId, List<Transaction> all, Map<String, Object> scopeAudit,
                            boolean alwaysRecord) {
         long startedAtNanos = System.nanoTime();
+        // Both callers load `all` with no ORDER BY, and several passes below keep the first of
+        // equally-ranked candidates in `all` order (the duplicate pass's canonical row, the Gmail
+        // and AA matches' max()). The AA-vs-Gmail pass turns that into money: whether two receipts
+        // converge on one bank row, and so both stay counted, depended on which row the database
+        // returned first. One fixed order for every pass.
+        all = all.stream().sorted(CANDIDATE_ORDER).toList();
 
         // General retroactive edge cleanup (docs/proposals/reconciliation-evolution-roadmap-
         // proposal.md, Part 3's supersession gap). AccountService.delete() rejects graph edges for

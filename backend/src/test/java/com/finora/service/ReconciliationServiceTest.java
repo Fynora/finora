@@ -1907,6 +1907,37 @@ class ReconciliationServiceTest {
     }
 
     @Test
+    void aaGmailTiedCandidates_resolveTheSameWay_whateverTheRepositoryOrder() {
+        // The first receipt is two days from each AA row, so it ties between them; the second is
+        // in range of only the later AA row. If the first receipt takes the later row, both
+        // receipts claim it and the ambiguity guard leaves both counted; if it takes the earlier
+        // row, both resolve. Which happened used to follow the repository's unordered result.
+        UUID accountId = UUID.randomUUID();
+        assertSameOutcomeEitherIdOrder(swap -> {
+            Transaction earlierAa = txn(swap ? HIGHEST_ID : LOWEST_ID, accountId, LocalDate.of(2026, 9, 1),
+                    new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PAYMENT-REF123", Instant.now());
+            earlierAa.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+            Transaction laterAa = txn(swap ? LOWEST_ID : HIGHEST_ID, accountId, LocalDate.of(2026, 9, 5),
+                    new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PAYMENT-REF123", Instant.now());
+            laterAa.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+            Transaction tiedReceipt = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 3),
+                    new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PAYMENT-REF123", Instant.now());
+            tiedReceipt.setSource(Transaction.Source.GMAIL_IMPORT);
+            Transaction lateReceipt = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 8),
+                    new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PAYMENT-REF123", Instant.now());
+            lateReceipt.setSource(Transaction.Source.GMAIL_IMPORT);
+            when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(swap
+                    ? List.of(laterAa, earlierAa, tiedReceipt, lateReceipt)
+                    : List.of(earlierAa, laterAa, tiedReceipt, lateReceipt));
+
+            reconciliationService.reconcileForUser(userId);
+
+            return tiedReceipt.getReconciliationStatus() + "/" + lateReceipt.getReconciliationStatus()
+                    + (earlierAa.getId().equals(tiedReceipt.getIsDuplicateOf()) ? "/earlier" : "/other");
+        }, "DUPLICATE/DUPLICATE/earlier");
+    }
+
+    @Test
     void doesNotFireBelowTheHighConfidenceThreshold() {
         // Real, computed similarity: "UPI-SWIGGY-PMT-REF123" against the AA description scores
         // 0.84 via TextSimilarity.normalizedSimilarity -- verified directly before writing this

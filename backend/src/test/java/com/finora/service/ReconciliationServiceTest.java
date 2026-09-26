@@ -1012,6 +1012,116 @@ class ReconciliationServiceTest {
         assertThat(paidFromSavings.isTransfer()).isFalse();
     }
 
+    // --- Plan 3, rule 1: legs that share a UPI/IMPS reference ---
+
+    @Test
+    void reconcileForUser_pairsOwnAccountLegsThatShareAReference_withNoPaymentWord() {
+        UUID hdfc = UUID.randomUUID();
+        UUID union = UUID.randomUUID();
+        Transaction out = txn(UUID.randomUUID(), hdfc, LocalDate.of(2026, 5, 1), new BigDecimal("50000.00"),
+                Transaction.Type.EXPENSE, "UPI-ASHA VERMA-asha@okbank-IFSC0000001-111111111111-UPI", Instant.now());
+        Transaction in = txn(UUID.randomUUID(), union, LocalDate.of(2026, 5, 1), new BigDecimal("50000.00"),
+                Transaction.Type.INCOME, "UPIAB/111111111111/CR/ASHA /BANK/asha@okbank", Instant.now());
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(out, in));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(in.getTransferPairId()).isEqualTo(out.getId());
+        assertThat(out.getTransferPairId()).isEqualTo(in.getId());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> reason = (Map<String, Object>) in.getReconciliationExplanation().get("reason");
+        assertThat(reason.get("sharedReference")).isEqualTo("111111111111");
+    }
+
+    @Test
+    void reconcileForUser_pairsAKotakGluedReferenceWithTheCreditOneDayLater() {
+        UUID kotak = UUID.randomUUID();
+        UUID canara = UUID.randomUUID();
+        Transaction out = txn(UUID.randomUUID(), kotak, LocalDate.of(2026, 7, 9), new BigDecimal("25000.00"),
+                Transaction.Type.EXPENSE, "SentIMPS111111111111Asha Verma/IFSC0000001/IMPS", Instant.now());
+        Transaction in = txn(UUID.randomUUID(), canara, LocalDate.of(2026, 7, 10), new BigDecimal("25000.00"),
+                Transaction.Type.INCOME, "999-UPI-111111111111 Value Dt 10/07/2026", Instant.now());
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(out, in));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(in.getTransferPairId()).isEqualTo(out.getId());
+    }
+
+    @Test
+    void reconcileForUser_equalAmountsWithDifferentReferencesAreNotPaired() {
+        UUID a = UUID.randomUUID();
+        UUID b = UUID.randomUUID();
+        Transaction out = txn(UUID.randomUUID(), a, LocalDate.of(2026, 5, 3), new BigDecimal("200.00"),
+                Transaction.Type.EXPENSE, "UPI-RAVI KUMAR-ravi@okbank-IFSC0000001-111111111111-UPI", Instant.now());
+        Transaction in = txn(UUID.randomUUID(), b, LocalDate.of(2026, 5, 3), new BigDecimal("200.00"),
+                Transaction.Type.INCOME, "UPI-NEHA JAIN-neha@okbank-IFSC0000001-222222222222-UPI", Instant.now());
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(out, in));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(out.isTransfer()).isFalse();
+        assertThat(in.isTransfer()).isFalse();
+    }
+
+    // Every leg says "payment", so the existing text gate admits each side's two candidates on its
+    // own, and in2 is visited first with out1 and out2 tied on date; only the shared-reference bonus
+    // picks the right partner. (With a reference-only gate the wrong candidate is excluded anyway,
+    // and the test could not catch a missing bonus.)
+    @Test
+    void twoSameAmountTransfersPairByTheirOwnReference() {
+        UUID a = UUID.randomUUID();
+        UUID b = UUID.randomUUID();
+        LocalDate d = LocalDate.of(2026, 6, 28);
+        Transaction out1 = txn(UUID.randomUUID(), a, d, new BigDecimal("500.00"), Transaction.Type.EXPENSE,
+                "UPI-ASHA VERMA-asha@okbank-IFSC0000001-111111111111-PAYMENT FROM PHONE", Instant.now());
+        Transaction out2 = txn(UUID.randomUUID(), a, d, new BigDecimal("500.00"), Transaction.Type.EXPENSE,
+                "UPI-ASHA VERMA-asha@okbank-IFSC0000001-222222222222-PAYMENT FROM PHONE", Instant.now());
+        Transaction in2 = txn(UUID.randomUUID(), b, d, new BigDecimal("500.00"), Transaction.Type.INCOME,
+                "UPIAB/222222222222/CR/ASHA /BANK/PAYMENT RECEIVED", Instant.now());
+        // in1 lands a day later, so date proximity alone would hand out1 the wrong credit (in2).
+        Transaction in1 = txn(UUID.randomUUID(), b, d.plusDays(1), new BigDecimal("500.00"), Transaction.Type.INCOME,
+                "UPIAB/111111111111/CR/ASHA /BANK/PAYMENT RECEIVED", Instant.now());
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(out1, out2, in2, in1));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(in1.getTransferPairId()).isEqualTo(out1.getId());
+        assertThat(in2.getTransferPairId()).isEqualTo(out2.getId());
+    }
+
+    @Test
+    void aReversalOnTheSameAccountIsNeverATransfer() {
+        UUID a = UUID.randomUUID();
+        Transaction failed = txn(UUID.randomUUID(), a, LocalDate.of(2026, 6, 1), new BigDecimal("300.00"),
+                Transaction.Type.EXPENSE, "UPI/DR/111111111111/SHOPCO/BANK/shop@okbank/", Instant.now());
+        Transaction reversal = txn(UUID.randomUUID(), a, LocalDate.of(2026, 6, 1), new BigDecimal("300.00"),
+                Transaction.Type.INCOME, "UPI/REV/111111111111/SHOPCO/BANK/", Instant.now());
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(failed, reversal));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(failed.isTransfer()).isFalse();
+        assertThat(reversal.isTransfer()).isFalse();
+    }
+
+    @Test
+    void reconcileForUser_aSharedReferenceNeverPairsACardBillWithAnotherCard() {
+        UUID card = UUID.randomUUID();
+        UUID otherCard = UUID.randomUUID();
+        Transaction received = txn(UUID.randomUUID(), card, LocalDate.of(2026, 6, 30), new BigDecimal("1582.00"),
+                Transaction.Type.INCOME, "BBPS PMT 111111111111", Instant.now());
+        Transaction purchase = txn(UUID.randomUUID(), otherCard, LocalDate.of(2026, 6, 30), new BigDecimal("1582.00"),
+                Transaction.Type.EXPENSE, "UPI MERCHANTCO 111111111111", Instant.now());
+        typed(card, Account.Type.CREDIT_CARD);
+        typed(otherCard, Account.Type.CREDIT_CARD);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(received, purchase));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(received.isTransfer()).isFalse();
+    }
+
     @Test
     void reconcileForUser_reportsAMatchedTransferPairToReconciliationMetrics() {
         // ReconciliationMetrics is the CI-permanent, real-corpus-driven telemetry answer to a

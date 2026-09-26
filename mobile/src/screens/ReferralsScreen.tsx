@@ -438,10 +438,12 @@ export function ReferralsScreen() {
         </View>
       </Card>
 
+      {/* MetricTile's 45% minWidth is for a wrapping 2-column grid; three of them in this
+          non-wrapping row came to 135% of the width and pushed Earned off-screen. */}
       <View style={styles.statsRow}>
-        <MetricTile label="Friends Referred" value={String(data.referrals.length)} />
-        <MetricTile label="Pending" value={String(data.referrals.filter((r) => r.status === 'SUBSCRIBED').length)} />
-        <MetricTile label="Earned" value={fmtCurrency(data.walletBalance)} />
+        <MetricTile label="Friends Referred" value={String(data.referrals.length)} style={styles.statTile} />
+        <MetricTile label="Pending" value={String(data.referrals.filter((r) => r.status === 'SUBSCRIBED').length)} style={styles.statTile} />
+        <MetricTile label="Earned" value={fmtCurrency(data.walletBalance)} style={styles.statTile} />
       </View>
 
       <MilestoneRow
@@ -563,6 +565,7 @@ const styles = StyleSheet.create({
   shareButtonText: { fontSize: 14, fontWeight: '600' },
 
   statsRow: { flexDirection: 'row', gap: spacing.sm },
+  statTile: { minWidth: 0 },
 
   emptyTitle: { fontSize: 14, fontWeight: '600', marginBottom: 2 },
   emptyDesc: { fontSize: 12.5, lineHeight: 17 },

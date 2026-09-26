@@ -109,6 +109,21 @@ describe('ReferralsScreen', () => {
     expect(image).toMatchObject({ width: '100%', height: '100%' });
   });
 
+  it('lets all three stat tiles share one row instead of pushing Earned off-screen', async () => {
+    // MetricTile defaults to minWidth 45% (a wrapping 2-column grid); three of them in this
+    // non-wrapping row overflowed to 135% of the width.
+    api.mine.mockResolvedValue({
+      code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+    });
+    renderScreen();
+    await screen.findByText('ABCD1234');
+
+    for (const label of ['Friends Referred: 0', 'Pending: 0', 'Earned: ₹0']) {
+      expect(StyleSheet.flatten(screen.getByLabelText(label).props.style).minWidth).toBe(0);
+    }
+  });
+
   it('shows the code, a zero count, and a zero earned amount for a user with no referrals yet', async () => {
     api.mine.mockResolvedValue({
       code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,

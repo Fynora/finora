@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { radius, spacing, useTheme } from '../theme';
 
 /**
@@ -69,10 +69,10 @@ export function SaveStatus({ dirty, saving, justSaved, error }: {
   );
 }
 
-export function MetricTile({ label, value }: { label: string; value: string }) {
+export function MetricTile({ label, value, style }: { label: string; value: string; style?: StyleProp<ViewStyle> }) {
   const c = useTheme();
   return (
-    <View style={[styles.tile, { backgroundColor: c.bg, borderColor: c.border }]} accessible accessibilityLabel={`${label}: ${value}`}>
+    <View style={[styles.tile, { backgroundColor: c.bg, borderColor: c.border }, style]} accessible accessibilityLabel={`${label}: ${value}`}>
       <Text style={[styles.tileLabel, { color: c.muted }]}>{label}</Text>
       <Text style={[styles.tileValue, { color: c.ink }]} numberOfLines={1} adjustsFontSizeToFit>
         {value}

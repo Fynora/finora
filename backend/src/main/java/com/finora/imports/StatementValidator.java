@@ -37,6 +37,10 @@ public class StatementValidator {
      *  {@link #buildDetectedAccountInfo} once the file has been fully read. */
     public static class AccountSignalAccumulator {
         String accountNumberMasked;
+        /** The unmasked number when a preamble printed one, kept only long enough to hash it for
+         *  the product identity key -- never copied into the DTO, the same discipline as
+         *  PdfMetadataExtractor.ExtractedMetadata.accountNumberFullForHashingOnly. */
+        String accountNumberFullForHashingOnly;
         String accountHolderName;
         String branchName;
         String ifscCode;
@@ -103,6 +107,42 @@ public class StatementValidator {
         }
     }
 
+    private static final List<String> PREAMBLE_ACCOUNT_NUMBER = List.of("account number", "account no", "a/c no", "account no.");
+    private static final List<String> PREAMBLE_HOLDER = List.of("account title", "account name", "account holder", "account holder name", "customer name", "name");
+    private static final List<String> PREAMBLE_IFSC = List.of("ifsc", "ifsc code");
+    private static final List<String> PREAMBLE_BRANCH = List.of("branch", "branch details", "branch name", "home branch");
+
+    /**
+     * The {@code label,value} rows a real bank export prints ABOVE its transaction table (a real
+     * Bandhan Bank export: holder under "Account Title", then "Account Number", "Branch Details",
+     * "IFSC", each as a two-cell row). {@link #scanRow} only ever sees rows keyed by the header's
+     * column names, so nothing above the header was read and the CSV path staged no holder, no
+     * number and no identity key (audit F-09, F-34). Rows at or after {@code headerIdx} are never
+     * read here; a label whose value cell is blank contributes nothing; the first match per field
+     * wins.
+     */
+    public void scanPreamble(List<String[]> allRows, int headerIdx, AccountSignalAccumulator acc) {
+        if (allRows == null || headerIdx <= 0) return;
+        for (int r = 0; r < Math.min(headerIdx, allRows.size()); r++) {
+            String[] cells = allRows.get(r);
+            if (cells == null || cells.length < 2 || cells[0] == null || cells[1] == null) continue;
+            String label = CsvParser.normalizeHeaderCell(cells[0]);
+            String value = cells[1].trim();
+            if (label.isBlank() || value.isBlank()) continue;
+            if (acc.accountNumberMasked == null && PREAMBLE_ACCOUNT_NUMBER.contains(label)) {
+                acc.accountNumberMasked = CsvParser.maskAccountNumber(value);
+                acc.accountNumberFullForHashingOnly = value;
+            } else if (acc.accountHolderName == null && PREAMBLE_HOLDER.contains(label)) {
+                acc.accountHolderName = value;
+            } else if (acc.ifscCode == null && PREAMBLE_IFSC.contains(label)) {
+                acc.ifscCode = value.toUpperCase(Locale.ROOT);
+            } else if (acc.branchName == null && PREAMBLE_BRANCH.contains(label)) {
+                String first = value.split(",")[0].trim();
+                if (!first.isBlank()) acc.branchName = first;
+            }
+        }
+    }
+
     public DetectedAccountInfo buildDetectedAccountInfo(
             String filename, List<String[]> allRows, int headerIdx,
             List<StagedRow> staged, AccountSignalAccumulator acc) {
@@ -163,11 +203,11 @@ public class StatementValidator {
                 acc.branchName, acc.ifscCode,
                 AccountDto.BankDto.from(bank),
                 product.type().name(), product.confidence(), product.needsReview(), product.report(),
-                // CSV's account-number detection already masks before this point (see
-                // AccountSignalAccumulator), so there is no unmasked number here to hash. The
-                // masked digits still make a PROBABLE match possible, which is the honest ceiling
-                // for a format that never gave us the full value.
-                null,
+                // The strong key comes from a preamble's unmasked number when the export printed
+                // one (scanPreamble); a column-based capture is already masked and yields none, so
+                // the masked digits then make a PROBABLE match possible, the honest ceiling there.
+                com.finora.imports.product.ProductIdentity.of(bank.id(), product.type(),
+                        acc.accountNumberFullForHashingOnly, acc.accountNumberMasked).strongKey(),
                 // Deposit-attribute extraction and one-row-per-product splitting are PDF-only for
                 // now (see PdfPreviewGenerator) -- no real CSV export in the current corpus
                 // represents a multi-deposit FD/RD schedule the way a combined-statement PDF does,

@@ -367,7 +367,7 @@ public class PdfMetadataExtractor {
      */
     private static final DateTimeFormatter[] PERIOD_DATE_FORMATS;
     static {
-        PERIOD_DATE_FORMATS = new DateTimeFormatter[DATE_FORMATS.length + 2];
+        PERIOD_DATE_FORMATS = new DateTimeFormatter[DATE_FORMATS.length + 3];
         System.arraycopy(DATE_FORMATS, 0, PERIOD_DATE_FORMATS, 0, DATE_FORMATS.length);
         PERIOD_DATE_FORMATS[DATE_FORMATS.length] = ci("d MMM yy");
         // "Jun 01, 2026" -- a real BOB.pdf statement's period range, abbreviated month FIRST with
@@ -375,6 +375,9 @@ public class PdfMetadataExtractor {
         // "MMMM d, yyyy" (full month name) but neither covers this exact token order; scoped to
         // periods only, same reasoning as "d MMM yy" above.
         PERIOD_DATE_FORMATS[DATE_FORMATS.length + 1] = ci("MMM d, yyyy");
+        // "2026-07-13 to 2026-08-13" -- a real Indian Overseas Bank statement's period line, ISO
+        // dates under a "FOR THE PERIOD OF :" label. Periods only, like the two above.
+        PERIOD_DATE_FORMATS[DATE_FORMATS.length + 2] = ci("yyyy-MM-dd");
     }
 
     // One date-shaped token, in any form the formats above accept. Used to pull a date out of a
@@ -389,7 +392,7 @@ public class PdfMetadataExtractor {
     // matched shape ("16 Feb 2026", "09 Aug, 2026") still matches unchanged.
     private static final String DATE_TOKEN_SRC =
             "(?:\\d{1,2}[-/ ][A-Za-z]{3,9}[-,]?\\s?\\d{2,4}|\\d{1,2}[-/]\\d{1,2}[-/]\\d{2,4}"
-                    + "|[A-Za-z]{3,9}\\s\\d{1,2},?\\s\\d{4})";
+                    + "|[A-Za-z]{3,9}\\s\\d{1,2},?\\s\\d{4}|\\d{4}-\\d{2}-\\d{2})";
     private static final Pattern DATE_TOKEN = Pattern.compile("(?i)" + DATE_TOKEN_SRC);
 
     // The separator between a period's two dates. "to" is the common form; a real AU Small Finance
@@ -436,9 +439,32 @@ public class PdfMetadataExtractor {
     // Bug fix: a real BOB.pdf statement inserts the word "from" between the label and the range
     // ("Statement Period from <date> to <date>") -- the optional ":?" alone didn't tolerate that.
     // (?:from\s+)? is purely additive: every line this pattern already matched still matches.
+    // "period of" joined 2026-09-26: a real Indian Overseas Bank statement's heading reads
+    // "STATEMENT OF THE ACCOUNT FOR THE PERIOD OF : <iso> to <iso>".
     private static final Pattern STATEMENT_PERIOD_ANYWHERE = Pattern.compile(
-            "(?i)\\b(?:Statement|Billing)\\s*Period\\s*:?\\s*(?:from\\s+)?("
+            "(?i)\\b(?:(?:Statement|Billing)\\s*Period|period\\s+of)\\s*:?\\s*(?:from\\s+)?("
                     + DATE_TOKEN_SRC + "\\s*(?:to|[-\u2013])\\s*" + DATE_TOKEN_SRC + ")");
+
+    // STATEMENT_DATE_RANGE: "STATEMENT DATE : <date> To <date>" -- a real Standard Chartered export
+    // labels its period as a statement DATE and prints the full range after it. Only the full
+    // range qualifies: a lone "Statement Date : <date>" is a different field and never a period.
+    private static final Pattern STATEMENT_DATE_RANGE = Pattern.compile(
+            "(?i)\\bstatement\\s+date\\s*:?\\s*(" + DATE_TOKEN_SRC + "\\s*(?:to|[-\u2013])\\s*" + DATE_TOKEN_SRC + ")");
+
+    // UNLABELLED_DATE_RANGE: "<date> To <date>" with no label at all, anywhere on one of the first
+    // pre-table lines -- both real HSBC credit-card statements print the billing cycle on the
+    // address block's line, unlabelled. A last resort, applied only when no labelled period was
+    // found on the whole document, and only when both halves parse and the range runs forward.
+    private static final Pattern UNLABELLED_DATE_RANGE = Pattern.compile(
+            "(" + DATE_TOKEN_SRC + ")\\s+(?i:to)\\s+(" + DATE_TOKEN_SRC + ")");
+    private static final int UNLABELLED_DATE_RANGE_SEARCH_WINDOW = 8;
+
+    // UNLABELLED_MASKED_CARD_NUMBER: "48xx xxxx xxxx 6048" -- both real HSBC credit-card statements
+    // print the card number twice on a "State: ..." line with no label. The shape is card-specific
+    // (two leading digits, twelve mask characters, four trailing digits, grouped in fours) and is
+    // read only when no labelled number was found.
+    private static final Pattern UNLABELLED_MASKED_CARD_NUMBER = Pattern.compile(
+            "\\b(\\d{2}[xX]{2}\\s[xX]{4}\\s[xX]{4}\\s\\d{4})\\b");
 
     // FROM_TO_LABELED_PERIOD. Real HDFC savings-account statements (HDFC 3 month.pdf,
     // HDFC sav.pdf, Mann HDFC.pdf) and a real Sanjay HDFC statement all print their period as two
@@ -624,7 +650,7 @@ public class PdfMetadataExtractor {
     // Case ("Ravi Kumar") and ALL CAPS ("RAVI KUMAR") -- both real, observed holder-name renderings
     // (genericized per the Synthetic Fixture Policy) -- while finally rejecting all-lowercase prose.
     private static final Pattern LEADING_NAME_LINE = Pattern.compile(
-            "^(?:(?i:mr|mrs|ms|dr|m/s)\\.?\\s+)?[A-Z][A-Za-z]*(?:\\s+[A-Z][A-Za-z]*){1,3}\\.?$");
+            "^(?:(?i:mr|mrs|ms|miss|mx|dr|m/s)\\.?\\s+)?[A-Z][A-Za-z]*(?:\\s+[A-Z][A-Za-z]*){1,3}\\.?$");
     private static final int LEADING_NAME_LINE_SEARCH_WINDOW = 8;
 
     // The same unlabeled leading name, sharing its physical line with the right-hand panel's first
@@ -635,9 +661,29 @@ public class PdfMetadataExtractor {
     // the same bank's layout prints the name on a line of its own and is already recovered there.
     // Narrow on purpose: only these three panel labels end the name, and the captured name still
     // has to pass the same title-word and bank-name rejections.
+    // Label vocabulary widened 2026-09-26 from the three HSBC panel labels to the labels the
+    // extractor already owns, each traced on a real document whose holder was null: "BRANCH :"
+    // (a Standard Chartered export), "Credit Card No." (an HDFC card), "Credit Card Number" (an
+    // SBI card, whose holder is initials plus a surname), "Your Base Branch:" (an ICICI savings
+    // statement). Case-insensitive on the label only; the name words keep their capitalisation
+    // requirement. "MISS" and "MX" join the courtesy titles (a real Union Bank statement).
     private static final Pattern LEADING_NAME_BEFORE_PANEL_LABEL = Pattern.compile(
-            "^((?:(?i:mr|mrs|ms|dr|m/s)\\.?\\s+)?[A-Z][A-Za-z]*(?:\\s+[A-Z][A-Za-z]*){1,3})"
-                    + "\\s+(?:Statement Date|Customer Number|Account Number)\\b");
+            "^((?:(?i:mr|mrs|ms|miss|mx|dr|m/s)\\.?\\s+)?[A-Z][A-Za-z]*(?:\\s+[A-Z][A-Za-z]*){1,3})"
+                    + "\\s+(?i:Statement Date|Customer Number|Account Number|Branch|Credit Card No\\.?|Credit Card Number"
+                    + "|Customer(?:/CIF)?\\s*ID|CIF\\s*ID|Billing Period|Statement Period|Your Base Branch)\\b");
+
+    // GREETING_NAME_LINE: "Hello, <name>" -- a real AU Small Finance Bank card statement opens with
+    // the holder greeted by name and never labels the name anywhere else. The greeting is the
+    // label; the same name-shape and title-word rules apply to what follows it.
+    private static final Pattern GREETING_NAME_LINE = Pattern.compile(
+            "^(?i:hello|hi|dear),?\\s+((?:(?i:mr|mrs|ms|miss|mx|dr|m/s)\\.?\\s+)?[A-Z][A-Za-z]*(?:\\s+[A-Z][A-Za-z]*){1,3})\\s*[,!.]?$");
+
+    // ACCOUNT_NAME_MID_LABEL: "... Account Name <name>" with the value AFTER the label and no
+    // colon, ending the line -- a real Union Bank statement's details grid, where an address
+    // fragment precedes the label on the same joined line. ACCOUNT_NAME_TRAILING_LABEL handles
+    // the opposite order (value, then the label); labelPattern's mid-line branch needs a colon.
+    private static final Pattern ACCOUNT_NAME_MID_LABEL = Pattern.compile(
+            "(?i:\\bAccount\\s*Name)\\s+((?:(?i:mr|mrs|ms|miss|mx|dr|m/s)\\.?\\s+)?[A-Z][A-Za-z]*(?:\\s+[A-Z][A-Za-z]*){1,3})\\s*$");
     // Bug fix: verified against three real HDFC savings statements. A multi-line postal address
     // ("Address : GROUND FLOOR, ...", followed by one or two unlabeled continuation lines wrapping
     // the rest of the value) commonly has a continuation line that shape-matches LEADING_NAME_LINE
@@ -826,12 +872,55 @@ public class PdfMetadataExtractor {
 
             if (accountHolderName == null || holderFromLeadingLineFallback) {
                 String holder = firstGroup(ACCOUNT_HOLDER, line);
-                if (holder != null) { accountHolderName = holder; holderFromLeadingLineFallback = false; continue; }
+                if (holder != null) {
+                    // A labelled holder value runs to the end of the line, and on a real IOB
+                    // statement the line continues with the address ("<name> <city>-<pin>,<city>").
+                    // The name ends at the first token holding a digit.
+                    accountHolderName = cutAtFirstTokenWithADigit(holder);
+                    holderFromLeadingLineFallback = false;
+                    continue;
+                }
+                Matcher greeting = GREETING_NAME_LINE.matcher(line.trim());
+                if (greeting.matches() && containsNoLeadingTitleWord(greeting.group(1))) {
+                    accountHolderName = greeting.group(1).trim();
+                    holderFromLeadingLineFallback = false;
+                    if (ctx != null) ctx.record("ACCOUNT_HOLDER_FROM_GREETING");
+                    continue;
+                }
+                Matcher midLabel = ACCOUNT_NAME_MID_LABEL.matcher(line.trim());
+                if (midLabel.find() && containsNoLeadingTitleWord(midLabel.group(1))) {
+                    accountHolderName = midLabel.group(1).trim();
+                    holderFromLeadingLineFallback = false;
+                    if (ctx != null) ctx.record("GRID_METADATA_TRAILING_LABEL");
+                    continue;
+                }
             }
 
+            // Read BEFORE the label rules below: the same line carries a label those rules act on
+            // ("BRANCH :", "Credit Card No.", "Your Base Branch:") and each of them `continue`s, so
+            // placed after them this never saw the line (measured: three real documents' holders
+            // stayed null). No `continue` here -- the label's own value is still wanted.
+            if (accountHolderName == null && i < LEADING_NAME_LINE_SEARCH_WINDOW && !insideAddressContinuation) {
+                Matcher beforePanel = LEADING_NAME_BEFORE_PANEL_LABEL.matcher(line.trim());
+                if (beforePanel.find()) {
+                    String candidate = beforePanel.group(1).trim();
+                    if (containsNoLeadingTitleWord(candidate)
+                            && BankRegistry.UNKNOWN_ID.equals(BankRegistry.detect("", List.of(candidate)).id())) {
+                        accountHolderName = candidate;
+                        holderFromLeadingLineFallback = true;
+                        if (ctx != null) ctx.record("LEADING_NAME_LINE");
+                    }
+                }
+            }
             if (accountNumberMasked == null) {
                 String acctNo = firstGroup(ACCOUNT_NUMBER, line);
-                if (acctNo != null) {
+                // Only a value that holds at least four digits. A grid's header row ("Account
+                // Number  Credit Limit  Available Credit Limit ...") starts with the label and its
+                // "value" is the next column's heading; masking that yielded "" -- a non-null
+                // number that then blocked the grid reading of the real value on the row below. The
+                // check is digit-count only because a chain-merged line legitimately carries text
+                // after the number ("... : 111122223333444 SOME PLAN NAME"), which masking strips.
+                if (acctNo != null && acctNo.replaceAll("\\D", "").length() >= 4) {
                     accountNumberFull = acctNo;
                     accountNumberMasked = com.finora.imports.CsvParser.maskAccountNumber(acctNo);
                     continue;
@@ -923,6 +1012,18 @@ public class PdfMetadataExtractor {
                 }
             }
             // Two separately colon-labeled fields on one row ("From : <date> To : <date>") --
+            if (periodStart == null && periodEnd == null) {
+                Matcher statementDateRange = STATEMENT_DATE_RANGE.matcher(line);
+                if (statementDateRange.find()) {
+                    LocalDate[] parsed = parsePeriod(statementDateRange.group(1).trim());
+                    if (parsed[0] != null && parsed[1] != null) {
+                        periodStart = parsed[0];
+                        periodEnd = parsed[1];
+                        if (ctx != null) ctx.record("STATEMENT_PERIOD_FROM_STATEMENT_DATE_RANGE");
+                        continue;
+                    }
+                }
+            }
             // see FROM_TO_LABELED_PERIOD.
             if (periodStart == null && periodEnd == null) {
                 Matcher fromTo = FROM_TO_LABELED_PERIOD.matcher(line);
@@ -1292,17 +1393,11 @@ public class PdfMetadataExtractor {
                 if (ctx != null) ctx.record("GRID_METADATA_TRAILING_LABEL");
                 continue;
             }
-            if (accountHolderName == null && i < LEADING_NAME_LINE_SEARCH_WINDOW && !insideAddressContinuation) {
-                Matcher beforePanel = LEADING_NAME_BEFORE_PANEL_LABEL.matcher(line.trim());
-                if (beforePanel.find()) {
-                    String candidate = beforePanel.group(1).trim();
-                    if (containsNoLeadingTitleWord(candidate)
-                            && BankRegistry.UNKNOWN_ID.equals(BankRegistry.detect("", List.of(candidate)).id())) {
-                        accountHolderName = candidate;
-                        holderFromLeadingLineFallback = true;
-                        if (ctx != null) ctx.record("LEADING_NAME_LINE");
-                        continue;
-                    }
+            if (accountNumberMasked == null) {
+                Matcher unlabelledCard = UNLABELLED_MASKED_CARD_NUMBER.matcher(line);
+                if (unlabelledCard.find()) {
+                    accountNumberMasked = unlabelledCard.group(1).trim();
+                    if (ctx != null) ctx.record("CARD_NUMBER_FROM_UNLABELLED_MASK");
                 }
             }
             if (ifscCode == null) {
@@ -1330,6 +1425,20 @@ public class PdfMetadataExtractor {
             }
         }
 
+        if (periodStart == null && periodEnd == null) {
+            for (int i = 0; i < Math.min(preTableLines.size(), UNLABELLED_DATE_RANGE_SEARCH_WINDOW); i++) {
+                Matcher range = UNLABELLED_DATE_RANGE.matcher(preTableLines.get(i));
+                if (!range.find()) continue;
+                LocalDate start = parsePeriodDate(range.group(1).trim());
+                LocalDate end = parsePeriodDate(range.group(2).trim());
+                if (start != null && end != null && !end.isBefore(start)) {
+                    periodStart = start;
+                    periodEnd = end;
+                    if (ctx != null) ctx.record("STATEMENT_PERIOD_UNLABELLED_RANGE");
+                    break;
+                }
+            }
+        }
         return new ExtractedMetadata(accountHolderName, accountNumberMasked, branchName, ifscCode,
                 periodStart, periodEnd, creditLimit, paymentDueDate, accountNumberFull);
     }
@@ -1451,6 +1560,28 @@ public class PdfMetadataExtractor {
 
     /** See {@link #LEADING_TITLE_WORDS}'s own doc comment -- true unless one of the line's own
      *  words (case-insensitive, punctuation-stripped) is a generic statement-vocabulary word. */
+    /** {@link #containsNoLeadingTitleWord} for callers outside the instance (LeadingNameRunExtractor). */
+    static boolean containsNoLeadingTitleWordStatic(String line) {
+        for (String word : line.trim().split("\\s+")) {
+            String normalized = word.toLowerCase(Locale.ROOT).replaceAll("[^a-z]", "");
+            if (LEADING_TITLE_WORDS.contains(normalized)) return false;
+        }
+        return true;
+    }
+
+    /** The tokens before the first one holding a digit, or the whole value when none does or
+     *  when nothing would be left. */
+    static String cutAtFirstTokenWithADigit(String value) {
+        String[] tokens = value.trim().split("\\s+");
+        StringBuilder kept = new StringBuilder();
+        for (String token : tokens) {
+            if (token.chars().anyMatch(Character::isDigit)) break;
+            if (kept.length() > 0) kept.append(' ');
+            kept.append(token);
+        }
+        return kept.length() == 0 ? value.trim() : kept.toString();
+    }
+
     private boolean containsNoLeadingTitleWord(String line) {
         for (String word : line.trim().split("\\s+")) {
             String normalized = word.toLowerCase(Locale.ROOT).replaceAll("[^a-z]", "");

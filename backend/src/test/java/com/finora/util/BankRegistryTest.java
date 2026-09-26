@@ -181,4 +181,16 @@ class BankRegistryTest {
         assertThat(BankRegistry.all()).noneMatch(b -> BankRegistry.UNKNOWN_ID.equals(b.id()));
         assertThat(BankRegistry.all()).isNotEmpty();
     }
+
+    @Test
+    void anIfscWithTheIobPrefix_detectsIndianOverseasBank() {
+        // A real IOB savings statement labels its IFSC; detection reads the labelled IFSC first, so
+        // registering the prefix is enough for the statement to stop resolving to OTHER (which
+        // ProductIdentity.normalize maps to null, leaving its full account number unusable as a key).
+        BankRegistry.BankInfo bank = BankRegistry.detect("Statement.pdf", List.of("IFS Code : IOBA0XXXXXX"));
+
+        assertThat(bank.id()).isEqualTo("IOB");
+        assertThat(bank.officialName()).isEqualTo("Indian Overseas Bank");
+        assertThat(bank.ifscPrefix()).isEqualTo("IOBA");
+    }
 }

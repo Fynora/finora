@@ -87,4 +87,71 @@ class SectionScopedCreditLimitPdfPreviewGeneratorTest {
         assertThat(result.documentContext().capabilities()).extracting(c -> c.capability())
                 .doesNotContain("CREDIT_LIMIT_WITHHELD_FROM_NON_CARD_SECTION");
     }
+
+    @Test
+    void inAMultiSectionDocument_theGridFactsGoToTheSoleSectionThatCanBeACard() throws Exception {
+        // The card section of a composite statement often classifies UNKNOWN (no balance column,
+        // sparse vocabulary). Gated on "CREDIT_CARD or the document's sole section", the limit, the
+        // due date and the grid card number were lost. They belong to the one section that could be
+        // the card, never to the savings ledger beside it.
+        PdfPreviewGenerator.PdfGenerationResult result = realGenerator().generateSectionsWithContext(
+                UUID.randomUUID(), "relationship.pdf", PdfFixtureBuilder.buildCardGridWithSavingsAndUnclassifiedTablesSample(false));
+
+        assertThat(result.sections()).extracting(s -> s.detectedAccount().detectedProduct())
+                .containsExactly("SAVINGS", "UNKNOWN");
+        StagedAccountSection savings = result.sections().get(0);
+        StagedAccountSection candidate = result.sections().get(1);
+        assertThat(savings.detectedAccount().creditLimit()).isNull();
+        assertThat(savings.detectedAccount().paymentDueDate()).isNull();
+        assertThat(savings.detectedAccount().accountNumberMasked()).as("its own banner number, not the card's").endsWith("0001");
+        assertThat(candidate.detectedAccount().creditLimit()).isEqualByComparingTo(new BigDecimal("30000.00"));
+        assertThat(candidate.detectedAccount().paymentDueDate()).isEqualTo(java.time.LocalDate.of(2026, 7, 20));
+        assertThat(result.documentContext().capabilities()).extracting(c -> c.capability())
+                .contains("CARD_GRID_FACTS_ATTACHED_TO_SOLE_UNKNOWN_SECTION");
+    }
+
+    @Test
+    void withTwoSectionsThatCouldBeTheCard_theGridFactsAttachNowhere() throws Exception {
+        PdfPreviewGenerator.PdfGenerationResult result = realGenerator().generateSectionsWithContext(
+                UUID.randomUUID(), "relationship.pdf", PdfFixtureBuilder.buildCardGridWithSavingsAndUnclassifiedTablesSample(true));
+
+        assertThat(result.sections()).extracting(s -> s.detectedAccount().detectedProduct())
+                .containsExactly("SAVINGS", "UNKNOWN", "UNKNOWN");
+        assertThat(result.sections()).allSatisfy(s -> {
+            assertThat(s.detectedAccount().creditLimit()).isNull();
+            assertThat(s.detectedAccount().paymentDueDate()).isNull();
+        });
+        assertThat(result.documentContext().capabilities()).extracting(c -> c.capability())
+                .contains("CARD_GRID_FACTS_WITHHELD_AMBIGUOUS")
+                .doesNotContain("CARD_GRID_FACTS_ATTACHED_TO_SOLE_UNKNOWN_SECTION");
+    }
+
+    @Test
+    void aSavingsSectionWithoutItsOwnNumber_neverTakesTheGridCardNumber() throws Exception {
+        // The grid number is a card fact like the limit: a ledger with no number of its own must
+        // not borrow the card's, or the account it creates carries another product's identity.
+        PdfPreviewGenerator.PdfGenerationResult result = realGenerator().generateSectionsWithContext(
+                UUID.randomUUID(), "relationship.pdf", PdfFixtureBuilder.buildSavingsLedgerWithoutOwnNumberBesideCardGridSample());
+        assertThat(result.sections()).hasSize(1);
+        StagedAccountSection savings = result.sections().get(0);
+
+        assertThat(savings.detectedAccount().detectedProduct()).isEqualTo("SAVINGS");
+        assertThat(result.documentContext().capabilities()).extracting(c -> c.capability())
+                .as("the grid WAS read").contains("PRINTED_ACCOUNT_NUMBER_GRID");
+        assertThat(savings.detectedAccount().accountNumberMasked()).isNull();
+    }
+
+    @Test
+    void aSavingsSectionWithoutItsOwnNumber_takesAGridNumberLabelledAsAnAccountNumber() throws Exception {
+        // Measured on a real HSBC composite: its portfolio grid lists the savings account's own
+        // number under "Account Number", and the savings section has no other source for it. A
+        // label-blind gate dropped that number; only a card-labelled grid number is withheld.
+        PdfPreviewGenerator.PdfGenerationResult result = realGenerator().generateSectionsWithContext(
+                UUID.randomUUID(), "relationship.pdf", PdfFixtureBuilder.buildSavingsLedgerWithoutOwnNumberBesideAccountNumberGridSample());
+        StagedAccountSection savings = result.sections().get(0);
+
+        assertThat(savings.detectedAccount().detectedProduct()).isEqualTo("SAVINGS");
+        assertThat(savings.detectedAccount().accountNumberMasked()).endsWith("7890");
+        assertThat(savings.detectedAccount().creditLimit()).as("the limit beside it is still a card fact").isNull();
+    }
 }

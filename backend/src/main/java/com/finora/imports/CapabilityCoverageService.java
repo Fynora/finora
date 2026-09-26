@@ -87,6 +87,28 @@ public class CapabilityCoverageService {
             // composite relationship statement lists the card's limit beside a savings account).
             // See PdfPreviewGenerator.creditLimitAppliesTo.
             "CREDIT_LIMIT_WITHHELD_FROM_NON_CARD_SECTION",
+            // A multi-section document's grid card facts (limit, due date, grid card number) went
+            // to its only UNKNOWN section because no section classified CREDIT_CARD, or were
+            // withheld because several sections could be the card. See
+            // PdfPreviewGenerator.attachCardGridFactsToTheSoleCandidate.
+            "CARD_GRID_FACTS_ATTACHED_TO_SOLE_UNKNOWN_SECTION", "CARD_GRID_FACTS_WITHHELD_AMBIGUOUS",
+            // The holder read from a "Hello, <name>" greeting line (a real AU card), and the holder
+            // read at run level as the leftmost run of a page-top line that shares its physical
+            // line with unrelated prose (a real ICICI card). See PdfMetadataExtractor.GREETING_NAME_LINE
+            // and LeadingNameRunExtractor.
+            "ACCOUNT_HOLDER_FROM_GREETING", "ACCOUNT_HOLDER_FROM_LEADING_RUN",
+            // The statement's own printed opening/closing balance (grid or inline label) was read;
+            // used as a ledger section's balance when the chain gave none; or found to disagree
+            // with the chain. See PrintedBalanceExtractor and PdfPreviewGenerator.
+            "PRINTED_OPENING_CLOSING_BALANCE", "PRINTED_BALANCE_USED_AS_OPENING",
+            "PRINTED_BALANCE_USED_AS_CLOSING", "PRINTED_BALANCE_DISAGREES_WITH_CHAIN",
+            // A statement period read after a "STATEMENT DATE :" label followed by the full range
+            // (a real Standard Chartered export), or from an unlabelled "<date> To <date>" on an
+            // early pre-table line when nothing labelled it (both real HSBC cards); and a card number
+            // read from an unlabelled "NNxx xxxx xxxx NNNN" token (the same two HSBC cards). See
+            // PdfMetadataExtractor.STATEMENT_DATE_RANGE / UNLABELLED_DATE_RANGE / UNLABELLED_MASKED_CARD_NUMBER.
+            "STATEMENT_PERIOD_FROM_STATEMENT_DATE_RANGE", "STATEMENT_PERIOD_UNLABELLED_RANGE",
+            "CARD_NUMBER_FROM_UNLABELLED_MASK",
             "GRID_METADATA_FALLBACK", "GRID_METADATA_TRAILING_LABEL",
             "LEADING_NAME_LINE", "LEADING_NARRATION_CONTINUATION",
             "FINANCIAL_PRODUCT_CLASSIFICATION",

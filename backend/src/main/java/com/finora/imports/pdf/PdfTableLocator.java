@@ -1239,6 +1239,7 @@ public class PdfTableLocator {
         // first transaction's reference on every page was refused as its trailing line and
         // prepended to the transaction after it.
         boolean pageRepeatSinceLastAnchor = false;
+        Integer lastAnchorPage = null; // page index of the most recent anchor admission in currentRows
         // TRAILING_CONTENT_SUPPRESSED (ILLUSTRATIVE_BLOCK_SUPPRESSED / TRANSACTION_TABLE_CLOSED).
         // One-way: once either trigger below is seen, every row for the REST OF THE DOCUMENT is
         // treated the same as today's dateless no-header-found rows -- folded into
@@ -1393,7 +1394,24 @@ public class PdfTableLocator {
                     // -- the same footer text, cut into more pieces. Auxiliary is where page
                     // furniture already goes (see the abandoned-rows branch and the page-footer
                     // block), and PdfMetadataExtractor still reads it.
-                    if (currentRows != null && pendingLeading != null) {
+                    //
+                    // A repeat printed on the last anchor's own page, with nothing waiting in the
+                    // leading buffer, is mid-table: nothing ended there, the trail of the row above
+                    // is still open and a line after it is read by the ordinary geometry. Without
+                    // this check such a repeat handed the row's wrapped tail, and the next
+                    // transaction's own narration line, to a dateless leftover row
+                    // (RepeatedBannerLeadingNarrationPdfTableLocatorTest). A repeat on a later page
+                    // is page-top furniture as before. So is a same-page repeat that arrives with
+                    // text already buffered: the table has stopped producing rows before it.
+                    // Measured on the real Bank of Baroda trace, whose closing block prints a legend
+                    // and then a nominee line carrying the account number on the last transaction's
+                    // page -- gated on the page alone, that legend stayed in the buffer and staged
+                    // as row text instead of going to auxiliary (the golden snapshot caught it). No
+                    // document in the real corpus prints a repeat mid-table; that half of the gate
+                    // is exercised synthetically.
+                    boolean pageTopRepeat = currentRows != null
+                            && (pendingLeading != null || lastAnchorPage == null || lastAnchorPage != rowPageIndex);
+                    if (pageTopRepeat && pendingLeading != null) {
                         pendingAuxiliary.add(String.join(" ", pendingLeading.values()));
                         pendingLeading = null;
                         pendingLeadingFromProximity = false;
@@ -1407,7 +1425,7 @@ public class PdfTableLocator {
                     // trailing count is deliberately left alone: the leading branch reads it to
                     // decide whether a line sits nearer the transaction below, and the first
                     // narration line after the repeat must still be read that way.
-                    if (currentRows != null) pageRepeatSinceLastAnchor = true;
+                    if (pageTopRepeat) pageRepeatSinceLastAnchor = true;
                     // Row-accounting evidence: this line is about to be discarded with NO other
                     // trace at all (unlike the "different account" path below, whose banner line
                     // survives into the new section's own auxiliary text) -- the one case in this
@@ -1452,6 +1470,7 @@ public class PdfTableLocator {
                 currentHeaderSignature = null;
                 currentSectionAccountId = markerAccountId;
                 lastRowPage = null;
+                lastAnchorPage = null;
                 lastRowY = null;
                 blockPitch = null;
                 blockSeparation = null;
@@ -1500,7 +1519,24 @@ public class PdfTableLocator {
                     // -- the same footer text, cut into more pieces. Auxiliary is where page
                     // furniture already goes (see the abandoned-rows branch and the page-footer
                     // block), and PdfMetadataExtractor still reads it.
-                    if (currentRows != null && pendingLeading != null) {
+                    //
+                    // A repeat printed on the last anchor's own page, with nothing waiting in the
+                    // leading buffer, is mid-table: nothing ended there, the trail of the row above
+                    // is still open and a line after it is read by the ordinary geometry. Without
+                    // this check such a repeat handed the row's wrapped tail, and the next
+                    // transaction's own narration line, to a dateless leftover row
+                    // (RepeatedBannerLeadingNarrationPdfTableLocatorTest). A repeat on a later page
+                    // is page-top furniture as before. So is a same-page repeat that arrives with
+                    // text already buffered: the table has stopped producing rows before it.
+                    // Measured on the real Bank of Baroda trace, whose closing block prints a legend
+                    // and then a nominee line carrying the account number on the last transaction's
+                    // page -- gated on the page alone, that legend stayed in the buffer and staged
+                    // as row text instead of going to auxiliary (the golden snapshot caught it). No
+                    // document in the real corpus prints a repeat mid-table; that half of the gate
+                    // is exercised synthetically.
+                    boolean pageTopRepeat = currentRows != null
+                            && (pendingLeading != null || lastAnchorPage == null || lastAnchorPage != rowPageIndex);
+                    if (pageTopRepeat && pendingLeading != null) {
                         pendingAuxiliary.add(String.join(" ", pendingLeading.values()));
                         pendingLeading = null;
                         pendingLeadingFromProximity = false;
@@ -1514,7 +1550,7 @@ public class PdfTableLocator {
                     // trailing count is deliberately left alone: the leading branch reads it to
                     // decide whether a line sits nearer the transaction below, and the first
                     // narration line after the repeat must still be read that way.
-                    if (currentRows != null) pageRepeatSinceLastAnchor = true;
+                    if (pageTopRepeat) pageRepeatSinceLastAnchor = true;
                     // Reconfirming the section's own id clears any stale mismatch an EARLIER,
                     // different-looking identity line left pending (e.g. a stray misread digit
                     // run) -- found by adversarial review. Left set, a same-shaped header right
@@ -1811,6 +1847,7 @@ public class PdfTableLocator {
                 // The one place currentRows is ever created, so the one place this pairing is made.
                 pendingSectionHeaderRowIndex = thisHeaderRowIndex;
                 lastRowPage = null;
+                lastAnchorPage = null;
                 lastRowY = null;
                 blockPitch = null;
                 blockSeparation = null;
@@ -2171,6 +2208,7 @@ public class PdfTableLocator {
                     // more split and never a chain.
                     trailingCountSinceLastAnchor = closesOnBalance ? 0 : trailingCountSinceLastAnchor + 1;
                     pageRepeatSinceLastAnchor = false;
+                    lastAnchorPage = rowPageIndex;
                 } else if (hasDateValue(bucketed, yearsByPage.getOrDefault(rowPageIndex, PageDateEvidence.NONE))) {
                     // DITTO_DATE_INHERITED. Before anything else touches this row: a blank posting
                     // Date beside a printed Value Date is the bank's "ditto" for the date of the row
@@ -2218,6 +2256,7 @@ public class PdfTableLocator {
                     blockNarrationLeftX = null;
                     trailingCountSinceLastAnchor = 0;
                     pageRepeatSinceLastAnchor = false;
+                    lastAnchorPage = rowPageIndex;
                 } else if (currentRows.isEmpty() && (!isNarrationOnly(bucketed)
                         // A row that populates MORE THAN ONE column, even carrying no date/number
                         // value of its own, reads as a genuine structured summary/identity row (a
@@ -2295,6 +2334,7 @@ public class PdfTableLocator {
                     blockNarrationLeftX = null;
                     trailingCountSinceLastAnchor = MAX_TRAILING_CONTINUATION_ROWS;
                     pageRepeatSinceLastAnchor = false;
+                    lastAnchorPage = rowPageIndex;
                 } else if (!currentRows.isEmpty() && samePage && pendingLeading == null
                         && !pageRepeatSinceLastAnchor && trailingShape) {
                     // TRAILING_REFUSED_BEHIND_LEADING_BUFFER (the pendingLeading == null gate):

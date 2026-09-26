@@ -233,6 +233,13 @@ export function ReportsScreen() {
               <Text style={[styles.totalValue, { color: c.success }]} numberOfLines={1} adjustsFontSizeToFit>
                 {fmtCurrency(report.income)}
               </Text>
+              {/* Money in that is not counted as income (see FlowClassifier on the backend); mirrors
+                  frontend/src/pages/Reports.tsx. */}
+              {report.unresolvedInflow && report.unresolvedInflow > 0 ? (
+                <Text style={[styles.totalCaption, { color: c.muted }]} numberOfLines={2}>
+                  {fmtCurrency(report.unresolvedInflow)} not counted as income
+                </Text>
+              ) : null}
             </Card>
             <Card style={styles.totalCard}>
               <Text style={[styles.totalLabel, { color: c.muted }]}>Expense</Text>
@@ -353,6 +360,7 @@ const styles = StyleSheet.create({
   totalCard: { flex: 1, paddingHorizontal: spacing.sm },
   totalLabel: { fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5 },
   totalValue: { fontSize: 16, fontWeight: '700', marginTop: 4 },
+  totalCaption: { fontSize: 10, marginTop: 2 },
   section: { marginTop: spacing.md },
   categoryRow: { marginBottom: spacing.sm },
   categoryHeader: {

@@ -160,3 +160,30 @@ describe('Reports — loading states', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /export csv/i })).toBeEnabled());
   });
 });
+
+describe('Reports — money not counted as income', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(reportsApi.availableMonths).mockResolvedValue(['2026-08']);
+  });
+
+  it('says how much came in but is not counted, under the income figure', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ unresolvedInflow: 84500 }));
+    renderPage();
+
+    expect(await screen.findByText('₹84,500 not counted as income')).toBeInTheDocument();
+  });
+
+  it('says nothing when everything that came in is counted, or the server does not send the field', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ unresolvedInflow: 0 }));
+    const { unmount } = renderPage();
+    await screen.findByText('₹1,00,000');
+    expect(screen.queryByText(/not counted as income/)).not.toBeInTheDocument();
+    unmount();
+
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report());
+    renderPage();
+    await screen.findByText('₹1,00,000');
+    expect(screen.queryByText(/not counted as income/)).not.toBeInTheDocument();
+  });
+});

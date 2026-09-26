@@ -1249,7 +1249,9 @@ function MarkTransferModal({
   });
 
   const candidates = (results?.content ?? [])
-    .filter((c) => c.id !== transaction.id && c.reconciliationStatus !== 'TRANSFER');
+    // A one-sided own-account transfer (no partner yet) is exactly what the user may be looking
+    // for here; a transfer that already has its pair is not.
+    .filter((c) => c.id !== transaction.id && (c.reconciliationStatus !== 'TRANSFER' || c.awaitingTransferPartner === true));
 
   async function pick(candidate: Transaction) {
     setMarking(true);

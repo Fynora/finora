@@ -11141,6 +11141,9 @@
                     },
                     "foreignAmount": {
                         "type": "number"
+                    },
+                    "awaitingTransferPartner": {
+                        "type": "boolean"
                     }
                 }
             },

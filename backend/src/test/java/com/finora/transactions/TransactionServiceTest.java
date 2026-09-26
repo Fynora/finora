@@ -337,6 +337,7 @@ class TransactionServiceTest {
         UUID idB = UUID.randomUUID();
         Transaction a = transferLeg(idA, UUID.randomUUID(), Transaction.Type.EXPENSE, BigDecimal.TEN);
         a.setTransfer(true);
+        a.setTransferPairId(UUID.randomUUID()); // already PAIRED -- a one-sided transfer is not this case
         when(transactionRepository.findById(idA)).thenReturn(Optional.of(a));
         when(transactionRepository.findById(idB)).thenReturn(Optional.of(
                 transferLeg(idB, UUID.randomUUID(), Transaction.Type.INCOME, BigDecimal.TEN)));
@@ -344,6 +345,41 @@ class TransactionServiceTest {
         assertThatThrownBy(() -> transactionService.markTransfer(userId, idA, idB))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("already marked as a transfer");
+    }
+
+    // A one-sided own-account transfer (Plan 3, rule 2) has no partner yet. When the user finds its
+    // other leg -- outside the automatic window, or without a shared reference -- linking the two
+    // must just work, not demand an unmark first.
+    @Test
+    void markTransfer_pairsAOneSidedTransferWithItsOtherLeg() {
+        UUID idA = UUID.randomUUID();
+        UUID idB = UUID.randomUUID();
+        Transaction oneSided = transferLeg(idA, UUID.randomUUID(), Transaction.Type.INCOME, BigDecimal.TEN);
+        oneSided.setTransfer(true);
+        oneSided.setReconciliationStatus(Transaction.ReconciliationStatus.TRANSFER);
+        Transaction otherLeg = transferLeg(idB, UUID.randomUUID(), Transaction.Type.EXPENSE, BigDecimal.TEN);
+        when(transactionRepository.findById(idA)).thenReturn(Optional.of(oneSided));
+        when(transactionRepository.findById(idB)).thenReturn(Optional.of(otherLeg));
+
+        transactionService.markTransfer(userId, idB, idA);
+
+        assertThat(oneSided.getTransferPairId()).isEqualTo(idB);
+        assertThat(otherLeg.getTransferPairId()).isEqualTo(idA);
+        assertThat(otherLeg.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.TRANSFER);
+    }
+
+    @Test
+    void dto_saysWhenATransferIsStillAwaitingItsPartner() {
+        Transaction oneSided = transferLeg(UUID.randomUUID(), UUID.randomUUID(), Transaction.Type.INCOME, BigDecimal.TEN);
+        oneSided.setTransfer(true);
+        Transaction paired = transferLeg(UUID.randomUUID(), UUID.randomUUID(), Transaction.Type.INCOME, BigDecimal.TEN);
+        paired.setTransfer(true);
+        paired.setTransferPairId(UUID.randomUUID());
+        Transaction plain = transferLeg(UUID.randomUUID(), UUID.randomUUID(), Transaction.Type.INCOME, BigDecimal.TEN);
+
+        assertThat(TransactionDto.from(oneSided, "Other").awaitingTransferPartner()).isTrue();
+        assertThat(TransactionDto.from(paired, "Other").awaitingTransferPartner()).isFalse();
+        assertThat(TransactionDto.from(plain, "Other").awaitingTransferPartner()).isFalse();
     }
 
     @Test

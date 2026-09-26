@@ -4960,6 +4960,7 @@ export interface components {
             international?: boolean;
             foreignCurrency?: string;
             foreignAmount?: number;
+            awaitingTransferPartner?: boolean;
         };
         UpdatePreferenceRequest: {
             /** @enum {string} */

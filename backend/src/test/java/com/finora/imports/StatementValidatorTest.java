@@ -156,4 +156,74 @@ class StatementValidatorTest {
         assertThat(info.openingBalance()).isNull();
         assertThat(info.closingBalance()).isNull();
     }
+
+    // ---- the label,value rows a real export prints ABOVE its transaction table (Task 4) ----
+
+    private static List<String[]> preambleThenTable() {
+        return List.of(
+                new String[]{""},
+                new String[]{"Customer Details"},
+                new String[]{"Account Title", "Sample Holder"},
+                new String[]{"Communication Address", "12 Sample Street Sample Town  100001 India"},
+                new String[]{"", "Sample Town Sample State"},
+                new String[]{"Customer ID / CIF", "100000001"},
+                new String[]{""},
+                new String[]{"Customer Account Details"},
+                new String[]{"Account Number", "20000000000001  "},
+                new String[]{"Account Type", "Savings account"},
+                new String[]{"Branch Details", "Sample Town, 1001, Sample Road, Sample District, INDIA, "},
+                new String[]{"IFSC", "BDBL0XXXXXX"},
+                new String[]{"MICR Code", "100000001"},
+                new String[]{"Nomination Registered", "YES"},
+                new String[]{"Statement Period", " "},
+                new String[]{"\t\t\t\t\t\t\tTo"},
+                new String[]{"Date", "Narration", "Withdrawal", "Deposit", "Balance"},
+                new String[]{"01/07/2026", "SAMPLE PAYEE", "100.00", "", "900.00"});
+    }
+
+    @Test
+    void preambleLabelValueRows_giveTheCsvPathItsHolderNumberIfscBranchAndAnIdentityKey() {
+        StatementValidator.AccountSignalAccumulator acc = new StatementValidator.AccountSignalAccumulator();
+        List<String[]> rows = preambleThenTable();
+        int headerIdx = 16;
+
+        validator.scanPreamble(rows, headerIdx, acc);
+        DetectedAccountInfo info = validator.buildDetectedAccountInfo("1786000000000.csv", rows, headerIdx, List.of(), acc);
+
+        assertThat(info.accountHolderName()).isEqualTo("Sample Holder");
+        assertThat(info.accountNumberMasked()).as("masked the way every other path masks").endsWith("0001").doesNotContain("20000000000001");
+        assertThat(info.ifscCode()).isEqualTo("BDBL0XXXXXX");
+        assertThat(info.branchName()).as("the first comma-separated segment").isEqualTo("Sample Town");
+        assertThat(info.bank().id()).isEqualTo("BANDHAN");
+        assertThat(info.productIdentityHash()).as("a strong key from the full number, never stored").isNotNull().doesNotContain("20000000000001");
+        assertThat(info.statementPeriodStart()).as("a blank period value contributes nothing").isNull();
+    }
+
+    @Test
+    void aPreambleLabelWithABlankValue_contributesNothing_andRowsAfterTheHeaderAreNeverRead() {
+        StatementValidator.AccountSignalAccumulator acc = new StatementValidator.AccountSignalAccumulator();
+        List<String[]> rows = List.of(
+                new String[]{"Account Holder", ""},
+                new String[]{"Date", "Narration", "Withdrawal", "Deposit", "Balance"},
+                new String[]{"Account Number", "20000000000001"});   // a table row, not a preamble row
+
+        validator.scanPreamble(rows, 1, acc);
+
+        assertThat(acc.accountHolderName).isNull();
+        assertThat(acc.accountNumberMasked).isNull();
+    }
+
+    @Test
+    void aCsvWithNoPreamble_isUnchanged() {
+        StatementValidator.AccountSignalAccumulator acc = new StatementValidator.AccountSignalAccumulator();
+        List<String[]> rows = List.of(
+                new String[]{"Date", "Narration", "Withdrawal", "Deposit", "Balance"},
+                new String[]{"01/07/2026", "SAMPLE PAYEE", "100.00", "", "900.00"});
+
+        validator.scanPreamble(rows, 0, acc);
+        DetectedAccountInfo info = validator.buildDetectedAccountInfo("statement.csv", rows, 0, List.of(), acc);
+
+        assertThat(info.accountHolderName()).isNull();
+        assertThat(info.productIdentityHash()).isNull();
+    }
 }

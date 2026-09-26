@@ -425,6 +425,46 @@ class CapabilityCorpusCoverageTest {
         // anchor. Redactor version 3 preserves those dates whole, and the full recaptures
         // card-dateless-fee-and-tax-row and savings-ditto-posting-date-beside-value-date now
         // exercise both rules for real -- entries deleted per this test's own ratchet.
+        // Plan 3 (identity and printed metadata, 2026-09-26). Every one of these fires in
+        // PdfMetadataExtractor or PdfPreviewGenerator, never in PdfTableLocator.locateAll -- the one
+        // call this harness makes (the same scoping gap as PRINTED_CREDIT_LIMIT_GRID above). Each is
+        // exercised by its own synthetic test, and the real-corpus effect was measured field by field
+        // before and after (a holder gained on seven documents, a period on four, a card number on
+        // two, printed balances on two); the golden snapshots of the committed savings and card
+        // traces changed on exactly the holder and period lines those rules produce.
+        DECLARED_WITHOUT_A_TRACE.put("ACCOUNT_HOLDER_FROM_GREETING",
+                "no trace -- fires in PdfMetadataExtractor; the evidencing card statement has no committed "
+                        + "trace. PdfMetadataExtractorTest covers the greeting shape.");
+        DECLARED_WITHOUT_A_TRACE.put("ACCOUNT_HOLDER_FROM_LEADING_RUN",
+                "no trace -- fires in LeadingNameRunExtractor, called from PdfPreviewGenerator's post-pass. "
+                        + "LeadingNameRunExtractorTest and LeadingNameRunPdfPreviewGeneratorTest cover it.");
+        DECLARED_WITHOUT_A_TRACE.put("CARD_GRID_FACTS_ATTACHED_TO_SOLE_UNKNOWN_SECTION",
+                "no trace -- fires in PdfPreviewGenerator's post-pass; no real document in the corpus prints a "
+                        + "multi-section statement whose card section classifies UNKNOWN. "
+                        + "SectionScopedCreditLimitPdfPreviewGeneratorTest covers it.");
+        DECLARED_WITHOUT_A_TRACE.put("CARD_GRID_FACTS_WITHHELD_AMBIGUOUS",
+                "no trace -- same post-pass and same test as the entry above.");
+        DECLARED_WITHOUT_A_TRACE.put("CARD_NUMBER_FROM_UNLABELLED_MASK",
+                "no trace -- fires in PdfMetadataExtractor; the two evidencing card statements have no committed "
+                        + "trace. PdfMetadataExtractorTest covers the unlabelled masked token.");
+        DECLARED_WITHOUT_A_TRACE.put("PRINTED_OPENING_CLOSING_BALANCE",
+                "no trace -- fires in PrintedBalanceExtractor, called from PdfPreviewGenerator. "
+                        + "PrintedBalanceExtractorTest covers the grid and inline shapes.");
+        DECLARED_WITHOUT_A_TRACE.put("PRINTED_BALANCE_USED_AS_OPENING",
+                "no trace -- fires in PdfPreviewGenerator.buildDetectedAccountInfo. "
+                        + "PrintedBalancePdfPreviewGeneratorTest covers it.");
+        DECLARED_WITHOUT_A_TRACE.put("PRINTED_BALANCE_USED_AS_CLOSING",
+                "no trace -- same site and test as the entry above.");
+        DECLARED_WITHOUT_A_TRACE.put("PRINTED_BALANCE_DISAGREES_WITH_CHAIN",
+                "no trace -- same site as the entry above; measured on the corpus to fire on no document once "
+                        + "the extractor skipped table headers and read inline figures first.");
+        DECLARED_WITHOUT_A_TRACE.put("STATEMENT_PERIOD_FROM_STATEMENT_DATE_RANGE",
+                "no trace via this harness -- fires in PdfMetadataExtractor; the committed savings-ditto trace "
+                        + "does produce it through PdfPreviewGenerator (its golden snapshot carries the period). "
+                        + "PdfMetadataExtractorTest covers the label shape.");
+        DECLARED_WITHOUT_A_TRACE.put("STATEMENT_PERIOD_UNLABELLED_RANGE",
+                "no trace -- fires in PdfMetadataExtractor after the line loop; the two evidencing card statements "
+                        + "have no committed trace. PdfMetadataExtractorTest covers the shape and its guards.");
         DECLARED_WITHOUT_A_TRACE.put("CREDIT_LIMIT_WITHHELD_FROM_NON_CARD_SECTION",
                 "no trace -- fires in PdfPreviewGenerator, never in PdfTableLocator.locateAll, the "
                         + "same scoping gap as PRINTED_CREDIT_LIMIT_GRID above; the evidencing savings "

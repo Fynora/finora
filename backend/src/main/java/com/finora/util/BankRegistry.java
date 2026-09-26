@@ -108,6 +108,12 @@ public final class BankRegistry {
         register("UCO", "UCO Bank", "UCO Bank", "#003DA5", "UCO", "uco",
                 Category.PUBLIC_SECTOR, "https://www.ucobank.com", "UCBA",
                 new String[]{"UCOBANK"});
+        // Indian Overseas Bank: a real IOB savings statement resolved to OTHER because the prefix was
+        // unregistered, which left its extracted full account number unusable as an identity key
+        // (ProductIdentity.normalize maps OTHER to null). Brand colour approximated, not verified.
+        register("IOB", "Indian Overseas Bank", "IOB", "#1F4E9C", "IOB", "iob",
+                Category.PUBLIC_SECTOR, "https://www.iob.in", "IOBA",
+                new String[]{"IOB", "INDIANOVERSEASBANK", "INDIAN OVERSEAS"});
         register("PSB", "Punjab & Sind Bank", "Punjab & Sind Bank", "#1B5E20", "PSB", "psb",
                 Category.PUBLIC_SECTOR, "https://punjabandsindbank.co.in", "PSIB",
                 new String[]{"PUNJABANDSINDBANK", "PUNJABSINDBANK"});

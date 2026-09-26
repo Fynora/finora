@@ -93,7 +93,9 @@ class ProductIdentityResolverTest {
     void aCardAccountStoredWhileDetectionSaidUnknownIsStillRecognisedOnceItDetectsAsACard() {
         // Accounts created while 7 of 11 real card layouts detected UNKNOWN stored that type. Once
         // those cards detect CREDIT_CARD, the masked match must still find them -- by the account
-        // type the user confirmed -- and still only as PROBABLE, never silently.
+        // type the user confirmed. Until 2026-09-26 this was PROBABLE only; the card rule
+        // (ProductIdentity.cardMaskMatch, gated on the mask's measured entropy) now resolves a
+        // four-digit mask as MATCHED, the level both clients' account matchers already resolve at.
         Account existing = account("HDFC", FinancialProductType.UNKNOWN, null, "400000XXXXXX1111");
         existing.setAccountType(Account.Type.CREDIT_CARD);
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(existing));
@@ -101,9 +103,9 @@ class ProductIdentityResolverTest {
         var found = resolver.resolve(userId,
                 ProductIdentity.of("HDFC", FinancialProductType.CREDIT_CARD, null, "400000XXXXXX1111"));
 
-        assertThat(found.resolution()).isEqualTo(ProductIdentityResolver.Resolution.PROBABLE);
+        assertThat(found.resolution()).isEqualTo(ProductIdentityResolver.Resolution.MATCHED);
         assertThat(found.account()).isSameAs(existing);
-        assertThat(found.mayImportWithoutAsking()).isFalse();
+        assertThat(found.mayImportWithoutAsking()).isTrue();
     }
 
     @Test
@@ -344,5 +346,34 @@ class ProductIdentityResolverTest {
                 ProductIdentity.of("HDFC", FinancialProductType.SAVINGS, "50000000000005", "6000"));
 
         assertThat(found.resolution()).isEqualTo(ProductIdentityResolver.Resolution.MATCHED);
+    }
+
+    @Test
+    void aCardReimportedNextMonth_isMatchedOnItsMask_andAudited() {
+        Account existing = account("AXIS", FinancialProductType.CREDIT_CARD, null, "653047******7550");
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of(existing));
+
+        var found = resolver.resolve(userId,
+                ProductIdentity.of("AXIS", FinancialProductType.CREDIT_CARD, null, "653047******7550"));
+
+        assertThat(found.resolution()).isEqualTo(ProductIdentityResolver.Resolution.MATCHED);
+        assertThat(found.account()).isSameAs(existing);
+        assertThat(found.reason()).contains("4 discriminating digits");
+        ArgumentCaptor<Map<String, Object>> details = ArgumentCaptor.forClass(Map.class);
+        verify(auditService).recordEvenOnRollback(eq(userId), eq("PRODUCT_IDENTITY_CARD_MASK_MATCH"), eq("Account"),
+                eq(existing.getId()), details.capture());
+        assertThat(details.getValue()).containsEntry("dEff", 4).doesNotContainKey("maskedNumber");
+    }
+
+    @Test
+    void aCardWhoseMaskKeepsTwoDigits_staysProbable_andIsNotAudited() {
+        Account existing = account("SBI", FinancialProductType.CREDIT_CARD, null, "XXXX XXXX XXXX XX14");
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of(existing));
+
+        var found = resolver.resolve(userId,
+                ProductIdentity.of("SBI", FinancialProductType.CREDIT_CARD, null, "XXXX XXXX XXXX XX14"));
+
+        assertThat(found.resolution()).isEqualTo(ProductIdentityResolver.Resolution.PROBABLE);
+        verifyNoInteractions(auditService);
     }
 }

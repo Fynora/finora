@@ -50,23 +50,41 @@ public final class AccountNumberGridExtractor {
     }
 
     public static String extract(List<PositionedText> runs, DocumentContext ctx) {
+        GridAccountNumber found = extractLabelled(runs, ctx);
+        return found == null ? null : found.masked();
+    }
+
+    /**
+     * The grid's number together with which label anchored it. A "Card Number"-labelled value is a
+     * card fact and must not be borrowed by a savings or deposit section of the same document; an
+     * "Account Number"-labelled value is not (a real HSBC composite statement's portfolio grid lists
+     * the SAVINGS account's own number under "Account Number", and that section has no other source
+     * for it -- measured when a label-blind gate dropped it). See PdfPreviewGenerator's use of
+     * {@code cardLabelled}.
+     */
+    public record GridAccountNumber(String masked, boolean cardLabelled) {}
+
+    private static final java.util.regex.Pattern CARD_WORD = java.util.regex.Pattern.compile("(?i)\\bcard\\b");
+
+    public static GridAccountNumber extractLabelled(List<PositionedText> runs, DocumentContext ctx) {
         if (runs == null || runs.isEmpty()) return null;
 
         List<List<PositionedText>> rows = StatementSummaryExtractor.groupIntoRows(runs);
         for (int i = 0; i < rows.size(); i++) {
             PositionedText label = cardNumberLabel(rows.get(i));
             if (label == null) continue;
+            boolean cardLabelled = CARD_WORD.matcher(label.text()).find();
 
             String fromGrid = tryGrid(rows, i, label);
             if (fromGrid != null) {
                 if (ctx != null) ctx.record("PRINTED_ACCOUNT_NUMBER_GRID");
-                return fromGrid;
+                return new GridAccountNumber(fromGrid, cardLabelled);
             }
 
             String fromSameRow = trySameRow(rows.get(i), label);
             if (fromSameRow != null) {
                 if (ctx != null) ctx.record("PRINTED_ACCOUNT_NUMBER_GRID");
-                return fromSameRow;
+                return new GridAccountNumber(fromSameRow, cardLabelled);
             }
         }
         return null;

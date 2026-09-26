@@ -80,10 +80,7 @@ public class ProductIdentityResolver {
         List<Account> probable = new ArrayList<>();
 
         for (Account account : accountRepository.findByUserId(userId)) {
-            ProductIdentity stored = ProductIdentity.stored(
-                    account.getBankId(), typeOf(account),
-                    account.getProductIdentityHash(), account.getAccountNumberMasked())
-                    .withWeakSignals(account.getIfscCode(), account.getAccountHolderName());
+            ProductIdentity stored = storedIdentityOf(account);
             switch (discovered.matches(stored)) {
                 case EXACT -> exact.add(account);
                 case PROBABLE -> probable.add(account);
@@ -104,8 +101,25 @@ public class ProductIdentityResolver {
         // exist from before identity was recorded, which is precisely the mess this feature is
         // meant to stop growing -- so it asks rather than guessing which of them is right.
         if (exact.size() == 1) {
-            return new ProductMatch(Resolution.MATCHED, exact.get(0), exact,
-                    "same institution and product number as an existing " + typeOf(exact.get(0)));
+            Account matched = exact.get(0);
+            int cardDigits = discovered.cardMaskMatch(storedIdentityOf(matched));
+            if (cardDigits > 0) {
+                // The card rule decided this (ProductIdentity.cardMaskMatch): no strong key on
+                // either side, the same masked digits at the same issuer, and a printed mask that
+                // keeps at least CARD_MASK_D_EFF_FLOOR discriminating digits. Recorded like the
+                // weak-signal match, so a wrong merge can be traced to the rule that made it; the
+                // masked number itself is not written (it is on the account row already).
+                auditService.recordEvenOnRollback(userId, "PRODUCT_IDENTITY_CARD_MASK_MATCH", "Account",
+                        matched.getId(), Map.of(
+                                "bank", String.valueOf(discovered.institutionId()),
+                                "dEff", cardDigits,
+                                "accountId", String.valueOf(matched.getId())));
+                return new ProductMatch(Resolution.MATCHED, matched, exact,
+                        "same issuer and the same card number digits as an existing credit card ("
+                                + cardDigits + " discriminating digits visible on the printed mask)");
+            }
+            return new ProductMatch(Resolution.MATCHED, matched, exact,
+                    "same institution and product number as an existing " + typeOf(matched));
         }
         if (exact.size() > 1) {
             return new ProductMatch(Resolution.PROBABLE, exact.get(0), exact,
@@ -156,6 +170,13 @@ public class ProductIdentityResolver {
      * an unrelated failure in any of that must not silently discard the very audit row explaining a
      * PROBABLE decision that had already, correctly, been made.
      */
+    private ProductIdentity storedIdentityOf(Account account) {
+        return ProductIdentity.stored(
+                account.getBankId(), typeOf(account),
+                account.getProductIdentityHash(), account.getAccountNumberMasked())
+                .withWeakSignals(account.getIfscCode(), account.getAccountHolderName());
+    }
+
     private void logWeakSignalMatch(UUID userId, ProductIdentity discovered, List<Account> candidates) {
         List<UUID> candidateIds = candidates.stream().map(Account::getId).toList();
         String fingerprint = fingerprint(discovered);

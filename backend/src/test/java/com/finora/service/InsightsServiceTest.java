@@ -494,4 +494,49 @@ class InsightsServiceTest {
 
         assertThat(result.coverageCaveat()).isNull();
     }
+
+    // --- unlinked refunds give spend back ------------------------------------------------------
+
+    private Transaction unlinkedRefund(LocalDate date, BigDecimal amount, Category category) {
+        Transaction t = income(date, amount);
+        t.setCategoryId(category == null ? null : category.getId());
+        t.setDescription("REFUND FROM BIGSHOP ORDER 1");
+        t.setMerchant("REFUND FROM BIGSHOP ORDER 1");
+        t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
+        t.setSource(Transaction.Source.CSV_IMPORT);
+        return t;
+    }
+
+    @Test
+    void totalSpend_netsAnUnlinkedRefundIntoItsCategory_andTheRefundIsNeverTheTopMerchant() {
+        givenTransactions(List.of(
+                expense(LocalDate.of(2026, 7, 5), BigDecimal.valueOf(600), dining, "Cafe"),
+                expense(LocalDate.of(2026, 7, 10), BigDecimal.valueOf(400), groceries, "Mart"),
+                unlinkedRefund(LocalDate.of(2026, 7, 12), BigDecimal.valueOf(100), groceries)));
+
+        var result = insightsService.build(userId);
+
+        assertThat(result.sentences()).anyMatch(s -> s.contains("total spend was ₹900 across 2 categories"));
+        assertThat(result.topMerchant().name()).isEqualTo("Cafe");
+    }
+
+    @Test
+    void aMonthWithOnlyARefund_isNotASpendingMonth() {
+        givenTransactions(List.of(unlinkedRefund(LocalDate.of(2026, 7, 12), BigDecimal.valueOf(100), groceries)));
+
+        var result = insightsService.build(userId);
+
+        assertThat(result.sentences()).noneMatch(s -> s.contains("total spend was"));
+    }
+
+    @Test
+    void aRefundInALaterMonth_doesNotMoveTheReportedMonthPastTheLastPurchase() {
+        givenTransactions(List.of(
+                expense(LocalDate.of(2026, 7, 5), BigDecimal.valueOf(600), dining, "Cafe"),
+                unlinkedRefund(LocalDate.of(2026, 8, 3), BigDecimal.valueOf(100), dining)));
+
+        var result = insightsService.build(userId);
+
+        assertThat(result.sentences()).anyMatch(s -> s.contains("In 2026-07, total spend was ₹600"));
+    }
 }

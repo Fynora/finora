@@ -175,7 +175,8 @@ public class DashboardRangeService {
                 incomeDeltaPct, expenseDeltaPct, netDeltaPct,
                 comparisonGateReason, MIN_TRANSACTIONS_FOR_RANGE_COMPARISON,
                 currentBalance, currentBalanceAsOf, currentBalanceGateReason,
-                previousBalance, previousBalanceAsOf, balanceDeltaPct, balanceGateReason
+                previousBalance, previousBalanceAsOf, balanceDeltaPct, balanceGateReason,
+                current.unresolvedInflow(), current.unresolvedInflowCount(), current.unresolvedTopReason()
         );
     }
 

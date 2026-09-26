@@ -7384,6 +7384,7 @@ export interface components {
             income?: number;
             expense?: number;
             categories?: components["schemas"]["CategoryAmount"][];
+            unresolvedInflow?: number;
         };
         ApiResponseListString: {
             success?: boolean;
@@ -7920,6 +7921,10 @@ export interface components {
             categorizationConfidenceMinTransactions?: number;
             priorMonth?: string;
             incomePrior?: number;
+            unresolvedInflow?: number;
+            /** Format: int32 */
+            unresolvedInflowCount?: number;
+            unresolvedTopReason?: string;
         };
         DetectedDuplicate: {
             /** Format: uuid */
@@ -7979,6 +7984,10 @@ export interface components {
             /** Format: double */
             balanceDeltaPct?: number;
             balanceGateReason?: string;
+            unresolvedInflow?: number;
+            /** Format: int32 */
+            unresolvedInflowCount?: number;
+            unresolvedTopReason?: string;
         };
         ApiResponseChangeStampDto: {
             success?: boolean;

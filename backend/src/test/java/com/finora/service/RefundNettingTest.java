@@ -233,4 +233,85 @@ class RefundNettingTest {
                 .isEqualByComparingTo("2400.00");
         assertThat(RefundNetting.NONE.reportableAmount(groceries)).isEqualByComparingTo("2400.00");
     }
+
+    // ---- unlinked refunds and card adjustments give spend back ----
+
+    private static final FlowTotals.Context NO_CARDS = FlowTotals.context(List.of(), List.of());
+
+    private static Transaction credit(String amount, String description) {
+        Transaction t = new Transaction();
+        t.setTxnType(Transaction.Type.INCOME);
+        t.setAmount(money(amount));
+        t.setDescription(description);
+        t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
+        t.setSource(Transaction.Source.CSV_IMPORT);
+        return t;
+    }
+
+    @Test
+    @DisplayName("an unlinked refund counts as negative spend; a purchase keeps its reportable amount")
+    void unlinkedRefund_isNegativeSpend() {
+        Transaction purchase = expense(UUID.randomUUID(), "1000.00");
+        Transaction refund = credit("300.00", "REFUND FROM MERCHANTCO ORDER 1");
+        RefundNetting spend = RefundNetting.from(List.of()).withUnlinkedOffsets(List.of(purchase, refund), NO_CARDS);
+
+        assertThat(spend.countsAsSpend(purchase)).isTrue();
+        assertThat(spend.countsAsSpend(refund)).isTrue();
+        assertThat(spend.spendAmount(purchase)).isEqualByComparingTo("1000.00");
+        assertThat(spend.spendAmount(refund)).isEqualByComparingTo("-300.00");
+    }
+
+    @Test
+    @DisplayName("a refund reconciliation already LINKED is never also an offset -- it would be netted twice")
+    void linkedRefund_isNotAlsoAnOffset() {
+        UUID purchaseId = UUID.randomUUID();
+        Transaction purchase = expense(purchaseId, "1000.00");
+        Transaction linked = credit("300.00", "REFUND FROM MERCHANTCO ORDER 1");
+        linked.setReconciliationStatus(Transaction.ReconciliationStatus.REFUND);
+        linked.setRefundOfTransactionId(purchaseId);
+        RefundNetting spend = RefundNetting.from(List.of(linked)).withUnlinkedOffsets(List.of(purchase, linked), NO_CARDS);
+
+        assertThat(spend.countsAsSpend(linked)).isFalse();
+        assertThat(spend.spendAmount(purchase)).isEqualByComparingTo("700.00");
+    }
+
+    @Test
+    @DisplayName("income, a transfer from a person and a salary never offset spend")
+    void otherCredits_areNotOffsets() {
+        Transaction salary = credit("50000.00", "NEFT ACME TECHNOLOGIES SALARY JUL");
+        Transaction person = credit("2000.00", "UPI-SUNIL VERMA-sampleuser@ybl-REF1");
+        person.setCounterpartyType(com.finora.util.CounterpartyType.PERSON);
+        RefundNetting spend = RefundNetting.from(List.of()).withUnlinkedOffsets(List.of(salary, person), NO_CARDS);
+
+        assertThat(spend.countsAsSpend(salary)).isFalse();
+        assertThat(spend.countsAsSpend(person)).isFalse();
+        // Safe on an income list: a non-offset credit is priced as it always was.
+        assertThat(spend.spendAmount(salary)).isEqualByComparingTo("50000.00");
+    }
+
+    @Test
+    @DisplayName("an offset is found by identity when the row has no id yet")
+    void offset_withoutId_isFoundByIdentity() {
+        Transaction refund = credit("300.00", "REFUND FROM MERCHANTCO ORDER 1");
+        RefundNetting spend = RefundNetting.from(List.of()).withUnlinkedOffsets(List.of(refund), NO_CARDS);
+        assertThat(spend.countsAsSpend(refund)).isTrue();
+        assertThat(spend.countsAsSpend(credit("300.00", "REFUND FROM MERCHANTCO ORDER 1"))).isFalse();
+    }
+
+    @Test
+    @DisplayName("with no offsets among the rows, the same netting comes back")
+    void noOffsets_returnsSameInstance() {
+        RefundNetting base = RefundNetting.from(List.of());
+        assertThat(base.withUnlinkedOffsets(List.of(expense(UUID.randomUUID(), "10.00")), NO_CARDS)).isSameAs(base);
+    }
+
+    @Test
+    @DisplayName("totals floor at zero; a category pushed negative is dropped, a zero one kept")
+    void floorsAndDrops() {
+        assertThat(RefundNetting.floorAtZero(money("-5.00"))).isEqualByComparingTo("0");
+        assertThat(RefundNetting.floorAtZero(money("5.00"))).isEqualByComparingTo("5.00");
+        assertThat(RefundNetting.withoutNegativeSpend(java.util.Map.of(
+                "Shopping", money("-200.00"), "Dining", money("0"), "Fuel", money("50.00"))))
+                .containsOnlyKeys("Dining", "Fuel");
+    }
 }

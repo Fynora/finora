@@ -69,7 +69,10 @@ public final class CounterpartyClassifier {
      * {@code category_manually_set} guards the category columns -- a version comparison alone will
      * not protect a human's answer.
      */
-    public static final short VERSION = 2;
+    // 3: PersonToPersonTransferDetector reads the fixed name slot of slash-delimited UPI narrations
+    //    (UPI/CR/<ref>/<name>/<bank>/..., UPIAB/..., "..._<name>" tails) -- measured on the corpus,
+    //    52 rows UNKNOWN -> PERSON and one PERSON -> UNKNOWN (a "GOOGLE IN" payee), every flip read.
+    public static final short VERSION = 3;
 
     /**
      * Bank-generated activity, where the counterparty is the institution itself. These words are

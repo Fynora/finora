@@ -17620,6 +17620,9 @@
                         "items": {
                             "$ref": "#/components/schemas/CategoryAmount"
                         }
+                    },
+                    "unresolvedInflow": {
+                        "type": "number"
                     }
                 }
             },
@@ -18977,6 +18980,16 @@
                     },
                     "incomePrior": {
                         "type": "number"
+                    },
+                    "unresolvedInflow": {
+                        "type": "number"
+                    },
+                    "unresolvedInflowCount": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "unresolvedTopReason": {
+                        "type": "string"
                     }
                 }
             },
@@ -19114,6 +19127,16 @@
                         "format": "double"
                     },
                     "balanceGateReason": {
+                        "type": "string"
+                    },
+                    "unresolvedInflow": {
+                        "type": "number"
+                    },
+                    "unresolvedInflowCount": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "unresolvedTopReason": {
                         "type": "string"
                     }
                 }

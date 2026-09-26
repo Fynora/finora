@@ -113,7 +113,10 @@ export function MetricCard({
           <Icon size={17} className={iconColor} />
         </div>
       </div>
-      <p className={`text-2xl font-bold mb-1 ${valueColor ?? 'text-ink'}`}>{value}</p>
+      <p className={`text-2xl font-bold ${caption ? 'mb-0.5' : 'mb-1'} ${valueColor ?? 'text-ink'}`}>{value}</p>
+      {/* Was accepted but never rendered in this variant -- Financial Memory's captions and the
+          Reports "not counted as income" line were silently dropped. */}
+      {caption && <p className="text-xs text-muted mb-1">{caption}</p>}
       {deltaLabel && (
         hasDelta ? (
           <div>

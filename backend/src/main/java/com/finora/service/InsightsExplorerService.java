@@ -65,9 +65,11 @@ public class InsightsExplorerService {
                                                         Map<UUID, Category> categoriesById, RefundNetting refunds) {
         List<InsightsExplorerDto.TracedTransaction> traced = currentMonthTxns.stream()
                 .map(t -> traceOf(t, refunds)).toList();
-        BigDecimal total = sumReportable(currentMonthTxns, refunds);
-        long categoryCount = currentMonthTxns.stream().map(t -> categoryNameOf(t, categoriesById)).distinct().count();
-        return new InsightsExplorerDto.TotalSpend(total, (int) categoryCount, traced);
+        // Exactly InsightsService's own "total spend ... across N categories": per-category spend
+        // with unlinked refunds netted in, a category they push below zero dropped, then summed.
+        Map<String, BigDecimal> byCategory = spendByCategory(currentMonthTxns, categoriesById, refunds);
+        BigDecimal total = byCategory.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        return new InsightsExplorerDto.TotalSpend(total, byCategory.size(), traced);
     }
 
     private InsightsExplorerDto.TopCategory topCategory(List<Transaction> currentMonthTxns,
@@ -75,24 +77,36 @@ public class InsightsExplorerService {
         Map<String, List<Transaction>> byCategory = currentMonthTxns.stream()
                 .collect(Collectors.groupingBy(t -> categoryNameOf(t, categoriesById)));
         Map.Entry<String, List<Transaction>> top = byCategory.entrySet().stream()
+                .filter(e -> sumReportable(e.getValue(), refunds).signum() >= 0)
                 .max(Comparator.comparing(e -> sumReportable(e.getValue(), refunds)))
-                .orElseThrow();
+                .orElse(null);
+        if (top == null) return null; // only refunds this month -- no category was spent in
         return new InsightsExplorerDto.TopCategory(top.getKey(), sumReportable(top.getValue(), refunds),
                 top.getValue().stream().map(t -> traceOf(t, refunds)).toList());
     }
 
     private InsightsExplorerDto.TopMerchant topMerchant(List<Transaction> currentMonthTxns, RefundNetting refunds) {
         Map<String, List<Transaction>> byMerchant = currentMonthTxns.stream()
+                .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE) // a refund is not a merchant's spend
                 .collect(Collectors.groupingBy(this::merchantNameOf));
         Map.Entry<String, List<Transaction>> top = byMerchant.entrySet().stream()
                 .max(Comparator.comparing(e -> sumReportable(e.getValue(), refunds)))
-                .orElseThrow();
+                .orElse(null);
+        if (top == null) return null; // only refunds this month
         return new InsightsExplorerDto.TopMerchant(top.getKey(), sumReportable(top.getValue(), refunds),
                 top.getValue().stream().map(t -> traceOf(t, refunds)).toList());
     }
 
+    /** Signed: an unlinked refund in the pipeline's rows counts negative -- see RefundNetting.spendAmount. */
     private BigDecimal sumReportable(List<Transaction> txns, RefundNetting refunds) {
-        return txns.stream().map(refunds::reportableAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        return txns.stream().map(refunds::spendAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private Map<String, BigDecimal> spendByCategory(List<Transaction> txns, Map<UUID, Category> categoriesById,
+                                                    RefundNetting refunds) {
+        return RefundNetting.withoutNegativeSpend(txns.stream().collect(Collectors.groupingBy(
+                t -> categoryNameOf(t, categoriesById),
+                Collectors.reducing(BigDecimal.ZERO, refunds::spendAmount, BigDecimal::add))));
     }
 
     private String categoryNameOf(Transaction t, Map<UUID, Category> categoriesById) {
@@ -110,6 +124,6 @@ public class InsightsExplorerService {
 
     private InsightsExplorerDto.TracedTransaction traceOf(Transaction t, RefundNetting refunds) {
         return new InsightsExplorerDto.TracedTransaction(t.getId(), t.getDescription(), t.getAmount(),
-                refunds.reportableAmount(t), t.getTxnDate());
+                refunds.spendAmount(t), t.getTxnDate());
     }
 }

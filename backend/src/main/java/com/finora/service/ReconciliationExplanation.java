@@ -82,6 +82,9 @@ final class ReconciliationExplanation {
         return envelope("DUPLICATE", originalId, reason);
     }
 
+    /** {@code reason.rule} of a one-sided transfer found by the user's own name -- see {@link #ownAccountByName}. */
+    static final String OWN_ACCOUNT_NAME_RULE = "OWN_ACCOUNT_NAME";
+
     /**
      * Why these two transactions were paired as an internal transfer.
      *
@@ -91,6 +94,13 @@ final class ReconciliationExplanation {
      */
     static Map<String, Object> transfer(Transaction self, Transaction counterpart,
                                         long dayWindowApplied, boolean relationshipIdentifierMatched) {
+        return transfer(self, counterpart, dayWindowApplied, relationshipIdentifierMatched, null);
+    }
+
+    /** @param sharedReference the 12-digit UPI/IMPS reference both legs print, when that is what
+     *                         paired them (Plan 3, rule 1); null otherwise */
+    static Map<String, Object> transfer(Transaction self, Transaction counterpart, long dayWindowApplied,
+                                        boolean relationshipIdentifierMatched, String sharedReference) {
         Map<String, Object> reason = new LinkedHashMap<>();
         reason.put("differentAccount", !self.getAccountId().equals(counterpart.getAccountId()));
         reason.put("oppositeDirection", self.getTxnType() != counterpart.getTxnType());
@@ -99,7 +109,20 @@ final class ReconciliationExplanation {
         reason.put("dateDifferenceDays", daysBetween(self.getTxnDate(), counterpart.getTxnDate()));
         reason.put("dayWindowApplied", dayWindowApplied);
         reason.put("relationshipIdentifierMatched", relationshipIdentifierMatched);
+        if (sharedReference != null) reason.put("sharedReference", sharedReference);
         return envelope("TRANSFER", counterpart.getId(), reason);
+    }
+
+    /** One leg of a transfer between the user's own accounts, recognised because the sender (on a
+     *  credit) or payee (on a debit) slot names the user. No counterpart row -- the other account
+     *  may never be imported. Plan 3, rule 2. */
+    static Map<String, Object> ownAccountByName(Transaction self, String nameOnPayment, String holderName) {
+        Map<String, Object> reason = new LinkedHashMap<>();
+        reason.put("rule", OWN_ACCOUNT_NAME_RULE);
+        reason.put("direction", self.getTxnType() == Transaction.Type.EXPENSE ? "PAYEE" : "SENDER");
+        reason.put("nameOnPayment", nameOnPayment.trim());
+        reason.put("holderName", holderName);
+        return envelope("TRANSFER", null, reason);
     }
 
     /**

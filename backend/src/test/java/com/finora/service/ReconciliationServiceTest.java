@@ -1012,6 +1012,269 @@ class ReconciliationServiceTest {
         assertThat(paidFromSavings.isTransfer()).isFalse();
     }
 
+    // --- Plan 3, rule 1: legs that share a UPI/IMPS reference ---
+
+    @Test
+    void reconcileForUser_pairsOwnAccountLegsThatShareAReference_withNoPaymentWord() {
+        UUID hdfc = UUID.randomUUID();
+        UUID union = UUID.randomUUID();
+        Transaction out = txn(UUID.randomUUID(), hdfc, LocalDate.of(2026, 5, 1), new BigDecimal("50000.00"),
+                Transaction.Type.EXPENSE, "UPI-ASHA VERMA-asha@okbank-IFSC0000001-111111111111-UPI", Instant.now());
+        Transaction in = txn(UUID.randomUUID(), union, LocalDate.of(2026, 5, 1), new BigDecimal("50000.00"),
+                Transaction.Type.INCOME, "UPIAB/111111111111/CR/ASHA /BANK/asha@okbank", Instant.now());
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(out, in));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(in.getTransferPairId()).isEqualTo(out.getId());
+        assertThat(out.getTransferPairId()).isEqualTo(in.getId());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> reason = (Map<String, Object>) in.getReconciliationExplanation().get("reason");
+        assertThat(reason.get("sharedReference")).isEqualTo("111111111111");
+    }
+
+    @Test
+    void reconcileForUser_pairsAKotakGluedReferenceWithTheCreditOneDayLater() {
+        UUID kotak = UUID.randomUUID();
+        UUID canara = UUID.randomUUID();
+        Transaction out = txn(UUID.randomUUID(), kotak, LocalDate.of(2026, 7, 9), new BigDecimal("25000.00"),
+                Transaction.Type.EXPENSE, "SentIMPS111111111111Asha Verma/IFSC0000001/IMPS", Instant.now());
+        Transaction in = txn(UUID.randomUUID(), canara, LocalDate.of(2026, 7, 10), new BigDecimal("25000.00"),
+                Transaction.Type.INCOME, "999-UPI-111111111111 Value Dt 10/07/2026", Instant.now());
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(out, in));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(in.getTransferPairId()).isEqualTo(out.getId());
+    }
+
+    @Test
+    void reconcileForUser_equalAmountsWithDifferentReferencesAreNotPaired() {
+        UUID a = UUID.randomUUID();
+        UUID b = UUID.randomUUID();
+        Transaction out = txn(UUID.randomUUID(), a, LocalDate.of(2026, 5, 3), new BigDecimal("200.00"),
+                Transaction.Type.EXPENSE, "UPI-RAVI KUMAR-ravi@okbank-IFSC0000001-111111111111-UPI", Instant.now());
+        Transaction in = txn(UUID.randomUUID(), b, LocalDate.of(2026, 5, 3), new BigDecimal("200.00"),
+                Transaction.Type.INCOME, "UPI-NEHA JAIN-neha@okbank-IFSC0000001-222222222222-UPI", Instant.now());
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(out, in));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(out.isTransfer()).isFalse();
+        assertThat(in.isTransfer()).isFalse();
+    }
+
+    // Every leg says "payment", so the existing text gate admits each side's two candidates on its
+    // own, and in2 is visited first with out1 and out2 tied on date; only the shared-reference bonus
+    // picks the right partner. (With a reference-only gate the wrong candidate is excluded anyway,
+    // and the test could not catch a missing bonus.)
+    @Test
+    void twoSameAmountTransfersPairByTheirOwnReference() {
+        UUID a = UUID.randomUUID();
+        UUID b = UUID.randomUUID();
+        LocalDate d = LocalDate.of(2026, 6, 28);
+        Transaction out1 = txn(UUID.randomUUID(), a, d, new BigDecimal("500.00"), Transaction.Type.EXPENSE,
+                "UPI-ASHA VERMA-asha@okbank-IFSC0000001-111111111111-PAYMENT FROM PHONE", Instant.now());
+        Transaction out2 = txn(UUID.randomUUID(), a, d, new BigDecimal("500.00"), Transaction.Type.EXPENSE,
+                "UPI-ASHA VERMA-asha@okbank-IFSC0000001-222222222222-PAYMENT FROM PHONE", Instant.now());
+        Transaction in2 = txn(UUID.randomUUID(), b, d, new BigDecimal("500.00"), Transaction.Type.INCOME,
+                "UPIAB/222222222222/CR/ASHA /BANK/PAYMENT RECEIVED", Instant.now());
+        // in1 lands a day later, so date proximity alone would hand out1 the wrong credit (in2).
+        Transaction in1 = txn(UUID.randomUUID(), b, d.plusDays(1), new BigDecimal("500.00"), Transaction.Type.INCOME,
+                "UPIAB/111111111111/CR/ASHA /BANK/PAYMENT RECEIVED", Instant.now());
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(out1, out2, in2, in1));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(in1.getTransferPairId()).isEqualTo(out1.getId());
+        assertThat(in2.getTransferPairId()).isEqualTo(out2.getId());
+    }
+
+    @Test
+    void aReversalOnTheSameAccountIsNeverATransfer() {
+        UUID a = UUID.randomUUID();
+        Transaction failed = txn(UUID.randomUUID(), a, LocalDate.of(2026, 6, 1), new BigDecimal("300.00"),
+                Transaction.Type.EXPENSE, "UPI/DR/111111111111/SHOPCO/BANK/shop@okbank/", Instant.now());
+        Transaction reversal = txn(UUID.randomUUID(), a, LocalDate.of(2026, 6, 1), new BigDecimal("300.00"),
+                Transaction.Type.INCOME, "UPI/REV/111111111111/SHOPCO/BANK/", Instant.now());
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(failed, reversal));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(failed.isTransfer()).isFalse();
+        assertThat(reversal.isTransfer()).isFalse();
+    }
+
+    @Test
+    void reconcileForUser_aSharedReferenceNeverPairsACardBillWithAnotherCard() {
+        UUID card = UUID.randomUUID();
+        UUID otherCard = UUID.randomUUID();
+        Transaction received = txn(UUID.randomUUID(), card, LocalDate.of(2026, 6, 30), new BigDecimal("1582.00"),
+                Transaction.Type.INCOME, "BBPS PMT 111111111111", Instant.now());
+        Transaction purchase = txn(UUID.randomUUID(), otherCard, LocalDate.of(2026, 6, 30), new BigDecimal("1582.00"),
+                Transaction.Type.EXPENSE, "UPI MERCHANTCO 111111111111", Instant.now());
+        typed(card, Account.Type.CREDIT_CARD);
+        typed(otherCard, Account.Type.CREDIT_CARD);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(received, purchase));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(received.isTransfer()).isFalse();
+    }
+
+    private void holder(UUID accountId, String holderName) {
+        liveAccounts.stream().filter(a -> a.getId().equals(accountId)).forEach(a -> a.setAccountHolderName(holderName));
+    }
+
+    // --- Plan 3, rule 2: the user is the sender or payee ---
+
+    private Transaction ownRow(UUID account, String amount, Transaction.Type type, String description) {
+        return txn(UUID.randomUUID(), account, LocalDate.of(2026, 7, 1), new BigDecimal(amount), type, description, Instant.now());
+    }
+
+    @Test
+    void reconcileForUser_aCreditSentByTheUserIsAOneSidedTransfer() {
+        UUID savings = UUID.randomUUID();
+        Transaction in = ownRow(savings, "10000.00", Transaction.Type.INCOME,
+                "UPI/CR/C111111111111/ ASHA VER/ ptye/x@ptyes/NA/");
+        holder(savings, "MRS ASHA VERMA");
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(in));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(in.isTransfer()).isTrue();
+        assertThat(in.getTransferPairId()).isNull();
+        assertThat(in.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.TRANSFER);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> reason = (Map<String, Object>) in.getReconciliationExplanation().get("reason");
+        assertThat(reason).containsEntry("rule", "OWN_ACCOUNT_NAME").containsEntry("direction", "SENDER")
+                .containsEntry("holderName", "MRS ASHA VERMA");
+    }
+
+    @Test
+    void reconcileForUser_aDebitPaidToTheUserIsAOneSidedTransfer() {
+        UUID savings = UUID.randomUUID();
+        Transaction out = ownRow(savings, "8000.00", Transaction.Type.EXPENSE,
+                "UPI-ASHA VERMA-asha@oksbi-IFSC0000001-111111111111-PAYMENT FROM PHONE");
+        holder(savings, "ASHA VERMA");
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(out));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(out.isTransfer()).isTrue();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> reason = (Map<String, Object>) out.getReconciliationExplanation().get("reason");
+        assertThat(reason).containsEntry("direction", "PAYEE");
+    }
+
+    @Test
+    void reconcileForUser_salaryNamingTheUserAsBeneficiaryStaysIncome() {
+        UUID savings = UUID.randomUUID();
+        Transaction salary = ownRow(savings, "96000.00", Transaction.Type.INCOME,
+                "NEFT CR-IFSC0000001-EMPLOYERCO PVT LTD-ASHA VERMA-REF1 SALARY FOR JUN 2026");
+        holder(savings, "ASHA VERMA");
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(salary));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(salary.isTransfer()).isFalse();
+    }
+
+    @Test
+    void reconcileForUser_theOwnerInTheNeftRemitterSlotIsAOneSidedTransfer() {
+        UUID savings = UUID.randomUUID();
+        Transaction in = ownRow(savings, "40000.00", Transaction.Type.INCOME,
+                "NEFT CR-IFSC0000001-ASHA VERMA S O SH R VERMA-ASHA VERMA-REF1");
+        holder(savings, "ASHA VERMA");
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(in));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(in.isTransfer()).isTrue();
+    }
+
+    @Test
+    void reconcileForUser_rule2SkipsCardsBusinessesOtherPeopleAndRejectedRows() {
+        UUID savings = UUID.randomUUID();
+        UUID card = UUID.randomUUID();
+        Transaction onCard = ownRow(card, "500.00", Transaction.Type.INCOME, "UPI-ASHA VERMA-asha@okbank-IFSC0000001-111111111111-UPI");
+        Transaction business = ownRow(savings, "700.00", Transaction.Type.INCOME, "UPI-ASHA VERMA-asha@okbank-IFSC0000001-222222222222-UPI");
+        business.setCounterpartyType(com.finora.util.CounterpartyType.BUSINESS);
+        Transaction otherAsha = ownRow(savings, "764.00", Transaction.Type.INCOME, "UPI-ASHA PATEL-ashap@okbank-IFSC0000001-111111111111-UPI");
+        Transaction rejected = ownRow(savings, "900.00", Transaction.Type.EXPENSE, "UPI-ASHA VERMA-asha@okbank-IFSC0000001-222222222222-UPI");
+        rejected.setTransferRejectedAt(Instant.now());
+        Transaction freeText = ownRow(savings, "49.40", Transaction.Type.EXPENSE, "IGST DB @ 18.00% TRANSACTIONS FOR ASHA VERMA");
+        holder(savings, "ASHA VERMA");
+        holder(card, "ASHA VERMA");
+        typed(card, Account.Type.CREDIT_CARD);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                .thenReturn(List.of(onCard, business, otherAsha, rejected, freeText));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(List.of(onCard, business, otherAsha, rejected, freeText)).noneMatch(Transaction::isTransfer);
+    }
+
+    @Test
+    void noHolderNameMeansNoOneSidedTransfer() {
+        UUID savings = UUID.randomUUID();
+        Transaction in = ownRow(savings, "10000.00", Transaction.Type.INCOME, "UPI/CR/C111111111111/ ASHA VER/ ptye/x@ptyes/NA/");
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(in));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(in.isTransfer()).isFalse();
+    }
+
+    @Test
+    void reconcileForUser_aOneSidedTransferPairsWhenItsOtherLegArrives() {
+        UUID paytm = UUID.randomUUID();
+        UUID pnb = UUID.randomUUID();
+        Transaction in = ownRow(paytm, "10000.00", Transaction.Type.INCOME, "UPI/CR/C111111111111/ ASHA VER/ ptye/x@ptyes/NA/");
+        holder(paytm, "ASHA VERMA");
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(in));
+        reconciliationService.reconcileForUser(userId);
+        assertThat(in.isTransfer()).isTrue();
+
+        // The other statement is imported: its leg names only a truncated first name.
+        Transaction out = ownRow(pnb, "10000.00", Transaction.Type.EXPENSE, "UPI/DR/111111111111/Ashaverm/BANK/x/");
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(in, out));
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(in.getTransferPairId()).isEqualTo(out.getId());
+        assertThat(out.getTransferPairId()).isEqualTo(in.getId());
+    }
+
+    @Test
+    void secondRunChangesNothing() {
+        UUID savings = UUID.randomUUID();
+        Transaction in = ownRow(savings, "10000.00", Transaction.Type.INCOME, "UPI/CR/C111111111111/ ASHA VER/ ptye/x@ptyes/NA/");
+        holder(savings, "ASHA VERMA");
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(in));
+        reconciliationService.reconcileForUser(userId);
+        Map<String, Object> first = in.getReconciliationExplanation();
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(in.isTransfer()).isTrue();
+        assertThat(in.getTransferPairId()).isNull();
+        assertThat(in.getReconciliationExplanation()).isEqualTo(first);
+    }
+
+    @Test
+    void undoneOneSidedTransferStaysUndone() {
+        UUID savings = UUID.randomUUID();
+        Transaction in = ownRow(savings, "10000.00", Transaction.Type.INCOME, "UPI/CR/C111111111111/ ASHA VER/ ptye/x@ptyes/NA/");
+        holder(savings, "ASHA VERMA");
+        // What TransactionService.unmarkTransfer leaves behind.
+        in.setTransferRejectedAt(Instant.now());
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(in));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(in.isTransfer()).isFalse();
+    }
+
     @Test
     void reconcileForUser_reportsAMatchedTransferPairToReconciliationMetrics() {
         // ReconciliationMetrics is the CI-permanent, real-corpus-driven telemetry answer to a

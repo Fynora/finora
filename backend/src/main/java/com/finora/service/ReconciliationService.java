@@ -6,6 +6,7 @@ import com.finora.entity.TransactionRelationship;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.TransactionRepository;
 import com.finora.util.CategoryRules;
+import com.finora.util.OwnAccountEvidence;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -315,7 +316,8 @@ public class ReconciliationService {
         // fresh on every read -- this is a different, complementary number: how much did the
         // most recent run actually do).
         int newDuplicates = 0, newTransfers = 0, newRefunds = 0, newReversals = 0, newGmailMatches = 0,
-                newCcPaymentMatches = 0, newInvestmentTransfers = 0, releasedInvestmentTransfers = 0;
+                newCcPaymentMatches = 0, newInvestmentTransfers = 0, releasedInvestmentTransfers = 0,
+                newOwnAccountTransfers = 0;
 
         // Collected during the transfer pass, emitted to ReconciliationMetrics only after this
         // method's own writes below (saveAll/linkAll) have actually succeeded -- not inline in the
@@ -507,7 +509,7 @@ public class ReconciliationService {
         // reject almost all of it" into a binary search plus a short contiguous slice. Measured:
         // see docs/engineering/scaling-triggers.md.
         List<Transaction> candidates = all.stream()
-                .filter(t -> t.getIsDuplicateOf() == null && !t.isTransfer())
+                .filter(t -> t.getIsDuplicateOf() == null && (!t.isTransfer() || isOneSidedOwnAccountTransfer(t)))
                 .sorted(CANDIDATE_ORDER)
                 .toList();
 
@@ -519,8 +521,16 @@ public class ReconciliationService {
         // Which accounts are credit cards -- a card-side "bill payment received" credit is its own
         // evidence of a transfer (see cardPaymentReceived below). Once per run, like the maps below.
         Map<UUID, com.finora.entity.Account.Type> accountTypes = new HashMap<>();
+        // The user's own names, as their statements print them -- rule 2 below (Plan 3).
+        List<String> holderNames = new java.util.ArrayList<>();
         for (com.finora.entity.Account account : accountRepository.findByUserId(userId)) {
             if (account.getId() != null && account.getAccountType() != null) accountTypes.put(account.getId(), account.getAccountType());
+            if (account.getAccountHolderName() != null && !account.getAccountHolderName().isBlank()) holderNames.add(account.getAccountHolderName());
+        }
+        // Normalised owner name -> the holder name as stored, for the explanation.
+        Map<List<String>, String> ownerDisplay = new java.util.LinkedHashMap<>();
+        for (String holder : holderNames) {
+            for (List<String> words : OwnAccountEvidence.ownerNames(List.of(holder))) ownerDisplay.putIfAbsent(words, holder);
         }
         Map<UUID, Boolean> ownAccountMatch = new HashMap<>();
         // Same reasoning as ownAccountMatch above -- CategoryRules.suggestCategory() walks every
@@ -529,7 +539,12 @@ public class ReconciliationService {
         Map<UUID, Boolean> looksLikeSalary = new HashMap<>();
         // Same once-per-candidate reasoning: a card-side bill payment received, see below.
         Set<UUID> cardPaymentsReceived = new HashSet<>();
+        // The 12-digit UPI/IMPS references each narration prints. Both legs of a real own-account
+        // transfer print the same one -- measured on the corpus in every bank shape, never on a
+        // coincidental equal-amount pair (Plan 3, rule 1; see OwnAccountEvidence).
+        Map<UUID, Set<String>> references = new HashMap<>();
         for (Transaction t : candidates) {
+            references.put(t.getId(), OwnAccountEvidence.references(t.getDescription()));
             String normalizedDescription = CategoryRules.normalize(t.getDescription());
             ownAccountMatch.put(t.getId(), ownAccountIdentifiers.stream().anyMatch(normalizedDescription::contains));
             looksLikeSalary.put(t.getId(), "Salary".equals(CategoryRules.suggestCategory(t.getDescription())));
@@ -537,7 +552,7 @@ public class ReconciliationService {
         }
 
         for (Transaction a : candidates) {
-            if (a.isTransfer()) continue;
+            if (a.isTransfer() && !isOneSidedOwnAccountTransfer(a)) continue;
             // A human already ruled this row out as a transfer. Placement mirrors
             // notDuplicateConfirmedAt's guard in the duplicate pass above (inside the marking loop,
             // not the shared `candidates` filter), but the effect is stricter here: unlike that
@@ -585,7 +600,11 @@ public class ReconciliationService {
             // counted as spend on top of the card purchases it settled. Amount, date window and
             // opposite direction still decide the pair exactly as above.
             boolean aCardPaymentReceived = cardPaymentsReceived.contains(a.getId());
-            if (!looksLikeTransfer && !aCardPaymentReceived) continue;
+            // A reference alone also opens the gate, but then only a candidate printing the SAME
+            // reference qualifies (checked in the loop below) -- own-account UPI/IMPS narrations
+            // carry neither "payment" nor a Transfer keyword, so the text gate rejected them.
+            boolean referenceOnly = !looksLikeTransfer && !aCardPaymentReceived;
+            if (referenceOnly && references.get(a.getId()).isEmpty()) continue;
 
             // Only the transactions that could possibly satisfy the daysApart check below, found
             // by binary search instead of by scanning and rejecting the rest. The slice uses the
@@ -608,10 +627,11 @@ public class ReconciliationService {
             long bestMatchDaysApart = 0;
             long bestMatchDayWindow = 0;
             boolean bestMatchRelationshipMatch = false;
+            String bestMatchSharedReference = null;
             int bestScore = Integer.MIN_VALUE;
 
             for (Transaction b : withinDays(candidates, a.getTxnDate(), OWN_ACCOUNT_MATCH_DAY_WINDOW)) {
-                if (a.getId().equals(b.getId()) || b.isTransfer()) continue;
+                if (a.getId().equals(b.getId()) || (b.isTransfer() && !isOneSidedOwnAccountTransfer(b))) continue;
                 if (b.getTransferRejectedAt() != null) continue; // same guard, other side of the pair
                 if (looksLikeSalary.getOrDefault(b.getId(), false)) continue; // same guard, other side of the pair
                 if (a.getAccountId().equals(b.getAccountId()) || a.getTxnType() == b.getTxnType()) continue;
@@ -630,8 +650,11 @@ public class ReconciliationService {
                 boolean relationshipMatch = aOwnAccountMatch || ownAccountMatch.getOrDefault(b.getId(), false);
                 long dayWindow = relationshipMatch ? OWN_ACCOUNT_MATCH_DAY_WINDOW : DEFAULT_TRANSFER_DAY_WINDOW;
                 if (daysApart > dayWindow) continue;
+                String sharedReference = firstShared(references.get(a.getId()), references.get(b.getId()));
+                if (referenceOnly && sharedReference == null) continue;
 
-                int score = transferCandidateScore(relationshipMatch, daysApart, dayWindow);
+                // A shared reference outranks every other signal: it names the very payment.
+                int score = transferCandidateScore(relationshipMatch, daysApart, dayWindow) + (sharedReference != null ? 100 : 0);
                 if (score > bestScore) {
                     bestScore = score;
                     bestMatch = b;
@@ -639,6 +662,7 @@ public class ReconciliationService {
                     bestMatchDaysApart = daysApart;
                     bestMatchDayWindow = dayWindow;
                     bestMatchRelationshipMatch = relationshipMatch;
+                    bestMatchSharedReference = sharedReference;
                 }
             }
 
@@ -656,8 +680,8 @@ public class ReconciliationService {
                 // Both sides get their own explanation, each naming the other. A transfer is
                 // one decision but two rows, and someone looking at either row should not have
                 // to fetch the partner to find out why this one was excluded from totals.
-                Map<String, Object> explanationA = ReconciliationExplanation.transfer(a, b, dayWindow, relationshipMatch);
-                Map<String, Object> explanationB = ReconciliationExplanation.transfer(b, a, dayWindow, relationshipMatch);
+                Map<String, Object> explanationA = ReconciliationExplanation.transfer(a, b, dayWindow, relationshipMatch, bestMatchSharedReference);
+                Map<String, Object> explanationB = ReconciliationExplanation.transfer(b, a, dayWindow, relationshipMatch, bestMatchSharedReference);
                 a.setReconciliationExplanation(explanationA);
                 b.setReconciliationExplanation(explanationB);
                 dirty.add(a);
@@ -683,6 +707,33 @@ public class ReconciliationService {
                         TransactionRelationship.RelationshipType.TRANSFER, b.getAmount(), confidenceB,
                         SourceTrust.of(b.getSource()), statusFor(confidenceB),
                         TransactionRelationship.DetectionMethod.RULE_ENGINE, explanationB));
+            }
+        }
+
+        // 2a) One-sided own-account transfers (Plan 3, rule 2): the sender (credit) or payee
+        // (debit) slot names the user, read from the holder names on their accounts. The other
+        // account may never be imported, so there is no partner row. Only the slot is read, never
+        // free text: a salary NEFT names the employee as beneficiary (see OwnAccountEvidence).
+        if (!ownerDisplay.isEmpty()) {
+            for (Transaction t : candidates) {
+                if (t.isTransfer() || t.getReconciliationStatus() != Transaction.ReconciliationStatus.OK) continue;
+                if (t.getTransferRejectedAt() != null) continue;
+                if (isCard(t, accountTypes)) continue;
+                if (t.getCounterpartyType() == com.finora.util.CounterpartyType.BUSINESS) continue;
+                if (looksLikeSalary.getOrDefault(t.getId(), false)) continue;
+                java.util.Optional<String> slot = OwnAccountEvidence.counterpartySlot(t.getDescription());
+                if (slot.isEmpty()) continue;
+                String holder = null;
+                for (Map.Entry<List<String>, String> owner : ownerDisplay.entrySet()) {
+                    if (OwnAccountEvidence.namesOwner(slot.get(), List.of(owner.getKey()))) { holder = owner.getValue(); break; }
+                }
+                if (holder == null) continue;
+                t.setTransfer(true);
+                t.setTransferPairId(null);
+                t.setReconciliationStatus(Transaction.ReconciliationStatus.TRANSFER);
+                t.setReconciliationExplanation(ReconciliationExplanation.ownAccountByName(t, slot.get(), holder));
+                dirty.add(t);
+                newOwnAccountTransfers++;
             }
         }
 
@@ -1340,6 +1391,7 @@ public class ReconciliationService {
             Map<String, Object> details = new java.util.LinkedHashMap<>(scopeAudit);
             details.put("duplicatesFound", newDuplicates);
             details.put("transfersMatched", newTransfers);
+            details.put("ownAccountTransfersFound", newOwnAccountTransfers);
             details.put("refundsMatched", newRefunds);
             details.put("reversalsMatched", newReversals);
             details.put("investmentTransfersFound", newInvestmentTransfers);
@@ -1952,6 +2004,19 @@ public class ReconciliationService {
             else low = mid + 1;
         }
         return low;
+    }
+
+    /** A one-sided own-account transfer from rule 2: still a candidate for its other leg. */
+    private static boolean isOneSidedOwnAccountTransfer(Transaction t) {
+        if (!t.isTransfer() || t.getTransferPairId() != null) return false;
+        Map<String, Object> explanation = t.getReconciliationExplanation();
+        Object reason = explanation == null ? null : explanation.get("reason");
+        return reason instanceof Map<?, ?> m && ReconciliationExplanation.OWN_ACCOUNT_NAME_RULE.equals(m.get("rule"));
+    }
+
+    private static String firstShared(Set<String> a, Set<String> b) {
+        for (String r : a) if (b.contains(r)) return r;
+        return null;
     }
 
     private static boolean isCard(Transaction t, Map<UUID, com.finora.entity.Account.Type> accountTypes) {

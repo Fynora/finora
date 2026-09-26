@@ -181,4 +181,107 @@ class ProductIdentityTest {
 
         assertThat(withNumber.matches(withoutNumber)).isEqualTo(ProductIdentity.Match.NONE);
     }
+
+    @Test
+    void aMaskedNumberIsNeverHashedAsIfItWereFull() {
+        // A masked value has fewer digits than the account, so hashing what is left produced a key
+        // that could never equal the key of the full number: a statement that masks and a later one
+        // that prints the number in full resolved to two accounts (NONE), because both sides then
+        // carried a key. With no key on the masked side the masked comparison runs instead.
+        var masked = ProductIdentity.of("HDFC", FinancialProductType.SAVINGS, "XXXXXXXXXX1234", "XXXXXXXXXX1234");
+        var full = ProductIdentity.of("HDFC", FinancialProductType.SAVINGS, "50000000001234", "XXXXXXXXXX1234"); // masked the way the extractor masks a full number
+
+        assertThat(masked.strongKey()).as("a masked value yields no strong key").isNull();
+        assertThat(masked.matches(full)).isEqualTo(ProductIdentity.Match.PROBABLE);
+        assertThat(full.matches(masked)).isEqualTo(ProductIdentity.Match.PROBABLE);
+    }
+
+    @Test
+    void everyMaskCharacterShapeIsRefused() {
+        for (String shape : new String[]{"XXXX1234", "xxxx1234", "****1234", "\u2022\u2022\u2022\u20221234", "6530 47** **** 7550"}) {
+            assertThat(ProductIdentity.of("AXIS", FinancialProductType.CREDIT_CARD, shape, shape).strongKey())
+                    .as(shape).isNull();
+        }
+    }
+
+    // ---- credit cards resolve on the entropy of the printed mask (roadmap collision study) ----
+
+    @Test
+    void theMaskCensusCountsOnlyCustomerDiscriminatingDigits() {
+        // 16 positions: 1-6 BIN, 7-15 account, 16 check. Only account and check positions count.
+        assertThat(ProductIdentity.MaskCensus.of("653047******7550").dEff()).as("BIN + last four").isEqualTo(4);
+        assertThat(ProductIdentity.MaskCensus.of("3561XXXXXXXX8604").dEff()).as("shorter BIN + last four").isEqualTo(4);
+        assertThat(ProductIdentity.MaskCensus.of("XXXX XXXX XXXX XX14").dEff()).as("two trailing digits").isEqualTo(2);
+        assertThat(ProductIdentity.MaskCensus.of("48xx xxxx xxxx 6048").dEff()).as("lower-case mask, spaced").isEqualTo(4);
+        assertThat(ProductIdentity.MaskCensus.of("\u2022\u2022\u2022\u20226385").dEff()).as("bullet mask, last four only").isEqualTo(4);
+        assertThat(ProductIdentity.MaskCensus.of("7550").dEff()).as("a bare last-four sentence capture").isEqualTo(4);
+        assertThat(ProductIdentity.MaskCensus.of("12").dEff()).isEqualTo(0);
+        assertThat(ProductIdentity.MaskCensus.of(null).dEff()).isEqualTo(0);
+        assertThat(ProductIdentity.MaskCensus.of("50000000001234").dEff()).as("a full number is not a mask").isEqualTo(0);
+    }
+
+    @Test
+    void twoStatementsOfTheSameCard_matchExactOnTheMaskAlone() {
+        var first = ProductIdentity.of("AXIS", FinancialProductType.CREDIT_CARD, null, "653047******7550");
+        var second = ProductIdentity.of("AXIS", FinancialProductType.CREDIT_CARD, null, "653047******7550");
+
+        assertThat(first.matches(second)).isEqualTo(ProductIdentity.Match.EXACT);
+        assertThat(first.cardMaskMatch(second)).as("the rule names how many digits decided it").isEqualTo(4);
+    }
+
+    @Test
+    void theSameCardMaskedWithMoreOrLessOfItsBinVisible_stillMatches() {
+        // A sentence capture ("card ending with 7550") against a BIN-plus-last-four mask of the same
+        // card: mask verbosity is cosmetic, the four discriminating digits are the same.
+        var bareLastFour = ProductIdentity.of("AXIS", FinancialProductType.CREDIT_CARD, null, "7550");
+        var binAndLastFour = ProductIdentity.of("AXIS", FinancialProductType.CREDIT_CARD, null, "653047******7550");
+
+        assertThat(bareLastFour.matches(binAndLastFour)).isEqualTo(ProductIdentity.Match.EXACT);
+        assertThat(binAndLastFour.matches(bareLastFour)).isEqualTo(ProductIdentity.Match.EXACT);
+    }
+
+    @Test
+    void aTwoDigitMask_neverBorrowsTheOtherSidesEntropy() {
+        var twoDigits = ProductIdentity.of("SBI", FinancialProductType.CREDIT_CARD, null, "XXXX XXXX XXXX XX14");
+        var fourDigits = ProductIdentity.of("SBI", FinancialProductType.CREDIT_CARD, null, "5514");
+
+        assertThat(fourDigits.matches(twoDigits)).isNotEqualTo(ProductIdentity.Match.EXACT);
+        assertThat(twoDigits.matches(fourDigits)).isNotEqualTo(ProductIdentity.Match.EXACT);
+    }
+
+    @Test
+    void sbiStyleMask_withTwoDigits_staysProbable() {
+        var first = ProductIdentity.of("SBI", FinancialProductType.CREDIT_CARD, null, "XXXX XXXX XXXX XX14");
+        var second = ProductIdentity.of("SBI", FinancialProductType.CREDIT_CARD, null, "XXXX XXXX XXXX XX14");
+
+        assertThat(first.matches(second)).isEqualTo(ProductIdentity.Match.PROBABLE);
+    }
+
+    @Test
+    void differentLastFourAtTheSameIssuer_isNotAMatch() {
+        var first = ProductIdentity.of("AXIS", FinancialProductType.CREDIT_CARD, null, "653047******7550");
+        var second = ProductIdentity.of("AXIS", FinancialProductType.CREDIT_CARD, null, "653047******7551");
+
+        assertThat(first.matches(second)).isEqualTo(ProductIdentity.Match.NONE);
+    }
+
+    @Test
+    void theCardRuleNeverAppliesToDepositsOrSavings() {
+        // A savings account and a fixed deposit that both mask to the same last four stay PROBABLE
+        // (the existing design: "probably the same" means ask), whatever the mask's entropy.
+        var savings = ProductIdentity.of("HDFC", FinancialProductType.SAVINGS, null, "XXXXXXXXXX1234");
+        var alsoSavings = ProductIdentity.of("HDFC", FinancialProductType.SAVINGS, null, "XXXXXXXXXX1234");
+        assertThat(savings.matches(alsoSavings)).isEqualTo(ProductIdentity.Match.PROBABLE);
+
+        var card = ProductIdentity.of("HDFC", FinancialProductType.CREDIT_CARD, null, "653047******1234");
+        assertThat(card.matches(savings)).isEqualTo(ProductIdentity.Match.NONE);
+    }
+
+    @Test
+    void aCardWithAStrongKeyStillResolvesOnTheKey_theMaskRuleIsOnlyForKeylessCards() {
+        var keyed = ProductIdentity.of("HDFC", FinancialProductType.CREDIT_CARD, "4000000000000004", "400000XXXXXX0004");
+        var keyless = ProductIdentity.of("HDFC", FinancialProductType.CREDIT_CARD, null, "400000XXXXXX0004");
+
+        assertThat(keyed.matches(keyless)).as("one side keyed: the masked comparison still applies").isEqualTo(ProductIdentity.Match.PROBABLE);
+    }
 }

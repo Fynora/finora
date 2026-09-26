@@ -139,4 +139,34 @@ class ProductIdentityResolutionIT extends AbstractIntegrationTest {
                         + "the same as any other import into a known account")
                 .isEqualByComparingTo("1455.00");
     }
+
+    @Test
+    @DisplayName("MATCHED on the mask: a credit card re-imported next month attaches to the same card without a key")
+    void reimportingACreditCardWithOnlyAMaskedNumber_attachesToTheExistingCard() throws Exception {
+        // Every real card statement prints a masked number and no key; until the card rule the
+        // server-only path created a new account per import (audit F-34). Both requests carry the
+        // mask exactly as a card statement prints it and no productIdentityHash.
+        User user = user();
+        NewAccountRequest firstMonth = new NewAccountRequest(
+                "Sample Bank Card", "CREDIT_CARD", BigDecimal.ZERO, new BigDecimal("100000"), null,
+                null, "400000XXXXXX0004", "HDFC", null, null,
+                "CREDIT_CARD", null,
+                null, null, null, null, null, null, null);
+        ConfirmRequest first = new ConfirmRequest(null,
+                List.of(row("SAMPLE STORE", "500.00", "EXPENSE")),
+                null, firstMonth, null, null, null);
+        importService.confirm(user.getId(), statementFile(), first);
+        assertThat(accountRepository.countByUserId(user.getId())).isEqualTo(1);
+
+        ConfirmRequest second = new ConfirmRequest(null,
+                List.of(row("ANOTHER STORE", "250.00", "EXPENSE")),
+                null, firstMonth, null, null, null);
+        ConfirmResponse response = importService.confirm(user.getId(), statementFile(), second);
+
+        assertThat(accountRepository.countByUserId(user.getId()))
+                .as("the second statement of the same card must attach, not create a second card")
+                .isEqualTo(1);
+        assertThat(response.accountsCreated()).isEmpty();
+        assertThat(transactionRepository.findByUserId(user.getId())).hasSize(2);
+    }
 }

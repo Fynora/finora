@@ -347,14 +347,21 @@ export function ReferralsScreen() {
 
       {celebratingTier && <MobileUpgradeCelebration tier={visiblePlanCode(celebratingTier)} c={c} />}
 
-      <Image
-        source={HERO_ILLUSTRATION}
-        style={{ width: '100%', aspectRatio: HERO_ASPECT_RATIO }}
-        resizeMode="contain"
-        accessibilityIgnoresInvertColors
-        accessible
-        accessibilityLabel="Two friends checking Fynora on their phones"
-      />
+      {/* aspectRatio lives on this View, not the Image: on the Image, iOS kept the PNG's
+          intrinsic 620pt height and ignored the ratio, rendering a screen-tall crop of the
+          illustration (reproduced on a simulator). A View has no intrinsic size to override
+          it, and the Image just fills the box. The frame matches the Cards below so the PNG's
+          opaque near-white background reads as a banner rather than a hard-edged slab. */}
+      <View testID="referral-hero" style={[styles.hero, { borderColor: c.border }]}>
+        <Image
+          source={HERO_ILLUSTRATION}
+          style={styles.heroImage}
+          resizeMode="cover"
+          accessibilityIgnoresInvertColors
+          accessible
+          accessibilityLabel="Two friends checking Fynora on their phones"
+        />
+      </View>
 
       <Card>
         <View style={styles.stepsRow}>
@@ -402,39 +409,45 @@ export function ReferralsScreen() {
           <Text style={[styles.shareButtonText, { color: c.onPrimary }]}>Share Invite</Text>
         </Pressable>
 
-        <View style={styles.channelRow}>
+        {/* At large text sizes the four labels outgrow a quarter of the row each (measured: they
+            ran together and "More" was pushed off-screen), so the row becomes a 2x2 grid. */}
+        <View style={[styles.channelRow, largeText && styles.channelGrid]}>
           {CHANNELS.map((channel) => (
             <Pressable
               key={channel.key}
               onPress={() => void handleChannel(channel)}
-              style={styles.channel}
+              style={[styles.channel, largeText && styles.channelInGrid]}
               accessibilityRole="button"
               accessibilityLabel={`Share via ${channel.label}`}
             >
               <View style={[styles.channelIcon, { backgroundColor: channel.color }]}>
                 <Ionicons name={channel.icon} size={20} color="#FFFFFF" />
               </View>
-              <Text style={[styles.channelLabel, { color: c.muted }]}>{channel.label}</Text>
+              <Text style={[styles.channelLabel, { color: c.muted }]} numberOfLines={1} adjustsFontSizeToFit>{channel.label}</Text>
             </Pressable>
           ))}
           <Pressable
             onPress={() => void handleShare()}
-            style={styles.channel}
+            style={[styles.channel, largeText && styles.channelInGrid]}
             accessibilityRole="button"
             accessibilityLabel="More share options"
           >
             <View style={[styles.channelIcon, { backgroundColor: c.bg, borderWidth: 1, borderColor: c.border }]}>
               <Ionicons name="ellipsis-horizontal" size={20} color={c.ink} />
             </View>
-            <Text style={[styles.channelLabel, { color: c.muted }]}>More</Text>
+            <Text style={[styles.channelLabel, { color: c.muted }]} numberOfLines={1} adjustsFontSizeToFit>More</Text>
           </Pressable>
         </View>
       </Card>
 
-      <View style={styles.statsRow}>
-        <MetricTile label="Friends Referred" value={String(data.referrals.length)} />
-        <MetricTile label="Pending" value={String(data.referrals.filter((r) => r.status === 'SUBSCRIBED').length)} />
-        <MetricTile label="Earned" value={fmtCurrency(data.walletBalance)} />
+      {/* MetricTile's 45% minWidth is for a wrapping 2-column grid; three of them in this
+          non-wrapping row came to 135% of the width and pushed Earned off-screen. So they share
+          one row -- except at large text sizes, where a third of the width broke the labels
+          mid-word ("FRIE NDS"), so the row wraps and the tiles keep their 45% two-up grid. */}
+      <View testID="referral-stats" style={[styles.statsRow, largeText && styles.statsRowWrap]}>
+        <MetricTile label="Friends Referred" value={String(data.referrals.length)} style={!largeText && styles.statTile} />
+        <MetricTile label="Pending" value={String(data.referrals.filter((r) => r.status === 'SUBSCRIBED').length)} style={!largeText && styles.statTile} />
+        <MetricTile label="Earned" value={fmtCurrency(data.walletBalance)} style={!largeText && styles.statTile} />
       </View>
 
       <MilestoneRow
@@ -519,6 +532,13 @@ const styles = StyleSheet.create({
   content: { padding: spacing.md, paddingBottom: spacing.xl, gap: spacing.md },
 
   screenTitle: { fontSize: 28, fontWeight: '800', letterSpacing: -0.3 },
+  // backgroundColor is the illustration's own edge color, not a theme token, so the frame
+  // never shows a seam against the image while it loads or at sub-pixel edges.
+  hero: {
+    width: '100%', aspectRatio: HERO_ASPECT_RATIO,
+    borderRadius: radius.lg, borderWidth: 1, overflow: 'hidden', backgroundColor: '#FEFEFE',
+  },
+  heroImage: { width: '100%', height: '100%' },
   screenSubtitle: { fontSize: 14, marginTop: -4, lineHeight: 19 },
 
   stepsRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
@@ -549,6 +569,8 @@ const styles = StyleSheet.create({
   shareButtonText: { fontSize: 14, fontWeight: '600' },
 
   statsRow: { flexDirection: 'row', gap: spacing.sm },
+  statsRowWrap: { flexWrap: 'wrap' },
+  statTile: { minWidth: 0 },
 
   emptyTitle: { fontSize: 14, fontWeight: '600', marginBottom: 2 },
   emptyDesc: { fontSize: 12.5, lineHeight: 17 },
@@ -564,7 +586,9 @@ const styles = StyleSheet.create({
   referralStatus: { fontSize: 10.5, fontWeight: '700', textTransform: 'uppercase' },
 
   channelRow: { flexDirection: 'row', justifyContent: 'space-between', paddingTop: spacing.xs },
+  channelGrid: { flexWrap: 'wrap', rowGap: spacing.md },
   channel: { alignItems: 'center', gap: 6 },
+  channelInGrid: { width: '50%' },
   channelIcon: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
   channelLabel: { fontSize: 10.5 },
 

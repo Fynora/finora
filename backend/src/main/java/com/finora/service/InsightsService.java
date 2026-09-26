@@ -224,6 +224,7 @@ public class InsightsService {
         // the same "element cannot be mapped to a null key" NullPointerException from
         // Collectors.groupingBy as the DashboardService/BudgetService category-grouping bugs.
         Map<String, BigDecimal> merchantTotals = txns.stream()
+                .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE) // a refund is not a merchant's spend
                 .filter(t -> YearMonth.from(t.getTxnDate()).toString().equals(currentMonth))
                 .collect(Collectors.groupingBy(
                         t -> Optional.ofNullable(t.getMerchant()).filter(s -> !s.isBlank())
@@ -254,11 +255,11 @@ public class InsightsService {
     private Map<String, BigDecimal> groupByCategory(List<Transaction> txns, String month,
                                                      Map<UUID, Category> categoriesById,
                                                      RefundNetting refunds) {
-        return txns.stream()
+        return RefundNetting.withoutNegativeSpend(txns.stream()
                 .filter(t -> YearMonth.from(t.getTxnDate()).toString().equals(month))
                 .collect(Collectors.groupingBy(
                         t -> categoriesById.containsKey(t.getCategoryId()) ? categoriesById.get(t.getCategoryId()).getName() : "Uncategorized",
-                        Collectors.reducing(BigDecimal.ZERO, refunds::reportableAmount, BigDecimal::add)));
+                        Collectors.reducing(BigDecimal.ZERO, refunds::spendAmount, BigDecimal::add))));
     }
 
     /**
@@ -287,8 +288,8 @@ public class InsightsService {
         // account's transactions deliberately keep deleted_at unset, so findByUserId alone would
         // keep feeding these insights forever, not just during StatementImportService's 7-day
         // grace window.
-        List<UUID> liveAccountIds = accountRepository.findByUserId(userId).stream()
-                .map(com.finora.entity.Account::getId).toList();
+        List<com.finora.entity.Account> accounts = accountRepository.findByUserId(userId);
+        List<UUID> liveAccountIds = accounts.stream().map(com.finora.entity.Account::getId).toList();
         List<Transaction> all = liveAccountIds.isEmpty() ? List.of()
                 : transactionRepository.findByUserIdAndAccountIdIn(userId, liveAccountIds);
         RefundNetting refunds = RefundNetting.from(all);
@@ -298,19 +299,27 @@ public class InsightsService {
         // itself framed as "spending", and an Investments-tagged SIP appearing as "your biggest
         // category" or a spend-trend mover would contradict the very point of this exclusion. See
         // RefundNetting.excludingInvestmentTransfers's own comment on the narrower, budget-safe cut.
-        List<Transaction> txns = RefundNetting.excludingInvestmentTransfers(
-                        RefundNetting.reportable(all, transactionGraphService.ccPaymentFromTransactionIds(all))).stream()
-                .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE)
-                .toList();
+        List<Transaction> reportable = RefundNetting.excludingInvestmentTransfers(
+                RefundNetting.reportable(all, transactionGraphService.ccPaymentFromTransactionIds(all)));
+        // Spend rows: every purchase plus the refunds and card adjustments reconciliation could
+        // not link to one, which give spend back in their own month and category -- the same rule
+        // the dashboard and reports use (RefundNetting.withUnlinkedOffsets). Price with
+        // refunds.spendAmount; merchant views filter back to purchases.
+        List<Category> categories = categoryRepository.findByUserId(userId);
+        RefundNetting spend = refunds.withUnlinkedOffsets(reportable, FlowTotals.context(accounts, categories));
+        List<Transaction> txns = reportable.stream().filter(spend::countsAsSpend).toList();
 
-        if (txns.isEmpty()) {
+        if (txns.stream().noneMatch(t -> t.getTxnType() == Transaction.Type.EXPENSE)) {
             return Optional.empty();
         }
 
-        Map<UUID, Category> categoriesById = categoryRepository.findByUserId(userId).stream()
+        Map<UUID, Category> categoriesById = categories.stream()
                 .collect(Collectors.toMap(Category::getId, c -> c));
 
-        List<String> months = txns.stream().map(t -> YearMonth.from(t.getTxnDate()).toString()).distinct().sorted().toList();
+        // Months with a PURCHASE: a refund arriving in a month with no spending yet must not make
+        // that empty month the one these insights describe.
+        List<String> months = txns.stream().filter(t -> t.getTxnType() == Transaction.Type.EXPENSE)
+                .map(t -> YearMonth.from(t.getTxnDate()).toString()).distinct().sorted().toList();
         String currentMonth = requestedMonth != null ? requestedMonth : months.get(months.size() - 1);
         boolean reportingMonthIsCurrent =
                 currentMonth.equals(YearMonth.now(UserZone.forUser(userRepository, userId)).toString());
@@ -341,7 +350,7 @@ public class InsightsService {
         List<StatementCoverageAnalyzer.CoverageGap> gaps = coverageGapsAcross(userId, liveAccountIds);
 
         return Optional.of(new Pipeline(currentMonth, reportingMonthIsCurrent, priorMonths, txns, categoriesById,
-                refunds, gaps));
+                spend, gaps));
     }
 
     /**

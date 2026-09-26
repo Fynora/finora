@@ -273,4 +273,23 @@ class DashboardRangeServiceTest {
         DashboardRangeSummaryDto dto = service.summarize(userId, DashboardRangeType.LAST_12_MONTHS, null, null);
         assertThat(dto.rangeType()).isEqualTo("LAST_12_MONTHS");
     }
+
+    @Test
+    void unresolvedInflow_comesFromTheCurrentPeriodOnly() {
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of(account()));
+        when(transactionRepository.findLatestTxnDate(any(), any())).thenReturn(LocalDate.of(2026, 8, 20));
+        when(transactionRepository.findEarliestTxnDate(any(), any())).thenReturn(LocalDate.of(2020, 1, 1));
+        // First call is the current period, second the previous one (see summarize).
+        when(reportService.forRange(eq(userId), any(), any()))
+                .thenReturn(new ReportService.RangeTotals(BigDecimal.TEN, BigDecimal.ONE, 5,
+                        new BigDecimal("2500.00"), 3, "PERSON_INFLOW"))
+                .thenReturn(new ReportService.RangeTotals(BigDecimal.TEN, BigDecimal.ONE, 5,
+                        new BigDecimal("999.00"), 9, "CARD_UNEXPLAINED_CREDIT"));
+
+        DashboardRangeSummaryDto dto = service.summarize(userId, DashboardRangeType.LAST_6_MONTHS, null, null);
+
+        assertThat(dto.unresolvedInflow()).isEqualByComparingTo("2500.00");
+        assertThat(dto.unresolvedInflowCount()).isEqualTo(3);
+        assertThat(dto.unresolvedTopReason()).isEqualTo("PERSON_INFLOW");
+    }
 }

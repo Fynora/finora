@@ -1,6 +1,7 @@
 package com.finora.util;
 
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -192,7 +193,10 @@ public final class PersonToPersonTransferDetector {
     // "PHONEPE" as a segment of its own).
     private static final Set<String> PSP_BRAND_TOKENS = Set.of(
             "PHONEPE", "RAZORPAY", "BHARATPE", "PAYTM", "PAYTMQR", "GPAY", "GOOGLEPAY",
-            "CRED", "MOBIKWIK", "FREECHARGE", "WHATSAPP", "AMAZONPAY"
+            "CRED", "MOBIKWIK", "FREECHARGE", "WHATSAPP", "AMAZONPAY",
+            // Never a person's name; seen in the corpus as the payee slot of a Google Pay utility
+            // payment ("Google I"), which the slot rule would otherwise read as a first name.
+            "GOOGLE"
     );
 
     // The union of every token that can never be part of a person's given/family name -- used to
@@ -334,7 +338,81 @@ public final class PersonToPersonTransferDetector {
         for (String segment : SEGMENT_DELIMITERS.split(description)) {
             if (looksLikePersonName(segment.trim())) return true;
         }
+        return namesPersonInAFixedSlot(description);
+    }
+
+    /**
+     * Slash-delimited UPI narrations put the counterparty in a FIXED slot: after the reference (and a
+     * CR/DR marker, before or after it) and immediately before a 3-4 letter bank code --
+     * "UPI/CR/&lt;ref&gt;/&lt;name&gt;/&lt;bank&gt;/...", "UPIAB/&lt;ref&gt;/CR/&lt;name&gt;/&lt;bank&gt;/...",
+     * "UPI/&lt;ref&gt;/CR/&lt;name, ref and date mixed&gt;/&lt;bank&gt;/...". Measured on the real corpus, these
+     * rows typed UNKNOWN only because the slot usually holds a single first name, and the 2-word
+     * minimum above exists to keep a 1-word brand from passing as a person anywhere in a narration.
+     * The slot's POSITION is the structural evidence that relaxes it here.
+     */
+    private static final Pattern SLASH_UPI_NAME_SLOT = Pattern.compile(
+            "(?i)\\bUPI(?:AB)?/(?:(?:CR|DR)/)?[^/]*?/(?:(?:CR|DR)/)?([^/]{2,60})/[A-Z]{3,4}/");
+
+    /** "…/Payment from PhonePe_&lt;name&gt;" and "…/UPI_&lt;name&gt;": the name is the whole tail after
+     *  the underscore, sometimes truncated mid-word or repeated by the bank. */
+    private static final Pattern UNDERSCORE_NAME_TAIL = Pattern.compile(
+            "(?i)(?:\\bPHONEPE|\\bUPI)_([A-Za-z][A-Za-z .]{0,60})\\s*$");
+
+    private static final Pattern PARENTHESISED = Pattern.compile("\\([^)]*\\)");
+
+    /** Known merchant terms reduced to letters only, 5+ long -- built once, on first use. */
+    private static final class CompactMerchantTerms {
+        static final List<String> TERMS = MerchantIdentityLookup.knownEntityTerms().stream()
+                .map(t -> t.replaceAll("[^a-z]", ""))
+                .filter(t -> t.length() >= 5)
+                .distinct()
+                .toList();
+    }
+
+    /**
+     * Some banks cut the slot to 8 characters, so a known merchant arrives as a fragment ("Domino s",
+     * "Indian R", "ZERODH A B") the whole-word lookup cannot match. Compared letters-only, a slot
+     * that is a prefix of a known term, or starts with one, is that merchant. Both sides must be 5+
+     * letters, so a short first name never collides with a short brand.
+     */
+    private static boolean isTruncatedKnownMerchant(String slotContent) {
+        String compact = slotContent.replaceAll("[^A-Za-z]", "").toLowerCase(Locale.ROOT);
+        if (compact.length() < 5) return false;
+        for (String term : CompactMerchantTerms.TERMS) {
+            if (term.startsWith(compact) || compact.startsWith(term)) return true;
+        }
         return false;
+    }
+
+    private static boolean namesPersonInAFixedSlot(String description) {
+        Matcher slot = SLASH_UPI_NAME_SLOT.matcher(description);
+        while (slot.find()) {
+            if (looksLikeSlotName(slot.group(1))) return true;
+        }
+        Matcher tail = UNDERSCORE_NAME_TAIL.matcher(description);
+        return tail.find() && looksLikeSlotName(tail.group(1));
+    }
+
+    /**
+     * A slot's content is a person's name when, after dropping parenthesised dates and any token
+     * carrying a digit (references the bank mixed in), it holds 1-6 name words -- 6, not 4, because
+     * banks repeat and truncate ("AMAN KUMAR SINGH AMAN KUM") -- none of them a business, protocol or
+     * brand token, and the slot does not name a known merchant.
+     */
+    private static boolean looksLikeSlotName(String slotContent) {
+        if (slotContent == null) return false;
+        if (MerchantIdentityLookup.namesKnownMerchant(slotContent)) return false;
+        if (isTruncatedKnownMerchant(slotContent)) return false;
+        String cleaned = PARENTHESISED.matcher(slotContent).replaceAll(" ");
+        int realWordCount = 0;
+        for (String w : cleaned.trim().split("[\\s.]+")) {
+            if (w.isEmpty() || w.chars().anyMatch(Character::isDigit)) continue;
+            if (w.length() == 1 && Character.isLetter(w.charAt(0))) continue; // initial
+            if (!NAME_TOKEN.matcher(w).matches()) return false;
+            if (NON_NAME_TOKENS.contains(w.toUpperCase(Locale.ROOT))) return false;
+            realWordCount++;
+        }
+        return realWordCount >= 1 && realWordCount <= 6;
     }
 
     /**

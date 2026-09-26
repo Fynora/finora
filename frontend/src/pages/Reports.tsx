@@ -214,7 +214,13 @@ export default function Reports() {
       ) : report && (
         <>
           <div className="grid grid-cols-3 gap-4">
-            <MetricCard label="Income" value={fmt(report.income)} icon={ArrowDownCircle} iconBg="bg-success-bg" iconColor="text-success" valueColor="text-success" />
+            {/* Money in that is not counted as income (see FlowClassifier on the backend) -- said here
+                so a month's income dropping because a transfer from a person stopped counting is
+                explained where the number is, not only on the Dashboard. */}
+            <MetricCard
+              label="Income" value={fmt(report.income)} icon={ArrowDownCircle} iconBg="bg-success-bg" iconColor="text-success" valueColor="text-success"
+              caption={report.unresolvedInflow && report.unresolvedInflow > 0 ? `${fmt(report.unresolvedInflow)} not counted as income` : undefined}
+            />
             <MetricCard label="Expense" value={fmt(report.expense)} icon={ArrowUpCircle} iconBg="bg-danger-bg" iconColor="text-danger" valueColor="text-danger" />
             <MetricCard label="Net" value={fmt(report.income - report.expense)} icon={PiggyBank} iconBg="bg-primary-light" iconColor="text-primary" />
           </div>

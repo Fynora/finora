@@ -992,6 +992,9 @@ export interface ReportData {
   income: number;
   expense: number;
   categories: { category: string; amount: number }[];
+  /** Credits this month Fynora cannot yet call income (money from a person, an unexplained card
+   *  credit) -- never part of `income`. Optional: an older server does not send it. */
+  unresolvedInflow?: number;
 }
 export interface IncomeTrendPoint {
   month: string;

@@ -164,6 +164,9 @@ function emptySummary(over: Partial<DashboardSummary> = {}): DashboardSummary {
     categorizationConfidenceMinTransactions: 5,
     duplicateTransactionCount: 0,
     detectedDuplicates: [],
+    unresolvedInflow: 0,
+    unresolvedInflowCount: 0,
+    unresolvedTopReason: null,
     ...over,
   } as DashboardSummary;
 }
@@ -1560,5 +1563,57 @@ describe('brand header plan badge', () => {
     } finally {
       mockPremium.visible = true;
     }
+  });
+});
+
+describe('unresolved inflow banner', () => {
+  it('says how many transactions and how much money are not counted as income', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary({
+      unresolvedInflow: 84500, unresolvedInflowCount: 12, unresolvedTopReason: null,
+    }));
+    renderScreen();
+
+    expect(await screen.findByText('12 transactions need classification · ₹84,500 not counted as income')).toBeOnTheScreen();
+  });
+
+  it('uses the singular for one transaction', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary({
+      unresolvedInflow: 1479, unresolvedInflowCount: 1, unresolvedTopReason: null,
+    }));
+    renderScreen();
+
+    expect(await screen.findByText('1 transaction needs classification · ₹1,479 not counted as income')).toBeOnTheScreen();
+  });
+
+  it('is absent when nothing is unresolved', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+    renderScreen();
+
+    expect(await screen.findByText('Income')).toBeOnTheScreen();
+    expect(screen.queryByTestId('unresolved-inflow-banner')).not.toBeOnTheScreen();
+  });
+
+  it.each([
+    ['PERSON_INFLOW', 'Mostly money received from people'],
+    ['CARD_UNEXPLAINED_CREDIT', 'Mostly credits on your cards'],
+  ])('explains a %s top reason', async (reason, line) => {
+    dashboard.summary.mockResolvedValue(emptySummary({
+      unresolvedInflow: 5000, unresolvedInflowCount: 2, unresolvedTopReason: reason,
+    }));
+    renderScreen();
+
+    expect(await screen.findByText(line)).toBeOnTheScreen();
+  });
+
+  it('shows no reason line for a reason this client does not know', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary({
+      unresolvedInflow: 5000, unresolvedInflowCount: 2, unresolvedTopReason: 'SOME_FUTURE_REASON',
+    }));
+    renderScreen();
+
+    expect(await screen.findByText('2 transactions need classification · ₹5,000 not counted as income')).toBeOnTheScreen();
+    expect(screen.queryByText('Mostly money received from people')).not.toBeOnTheScreen();
+    expect(screen.queryByText('Mostly credits on your cards')).not.toBeOnTheScreen();
+    expect(screen.queryByText('SOME_FUTURE_REASON')).not.toBeOnTheScreen();
   });
 });

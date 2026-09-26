@@ -120,6 +120,10 @@ public class CapabilityCoverageService {
             // letterhead line) kept out of the rows as page furniture -- the real HDFC bank-name
             // footer and Standard Chartered's footer date. See PdfTableLocator.repeatedPageFurniture.
             "LEADING_BUFFER_REPEATED_PAGE_FURNITURE_DIVERTED",
+            // A reference-shaped token printed in the reference column on a transaction's amount
+            // line, kept there although the narration's measured span reached its position (the
+            // real Indian Overseas Bank statement). See PdfTableLocator.bucketRow.
+            "REFERENCE_KEPT_IN_ITS_COLUMN",
             "STATEMENT_PERIOD_FROM_STATEMENT_DATE_RANGE", "STATEMENT_PERIOD_UNLABELLED_RANGE",
             "CARD_NUMBER_FROM_UNLABELLED_MASK",
             "GRID_METADATA_FALLBACK", "GRID_METADATA_TRAILING_LABEL",

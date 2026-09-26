@@ -158,6 +158,18 @@ public final class PdfFixtureBuilder {
             return this;
         }
 
+        /** A row of cells at a fixed height, outside the top-down flow -- for layouts whose lines sit a
+         *  few points apart rather than a whole row height (a three-tier header, a transaction whose
+         *  reference and amounts sit between its two narration lines). */
+        PageBuilder rowAt(float fixedY, float[] colX, String... values) {
+            List<Cell> cells = new ArrayList<>();
+            for (int i = 0; i < values.length && i < colX.length; i++) {
+                if (values[i] != null && !values[i].isEmpty()) cells.add(new Cell(colX[i], values[i]));
+            }
+            rows.add(new Row(fixedY, cells));
+            return this;
+        }
+
         /** A single-cell line at a fixed height, outside the top-down flow -- page furniture a bank
          *  prints at the same spot on every page (a footer). */
         PageBuilder at(float fixedY, String text) {
@@ -910,6 +922,45 @@ public final class PdfFixtureBuilder {
             pages.add(page);
         }
         return render(pages);
+    }
+
+    /**
+     * The Indian Overseas Bank layout (plan 4, audit F-26), with invented values: a three-tier header
+     * ("Date(Value" / "Date)", "Ref No." / "/Cheque No", "Transaction" / "Type" around a middle band
+     * of Particulars and the amounts), and each transaction printed over three lines a few points
+     * apart -- date and first narration line; reference, type and amounts; the bracketed value date
+     * under the date and the second narration line. Some first narration lines run past the
+     * reference column's left edge, which is what made the parser measure Particulars that wide.
+     */
+    public static byte[] buildIobStyleThreeLineTransactionsSample() throws IOException {
+        float[] top = {50f, 283f, 333f};
+        float[] mid = {168f, 398f, 456f, 507f};
+        float[] bottom = {63f, 275f, 346f};
+        float[] line1 = {45f, 112f};
+        float[] line2 = {278f, 344f, 415f, 468f, 522f};
+        float[] line3 = {45f, 112f};
+        PageBuilder page = new PageBuilder();
+        page.line("Sample Bank Statement of Account")
+                .rowAt(700f, top, "Date(Value", "Ref No.", "Transaction")
+                .rowAt(697f, mid, "Particulars", "Debit(Rs)", "Credit(Rs)", "Balance(Rs)")
+                .rowAt(691.5f, bottom, "Date)", "/Cheque No", "Type");
+        String[][] txns = {
+                {"13-Jul-26", "UPI/100000000001/DR/SAMPLE PAYEE LONGER", "S10000001", "Transfer", "150.00", "-", "9,850.00",
+                        "(13-Jul-26)", "SAMPLE/UBI/Payment for goods"},
+                {"16-Jul-26", "UPI/100000000002/DR/SAMPLE TWO", "S10000002", "Transfer", "200.00", "-", "9,650.00",
+                        "(16-Jul-26)", "PAYEE/BAR/Payment for rent"},
+                {"22-Jul-26", "UPI/100000000003/CR/SAMPLE PAYER THREE X", "S10000003", "Transfer", "-", "1,000.00", "10,650.00",
+                        "(22-Jul-26)", "SAMPLE/IPO/Refund"},
+                {"29-Jul-26", "UPI/100000000004/DR/SAMPLE FOUR", "S10000004", "Transfer", "50.00", "-", "10,600.00",
+                        "(29-Jul-26)", "STORE/UBI/Groceries"}};
+        float y = 675f;
+        for (String[] t : txns) {
+            page.rowAt(y, line1, t[0], t[1])
+                    .rowAt(y - 4f, line2, t[2], t[3], t[4], t[5], t[6])
+                    .rowAt(y - 9f, line3, t[7], t[8]);
+            y -= 23f;
+        }
+        return render(List.of(page));
     }
 
     /** A card statement that prints "OPENING BALANCE" in its summary -- the previous statement's

@@ -3369,6 +3369,12 @@ public class PdfTableLocator {
                     && CsvParser.parseDate(existing.trim()) != null;
             boolean wouldBreakValidAmount = isAmountColumn(e.getKey()) && existing != null
                     && CsvParser.parseNumeric(existing.trim()) != null;
+            // VALUE DATE UNDER THE POSTING DATE. A date column headed as holding both dates
+            // ("Date(Value Date)" on the real Indian Overseas Bank statement) prints the value date
+            // in brackets on the line under the posting date. It is a date, not narration: sent to
+            // the description by the guard below, it landed mid-narration on every row. Value date
+            // is not a staged field, and the posting date above it is kept.
+            if (wouldBreakValidDate && isBracketedValueDateUnder(e.getKey(), e.getValue())) continue;
             if (wouldBreakValidDate || wouldBreakValidAmount) {
                 String descriptionColumn = descriptionColumnIn(target, headerNames);
                 if (descriptionColumn == null) {
@@ -5772,7 +5778,34 @@ public class PdfTableLocator {
             // fixes, and why this specific ordering. Guards 1+2 are enforced structurally:
             // measureTextColumnSpans never populates a span for a date or amount column, so neither
             // can ever be a redirect target here.
-            if (textColumnSpans != null && nearest == originalNearest
+            // REFERENCE_KEPT_IN_ITS_COLUMN. A single identifier-shaped token already sitting in a
+            // reference/cheque column is that column's value, never an overspill of the narration
+            // to its left -- the same trust the amount-overshoot guard above extends to a reference
+            // column. Traced on the real Indian Overseas Bank statement: its first narration lines
+            // run up to the reference column's edge, so Particulars' measured span covered the
+            // reference column's position and every separately printed reference was re-homed into
+            // the narration, mid-sentence (15 of 15 rows).
+            // Two conditions, each measured: the token is reference-shaped, and it starts at or
+            // after the reference column's own header position. The second is what keeps a
+            // narration tail that spills past the midpoint ("... FOR 123456" on a real HDFC
+            // statement) in the narration: it starts left of the reference header.
+            boolean keptAsReference = isReferenceColumn(columnName) && looksLikeReferenceToken(t.text())
+                    && headerAnchors != null && nearest < headerAnchors.size()
+                    && t.x() >= headerAnchors.get(nearest) - 1f;
+            if (keptAsReference && textColumnSpans != null && ctx != null && nearest == originalNearest) {
+                // Recorded only where it changed the outcome: another column's measured span claims
+                // this position and would otherwise have taken the token.
+                ColumnSpan ownSpan = textColumnSpans[nearest];
+                if (ownSpan == null || !ownSpan.contains(t.x())) {
+                    for (int i = 0; i < textColumnSpans.length; i++) {
+                        if (i != nearest && textColumnSpans[i] != null && textColumnSpans[i].contains(t.x())) {
+                            ctx.record("REFERENCE_KEPT_IN_ITS_COLUMN");
+                            break;
+                        }
+                    }
+                }
+            }
+            if (textColumnSpans != null && nearest == originalNearest && !keptAsReference
                     && !isDateColumn(columnName) && !isAmountColumn(columnName)) {
                 ColumnSpan ownSpan = textColumnSpans[nearest];
                 if (ownSpan == null || !ownSpan.contains(t.x())) {
@@ -6168,6 +6201,23 @@ public class PdfTableLocator {
     /** True for a reference/cheque-number column -- see the OFFSET_COLUMN_ANCHORS guard in
      *  {@link #bucketRow} that this exists for: unlike a merchant-category or description column,
      *  this kind of column legitimately holds nothing but digits. */
+    private static boolean isBracketedValueDateUnder(String dateColumn, String fragment) {
+        if (dateColumn == null || !dateColumn.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z]", "").contains("valuedate")) {
+            return false;
+        }
+        String v = fragment.trim();
+        return v.length() > 2 && v.startsWith("(") && v.endsWith(")")
+                && CsvParser.parseDate(v.substring(1, v.length() - 1).trim()) != null;
+    }
+
+    /** One token, no blanks, 6 to 30 characters, carrying a digit: a cheque number, a UTR, a bank's
+     *  own reference -- not a word of narration. */
+    private static boolean looksLikeReferenceToken(String text) {
+        String v = text == null ? "" : text.trim();
+        return v.length() >= 6 && v.length() <= 30 && !v.contains(" ")
+                && v.matches("[A-Za-z0-9/\\-.]+") && v.chars().anyMatch(Character::isDigit);
+    }
+
     private boolean isReferenceColumn(String columnName) {
         return REFERENCE_COLUMN_PATTERN.matcher(CsvParser.normalizeHeaderCell(columnName)).find();
     }

@@ -503,10 +503,13 @@ public class ReconciliationService {
         // compiled keyword pattern, so this is computed once per candidate rather than once per
         // pair-check inside the O(n^2) loop.
         Map<UUID, Boolean> looksLikeSalary = new HashMap<>();
+        // Same once-per-candidate reasoning: a card-side bill payment received, see below.
+        Set<UUID> cardPaymentsReceived = new HashSet<>();
         for (Transaction t : candidates) {
             String normalizedDescription = CategoryRules.normalize(t.getDescription());
             ownAccountMatch.put(t.getId(), ownAccountIdentifiers.stream().anyMatch(normalizedDescription::contains));
             looksLikeSalary.put(t.getId(), "Salary".equals(CategoryRules.suggestCategory(t.getDescription())));
+            if (isCardPaymentReceived(t, accountTypes)) cardPaymentsReceived.add(t.getId());
         }
 
         for (Transaction a : candidates) {
@@ -555,11 +558,10 @@ public class ReconciliationService {
             // ("BBPS PMT ...", "AUTOPAY ...") is transfer evidence by itself: a card is paid from
             // somewhere. Real BBPS payments through a payments app print "PMT" on the card and only
             // the app's name on the savings side, so neither leg carried "payment" and the bill was
-            // counted as spend on top of the card purchases it settled. Admitted ONLY against a
-            // debit on a non-card account (the paying side can never be another card's purchase);
-            // amount, date window and opposite direction still decide the pair exactly as above.
-            boolean cardPaymentReceived = !looksLikeTransfer && isCardPaymentReceived(a, accountTypes);
-            if (!looksLikeTransfer && !cardPaymentReceived) continue;
+            // counted as spend on top of the card purchases it settled. Amount, date window and
+            // opposite direction still decide the pair exactly as above.
+            boolean aCardPaymentReceived = cardPaymentsReceived.contains(a.getId());
+            if (!looksLikeTransfer && !aCardPaymentReceived) continue;
 
             // Only the transactions that could possibly satisfy the daysApart check below, found
             // by binary search instead of by scanning and rejecting the rest. The slice uses the
@@ -589,7 +591,12 @@ public class ReconciliationService {
                 if (b.getTransferRejectedAt() != null) continue; // same guard, other side of the pair
                 if (looksLikeSalary.getOrDefault(b.getId(), false)) continue; // same guard, other side of the pair
                 if (a.getAccountId().equals(b.getAccountId()) || a.getTxnType() == b.getTxnType()) continue;
-                if (cardPaymentReceived && accountTypes.get(b.getAccountId()) == com.finora.entity.Account.Type.CREDIT_CARD) continue;
+                // A card bill is never paid by spending on another card: a bill payment received pairs
+                // only with a leg on a non-card account, whichever side opened the gate -- "PAYMENT
+                // RECEIVED" says "payment" and opened it before any card check, so it could pair with
+                // a same-amount purchase on another card and that purchase vanished from spend.
+                if ((aCardPaymentReceived && isCard(b, accountTypes))
+                        || (cardPaymentsReceived.contains(b.getId()) && isCard(a, accountTypes))) continue;
 
                 BigDecimal amountDelta = a.getAmount().subtract(b.getAmount()).abs();
                 boolean sameAmount = amountDelta.compareTo(ReconciliationPolicy.TRANSFER_AMOUNT_TOLERANCE) < 0;
@@ -1911,6 +1918,10 @@ public class ReconciliationService {
             else low = mid + 1;
         }
         return low;
+    }
+
+    private static boolean isCard(Transaction t, Map<UUID, com.finora.entity.Account.Type> accountTypes) {
+        return accountTypes.get(t.getAccountId()) == com.finora.entity.Account.Type.CREDIT_CARD;
     }
 
     /** A credit on a credit-card account that the flow classifier reads as a bill payment received. */

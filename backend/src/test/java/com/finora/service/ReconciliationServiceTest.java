@@ -919,6 +919,64 @@ class ReconciliationServiceTest {
         assertThat(receivedOnCard.isTransfer()).isFalse();
     }
 
+    // The same rule when the narration DOES say "payment": that opened the gate on its own, before
+    // the card check ever ran, so "PAYMENT RECEIVED" could pair with a purchase on another card and
+    // the purchase vanished from spend. A card is never paid by spending on another card.
+    @Test
+    void reconcileForUser_aCardPaymentSayingPayment_isNeverPairedWithASpendOnAnotherCard() {
+        UUID otherCard = UUID.randomUUID();
+        UUID cardAccount = UUID.randomUUID();
+        Transaction purchaseOnOtherCard = txn(UUID.randomUUID(), otherCard, LocalDate.of(2026, 6, 30),
+                new BigDecimal("2000.00"), Transaction.Type.EXPENSE, "UPI MERCHANTCO 111111111111", Instant.now());
+        Transaction receivedOnCard = txn(UUID.randomUUID(), cardAccount, LocalDate.of(2026, 6, 30),
+                new BigDecimal("2000.00"), Transaction.Type.INCOME, "PAYMENT RECEIVED THANK YOU", Instant.now());
+        typed(otherCard, Account.Type.CREDIT_CARD);
+        typed(cardAccount, Account.Type.CREDIT_CARD);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(purchaseOnOtherCard, receivedOnCard));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(purchaseOnOtherCard.isTransfer()).isFalse();
+        assertThat(receivedOnCard.isTransfer()).isFalse();
+    }
+
+    // Mirror: the other card's purchase is the one whose narration says "payment", so it is the
+    // side that opens the gate and the bill-payment credit is only the candidate.
+    @Test
+    void reconcileForUser_aPurchaseSayingPaymentOnOneCard_isNeverPairedWithABillPaymentOnAnother() {
+        UUID otherCard = UUID.randomUUID();
+        UUID cardAccount = UUID.randomUUID();
+        Transaction purchaseOnOtherCard = txn(UUID.randomUUID(), otherCard, LocalDate.of(2026, 6, 30),
+                new BigDecimal("2000.00"), Transaction.Type.EXPENSE, "PAYMENT TO MERCHANTCO", Instant.now());
+        Transaction receivedOnCard = txn(UUID.randomUUID(), cardAccount, LocalDate.of(2026, 6, 30),
+                new BigDecimal("2000.00"), Transaction.Type.INCOME, "BBPS PMT BBPSDP0000000000000", Instant.now());
+        typed(otherCard, Account.Type.CREDIT_CARD);
+        typed(cardAccount, Account.Type.CREDIT_CARD);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(purchaseOnOtherCard, receivedOnCard));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(purchaseOnOtherCard.isTransfer()).isFalse();
+        assertThat(receivedOnCard.isTransfer()).isFalse();
+    }
+
+    @Test
+    void reconcileForUser_aCardPaymentSayingPayment_stillPairsWithTheSavingsDebitThatPaidIt() {
+        UUID savingsAccount = UUID.randomUUID();
+        UUID cardAccount = UUID.randomUUID();
+        Transaction paidFromSavings = txn(UUID.randomUUID(), savingsAccount, LocalDate.of(2026, 6, 29),
+                new BigDecimal("2000.00"), Transaction.Type.EXPENSE, "NEFT TO CARDISSUER", Instant.now());
+        Transaction receivedOnCard = txn(UUID.randomUUID(), cardAccount, LocalDate.of(2026, 6, 30),
+                new BigDecimal("2000.00"), Transaction.Type.INCOME, "PAYMENT RECEIVED THANK YOU", Instant.now());
+        typed(savingsAccount, Account.Type.SAVINGS);
+        typed(cardAccount, Account.Type.CREDIT_CARD);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(paidFromSavings, receivedOnCard));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(receivedOnCard.getTransferPairId()).isEqualTo(paidFromSavings.getId());
+    }
+
     @Test
     void reconcileForUser_aMerchantCreditOnACard_isNotTreatedAsABillPayment() {
         UUID savingsAccount = UUID.randomUUID();

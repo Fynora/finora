@@ -38,6 +38,15 @@ public interface TransactionRelationshipRepository extends JpaRepository<Transac
             List<UUID> fromTransactionIds, TransactionRelationship.RelationshipType relationshipType,
             TransactionRelationship.Status excludedStatus);
 
+    /**
+     * One user's non-superseded edges of one type, in every status -- used by the CC_PAYMENT pass to
+     * learn, at the start of every run, which statements are already settled, which payments are
+     * already claimed, and which pairs were rejected. Its claim sets used to exist only within a
+     * single run, so each import could link the same statement again from a different payment.
+     */
+    List<TransactionRelationship> findByUserIdAndRelationshipTypeAndSupersededByIsNull(
+            UUID userId, TransactionRelationship.RelationshipType relationshipType);
+
     /** AccountPurgeSweepService -- {@code from_transaction_id}/{@code to_transaction_id} are
      *  deliberately plain UUID columns, not FKs (see this table's own migration comment), and
      *  {@code user_id} itself carries no FK either -- nothing else ever removes this table's rows

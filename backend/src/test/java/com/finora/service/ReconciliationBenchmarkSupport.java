@@ -96,6 +96,9 @@ abstract class ReconciliationBenchmarkSupport {
         Account a = new Account();
         ReflectionTestUtils.setField(a, "id", UUID.randomUUID());
         a.setUserId(userId);
+        // A real account always has a type (account_type is NOT NULL), and the CC_PAYMENT pass only
+        // takes a payment from a SAVINGS account.
+        a.setAccountType(Account.Type.SAVINGS);
         liveAccounts.add(a);
         return a;
     }
@@ -104,6 +107,7 @@ abstract class ReconciliationBenchmarkSupport {
      *  in ReconciliationService for why only the trailing 4 digits ever matter for matching. */
     protected Account cardAccount(String last4) {
         Account a = account();
+        a.setAccountType(Account.Type.CREDIT_CARD);
         a.setAccountNumberMasked("XXXXXXXXXXXX" + last4);
         return a;
     }

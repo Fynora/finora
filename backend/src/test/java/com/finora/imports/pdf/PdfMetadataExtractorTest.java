@@ -1557,7 +1557,7 @@ class PdfMetadataExtractorTest {
     @Test
     void extract_aLabelledNumber_stillWinsOverAnUnlabelledMaskedToken() {
         var metadata = extractor.extract(List.of(
-                "Account Number: 000123456789",
+                "Account Number: 000123456789", // synthetic-ok: reuses this file's existing placeholder
                 "State: 27 - SAMPLESTATE 48xx xxxx xxxx 6048"));
         assertThat(metadata.accountNumberMasked()).endsWith("6789");
     }

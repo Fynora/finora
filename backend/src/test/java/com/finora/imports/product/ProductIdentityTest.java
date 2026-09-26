@@ -189,7 +189,7 @@ class ProductIdentityTest {
         // that prints the number in full resolved to two accounts (NONE), because both sides then
         // carried a key. With no key on the masked side the masked comparison runs instead.
         var masked = ProductIdentity.of("HDFC", FinancialProductType.SAVINGS, "XXXXXXXXXX1234", "XXXXXXXXXX1234");
-        var full = ProductIdentity.of("HDFC", FinancialProductType.SAVINGS, "50100012341234", "XXXXXXXXXX1234"); // masked the way the extractor masks a full number
+        var full = ProductIdentity.of("HDFC", FinancialProductType.SAVINGS, "50000000001234", "XXXXXXXXXX1234"); // masked the way the extractor masks a full number
 
         assertThat(masked.strongKey()).as("a masked value yields no strong key").isNull();
         assertThat(masked.matches(full)).isEqualTo(ProductIdentity.Match.PROBABLE);
@@ -217,7 +217,7 @@ class ProductIdentityTest {
         assertThat(ProductIdentity.MaskCensus.of("7550").dEff()).as("a bare last-four sentence capture").isEqualTo(4);
         assertThat(ProductIdentity.MaskCensus.of("12").dEff()).isEqualTo(0);
         assertThat(ProductIdentity.MaskCensus.of(null).dEff()).isEqualTo(0);
-        assertThat(ProductIdentity.MaskCensus.of("50100012341234").dEff()).as("a full number is not a mask").isEqualTo(0);
+        assertThat(ProductIdentity.MaskCensus.of("50000000001234").dEff()).as("a full number is not a mask").isEqualTo(0);
     }
 
     @Test

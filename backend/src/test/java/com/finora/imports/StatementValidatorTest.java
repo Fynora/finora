@@ -172,7 +172,7 @@ class StatementValidatorTest {
                 new String[]{"Account Number", "20000000000001  "},
                 new String[]{"Account Type", "Savings account"},
                 new String[]{"Branch Details", "Sample Town, 1001, Sample Road, Sample District, INDIA, "},
-                new String[]{"IFSC", "BDBL0000001"},
+                new String[]{"IFSC", "BDBL0XXXXXX"},
                 new String[]{"MICR Code", "100000001"},
                 new String[]{"Nomination Registered", "YES"},
                 new String[]{"Statement Period", " "},
@@ -192,7 +192,7 @@ class StatementValidatorTest {
 
         assertThat(info.accountHolderName()).isEqualTo("Sample Holder");
         assertThat(info.accountNumberMasked()).as("masked the way every other path masks").endsWith("0001").doesNotContain("20000000000001");
-        assertThat(info.ifscCode()).isEqualTo("BDBL0000001");
+        assertThat(info.ifscCode()).isEqualTo("BDBL0XXXXXX");
         assertThat(info.branchName()).as("the first comma-separated segment").isEqualTo("Sample Town");
         assertThat(info.bank().id()).isEqualTo("BANDHAN");
         assertThat(info.productIdentityHash()).as("a strong key from the full number, never stored").isNotNull().doesNotContain("20000000000001");

@@ -708,3 +708,23 @@ accounts moving money (largest single group, about ₹2.3L), person payments in 
 read as a person (about ₹0.7L), a cash deposit, merchant credits without a refund word, a UPI return,
 and a clearing-corporation payout. These point at the counterparty classifier's coverage and at
 Plan 3's holder-name/self-transfer detection, not at more classifier keywords.
+
+### Follow-up measurements (same run, classifier v1)
+
+**Cross-statement pairs.** ₹3.08L of non-card credits (₹2.18L still counted as income, ₹0.90L unresolved)
+have a same-amount debit in another corpus statement within 3 days. For all but ₹500 of it, neither leg
+passes the live transfer matcher's text gate ("payment" in the narration, or a Transfer-category keyword),
+so even with both accounts imported by one user the existing matcher would not pair them unless the user
+had configured an OWN_ACCOUNT identifier. The gate, not the pairing, is the bottleneck. Small equal amounts
+may be coincidences; the large ones (₹15k-₹90k, same day) are not plausibly so.
+
+**Narration shapes behind the missed persons.** CounterpartyClassifier recognises individuals in the
+dash-delimited UPI shape (`UPI-<NAME>-<handle>@<psp>-...`) but returns UNKNOWN for the slash-delimited
+shapes several banks print (`UPI/CR/<ref>/<NAME>/<BANK>/<handle>/...`, `UPIAB/<ref>/CR/<NAME>/<BANK>/...`,
+`UPI/RRN <ref>/UPI_<NAME>`, `UPI/RRN <ref>/PAYMENT FROM <NAME>`). UNKNOWN credits default to OTHER_INCOME,
+so these stay in income: about ₹1.3L of UPI credits with UNKNOWN counterparty type (excluding a cash
+deposit and UPI returns), part of which overlaps the cross-statement pairs above.
+
+**Decision taken (2026-09-26):** individual view. Money between the user's OWN accounts is a transfer;
+money from a person tagged FAMILY counts as income (reason: family support); an untagged person stays
+UNRESOLVED.

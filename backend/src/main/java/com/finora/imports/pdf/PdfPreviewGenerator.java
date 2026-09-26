@@ -295,6 +295,10 @@ public class PdfPreviewGenerator {
         // HSBC composite's savings section has no other source for its own number, and a
         // label-blind gate dropped it (measured on the corpus).
         boolean gridAccountNumberIsCardLabelled = gridNumber != null && gridNumber.cardLabelled();
+        // The opening and closing balance the statement prints as its own summary (grid or inline),
+        // the fallback for a ledger whose balance chain yields none. Never applied to a card section
+        // -- see PrintedBalanceExtractor.
+        PrintedBalanceExtractor.PrintedBalances printedBalances = PrintedBalanceExtractor.extract(positioned, ctx);
         // A different real document (ICICI) prints its own account number with no label at all,
         // positioned directly under the transaction table's own "Date" column header -- neither
         // scrambled nor label-anchored, so AccountNumberGridExtractor alone can't recover it. See
@@ -325,7 +329,7 @@ public class PdfPreviewGenerator {
             // the contradiction -- printed activity, nothing staged -- with nothing to state it.
             StagedAccountSection section = buildLedgerSection(userId, filename, emptySection, unknown, ctx,
                     printedSummary, printedCreditCardSummary, printedDateRange, gridPaymentDueDate,
-                    gridCreditLimit, gridAccountNumberMasked, gridAccountNumberIsCardLabelled, 1);
+                    gridCreditLimit, gridAccountNumberMasked, gridAccountNumberIsCardLabelled, printedBalances, 1);
             return new PdfGenerationResult(List.of(surfaceUnrecognizedText(section, empty.preTableLines())), ctx,
                     printedCreditCardSummary);
         }
@@ -339,7 +343,7 @@ public class PdfPreviewGenerator {
             List<StagedAccountSection> staged = buildSections(userId, filename, doc.sections().get(i),
                     i, doc.sections().size(), ctx, PrintedSummary.NONE, printedCreditCardSummary,
                     printedDateRange, gridPaymentDueDate, gridCreditLimit, gridAccountNumberMasked,
-                    gridAccountNumberIsCardLabelled);
+                    gridAccountNumberIsCardLabelled, printedBalances);
             for (StagedAccountSection s : staged) unparseableAcrossDocument.addAll(s.unparseableRows());
             result.addAll(staged);
         }
@@ -379,7 +383,8 @@ public class PdfPreviewGenerator {
                                                       TransactionTableDateRangeExtractor.PrintedDateRange printedDateRange,
                                                       LocalDate gridPaymentDueDate, BigDecimal gridCreditLimit,
                                                       String gridAccountNumberMasked,
-                                                      boolean gridAccountNumberIsCardLabelled) {
+                                                      boolean gridAccountNumberIsCardLabelled,
+                                                      PrintedBalanceExtractor.PrintedBalances printedBalances) {
         // Every row's columns, not row 0's alone: a ledger's first row is often a brought-forward
         // or single-sided row missing the Withdrawals or Deposits cell, and judged on that row
         // alone a plain savings ledger classified UNKNOWN. Same reasoning as classifySectionAlone.
@@ -413,7 +418,7 @@ public class PdfPreviewGenerator {
         }
         return List.of(buildLedgerSection(userId, filename, section, product, ctx, printedSummary,
                 printedCreditCardSummary, printedDateRange, gridPaymentDueDate, gridCreditLimit,
-                gridAccountNumberMasked, gridAccountNumberIsCardLabelled, sectionCount));
+                gridAccountNumberMasked, gridAccountNumberIsCardLabelled, printedBalances, sectionCount));
     }
 
     /**
@@ -458,7 +463,8 @@ public class PdfPreviewGenerator {
                                                     TransactionTableDateRangeExtractor.PrintedDateRange printedDateRange,
                                                     LocalDate gridPaymentDueDate, BigDecimal gridCreditLimit,
                                                     String gridAccountNumberMasked,
-                                                    boolean gridAccountNumberIsCardLabelled, int sectionCount) {
+                                                    boolean gridAccountNumberIsCardLabelled,
+                                                    PrintedBalanceExtractor.PrintedBalances printedBalances, int sectionCount) {
         List<StagedRow> staged = new ArrayList<>();
         // "Never lose information" (see the engineering principles doc) -- a row that fails to
         // normalize is reported with WHY, not just silently absent from the row count. Real cost
@@ -599,7 +605,13 @@ public class PdfPreviewGenerator {
         int dupCount = (int) staged.stream().filter(StagedRow::likelyDuplicate).count();
         DetectedAccountInfo detected = buildDetectedAccountInfo(filename, section, balancePoints, product, ctx,
                 printedCreditCardSummary, printedDateRange, gridPaymentDueDate, gridCreditLimit,
-                gridAccountNumberMasked, gridAccountNumberIsCardLabelled, creditLimitAppliesTo(product, sectionCount));
+                gridAccountNumberMasked, gridAccountNumberIsCardLabelled,
+                // The printed summary belongs to the one ledger that printed it: only a single-
+                // section document's ledger, and only one that staged rows, may take it. Measured:
+                // without the rows condition a composite's zero-row deposit section took its
+                // sibling savings ledger's printed balances.
+                sectionCount == 1 && !section.rows().isEmpty() ? printedBalances : PrintedBalanceExtractor.PrintedBalances.NONE,
+                creditLimitAppliesTo(product, sectionCount));
         // Per section rather than per file: a composite statement's sections have separate balance
         // chains, and one can verify while another does not.
         var verification = importVerifier.verify(documentOrder,
@@ -993,6 +1005,7 @@ public class PdfPreviewGenerator {
                                                            LocalDate gridPaymentDueDate, BigDecimal gridCreditLimit,
                                                            String gridAccountNumberMasked,
                                                            boolean gridAccountNumberIsCardLabelled,
+                                                           PrintedBalanceExtractor.PrintedBalances printedBalances,
                                                            boolean creditLimitApplies) {
         LocalDate statementStart = null;
         LocalDate statementEnd = null;
@@ -1038,6 +1051,27 @@ public class PdfPreviewGenerator {
                     com.finora.imports.BalanceSequenceResolver.resolve(balancePoints);
             openingBalance = resolution.openingBalance();
             closingBalance = resolution.closingBalance();
+        }
+        // The statement's own printed opening/closing balance: the fallback when the chain gave
+        // none (a real Bandhan Bank and a real Canara Bank statement), and otherwise a cross-check
+        // recorded when it disagrees with the chain. Never for a card: its "opening balance" is the
+        // previous statement's dues, a different concept.
+        boolean cardSection = product.type() == FinancialProductType.CREDIT_CARD || facts.creditCardSignals();
+        if (!cardSection && printedBalances != null && !printedBalances.isEmpty()) {
+            if (openingBalance == null && printedBalances.opening() != null) {
+                openingBalance = printedBalances.opening();
+                if (ctx != null) ctx.record("PRINTED_BALANCE_USED_AS_OPENING");
+            } else if (openingBalance != null && printedBalances.opening() != null
+                    && openingBalance.compareTo(printedBalances.opening()) != 0 && ctx != null) {
+                ctx.record("PRINTED_BALANCE_DISAGREES_WITH_CHAIN");
+            }
+            if (closingBalance == null && printedBalances.closing() != null) {
+                closingBalance = printedBalances.closing();
+                if (ctx != null) ctx.record("PRINTED_BALANCE_USED_AS_CLOSING");
+            } else if (closingBalance != null && printedBalances.closing() != null
+                    && closingBalance.compareTo(printedBalances.closing()) != 0 && ctx != null) {
+                ctx.record("PRINTED_BALANCE_DISAGREES_WITH_CHAIN");
+            }
         }
 
         // Same precedence as statementStart/statementEnd above: PdfMetadataExtractor's own

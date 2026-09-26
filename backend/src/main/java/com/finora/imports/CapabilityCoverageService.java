@@ -97,6 +97,11 @@ public class CapabilityCoverageService {
             // line with unrelated prose (a real ICICI card). See PdfMetadataExtractor.GREETING_NAME_LINE
             // and LeadingNameRunExtractor.
             "ACCOUNT_HOLDER_FROM_GREETING", "ACCOUNT_HOLDER_FROM_LEADING_RUN",
+            // The statement's own printed opening/closing balance (grid or inline label) was read;
+            // used as a ledger section's balance when the chain gave none; or found to disagree
+            // with the chain. See PrintedBalanceExtractor and PdfPreviewGenerator.
+            "PRINTED_OPENING_CLOSING_BALANCE", "PRINTED_BALANCE_USED_AS_OPENING",
+            "PRINTED_BALANCE_USED_AS_CLOSING", "PRINTED_BALANCE_DISAGREES_WITH_CHAIN",
             "GRID_METADATA_FALLBACK", "GRID_METADATA_TRAILING_LABEL",
             "LEADING_NAME_LINE", "LEADING_NARRATION_CONTINUATION",
             "FINANCIAL_PRODUCT_CLASSIFICATION",

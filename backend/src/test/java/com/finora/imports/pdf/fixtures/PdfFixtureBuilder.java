@@ -814,6 +814,43 @@ public final class PdfFixtureBuilder {
         return render(List.of(page));
     }
 
+    /** A savings ledger with no running-balance column (so the balance chain yields nothing) under a
+     *  printed summary grid whose values carry a currency prefix -- the real Bandhan Bank shape. */
+    public static byte[] buildLedgerWithoutBalanceColumnUnderAPrintedSummarySample() throws IOException {
+        float[] summaryCol = {LEFT_MARGIN, 160f, 280f, 400f};
+        float[] col = {LEFT_MARGIN, 130f, 330f, 430f};
+        PageBuilder page = new PageBuilder();
+        page.line("Sample Bank Savings Account Statement")
+                .line("SAVINGS ACCOUNT  - 10000000000001")
+                .row(summaryCol, "Opening Balance", "Total Credits", "Total Debits", "Closing Balance")
+                .blankLine()
+                .row(summaryCol, "INR10,728.84", "INR12,000.00", "INR3,281.00", "INR19,447.84")
+                .blankLine()
+                .row(col, "Date", "Narration", "Withdrawal", "Deposit")
+                .row(col, "05/06/2026", "SALARY SAMPLE EMPLOYER", null, "12,000.00")
+                .row(col, "12/06/2026", "UPI SAMPLE GROCER", "3,281.00", null);
+        return render(List.of(page));
+    }
+
+    /** A card statement that prints "OPENING BALANCE" in its summary -- the previous statement's
+     *  dues on a real HSBC card, not a ledger opening balance. */
+    public static byte[] buildCardStatementWithPrintedOpeningBalanceSample() throws IOException {
+        float[] gridCol = {LEFT_MARGIN, 200f, 300f, 430f};
+        float[] two = {LEFT_MARGIN, 300f};
+        float[] col = {LEFT_MARGIN, 150f, 470f};
+        PageBuilder page = new PageBuilder();
+        page.line("Sample Bank Credit Card Statement")
+                .row(gridCol, "Credit Card Number", "Credit Limit", "Available Credit Limit", "Available Cash Limit")
+                .row(gridCol, "123456******7890", "30,000.00", "25,000.00", "5,000.00")
+                .row(two, "OPENING BALANCE", "1,234.00")
+                .row(two, "Total Amount Due", "2,234.00")
+                .row(two, "Minimum Amount Due", "223.40")
+                .blankLine()
+                .row(col, "Date", "Transaction Details", "Amount")
+                .row(col, "01/07/2026", "SAMPLE STORE", "1,000.00");
+        return render(List.of(page));
+    }
+
     public static byte[] buildOffsetColumnAnchorsSample() throws IOException {
         float[] headerCol = {LEFT_MARGIN, 183.5f, 386.5f, 514f};
         float[] dataCol = {35f, 90f, 372f, 500f};

@@ -367,7 +367,7 @@ public class PdfMetadataExtractor {
      */
     private static final DateTimeFormatter[] PERIOD_DATE_FORMATS;
     static {
-        PERIOD_DATE_FORMATS = new DateTimeFormatter[DATE_FORMATS.length + 2];
+        PERIOD_DATE_FORMATS = new DateTimeFormatter[DATE_FORMATS.length + 3];
         System.arraycopy(DATE_FORMATS, 0, PERIOD_DATE_FORMATS, 0, DATE_FORMATS.length);
         PERIOD_DATE_FORMATS[DATE_FORMATS.length] = ci("d MMM yy");
         // "Jun 01, 2026" -- a real BOB.pdf statement's period range, abbreviated month FIRST with
@@ -375,6 +375,9 @@ public class PdfMetadataExtractor {
         // "MMMM d, yyyy" (full month name) but neither covers this exact token order; scoped to
         // periods only, same reasoning as "d MMM yy" above.
         PERIOD_DATE_FORMATS[DATE_FORMATS.length + 1] = ci("MMM d, yyyy");
+        // "2026-07-13 to 2026-08-13" -- a real Indian Overseas Bank statement's period line, ISO
+        // dates under a "FOR THE PERIOD OF :" label. Periods only, like the two above.
+        PERIOD_DATE_FORMATS[DATE_FORMATS.length + 2] = ci("yyyy-MM-dd");
     }
 
     // One date-shaped token, in any form the formats above accept. Used to pull a date out of a
@@ -389,7 +392,7 @@ public class PdfMetadataExtractor {
     // matched shape ("16 Feb 2026", "09 Aug, 2026") still matches unchanged.
     private static final String DATE_TOKEN_SRC =
             "(?:\\d{1,2}[-/ ][A-Za-z]{3,9}[-,]?\\s?\\d{2,4}|\\d{1,2}[-/]\\d{1,2}[-/]\\d{2,4}"
-                    + "|[A-Za-z]{3,9}\\s\\d{1,2},?\\s\\d{4})";
+                    + "|[A-Za-z]{3,9}\\s\\d{1,2},?\\s\\d{4}|\\d{4}-\\d{2}-\\d{2})";
     private static final Pattern DATE_TOKEN = Pattern.compile("(?i)" + DATE_TOKEN_SRC);
 
     // The separator between a period's two dates. "to" is the common form; a real AU Small Finance
@@ -436,9 +439,32 @@ public class PdfMetadataExtractor {
     // Bug fix: a real BOB.pdf statement inserts the word "from" between the label and the range
     // ("Statement Period from <date> to <date>") -- the optional ":?" alone didn't tolerate that.
     // (?:from\s+)? is purely additive: every line this pattern already matched still matches.
+    // "period of" joined 2026-09-26: a real Indian Overseas Bank statement's heading reads
+    // "STATEMENT OF THE ACCOUNT FOR THE PERIOD OF : <iso> to <iso>".
     private static final Pattern STATEMENT_PERIOD_ANYWHERE = Pattern.compile(
-            "(?i)\\b(?:Statement|Billing)\\s*Period\\s*:?\\s*(?:from\\s+)?("
+            "(?i)\\b(?:(?:Statement|Billing)\\s*Period|period\\s+of)\\s*:?\\s*(?:from\\s+)?("
                     + DATE_TOKEN_SRC + "\\s*(?:to|[-\u2013])\\s*" + DATE_TOKEN_SRC + ")");
+
+    // STATEMENT_DATE_RANGE: "STATEMENT DATE : <date> To <date>" -- a real Standard Chartered export
+    // labels its period as a statement DATE and prints the full range after it. Only the full
+    // range qualifies: a lone "Statement Date : <date>" is a different field and never a period.
+    private static final Pattern STATEMENT_DATE_RANGE = Pattern.compile(
+            "(?i)\\bstatement\\s+date\\s*:?\\s*(" + DATE_TOKEN_SRC + "\\s*(?:to|[-\u2013])\\s*" + DATE_TOKEN_SRC + ")");
+
+    // UNLABELLED_DATE_RANGE: "<date> To <date>" with no label at all, anywhere on one of the first
+    // pre-table lines -- both real HSBC credit-card statements print the billing cycle on the
+    // address block's line, unlabelled. A last resort, applied only when no labelled period was
+    // found on the whole document, and only when both halves parse and the range runs forward.
+    private static final Pattern UNLABELLED_DATE_RANGE = Pattern.compile(
+            "(" + DATE_TOKEN_SRC + ")\\s+(?i:to)\\s+(" + DATE_TOKEN_SRC + ")");
+    private static final int UNLABELLED_DATE_RANGE_SEARCH_WINDOW = 8;
+
+    // UNLABELLED_MASKED_CARD_NUMBER: "48xx xxxx xxxx 6048" -- both real HSBC credit-card statements
+    // print the card number twice on a "State: ..." line with no label. The shape is card-specific
+    // (two leading digits, twelve mask characters, four trailing digits, grouped in fours) and is
+    // read only when no labelled number was found.
+    private static final Pattern UNLABELLED_MASKED_CARD_NUMBER = Pattern.compile(
+            "\\b(\\d{2}[xX]{2}\\s[xX]{4}\\s[xX]{4}\\s\\d{4})\\b");
 
     // FROM_TO_LABELED_PERIOD. Real HDFC savings-account statements (HDFC 3 month.pdf,
     // HDFC sav.pdf, Mann HDFC.pdf) and a real Sanjay HDFC statement all print their period as two
@@ -986,6 +1012,18 @@ public class PdfMetadataExtractor {
                 }
             }
             // Two separately colon-labeled fields on one row ("From : <date> To : <date>") --
+            if (periodStart == null && periodEnd == null) {
+                Matcher statementDateRange = STATEMENT_DATE_RANGE.matcher(line);
+                if (statementDateRange.find()) {
+                    LocalDate[] parsed = parsePeriod(statementDateRange.group(1).trim());
+                    if (parsed[0] != null && parsed[1] != null) {
+                        periodStart = parsed[0];
+                        periodEnd = parsed[1];
+                        if (ctx != null) ctx.record("STATEMENT_PERIOD_FROM_STATEMENT_DATE_RANGE");
+                        continue;
+                    }
+                }
+            }
             // see FROM_TO_LABELED_PERIOD.
             if (periodStart == null && periodEnd == null) {
                 Matcher fromTo = FROM_TO_LABELED_PERIOD.matcher(line);
@@ -1355,6 +1393,13 @@ public class PdfMetadataExtractor {
                 if (ctx != null) ctx.record("GRID_METADATA_TRAILING_LABEL");
                 continue;
             }
+            if (accountNumberMasked == null) {
+                Matcher unlabelledCard = UNLABELLED_MASKED_CARD_NUMBER.matcher(line);
+                if (unlabelledCard.find()) {
+                    accountNumberMasked = unlabelledCard.group(1).trim();
+                    if (ctx != null) ctx.record("CARD_NUMBER_FROM_UNLABELLED_MASK");
+                }
+            }
             if (ifscCode == null) {
                 Matcher ifscMatch = IFSC_SHAPE.matcher(line);
                 if (ifscMatch.find()) {
@@ -1380,6 +1425,20 @@ public class PdfMetadataExtractor {
             }
         }
 
+        if (periodStart == null && periodEnd == null) {
+            for (int i = 0; i < Math.min(preTableLines.size(), UNLABELLED_DATE_RANGE_SEARCH_WINDOW); i++) {
+                Matcher range = UNLABELLED_DATE_RANGE.matcher(preTableLines.get(i));
+                if (!range.find()) continue;
+                LocalDate start = parsePeriodDate(range.group(1).trim());
+                LocalDate end = parsePeriodDate(range.group(2).trim());
+                if (start != null && end != null && !end.isBefore(start)) {
+                    periodStart = start;
+                    periodEnd = end;
+                    if (ctx != null) ctx.record("STATEMENT_PERIOD_UNLABELLED_RANGE");
+                    break;
+                }
+            }
+        }
         return new ExtractedMetadata(accountHolderName, accountNumberMasked, branchName, ifscCode,
                 periodStart, periodEnd, creditLimit, paymentDueDate, accountNumberFull);
     }

@@ -1489,4 +1489,76 @@ class PdfMetadataExtractorTest {
         var metadata = extractor.extract(List.of("Hello, please find your statement below"));
         assertThat(metadata.accountHolderName()).isNull();
     }
+
+    // ---- period and card-number shapes traced on real documents (plan 3, Tasks 7 and 8) ----
+
+    @Test
+    void extract_readsAnIsoPeriod_underAPeriodOfLabel() {
+        // Through the LABELLED rule: the unlabelled-range fallback would also read this line, so
+        // the capability decides which path did (a labelled read is the stronger evidence).
+        var ctx = new com.finora.imports.DocumentContext("PDF", "test");
+        var metadata = extractor.extract(List.of(
+                "Report Generation Date & Time : 13-08-2026 10:00:00",
+                "STATEMENT OF THE ACCOUNT FOR THE PERIOD OF : 2026-07-13 to 2026-08-13"), ctx);
+        assertThat(metadata.statementPeriodStart()).isEqualTo(java.time.LocalDate.of(2026, 7, 13));
+        assertThat(metadata.statementPeriodEnd()).isEqualTo(java.time.LocalDate.of(2026, 8, 13));
+        assertThat(ctx.capabilities().stream().map(c -> c.capability()))
+                .contains("GRID_METADATA_TRAILING_LABEL").doesNotContain("STATEMENT_PERIOD_UNLABELLED_RANGE");
+    }
+
+    @Test
+    void extract_readsAPeriod_afterAStatementDateLabelFollowedByARange() {
+        var ctx = new com.finora.imports.DocumentContext("PDF", "test");
+        var metadata = extractor.extract(List.of(
+                "ACCOUNT STATEMENT",
+                "STATEMENT DATE : 01 May 2026 To 30 Jun 2026",
+                "CURRENCY : INR"), ctx);
+        assertThat(metadata.statementPeriodStart()).isEqualTo(java.time.LocalDate.of(2026, 5, 1));
+        assertThat(metadata.statementPeriodEnd()).isEqualTo(java.time.LocalDate.of(2026, 6, 30));
+        assertThat(ctx.capabilities().stream().map(c -> c.capability()))
+                .contains("STATEMENT_PERIOD_FROM_STATEMENT_DATE_RANGE").doesNotContain("STATEMENT_PERIOD_UNLABELLED_RANGE");
+    }
+
+    @Test
+    void extract_aLoneStatementDate_isNotAPeriod() {
+        var metadata = extractor.extract(List.of("Statement Date 20 Jul, 2026", "Some other line"));
+        assertThat(metadata.statementPeriodStart()).isNull();
+        assertThat(metadata.statementPeriodEnd()).isNull();
+    }
+
+    @Test
+    void extract_readsAnUnlabelledRange_onAnEarlyLine_whenNothingElseNamesThePeriod() {
+        var metadata = extractor.extract(List.of(
+                "20 AUG 2026 0.00",
+                "MR SAMPLE HOLDER",
+                "XXXXXXXXXXX   24 JUN 2026  To 23 JUL 2026 0.00 ",
+                "XXXXXXXXXXX SAMPLE PLATINUM"));
+        assertThat(metadata.statementPeriodStart()).isEqualTo(java.time.LocalDate.of(2026, 6, 24));
+        assertThat(metadata.statementPeriodEnd()).isEqualTo(java.time.LocalDate.of(2026, 7, 23));
+    }
+
+    @Test
+    void extract_anUnlabelledRangeRunningBackwards_orDeepInTheDocument_isIgnored() {
+        assertThat(extractor.extract(List.of("23 JUL 2026 To 24 JUN 2026")).statementPeriodStart()).isNull();
+        List<String> deep = new java.util.ArrayList<>(java.util.Collections.nCopies(9, "filler line"));
+        deep.add("24 JUN 2026 To 23 JUL 2026");
+        assertThat(extractor.extract(deep).statementPeriodStart()).isNull();
+    }
+
+    @Test
+    void extract_readsAnUnlabelledMaskedCardNumber_asPrintedOnAStateLine() {
+        var metadata = extractor.extract(List.of(
+                "MR SAMPLE HOLDER",
+                "State: 27 - SAMPLESTATE 48xx xxxx xxxx 6048 48xx xxxx xxxx 6048"));
+        assertThat(metadata.accountNumberMasked()).isEqualTo("48xx xxxx xxxx 6048");
+        assertThat(metadata.accountNumberFullForHashingOnly()).isNull();
+    }
+
+    @Test
+    void extract_aLabelledNumber_stillWinsOverAnUnlabelledMaskedToken() {
+        var metadata = extractor.extract(List.of(
+                "Account Number: 000123456789",
+                "State: 27 - SAMPLESTATE 48xx xxxx xxxx 6048"));
+        assertThat(metadata.accountNumberMasked()).endsWith("6789");
+    }
 }

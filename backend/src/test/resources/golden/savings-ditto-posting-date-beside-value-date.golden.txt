@@ -8,7 +8,7 @@ sections: 1
   accountNumberMasked: ••••9999
   accountHolderName: XX XXXXXXX XXXXXXXX XXXXXXXX
   ifscCode: SCBL0XXXXXX   MICR
-  statementPeriod: null .. null
+  statementPeriod: 2026-05-01 .. 2026-06-30
   product: UNKNOWN (53%, UNIDENTIFIED)
   mayCreateAutomatically: false
 

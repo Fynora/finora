@@ -102,6 +102,13 @@ public class CapabilityCoverageService {
             // with the chain. See PrintedBalanceExtractor and PdfPreviewGenerator.
             "PRINTED_OPENING_CLOSING_BALANCE", "PRINTED_BALANCE_USED_AS_OPENING",
             "PRINTED_BALANCE_USED_AS_CLOSING", "PRINTED_BALANCE_DISAGREES_WITH_CHAIN",
+            // A statement period read after a "STATEMENT DATE :" label followed by the full range
+            // (a real Standard Chartered export), or from an unlabelled "<date> To <date>" on an
+            // early pre-table line when nothing labelled it (both real HSBC cards); and a card number
+            // read from an unlabelled "NNxx xxxx xxxx NNNN" token (the same two HSBC cards). See
+            // PdfMetadataExtractor.STATEMENT_DATE_RANGE / UNLABELLED_DATE_RANGE / UNLABELLED_MASKED_CARD_NUMBER.
+            "STATEMENT_PERIOD_FROM_STATEMENT_DATE_RANGE", "STATEMENT_PERIOD_UNLABELLED_RANGE",
+            "CARD_NUMBER_FROM_UNLABELLED_MASK",
             "GRID_METADATA_FALLBACK", "GRID_METADATA_TRAILING_LABEL",
             "LEADING_NAME_LINE", "LEADING_NARRATION_CONTINUATION",
             "FINANCIAL_PRODUCT_CLASSIFICATION",

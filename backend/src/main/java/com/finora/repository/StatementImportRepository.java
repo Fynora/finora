@@ -15,6 +15,12 @@ import java.util.UUID;
 
 public interface StatementImportRepository extends JpaRepository<StatementImport, UUID> {
 
+    /** Live statements on this account whose older rows the balance already held when they were
+     *  imported -- the ones {@code BalanceCoverage.release} may have to count after all. Only
+     *  statements confirmed since V231 can match, and only when a covering statement is reversed,
+     *  so the entity load (with the eager {@code fileContent} documented below) stays rare. */
+    List<StatementImport> findByAccountIdAndBalanceCoveredThroughIsNotNull(UUID accountId);
+
     /**
      * Every column any caller of this repository actually needs for a list/summary view,
      * deliberately excluding {@code fileContent}.

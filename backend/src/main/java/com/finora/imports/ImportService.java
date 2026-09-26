@@ -101,6 +101,7 @@ public class ImportService {
     private final TransactionRepository transactionRepository;
     private final MerchantRepository merchantRepository;
     private final StatementImportRepository statementImportRepository;
+    private final com.finora.accounts.BalanceCoverage balanceCoverage;
     private final CategorizationService categorizationService;
     private final ReconciliationService reconciliationService;
     private final RecurringService recurringService;
@@ -169,6 +170,7 @@ public class ImportService {
         this.transactionRepository = transactionRepository;
         this.merchantRepository = merchantRepository;
         this.statementImportRepository = statementImportRepository;
+        this.balanceCoverage = new com.finora.accounts.BalanceCoverage(statementImportRepository, transactionRepository);
         this.categorizationService = categorizationService;
         this.reconciliationService = reconciliationService;
         this.recurringService = recurringService;
@@ -1411,6 +1413,21 @@ public class ImportService {
                 accountType,
                 effectiveOpeningBalance, request.statementClosingBalance(),
                 totalCredits, totalDebits, toInsert.size(), skipped);
+        // An account this import just created, with a stated opening balance, starts at that
+        // opening: every transaction before this statement's period is already inside it. Recorded
+        // so a statement for an earlier month, uploaded later, does not add those again (see
+        // BalanceCoverage). Nothing is recorded when no opening was stated -- the account then
+        // started from zero, which says nothing about any date.
+        final LocalDate baselineDate = request.statementPeriodStart() != null
+                ? request.statementPeriodStart().minusDays(1)
+                : minDate != null ? minDate.minusDays(1) : null;
+        if (!accountsCreated.isEmpty() && request.newAccount() != null
+                && request.newAccount().openingBalance() != null && baselineDate != null) {
+            accountRepository.findById(accountId).ifPresent(account -> {
+                account.setBalanceBaselineDate(baselineDate);
+                accountRepository.save(account);
+            });
+        }
         boolean closingBalanceIsAuthoritative = balanceDecision.mayOverwriteAccountBalance()
                 && isMostRecentStatementForAccount(userId, accountId, maxDate, savedImport.getId());
         if (closingBalanceIsAuthoritative) {
@@ -1430,12 +1447,23 @@ public class ImportService {
             });
         } else if (!toInsert.isEmpty()) {
             accountRepository.findById(accountId).ifPresent(account -> {
+                // Only rows after the date the balance is already known as of move it. A statement
+                // older than that -- March uploaded after July's closing balance set the account,
+                // or any month before the one the account was created from -- is already inside
+                // the balance; adding it counted it twice (measured: 76,485 over on five chained
+                // months uploaded March, July, April, June, May). The date is recorded so every
+                // later reversal skips the same rows (AccountBalanceConvention.effectiveMode).
+                LocalDate knownThrough = balanceCoverage.knownThrough(account);
+                List<Transaction> moving = knownThrough == null ? toInsert : toInsert.stream()
+                        .filter(t -> t.getTxnDate() == null || t.getTxnDate().isAfter(knownThrough))
+                        .toList();
+                if (moving.size() < toInsert.size()) savedImport.setBalanceCoveredThrough(knownThrough);
                 // AccountBalanceConvention, not a local loop: the credit-card inversion (a purchase
                 // INCREASES what is owed) is a property of the account type, and re-deriving it
                 // here is exactly the duplication that produced this bug. StatementImportService
                 // .delete reverses this with netDelta(...).negate() so an import/delete cycle
                 // returns the balance to where it started.
-                BigDecimal net = AccountBalanceConvention.netDelta(account.getAccountType(), toInsert);
+                BigDecimal net = AccountBalanceConvention.netDelta(account.getAccountType(), moving);
                 if (net.signum() != 0) {
                     account.setBalance(account.getBalance().add(net));
                     accountRepository.save(account);
@@ -1504,11 +1532,16 @@ public class ImportService {
         // metadata query a few lines below with a duplicate-key merge (Collectors.toMap) -- a
         // second merge() on an already-managed instance is not the no-op it looks like, it produces
         // a second row visible to a query issued later in the same persistence context.
+        LocalDate coveredThrough = savedImport.getBalanceCoveredThrough();
+        boolean everyRowCovered = coveredThrough != null && toInsert.stream()
+                .allMatch(t -> t.getTxnDate() != null && !t.getTxnDate().isAfter(coveredThrough));
         savedImport.setBalanceApplicationMode(closingBalanceIsAuthoritative
                 ? StatementImport.BalanceApplicationMode.ABSOLUTE
-                : !toInsert.isEmpty()
-                        ? StatementImport.BalanceApplicationMode.ADDITIVE
-                        : StatementImport.BalanceApplicationMode.NONE);
+                : toInsert.isEmpty()
+                        ? StatementImport.BalanceApplicationMode.NONE
+                        : everyRowCovered
+                                ? StatementImport.BalanceApplicationMode.COVERED
+                                : StatementImport.BalanceApplicationMode.ADDITIVE);
 
         // Counted HERE rather than after reconciliation, which is where it used to sit. Nothing
         // between the two points creates merchants -- they are created while the rows above are

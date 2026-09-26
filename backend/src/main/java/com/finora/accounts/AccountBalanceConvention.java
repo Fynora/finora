@@ -5,6 +5,7 @@ import com.finora.entity.StatementImport;
 import com.finora.entity.Transaction;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.Collection;
 
 /**
@@ -203,5 +204,30 @@ public final class AccountBalanceConvention {
             total = total.add(balanceDelta(type, t.getTxnType(), t.getAmount()));
         }
         return total;
+    }
+
+    /**
+     * The balance mode that applied to this one row of {@code statement}: {@code COVERED} for a row
+     * dated on or before the statement's {@link StatementImport#getBalanceCoveredThrough()}, whose
+     * effect was already inside the balance when it was imported, and the statement's own recorded
+     * mode otherwise. An ADDITIVE statement can hold both kinds -- one that runs past the date the
+     * balance is known as of -- so every site deciding whether a row moved the balance asks here
+     * rather than reading the statement's mode alone.
+     *
+     * @param statement the row's statement import, or null for a row with none
+     */
+    public static StatementImport.BalanceApplicationMode effectiveMode(StatementImport statement, Transaction row) {
+        if (statement == null) return null;
+        LocalDate coveredThrough = statement.getBalanceCoveredThrough();
+        if (coveredThrough != null && row != null && row.getTxnDate() != null && !row.getTxnDate().isAfter(coveredThrough)) {
+            return StatementImport.BalanceApplicationMode.COVERED;
+        }
+        return statement.getBalanceApplicationMode();
+    }
+
+    /** Whether this row of {@code statement} moved {@code Account.balance} by its own net effect when
+     *  imported -- see {@link #effectiveMode}. */
+    public static boolean movedBalanceAtImport(StatementImport statement, Transaction row) {
+        return effectiveMode(statement, row) == StatementImport.BalanceApplicationMode.ADDITIVE;
     }
 }

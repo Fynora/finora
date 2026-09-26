@@ -1882,7 +1882,10 @@ public class ReconciliationService {
                 List<Transaction> inBalance = new java.util.ArrayList<>();
                 for (Transaction t : entry.getValue()) {
                     StatementImport si = importOf.apply(t.getStatementImportId());
-                    StatementImport.BalanceApplicationMode mode = si == null ? null : si.getBalanceApplicationMode();
+                    // Per row, not per statement: a row its import found already inside the
+                    // balance never moved it (StatementImport.balanceCoveredThrough).
+                    StatementImport.BalanceApplicationMode mode =
+                            com.finora.accounts.AccountBalanceConvention.effectiveMode(si, t);
                     boolean reversed = com.finora.accounts.AccountBalanceConvention
                             .netEffectIsInBalance(t.getSource(), mode, t.getCreatedAt(), anchoredAt);
                     // Recorded on the row, for the sites that later clear the mark or remove the

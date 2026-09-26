@@ -71,7 +71,10 @@ public class StatementImportService {
         this.bankManagementService = bankManagementService;
         this.statementContentService = statementContentService;
         this.reimportClaimRepository = reimportClaimRepository;
+        this.balanceCoverage = new com.finora.accounts.BalanceCoverage(statementImportRepository, transactionRepository);
     }
+
+    private final com.finora.accounts.BalanceCoverage balanceCoverage;
 
     // How long a deleted account's statement history stays visible in Statement History before
     // it's dropped from the response for good. Chosen to give "oops, wrong account" a real
@@ -510,9 +513,14 @@ public class StatementImportService {
                 // TRANSFER/REFUND/REVERSAL/INVESTMENT_TRANSFER rows stay included: those
                 // classifications only affect expense/income REPORTING (RefundNetting.reportable),
                 // not Account.balance -- the cash genuinely moved, so the balance still reflects it.
+                // Also excludes a row this statement's import found already inside the balance (a
+                // month older than the balance's known date -- StatementImport
+                // .balanceCoveredThrough): it never moved the balance, so removing it must not.
                 List<Transaction> stillContributing = toRemove.stream()
                         .filter(t -> (t.getIsDuplicateOf() == null || !t.isDuplicateBalanceReversed())
-                                && t.getReconciliationStatus() != Transaction.ReconciliationStatus.SUPERSEDED)
+                                && t.getReconciliationStatus() != Transaction.ReconciliationStatus.SUPERSEDED
+                                && AccountBalanceConvention.effectiveMode(statementImport, t)
+                                        != StatementImport.BalanceApplicationMode.COVERED)
                         .toList();
                 BigDecimal reversal = AccountBalanceConvention
                         .netDelta(account.getAccountType(), stillContributing).negate();
@@ -625,6 +633,10 @@ public class StatementImportService {
         }
         account.setLastAbsoluteSetStatementId(restored == null ? null : restored.getId());
         releaseDuplicateMarksHeldBy(reversedIds, restored, account);
+        // Older statements imported while this SET stood left their rows out of the balance, since
+        // its closing figure already held them. With the SET gone those rows count again -- see
+        // BalanceCoverage.release. After the pointer move, so it measures against what is live now.
+        balanceCoverage.release(account);
         accountRepository.save(account);
         return ReversalOutcome.REVERSED;
     }
@@ -776,8 +788,12 @@ public class StatementImportService {
                     // TRANSFER/REFUND/REVERSAL/INVESTMENT_TRANSFER rows stay included: those
                     // classifications only affect expense/income REPORTING (RefundNetting.reportable),
                     // not Account.balance -- the cash genuinely moved, so the balance still reflects it.
+                    // Rows the original's import found already inside the balance never moved it
+                    // (StatementImport.balanceCoveredThrough), so they are not reversed either.
                     List<Transaction> stillContributing = originalTransactions.stream()
-                            .filter(t -> t.getIsDuplicateOf() == null || !t.isDuplicateBalanceReversed())
+                            .filter(t -> (t.getIsDuplicateOf() == null || !t.isDuplicateBalanceReversed())
+                                    && AccountBalanceConvention.effectiveMode(original, t)
+                                            != StatementImport.BalanceApplicationMode.COVERED)
                             .toList();
                     if (!stillContributing.isEmpty()) {
                         Optional<Account> account = accountRepository.findById(original.getAccountId());
@@ -818,7 +834,7 @@ public class StatementImportService {
             case UNKNOWN_LEGACY -> warning = "This statement predates balance-application tracking, so its "
                     + "contribution to the account balance could not be automatically reversed. An "
                     + "administrator should verify this account's balance.";
-            case NONE -> { /* no reversal -- nothing was ever moved, see BalanceApplicationMode's own doc comment */ }
+            case NONE, COVERED -> { /* no reversal -- nothing was ever moved, see BalanceApplicationMode's own doc comment */ }
         }
 
         original.setSupersededBy(replacementId);

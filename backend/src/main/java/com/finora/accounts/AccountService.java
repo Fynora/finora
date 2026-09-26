@@ -245,13 +245,15 @@ public class AccountService {
     private void rebaseDuplicateMarks(Account account) {
         List<Transaction> marked = transactionRepository.findByAccountIdAndIsDuplicateOfIsNotNull(account.getId());
         if (marked.isEmpty()) return;
-        Map<UUID, StatementImport.BalanceApplicationMode> modes = new HashMap<>();
+        Map<UUID, java.util.Optional<StatementImport>> imports = new HashMap<>();
         List<Transaction> dirty = new java.util.ArrayList<>();
         for (Transaction t : marked) {
             if (t.isDuplicateBalanceReversed() && t.getDuplicateBalanceAnchorId() == null) continue;
+            // Per row (AccountBalanceConvention.effectiveMode): a row its import found already
+            // inside the balance never moved it, whatever the statement's own mode says.
             StatementImport.BalanceApplicationMode mode = t.getStatementImportId() == null ? null
-                    : modes.computeIfAbsent(t.getStatementImportId(), id -> statementImportRepository.findById(id)
-                            .map(StatementImport::getBalanceApplicationMode).orElse(null));
+                    : AccountBalanceConvention.effectiveMode(imports.computeIfAbsent(t.getStatementImportId(),
+                            statementImportRepository::findById).orElse(null), t);
             t.setDuplicateBalanceReversed(AccountBalanceConvention.netEffectIsInBalance(
                     t.getSource(), mode, t.getCreatedAt(), null));
             t.setDuplicateBalanceAnchorId(null);

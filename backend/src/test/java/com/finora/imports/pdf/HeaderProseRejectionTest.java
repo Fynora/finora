@@ -257,8 +257,10 @@ class HeaderProseRejectionTest {
         PdfTableLocator.LocatedDocument located = new PdfTableLocator().locateAll(PdfTrace.load(CONTROL));
         assertThat(located.sections()).as("still four located sections").hasSize(4);
         assertThat(located.sections().stream().mapToInt(s -> s.rows().size()).sum())
-                .as("still 102 located rows across all four sections")
-                .isEqualTo(102);
+                // 102 -> 95 with LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER (seven page-furniture
+                // lines became auxiliary text; every dated row verified identical).
+                .as("still 95 located rows across all four sections")
+                .isEqualTo(95);
 
         // PdfPreviewGenerator.mergeOrphanedInvestmentFragments merges this document's own RD
         // account summary and its separate installment schedule into one section before

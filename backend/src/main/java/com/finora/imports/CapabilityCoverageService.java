@@ -63,6 +63,30 @@ public class CapabilityCoverageService {
             "OFFSET_COLUMN_ANCHORS", "COLUMN_SPAN_PLACEMENT", "RECONCILED_HEADER_SECTIONS_REMERGED",
             "TRAILING_IDENTITY_CARRIED_FORWARD", "INVESTMENT_FRAGMENT_REMERGED", "EMPTY_SECTION_DROPPED",
             "SAME_DAY_CONTINUATION_TRANSACTION",
+            // A dateless row carrying its own currency value in an amount column the open anchor
+            // already filled: a second transaction printed under one date (a real credit-card
+            // statement's fee-and-tax pair), not a wrapped description. See the SAME_DAY branch in
+            // PdfTableLocator.locateAll.
+            "DATELESS_AMOUNT_ROW_SPLIT",
+            // A blank posting-Date cell beside a printed Value Date inherits the Date of the row
+            // above: the bank printed the date once for a run of same-day transactions (a real
+            // Standard Chartered export). See PdfTableLocator.inheritDittoDate.
+            "DITTO_DATE_INHERITED",
+            // A trailing-shaped dateless line refused as a continuation because a line above it
+            // is already buffered as the next transaction's leading narration: text does not
+            // interleave. Traced on a real Canara Bank statement, across a page break and on one
+            // page by proximity. See PdfTableLocator's trailing branch (pendingLeading == null).
+            "TRAILING_REFUSED_BEHIND_LEADING_BUFFER",
+            // Dateless text buffered as leading narration before a repeated per-page banner or
+            // header is closed off there (kept as its own unparseable row) so the first
+            // transaction after the banner gets only its own narration. Traced on a real Bank of
+            // Baroda statement. See PdfTableLocator's REPEATED_ACCOUNT_BANNER / REPEATED_HEADER sites.
+            "LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER",
+            // A credit limit printed on the document (grid or line-based) was read but not
+            // attached, because the section it would have gone to is not a credit card (a real
+            // composite relationship statement lists the card's limit beside a savings account).
+            // See PdfPreviewGenerator.creditLimitAppliesTo.
+            "CREDIT_LIMIT_WITHHELD_FROM_NON_CARD_SECTION",
             "GRID_METADATA_FALLBACK", "GRID_METADATA_TRAILING_LABEL",
             "LEADING_NAME_LINE", "LEADING_NARRATION_CONTINUATION",
             "FINANCIAL_PRODUCT_CLASSIFICATION",

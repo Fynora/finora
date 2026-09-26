@@ -201,16 +201,22 @@ class WrappedHeaderOnAScoringLinePdfTableLocatorTest {
         // misdetected payment-summary panel (2 rows), not fine print -- real rows survive. 110, not
         // 111, since TRANSACTION_TABLE_CLOSED (STATEMENT_CLOSING_MARKER) started stopping at this
         // trace's own "*** End of Statement ***" line.
-        expected.put("axis-credit-card-statement", new int[]{1, 110});
-        expected.put("bob-repeated-account-banner", new int[]{1, 58});
-        expected.put("bob-savings-ledger-validation", new int[]{1, 58});
+        // 110 -> 109 and 58 -> 56 with LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER: page furniture
+        // buffered before a repeated banner/header is auxiliary text now, not a dateless row.
+        // Dated rows verified identical on the Axis trace; on the two BOB traces the only dated
+        // change is two transactions regaining the narration line their page break had cost them.
+        expected.put("axis-credit-card-statement", new int[]{1, 109});
+        expected.put("bob-repeated-account-banner", new int[]{1, 56});
+        expected.put("bob-savings-ledger-validation", new int[]{1, 56});
         // 61, not 60: SAME_DAY_CONTINUATION_TRANSACTION now recognizes this trace's dateless
         // "Closing Balance" marker (it restates the last transaction's own balance, same shape as
         // the "Opening Balance" row already at row 0) as its own row instead of being silently
         // absorbed into the last real transaction's description text.
         expected.put("canara-savings-ledger-validation", new int[]{1, 61});
         expected.put("central-bank-savings-ledger-validation", new int[]{1, 223}); // was {1, 224}
-        expected.put("hdfc-composite-deposit-schedules", new int[]{4, 102});
+        // 102 -> 95 with LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER: seven page-furniture lines of
+        // the savings ledger are auxiliary text now, not dateless rows; dated rows verified identical.
+        expected.put("hdfc-composite-deposit-schedules", new int[]{4, 95});
         // {2, 6} before looksLikePaymentSummaryPanel: same panel shape, 2 rows dropped.
         expected.put("hdfc-credit-card-ledger-validation", new int[]{1, 4});
         // 331 -> 266: WRAPPED_DESCRIPTION_BEYOND_COUNT_CAP merges this export's third and
@@ -242,7 +248,7 @@ class WrappedHeaderOnAScoringLinePdfTableLocatorTest {
         // {4, 7} before looksLikePaymentSummaryPanel: one of the four sections was itself a
         // payment-summary panel (2 rows) -- 3 sections, 5 rows survive.
         expected.put("sbi-credit-card-statement", new int[]{3, 5});
-        expected.put("union-bank-savings-ledger-validation", new int[]{1, 20});
+        expected.put("union-bank-savings-ledger-validation", new int[]{1, 19}); // 20 before LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER; one page-furniture line is auxiliary text now
         return expected;
     }
 

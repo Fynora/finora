@@ -73,4 +73,19 @@ class InvestmentFragmentRemergedPdfPreviewGeneratorTest {
         assertThat(sections).as("the summary and schedule must merge into one staged section").hasSize(1);
         assertThat(sections.get(0).detectedAccount().detectedProduct()).isEqualTo("RECURRING_DEPOSIT");
     }
+
+    @Test
+    void aScheduleThatNamesTheSameProductWithoutProvingIt_stillRemerges() throws Exception {
+        // The schedule's own text mentions the product and interest, so alone it scores as the
+        // same product, unproven, rather than UNKNOWN -- it is still the same account's fragment.
+        byte[] pdf = PdfFixtureBuilder.buildOrphanedInvestmentScheduleWithDisclaimerSample();
+        PdfPreviewGenerator.PdfGenerationResult result =
+                pdfGenerator().generateSectionsWithContext(UUID.randomUUID(), "statement.pdf", pdf);
+
+        assertThat(result.documentContext().capabilities()).extracting(c -> c.capability())
+                .contains("INVESTMENT_FRAGMENT_REMERGED");
+        List<StagedAccountSection> sections = result.sections();
+        assertThat(sections).as("still one staged section, not a phantom second account").hasSize(1);
+        assertThat(sections.get(0).detectedAccount().detectedProduct()).isEqualTo("RECURRING_DEPOSIT");
+    }
 }

@@ -1381,4 +1381,59 @@ class DashboardServiceTest {
 
         assertThatCode(() -> dashboardService.summarize(userId)).doesNotThrowAnyException();
     }
+
+    // ---- flow classification: only real income counts as monthly income ----
+
+    @Test
+    void summarize_moneyFromAPersonIsNotMonthlyIncome() {
+        LocalDate july = LocalDate.of(2026, 7, 15);
+        Transaction salary = txn(new BigDecimal("50000.00"), Transaction.Type.INCOME, july, Transaction.ReconciliationStatus.OK);
+        salary.setAccountId(savings.getId());
+        salary.setDescription("NEFT ACME TECHNOLOGIES SALARY JUL");
+        Transaction fromPerson = txn(new BigDecimal("10000.00"), Transaction.Type.INCOME, july, Transaction.ReconciliationStatus.OK);
+        fromPerson.setAccountId(savings.getId());
+        fromPerson.setDescription("UPI-SUNIL VERMA-sampleuser@ybl-REF1");
+        fromPerson.setCounterpartyType(com.finora.util.CounterpartyType.PERSON);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(salary, fromPerson));
+
+        DashboardSummaryDto summary = dashboardService.summarize(userId);
+
+        assertThat(summary.monthlyIncome()).isEqualByComparingTo("50000.00");
+        assertThat(summary.unresolvedInflow()).isEqualByComparingTo("10000.00");
+        assertThat(summary.unresolvedInflowCount()).isEqualTo(1);
+        assertThat(summary.unresolvedTopReason()).isEqualTo("PERSON_INFLOW");
+    }
+
+    @Test
+    void summarize_allCreditsUnresolved_incomeZeroNoException() {
+        LocalDate july = LocalDate.of(2026, 7, 15);
+        Transaction fromPerson = txn(new BigDecimal("10000.00"), Transaction.Type.INCOME, july, Transaction.ReconciliationStatus.OK);
+        fromPerson.setAccountId(savings.getId());
+        fromPerson.setDescription("UPI-SUNIL VERMA-sampleuser@ybl-REF2");
+        fromPerson.setCounterpartyType(com.finora.util.CounterpartyType.PERSON);
+        Transaction rent = txn(new BigDecimal("15000.00"), Transaction.Type.EXPENSE, july, Transaction.ReconciliationStatus.OK);
+        rent.setAccountId(savings.getId());
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(fromPerson, rent));
+
+        DashboardSummaryDto summary = dashboardService.summarize(userId);
+
+        assertThat(summary.monthlyIncome()).isEqualByComparingTo("0");
+        assertThat(summary.savingsRatePct()).isEqualByComparingTo("0");
+        assertThat(summary.monthlyExpense()).isEqualByComparingTo("15000.00"); // spend unchanged by Plan 1
+    }
+
+    @Test
+    void summarize_nothingUnresolved_reportsZeroAndNullReason() {
+        LocalDate july = LocalDate.of(2026, 7, 15);
+        Transaction salary = txn(new BigDecimal("50000.00"), Transaction.Type.INCOME, july, Transaction.ReconciliationStatus.OK);
+        salary.setAccountId(savings.getId());
+        salary.setDescription("NEFT ACME TECHNOLOGIES SALARY JUL");
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(salary));
+
+        DashboardSummaryDto summary = dashboardService.summarize(userId);
+
+        assertThat(summary.unresolvedInflow()).isEqualByComparingTo("0");
+        assertThat(summary.unresolvedInflowCount()).isZero();
+        assertThat(summary.unresolvedTopReason()).isNull();
+    }
 }

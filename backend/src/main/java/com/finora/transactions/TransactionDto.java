@@ -56,7 +56,10 @@ public record TransactionDto(
         /** The original-currency amount printed beside the rupee {@link #amount}, both null when
          *  none was printed -- see {@code Transaction.foreignAmount}. Display only. */
         String foreignCurrency,
-        BigDecimal foreignAmount
+        BigDecimal foreignAmount,
+        /** A transfer between the user's own accounts whose other leg is not linked yet (found by
+         *  the user's own name, Plan 3). A client lets the user link it to that leg by hand. */
+        boolean awaitingTransferPartner
 ) {
     public static TransactionDto from(Transaction t, String categoryName) {
         return new TransactionDto(t.getId(), t.getAccountId(), t.getCategoryId(), categoryName, t.getTxnDate(),
@@ -69,7 +72,8 @@ public record TransactionDto(
                 // from narration text, and putting it on the wire invites a client to render it as
                 // a resolved identity. Grouping by it stays a server-side concern.
                 t.getCounterpartyType().name(),
-                t.isInternational(), t.getForeignCurrency(), t.getForeignAmount());
+                t.isInternational(), t.getForeignCurrency(), t.getForeignAmount(),
+                t.isTransfer() && t.getTransferPairId() == null);
     }
 
     // Bug fix: neither request record had any Bean Validation at all, and TransactionController's

@@ -761,7 +761,10 @@ public class TransactionService {
             throw new ApiException(HttpStatus.BAD_REQUEST,
                     "A transfer needs one income and one expense leg -- these are both " + a.getTxnType() + ".");
         }
-        if (a.isTransfer() || b.isTransfer()) {
+        // A transfer that already has a partner must be unmarked first. A one-sided own-account
+        // transfer (no partner yet -- Plan 3, found by the user's own name) is exactly the row a
+        // user links to its other leg, so it is accepted and becomes an ordinary pair.
+        if ((a.isTransfer() && a.getTransferPairId() != null) || (b.isTransfer() && b.getTransferPairId() != null)) {
             throw new ApiException(HttpStatus.BAD_REQUEST,
                     "One of these transactions is already marked as a transfer -- unmark it first.");
         }

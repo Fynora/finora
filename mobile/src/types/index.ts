@@ -127,6 +127,8 @@ export interface Transaction {
   // none was printed. Display only -- `amount` is always the rupee amount billed.
   foreignCurrency: string | null;
   foreignAmount: number | null;
+  /** A transfer between the user's own accounts whose other leg is not linked yet (Plan 3) -- can be picked as a transfer partner. */
+  awaitingTransferPartner?: boolean;
 }
 
 // One AuditLog row behind a pendingBankCorrection badge -- see

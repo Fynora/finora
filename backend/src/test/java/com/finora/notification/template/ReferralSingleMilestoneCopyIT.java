@@ -44,6 +44,21 @@ class ReferralSingleMilestoneCopyIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void grantActivatedRendersAPlanNameAndAPlainDate() {
+        java.time.Instant expiry = java.time.Instant.parse("2026-10-26T20:03:11.123Z");
+        Map<String, String> params = Map.of(
+                "tier", com.finora.service.ReferralGrantSweepService.tierDisplayName(ReferralGrant.TIER_PLUS),
+                "expiresAt", com.finora.service.ReferralGrantSweepService.EXPIRY_DATE_FORMAT.format(expiry));
+        for (NotificationChannel channel : new NotificationChannel[] {NotificationChannel.EMAIL, NotificationChannel.PUSH}) {
+            RenderedMessage m = renderer.render(NotificationType.REFERRAL_GRANT_ACTIVATED, channel, params);
+            String all = m.title() + " " + m.body();
+            // 20:03 UTC on the 26th is already the 27th in India.
+            assertThat(all).as(channel.name()).contains("Plus").contains("27 Oct 2026")
+                    .doesNotContain("PLUS").doesNotContain("T20:03").doesNotContain("{{");
+        }
+    }
+
+    @Test
     void theOldCopyIsRetiredNotDeleted() {
         Integer retired = jdbcTemplate.queryForObject("""
                 SELECT count(*) FROM notification_templates

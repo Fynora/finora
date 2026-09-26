@@ -82,7 +82,18 @@ class ReferralGrantSweepServiceTest {
         assertThat(pending.getActivatedAt()).isNotNull();
         assertThat(pending.getExpiresAt()).isAfter(Instant.now());
         verify(referralGrantRepository).save(pending);
-        verify(notificationService).request(argThat(req -> req.type() == NotificationType.REFERRAL_GRANT_ACTIVATED));
+        // Customer-facing values: a plan name and a plain date, never the raw code or an ISO instant.
+        String expectedExpiry = ReferralGrantSweepService.EXPIRY_DATE_FORMAT.format(pending.getExpiresAt());
+        verify(notificationService).request(argThat(req -> req.type() == NotificationType.REFERRAL_GRANT_ACTIVATED
+                && "Plus".equals(req.params().get("tier"))
+                && expectedExpiry.equals(req.params().get("expiresAt"))
+                && req.params().get("expiresAt").matches("\\d{2} [A-Z][a-z]{2} \\d{4}")));
+    }
+
+    @Test
+    void tierDisplayName_isAPlanNameNotTheCode() {
+        assertThat(ReferralGrantSweepService.tierDisplayName(ReferralGrant.TIER_PLUS)).isEqualTo("Plus");
+        assertThat(ReferralGrantSweepService.tierDisplayName(ReferralGrant.TIER_PREMIUM)).isEqualTo("Premium");
     }
 
     @Test

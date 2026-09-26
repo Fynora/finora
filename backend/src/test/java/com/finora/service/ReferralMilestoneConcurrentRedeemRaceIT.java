@@ -10,6 +10,7 @@ import com.finora.repository.UserRepository;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.util.UUID;
@@ -27,7 +28,7 @@ import static org.mockito.Mockito.doAnswer;
  * this feature's own initial implementation: two concurrent redeem requests (a
  * double-click, two open tabs) could both read the same pre-reset counter and both pass a
  * Java-side check, creating two {@code ReferralGrant} rows -- two free months -- for one threshold
- * crossing. {@code ReferralCodeRepository.resetMilestoneCounterIfAtLeast}'s conditional {@code UPDATE}
+ * crossing. {@code ReferralCodeRepository.consumeMilestoneIfAtLeast}'s conditional {@code UPDATE}
  * is what actually closes that race; this proves it does, at the real database, not just via a
  * mocked return value.
  *
@@ -44,6 +45,7 @@ class ReferralMilestoneConcurrentRedeemRaceIT extends AbstractIntegrationTest {
     @Autowired private UserRepository userRepository;
     @Autowired private ReferralGrantRepository referralGrantRepository;
     @Autowired private EntityManager entityManager;
+    @Autowired private JdbcTemplate jdbcTemplate;
 
     @MockitoSpyBean private ReferralCodeRepository referralCodeRepository;
 
@@ -79,7 +81,7 @@ class ReferralMilestoneConcurrentRedeemRaceIT extends AbstractIntegrationTest {
             UUID userId = invocation.getArgument(0);
             Integer required = invocation.getArgument(1);
             int updated = entityManager.createNativeQuery("""
-                    UPDATE referral_codes SET premium_milestone_counter = 0
+                    UPDATE referral_codes SET premium_milestone_counter = premium_milestone_counter - :required
                     WHERE user_id = :userId AND premium_milestone_counter >= :required
                     """)
                     .setParameter("userId", userId)
@@ -90,7 +92,7 @@ class ReferralMilestoneConcurrentRedeemRaceIT extends AbstractIntegrationTest {
                 assertThat(releaseFirst.await(30, TimeUnit.SECONDS)).isTrue();
             }
             return updated;
-        }).when(referralCodeRepository).resetMilestoneCounterIfAtLeast(eq(referrer.getId()), anyInt());
+        }).when(referralCodeRepository).consumeMilestoneIfAtLeast(eq(referrer.getId()), anyInt());
 
         Thread first = new Thread(() -> {
             try {
@@ -133,6 +135,78 @@ class ReferralMilestoneConcurrentRedeemRaceIT extends AbstractIntegrationTest {
 
         // The real invariant: exactly one grant survived, not two -- the loser's redemption never
         // created a second free month for the same threshold crossing.
+        assertThat(referralGrantRepository.findByUserIdOrderByCreatedAtDesc(referrer.getId())).hasSize(1);
+    }
+
+    /**
+     * A friend's subscription landing while the referrer redeems. Before the increment took a row
+     * lock, it read the pre-redemption 7 (the redeem's UPDATE was not committed yet), then wrote
+     * 7 + 1 = 8 over the redeem's result -- so the 7 just redeemed counted again and a second free
+     * month unlocked after one more referral. With the lock, the increment waits for the redeem to
+     * commit and reads what it left.
+     */
+    @Test
+    void aReferralLandingMidRedeemIsCountedOnTopOfTheRedemptionNotOverIt() throws Exception {
+        User referrer = newUser();
+        String code = referralService.myCode(referrer.getId());
+        for (int i = 0; i < ReferralService.MILESTONE_REFERRALS; i++) {
+            User referred = newUser();
+            referralService.redeemCode(referred.getId(), code);
+            referralService.onPlanChanged(referred.getId(), "PLUS");
+        }
+        User late = newUser();
+        referralService.redeemCode(late.getId(), code);
+
+        CountDownLatch redeemHasUpdatedButNotCommitted = new CountDownLatch(1);
+        CountDownLatch releaseRedeem = new CountDownLatch(1);
+        AtomicReference<Throwable> redeemFailure = new AtomicReference<>();
+        AtomicReference<Throwable> incrementFailure = new AtomicReference<>();
+
+        doAnswer(invocation -> {
+            int updated = entityManager.createNativeQuery("""
+                    UPDATE referral_codes SET premium_milestone_counter = premium_milestone_counter - :required
+                    WHERE user_id = :userId AND premium_milestone_counter >= :required
+                    """)
+                    .setParameter("userId", invocation.getArgument(0))
+                    .setParameter("required", invocation.getArgument(1))
+                    .executeUpdate();
+            redeemHasUpdatedButNotCommitted.countDown();
+            assertThat(releaseRedeem.await(30, TimeUnit.SECONDS)).isTrue();
+            return updated;
+        }).when(referralCodeRepository).consumeMilestoneIfAtLeast(eq(referrer.getId()), anyInt());
+
+        Thread redeem = new Thread(() -> {
+            try {
+                referralService.redeemMilestone(referrer.getId(), ReferralGrant.TIER_PLUS);
+            } catch (Throwable t) {
+                redeemFailure.set(t);
+            }
+        }, "redeem-mid-increment");
+        redeem.start();
+        assertThat(redeemHasUpdatedButNotCommitted.await(30, TimeUnit.SECONDS)).isTrue();
+
+        Thread increment = new Thread(() -> {
+            try {
+                referralService.onPlanChanged(late.getId(), "PLUS");
+            } catch (Throwable t) {
+                incrementFailure.set(t);
+            }
+        }, "increment-mid-redeem");
+        increment.start();
+        // Let the increment reach its read before the redeem commits, so the two really overlap.
+        Thread.sleep(500);
+
+        releaseRedeem.countDown();
+        redeem.join(TimeUnit.SECONDS.toMillis(30));
+        increment.join(TimeUnit.SECONDS.toMillis(30));
+        assertThat(redeem.isAlive()).isFalse();
+        assertThat(increment.isAlive()).isFalse();
+        assertThat(redeemFailure.get()).isNull();
+        assertThat(incrementFailure.get()).isNull();
+
+        Integer counter = jdbcTemplate.queryForObject(
+                "SELECT premium_milestone_counter FROM referral_codes WHERE user_id = ?", Integer.class, referrer.getId());
+        assertThat(counter).as("7 redeemed, then 1 new referral").isEqualTo(1);
         assertThat(referralGrantRepository.findByUserIdOrderByCreatedAtDesc(referrer.getId())).hasSize(1);
     }
 }

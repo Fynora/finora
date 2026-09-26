@@ -26,7 +26,7 @@ public interface EmailVerificationTokenRepository extends JpaRepository<EmailVer
      *  same raw token (a double-click, or an email client's link-preview bot fetching the
      *  verification URL followed by the real user's own click moments later) could both fetch the
      *  row while it was still unused and both pass that check before either committed. Same "the
-     *  mutation itself is the check" pattern as ReferralCodeRepository.resetMilestoneCounterIfAtLeast:
+     *  mutation itself is the check" pattern as ReferralCodeRepository.consumeMilestoneIfAtLeast:
      *  under Postgres's read-committed row locking, a second concurrent UPDATE targeting the same
      *  row blocks until the first commits, then re-evaluates this WHERE clause against the
      *  now-already-set usedAt and affects zero rows.

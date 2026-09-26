@@ -33,8 +33,8 @@ public class ReferralDtos {
      *  endpoint's pre-existing MVP shape; removing it would silently break that page's build. It
      *  is always {@code referrals.size()}, never independently computed.
      *  {@code premiumMilestoneCounter} is the ONE milestone counter: referrals reaching SUBSCRIBED
-     *  since the reward was last redeemed, toward ReferralService.MILESTONE_REFERRALS (7), which
-     *  earns a free month of Plus. The name is historical (it used to track a 7-referral Premium
+     *  not yet spent on a reward. Each redemption takes ReferralService.MILESTONE_REFERRALS (7)
+     *  off it for a free month of Plus, so anything past 7 carries over. The name is historical (it used to track a 7-referral Premium
      *  reward) and is kept so app builds already on phones keep parsing this response.
      *  {@code plusMilestoneCounter} is always 0 -- the 3-referral Plus reward was removed, and a real
      *  value would make older app builds offer a Redeem the server now rejects. {@code grants} is this user's own referral-grant history, newest first;

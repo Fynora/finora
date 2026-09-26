@@ -194,7 +194,8 @@ public class ReferralService {
                     referral.getId());
             return;
         }
-        ReferralCode code = referralCodeRepository.findByUserId(referral.getReferrerUserId()).orElse(null);
+        // Row-locked read: see findByUserIdForUpdate for the races a plain read allowed.
+        ReferralCode code = referralCodeRepository.findByUserIdForUpdate(referral.getReferrerUserId()).orElse(null);
         if (code == null) return;
 
         int updated = code.getPremiumMilestoneCounter() + 1;
@@ -210,7 +211,9 @@ public class ReferralService {
                 Set.of(NotificationChannel.PUSH, NotificationChannel.EMAIL),
                 Map.of("count", String.valueOf(updated))));
 
-        if (updated == MILESTONE_REFERRALS) {
+        // Every multiple, not just the first: redeeming subtracts 7 rather than resetting, so an
+        // unredeemed 14 is a second earned month and gets its own "redeem it now".
+        if (updated % MILESTONE_REFERRALS == 0) {
             notificationService.request(NotificationRequest.of(
                     referral.getReferrerUserId(),
                     NotificationType.REFERRAL_MILESTONE_REACHED,
@@ -223,8 +226,9 @@ public class ReferralService {
     }
 
     /**
-     * Self-service redemption (design spec sections 2/3). Always grants Plus and resets the one
-     * milestone counter to 0. The self-referral fraud check already ran at counter-increment time
+     * Self-service redemption (design spec sections 2/3). Always grants Plus and takes
+     * {@link #MILESTONE_REFERRALS} off the one milestone counter (not a reset to 0, so referrals
+     * beyond 7 carry over toward the next month). The self-referral fraud check already ran at counter-increment time
      * above; nothing further to check here.
      *
      * <p>{@code tier} is accepted as either PLUS or PREMIUM and treated the same: app builds
@@ -236,7 +240,7 @@ public class ReferralService {
      * error message before bothering to run the real check. Two concurrent redeem requests (a
      * double-click, two open tabs) both reading a pre-reset counter and both passing a Java-side
      * `if` would create two grants for one threshold crossing; see
-     * {@link ReferralCodeRepository#resetMilestoneCounterIfAtLeast} for why the UPDATE itself is
+     * {@link ReferralCodeRepository#consumeMilestoneIfAtLeast} for why the UPDATE itself is
      * what closes that race.
      *
      * @param tier ReferralGrant.TIER_PLUS or ReferralGrant.TIER_PREMIUM -- both grant Plus
@@ -254,8 +258,8 @@ public class ReferralService {
                     "Not enough referrals yet -- you have " + current + ", need " + MILESTONE_REFERRALS + ".");
         }
 
-        int reset = referralCodeRepository.resetMilestoneCounterIfAtLeast(userId, MILESTONE_REFERRALS);
-        if (reset == 0) {
+        int consumed = referralCodeRepository.consumeMilestoneIfAtLeast(userId, MILESTONE_REFERRALS);
+        if (consumed == 0) {
             throw new ApiException(HttpStatus.CONFLICT,
                     "This reward was just redeemed by another request. Not redeemed again.");
         }

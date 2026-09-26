@@ -53,9 +53,52 @@ public class RowBalanceEffect {
     }
 
     /**
+     * The account's SET chain, read link by link as far as a caller needs and kept, so locating
+     * every row of a statement (or of a bulk delete) reads each link once instead of once per row.
+     * The chain grows by a link with every statement whose closing balance sets the account -- a
+     * monthly statement uploader has one per month -- and a row from long ago walks most of it.
+     * Only valid for the operation that made it: nothing here notices a SET added or reversed later.
+     */
+    public final class Chain {
+        private final Account account;
+        private final java.util.List<StatementImportRepository.AnchorSnapshot> links = new java.util.ArrayList<>();
+        private UUID next;
+        private boolean ended;
+
+        private Chain(Account account) {
+            this.account = account;
+            this.next = account.getLastAbsoluteSetStatementId();
+            this.ended = next == null;
+        }
+
+        /** The i-th link back from the live anchor, or null past the end. */
+        StatementImportRepository.AnchorSnapshot link(int i) {
+            while (links.size() <= i && !ended) {
+                StatementImportRepository.AnchorSnapshot link = statementImportRepository
+                        .findAnchorSnapshotIncludingDeleted(account.getUserId(), account.getId(), next).orElse(null);
+                if (link == null) { ended = true; break; }
+                links.add(link);
+                next = link.getPreviousAbsoluteSetStatementId();
+                if (next == null) ended = true;
+            }
+            return i < links.size() ? links.get(i) : null;
+        }
+    }
+
+    public Chain chainOf(Account account) {
+        return new Chain(account);
+    }
+
+    /**
      * @param statement the row's statement import, or null when it has none (a manual entry)
      */
     public Location locate(Account account, Transaction row, StatementImport statement) {
+        return locate(account, row, statement, chainOf(account));
+    }
+
+    /** {@link #locate(Account, Transaction, StatementImport)} against a chain already being read --
+     *  use one {@link #chainOf} for every row of one operation on one account. */
+    public Location locate(Account account, Transaction row, StatementImport statement, Chain chain) {
         if (row.getIsDuplicateOf() != null && row.isDuplicateBalanceReversed()) return Location.NOWHERE;
         if (row.getSource() == Transaction.Source.ACCOUNT_AGGREGATOR) return Location.NOWHERE;
         if (statement != null) {
@@ -71,13 +114,10 @@ public class RowBalanceEffect {
         // Walk the SET chain back from the live anchor: the row is held by the earliest SET that
         // happened after it arrived. One that arrived after the live SET is in the balance itself.
         StatementImportRepository.AnchorSnapshot holder = null;
-        UUID id = account.getLastAbsoluteSetStatementId();
-        while (id != null) {
-            StatementImportRepository.AnchorSnapshot link = statementImportRepository
-                    .findAnchorSnapshotIncludingDeleted(account.getUserId(), account.getId(), id).orElse(null);
+        for (int i = 0; ; i++) {
+            StatementImportRepository.AnchorSnapshot link = chain.link(i);
             if (link == null || link.getImportedAt() == null || !createdAt.isBefore(link.getImportedAt())) break;
             holder = link;
-            id = link.getPreviousAbsoluteSetStatementId();
         }
         if (holder == null) return Location.BALANCE;
         // A SET from before its snapshot was recorded cannot carry the change; the row then moves

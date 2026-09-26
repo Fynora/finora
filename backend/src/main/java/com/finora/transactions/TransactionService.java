@@ -32,6 +32,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -457,13 +458,21 @@ public class TransactionService {
      * stays the stated figure.
      */
     private com.finora.accounts.RowBalanceEffect.Location locateEffect(Transaction t) {
+        return locateEffect(t, new HashMap<>());
+    }
+
+    /** @param chains one SET chain per account, shared by every row of one operation (bulkDelete) so
+     *                each link is read once -- see RowBalanceEffect.Chain. */
+    private com.finora.accounts.RowBalanceEffect.Location locateEffect(
+            Transaction t, Map<UUID, com.finora.accounts.RowBalanceEffect.Chain> chains) {
         Account account = accountRepository.findById(t.getAccountId()).orElse(null);
         // A since-deleted account has no balance left to correct -- same as adjustAccountBalance.
         if (account == null) return new com.finora.accounts.RowBalanceEffect.Location(
                 com.finora.accounts.RowBalanceEffect.Where.NOWHERE, null);
         StatementImport statement = t.getStatementImportId() == null ? null
                 : statementImportRepository.findById(t.getStatementImportId()).orElse(null);
-        return rowBalanceEffect.locate(account, t, statement);
+        return rowBalanceEffect.locate(account, t, statement,
+                chains.computeIfAbsent(account.getId(), id -> rowBalanceEffect.chainOf(account)));
     }
 
     private void moveEffect(Transaction t, com.finora.accounts.RowBalanceEffect.Location location, BigDecimal delta) {
@@ -687,8 +696,12 @@ public class TransactionService {
         // The row records what the mark did (Transaction.duplicateBalanceReversed), so this reads
         // the record rather than re-deriving it from state that may have changed since the mark.
         // V228 wrote the record for marks that predate it.
+        // Put back where the row's effect belongs NOW, not blindly on the balance: if a statement's
+        // closing balance set the account after the mark, the bank's figure already holds this real
+        // row, and it goes into that statement's pre-SET snapshot instead (locateEffect). Adding it
+        // to the balance overstated it by the row.
         if (reversedAtMark) {
-            adjustAccountBalance(saved.getAccountId(), balanceOf(saved));
+            moveEffect(saved, locateEffect(saved), balanceOf(saved));
         }
 
         reconciliationService.reconcileForUser(userId);
@@ -985,8 +998,9 @@ public class TransactionService {
     public void bulkDelete(UUID userId, List<UUID> ids, UUID actingAdminId) {
         List<Transaction> owned = getOwnedAll(userId, ids);
         clearReconciliationPointersTo(owned.stream().map(Transaction::getId).toList());
+        Map<UUID, com.finora.accounts.RowBalanceEffect.Chain> chains = new HashMap<>();
         for (Transaction t : owned) {
-            moveEffect(t, locateEffect(t), balanceOf(t).negate());
+            moveEffect(t, locateEffect(t, chains), balanceOf(t).negate());
             transactionRepository.delete(t);
         }
         reconciliationService.reconcileForUser(userId);
@@ -1050,7 +1064,9 @@ public class TransactionService {
             }
             t.setDuplicateBalanceAnchorId(null);
             t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
-            if (reversedAtMark) adjustAccountBalance(t.getAccountId(), balanceOf(t));
+            // Where its effect belongs now -- see confirmNotDuplicate. The mark is already cleared
+            // on `t` above, so it is located as the counted row it is again.
+            if (reversedAtMark) moveEffect(t, locateEffect(t), balanceOf(t));
             dirty.add(t);
         }
         for (Transaction t : transactionRepository.findByTransferPairIdIn(removedIds)) {

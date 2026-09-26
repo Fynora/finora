@@ -307,6 +307,58 @@ class StatedFigureBalanceIT extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("un-marking a duplicate taken off before a closing balance set the account moves nothing now, "
+            + "and still counts if that statement is deleted later")
+    void unMarkingARowTakenOffBeforeAClosingBalance_isPutBackInTheSnapshot() throws Exception {
+        UUID user = user().getId();
+        UUID account = untypedAccount(user, "1000.00");
+        LocalDate july = LocalDate.of(2026, 7, 1);
+        importStatement(user, account, null, null, july, LocalDate.of(2026, 7, 10),
+                row(LocalDate.of(2026, 7, 5), "METRO FARE", "45.00", "EXPENSE"));
+        UUID second = importStatement(user, account, null, null, july, LocalDate.of(2026, 7, 10),
+                row(LocalDate.of(2026, 7, 5), "MTR FARE TYPO", "45.00", "EXPENSE"));
+        assertThat(balanceOf(account)).isEqualByComparingTo("910.00");
+
+        // The narration fix makes the second fare a duplicate of the first: its 45 comes off.
+        Transaction fare = only(second);
+        transactionService.update(user, fare.getId(),
+                new TransactionDto.UpdateRequest(null, "METRO FARE", null, null, null, null, null, null));
+        assertThat(transactionRepository.findById(fare.getId()).orElseThrow().getIsDuplicateOf()).isNotNull();
+        assertThat(balanceOf(account)).isEqualByComparingTo("955.00");
+
+        // August's closing balance sets the account: 955 - 100 = 855.
+        UUID august = importStatement(user, account, new BigDecimal("955.00"), new BigDecimal("855.00"),
+                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31),
+                row(LocalDate.of(2026, 8, 20), "RENT", "100.00", "EXPENSE"));
+        assertThat(balanceOf(account)).isEqualByComparingTo("855.00");
+
+        // "Not a duplicate after all": both fares were real. August's closing balance -- the bank's
+        // figure -- already holds every real fare, so it stays what the bank said.
+        transactionService.confirmNotDuplicate(user, fare.getId());
+        assertThat(balanceOf(account)).isEqualByComparingTo("855.00");
+
+        statementImportService.delete(user, august, user);
+        assertThat(balanceOf(account))
+                .as("without August, the ledger is the opening 1000 less both fares")
+                .isEqualByComparingTo("910.00");
+    }
+
+    @Test
+    @DisplayName("an account created with a balance of exactly zero by the app itself is not a typed balance")
+    void anAccountCreatedWithZeroBalance_isNotATypedBalance() throws Exception {
+        UUID user = user().getId();
+        // The Gmail receipts bucket and new bank-link accounts are created with 0 by the app.
+        UUID account = accountService.create(user, new AccountDto.CreateRequest("Zero Balance", "SAVINGS",
+                BigDecimal.ZERO, null, null, null, null, null, null, null, null), user).id();
+        assertThat(accountRepository.findById(account).orElseThrow().getBalanceTypedAt()).isNull();
+        LocalDate lastMonth = today().minusMonths(1).withDayOfMonth(1);
+
+        importStatement(user, account, null, null, lastMonth, lastMonth.withDayOfMonth(lastMonth.lengthOfMonth()),
+                row(lastMonth.plusDays(2), "SALARY", "500.00", "INCOME"));
+        assertThat(balanceOf(account)).isEqualByComparingTo("500.00");
+    }
+
+    @Test
     @DisplayName("moving a covered row's date past the covered day makes it count")
     void editingACoveredRowsDatePastTheCoveredDay_makesItCount() throws Exception {
         UUID user = user().getId();

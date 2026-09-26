@@ -91,8 +91,9 @@ public class StatementImportService {
      */
     private List<Transaction> takeOffBalance(Account account, StatementImport statement, List<Transaction> rows) {
         List<Transaction> takenOff = new ArrayList<>();
+        com.finora.accounts.RowBalanceEffect.Chain chain = rowBalanceEffect.chainOf(account);
         for (Transaction t : rows) {
-            com.finora.accounts.RowBalanceEffect.Location location = rowBalanceEffect.locate(account, t, statement);
+            com.finora.accounts.RowBalanceEffect.Location location = rowBalanceEffect.locate(account, t, statement, chain);
             if (location.where() == com.finora.accounts.RowBalanceEffect.Where.NOWHERE) continue;
             rowBalanceEffect.apply(account, location, AccountBalanceConvention
                     .balanceDelta(account.getAccountType(), t.getTxnType(), t.getAmount()).negate());
@@ -467,13 +468,18 @@ public class StatementImportService {
                 t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
                 transactionRepository.save(t);
                 if (!reversedAtMark) continue;
+                // Put back where its effect belongs now (RowBalanceEffect): the balance, or -- when
+                // a statement's closing balance set the account after the mark -- that statement's
+                // pre-SET snapshot, since the bank's figure already holds this real row. When that
+                // statement is the one being deleted here, its snapshot is corrected before the
+                // reversal below restores it, so the restored balance counts the row.
                 accountRepository.findById(t.getAccountId()).ifPresent(account -> {
-                    BigDecimal back = AccountBalanceConvention.balanceDelta(
-                            account.getAccountType(), t.getTxnType(), t.getAmount());
-                    if (back.signum() != 0) {
-                        account.setBalance(account.getBalance().add(back));
-                        accountRepository.save(account);
-                    }
+                    StatementImport survivorImport = t.getStatementImportId() == null ? null
+                            : statementImportRepository.findById(t.getStatementImportId()).orElse(null);
+                    BigDecimal before = account.getBalance();
+                    rowBalanceEffect.apply(account, rowBalanceEffect.locate(account, t, survivorImport),
+                            AccountBalanceConvention.balanceDelta(account.getAccountType(), t.getTxnType(), t.getAmount()));
+                    if (account.getBalance().compareTo(before) != 0) accountRepository.save(account);
                 });
             }
             for (Transaction t : transactionRepository.findByTransferPairIdIn(removedIds)) {

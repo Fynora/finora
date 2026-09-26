@@ -197,10 +197,13 @@ public class AccountService {
         a.setName(req.name());
         a.setAccountType(accountType);
         a.setBalance(req.balance() != null ? req.balance() : java.math.BigDecimal.ZERO);
-        // Only a balance the caller actually gave. No balance means the account starts from zero,
-        // which states nothing about any date -- recording it as typed would make every older
-        // statement imported later look already counted, and freeze the balance at zero.
-        if (req.balance() != null) markBalanceTyped(a);
+        // Only a balance the caller actually gave, and not zero. No balance means the account starts
+        // from zero, which states nothing about any date -- recording it as typed would make every
+        // older statement imported later look already counted, and freeze the balance at zero. Zero
+        // is excluded too: the app itself creates accounts with 0 as "nothing yet" (the Gmail
+        // receipts bucket, a new bank-link account), and a new account a user really opens at 0
+        // loses nothing by being treated the same way. An edit to 0 (update) is still typed.
+        if (req.balance() != null && req.balance().signum() != 0) markBalanceTyped(a);
         a.setCreditLimit(req.creditLimit());
         a.setDueDate(req.dueDate());
         a.setInvestmentKind(req.investmentKind());

@@ -1138,10 +1138,10 @@ public class ReconciliationService {
         // CANDIDATE ONLY, unconditionally -- deliberately does NOT call statusFor(confidence) the
         // way every earlier pass does. Two reasons, not one: first, the same correctness argument
         // as the Gmail pass above (a wrong match here would silently exclude or double-count real
-        // money -- and even with the last-4 disambiguation below, this pass still has no
-        // destination-account-type check, and a last-4 match is real but bank-dependent evidence,
-        // not a guarantee, per last4CandidatesIn's own doc comment); second, this pass runs AFTER
-        // the TRANSFER pass in this same method specifically so it can read `!isTransfer()` and skip
+        // money -- a payment must now come from a savings account and, unless it is the exact
+        // amount due, name the card or a card payment, but a last-4 match is real yet
+        // bank-dependent evidence, not a guarantee, per last4CandidatesIn's own doc comment);
+        // second, this pass runs AFTER the TRANSFER pass in this same method specifically so it can read `!isTransfer()` and skip
         // anything TRANSFER already claimed -- a real credit-card bill payment is, today, already
         // caught by TRANSFER's generic "payment"-keyword/same-amount heuristic, so this pass only
         // ever sees the transactions TRANSFER left alone. AUTO_CONFIRMED status is not part of this
@@ -1152,6 +1152,7 @@ public class ReconciliationService {
         // date axis (statement period vs. payment date) this v1 slice doesn't need yet. Accepted
         // simplification, not an oversight; revisit if SLOW_RUN_WARN_MS ever fires because of it.
         List<StatementImport> ccStatements = statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId);
+        int ccEdgesRejected = 0;
         // Deleted-account leak, same shape as reconcileForUser's own top-level fix (and the same
         // `liveAccountIds` computed there, above) -- a deleted account's transactions deliberately
         // keep deleted_at unset, so findByStatementImportId below would still return a dead card's
@@ -1208,6 +1209,14 @@ public class ReconciliationService {
                 String last4 = cardAccount == null ? null : last4Of(cardAccount.getAccountNumberMasked());
                 if (last4 != null) cardLast4ByAccountId.put(s.getAccountId(), last4);
             }
+            // Only a savings account pays a card bill. A charge on another card is a purchase, not a
+            // payment: on the real corpus, 5 of the 10 CC_PAYMENT edges this pass wrote came from
+            // ordinary purchases on other cards, and each one was dropped from spending. Card-to-card
+            // balance transfers exist, but this pass has no way to tell one from a purchase.
+            Set<UUID> paymentAccountIds = liveAccounts.stream()
+                    .filter(a -> a.getAccountType() == com.finora.entity.Account.Type.SAVINGS)
+                    .map(com.finora.entity.Account::getId)
+                    .collect(java.util.stream.Collectors.toSet());
             // signum() <= 0 excludes a statement with nothing owed (already paid off, or a $0
             // print) -- no payment to find in the first place, and would otherwise divide by
             // zero inside matchCcStatement's ratio check.
@@ -1221,8 +1230,17 @@ public class ReconciliationService {
             // at all, or an earlier-due-date statement's wide search can steal a payment that is
             // actually EXACT for a different, later-due-date statement.
             Set<UUID> settledStatementIds = new HashSet<>();
+            // Seeded from the edges earlier runs wrote, not started empty. The claim sets used to
+            // live for one run only, and every import re-runs this pass over every statement, so
+            // whenever an import brought a new best candidate into `all`, the same statement was
+            // linked again from a different payment. linkAll never retracts an edge, so they piled
+            // up: one card statement in the real corpus ended with four live payments, each dropped
+            // from spending. Edges that no longer qualify are rejected here, not kept as seeds.
+            ccEdgesRejected = seedCcClaimsFromLiveEdges(userId, validStatements, paymentAccountIds,
+                    cardLast4ByAccountId, claimedPaymentIds, settledStatementIds);
             for (StatementImport statement : validStatements) {
-                if (matchCcStatement(userId, statement, all, liveAccountIds, claimedPaymentIds,
+                if (settledStatementIds.contains(statement.getId())) continue;
+                if (matchCcStatement(userId, statement, all, paymentAccountIds, claimedPaymentIds,
                         cardLast4ByAccountId, true, pendingEdges)) {
                     settledStatementIds.add(statement.getId());
                     ccMatchesThisRun[0]++;
@@ -1230,7 +1248,7 @@ public class ReconciliationService {
             }
             for (StatementImport statement : validStatements) {
                 if (settledStatementIds.contains(statement.getId())) continue;
-                if (matchCcStatement(userId, statement, all, liveAccountIds, claimedPaymentIds,
+                if (matchCcStatement(userId, statement, all, paymentAccountIds, claimedPaymentIds,
                         cardLast4ByAccountId, false, pendingEdges)) {
                     ccMatchesThisRun[0]++;
                 }
@@ -1330,7 +1348,8 @@ public class ReconciliationService {
         // rejected stale edges (no new dirty rows, no new written edges) would otherwise vanish
         // from the audit trail exactly the way BH-044 was originally worried about -- except here
         // the change is real, not noise.
-        boolean changedSomething = !dirty.isEmpty() || !writtenEdges.isEmpty() || staleEdgesRejected > 0;
+        boolean changedSomething = !dirty.isEmpty() || !writtenEdges.isEmpty() || staleEdgesRejected > 0
+                || ccEdgesRejected > 0;
         boolean wasSlow = elapsedMs >= SLOW_RUN_WARN_MS;
         String recordedBecause = changedSomething ? "reclassified"
                 : wasSlow ? "slow"
@@ -1347,6 +1366,7 @@ public class ReconciliationService {
             details.put("gmailMatchesFound", newGmailMatches);
             details.put("ccPaymentMatchesFound", newCcPaymentMatches);
             details.put("staleEdgesRejected", staleEdgesRejected);
+            details.put("ccPaymentEdgesRejected", ccEdgesRejected);
             details.put("rowsWritten", dirty.size());
             details.put("durationMs", elapsedMs);
             // Says which condition put this row here, so a reader of the trail can tell "this run
@@ -1512,55 +1532,19 @@ public class ReconciliationService {
      * search can only ever consume a payment no statement could exactly claim.
      */
     private boolean matchCcStatement(UUID userId, StatementImport statement, List<Transaction> all,
-                                      Set<UUID> liveAccountIds, Set<UUID> claimedPaymentIds,
+                                      Set<UUID> paymentAccountIds, Set<UUID> claimedPaymentIds,
                                       Map<UUID, String> cardLast4ByAccountId, boolean requireExactAmount,
                                       List<TransactionGraphService.PendingEdge> pendingEdges) {
         String thisCardLast4 = cardLast4ByAccountId.get(statement.getAccountId());
         List<Transaction> paymentCandidates = all.stream()
-                .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE)
-                .filter(t -> !t.isTransfer())
                 .filter(t -> !claimedPaymentIds.contains(t.getId()))
-                .filter(t -> liveAccountIds.contains(t.getAccountId()))
-                .filter(t -> !t.getAccountId().equals(statement.getAccountId()))
-                .filter(t -> requireExactAmount
-                        ? t.getAmount().compareTo(statement.getTotalAmountDue()) == 0
-                        : amountRatioInRange(t.getAmount(), statement.getTotalAmountDue()))
-                .filter(t -> Math.abs(ChronoUnit.DAYS.between(t.getTxnDate(), statement.getPaymentDueDate()))
-                        <= ReconciliationPolicy.CC_PAYMENT_DUE_DATE_WINDOW_DAYS)
-                // A candidate whose OWN description names a DIFFERENT known card is excluded
-                // outright -- real evidence it belongs elsewhere, not just a weaker candidate. A
-                // candidate with no identifiable fragment at all, or one that matches THIS card,
-                // is unaffected here; see the tiebreak below for how a match to THIS card is
-                // preferred among what's left.
-                .filter(t -> {
-                    Set<String> descriptionLast4s = last4CandidatesIn(t.getDescription());
-                    if (descriptionLast4s.isEmpty() || descriptionLast4s.contains(thisCardLast4)) return true;
-                    return cardLast4ByAccountId.entrySet().stream()
-                            .noneMatch(e -> !e.getKey().equals(statement.getAccountId())
-                                    && descriptionLast4s.contains(e.getValue()));
-                })
+                .filter(t -> isCcPaymentCandidate(t, statement, requireExactAmount, paymentAccountIds, cardLast4ByAccountId))
                 .toList();
         if (paymentCandidates.isEmpty()) return false;
 
-        // A candidate whose description names THIS card wins outright over one that doesn't,
-        // even if the non-matching one is closer to the due date -- real evidence beats a
-        // coincidence. Failing that, an EXACT-amount candidate beats a partial/overpaid one --
-        // relevant only in the requireExactAmount=false phase, since the true-amount phase never
-        // sees a partial/overpaid candidate at all. Among whatever's left tied on both, closest
-        // to the printed due date wins, same tiebreak shape as the other passes above. Still tied,
-        // the payment closest in amount to what the statement said was owed -- the same amount
-        // factor ConfidenceScorer scores this edge on. Only then CANDIDATE_ORDER: `all` comes from
-        // a query with no ORDER BY, and min() keeps the first of equal elements, so without these
-        // two a tie went to whichever row the database returned first -- and the same statements
-        // imported into two fresh databases excluded a different payment from spending.
+        // See ccPaymentPreference for the order and why each step is there.
         Transaction payment = paymentCandidates.stream()
-                .min(Comparator
-                        .comparing((Transaction t) -> thisCardLast4 == null
-                                || !last4CandidatesIn(t.getDescription()).contains(thisCardLast4))
-                        .thenComparing((Transaction t) -> t.getAmount().compareTo(statement.getTotalAmountDue()) != 0)
-                        .thenComparingLong(t -> Math.abs(ChronoUnit.DAYS.between(t.getTxnDate(), statement.getPaymentDueDate())))
-                        .thenComparing(t -> t.getAmount().subtract(statement.getTotalAmountDue()).abs())
-                        .thenComparing(CANDIDATE_ORDER))
+                .min(ccPaymentPreference(statement, thisCardLast4))
                 .orElseThrow();
         boolean matchedByLast4 = thisCardLast4 != null
                 && last4CandidatesIn(payment.getDescription()).contains(thisCardLast4);
@@ -1626,6 +1610,158 @@ public class ReconciliationService {
         BigDecimal ratio = paymentAmount.divide(totalAmountDue, 4, java.math.RoundingMode.HALF_UP);
         return ratio.compareTo(ReconciliationPolicy.CC_PAYMENT_MIN_PARTIAL_RATIO) >= 0
                 && ratio.compareTo(ReconciliationPolicy.CC_PAYMENT_MAX_OVERPAYMENT_RATIO) <= 0;
+    }
+
+    /**
+     * Whether {@code t} could be the payment that settles {@code statement}. Shared by the matching
+     * search and by {@link #seedCcClaimsFromLiveEdges}, so an edge an earlier run wrote is kept only
+     * while it would still be written today.
+     */
+    private static boolean isCcPaymentCandidate(Transaction t, StatementImport statement, boolean requireExactAmount,
+                                                Set<UUID> paymentAccountIds, Map<UUID, String> cardLast4ByAccountId) {
+        if (t.getTxnType() != Transaction.Type.EXPENSE || t.isTransfer()) return false;
+        if (!paymentAccountIds.contains(t.getAccountId()) || t.getAccountId().equals(statement.getAccountId())) return false;
+        boolean exactAmount = t.getAmount().compareTo(statement.getTotalAmountDue()) == 0;
+        if (requireExactAmount ? !exactAmount : !amountRatioInRange(t.getAmount(), statement.getTotalAmountDue())) return false;
+        String thisCardLast4 = cardLast4ByAccountId.get(statement.getAccountId());
+        // Anything but the exact amount due needs the narration to say it is a card payment. The
+        // 0.05x-2.5x window alone admits nearly every debit near a due date: on the real corpus,
+        // every edge this pass wrote came from that window, and 9 of the 10 were groceries,
+        // shopping and travel purchases, each then dropped from spending.
+        if (!exactAmount && !hasCardPaymentEvidence(t, thisCardLast4)) return false;
+        if (Math.abs(ChronoUnit.DAYS.between(t.getTxnDate(), statement.getPaymentDueDate()))
+                > ReconciliationPolicy.CC_PAYMENT_DUE_DATE_WINDOW_DAYS) return false;
+        // A candidate whose OWN description names a DIFFERENT known card is excluded outright --
+        // real evidence it belongs elsewhere, not just a weaker candidate. A candidate with no
+        // identifiable fragment at all, or one that matches THIS card, is unaffected here; see
+        // ccPaymentPreference for how a match to THIS card is preferred among what's left.
+        Set<String> descriptionLast4s = last4CandidatesIn(t.getDescription());
+        if (descriptionLast4s.isEmpty() || descriptionLast4s.contains(thisCardLast4)) return true;
+        return cardLast4ByAccountId.entrySet().stream()
+                .noneMatch(e -> !e.getKey().equals(statement.getAccountId())
+                        && descriptionLast4s.contains(e.getValue()));
+    }
+
+    /**
+     * The phrases CategoryRules already files under "Transfer" that name a card payment
+     * specifically. Its other Transfer phrases ("neft to", "autopay", "billdesk", ...) also cover
+     * payments to people, mandates and utilities, so they are not evidence of a card payment.
+     */
+    private static final List<String> CARD_PAYMENT_PHRASES = List.of("credit card payment", "card bill payment", "cc payment");
+
+    /** The narration names this card's last 4 digits, or says it is a card payment. */
+    private static boolean hasCardPaymentEvidence(Transaction t, String thisCardLast4) {
+        if (thisCardLast4 != null && last4CandidatesIn(t.getDescription()).contains(thisCardLast4)) return true;
+        String normalized = CategoryRules.normalize(t.getDescription());
+        return CARD_PAYMENT_PHRASES.stream().anyMatch(normalized::contains);
+    }
+
+    /**
+     * Best payment first. A candidate whose description names THIS card wins outright over one
+     * that doesn't, even if the non-matching one is closer to the due date -- real evidence beats a
+     * coincidence. Failing that, an EXACT-amount candidate beats a partial/overpaid one. Among
+     * whatever's left tied on both, closest to the printed due date wins. Still tied, the payment
+     * closest in amount to what the statement said was owed -- the same amount factor
+     * ConfidenceScorer scores this edge on. Only then CANDIDATE_ORDER: `all` comes from a query
+     * with no ORDER BY, and min() keeps the first of equal elements, so without these two a tie went
+     * to whichever row the database returned first -- and the same statements imported into two
+     * fresh databases excluded a different payment from spending.
+     */
+    private static Comparator<Transaction> ccPaymentPreference(StatementImport statement, String thisCardLast4) {
+        return Comparator
+                .comparing((Transaction t) -> thisCardLast4 == null
+                        || !last4CandidatesIn(t.getDescription()).contains(thisCardLast4))
+                .thenComparing((Transaction t) -> t.getAmount().compareTo(statement.getTotalAmountDue()) != 0)
+                .thenComparingLong(t -> Math.abs(ChronoUnit.DAYS.between(t.getTxnDate(), statement.getPaymentDueDate())))
+                .thenComparing(t -> t.getAmount().subtract(statement.getTotalAmountDue()).abs())
+                .thenComparing(CANDIDATE_ORDER);
+    }
+
+    /** One (payment, statement) link as earlier runs persisted it: every edge it wrote, one per charge. */
+    private record CcLink(UUID paymentId, UUID statementId, List<TransactionRelationship> edges) {}
+
+    /**
+     * Fills {@code claimedPaymentIds} and {@code settledStatementIds} from the CC_PAYMENT edges
+     * earlier runs left live, and rejects the ones that should no longer stand.
+     *
+     * <p>A link this pass wrote (RULE_ENGINE, still CANDIDATE) is kept only if its payment would
+     * still be a candidate for its statement today. Where accumulation left one statement linked
+     * from several payments, or one payment linked to several statements, the same order a fresh
+     * run would use picks the one that stays: exact-amount links first, then statements in due-date
+     * order, then {@link #ccPaymentPreference}. Every other link is rejected. An edge a person
+     * confirmed or drew by hand is never rejected here; it seeds the claim sets as it stands.
+     *
+     * <p>A kept link is not revisited later: a better payment arriving in a later import does not
+     * displace it. That is the trade for stability -- the alternative is the flip-flopping this
+     * method exists to stop.
+     *
+     * @return how many edges were rejected
+     */
+    private int seedCcClaimsFromLiveEdges(UUID userId, List<StatementImport> validStatements, Set<UUID> paymentAccountIds,
+                                          Map<UUID, String> cardLast4ByAccountId, Set<UUID> claimedPaymentIds,
+                                          Set<UUID> settledStatementIds) {
+        List<TransactionRelationship> liveEdges =
+                transactionGraphService.liveEdgesOfType(userId, TransactionRelationship.RelationshipType.CC_PAYMENT);
+        if (liveEdges.isEmpty()) return 0;
+
+        Map<String, CcLink> ruleLinks = new java.util.LinkedHashMap<>();
+        for (TransactionRelationship edge : liveEdges) {
+            Object statementIdValue = edge.getExplanation() == null ? null : edge.getExplanation().get("statementImportId");
+            UUID statementId = statementIdValue == null ? null : UUID.fromString(statementIdValue.toString());
+            boolean ruleEngineCandidate = edge.getStatus() == TransactionRelationship.Status.CANDIDATE
+                    && edge.getDetectionMethod() == TransactionRelationship.DetectionMethod.RULE_ENGINE;
+            if (!ruleEngineCandidate || statementId == null) {
+                // Confirmed or hand-drawn: a person's decision, not this pass's to undo.
+                claimedPaymentIds.add(edge.getFromTransactionId());
+                if (statementId != null) settledStatementIds.add(statementId);
+                continue;
+            }
+            ruleLinks.computeIfAbsent(edge.getFromTransactionId() + "|" + statementId,
+                    k -> new CcLink(edge.getFromTransactionId(), statementId, new java.util.ArrayList<>())).edges().add(edge);
+        }
+
+        Map<UUID, StatementImport> statementsById = new java.util.HashMap<>();
+        Map<UUID, Integer> statementRank = new java.util.HashMap<>();
+        for (StatementImport s : validStatements) {
+            statementsById.put(s.getId(), s);
+            statementRank.put(s.getId(), statementRank.size());
+        }
+        // The payment rows themselves, not `all`: reconcileForImport's `all` is windowed, and a
+        // payment outside this import's window is still a claimed payment. Soft-deleted rows do not
+        // come back, so a link from a deleted payment is rejected below.
+        Map<UUID, Transaction> paymentsById = new java.util.HashMap<>();
+        Set<UUID> paymentIds = ruleLinks.values().stream().map(CcLink::paymentId).collect(java.util.stream.Collectors.toSet());
+        if (!paymentIds.isEmpty()) transactionRepository.findAllById(paymentIds).forEach(t -> paymentsById.put(t.getId(), t));
+
+        List<CcLink> valid = new java.util.ArrayList<>();
+        List<TransactionRelationship> toReject = new java.util.ArrayList<>();
+        for (CcLink link : ruleLinks.values()) {
+            StatementImport statement = statementsById.get(link.statementId());
+            Transaction payment = paymentsById.get(link.paymentId());
+            boolean stillQualifies = statement != null && payment != null
+                    && (isCcPaymentCandidate(payment, statement, true, paymentAccountIds, cardLast4ByAccountId)
+                        || isCcPaymentCandidate(payment, statement, false, paymentAccountIds, cardLast4ByAccountId));
+            if (stillQualifies) valid.add(link);
+            else toReject.addAll(link.edges());
+        }
+        valid.sort(Comparator
+                .comparing((CcLink l) -> paymentsById.get(l.paymentId()).getAmount()
+                        .compareTo(statementsById.get(l.statementId()).getTotalAmountDue()) != 0)
+                .thenComparing(l -> statementRank.get(l.statementId()))
+                .thenComparing((a, b) -> {
+                    StatementImport s = statementsById.get(a.statementId());
+                    return ccPaymentPreference(s, cardLast4ByAccountId.get(s.getAccountId()))
+                            .compare(paymentsById.get(a.paymentId()), paymentsById.get(b.paymentId()));
+                }));
+        for (CcLink link : valid) {
+            if (claimedPaymentIds.contains(link.paymentId()) || settledStatementIds.contains(link.statementId())) {
+                toReject.addAll(link.edges());
+                continue;
+            }
+            claimedPaymentIds.add(link.paymentId());
+            settledStatementIds.add(link.statementId());
+        }
+        return transactionGraphService.rejectEdges(toReject);
     }
 
     private static final java.util.regex.Pattern DIGIT_RUN = java.util.regex.Pattern.compile("\\d{4,}");

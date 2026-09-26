@@ -227,6 +227,28 @@ public class TransactionGraphService {
         return live.size();
     }
 
+    /** Every live (not REJECTED, not superseded) edge of {@code type} this user has. */
+    public List<TransactionRelationship> liveEdgesOfType(UUID userId, TransactionRelationship.RelationshipType type) {
+        return repository.findByUserIdAndRelationshipTypeAndStatusNotAndSupersededByIsNull(
+                userId, type, TransactionRelationship.Status.REJECTED);
+    }
+
+    /**
+     * Rejects exactly these edges, for a pass that has decided its own earlier edge no longer
+     * holds. Already-rejected or superseded edges are left alone.
+     *
+     * @return how many edges this call actually rejected
+     */
+    public int rejectEdges(Collection<TransactionRelationship> edges) {
+        List<TransactionRelationship> live = edges.stream()
+                .filter(e -> e.getStatus() != TransactionRelationship.Status.REJECTED && e.getSupersededBy() == null)
+                .toList();
+        if (live.isEmpty()) return 0;
+        live.forEach(e -> e.setStatus(TransactionRelationship.Status.REJECTED));
+        repository.saveAll(live);
+        return live.size();
+    }
+
     /**
      * Which of {@code transactions} are the settling payment of a CC_PAYMENT edge -- i.e. a
      * savings-side payment that already nets out the card charges it settles (PR #511), and would

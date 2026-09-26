@@ -871,6 +871,89 @@ class ReconciliationServiceTest {
         assertThat(debitFromSavings.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.TRANSFER);
     }
 
+    // ---- a card bill paid through a rail whose narrations never say "payment" ----
+    //
+    // Both legs of a real BBPS card-bill payment made through a payments app: the card side prints
+    // an abbreviation ("PMT"), the savings side names only the app. Neither carries "payment" or a
+    // Transfer-category keyword, so the text gate never let the pair be considered and the bill
+    // counted as spend on top of the card purchases it paid for.
+
+    private void typed(UUID accountId, Account.Type type) {
+        liveAccounts.stream().filter(a -> a.getId().equals(accountId)).forEach(a -> a.setAccountType(type));
+    }
+
+    @Test
+    void reconcileForUser_pairsACardPaymentCreditWhoseNarrationSaysPmt_withTheSavingsDebitThatPaidIt() {
+        UUID savingsAccount = UUID.randomUUID();
+        UUID cardAccount = UUID.randomUUID();
+        Transaction paidFromSavings = txn(UUID.randomUUID(), savingsAccount, LocalDate.of(2026, 6, 30),
+                new BigDecimal("1582.00"), Transaction.Type.EXPENSE, "UPI/DR/111111111111/PAYAPP Clu/UTIB/payapp@axisb/", Instant.now());
+        Transaction receivedOnCard = txn(UUID.randomUUID(), cardAccount, LocalDate.of(2026, 6, 30),
+                new BigDecimal("1582.00"), Transaction.Type.INCOME, "BBPS PMT BBPSDP0000000000000", Instant.now());
+        typed(savingsAccount, Account.Type.SAVINGS);
+        typed(cardAccount, Account.Type.CREDIT_CARD);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(paidFromSavings, receivedOnCard));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(paidFromSavings.isTransfer()).isTrue();
+        assertThat(receivedOnCard.isTransfer()).isTrue();
+        assertThat(paidFromSavings.getTransferPairId()).isEqualTo(receivedOnCard.getId());
+    }
+
+    @Test
+    void reconcileForUser_aCardPaymentCredit_isNeverPairedWithASpendOnAnotherCard() {
+        UUID otherCard = UUID.randomUUID();
+        UUID cardAccount = UUID.randomUUID();
+        Transaction purchaseOnOtherCard = txn(UUID.randomUUID(), otherCard, LocalDate.of(2026, 6, 30),
+                new BigDecimal("1582.00"), Transaction.Type.EXPENSE, "UPI MERCHANTCO 111111111111", Instant.now());
+        Transaction receivedOnCard = txn(UUID.randomUUID(), cardAccount, LocalDate.of(2026, 6, 30),
+                new BigDecimal("1582.00"), Transaction.Type.INCOME, "BBPS PMT BBPSDP0000000000000", Instant.now());
+        typed(otherCard, Account.Type.CREDIT_CARD);
+        typed(cardAccount, Account.Type.CREDIT_CARD);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(purchaseOnOtherCard, receivedOnCard));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(purchaseOnOtherCard.isTransfer()).isFalse();
+        assertThat(receivedOnCard.isTransfer()).isFalse();
+    }
+
+    @Test
+    void reconcileForUser_aMerchantCreditOnACard_isNotTreatedAsABillPayment() {
+        UUID savingsAccount = UUID.randomUUID();
+        UUID cardAccount = UUID.randomUUID();
+        Transaction coincidentalSpend = txn(UUID.randomUUID(), savingsAccount, LocalDate.of(2026, 8, 18),
+                new BigDecimal("1479.00"), Transaction.Type.EXPENSE, "UPI-SHOPCO-shopco@okbank-REF1", Instant.now());
+        Transaction merchantCredit = txn(UUID.randomUUID(), cardAccount, LocalDate.of(2026, 8, 18),
+                new BigDecimal("1479.00"), Transaction.Type.INCOME, "UPI MERCHANTCO 111111111111", Instant.now());
+        typed(savingsAccount, Account.Type.SAVINGS);
+        typed(cardAccount, Account.Type.CREDIT_CARD);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(coincidentalSpend, merchantCredit));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(coincidentalSpend.isTransfer()).isFalse();
+        assertThat(merchantCredit.isTransfer()).isFalse();
+    }
+
+    @Test
+    void reconcileForUser_aBbpsCardPayment_stillRespectsTheFourDayWindow() {
+        UUID savingsAccount = UUID.randomUUID();
+        UUID cardAccount = UUID.randomUUID();
+        Transaction paidFromSavings = txn(UUID.randomUUID(), savingsAccount, LocalDate.of(2026, 6, 20),
+                new BigDecimal("1582.00"), Transaction.Type.EXPENSE, "UPI/DR/111111111111/PAYAPP Clu/UTIB/payapp@axisb/", Instant.now());
+        Transaction receivedOnCard = txn(UUID.randomUUID(), cardAccount, LocalDate.of(2026, 6, 30),
+                new BigDecimal("1582.00"), Transaction.Type.INCOME, "BBPS PMT BBPSDP0000000000000", Instant.now());
+        typed(savingsAccount, Account.Type.SAVINGS);
+        typed(cardAccount, Account.Type.CREDIT_CARD);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(paidFromSavings, receivedOnCard));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(paidFromSavings.isTransfer()).isFalse();
+    }
+
     @Test
     void reconcileForUser_reportsAMatchedTransferPairToReconciliationMetrics() {
         // ReconciliationMetrics is the CI-permanent, real-corpus-driven telemetry answer to a

@@ -492,6 +492,12 @@ public class ReconciliationService {
         // answer for the same user, so re-querying it per transaction would be a pure N+1 that
         // multiplies with every transaction on the books, on every import/create/edit/delete.
         List<String> ownAccountIdentifiers = relationshipService.ownAccountIdentifierValues(userId);
+        // Which accounts are credit cards -- a card-side "bill payment received" credit is its own
+        // evidence of a transfer (see cardPaymentReceived below). Once per run, like the maps below.
+        Map<UUID, com.finora.entity.Account.Type> accountTypes = new HashMap<>();
+        for (com.finora.entity.Account account : accountRepository.findByUserId(userId)) {
+            if (account.getId() != null && account.getAccountType() != null) accountTypes.put(account.getId(), account.getAccountType());
+        }
         Map<UUID, Boolean> ownAccountMatch = new HashMap<>();
         // Same reasoning as ownAccountMatch above -- CategoryRules.suggestCategory() walks every
         // compiled keyword pattern, so this is computed once per candidate rather than once per
@@ -545,7 +551,15 @@ public class ReconciliationService {
             boolean looksLikeTransfer = aOwnAccountMatch
                     || CategoryRules.normalize(a.getDescription()).contains("payment")
                     || "Transfer".equals(CategoryRules.suggestCategory(a.getDescription()));
-            if (!looksLikeTransfer) continue;
+            // A credit on a CREDIT CARD account that FlowClassifier reads as a bill payment received
+            // ("BBPS PMT ...", "AUTOPAY ...") is transfer evidence by itself: a card is paid from
+            // somewhere. Real BBPS payments through a payments app print "PMT" on the card and only
+            // the app's name on the savings side, so neither leg carried "payment" and the bill was
+            // counted as spend on top of the card purchases it settled. Admitted ONLY against a
+            // debit on a non-card account (the paying side can never be another card's purchase);
+            // amount, date window and opposite direction still decide the pair exactly as above.
+            boolean cardPaymentReceived = !looksLikeTransfer && isCardPaymentReceived(a, accountTypes);
+            if (!looksLikeTransfer && !cardPaymentReceived) continue;
 
             // Only the transactions that could possibly satisfy the daysApart check below, found
             // by binary search instead of by scanning and rejecting the rest. The slice uses the
@@ -575,6 +589,7 @@ public class ReconciliationService {
                 if (b.getTransferRejectedAt() != null) continue; // same guard, other side of the pair
                 if (looksLikeSalary.getOrDefault(b.getId(), false)) continue; // same guard, other side of the pair
                 if (a.getAccountId().equals(b.getAccountId()) || a.getTxnType() == b.getTxnType()) continue;
+                if (cardPaymentReceived && accountTypes.get(b.getAccountId()) == com.finora.entity.Account.Type.CREDIT_CARD) continue;
 
                 BigDecimal amountDelta = a.getAmount().subtract(b.getAmount()).abs();
                 boolean sameAmount = amountDelta.compareTo(ReconciliationPolicy.TRANSFER_AMOUNT_TOLERANCE) < 0;
@@ -1896,6 +1911,14 @@ public class ReconciliationService {
 
     /** Package-visible and static so {@link FlowClassifier} reads the exact same refund vocabulary
      *  this pass matches on -- one word list, not two that can drift. */
+    /** A credit on a credit-card account that the flow classifier reads as a bill payment received. */
+    private static boolean isCardPaymentReceived(Transaction t, Map<UUID, com.finora.entity.Account.Type> accountTypes) {
+        if (t.getTxnType() != Transaction.Type.INCOME) return false;
+        if (accountTypes.get(t.getAccountId()) != com.finora.entity.Account.Type.CREDIT_CARD) return false;
+        return FlowClassifier.classify(t, com.finora.entity.Account.Type.CREDIT_CARD).reason()
+                == FlowClassifier.FlowReason.CARD_PAYMENT_RECEIVED;
+    }
+
     static boolean looksLikeRefund(String description) {
         String normalized = CategoryRules.normalize(description);
         return REFUND_KEYWORDS.stream().anyMatch(normalized::contains);

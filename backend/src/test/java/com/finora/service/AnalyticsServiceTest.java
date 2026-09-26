@@ -605,6 +605,27 @@ class AnalyticsServiceTest {
     }
 
     @Test
+    @DisplayName("multiYearIncome: money from a person is not income")
+    void incomeSeries_excludesMoneyFromAPerson() {
+        when(transactionRepository.findEarliestTxnDate(eq(userId), any()))
+                .thenReturn(LocalDate.of(2025, 1, 5));
+        Transaction salary = income(LocalDate.of(2025, 3, 1), new BigDecimal("50000"));
+        salary.setDescription("NEFT ACME TECHNOLOGIES SALARY MAR");
+        Transaction fromPerson = income(LocalDate.of(2025, 3, 5), new BigDecimal("10000"));
+        fromPerson.setDescription("UPI-SUNIL VERMA-sampleuser@ybl-REF3");
+        fromPerson.setCounterpartyType(com.finora.util.CounterpartyType.PERSON);
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(
+                eq(userId), any(), any(), any()))
+                .thenReturn(List.of(salary, fromPerson));
+
+        AnalyticsDto.MultiYearReport report = analyticsService.multiYearIncome(userId);
+
+        AnalyticsDto.MultiYearPoint year2025 = report.fullYears().stream()
+                .filter(p -> p.year() == 2025).findFirst().orElseThrow();
+        assertThat(year2025.total()).isEqualByComparingTo("50000");
+    }
+
+    @Test
     @DisplayName("multiYearIncome: no transactions ever -> empty report, not an error")
     void multiYearIncome_returnsEmptyReport_whenThereIsNoDataAtAll() {
         when(transactionRepository.findEarliestTxnDate(eq(userId), any())).thenReturn(null);

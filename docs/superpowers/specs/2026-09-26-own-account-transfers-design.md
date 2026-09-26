@@ -36,7 +36,8 @@ cross-statement check; money between two different people must never look like a
 - **A free-text name match is wrong.** Salary NEFT credits print the employee's own name as
   beneficiary; a "narration contains the owner's name" rule would have removed over ₹10L of salary
   from income. The one free-text false hit on a debit was a card tax line naming the cardholder.
-- Income is affected only by genuine own transfers counted as income today (two rows, ₹65,000).
+- Income is affected only by genuine own transfers counted as income today: two rows, ₹65,000 — one a
+  reference pair (rule 1), one a star-delimited NEFT credit whose remitter is the owner (rule 2).
 - The last digits of another own account appear only on rows the two rules below already catch.
 
 ## Rules
@@ -74,6 +75,7 @@ shapes observed in the corpus:
 | IMPS | `MOB-IMPS-CR/ASHA VERMA/BANK/...` | after `IMPS-CR/` |
 | IMPS, glued | `SentIMPS111111111111ASHA VERMA/IFSC0000001/...` | after the reference |
 | NEFT credit | `NEFT CR-IFSC0000001-<remitter>-<beneficiary>-<ref>` | remitter only |
+| NEFT credit, star | `NEFT*IFSC0000001*<ref>*<remitter> ...` | remitter only |
 
 The NEFT beneficiary slot is never read: it is the account holder on every NEFT credit, including salary.
 

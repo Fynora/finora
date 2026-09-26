@@ -472,7 +472,7 @@ export interface DuplicateMatch {
   existingImportedAt: string;
   /** How many already-imported transactions match, when it is more than one. */
   matchCount: number;
-  confidence: 'EXACT';
+  confidence: 'EXACT' | 'BALANCE';
   reason: string;
 }
 

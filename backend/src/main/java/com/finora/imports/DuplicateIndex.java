@@ -58,6 +58,9 @@ public final class DuplicateIndex {
     /** date -> (amount|description) -> matching transactions, loaded on first sight of the date. */
     private final Map<LocalDate, Map<String, List<Transaction>>> byDate = new HashMap<>();
 
+    /** date -> (amount|type|balance) -> matching transactions, filled by the same load as byDate. */
+    private final Map<LocalDate, Map<String, List<Transaction>>> byDateAndBalance = new HashMap<>();
+
     /**
      * @param liveAccountIds the user's live (non-soft-deleted) account ids, computed once by
      *                       {@code DuplicateDetector.indexFor} rather than re-derived per date --
@@ -87,9 +90,25 @@ public final class DuplicateIndex {
                 .getOrDefault(key(amount, description), List.of());
     }
 
+    /**
+     * The description-keyed lookup first; when it finds nothing and the staged row carries a running
+     * balance, the balance-keyed lookup (same amount, direction and balance -- see
+     * ReconciliationService.balanceKey for why that identifies a posting).
+     */
+    public List<Transaction> matches(LocalDate date, BigDecimal amount, String description,
+                                     Transaction.Type type, BigDecimal balanceAfter) {
+        List<Transaction> exact = matches(date, amount, description);
+        if (!exact.isEmpty() || balanceAfter == null || type == null || date == null || amount == null) return exact;
+        byDate.computeIfAbsent(date, this::loadDate); // loads byDateAndBalance for the same date
+        return byDateAndBalance.getOrDefault(date, Map.of())
+                .getOrDefault(balanceKey(amount, type, balanceAfter), List.of());
+    }
+
     private Map<String, List<Transaction>> loadDate(LocalDate date) {
-        if (liveAccountIds.isEmpty()) return new HashMap<>();
         Map<String, List<Transaction>> index = new HashMap<>();
+        Map<String, List<Transaction>> balanceIndex = new HashMap<>();
+        byDateAndBalance.put(date, balanceIndex);
+        if (liveAccountIds.isEmpty()) return index;
         // Both bounds the same date: findByUserIdAndTxnDateBetweenAndAccountIdIn is inclusive, so
         // this is one day. Scoped to liveAccountIds so a soft-deleted account's transactions don't
         // keep matching against forever (see that method's own doc comment).
@@ -98,8 +117,16 @@ public final class DuplicateIndex {
             if (existing.getAmount() == null || existing.getDescription() == null) continue;
             index.computeIfAbsent(key(existing.getAmount(), existing.getDescription()),
                     k -> new java.util.ArrayList<>()).add(existing);
+            if (existing.getBalanceAfter() != null && existing.getTxnType() != null) {
+                balanceIndex.computeIfAbsent(balanceKey(existing.getAmount(), existing.getTxnType(), existing.getBalanceAfter()),
+                        k -> new java.util.ArrayList<>()).add(existing);
+            }
         }
         return index;
+    }
+
+    private static String balanceKey(BigDecimal amount, Transaction.Type type, BigDecimal balanceAfter) {
+        return normaliseAmount(amount) + "\n" + type.name() + "\nbal:" + normaliseAmount(balanceAfter);
     }
 
     /** Value-not-scale, matching Postgres NUMERIC equality -- see the class comment. */

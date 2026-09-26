@@ -406,6 +406,34 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
             """, nativeQuery = true)
     List<Object[]> findObjectsUnreferencedSince(@Param("cutoff") Instant cutoff, @Param("limit") int limit);
 
+    /** One link of the absolute-SET anchor chain, read whether or not the statement has since been
+     *  soft-deleted -- a statement deleted while another SET stood over it still names the figure
+     *  the restored balance is standing on, and the columns that reverse it. Scoped to the user
+     *  AND the account, and a six-column projection rather than the entity, for the reasons the
+     *  removed {@code findByIdIncludingDeleted} note below gives. Only {@code
+     *  StatementImportService.reverseAbsoluteContribution} reads it. */
+    interface AnchorSnapshot {
+        UUID getId();
+        BigDecimal getBalanceBeforeAbsoluteSet();
+        BigDecimal getClosingBalance();
+        UUID getPreviousAbsoluteSetStatementId();
+        UUID getSupersededBy();
+        Boolean getDeleted();
+    }
+
+    @Query(value = """
+            SELECT id AS "id",
+                   balance_before_absolute_set AS "balanceBeforeAbsoluteSet",
+                   closing_balance AS "closingBalance",
+                   previous_absolute_set_statement_id AS "previousAbsoluteSetStatementId",
+                   superseded_by AS "supersededBy",
+                   (deleted_at IS NOT NULL) AS "deleted"
+            FROM statement_imports
+            WHERE id = :id AND user_id = :userId AND account_id = :accountId
+            """, nativeQuery = true)
+    Optional<AnchorSnapshot> findAnchorSnapshotIncludingDeleted(
+            @Param("userId") UUID userId, @Param("accountId") UUID accountId, @Param("id") UUID id);
+
     // Removed: findByIdIncludingDeleted(UUID). It bypassed the entity's
     // @SQLRestriction("deleted_at IS NULL") AND took no user id, so it read any user's statement
     // by primary key alone -- with zero callers anywhere in the codebase. An unscoped cross-user

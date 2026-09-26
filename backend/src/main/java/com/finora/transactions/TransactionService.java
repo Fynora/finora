@@ -7,7 +7,6 @@ import com.finora.entity.Transaction;
 import com.finora.entity.User;
 import com.finora.exception.ApiException;
 import com.finora.exception.ErrorCode;
-import com.finora.entity.StatementImport;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.AuditLogRepository;
 import com.finora.repository.CategoryRepository;
@@ -439,6 +438,27 @@ public class TransactionService {
     }
 
     /**
+     * Whether this row's own net effect is currently sitting in {@code Account.balance}.
+     *
+     * <p>False for a row reconciliation has marked DUPLICATE and took back off the balance when it
+     * wrote the mark (BH-003, {@code ReconciliationService.reverseBalanceContribution}; recorded
+     * as {@link Transaction#isDuplicateBalanceReversed()}). {@link #confirmNotDuplicate} is what
+     * puts it back. Deleting or editing such a row must not move the balance by an amount that is
+     * not in it -- that left an import / mark / delete cycle short by the row. Same rule at every
+     * site that writes or clears the mark: ReconciliationService marks and reverses;
+     * confirmNotDuplicate, {@link #clearReconciliationPointersTo} and StatementImportService.delete
+     * un-mark and add back; delete / update here skip what is gone.
+     *
+     * <p>A marked row the mark did NOT take off still contributes here, whatever the reason the
+     * record gives -- including a row held behind an absolute SET: removing it moves the balance
+     * the same way removing any other pre-SET row does, and its soft-deleted row is then out of
+     * the SET's reach, so reversing the SET later cannot move it again.
+     */
+    private boolean contributesToBalance(Transaction t) {
+        return t.getIsDuplicateOf() == null || !t.isDuplicateBalanceReversed();
+    }
+
+    /**
      * SEC-13 (docs/quality/bug-reports/2026-08-19-security-review-findings.md). The DB column
      * (NUMERIC(14,2)) already stops anything past 12 integer digits, but as a raw
      * DataIntegrityViolationException rather than a validation error naming the field -- and 12
@@ -523,7 +543,7 @@ public class TransactionService {
         Transaction saved = transactionRepository.save(t);
 
         BigDecimal newDelta = balanceOf(saved);
-        adjustAccountBalance(saved.getAccountId(), newDelta.subtract(oldDelta));
+        if (contributesToBalance(saved)) adjustAccountBalance(saved.getAccountId(), newDelta.subtract(oldDelta));
 
         // Amount/date/type edits can change which surviving transactions look like duplicates or
         // transfer partners of this one, so re-run reconciliation rather than leaving stale flags.
@@ -623,31 +643,27 @@ public class TransactionService {
                     });
         }
 
+        // What the mark did to Account.balance, read before the mark and its record are cleared.
+        boolean reversedAtMark = t.isDuplicateBalanceReversed();
         t.setNotDuplicateConfirmedAt(java.time.Instant.now());
         t.setIsDuplicateOf(null);
+        t.setDuplicateBalanceReversed(false);
+        t.setDuplicateBalanceAnchorId(null);
         t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
         t.setReconciliationExplanation(null);
         Transaction saved = transactionRepository.save(t);
 
-        // Usually the balance is NOT touched: a manually-entered duplicate-flagged row was always
-        // counted in Account.balance (the flag only ever governed what the reports exclude), so
-        // the money never moved and doesn't need to move back.
-        //
-        // The one exception is BH-003 (ImportService.summarise): a statement-import row flagged
-        // DUPLICATE by reconciliation at its OWN confirm time has its contribution reversed OUT of
-        // Account.balance immediately, precisely so re-importing the same file twice doesn't double
-        // -count it. Such a row currently contributes zero. Confirming it "not a duplicate" here
-        // means it counts in every report again, so the balance must count it again too, or it
-        // stays permanently short by this row's amount with no way to self-correct.
-        //
-        // ADDITIVE is the only mode BH-003 ever reversed under (see StatementImport
-        // .BalanceApplicationMode's own doc) -- ABSOLUTE/NONE never moved the balance via this
-        // row's net effect, and UNKNOWN_LEGACY predates the field, so which branch its own confirm
-        // took was never recorded and is deliberately not guessed here either.
-        if (saved.getStatementImportId() != null) {
-            statementImportRepository.findById(saved.getStatementImportId())
-                    .filter(si -> si.getBalanceApplicationMode() == StatementImport.BalanceApplicationMode.ADDITIVE)
-                    .ifPresent(si -> adjustAccountBalance(saved.getAccountId(), balanceOf(saved)));
+        // The mark took this row's net effect off Account.balance when reconciliation wrote it
+        // (BH-003, ReconciliationService.reverseBalanceContribution) -- for every row whose effect
+        // was in the balance to begin with: a manual entry, or a row of an ADDITIVE statement import,
+        // unless a later stated closing balance replaced the history it belonged to. Confirming it
+        // "not a duplicate" means it counts in every report again, so the balance must count it
+        // again too, or it stays permanently short by this row's amount with no way to self-correct.
+        // The row records what the mark did (Transaction.duplicateBalanceReversed), so this reads
+        // the record rather than re-deriving it from state that may have changed since the mark.
+        // V228 wrote the record for marks that predate it.
+        if (reversedAtMark) {
+            adjustAccountBalance(saved.getAccountId(), balanceOf(saved));
         }
 
         reconciliationService.reconcileForUser(userId);
@@ -924,7 +940,7 @@ public class TransactionService {
     public void delete(UUID userId, UUID txnId, UUID actingAdminId) {
         Transaction t = getOwned(userId, txnId);
         clearReconciliationPointersTo(List.of(t.getId()));
-        adjustAccountBalance(t.getAccountId(), balanceOf(t).negate());
+        if (contributesToBalance(t)) adjustAccountBalance(t.getAccountId(), balanceOf(t).negate());
         transactionRepository.delete(t); // soft delete via @SQLDelete on the entity
         // Removing a transaction can break a recurring group's pattern (e.g. deleting one of
         // three regularly-spaced charges), same reasoning as the reconciliation re-run below.
@@ -945,7 +961,7 @@ public class TransactionService {
         List<Transaction> owned = getOwnedAll(userId, ids);
         clearReconciliationPointersTo(owned.stream().map(Transaction::getId).toList());
         for (Transaction t : owned) {
-            adjustAccountBalance(t.getAccountId(), balanceOf(t).negate());
+            if (contributesToBalance(t)) adjustAccountBalance(t.getAccountId(), balanceOf(t).negate());
             transactionRepository.delete(t);
         }
         reconciliationService.reconcileForUser(userId);
@@ -985,10 +1001,31 @@ public class TransactionService {
         // `removed` is a Set rather than the original List: contains() ran per candidate row
         // against a list of up to 500 ids, three times over.
         java.util.Set<Transaction> dirty = new java.util.LinkedHashSet<>();
+        java.util.Map<UUID, Boolean> supersededImports = new java.util.HashMap<>();
         for (Transaction t : transactionRepository.findByIsDuplicateOfIn(removedIds)) {
             if (removed.contains(t.getId())) continue;
+            // Un-marking makes this survivor counted again. If BH-003 took its contribution off
+            // when it was marked (recorded as Transaction.duplicateBalanceReversed -- see
+            // contributesToBalance), it goes back on now, the same way confirmNotDuplicate puts it
+            // back. Without this, deleting the canonical row reversed the canonical's contribution
+            // AND left the survivor's off: the ledger kept one real transaction and the balance
+            // reflected none.
+            boolean reversedAtMark = t.isDuplicateBalanceReversed();
             t.setIsDuplicateOf(null);
+            t.setDuplicateBalanceReversed(false);
+            // A survivor whose own statement has since been superseded is not resurrected: it
+            // stays out of every total as SUPERSEDED and nothing goes back on the balance -- the
+            // same refusal confirmNotDuplicate makes for that row. Its held-anchor record, if any,
+            // is kept: the effect is still in that SET's snapshot.
+            if (t.getStatementImportId() != null && supersededImports.computeIfAbsent(t.getStatementImportId(),
+                    id -> statementImportRepository.findById(id).map(si -> si.getSupersededBy() != null).orElse(false))) {
+                t.setReconciliationStatus(Transaction.ReconciliationStatus.SUPERSEDED);
+                dirty.add(t);
+                continue;
+            }
+            t.setDuplicateBalanceAnchorId(null);
             t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
+            if (reversedAtMark) adjustAccountBalance(t.getAccountId(), balanceOf(t));
             dirty.add(t);
         }
         for (Transaction t : transactionRepository.findByTransferPairIdIn(removedIds)) {

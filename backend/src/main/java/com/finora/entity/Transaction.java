@@ -148,6 +148,26 @@ public class Transaction extends BaseEntity {
     @Column(name = "not_duplicate_confirmed_at")
     private java.time.Instant notDuplicateConfirmedAt;
 
+    // What the DUPLICATE mark did to Account.balance, written by the reconciliation run that writes
+    // the mark (ReconciliationService.reverseBalanceContribution) and read by every site that
+    // clears it or removes the row. Recorded rather than re-derived later, because the state the
+    // derivation needs -- the row's import mode and, above all, the account's live absolute SET --
+    // can change between the mark and the un-mark; see AccountBalanceConvention.netEffectIsInBalance.
+    //
+    // duplicateBalanceReversed: the mark took this row's net effect off the balance. Clearing the
+    // mark puts it back; deleting or editing the row while marked moves nothing.
+    // duplicateBalanceAnchorId: the absolute SET (a StatementImport) that stood between the mark and
+    // the balance -- the row's effect was part of the balance that SET replaced, so it sits in the
+    // SET's pre-set snapshot and comes back with it if the SET is reversed. Set only when
+    // duplicateBalanceReversed is false for that reason; cleared with the mark, when the SET is
+    // reversed (StatementImportService.reverseAbsoluteContribution), or when a manual balance edit
+    // rebases the account (AccountService.update).
+    @Column(name = "duplicate_balance_reversed", nullable = false)
+    private boolean duplicateBalanceReversed;
+
+    @Column(name = "duplicate_balance_anchor_id")
+    private UUID duplicateBalanceAnchorId;
+
     @Column(name = "is_transfer", nullable = false)
     private boolean isTransfer = false;
 
@@ -371,6 +391,10 @@ public class Transaction extends BaseEntity {
 
     public java.time.Instant getNotDuplicateConfirmedAt() { return notDuplicateConfirmedAt; }
     public void setNotDuplicateConfirmedAt(java.time.Instant at) { this.notDuplicateConfirmedAt = at; }
+    public boolean isDuplicateBalanceReversed() { return duplicateBalanceReversed; }
+    public void setDuplicateBalanceReversed(boolean reversed) { this.duplicateBalanceReversed = reversed; }
+    public UUID getDuplicateBalanceAnchorId() { return duplicateBalanceAnchorId; }
+    public void setDuplicateBalanceAnchorId(UUID anchorId) { this.duplicateBalanceAnchorId = anchorId; }
     public boolean isTransfer() { return isTransfer; }
     public void setTransfer(boolean transfer) { isTransfer = transfer; }
     public UUID getTransferPairId() { return transferPairId; }

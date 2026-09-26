@@ -1,6 +1,7 @@
 package com.finora.accounts;
 
 import com.finora.entity.Account;
+import com.finora.entity.StatementImport;
 import com.finora.entity.Transaction;
 
 import java.math.BigDecimal;
@@ -98,6 +99,55 @@ public final class AccountBalanceConvention {
      * (INCOME) reduces it — the opposite of every other type. Getting that backwards on the import
      * path would corrupt a card's balance by twice its statement total, silently.
      */
+    /**
+     * Whether a row's own net effect is part of {@code Account.balance} right now -- the one rule
+     * behind every duplicate-mark balance move. Marking such a row DUPLICATE takes that effect off
+     * ({@code ReconciliationService.reverseBalanceContribution}); un-marking it puts the effect back
+     * ({@code TransactionService.confirmNotDuplicate}, {@code TransactionService
+     * .clearReconciliationPointersTo}, {@code StatementImportService.delete}); deleting or editing a
+     * marked row moves nothing, because nothing of it is there ({@code TransactionService.delete},
+     * {@code update}).
+     *
+     * <ul>
+     *   <li>MANUAL: {@code TransactionService.create} moved the balance by the row, so yes.</li>
+     *   <li>CSV_IMPORT / GMAIL_IMPORT: only when the row's statement import was ADDITIVE -- the one
+     *       {@link StatementImport.BalanceApplicationMode} under which rows moved the balance by their
+     *       net effect. ABSOLUTE set the balance to a stated figure, NONE and UNKNOWN_LEGACY never
+     *       moved it by this row (or did not record which branch ran, and is not guessed).</li>
+     *   <li>ACCOUNT_AGGREGATOR: nothing on the aggregator path writes {@code Account.balance}, so
+     *       no.</li>
+     *   <li>Any of the above, when the account's balance was later SET from a statement's closing
+     *       figure ({@code Account.lastAbsoluteSetStatementId} still live) and this row predates that
+     *       SET: the stated figure replaced the accumulated history the row was part of, so the row's
+     *       effect is no longer separately in the balance. Rows that arrived after the SET are.</li>
+     * </ul>
+     *
+     * <p>Asked once, when the mark is written, and the answer is recorded on the row
+     * ({@code Transaction.duplicateBalanceReversed}, with {@code duplicateBalanceAnchorId} naming
+     * the SET when the fourth case is the only reason for "no"). The un-mark and delete sites read
+     * the record instead of asking again: the state this rule reads -- the live anchor above all --
+     * can change between the mark and the un-mark, and re-deriving it then gave the wrong answer
+     * for a mark held behind a SET that was later reversed (its pre-SET balance restored, the
+     * row's amount back in it, the mark standing). {@code StatementImportService
+     * .reverseAbsoluteContribution} reverses the rows a SET held when it reverses the SET;
+     * {@code AccountService.update} rebases them when a manual balance edit replaces the anchor.
+     *
+     * @param liveAnchorImportedAt when the account's live absolute SET happened, or null when the
+     *                             balance has no live anchor (never set, or cleared by a manual edit)
+     */
+    public static boolean netEffectIsInBalance(Transaction.Source source,
+                                               StatementImport.BalanceApplicationMode importMode,
+                                               java.time.Instant createdAt,
+                                               java.time.Instant liveAnchorImportedAt) {
+        boolean applied = switch (source == null ? Transaction.Source.MANUAL : source) {
+            case MANUAL -> true;
+            case ACCOUNT_AGGREGATOR -> false;
+            case CSV_IMPORT, GMAIL_IMPORT -> importMode == StatementImport.BalanceApplicationMode.ADDITIVE;
+        };
+        if (!applied) return false;
+        return liveAnchorImportedAt == null || createdAt == null || !createdAt.isBefore(liveAnchorImportedAt);
+    }
+
     public static BigDecimal balanceDelta(Account.Type type, Transaction.Type txnType, BigDecimal amount) {
         if (amount == null || txnType == null) return BigDecimal.ZERO;
         boolean increases = isLiability(type)

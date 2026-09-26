@@ -2,6 +2,7 @@ package com.finora.transactions;
 
 import com.finora.entity.Account;
 import com.finora.entity.Category;
+import com.finora.entity.StatementImport;
 import com.finora.entity.Transaction;
 import com.finora.entity.User;
 import com.finora.exception.ApiException;
@@ -1163,6 +1164,267 @@ class TransactionServiceTest {
         transactionService.delete(userId, txnId, userId);
 
         // The 200 of income this transaction contributed is reversed out on delete.
+        assertThat(acct.getBalance()).isEqualByComparingTo("800");
+    }
+
+    /** A DUPLICATE row out of an ADDITIVE import contributes nothing to the balance -- BH-003
+     *  reversed it when the mark was written, and recorded that on the row -- so deleting it must
+     *  not move the balance again. */
+    @Test
+    void delete_leavesTheBalanceAlone_forADuplicateAlreadyReversedOutOfAnAdditiveImport() {
+        UUID txnId = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+        UUID importId = UUID.randomUUID();
+        Transaction t = ownedTransaction(txnId, userId);
+        t.setAccountId(accountId);
+        t.setAmount(BigDecimal.valueOf(200));
+        t.setTxnType(Transaction.Type.INCOME);
+        t.setStatementImportId(importId);
+        t.setIsDuplicateOf(UUID.randomUUID());
+        t.setDuplicateBalanceReversed(true);
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(t));
+        Account acct = account(accountId, Account.Type.SAVINGS, BigDecimal.valueOf(1000));
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(acct));
+
+        transactionService.delete(userId, txnId, userId);
+
+        assertThat(acct.getBalance()).isEqualByComparingTo("1000");
+        verify(transactionRepository).delete(t);
+    }
+
+    /** Deleting the canonical row un-marks the survivor that pointed at it. A survivor out of an
+     *  ADDITIVE import had its contribution reversed when it was marked; counted again, it goes
+     *  back on. Net: the canonical's 200 comes off, the survivor's 200 goes back, the ledger holds
+     *  one real transaction and the balance reflects one. */
+    @Test
+    void delete_addsBackTheContribution_ofAnAdditiveImportSurvivorItUnmarks() {
+        UUID txnId = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+        UUID importId = UUID.randomUUID();
+        Transaction canonical = ownedTransaction(txnId, userId);
+        canonical.setAccountId(accountId);
+        canonical.setAmount(BigDecimal.valueOf(200));
+        canonical.setTxnType(Transaction.Type.INCOME);
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(canonical));
+        Transaction survivor = ownedTransaction(UUID.randomUUID(), userId);
+        survivor.setAccountId(accountId);
+        survivor.setAmount(BigDecimal.valueOf(200));
+        survivor.setTxnType(Transaction.Type.INCOME);
+        survivor.setStatementImportId(importId);
+        survivor.setIsDuplicateOf(txnId);
+        survivor.setDuplicateBalanceReversed(true);
+        survivor.setReconciliationStatus(Transaction.ReconciliationStatus.DUPLICATE);
+        when(transactionRepository.findByIsDuplicateOfIn(List.of(txnId))).thenReturn(List.of(survivor));
+        Account acct = account(accountId, Account.Type.SAVINGS, BigDecimal.valueOf(1000));
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(acct));
+
+        transactionService.delete(userId, txnId, userId);
+
+        assertThat(survivor.getIsDuplicateOf()).isNull();
+        assertThat(survivor.isDuplicateBalanceReversed()).isFalse();
+        assertThat(acct.getBalance()).isEqualByComparingTo("1000");
+    }
+
+    /** A survivor whose own statement was superseded is not resurrected by the canonical's
+     *  delete: it stays SUPERSEDED, out of every total, and nothing goes back on the balance --
+     *  the refusal confirmNotDuplicate makes for the same row. */
+    @Test
+    void delete_keepsASurvivorOfASupersededStatementSuperseded_andAddsNothingBack() {
+        UUID txnId = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+        UUID importId = UUID.randomUUID();
+        Transaction canonical = ownedTransaction(txnId, userId);
+        canonical.setAccountId(accountId);
+        canonical.setAmount(BigDecimal.valueOf(200));
+        canonical.setTxnType(Transaction.Type.INCOME);
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(canonical));
+        Transaction survivor = ownedTransaction(UUID.randomUUID(), userId);
+        survivor.setAccountId(accountId);
+        survivor.setAmount(BigDecimal.valueOf(200));
+        survivor.setTxnType(Transaction.Type.INCOME);
+        survivor.setStatementImportId(importId);
+        survivor.setIsDuplicateOf(txnId);
+        survivor.setDuplicateBalanceReversed(true);
+        survivor.setReconciliationStatus(Transaction.ReconciliationStatus.DUPLICATE);
+        when(transactionRepository.findByIsDuplicateOfIn(List.of(txnId))).thenReturn(List.of(survivor));
+        StatementImport superseded = new StatementImport();
+        superseded.setSupersededBy(UUID.randomUUID());
+        when(statementImportRepository.findById(importId)).thenReturn(Optional.of(superseded));
+        Account acct = account(accountId, Account.Type.SAVINGS, BigDecimal.valueOf(1000));
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(acct));
+
+        transactionService.delete(userId, txnId, userId);
+
+        assertThat(survivor.getIsDuplicateOf()).isNull();
+        assertThat(survivor.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.SUPERSEDED);
+        assertThat(survivor.isDuplicateBalanceReversed()).isFalse();
+        // Only the canonical's 200 comes off; the superseded survivor's stays off.
+        assertThat(acct.getBalance()).isEqualByComparingTo("800");
+    }
+
+    /** A survivor whose mark took nothing off -- it was held behind an absolute SET -- is
+     *  un-marked without anything going back on, and no longer held: it is an ordinary row now. */
+    @Test
+    void delete_addsNothingBack_forASurvivorWhoseMarkTookNothingOff() {
+        UUID txnId = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+        Transaction canonical = ownedTransaction(txnId, userId);
+        canonical.setAccountId(accountId);
+        canonical.setAmount(BigDecimal.valueOf(200));
+        canonical.setTxnType(Transaction.Type.INCOME);
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(canonical));
+        Transaction survivor = ownedTransaction(UUID.randomUUID(), userId);
+        survivor.setAccountId(accountId);
+        survivor.setAmount(BigDecimal.valueOf(200));
+        survivor.setTxnType(Transaction.Type.INCOME);
+        survivor.setIsDuplicateOf(txnId);
+        survivor.setDuplicateBalanceAnchorId(UUID.randomUUID());
+        when(transactionRepository.findByIsDuplicateOfIn(List.of(txnId))).thenReturn(List.of(survivor));
+        Account acct = account(accountId, Account.Type.SAVINGS, BigDecimal.valueOf(1000));
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(acct));
+
+        transactionService.delete(userId, txnId, userId);
+
+        assertThat(survivor.getIsDuplicateOf()).isNull();
+        assertThat(survivor.getDuplicateBalanceAnchorId()).isNull();
+        // Only the canonical's 200 comes off.
+        assertThat(acct.getBalance()).isEqualByComparingTo("800");
+    }
+
+    /** A manual survivor was taken off when it was marked, so un-marking it adds its 200 back:
+     *  the deleted canonical's 200 comes off, the survivor's goes on, the balance shows one. */
+    @Test
+    void delete_addsBackTheContribution_ofAManualSurvivorItUnmarks() {
+        UUID txnId = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+        Transaction canonical = ownedTransaction(txnId, userId);
+        canonical.setAccountId(accountId);
+        canonical.setAmount(BigDecimal.valueOf(200));
+        canonical.setTxnType(Transaction.Type.INCOME);
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(canonical));
+        Transaction survivor = ownedTransaction(UUID.randomUUID(), userId);
+        survivor.setAccountId(accountId);
+        survivor.setAmount(BigDecimal.valueOf(200));
+        survivor.setTxnType(Transaction.Type.INCOME);
+        survivor.setIsDuplicateOf(txnId);
+        survivor.setDuplicateBalanceReversed(true);
+        when(transactionRepository.findByIsDuplicateOfIn(List.of(txnId))).thenReturn(List.of(survivor));
+        Account acct = account(accountId, Account.Type.SAVINGS, BigDecimal.valueOf(1000));
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(acct));
+
+        transactionService.delete(userId, txnId, userId);
+
+        assertThat(survivor.getIsDuplicateOf()).isNull();
+        assertThat(acct.getBalance()).isEqualByComparingTo("1000");
+    }
+
+    /** A manual duplicate was counted when entered and taken back off when marked (the same rule
+     *  as an ADDITIVE-import row), so its delete moves nothing either. */
+    @Test
+    void delete_leavesTheBalanceAlone_forAMarkedManualDuplicate() {
+        UUID txnId = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+        Transaction t = ownedTransaction(txnId, userId);
+        t.setAccountId(accountId);
+        t.setAmount(BigDecimal.valueOf(200));
+        t.setTxnType(Transaction.Type.INCOME);
+        t.setIsDuplicateOf(UUID.randomUUID());
+        t.setDuplicateBalanceReversed(true);
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(t));
+        Account acct = account(accountId, Account.Type.SAVINGS, BigDecimal.valueOf(1000));
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(acct));
+
+        transactionService.delete(userId, txnId, userId);
+
+        assertThat(acct.getBalance()).isEqualByComparingTo("1000");
+    }
+
+    /** A mark held behind an absolute SET took nothing off, so removing the row moves the balance
+     *  the way removing any other pre-SET row does -- and, soft-deleted, the row is out of the
+     *  SET's reach, so reversing the SET later cannot move it a second time. */
+    @Test
+    void delete_stillReversesTheBalance_forAMarkHeldBehindAnAbsoluteSet() {
+        UUID txnId = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+        Transaction t = ownedTransaction(txnId, userId);
+        t.setAccountId(accountId);
+        t.setAmount(BigDecimal.valueOf(200));
+        t.setTxnType(Transaction.Type.INCOME);
+        t.setIsDuplicateOf(UUID.randomUUID());
+        t.setDuplicateBalanceAnchorId(UUID.randomUUID());
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(t));
+        Account acct = account(accountId, Account.Type.SAVINGS, BigDecimal.valueOf(1000));
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(acct));
+
+        transactionService.delete(userId, txnId, userId);
+
+        assertThat(acct.getBalance()).isEqualByComparingTo("800");
+    }
+
+    /** confirmNotDuplicate puts back exactly what the mark took off -- read from the row's own
+     *  record, not re-derived -- and clears the record with the mark. */
+    @Test
+    void confirmNotDuplicate_putsBackWhatTheMarkTookOff_andClearsTheRecord() {
+        UUID txnId = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+        Transaction t = ownedTransaction(txnId, userId);
+        t.setAccountId(accountId);
+        t.setAmount(BigDecimal.valueOf(200));
+        t.setTxnType(Transaction.Type.INCOME);
+        t.setIsDuplicateOf(UUID.randomUUID());
+        t.setDuplicateBalanceReversed(true);
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(t));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+        Account acct = account(accountId, Account.Type.SAVINGS, BigDecimal.valueOf(1000));
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(acct));
+
+        transactionService.confirmNotDuplicate(userId, txnId);
+
+        assertThat(t.getIsDuplicateOf()).isNull();
+        assertThat(t.isDuplicateBalanceReversed()).isFalse();
+        assertThat(acct.getBalance()).isEqualByComparingTo("1200");
+    }
+
+    @Test
+    void confirmNotDuplicate_putsNothingBack_whenTheMarkTookNothingOff() {
+        UUID txnId = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+        Transaction t = ownedTransaction(txnId, userId);
+        t.setAccountId(accountId);
+        t.setAmount(BigDecimal.valueOf(200));
+        t.setTxnType(Transaction.Type.INCOME);
+        t.setIsDuplicateOf(UUID.randomUUID());
+        t.setDuplicateBalanceAnchorId(UUID.randomUUID());
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(t));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+        Account acct = account(accountId, Account.Type.SAVINGS, BigDecimal.valueOf(1000));
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(acct));
+
+        transactionService.confirmNotDuplicate(userId, txnId);
+
+        assertThat(t.getIsDuplicateOf()).isNull();
+        assertThat(t.getDuplicateBalanceAnchorId()).isNull();
+        assertThat(acct.getBalance()).isEqualByComparingTo("1000");
+    }
+
+    /** An account-aggregator row never moved the balance, so its mark took nothing off and the
+     *  pre-existing delete reversal still applies to it unchanged. */
+    @Test
+    void delete_stillReversesTheBalance_forAMarkedAggregatorRow() {
+        UUID txnId = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+        Transaction t = ownedTransaction(txnId, userId);
+        t.setAccountId(accountId);
+        t.setAmount(BigDecimal.valueOf(200));
+        t.setTxnType(Transaction.Type.INCOME);
+        t.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        t.setIsDuplicateOf(UUID.randomUUID());
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(t));
+        Account acct = account(accountId, Account.Type.SAVINGS, BigDecimal.valueOf(1000));
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(acct));
+
+        transactionService.delete(userId, txnId, userId);
+
         assertThat(acct.getBalance()).isEqualByComparingTo("800");
     }
 

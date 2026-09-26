@@ -163,6 +163,48 @@ class AccountServiceTest {
         assertThat(existing.getLastAbsoluteSetStatementId()).isNull();
     }
 
+    /** The typed figure is a baseline for the ledger as it stands: a marked row is not in it,
+     *  so every mark whose row could have been in a balance is recorded as reversed -- above all
+     *  the ones the outgoing SET held, since its pre-set snapshot is unreachable from here on. A
+     *  mark on a row that was never in any balance stays as it was. The balance itself is the
+     *  user's figure, untouched. */
+    @Test
+    void update_withANewBalance_rebasesEveryDuplicateMarkOnTheAccount() {
+        Account existing = existingAccount();
+        UUID anchor = UUID.randomUUID();
+        existing.setLastAbsoluteSetStatementId(anchor);
+        when(accountRepository.findById(accountId)).thenReturn(java.util.Optional.of(existing));
+        when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Transaction heldManual = new Transaction();
+        heldManual.setAccountId(accountId);
+        heldManual.setSource(Transaction.Source.MANUAL);
+        heldManual.setIsDuplicateOf(UUID.randomUUID());
+        heldManual.setDuplicateBalanceAnchorId(anchor);
+        Transaction aggregator = new Transaction();
+        aggregator.setAccountId(accountId);
+        aggregator.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        aggregator.setIsDuplicateOf(UUID.randomUUID());
+        Transaction alreadyReversed = new Transaction();
+        alreadyReversed.setAccountId(accountId);
+        alreadyReversed.setIsDuplicateOf(UUID.randomUUID());
+        alreadyReversed.setDuplicateBalanceReversed(true);
+        when(transactionRepository.findByAccountIdAndIsDuplicateOfIsNotNull(accountId))
+                .thenReturn(List.of(heldManual, aggregator, alreadyReversed));
+
+        AccountDto.CreateRequest balanceEdit = new AccountDto.CreateRequest(
+                "Punjab National Bank", "SAVINGS", BigDecimal.valueOf(20000), null, null, null, null, null, null, null, null);
+
+        AccountDto result = accountService.update(userId, accountId, balanceEdit, actingAdminId);
+
+        assertThat(result.balance()).isEqualByComparingTo(BigDecimal.valueOf(20000));
+        assertThat(heldManual.isDuplicateBalanceReversed()).isTrue();
+        assertThat(heldManual.getDuplicateBalanceAnchorId()).isNull();
+        assertThat(aggregator.isDuplicateBalanceReversed()).isFalse();
+        assertThat(alreadyReversed.isDuplicateBalanceReversed()).isTrue();
+        verify(transactionRepository).saveAll(List.of(heldManual, aggregator));
+    }
+
     @Test
     void update_withNoBalanceInRequest_leavesTheAbsoluteSetPointerUntouched() {
         Account existing = existingAccount();

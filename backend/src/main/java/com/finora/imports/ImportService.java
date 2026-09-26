@@ -957,9 +957,10 @@ public class ImportService {
      * build and insert the rows, write the StatementImport, move the balance.
      *
      * <p>Split out of {@code confirm()} for BH-041 so a multi-section import can persist every
-     * section before any reconciliation happens. The counterpart is {@link #summarise}, and the two
-     * are not independently reorderable — see that method on why the BH-003 balance reversal has to
-     * travel with the tally.
+     * section before any reconciliation happens. The counterpart is {@link #summarise}; the balance
+     * this method moves is corrected for duplicates by the reconciliation run in between
+     * (ReconciliationService.reverseBalanceContribution), so the order persist → reconcile →
+     * summarise is load-bearing.
      */
     private PersistedSection persistSection(UUID userId, String fileName, byte[] fileContent, ConfirmRequest request,
                                     Integer sourceSectionIndex,
@@ -1217,6 +1218,13 @@ public class ImportService {
             statementImport.setEncryptionKeyId(stored.encryptionKeyId());
         } else {
             statementImport.setFileContent(fileContent);
+            // Without object storage the row keeps the bytes inline and used to carry no hash at
+            // all, so "which file is this" could only be answered by re-hashing the blob. The
+            // session already carries this same value (ImportSessionService.storeContent); the
+            // confirmed row now does too. objectKey stays null, and StatementContentService.read
+            // requires BOTH hash and key before it looks in storage, so recording the hash changes
+            // nothing about where the bytes are read from.
+            statementImport.setContentHash(ContentAddress.hashOf(fileContent));
         }
         // Bug fix: this used to fall back further, to minDate/maxDate -- the confirmed rows' own
         // date range, which is only ever a LOWER bound on the statement's true period whenever a
@@ -1412,6 +1420,9 @@ public class ImportService {
                 // about this statement's own rows or opening/closing arithmetic can reconstruct it
                 // after the fact.
                 java.math.BigDecimal priorBalance = account.getBalance();
+                // And which SET that prior balance was standing on, so reversing this one can hand
+                // the anchor back (see StatementImport.previousAbsoluteSetStatementId).
+                savedImport.setPreviousAbsoluteSetStatementId(account.getLastAbsoluteSetStatementId());
                 account.setBalance(request.statementClosingBalance());
                 account.setLastAbsoluteSetStatementId(savedImport.getId());
                 accountRepository.save(account);
@@ -1546,12 +1557,16 @@ public class ImportService {
      * What one section reports once reconciliation has run: what it found among this section's own
      * rows, the balance correction that follows from it, and the response.
      *
-     * <p><b>The tally and the BH-003 reversal are one step, not two.</b> Reconciliation has just
-     * decided which of this section's rows are duplicates; the balance was moved by all of them.
-     * Reading the flags without reversing their contribution is the BH-003 bug exactly — a card
-     * balance that went 4000.00 to 3000.00 on a second import of the same file, with the rows that
-     * caused it hidden from the ledger view. Anything that reorders this method must keep the two
-     * together.
+     * <p><b>The BH-003 reversal no longer lives here.</b> The balance is moved by every row a
+     * section inserts; reconciliation then decides which of them are duplicates and, in the same
+     * run, takes their contribution back off ({@code ReconciliationService.reverseBalanceContribution}
+     * -- the rule is the import's {@code BalanceApplicationMode}, which persistSection has already
+     * recorded on the saved row by the time reconcileForImport runs). Reading the flags without that
+     * reversal was the BH-003 bug exactly: a card balance that went 4000.00 to 3000.00 on a second
+     * import of the same file, with the rows that caused it hidden from the ledger view. Moving the
+     * reversal into reconciliation is what lets a mark written by a LATER run (an edit, a delete, a
+     * later import) correct the balance too, which this method could never do for rows it did not
+     * insert. What remains here is the tally the summary reports.
      */
     private ConfirmResponse summarise(UUID userId, PersistedSection section) {
         UUID accountId = section.accountId();
@@ -1568,36 +1583,8 @@ public class ImportService {
             DuplicateDetector.ReconciliationTally tally = duplicateDetector.tally(section.saved());
             duplicatesDetected = tally.duplicatesDetected();
             transfersIdentified = tally.transfersIdentified();
-
-            // BH-003. The balance above moved by the net effect of EVERY row this import inserted.
-            // Reconciliation has just decided that some of them are duplicates of transactions the
-            // ledger already held, and every reported total -- dashboard, reports, category spend
-            // -- excludes them from here on. Account.balance was the one figure that did not, so
-            // re-importing a statement (or uploading the same file twice) moved the balance a
-            // second time and left it permanently overstated, with the rows that caused it hidden
-            // from the ledger view. Nothing recomputes that column, so the disagreement was
-            // permanent and silent -- the exact failure ClosingBalanceGuard's own comment describes
-            // this pipeline as existing to prevent.
-            //
-            // The rule the balance follows is unchanged: it moves with the transactions Finora
-            // COUNTS. A duplicate is not counted, so its contribution comes back off.
-            //
-            // Only on the netDelta branch. When the closing balance was authoritative the column
-            // holds an absolute figure the statement stated, not an accumulated one -- re-importing
-            // writes the same number again, which is already idempotent, and subtracting from it
-            // would corrupt a balance that was correct.
-            if (!closingBalanceIsAuthoritative && !tally.duplicates().isEmpty()) {
-                // Re-fetched, like every other block that writes this row -- see the note above
-                // the guard on why holding one Account reference across two saves does not work.
-                accountRepository.findById(accountId).ifPresent(account -> {
-                    BigDecimal reversal = AccountBalanceConvention
-                            .netDelta(account.getAccountType(), tally.duplicates()).negate();
-                    if (reversal.signum() != 0) {
-                        account.setBalance(account.getBalance().add(reversal));
-                        accountRepository.save(account);
-                    }
-                });
-            }
+            // The duplicates' contribution to Account.balance has already been taken back off by
+            // the reconciliation run that marked them -- see this method's doc comment.
         }
 
         ClosingBalanceGuard.Decision balanceDecision = section.balanceDecision();

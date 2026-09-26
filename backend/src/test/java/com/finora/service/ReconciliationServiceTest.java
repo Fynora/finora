@@ -3034,6 +3034,40 @@ class ReconciliationServiceTest {
     }
 
     @Test
+    void reconcileForUser_transferTiedBetweenRowsOnAccountsCreatedTogether_ordersByTheAccountItself_whateverTheOrder() {
+        // Everything about the two rows and their accounts' creation is identical; only the
+        // accounts themselves differ. The account is real, stable content, so it -- not the id --
+        // has to decide.
+        UUID cardAccountId = UUID.randomUUID();
+        UUID lowerMaskAccountId = UUID.randomUUID();
+        UUID higherMaskAccountId = UUID.randomUUID();
+        LocalDate day = LocalDate.of(2026, 7, 14);
+        Instant sameInstant = Instant.parse("2026-07-20T09:00:00Z");
+        assertSameOutcomeEitherIdOrder(swap -> {
+            Transaction payment = txn(UUID.randomUUID(), cardAccountId, day, new BigDecimal("5000.00"),
+                    Transaction.Type.EXPENSE, "CARD PAYMENT", sameInstant);
+            Transaction onLower = txn(swap ? HIGHEST_ID : LOWEST_ID, lowerMaskAccountId, day, new BigDecimal("5000.00"),
+                    Transaction.Type.INCOME, "CREDIT 4471", sameInstant);
+            Transaction onHigher = txn(swap ? LOWEST_ID : HIGHEST_ID, higherMaskAccountId, day, new BigDecimal("5000.00"),
+                    Transaction.Type.INCOME, "CREDIT 4471", sameInstant);
+            Account lower = liveAccount(lowerMaskAccountId);
+            Account higher = liveAccount(higherMaskAccountId);
+            ReflectionTestUtils.setField(lower, "createdAt", sameInstant);
+            ReflectionTestUtils.setField(higher, "createdAt", sameInstant);
+            lower.setAccountNumberMasked("XXXX1111");
+            higher.setAccountNumberMasked("XXXX2222");
+            when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(swap
+                    ? List.of(payment, onHigher, onLower)
+                    : List.of(payment, onLower, onHigher));
+
+            reconciliationService.reconcileForUser(userId);
+
+            assertThat(payment.isTransfer()).isTrue();
+            return payment.getTransferPairId().equals(onLower.getId()) ? "lowerMask" : "higherMask";
+        }, "lowerMask");
+    }
+
+    @Test
     void reconcileForUser_statementsSameDueDateAndCreationInstant_orderByFileHash_whateverTheOrder() {
         UUID firstCard = UUID.randomUUID();
         UUID secondCard = UUID.randomUUID();

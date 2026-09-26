@@ -66,17 +66,30 @@ public class ReconciliationService {
      * were imported in: the row's own creation instant, then its account's (two rows written by
      * one multi-account import can share an instant; their accounts were still created one after
      * the other). Both are set in import order, so the same statements imported the same way sort
-     * the same way. The id, a random UUID, is only the last resort: it used to follow the row
-     * position directly, and then decided which of two such rows a transfer paired with.
+     * the same way. Then the account itself -- its masked number, name and type -- for accounts
+     * created in the same instant. The id, a random UUID, is only the last resort: it used to
+     * follow the row position directly, and then decided which of two such rows a transfer paired
+     * with. What it can still separate now is two rows identical in every field on the same
+     * account, and swapping those changes nothing anyone can see.
      */
     private static Comparator<Transaction> candidateOrder(Map<UUID, com.finora.entity.Account> accountsById) {
+        java.util.function.Function<Transaction, com.finora.entity.Account> account = t -> accountsById.get(t.getAccountId());
         return CONTENT_ORDER
                 .thenComparing(Transaction::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder()))
-                .thenComparing((Transaction t) -> {
-                    com.finora.entity.Account account = accountsById.get(t.getAccountId());
-                    return account == null ? null : account.getCreatedAt();
-                }, Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(t -> accountField(account.apply(t), com.finora.entity.Account::getCreatedAt),
+                        Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(t -> accountField(account.apply(t), com.finora.entity.Account::getAccountNumberMasked),
+                        Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(t -> accountField(account.apply(t), com.finora.entity.Account::getName),
+                        Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(t -> accountField(account.apply(t), com.finora.entity.Account::getAccountType),
+                        Comparator.nullsLast(Comparator.naturalOrder()))
                 .thenComparing(Transaction::getId);
+    }
+
+    private static <T> T accountField(com.finora.entity.Account account,
+                                      java.util.function.Function<com.finora.entity.Account, T> field) {
+        return account == null ? null : field.apply(account);
     }
 
     // A run past this is worth a log line on its own. Chosen against the measurement in

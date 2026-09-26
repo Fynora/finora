@@ -733,6 +733,70 @@ public final class PdfFixtureBuilder {
      * to be the bare words "amount" and "date" -- that must not be misread as a second table's
      * header and wrongly split this into two account sections.
      */
+    /**
+     * A card's summary grid printed document-wide, a savings ledger that classifies SAVINGS, and a
+     * second table whose product cannot be classified (no balance column, no card vocabulary, no
+     * deposit vocabulary). The grid facts belong to that second table -- it is the document's only
+     * section that can be a card -- not to the savings ledger. With {@code twoUnclassified} a third
+     * table of the same unclassifiable shape is printed too, so no single candidate exists.
+     */
+    public static byte[] buildCardGridWithSavingsAndUnclassifiedTablesSample(boolean twoUnclassified) throws IOException {
+        float[] col = {LEFT_MARGIN, 130f, 300f, 380f, 460f};
+        float[] gridCol = {LEFT_MARGIN, 200f, 300f, 430f};
+        float[] plainCol = {LEFT_MARGIN, 150f, 470f};
+        PageBuilder page = new PageBuilder();
+        page.line("Relationship Summary")
+                .row(gridCol, "Credit Card Number", "Credit Limit", "Available Credit Limit", "Available Cash Limit")
+                .row(gridCol, "123456******7890", "30,000.00", "25,000.00", "5,000.00")
+                .line("Payment Due Date : 20/07/2026")
+                .blankLine()
+                .line("SAVINGS ACCOUNT  - 10000000000001")
+                .row(col, "Date", "Narration", "Withdrawal", "Deposit", "Balance")
+                .row(col, "01/06/2026", "Opening Balance", null, null, "7,277.40")
+                .row(col, "05/06/2026", "UPI SAMPLE GROCER", "200.00", null, "7,077.40")
+                .row(col, "12/06/2026", "SALARY SAMPLE EMPLOYER", null, "1,000.00", "8,077.40")
+                .blankLine()
+                .line("OTHER FACILITY  - 20000000000002")
+                .row(plainCol, "Date", "Details", "Amount")
+                .row(plainCol, "15/06/2026", "SAMPLE RETAILER ONE", "1,817.02")
+                .row(plainCol, "18/06/2026", "SAMPLE RETAILER TWO", "240.00");
+        if (twoUnclassified) {
+            page.blankLine()
+                .line("ANOTHER FACILITY  - 30000000000003")
+                .row(plainCol, "Txn Date", "Particulars", "Amount")
+                .row(plainCol, "21/06/2026", "SAMPLE RETAILER THREE", "99.00");
+        }
+        return render(List.of(page));
+    }
+
+    /** The savings-with-card-grid document again, but the ledger's own banner prints no account
+     *  number -- the only shape on which a section could borrow the grid's card number. */
+    public static byte[] buildSavingsLedgerWithoutOwnNumberBesideCardGridSample() throws IOException {
+        return buildSavingsLedgerWithoutOwnNumberBesideGrid("Credit Card Number");
+    }
+
+    /** The same document with the grid's number labelled as an account number, as a real HSBC
+     *  composite's portfolio grid labels the savings account's own number. */
+    public static byte[] buildSavingsLedgerWithoutOwnNumberBesideAccountNumberGridSample() throws IOException {
+        return buildSavingsLedgerWithoutOwnNumberBesideGrid("Account Number");
+    }
+
+    private static byte[] buildSavingsLedgerWithoutOwnNumberBesideGrid(String numberLabel) throws IOException {
+        float[] col = {LEFT_MARGIN, 130f, 300f, 380f, 460f};
+        float[] gridCol = {LEFT_MARGIN, 200f, 300f, 430f};
+        PageBuilder page = new PageBuilder();
+        page.line("Relationship Summary")
+                .row(gridCol, numberLabel, "Credit Limit", "Available Credit Limit", "Available Cash Limit")
+                .row(gridCol, "123456******7890", "30,000.00", "25,000.00", "5,000.00")
+                .blankLine()
+                .line("Savings Account Statement")
+                .row(col, "Date", "Narration", "Withdrawal", "Deposit", "Balance")
+                .row(col, "01/06/2026", "Opening Balance", null, null, "7,277.40")
+                .row(col, "05/06/2026", "UPI SAMPLE GROCER", "200.00", null, "7,077.40")
+                .row(col, "12/06/2026", "SALARY SAMPLE EMPLOYER", null, "1,000.00", "8,077.40");
+        return render(List.of(page));
+    }
+
     public static byte[] buildOffsetColumnAnchorsSample() throws IOException {
         float[] headerCol = {LEFT_MARGIN, 183.5f, 386.5f, 514f};
         float[] dataCol = {35f, 90f, 372f, 500f};

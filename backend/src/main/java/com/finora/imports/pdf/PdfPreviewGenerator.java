@@ -288,7 +288,13 @@ public class PdfPreviewGenerator {
         // number itself: a real Axis credit-card statement's own "Credit Card Number" field is
         // scrambled the same way its Payment Due Date is -- see AccountNumberGridExtractor's own
         // doc comment.
-        String gridAccountNumberMasked = AccountNumberGridExtractor.extract(positioned, ctx);
+        AccountNumberGridExtractor.GridAccountNumber gridNumber = AccountNumberGridExtractor.extractLabelled(positioned, ctx);
+        String gridAccountNumberMasked = gridNumber == null ? null : gridNumber.masked();
+        // A card-labelled grid number is a card fact and a non-card section never borrows it (the
+        // gate in buildDetectedAccountInfo). An "Account Number"-labelled one is not gated: a real
+        // HSBC composite's savings section has no other source for its own number, and a
+        // label-blind gate dropped it (measured on the corpus).
+        boolean gridAccountNumberIsCardLabelled = gridNumber != null && gridNumber.cardLabelled();
         // A different real document (ICICI) prints its own account number with no label at all,
         // positioned directly under the transaction table's own "Date" column header -- neither
         // scrambled nor label-anchored, so AccountNumberGridExtractor alone can't recover it. See
@@ -319,7 +325,7 @@ public class PdfPreviewGenerator {
             // the contradiction -- printed activity, nothing staged -- with nothing to state it.
             StagedAccountSection section = buildLedgerSection(userId, filename, emptySection, unknown, ctx,
                     printedSummary, printedCreditCardSummary, printedDateRange, gridPaymentDueDate,
-                    gridCreditLimit, gridAccountNumberMasked, 1);
+                    gridCreditLimit, gridAccountNumberMasked, gridAccountNumberIsCardLabelled, 1);
             return new PdfGenerationResult(List.of(surfaceUnrecognizedText(section, empty.preTableLines())), ctx,
                     printedCreditCardSummary);
         }
@@ -332,11 +338,14 @@ public class PdfPreviewGenerator {
             // every section exists.
             List<StagedAccountSection> staged = buildSections(userId, filename, doc.sections().get(i),
                     i, doc.sections().size(), ctx, PrintedSummary.NONE, printedCreditCardSummary,
-                    printedDateRange, gridPaymentDueDate, gridCreditLimit, gridAccountNumberMasked);
+                    printedDateRange, gridPaymentDueDate, gridCreditLimit, gridAccountNumberMasked,
+                    gridAccountNumberIsCardLabelled);
             for (StagedAccountSection s : staged) unparseableAcrossDocument.addAll(s.unparseableRows());
             result.addAll(staged);
         }
         result = attributePrintedSummary(result, printedSummary);
+        result = attachCardGridFactsToTheSoleCandidate(result, doc, gridCreditLimit, gridPaymentDueDate,
+                gridAccountNumberMasked, ctx);
         result = inheritAccountNumberAcrossSections(result);
         // One document's worth, across every section -- the DocumentContext is per-file, and a
         // combined statement's sections all failed (or didn't) as part of the same parse run.
@@ -368,7 +377,8 @@ public class PdfPreviewGenerator {
                                                       CreditCardSummaryEvidence printedCreditCardSummary,
                                                       TransactionTableDateRangeExtractor.PrintedDateRange printedDateRange,
                                                       LocalDate gridPaymentDueDate, BigDecimal gridCreditLimit,
-                                                      String gridAccountNumberMasked) {
+                                                      String gridAccountNumberMasked,
+                                                      boolean gridAccountNumberIsCardLabelled) {
         // Every row's columns, not row 0's alone: a ledger's first row is often a brought-forward
         // or single-sided row missing the Withdrawals or Deposits cell, and judged on that row
         // alone a plain savings ledger classified UNKNOWN. Same reasoning as classifySectionAlone.
@@ -402,7 +412,7 @@ public class PdfPreviewGenerator {
         }
         return List.of(buildLedgerSection(userId, filename, section, product, ctx, printedSummary,
                 printedCreditCardSummary, printedDateRange, gridPaymentDueDate, gridCreditLimit,
-                gridAccountNumberMasked, sectionCount));
+                gridAccountNumberMasked, gridAccountNumberIsCardLabelled, sectionCount));
     }
 
     /**
@@ -446,7 +456,8 @@ public class PdfPreviewGenerator {
                                                     CreditCardSummaryEvidence printedCreditCardSummary,
                                                     TransactionTableDateRangeExtractor.PrintedDateRange printedDateRange,
                                                     LocalDate gridPaymentDueDate, BigDecimal gridCreditLimit,
-                                                    String gridAccountNumberMasked, int sectionCount) {
+                                                    String gridAccountNumberMasked,
+                                                    boolean gridAccountNumberIsCardLabelled, int sectionCount) {
         List<StagedRow> staged = new ArrayList<>();
         // "Never lose information" (see the engineering principles doc) -- a row that fails to
         // normalize is reported with WHY, not just silently absent from the row count. Real cost
@@ -587,7 +598,7 @@ public class PdfPreviewGenerator {
         int dupCount = (int) staged.stream().filter(StagedRow::likelyDuplicate).count();
         DetectedAccountInfo detected = buildDetectedAccountInfo(filename, section, balancePoints, product, ctx,
                 printedCreditCardSummary, printedDateRange, gridPaymentDueDate, gridCreditLimit,
-                gridAccountNumberMasked, creditLimitAppliesTo(product, sectionCount));
+                gridAccountNumberMasked, gridAccountNumberIsCardLabelled, creditLimitAppliesTo(product, sectionCount));
         // Per section rather than per file: a composite statement's sections have separate balance
         // chains, and one can verify while another does not.
         var verification = importVerifier.verify(documentOrder,
@@ -806,6 +817,72 @@ public class PdfPreviewGenerator {
      * that, left ungated, would have silently stopped this section from ever getting its account
      * number back: it is still a fragment of the SAME card, just no longer an unidentified one.
      */
+    /**
+     * Post-pass for a multi-section document whose card section classifies UNKNOWN. Per section,
+     * the document-wide grid facts (credit limit, payment due date, grid card number) attach only
+     * to a CREDIT_CARD section (creditLimitAppliesTo), so a composite statement whose card table
+     * carried too little vocabulary to classify lost them. Here: when no section took them and
+     * exactly one section is UNKNOWN while none is CREDIT_CARD, that section is the only one that
+     * can be the card and receives them; with several UNKNOWN sections nothing is attached and the
+     * ambiguity is recorded. Savings and deposit sections are never candidates. No document in the
+     * real corpus prints this shape (its composites classify their card sections, or have none);
+     * exercised by SectionScopedCreditLimitPdfPreviewGeneratorTest.
+     */
+    private List<StagedAccountSection> attachCardGridFactsToTheSoleCandidate(List<StagedAccountSection> sections,
+                                                                          PdfTableLocator.LocatedDocument doc,
+                                                                          BigDecimal gridCreditLimit,
+                                                                          LocalDate gridPaymentDueDate,
+                                                                          String gridAccountNumberMasked,
+                                                                          DocumentContext ctx) {
+        if (sections.size() <= 1) return sections;
+        // The line-based limit and due date live in whichever section's auxiliary text carries the
+        // summary lines (the first, on every composite seen); read them document-wide here, the
+        // same way buildDetectedAccountInfo falls back from the grid to the section's metadata.
+        BigDecimal creditLimit = gridCreditLimit;
+        LocalDate paymentDueDate = gridPaymentDueDate;
+        if (creditLimit == null || paymentDueDate == null) {
+            List<String> everyAuxiliaryLine = new ArrayList<>();
+            for (PdfTableLocator.LocatedSection located : doc.sections()) everyAuxiliaryLine.addAll(located.auxiliaryText());
+            PdfMetadataExtractor.ExtractedMetadata documentWide = metadataExtractor.extract(everyAuxiliaryLine);
+            if (creditLimit == null) creditLimit = documentWide.creditLimit();
+            if (paymentDueDate == null) paymentDueDate = documentWide.paymentDueDate();
+        }
+        if (creditLimit == null && paymentDueDate == null && gridAccountNumberMasked == null) return sections;
+        boolean anyCard = sections.stream().anyMatch(s -> s.detectedAccount() != null
+                && "CREDIT_CARD".equals(s.detectedAccount().detectedProduct()));
+        if (anyCard) return sections;
+        List<Integer> unknown = new ArrayList<>();
+        for (int i = 0; i < sections.size(); i++) {
+            DetectedAccountInfo acc = sections.get(i).detectedAccount();
+            if (acc != null && "UNKNOWN".equals(acc.detectedProduct())) unknown.add(i);
+        }
+        if (unknown.isEmpty()) return sections;
+        if (unknown.size() > 1) {
+            if (ctx != null) ctx.record("CARD_GRID_FACTS_WITHHELD_AMBIGUOUS");
+            return sections;
+        }
+        int i = unknown.get(0);
+        StagedAccountSection s = sections.get(i);
+        DetectedAccountInfo acc = s.detectedAccount();
+        DetectedAccountInfo updated = new DetectedAccountInfo(
+                acc.suggestedName(), acc.suggestedAccountType(), acc.openingBalance(), acc.closingBalance(),
+                acc.statementPeriodStart(), acc.statementPeriodEnd(),
+                acc.accountNumberMasked() != null ? acc.accountNumberMasked() : gridAccountNumberMasked,
+                acc.creditLimit() != null ? acc.creditLimit() : creditLimit,
+                acc.totalAmountDue(),
+                acc.paymentDueDate() != null ? acc.paymentDueDate() : paymentDueDate,
+                acc.accountHolderName(), acc.branchName(),
+                acc.ifscCode(), acc.bank(), acc.detectedProduct(), acc.productConfidence(),
+                acc.productNeedsReview(), acc.productEvidence(), acc.productIdentityHash(),
+                acc.principalAmount(), acc.interestRate(), acc.maturityDate(), acc.maturityAmount(),
+                acc.installmentAmount(), acc.installmentsPaid(), acc.installmentsTotal());
+        if (ctx != null) ctx.record("CARD_GRID_FACTS_ATTACHED_TO_SOLE_UNKNOWN_SECTION");
+        List<StagedAccountSection> revised = new ArrayList<>(sections);
+        revised.set(i, new StagedAccountSection(updated, s.rows(), s.totalParsed(), s.flaggedDuplicates(),
+                s.unparseableRows(), s.verification()));
+        return revised;
+    }
+
     private List<StagedAccountSection> inheritAccountNumberAcrossSections(List<StagedAccountSection> sections) {
         if (sections.size() <= 1) return sections;
         String sourceAccountNumber = null;
@@ -884,6 +961,7 @@ public class PdfPreviewGenerator {
                                                            TransactionTableDateRangeExtractor.PrintedDateRange printedDateRange,
                                                            LocalDate gridPaymentDueDate, BigDecimal gridCreditLimit,
                                                            String gridAccountNumberMasked,
+                                                           boolean gridAccountNumberIsCardLabelled,
                                                            boolean creditLimitApplies) {
         LocalDate statementStart = null;
         LocalDate statementEnd = null;
@@ -975,7 +1053,8 @@ public class PdfPreviewGenerator {
         return facts.toDetectedAccountInfo(product, suggestedAccountTypeFor(product, facts.creditCardSignals()),
                 openingBalance, closingBalance, statementStart, statementEnd, ProductAttributes.empty(),
                 printedCreditCardSummary == null ? null : printedCreditCardSummary.totalAmountDue(),
-                paymentDueDate, creditLimit, gridAccountNumberMasked);
+                paymentDueDate, creditLimit,
+                creditLimitApplies || !gridAccountNumberIsCardLabelled ? gridAccountNumberMasked : null);
     }
 
     /**

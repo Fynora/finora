@@ -1429,4 +1429,15 @@ class PdfMetadataExtractorTest {
         assertThat(extractor.extract(List.of("HSBC Bank Customer Number 100-000000")).accountHolderName())
                 .isNull();
     }
+
+    @Test
+    void extract_doesNotTakeAGridHeaderRowsNextHeading_asAnEmptyAccountNumber() {
+        // A summary grid's header row starts with the label; the "value" after it is the next
+        // column's heading. Masking that produced "" and blocked the grid reading of the real
+        // number printed on the row below.
+        var metadata = extractor.extract(List.of(
+                "Account Number Credit Limit Available Credit Limit Available Cash Limit",
+                "123456******7890 30,000.00 25,000.00 5,000.00"));
+        assertThat(metadata.accountNumberMasked()).isNull();
+    }
 }

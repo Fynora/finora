@@ -831,7 +831,13 @@ public class PdfMetadataExtractor {
 
             if (accountNumberMasked == null) {
                 String acctNo = firstGroup(ACCOUNT_NUMBER, line);
-                if (acctNo != null) {
+                // Only a value that holds at least four digits. A grid's header row ("Account
+                // Number  Credit Limit  Available Credit Limit ...") starts with the label and its
+                // "value" is the next column's heading; masking that yielded "" -- a non-null
+                // number that then blocked the grid reading of the real value on the row below. The
+                // check is digit-count only because a chain-merged line legitimately carries text
+                // after the number ("... : 111122223333444 SOME PLAN NAME"), which masking strips.
+                if (acctNo != null && acctNo.replaceAll("\\D", "").length() >= 4) {
                     accountNumberFull = acctNo;
                     accountNumberMasked = com.finora.imports.CsvParser.maskAccountNumber(acctNo);
                     continue;

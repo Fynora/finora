@@ -87,6 +87,11 @@ public class CapabilityCoverageService {
             // composite relationship statement lists the card's limit beside a savings account).
             // See PdfPreviewGenerator.creditLimitAppliesTo.
             "CREDIT_LIMIT_WITHHELD_FROM_NON_CARD_SECTION",
+            // A multi-section document's grid card facts (limit, due date, grid card number) went
+            // to its only UNKNOWN section because no section classified CREDIT_CARD, or were
+            // withheld because several sections could be the card. See
+            // PdfPreviewGenerator.attachCardGridFactsToTheSoleCandidate.
+            "CARD_GRID_FACTS_ATTACHED_TO_SOLE_UNKNOWN_SECTION", "CARD_GRID_FACTS_WITHHELD_AMBIGUOUS",
             "GRID_METADATA_FALLBACK", "GRID_METADATA_TRAILING_LABEL",
             "LEADING_NAME_LINE", "LEADING_NARRATION_CONTINUATION",
             "FINANCIAL_PRODUCT_CLASSIFICATION",

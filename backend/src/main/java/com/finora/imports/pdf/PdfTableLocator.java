@@ -1929,13 +1929,41 @@ public class PdfTableLocator {
                 // the chain at its first link: there is no genuine date to share when the anchor
                 // never had one, so this branch now correctly declines and the row falls through to
                 // whatever handled it before this branch existed.
+                //
+                // DATELESS_AMOUNT_ROW_SPLIT widens this by exactly one more signal, on the evidence
+                // the paragraph above asked for: a dateless row carrying its own CURRENCY value in
+                // an amount column the open anchor already filled. A real credit-card statement
+                // prints a fee and the tax on that fee as two consecutive lines under one date, the
+                // second with its own amount and its own debit indicator; that line reached the
+                // trailing branch below, and mergeInto's guard against invalidating an already-valid
+                // amount rehomed the figure into the description. The document printed one more
+                // transaction than was staged, and its amount survived only as digits inside the
+                // previous line's narration. "Repeat blank" is still not a collision: both cells
+                // must hold a value, and each must look like currency (parseable, with a decimal
+                // point -- the same guard the Balance rule uses, for the same reason: a wrapped
+                // reference tail whose digit run lands in the amount column's x-range parses as a
+                // number and is not one). Balance is left to the rule above.
+                //
+                // Unlike the Balance rule, this one is gated on samePage and on the trailing count
+                // cap, and a row it splits off does NOT reset that cap (see below): measured on the
+                // committed traces, without those two gates a card statement's illustrative
+                // interest panel -- fifty-odd lines of fine print, each with a figure in the
+                // Amount column's x-range, printed under the page's last transaction and running
+                // onto the next page -- was split into fifty-odd transactions, each one seeding the
+                // next. A second transaction printed under one date sits directly under the first,
+                // on the same page; a paragraph does not.
                 if (!hasDateValue(bucketed, yearsByPage.getOrDefault(rowPageIndex, PageDateEvidence.NONE))
                         && !currentRows.isEmpty()
                         && hasDateValue(currentRows.get(currentRows.size() - 1),
                                 yearsByPage.getOrDefault(rowPageIndex, PageDateEvidence.NONE))
-                        && closesADifferentTransactionThanTheOpenAnchor(bucketed,
-                                currentRows.get(currentRows.size() - 1), headerNames)) {
+                        && (closesADifferentTransactionThanTheOpenAnchor(bucketed,
+                                currentRows.get(currentRows.size() - 1), headerNames)
+                            || (samePage
+                                && trailingCountSinceLastAnchor < MAX_TRAILING_CONTINUATION_ROWS
+                                && repeatsAnAmountColumnOf(bucketed,
+                                        currentRows.get(currentRows.size() - 1), headerNames)))) {
                     Map<String, String> openAnchor = currentRows.get(currentRows.size() - 1);
+                    boolean closesOnBalance = closesADifferentTransactionThanTheOpenAnchor(bucketed, openAnchor, headerNames);
                     Map<String, String> sameDayRow = new LinkedHashMap<>();
                     headerNames.stream().filter(this::isDateColumn).findFirst()
                             .ifPresent(dateColumn -> sameDayRow.put(dateColumn, openAnchor.get(dateColumn)));
@@ -1948,14 +1976,18 @@ public class PdfTableLocator {
                     }
                     mergeInto(sameDayRow, bucketed, headerNames);
                     currentRows.add(sameDayRow);
-                    if (ctx != null) ctx.record("SAME_DAY_CONTINUATION_TRANSACTION");
+                    if (ctx != null) ctx.record(closesOnBalance ? "SAME_DAY_CONTINUATION_TRANSACTION" : "DATELESS_AMOUNT_ROW_SPLIT");
                     anchorCarriedItsOwnNarration = hasNarrationOfItsOwn(bucketed, headerNames);
                     if (gapFromPreviousRow != null) blockSeparation = gapFromPreviousRow;
                     lastRowPage = row.get(0).pageIndex();
                     lastRowY = row.get(0).y();
                     blockPitch = null;
                     blockNarrationLeftX = null;
-                    trailingCountSinceLastAnchor = 0;
+                    // A row admitted on its own Balance is a full anchor and reopens the cap. A row
+                    // admitted on its amount alone is counted against the dated anchor's cap like
+                    // the continuation it would otherwise have been, so it can seed at most one
+                    // more split and never a chain.
+                    trailingCountSinceLastAnchor = closesOnBalance ? 0 : trailingCountSinceLastAnchor + 1;
                 } else if (hasDateValue(bucketed, yearsByPage.getOrDefault(rowPageIndex, PageDateEvidence.NONE))) {
                     // Read BEFORE any leading narration is merged in: the question is whether this
                     // transaction printed its own narration on its own date row, which merging a
@@ -5670,6 +5702,118 @@ public class PdfTableLocator {
 
     private boolean looksLikeAGenuineBalanceValue(String value) {
         return value != null && value.contains(".") && CsvParser.parseNumeric(value) != null;
+    }
+
+    /** True when {@code bucketed} and {@code openAnchor} each carry their own currency-looking
+     *  value in the same amount column, on a table that has no running-balance column -- see
+     *  DATELESS_AMOUNT_ROW_SPLIT at the caller.
+     *
+     *  <p>Two guards beyond {@link #closesADifferentTransactionThanTheOpenAnchor}'s own (a date
+     *  column must exist; both values must look like currency), both found regression-testing the
+     *  first draft of this rule against the full real corpus, where it also split a running-balance
+     *  ledger's totals line, a closing-summary block and a page footer's balance figure into
+     *  transactions of their own:
+     *
+     *  <p>First, the table must have NO balance column. A running-balance ledger prints a balance
+     *  on every transaction, so a dateless line there carrying an amount and no balance is a total
+     *  or a footer, never a ledger entry -- and a genuine second same-day entry carries its balance
+     *  and is already caught by the Balance rule. The amount is the only singular-per-transaction
+     *  signal precisely on the layouts that print no balance at all: credit-card tables.
+     *
+     *  <p>Second, the colliding column must be NAMED as an amount column -- its first or last word
+     *  one of the amount hints -- not merely contain one. {@link #isAmountColumn} matches any word,
+     *  so a card statement's summary grid ("Available Credit Limit", a date-bearing "Payment Due
+     *  Date" beside it) satisfied the loose test and had its grid rows split, which broke the
+     *  metadata extraction that consumes that grid.
+     *
+     *  <p>Third, the row must be as structurally complete as the anchor: every column the anchor
+     *  fills that is neither date, description nor amount (a reference number, a debit/credit
+     *  indicator, a points column) must be filled on the dateless row too. A second transaction
+     *  prints its own reference and indicator; a line of fine print with a figure in the amount
+     *  column's x-range prints neither. Found on a committed trace of a card statement whose
+     *  illustrative interest panel sat under its last transaction. A layout with no such columns
+     *  is unaffected (nothing to require).
+     *
+     *  <p>Fourth, the row's own date cell must hold no date token at all. A row whose date cell
+     *  reads "5,000.00 07/10/2025" is not dateless: its date failed to bucket because a figure
+     *  was joined onto it, which is a different problem, and copying the anchor's date over it
+     *  would replace a printed date with an inherited one. Found on a committed trace of a
+     *  composite statement's deposit schedule. The row this rule exists for carries narration in
+     *  its date cell (mis-bucketed leftward, exactly as wrapped lines do), never a date.
+     *
+     *  <p>Fifth, no text cell of the row may begin with a totals word. A card table's column total
+     *  ("Total ... Charges  5,178.69") is printed directly under the last transaction, on the same
+     *  page, complete in every column the transactions fill, with a currency figure in the Amount
+     *  column -- it passes every guard above by construction. The real document that prints it
+     *  is closed by {@link #TRANSACTION_TABLE_TOTAL_MARKER} before this rule ever sees the line,
+     *  but that trigger is narrow to one exact wording, and the redacted committed trace of the
+     *  same document showed what happens when the wording differs: the total was promoted into a
+     *  transaction. A second transaction's narration never begins with "Total". */
+    private boolean repeatsAnAmountColumnOf(Map<String, String> bucketed, Map<String, String> openAnchor,
+                                            List<String> headerNames) {
+        if (headerNames == null) return false;
+        if (headerNames.stream().noneMatch(this::isDateColumn)) return false;
+        if (headerNames.stream().anyMatch(h -> matchesAnyHint(h, BALANCE_COLUMN_HINT))) return false;
+        if (dateCellHoldsADateToken(bucketed, headerNames)) return false;
+        if (aTextCellBeginsWithATotalsWord(bucketed, headerNames)) return false;
+        boolean repeats = false;
+        for (String column : headerNames) {
+            if (isDateColumn(column) || matchesAnyHint(column, DESCRIPTION_COLUMN_HINTS)) continue;
+            String anchorValue = openAnchor.get(column);
+            if (anchorValue == null || anchorValue.isBlank()) continue;
+            String value = bucketed.get(column);
+            if (isNamedAsAnAmountColumn(column)) {
+                if (looksLikeAGenuineBalanceValue(value) && looksLikeAGenuineBalanceValue(anchorValue)) repeats = true;
+                continue;
+            }
+            if (isAmountColumn(column)) continue;
+            if (value == null || value.isBlank()) return false; // the anchor fills it, this row does not
+        }
+        return repeats;
+    }
+
+    private static final Pattern TOTALS_WORD_AT_START =
+            Pattern.compile("(?i)^\\s*(grand\\s+total|sub\\s*-?\\s*total|total)\\b");
+
+    /** True when any cell that is not an amount-named column starts with "Total", "Sub total" or
+     *  "Grand total" -- see the fifth guard on {@link #repeatsAnAmountColumnOf}. */
+    private boolean aTextCellBeginsWithATotalsWord(Map<String, String> bucketed, List<String> headerNames) {
+        for (String column : headerNames) {
+            if (isNamedAsAnAmountColumn(column)) continue;
+            String value = bucketed.get(column);
+            if (value != null && TOTALS_WORD_AT_START.matcher(value).find()) return true;
+        }
+        return false;
+    }
+
+    /** True when any whitespace-separated token of any date-role cell parses as a date. */
+    private boolean dateCellHoldsADateToken(Map<String, String> bucketed, List<String> headerNames) {
+        for (String column : headerNames) {
+            if (!isDateColumn(column)) continue;
+            String value = bucketed.get(column);
+            if (value == null || value.isBlank()) continue;
+            for (String token : value.trim().split("\\s+")) {
+                if (CsvParser.parseDate(token) != null) return true;
+            }
+        }
+        return false;
+    }
+
+    private static final List<String> BALANCE_COLUMN_HINT = List.of("balance");
+    private static final List<String> STRICT_AMOUNT_COLUMN_WORDS =
+            List.of("amount", "amt", "debit", "credit", "deposit", "deposits", "withdrawal", "withdrawals");
+
+    /** The header's first or last word is an amount word ("Amount", "Transaction Amount",
+     *  "Withdrawal Amt.", "Debit"), as opposed to a header that merely contains one somewhere
+     *  ("Available Credit Limit"). Edge punctuation stripped per word as {@link #matchesAnyHint}
+     *  does. */
+    private boolean isNamedAsAnAmountColumn(String columnName) {
+        String normalized = CsvParser.normalizeHeaderCell(columnName);
+        if (normalized.isBlank()) return false;
+        String[] words = normalized.split("\\s+");
+        String first = words[0].replaceAll("^[^a-z0-9]+|[^a-z0-9]+$", "");
+        String last = words[words.length - 1].replaceAll("^[^a-z0-9]+|[^a-z0-9]+$", "");
+        return STRICT_AMOUNT_COLUMN_WORDS.contains(first) || STRICT_AMOUNT_COLUMN_WORDS.contains(last);
     }
 
     // Word-boundary regex, not matchesAnyHint's per-word exact match and not a plain substring

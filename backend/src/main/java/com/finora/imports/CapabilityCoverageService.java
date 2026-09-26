@@ -63,6 +63,11 @@ public class CapabilityCoverageService {
             "OFFSET_COLUMN_ANCHORS", "COLUMN_SPAN_PLACEMENT", "RECONCILED_HEADER_SECTIONS_REMERGED",
             "TRAILING_IDENTITY_CARRIED_FORWARD", "INVESTMENT_FRAGMENT_REMERGED", "EMPTY_SECTION_DROPPED",
             "SAME_DAY_CONTINUATION_TRANSACTION",
+            // A dateless row carrying its own currency value in an amount column the open anchor
+            // already filled: a second transaction printed under one date (a real credit-card
+            // statement's fee-and-tax pair), not a wrapped description. See the SAME_DAY branch in
+            // PdfTableLocator.locateAll.
+            "DATELESS_AMOUNT_ROW_SPLIT",
             "GRID_METADATA_FALLBACK", "GRID_METADATA_TRAILING_LABEL",
             "LEADING_NAME_LINE", "LEADING_NARRATION_CONTINUATION",
             "FINANCIAL_PRODUCT_CLASSIFICATION",

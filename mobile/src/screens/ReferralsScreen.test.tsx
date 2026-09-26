@@ -262,47 +262,61 @@ describe('ReferralsScreen', () => {
   });
 
   describe('milestone redemption', () => {
-    it('shows a persistent progress readout toward Plus below the threshold', async () => {
+    it('shows one progress row toward a free month of Plus at 7, and nothing about 3', async () => {
       api.mine.mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 2, premiumMilestoneCounter: 2, grants: [],
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 2, grants: [],
       });
       renderScreen();
 
-      expect(await screen.findByText(/2\s*\/\s*3/)).toBeTruthy();
+      expect(await screen.findByText('2 / 7 referrals — 1 month of Plus free')).toBeTruthy();
+      expect(screen.queryByText(/\/\s*3\b/)).toBeNull();
+      expect(screen.queryAllByText(/referrals — 1 month of/)).toHaveLength(1);
       expect(screen.queryByText(/redeem plus/i)).toBeNull();
     });
 
-    it('shows both redeem rows simultaneously once both thresholds are reached', async () => {
+    it('stays a progress row at 6, one short of the milestone', async () => {
       api.mine.mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 4, premiumMilestoneCounter: 7, grants: [],
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 6, grants: [],
       });
       renderScreen();
 
-      expect(await screen.findByText(/redeem plus/i)).toBeTruthy();
-      expect(await screen.findByText(/redeem premium/i)).toBeTruthy();
+      expect(await screen.findByText('6 / 7 referrals — 1 month of Plus free')).toBeTruthy();
+      expect(screen.queryByText(/redeem plus/i)).toBeNull();
     });
 
-    it('calls referralsApi.redeem with the right tier on press', async () => {
+    it('ignores a stale non-zero plusMilestoneCounter -- there is no 3-referral reward', async () => {
       api.mine.mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 3, premiumMilestoneCounter: 7, grants: [],
+        plusMilestoneCounter: 3, premiumMilestoneCounter: 3, grants: [],
+      });
+      renderScreen();
+
+      expect(await screen.findByText('3 / 7 referrals — 1 month of Plus free')).toBeTruthy();
+      expect(screen.queryByText(/redeem/i)).toBeNull();
+    });
+
+    it('offers Redeem Plus at 7 and redeems PLUS on press', async () => {
+      api.mine.mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 7, grants: [],
       });
       api.redeem.mockResolvedValue(undefined);
       renderScreen();
 
-      const button = await screen.findByText(/redeem premium/i);
-      fireEvent.press(button);
+      expect(await screen.findByText('Redeem 1 month of Plus, free.')).toBeTruthy();
+      expect(screen.queryByText(/premium/i)).toBeNull();
+      fireEvent.press(screen.getByText('Redeem Plus'));
       await settle();
 
-      expect(api.redeem).toHaveBeenCalledWith('PREMIUM');
+      expect(api.redeem).toHaveBeenCalledWith('PLUS');
     });
 
-    it('shows the server error message under the right tier when redemption fails', async () => {
+    it('shows the server error message under the reward row when redemption fails', async () => {
       api.mine.mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 3, premiumMilestoneCounter: 7, grants: [],
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 7, grants: [],
       });
       api.redeem.mockRejectedValue(
         axiosErrorWithResponse(409, { message: 'This reward was just redeemed by another request.' })
@@ -342,7 +356,7 @@ describe('ReferralsScreen', () => {
         renderScreen();
 
         expect(await screen.findByText(/Plus active/i)).toBeTruthy();
-        expect(screen.getByText(/5\s*\/\s*7/)).toBeTruthy();
+        expect(screen.getByText('5 / 7 referrals — 1 month of Plus free')).toBeTruthy();
         expect(screen.queryByText(/premium/i)).toBeNull();
       } finally {
         mockPremium.visible = true;
@@ -369,7 +383,7 @@ describe('ReferralsScreen', () => {
         fireEvent.press(redeemButton);
         await settle();
 
-        expect(api.redeem).toHaveBeenCalledWith('PREMIUM');
+        expect(api.redeem).toHaveBeenCalledWith('PLUS');
       } finally {
         mockPremium.visible = true;
       }

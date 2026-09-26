@@ -24,10 +24,10 @@ import static org.mockito.Mockito.doAnswer;
 
 /**
  * Same shape of bug as {@code ReferralConcurrentCreditRaceIT}, found in review (not reported) of
- * this feature's own initial implementation: two concurrent redeem requests for the same tier (a
+ * this feature's own initial implementation: two concurrent redeem requests (a
  * double-click, two open tabs) could both read the same pre-reset counter and both pass a
  * Java-side check, creating two {@code ReferralGrant} rows -- two free months -- for one threshold
- * crossing. {@code ReferralCodeRepository.resetPlusCounterIfAtLeast}'s conditional {@code UPDATE}
+ * crossing. {@code ReferralCodeRepository.resetMilestoneCounterIfAtLeast}'s conditional {@code UPDATE}
  * is what actually closes that race; this proves it does, at the real database, not just via a
  * mocked return value.
  *
@@ -59,12 +59,12 @@ class ReferralMilestoneConcurrentRedeemRaceIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void twoConcurrentRedeemRequestsForTheSameTierBothSurviveButOnlyOneGrantIsCreated() throws Exception {
+    void twoConcurrentRedeemRequestsBothSurviveButOnlyOneGrantIsCreated() throws Exception {
         User referrer = newUser();
         String code = referralService.myCode(referrer.getId());
-        // Three separate referred users, each reaching SUBSCRIBED, to push plusMilestoneCounter
-        // to exactly 3 -- the redeem threshold.
-        for (int i = 0; i < 3; i++) {
+        // Separate referred users, each reaching SUBSCRIBED, to push the milestone counter to
+        // exactly the redeem threshold.
+        for (int i = 0; i < ReferralService.MILESTONE_REFERRALS; i++) {
             User referred = newUser();
             referralService.redeemCode(referred.getId(), code);
             referralService.onPlanChanged(referred.getId(), "PLUS");
@@ -79,8 +79,8 @@ class ReferralMilestoneConcurrentRedeemRaceIT extends AbstractIntegrationTest {
             UUID userId = invocation.getArgument(0);
             Integer required = invocation.getArgument(1);
             int updated = entityManager.createNativeQuery("""
-                    UPDATE referral_codes SET plus_milestone_counter = 0
-                    WHERE user_id = :userId AND plus_milestone_counter >= :required
+                    UPDATE referral_codes SET premium_milestone_counter = 0
+                    WHERE user_id = :userId AND premium_milestone_counter >= :required
                     """)
                     .setParameter("userId", userId)
                     .setParameter("required", required)
@@ -90,7 +90,7 @@ class ReferralMilestoneConcurrentRedeemRaceIT extends AbstractIntegrationTest {
                 assertThat(releaseFirst.await(30, TimeUnit.SECONDS)).isTrue();
             }
             return updated;
-        }).when(referralCodeRepository).resetPlusCounterIfAtLeast(eq(referrer.getId()), anyInt());
+        }).when(referralCodeRepository).resetMilestoneCounterIfAtLeast(eq(referrer.getId()), anyInt());
 
         Thread first = new Thread(() -> {
             try {

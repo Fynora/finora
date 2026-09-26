@@ -103,63 +103,66 @@ describe('Referrals', () => {
   });
 
   describe('milestone redemption', () => {
-    it('shows a persistent progress readout toward Plus below the threshold', async () => {
+    it('shows one progress row toward a free month of Plus at 7, and nothing about 3', async () => {
       vi.mocked(referralsApi.mine).mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 2, premiumMilestoneCounter: 2, grants: [],
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 2, grants: [],
       });
       renderPage();
 
-      expect(await screen.findByText(/2\s*\/\s*3/)).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /redeem.*plus/i })).not.toBeInTheDocument();
+      expect(await screen.findByText('2 / 7 referrals — 1 month of Plus free')).toBeInTheDocument();
+      expect(screen.queryByText(/\/\s*3\b/)).not.toBeInTheDocument();
+      expect(screen.getAllByText(/referrals — 1 month of/)).toHaveLength(1);
+      expect(screen.queryByRole('button', { name: /redeem/i })).not.toBeInTheDocument();
     });
 
-    it('shows both a redeem-Plus button and a Premium progress readout once Plus reaches 3', async () => {
+    it('stays a progress row at 6, one short of the milestone', async () => {
       vi.mocked(referralsApi.mine).mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 3, premiumMilestoneCounter: 5, grants: [],
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 6, grants: [],
       });
       renderPage();
 
-      expect(await screen.findByRole('button', { name: /redeem.*plus/i })).toBeInTheDocument();
-      expect(screen.getByText(/5\s*\/\s*7/)).toBeInTheDocument();
+      expect(await screen.findByText('6 / 7 referrals — 1 month of Plus free')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /redeem/i })).not.toBeInTheDocument();
     });
 
-    it('shows both redeem buttons simultaneously once both thresholds are reached', async () => {
-      vi.mocked(referralsApi.mine).mockResolvedValue({
-        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 4, premiumMilestoneCounter: 7, grants: [],
-      });
-      renderPage();
-
-      expect(await screen.findByRole('button', { name: /redeem.*plus/i })).toBeInTheDocument();
-      expect(await screen.findByRole('button', { name: /redeem.*premium/i })).toBeInTheDocument();
-    });
-
-    it('calls referralsApi.redeem with the right tier on click', async () => {
+    it('ignores a stale non-zero plusMilestoneCounter -- there is no 3-referral reward', async () => {
       vi.mocked(referralsApi.mine).mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
         plusMilestoneCounter: 3, premiumMilestoneCounter: 3, grants: [],
+      });
+      renderPage();
+
+      expect(await screen.findByText('3 / 7 referrals — 1 month of Plus free')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /redeem/i })).not.toBeInTheDocument();
+    });
+
+    it('offers Redeem Plus at 7 and redeems PLUS on click', async () => {
+      vi.mocked(referralsApi.mine).mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 7, grants: [],
       });
       vi.mocked(referralsApi.redeem).mockResolvedValue(undefined);
       renderPage();
 
-      const button = await screen.findByRole('button', { name: /redeem.*plus/i });
-      button.click();
+      expect(await screen.findByText('Redeem 1 month of Plus, free.')).toBeInTheDocument();
+      expect(screen.queryByText(/premium/i)).not.toBeInTheDocument();
+      screen.getByRole('button', { name: 'Redeem Plus' }).click();
       await waitFor(() => expect(referralsApi.redeem).toHaveBeenCalledWith('PLUS'));
     });
 
-    it('shows the server error message under the right tier when redemption fails', async () => {
+    it('shows the server error message under the reward row when redemption fails', async () => {
       vi.mocked(referralsApi.mine).mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 3, premiumMilestoneCounter: 3, grants: [],
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 7, grants: [],
       });
       vi.mocked(referralsApi.redeem).mockRejectedValue({
         response: { data: { message: 'This reward was just redeemed by another request.' } },
       });
       renderPage();
 
-      const button = await screen.findByRole('button', { name: /redeem.*plus/i });
+      const button = await screen.findByRole('button', { name: /redeem plus/i });
       button.click();
 
       expect(await screen.findByText('This reward was just redeemed by another request.')).toBeInTheDocument();
@@ -252,7 +255,7 @@ describe('Referrals', () => {
       premiumVisibility.visible = true;
     });
 
-    it('shows progress toward the Premium milestone labelled Plus, never Premium', async () => {
+    it('shows the one milestone labelled Plus, never Premium', async () => {
       // Bug found in review: hiding this row entirely (an earlier version of this fix) hides the
       // only way to redeem it too -- see the "keeps the Redeem action reachable" test below.
       vi.mocked(referralsApi.mine).mockResolvedValue({
@@ -261,12 +264,11 @@ describe('Referrals', () => {
       });
       renderPage();
 
-      expect(await screen.findByText(/2\s*\/\s*3/)).toBeInTheDocument();
-      expect(screen.getByText(/5\s*\/\s*7/)).toBeInTheDocument();
+      expect(await screen.findByText('5 / 7 referrals — 1 month of Plus free')).toBeInTheDocument();
       expect(screen.queryByText(/premium/i)).not.toBeInTheDocument();
     });
 
-    it('keeps the Redeem action reachable and labelled Plus once the Premium threshold is reached', async () => {
+    it('keeps the Redeem action reachable and labelled Plus once the milestone is reached', async () => {
       // Redemption is self-service (backend ReferralService.redeemMilestone) -- nothing auto-grants
       // it, and the backend fires a push/email the moment the 7th referral lands, telling the person
       // to open the app and redeem. Hiding this row would make that notification an unclaimable
@@ -282,7 +284,7 @@ describe('Referrals', () => {
       expect(screen.queryByText(/premium/i)).not.toBeInTheDocument();
 
       redeemButton.click();
-      await waitFor(() => expect(referralsApi.redeem).toHaveBeenCalledWith('PREMIUM'));
+      await waitFor(() => expect(referralsApi.redeem).toHaveBeenCalledWith('PLUS'));
     });
 
     it('shows an active Premium grant as Plus', async () => {

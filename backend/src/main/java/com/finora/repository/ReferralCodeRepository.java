@@ -35,11 +35,6 @@ public interface ReferralCodeRepository extends JpaRepository<ReferralCode, UUID
      *         referrals, or a concurrent request already redeemed this milestone first).
      */
     @Modifying
-    @Query("UPDATE ReferralCode c SET c.plusMilestoneCounter = 0 WHERE c.userId = :userId AND c.plusMilestoneCounter >= :required")
-    int resetPlusCounterIfAtLeast(@Param("userId") UUID userId, @Param("required") int required);
-
-    /** Same guard as {@link #resetPlusCounterIfAtLeast}, for the independent Premium counter. */
-    @Modifying
     @Query("UPDATE ReferralCode c SET c.premiumMilestoneCounter = 0 WHERE c.userId = :userId AND c.premiumMilestoneCounter >= :required")
-    int resetPremiumCounterIfAtLeast(@Param("userId") UUID userId, @Param("required") int required);
+    int resetMilestoneCounterIfAtLeast(@Param("userId") UUID userId, @Param("required") int required);
 }

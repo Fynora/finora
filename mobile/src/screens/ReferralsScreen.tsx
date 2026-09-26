@@ -16,7 +16,7 @@ import { safeStorage } from '../lib/safeStorage';
 import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure } from '../lib/monitoring';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
-import { paidMembershipName, visiblePlanCode } from '../lib/planDisplay';
+import { visiblePlanCode } from '../lib/planDisplay';
 import { radius, spacing, useTheme } from '../theme';
 
 const STEPS: { icon: keyof typeof Ionicons.glyphMap; label: string; caption: string }[] = [
@@ -33,6 +33,9 @@ const STEPS: { icon: keyof typeof Ionicons.glyphMap; label: string; caption: str
 function shareMessage(code: string) {
   return `Join me on Fynora! Use my referral code ${code} when you sign up: finora://register?ref=${code}`;
 }
+
+/** Mirrors ReferralService.MILESTONE_REFERRALS on the backend. */
+const REFERRAL_MILESTONE = 7;
 
 const HERO_ILLUSTRATION = require('../../assets/illustrations/refer-earn-hero.png');
 const HERO_ASPECT_RATIO = 1300 / 620;
@@ -84,10 +87,9 @@ function statusLabel(status: string): { text: string; color: (c: ReturnType<type
 // Referrals.tsx's own copy of this mechanism, just backed by SecureStore instead of localStorage.
 const SEEN_ACTIVE_GRANTS_KEY = 'finora_seen_active_referral_grants';
 
-/** Small reusable row -- either a progress readout (below threshold) or a redeem card (at/above
- *  threshold). Both tiers render independently and simultaneously: reaching one threshold never
- *  hides or replaces the other's row (design spec section 6.1, revised after product review --
- *  progress is persistent, nothing is ever forfeited). Mirrors web's own MilestoneRow. */
+/** The referral reward row -- either a progress readout (below threshold) or a redeem card
+ *  (at/above threshold). There is one milestone: 7 referrals earn a free month of Plus
+ *  (ReferralService.MILESTONE_REFERRALS). Mirrors web's own MilestoneRow. */
 function MilestoneRow({
   c, label, counter, threshold, onRedeem, redeeming, error,
 }: {
@@ -113,7 +115,9 @@ function MilestoneRow({
   }
   return (
     <Card style={styles.codeCard}>
-      <Text style={[styles.cardLabel, { color: c.ink }]}>{counter} / {threshold} toward {label}</Text>
+      <Text style={[styles.cardLabel, { color: c.ink }]}>
+        {counter} / {threshold} referrals — 1 month of {label} free
+      </Text>
     </Card>
   );
 }
@@ -437,23 +441,15 @@ export function ReferralsScreen() {
         <MetricTile label="Earned" value={fmtCurrency(data.walletBalance)} />
       </View>
 
+      {/* The one reward: 7 referrals -> a free month of Plus. The API still names this counter
+          premiumMilestoneCounter (it used to track a 7-referral Premium reward) so builds already
+          on phones keep working; plusMilestoneCounter is always 0 now. This row must always
+          render: redemption is self-service and the backend's "Open Fynora to redeem it now"
+          push at the 7th referral points here. */}
       <MilestoneRow
-        c={c} label="Plus" counter={data.plusMilestoneCounter} threshold={3}
+        c={c} label="Plus" counter={data.premiumMilestoneCounter} threshold={REFERRAL_MILESTONE}
         onRedeem={() => redeemMutation.mutate('PLUS')} redeeming={redeemMutation.isPending}
-        error={redeemError?.tier === 'PLUS' ? redeemError.message : null}
-      />
-      {/* Bug found in review: hiding this row entirely (as elsewhere Premium is hidden) would have
-          hidden the ONLY way to tap Redeem -- redemption is self-service
-          (ReferralService.redeemMilestone), nothing auto-grants it, and the backend fires a
-          REFERRAL_MILESTONE_REACHED push/email at the moment the 7th referral lands, inviting the
-          person to "Open Fynora to redeem it now". Hiding the row would have made that notification
-          a dead end: real money value (a free month, worth Plus's entitlements today) earned and
-          unclaimable. So this row always renders, labelled with the same masked name active/queued
-          grants below already use. */}
-      <MilestoneRow
-        c={c} label={paidMembershipName()} counter={data.premiumMilestoneCounter} threshold={7}
-        onRedeem={() => redeemMutation.mutate('PREMIUM')} redeeming={redeemMutation.isPending}
-        error={redeemError?.tier === 'PREMIUM' ? redeemError.message : null}
+        error={redeemError?.message ?? null}
       />
 
       {data.grants.some((g) => g.status === 'ACTIVE' || g.status === 'PENDING') && (

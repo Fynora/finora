@@ -1388,7 +1388,10 @@ export interface MyReferralsDto {
   /** Always referrals.length -- kept for web Billing.tsx's own copy of this field; see that
    *  file's ported comment above. */
   referralCount: number;
+  /** Always 0 -- the 3-referral Plus reward was removed. */
   plusMilestoneCounter: number;
+  /** The one milestone counter: referrals toward 7, which earn a free month of Plus. Named for
+   *  the retired 7-referral Premium reward it used to track. */
   premiumMilestoneCounter: number;
   grants: ReferralGrantEntry[];
 }

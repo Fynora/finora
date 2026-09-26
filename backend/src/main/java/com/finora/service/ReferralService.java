@@ -54,6 +54,9 @@ public class ReferralService {
 
     private static final Logger log = LoggerFactory.getLogger(ReferralService.class);
 
+    /** Referrals reaching SUBSCRIBED needed for one free month of Plus. */
+    public static final int MILESTONE_REFERRALS = 7;
+
     private final ReferralCodeRepository referralCodeRepository;
     private final ReferralRepository referralRepository;
     private final WalletLedgerRepository walletLedgerRepository;
@@ -178,11 +181,12 @@ public class ReferralService {
      * onPlanChanged's own SUBSCRIBED transition above still happens either way, since that part is
      * a plain factual observation, not a reward.
      *
-     * <p>Both counters increment together off the same event (design spec section 2, revised after
-     * product review) -- they only diverge once one tier gets redeemed and its own counter resets
-     * to 0 while the other keeps climbing. Each is checked against its own threshold independently,
-     * so a single referral event can fire zero, one, or (rarely, if both happen to cross at once)
-     * two REFERRAL_MILESTONE_REACHED notifications.
+     * <p>One milestone: {@link #MILESTONE_REFERRALS} referrals earn one free month of Plus. The
+     * earlier two-tier design (3 for Plus, 7 for Premium) was dropped while Premium is hidden from
+     * sale -- a reward for a plan nobody can see or buy. The count lives in the
+     * premium_milestone_counter column (the one that was already tracking toward 7 and was never
+     * reset by a 3-referral redemption, so nobody lost progress in the switch);
+     * plus_milestone_counter is no longer incremented or read.
      */
     private void incrementMilestoneCountersIfEligible(Referral referral) {
         if (sharesADeviceOrIp(referral.getReferrerUserId(), referral.getReferredUserId())) {
@@ -193,10 +197,8 @@ public class ReferralService {
         ReferralCode code = referralCodeRepository.findByUserId(referral.getReferrerUserId()).orElse(null);
         if (code == null) return;
 
-        int updatedPlus = code.getPlusMilestoneCounter() + 1;
-        int updatedPremium = code.getPremiumMilestoneCounter() + 1;
-        code.setPlusMilestoneCounter(updatedPlus);
-        code.setPremiumMilestoneCounter(updatedPremium);
+        int updated = code.getPremiumMilestoneCounter() + 1;
+        code.setPremiumMilestoneCounter(updated);
         referralCodeRepository.save(code);
 
         notificationService.request(NotificationRequest.of(
@@ -206,9 +208,9 @@ public class ReferralService {
                 NotificationPriority.NORMAL,
                 "REFERRAL_FRIEND_SUBSCRIBED_" + referral.getId(),
                 Set.of(NotificationChannel.PUSH, NotificationChannel.EMAIL),
-                Map.of("plusCount", String.valueOf(updatedPlus), "premiumCount", String.valueOf(updatedPremium))));
+                Map.of("count", String.valueOf(updated))));
 
-        if (updatedPlus == 3) {
+        if (updated == MILESTONE_REFERRALS) {
             notificationService.request(NotificationRequest.of(
                     referral.getReferrerUserId(),
                     NotificationType.REFERRAL_MILESTONE_REACHED,
@@ -218,54 +220,41 @@ public class ReferralService {
                     Set.of(NotificationChannel.PUSH, NotificationChannel.EMAIL),
                     Map.of("tier", ReferralGrant.TIER_PLUS)));
         }
-        if (updatedPremium == 7) {
-            notificationService.request(NotificationRequest.of(
-                    referral.getReferrerUserId(),
-                    NotificationType.REFERRAL_MILESTONE_REACHED,
-                    NotificationCategory.FINANCIAL,
-                    NotificationPriority.NORMAL,
-                    "REFERRAL_MILESTONE_REACHED_PREMIUM_" + referral.getId(),
-                    Set.of(NotificationChannel.PUSH, NotificationChannel.EMAIL),
-                    Map.of("tier", ReferralGrant.TIER_PREMIUM)));
-        }
     }
 
     /**
-     * Self-service redemption (design spec sections 2/3). Resets ONLY the redeemed tier's own
-     * counter to 0 -- the other tier's counter is untouched, so redeeming Plus never costs any
-     * progress toward Premium and vice versa (design spec section 2, revised after product review:
-     * the original either/or design forfeited whichever tier wasn't redeemed). The self-referral
-     * fraud check already ran at counter-increment time above; nothing further to check here.
+     * Self-service redemption (design spec sections 2/3). Always grants Plus and resets the one
+     * milestone counter to 0. The self-referral fraud check already ran at counter-increment time
+     * above; nothing further to check here.
+     *
+     * <p>{@code tier} is accepted as either PLUS or PREMIUM and treated the same: app builds
+     * already installed on phones still show the old "toward Premium" row at 7 and send PREMIUM
+     * when it is tapped. Rejecting that would strand a reward they were told to redeem.
      *
      * <p>The actual eligibility check is the conditional counter-reset UPDATE below, not the plain
      * read a few lines above it -- that read exists only to give a specific "not enough referrals"
      * error message before bothering to run the real check. Two concurrent redeem requests (a
      * double-click, two open tabs) both reading a pre-reset counter and both passing a Java-side
      * `if` would create two grants for one threshold crossing; see
-     * {@link ReferralCodeRepository#resetPlusCounterIfAtLeast} for why the UPDATE itself is what
-     * closes that race.
+     * {@link ReferralCodeRepository#resetMilestoneCounterIfAtLeast} for why the UPDATE itself is
+     * what closes that race.
      *
-     * @param tier ReferralGrant.TIER_PLUS or ReferralGrant.TIER_PREMIUM
+     * @param tier ReferralGrant.TIER_PLUS or ReferralGrant.TIER_PREMIUM -- both grant Plus
      */
     @Transactional
     public void redeemMilestone(UUID userId, String tier) {
-        int required = ReferralGrant.TIER_PREMIUM.equals(tier) ? 7
-                : ReferralGrant.TIER_PLUS.equals(tier) ? 3
-                : -1;
-        if (required < 0) {
+        if (!ReferralGrant.TIER_PLUS.equals(tier) && !ReferralGrant.TIER_PREMIUM.equals(tier)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Unknown reward tier: " + tier);
         }
         ReferralCode code = referralCodeRepository.findByUserId(userId)
                 .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT, "No referral progress to redeem."));
-        int current = ReferralGrant.TIER_PREMIUM.equals(tier) ? code.getPremiumMilestoneCounter() : code.getPlusMilestoneCounter();
-        if (current < required) {
+        int current = code.getPremiumMilestoneCounter();
+        if (current < MILESTONE_REFERRALS) {
             throw new ApiException(HttpStatus.CONFLICT,
-                    "Not enough referrals yet for " + tier + " -- you have " + current + ", need " + required + ".");
+                    "Not enough referrals yet -- you have " + current + ", need " + MILESTONE_REFERRALS + ".");
         }
 
-        int reset = ReferralGrant.TIER_PREMIUM.equals(tier)
-                ? referralCodeRepository.resetPremiumCounterIfAtLeast(userId, required)
-                : referralCodeRepository.resetPlusCounterIfAtLeast(userId, required);
+        int reset = referralCodeRepository.resetMilestoneCounterIfAtLeast(userId, MILESTONE_REFERRALS);
         if (reset == 0) {
             throw new ApiException(HttpStatus.CONFLICT,
                     "This reward was just redeemed by another request. Not redeemed again.");
@@ -282,12 +271,12 @@ public class ReferralService {
 
         ReferralGrant grant = new ReferralGrant();
         grant.setUserId(userId);
-        grant.setTier(tier);
+        grant.setTier(ReferralGrant.TIER_PLUS);
         grant.setStatus(ReferralGrant.STATUS_PENDING);
         grant.setEarnedFromReferralId(triggeringReferralId);
         referralGrantRepository.save(grant);
 
-        auditService.record(userId, "REFERRAL_MILESTONE_REDEEMED", "ReferralGrant", grant.getId(), Map.of("tier", tier));
+        auditService.record(userId, "REFERRAL_MILESTONE_REDEEMED", "ReferralGrant", grant.getId(), Map.of("tier", ReferralGrant.TIER_PLUS, "requestedTier", tier));
     }
 
     /**
@@ -315,7 +304,9 @@ public class ReferralService {
 
         BigDecimal balance = walletLedgerRepository.sumAmountByUserId(userId);
         Optional<ReferralCode> referralCode = referralCodeRepository.findByUserId(userId);
-        int plusMilestoneCounter = referralCode.map(ReferralCode::getPlusMilestoneCounter).orElse(0);
+        // plusMilestoneCounter is always 0: the 3-referral reward no longer exists, and a real
+        // value here would make older app builds offer a Redeem at 3 that the server now rejects.
+        int plusMilestoneCounter = 0;
         int premiumMilestoneCounter = referralCode.map(ReferralCode::getPremiumMilestoneCounter).orElse(0);
         List<ReferralGrantDto> grants = referralGrantRepository.findByUserIdOrderByCreatedAtDesc(userId).stream()
                 .map(g -> new ReferralGrantDto(g.getId(), g.getTier(), g.getStatus(), g.getActivatedAt(), g.getExpiresAt()))

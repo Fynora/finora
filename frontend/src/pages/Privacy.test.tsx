@@ -81,6 +81,24 @@ describe('Privacy policy matches what the product does', () => {
     expect(t).toMatch(/authentication, communications and AI\s+features are also based outside India/i);
   });
 
+  // Statement refresh and saved statement passwords (docs: statement refresh design, 2026-09-27).
+  // These describe the feature as designed; this text must ship together with it, not before.
+  it('says a statement password is kept only with consent, per statement, and can be withdrawn', () => {
+    const t = policyText();
+    expect(t).toMatch(/does not keep the password you type to open one\s+unless you agree to it/i);
+    expect(t).toMatch(/applies to that one\s+statement only/i);
+    expect(t).toMatch(/If you choose not to save it, nothing is stored/i);
+    expect(t).toMatch(/Settings → Saved statement passwords, which deletes it immediately/i);
+    expect(t).toMatch(/never shown to you or to Fynora staff, and it is never written to logs/i);
+  });
+
+  it('says a refresh uses the stored files, runs only when the user starts it, and keeps their edits', () => {
+    const t = policyText();
+    expect(t).toMatch(/refresh the transactions from your statements\s+using these stored files/i);
+    expect(t).toMatch(/A refresh runs only when\s+you choose to start it/i);
+    expect(t).toMatch(/A transaction you edited keeps your changes/i);
+  });
+
   it('does not mention Gmail or Google mailbox access while Gmail sync is paused and unreleased', () => {
     const t = policyText();
     expect(t).not.toMatch(/gmail/i);

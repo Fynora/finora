@@ -52,6 +52,13 @@ export default function Privacy() {
           your account so you can re-download it or re-process it later from Statement History.
         </p>
         <p>
+          When we improve how statements are read, Fynora can refresh the transactions from your statements
+          using these stored files, so you do not have to upload them again. We tell you in the app, by push
+          notification and by email when an improvement would change your statements. A refresh runs only when
+          you choose to start it, and afterwards shows you what changed: transactions added, corrected or
+          removed. A transaction you edited keeps your changes.
+        </p>
+        <p>
           In most cases statements are processed entirely automatically by Fynora's own rule-based extraction
           logic — Fynora does not send your statement or its contents to third-party AI services such as
           OpenAI, Anthropic, or Google Gemini as part of importing it. (Ask Fyn, a separate optional feature
@@ -59,6 +66,23 @@ export default function Privacy() {
           never a raw statement file.) When an import cannot be processed automatically, it is queued for
           review, and authorized staff may access the statement to diagnose and fix the problem. Every such
           access is logged and auditable; see Administrative Access below.
+        </p>
+      </PublicSection>
+
+      <PublicSection title="Saved Statement Passwords">
+        <p>
+          Some statements are password-protected PDFs. Fynora does not keep the password you type to open one
+          unless you agree to it. When you enter a statement's password, we ask whether you want to save it so
+          that statement can be refreshed without asking you again. Saving is optional and applies to that one
+          statement only. If you choose not to save it, nothing is stored, and we will ask for the password, and
+          offer to save it, the next time that statement is refreshed.
+        </p>
+        <p>
+          A saved password is stored encrypted and is used only to open that statement's file to refresh it. It
+          is never shown to you or to Fynora staff, and it is never written to logs. You can remove any saved
+          password at any time from Settings → Saved statement passwords, which deletes it immediately. A saved
+          password is also deleted when you delete its statement or its account, or delete your Fynora account.
+          We keep a record of when you gave and withdrew this consent.
         </p>
       </PublicSection>
 
@@ -181,7 +205,8 @@ export default function Privacy() {
         <p>
           Your financial data (transactions, accounts, statements, budgets, goals) is protected by the security of the underlying
           infrastructure listed above (Railway, Cloudflare R2), rather than by an additional layer of
-          Fynora-managed encryption on top of it.
+          Fynora-managed encryption on top of it. Statement passwords you choose to save (see Saved Statement
+          Passwords above) are the exception: they are additionally encrypted by Fynora before they are stored.
         </p>
       </PublicSection>
 
@@ -240,7 +265,9 @@ export default function Privacy() {
             purpose it was collected for — see Data Deletion below.
           </li>
           <li>
-            <strong className="text-ink">Withdraw consent</strong> at any time, as easily as you gave it.
+            <strong className="text-ink">Withdraw consent</strong> at any time, as easily as you gave it —
+            including consent to keep a saved statement password, which you can withdraw from Settings without
+            affecting anything else in your account.
           </li>
           <li>
             <strong className="text-ink">Nominate</strong> another individual to exercise these rights on

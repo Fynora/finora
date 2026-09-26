@@ -31,12 +31,13 @@ public final class FlowClassifier {
     // 2: a credit the user entered by hand, or put in their Salary category themselves (or through a
     //    rule they taught), is income even when the narration names a person.
     // 3: a tax refund is recognised from its narration too, not only from a GOVERNMENT counterparty.
-    public static final short VERSION = 3;
+    // 4: a dividend or IDCW payout is income, even when the narration names a mutual fund.
+    public static final short VERSION = 4;
 
     public enum FlowClass { INCOME, EXPENSE, REFUND, TRANSFER, INVESTMENT, LIABILITY, ADJUSTMENT, UNRESOLVED }
 
     public enum FlowReason {
-        SALARY, INTEREST, REWARD, TAX_REFUND, OTHER_INCOME, USER_ENTERED,
+        SALARY, INTEREST, DIVIDEND, REWARD, TAX_REFUND, OTHER_INCOME, USER_ENTERED,
         PURCHASE,
         LINKED_REFUND, UNLINKED_REFUND, REVERSAL, CARD_ADJUSTMENT,
         OWN_ACCOUNT_TRANSFER, CARD_PAYMENT_RECEIVED,
@@ -58,6 +59,8 @@ public final class FlowClassifier {
     static final List<String> INVESTMENT_INFLOW_KEYWORDS = List.of(
             "redemption", "redeem", "fd closure", "fd maturity", "maturity proceeds", "iccl");
     static final List<String> LOAN_DRAWDOWN_KEYWORDS = List.of("loan disb", "disbursal", "disbursement");
+    /** Earned ON an investment, so income -- checked before the investment rule, which "mutual fund" would match. */
+    static final List<String> DIVIDEND_KEYWORDS = List.of("dividend", "idcw");
     static final List<String> INTEREST_KEYWORDS = List.of("int pd", "interest", "int cr", "int credit", "sb int");
     /** A refund from the tax department. Read from the narration as well as the stored counterparty:
      *  "TAX REFUND CPC ..." names no government body, and "ECS CR INCOME TAX ..." is typed by its
@@ -114,6 +117,7 @@ public final class FlowClassifier {
         }
 
         String suggested = CategoryRules.suggestCategory(description);
+        if (hasAny(text, DIVIDEND_KEYWORDS)) return of(FlowClass.INCOME, FlowReason.DIVIDEND);
         if (ReconciliationService.INVESTMENTS_CATEGORY.equals(suggested) || hasAny(text, INVESTMENT_INFLOW_KEYWORDS)) {
             return of(FlowClass.INVESTMENT, FlowReason.INVESTMENT_WITHDRAWAL);
         }

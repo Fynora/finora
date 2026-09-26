@@ -105,6 +105,16 @@ class FlowClassifierTest {
                 .isEqualTo(new FlowDecision(FlowClass.INVESTMENT, FlowReason.INVESTMENT_WITHDRAWAL));
     }
 
+    // A dividend is earned on an investment, not taken out of one: "MUTUAL FUND" matched the
+    // investment rule first, so an IDCW or dividend payout left income.
+    @Test void dividend_isIncome_evenWhenItNamesAMutualFund() {
+        for (String d : List.of("NACH CR MUTUAL FUND DIVIDEND", "ACH CR DIVIDEND MERCHANTCO LTD", "FUNDHOUSE MF IDCW PAYOUT")) {
+            Transaction t = credit(d);
+            t.setCounterpartyType(CounterpartyClassifier.classify(d));
+            assertThat(savings(t)).as(d).isEqualTo(new FlowDecision(FlowClass.INCOME, FlowReason.DIVIDEND));
+        }
+    }
+
     @Test void fdClosure_isInvestmentWithdrawal() {
         assertThat(savings(credit("FD CLOSURE PROCEEDS 000123")))
                 .isEqualTo(new FlowDecision(FlowClass.INVESTMENT, FlowReason.INVESTMENT_WITHDRAWAL));

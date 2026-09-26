@@ -283,6 +283,44 @@ class TransactionExplanationServiceTest {
     }
 
     @Test
+    void reconciliationExplainsATransferMatchedByASharedReference() {
+        UUID pairId = UUID.randomUUID();
+        Transaction t = transaction(Transaction.DecisionSource.MANUAL, null, Transaction.Source.CSV_IMPORT);
+        t.setReconciliationStatus(Transaction.ReconciliationStatus.TRANSFER);
+        t.setTransfer(true);
+        t.setTransferPairId(pairId);
+        t.setReconciliationExplanation(java.util.Map.of("type", "TRANSFER", "reason", java.util.Map.of(
+                "differentAccount", true, "oppositeDirection", true, "amountDifference", "0.00",
+                "dateDifferenceDays", 0L, "dayWindowApplied", 4L, "relationshipIdentifierMatched", false,
+                "sharedReference", "111111111111")));
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(t));
+
+        var reconciliation = service.explain(userId, txnId).reconciliation();
+
+        assertThat(reconciliation.summary()).contains("same reference");
+        assertThat(reconciliation.evidence()).anyMatch(line -> line.contains("ending 1111"));
+    }
+
+    @Test
+    void reconciliationExplainsAOneSidedOwnAccountTransfer() {
+        Transaction t = transaction(Transaction.DecisionSource.MANUAL, null, Transaction.Source.CSV_IMPORT);
+        t.setReconciliationStatus(Transaction.ReconciliationStatus.TRANSFER);
+        t.setTransfer(true);
+        t.setReconciliationExplanation(java.util.Map.of("type", "TRANSFER", "reason", java.util.Map.of(
+                "rule", "OWN_ACCOUNT_NAME", "direction", "SENDER",
+                "nameOnPayment", "ASHA VER", "holderName", "ASHA VERMA")));
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(t));
+
+        var reconciliation = service.explain(userId, txnId).reconciliation();
+
+        assertThat(reconciliation.matchedTransactionId()).isNull();
+        assertThat(reconciliation.summary()).isEqualTo(
+                "Money moved between your own accounts: the sender on this payment is you.");
+        assertThat(reconciliation.evidence()).containsExactly(
+                "Name on the payment: ASHA VER", "Your account holder name: ASHA VERMA");
+    }
+
+    @Test
     void reconciliationExplainsADuplicate_withTheOriginalTransactionId() {
         UUID originalId = UUID.randomUUID();
         Transaction t = transaction(Transaction.DecisionSource.MANUAL, null, Transaction.Source.CSV_IMPORT);

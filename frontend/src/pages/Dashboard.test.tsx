@@ -163,6 +163,9 @@ function summary(overrides: Partial<DashboardSummary> = {}): DashboardSummary {
     // before these fields existed.
     priorMonth: null,
     incomePrior: null,
+    unresolvedInflow: 0,
+    unresolvedInflowCount: 0,
+    unresolvedTopReason: null,
     ...overrides,
   };
 }
@@ -193,6 +196,9 @@ function rangeSummary(overrides: Partial<DashboardRangeSummary> = {}): Dashboard
     previousBalanceAsOf: null,
     balanceDeltaPct: null,
     balanceGateReason: null,
+    unresolvedInflow: 0,
+    unresolvedInflowCount: 0,
+    unresolvedTopReason: null,
     ...overrides,
   };
 }

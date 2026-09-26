@@ -727,6 +727,10 @@ public class ReconciliationService {
         for (Transaction income : refundCandidates) {
             if (income.getTxnType() != Transaction.Type.INCOME) continue;
             if (income.getReconciliationStatus() != Transaction.ReconciliationStatus.OK) continue;
+            // A tax refund says "refund" and fits inside almost any large debit on the account, so
+            // the keyword alone linked it to rent or an EMI: the income vanished and that payment
+            // shrank by the refund. It refunds tax, never a purchase. See FlowClassifier.
+            if (FlowClassifier.looksLikeTaxRefund(income)) continue;
 
             boolean refundKeyword = looksLikeRefund(income.getDescription());
             // Computed once per income row, same as refundKeyword above -- both are properties of
@@ -1909,8 +1913,6 @@ public class ReconciliationService {
         return low;
     }
 
-    /** Package-visible and static so {@link FlowClassifier} reads the exact same refund vocabulary
-     *  this pass matches on -- one word list, not two that can drift. */
     /** A credit on a credit-card account that the flow classifier reads as a bill payment received. */
     private static boolean isCardPaymentReceived(Transaction t, Map<UUID, com.finora.entity.Account.Type> accountTypes) {
         if (t.getTxnType() != Transaction.Type.INCOME) return false;
@@ -1919,6 +1921,8 @@ public class ReconciliationService {
                 == FlowClassifier.FlowReason.CARD_PAYMENT_RECEIVED;
     }
 
+    /** Package-visible and static so {@link FlowClassifier} reads the exact same refund vocabulary
+     *  this pass matches on -- one word list, not two that can drift. */
     static boolean looksLikeRefund(String description) {
         String normalized = CategoryRules.normalize(description);
         return REFUND_KEYWORDS.stream().anyMatch(normalized::contains);

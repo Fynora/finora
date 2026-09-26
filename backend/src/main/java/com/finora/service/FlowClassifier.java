@@ -30,7 +30,8 @@ public final class FlowClassifier {
 
     // 2: a credit the user entered by hand, or put in their Salary category themselves (or through a
     //    rule they taught), is income even when the narration names a person.
-    public static final short VERSION = 2;
+    // 3: a tax refund is recognised from its narration too, not only from a GOVERNMENT counterparty.
+    public static final short VERSION = 3;
 
     public enum FlowClass { INCOME, EXPENSE, REFUND, TRANSFER, INVESTMENT, LIABILITY, ADJUSTMENT, UNRESOLVED }
 
@@ -58,6 +59,10 @@ public final class FlowClassifier {
             "redemption", "redeem", "fd closure", "fd maturity", "maturity proceeds", "iccl");
     static final List<String> LOAN_DRAWDOWN_KEYWORDS = List.of("loan disb", "disbursal", "disbursement");
     static final List<String> INTEREST_KEYWORDS = List.of("int pd", "interest", "int cr", "int credit", "sb int");
+    /** A refund from the tax department. Read from the narration as well as the stored counterparty:
+     *  "TAX REFUND CPC ..." names no government body, and "ECS CR INCOME TAX ..." is typed by its
+     *  rail word first, so the counterparty alone missed both. "itd " ends at a word so ITDC does not match. */
+    static final List<String> TAX_REFUND_KEYWORDS = List.of("tax refund", "income tax", "incometax", "itd ", "cbdt");
 
     private FlowClassifier() {}
 
@@ -95,9 +100,7 @@ public final class FlowClassifier {
         String text = " " + CategoryRules.normalize(description) + " ";
 
         // Before the refund word: an income-tax refund is income, not money back from a merchant.
-        if (t.getCounterpartyType() == CounterpartyType.GOVERNMENT && ReconciliationService.looksLikeRefund(description)) {
-            return of(FlowClass.INCOME, FlowReason.TAX_REFUND);
-        }
+        if (looksLikeTaxRefund(t)) return of(FlowClass.INCOME, FlowReason.TAX_REFUND);
         if (ReconciliationService.looksLikeReversal(description)) return of(FlowClass.ADJUSTMENT, FlowReason.REVERSAL);
         if (ReconciliationService.looksLikeRefund(description)) return of(FlowClass.REFUND, FlowReason.UNLINKED_REFUND);
 
@@ -127,6 +130,14 @@ public final class FlowClassifier {
         if (inUsersSalaryCategory && salaryCategoryIsTheUsersChoice(t)) return of(FlowClass.INCOME, FlowReason.SALARY);
         if (t.getCounterpartyType() == CounterpartyType.PERSON) return of(FlowClass.UNRESOLVED, FlowReason.PERSON_INFLOW);
         return of(FlowClass.INCOME, FlowReason.OTHER_INCOME);
+    }
+
+    /** A credit that says "refund" and comes from the tax department. The reconciliation refund
+     *  pass reads this too, so a tax refund is never linked to a purchase it did not refund. */
+    static boolean looksLikeTaxRefund(Transaction t) {
+        if (!ReconciliationService.looksLikeRefund(t.getDescription())) return false;
+        return t.getCounterpartyType() == CounterpartyType.GOVERNMENT
+                || hasAny(" " + CategoryRules.normalize(t.getDescription()) + " ", TAX_REFUND_KEYWORDS);
     }
 
     /** A person, or a rule or pattern learned from them, put the row in Salary -- not a global rule

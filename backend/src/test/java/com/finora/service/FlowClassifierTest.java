@@ -5,10 +5,12 @@ import com.finora.entity.Transaction;
 import com.finora.service.FlowClassifier.FlowClass;
 import com.finora.service.FlowClassifier.FlowDecision;
 import com.finora.service.FlowClassifier.FlowReason;
+import com.finora.util.CounterpartyClassifier;
 import com.finora.util.CounterpartyType;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -73,6 +75,27 @@ class FlowClassifierTest {
         Transaction t = credit("TAX REFUND CPC AY 2026");
         t.setCounterpartyType(CounterpartyType.GOVERNMENT);
         assertThat(savings(t)).isEqualTo(new FlowDecision(FlowClass.INCOME, FlowReason.TAX_REFUND));
+    }
+
+    // The counterparty an import actually stores, not one set by hand: a tax refund that names no
+    // government body, or leads with a rail word the counterparty classifier reads first, is still
+    // income -- never an unlinked merchant refund that would subtract it from spend.
+    @Test void taxRefund_isIncomeWhateverCounterpartyTheImportStored() {
+        for (String d : List.of("TAX REFUND CPC AY 2026", "ECS CR INCOME TAX REFUND AY 2026",
+                "NEFT CR ITD TAX REFUND 2026", "INCOMETAX REFUND 2026")) {
+            Transaction t = credit(d);
+            t.setCounterpartyType(CounterpartyClassifier.classify(d));
+            assertThat(savings(t)).as(d).isEqualTo(new FlowDecision(FlowClass.INCOME, FlowReason.TAX_REFUND));
+        }
+    }
+
+    @Test void merchantRefund_isStillAnUnlinkedRefund() {
+        for (String d : List.of("REFUND FROM MERCHANTCO ORDER 1", "UPI REFUND FOR YOUR ORDER",
+                "TAXICO RIDE REFUND", "ITDC HOTEL REFUND")) {
+            Transaction t = credit(d);
+            t.setCounterpartyType(CounterpartyClassifier.classify(d));
+            assertThat(savings(t).reason()).as(d).isEqualTo(FlowReason.UNLINKED_REFUND);
+        }
     }
 
     // ---- savings-side inflows ----

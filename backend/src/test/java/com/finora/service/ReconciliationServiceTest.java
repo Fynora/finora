@@ -1129,6 +1129,27 @@ class ReconciliationServiceTest {
 
     // --- Refunds ---
 
+    // A tax refund says "refund" and fits inside almost any large debit on the same account, so the
+    // keyword-or-merchant rule linked it to one: income gone, and the rent shown as 3,000.
+    @Test
+    void reconcileForUser_neverLinksATaxRefundToAPurchase() {
+        UUID accountId = UUID.randomUUID();
+        Transaction rent = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 6, 5),
+                new BigDecimal("15000.00"), Transaction.Type.EXPENSE, "UPI LANDLORD RENT JUNE", Instant.now());
+        Transaction taxRefund = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 7, 10),
+                new BigDecimal("12000.00"), Transaction.Type.INCOME, "TAX REFUND CPC AY 2026", Instant.now());
+        Transaction ecsTaxRefund = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 7, 11),
+                new BigDecimal("2000.00"), Transaction.Type.INCOME, "ECS CR INCOME TAX REFUND", Instant.now());
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                .thenReturn(List.of(rent, taxRefund, ecsTaxRefund));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(taxRefund.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+        assertThat(taxRefund.getRefundOfTransactionId()).isNull();
+        assertThat(ecsTaxRefund.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+    }
+
     @Test
     void reconcileForUser_linksARefundKeywordCreditBackToTheOriginalSameAccountExpense() {
         UUID accountId = UUID.randomUUID();

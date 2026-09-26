@@ -45,7 +45,7 @@ public final class PdfTraceRedactor {
      * "was this trace captured before or after we fixed X" is answerable only by reading commit
      * dates.
      */
-    public static final int REDACTOR_VERSION = 2;
+    public static final int REDACTOR_VERSION = 3;
 
     /**
      * A short hash of the effective allowlist, recomputed from the live vocabulary every call.
@@ -91,6 +91,24 @@ public final class PdfTraceRedactor {
     // above already applies.
     private static final Pattern NAMED_MONTH_DATE_LIKE = Pattern.compile(
             "\\d{1,2}-(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\\d{2,4}",
+            Pattern.CASE_INSENSITIVE);
+    // A named-month date printed with SPACES rather than hyphens: "06 Jul 26" on a real SBI Card
+    // statement's every transaction row, "May 04" (month first, no year) on a real Standard
+    // Chartered export's Date and Value Date cells. Both are several tokens to the loop below, so
+    // the month name -- not in STRUCTURAL_WORDS -- was masked and the day and year degraded to
+    // bare 9s: "99 Xxx 99". Every date row of the card statement then had no date at all, the
+    // locator found 4 rows where the real document has 59, and the trace could not evidence the
+    // rule it was captured for (DATELESS_AMOUNT_ROW_SPLIT). Matched over the whole text ahead of
+    // the token loop and preserved WHOLE, the same "dates are structure, not identity" reasoning
+    // as DATE_LIKE. Redactor version 3.
+    // The month is the three-letter abbreviation or the full name and nothing else: "Mar" must
+    // not admit "Martin 12" or "12 Marketing", which would keep a counterparty's name.
+    private static final String MONTH_NAME =
+            "(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?"
+                    + "|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)";
+    private static final Pattern SPACED_NAMED_MONTH_DATE_LIKE = Pattern.compile(
+            "(?<![\\p{Alnum}])(?:\\d{1,2}\\s+" + MONTH_NAME + "(?:,?\\s+\\d{2,4})?"
+                    + "|" + MONTH_NAME + "\\s+\\d{1,2}(?:,?\\s+\\d{2,4})?)(?![\\p{Alnum}])",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern AMOUNT_LIKE = Pattern.compile(
             "\\(?-?[\\d,]+\\.\\d{1,2}\\)?");
@@ -271,6 +289,27 @@ public final class PdfTraceRedactor {
 
     static String redactText(String text, Set<String> vocabulary) {
         if (text == null || text.isBlank()) return text;
+        // Spaced named-month dates first: they span several tokens, so the per-token loop below
+        // cannot see them whole. Each span is copied verbatim and the text between spans is
+        // redacted as before.
+        var spaced = SPACED_NAMED_MONTH_DATE_LIKE.matcher(text);
+        StringBuilder joined = null;
+        int last = 0;
+        while (spaced.find()) {
+            if (joined == null) joined = new StringBuilder(text.length());
+            joined.append(redactTokens(text.substring(last, spaced.start()), vocabulary));
+            joined.append(spaced.group());
+            last = spaced.end();
+        }
+        if (joined != null) {
+            joined.append(redactTokens(text.substring(last), vocabulary));
+            return joined.toString();
+        }
+        return redactTokens(text, vocabulary);
+    }
+
+    private static String redactTokens(String text, Set<String> vocabulary) {
+        if (text.isEmpty()) return text;
         StringBuilder out = new StringBuilder(text.length());
         // Split keeping the separators, so every space and its exact position survives -- the
         // whitespace between two runs is part of the layout being reproduced.

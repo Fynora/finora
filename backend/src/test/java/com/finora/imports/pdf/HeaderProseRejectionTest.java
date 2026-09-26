@@ -285,6 +285,8 @@ class HeaderProseRejectionTest {
      *  in none of these buckets fails loudly here instead of silently passing uncovered. */
     private static final Map<String, Integer> UNCHANGED_SECTION_COUNTS = new LinkedHashMap<>() {{
         put("bob-repeated-account-banner", 1);
+        put("card-dateless-fee-and-tax-row", 1);
+        put("savings-ditto-posting-date-beside-value-date", 1);
         put("bob-savings-ledger-validation", 1);
         put("canara-savings-ledger-validation", 1);
         put("central-bank-savings-ledger-validation", 1);

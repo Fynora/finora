@@ -39,7 +39,9 @@ class GoldenOutputSnapshotTest {
     private static final List<String> TRACES = List.of(
             "hdfc-composite-deposit-schedules",
             "hdfc-txn-date-narration-header",
-            "bob-repeated-account-banner");
+            "bob-repeated-account-banner",
+            "card-dateless-fee-and-tax-row",
+            "savings-ditto-posting-date-beside-value-date");
 
     private static final Path GOLDEN_DIR = Path.of("src", "test", "resources", "golden");
 

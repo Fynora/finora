@@ -252,6 +252,12 @@ class MultiSectionZeroExtractionTest {
         Map<String, Integer> m = new LinkedHashMap<>();
         m.put("axis-credit-card-statement", 108);
         m.put("bob-repeated-account-banner", 53);
+        // Full recaptures under redactor version 3 (spaced named-month dates preserved) of the two
+        // documents whose earlier traces were partial; see CapabilityCorpusCoverageTest. Listed
+        // here so this inventory sweep accounts for them; their capability behaviour is verified
+        // by the trace's own capability claim (TraceCorpusHealthTest).
+        m.put("card-dateless-fee-and-tax-row", 59);
+        m.put("savings-ditto-posting-date-beside-value-date", 163);
         m.put("bob-savings-ledger-validation", 53);
         m.put("canara-savings-ledger-validation", 58);
         m.put("central-bank-savings-ledger-validation", 222);

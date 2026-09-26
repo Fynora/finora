@@ -133,4 +133,37 @@ class RepeatedBannerLeadingNarrationPdfTableLocatorTest {
         assertThat(rows.get(2).get("NARRATION")).startsWith("UPI/000000000003/22:13:30/UPI/first-line-of-b");
         assertThat(ctx.capabilities().stream().map(c -> c.capability())).doesNotContain(CAPABILITY);
     }
+
+    @Test
+    void anIdentityLineRepeatedMidTable_onTheAnchorsOwnPage_doesNotCloseTheTrail() {
+        // The same banner text printed between a date row and its wrapped tail, on the page the
+        // date row is on. That is not page-top furniture: nothing ended, so the tail still belongs
+        // to the row above it and must not be handed to the next transaction.
+        List<PositionedText> runs = new ArrayList<>();
+        banner(runs, 64.4f, 0);
+        header(runs, 76.95f, 0);
+        float y = 88.4f;
+        y = transaction(runs, y, 0, "UPI/000000000001/18:39:34/UPI/first-merchant", "03-06-2026", "1420.00", "31470.16 Cr", "one@bank");
+        y += BLOCK;
+        runs.add(run("UPI/000000000002/00:32:28/UPI/second-merchant", NARRATION_X, y, 0));
+        y += LINE;
+        runs.add(run("03-06-2026", COL[0], y, 0));
+        runs.add(run("1211.00", COL[3], y, 0));
+        runs.add(run("30259.16 Cr", COL[5], y, 0));
+        y += LINE;
+        banner(runs, y, 0);                                          // repeated mid-table
+        y += LINE;
+        runs.add(run("two@bank", NARRATION_X, y, 0));                // the tail of the row above
+        y = transaction(runs, y + BLOCK, 0, "UPI/000000000003/22:13:30/UPI/first-line-of-b", "04-06-2026", "800.00", "29459.16 Cr", "ez@bank");
+        transaction(runs, y + BLOCK, 0, "UPI/000000000004/00:08:45/UPI/fourth-merchant", "05-06-2026", "920.00", "28539.16 Cr", "four@bank");
+
+        DocumentContext ctx = new DocumentContext("PDF", "test");
+        List<Map<String, String>> rows = rowsOf(runs, ctx);
+
+        assertThat(rows).hasSize(4);
+        assertThat(rows.get(1).get("NARRATION")).as("the tail stays with its own row").endsWith("two@bank");
+        assertThat(rows.get(2).get("NARRATION"))
+                .startsWith("UPI/000000000003/22:13:30/UPI/first-line-of-b").doesNotContain("two@bank");
+        assertThat(ctx.capabilities().stream().map(c -> c.capability())).doesNotContain(CAPABILITY);
+    }
 }

@@ -73,7 +73,9 @@ export function MetricTile({ label, value, style }: { label: string; value: stri
   const c = useTheme();
   return (
     <View style={[styles.tile, { backgroundColor: c.bg, borderColor: c.border }, style]} accessible accessibilityLabel={`${label}: ${value}`}>
-      <Text style={[styles.tileLabel, { color: c.muted }]}>{label}</Text>
+      {/* Shrinks rather than breaking a word mid-letter at large text sizes ("REFERRE / D"). Only
+          kicks in when the label would overflow two lines, so normal sizes are unchanged. */}
+      <Text style={[styles.tileLabel, { color: c.muted }]} numberOfLines={2} adjustsFontSizeToFit>{label}</Text>
       <Text style={[styles.tileValue, { color: c.ink }]} numberOfLines={1} adjustsFontSizeToFit>
         {value}
       </Text>

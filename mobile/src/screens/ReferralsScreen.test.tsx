@@ -29,6 +29,11 @@ jest.mock('../lib/premiumVisibility', () => ({
   },
 }));
 
+const mockLargeText = { on: false };
+jest.mock('../lib/useLargeFontScale', () => ({
+  useLargeFontScale: () => mockLargeText.on,
+}));
+
 jest.mock('../api/endpoints', () => ({
   referralsApi: { myCode: jest.fn(), mine: jest.fn(), redeem: jest.fn() },
 }));
@@ -121,6 +126,32 @@ describe('ReferralsScreen', () => {
 
     for (const label of ['Friends Referred: 0', 'Pending: 0', 'Earned: ₹0']) {
       expect(StyleSheet.flatten(screen.getByLabelText(label).props.style).minWidth).toBe(0);
+    }
+    expect(StyleSheet.flatten(screen.getByTestId('referral-stats').props.style).flexWrap).toBeUndefined();
+    expect(StyleSheet.flatten(screen.getByLabelText('Share via WhatsApp').props.style).width).toBeUndefined();
+  });
+
+  it('at large text sizes, wraps the stat tiles two-up and the share buttons into a 2x2 grid', async () => {
+    // Measured on a simulator at the largest accessibility size: three tiles in one row broke
+    // their labels mid-word, and the four share buttons ran together with "More" off-screen.
+    mockLargeText.on = true;
+    try {
+      api.mine.mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+      });
+      renderScreen();
+      await screen.findByText('ABCD1234');
+
+      for (const label of ['Friends Referred: 0', 'Pending: 0', 'Earned: ₹0']) {
+        expect(StyleSheet.flatten(screen.getByLabelText(label).props.style).minWidth).toBe('45%');
+      }
+      expect(StyleSheet.flatten(screen.getByTestId('referral-stats').props.style).flexWrap).toBe('wrap');
+      for (const label of ['Share via WhatsApp', 'Share via Messages', 'Share via Email', 'More share options']) {
+        expect(StyleSheet.flatten(screen.getByLabelText(label).props.style).width).toBe('50%');
+      }
+    } finally {
+      mockLargeText.on = false;
     }
   });
 

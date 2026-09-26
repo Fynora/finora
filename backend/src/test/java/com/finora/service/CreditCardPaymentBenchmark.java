@@ -84,7 +84,8 @@ class CreditCardPaymentBenchmark extends ReconciliationBenchmarkSupport {
         // Exactly settles cardA; also happens to sit inside cardB's 0.05-2.5x ratio window
         // (1000/1050 ≈ 0.95) -- the two-phase design (exact resolved globally before any partial/
         // overpayment search runs) exists precisely so cardB's wider search can't claim it first.
-        Transaction payment = txn(savings, LocalDate.of(2026, 7, 10), "1000.00", Transaction.Type.EXPENSE, "NEFT TRANSFER");
+        // Says it is a card payment without naming either card, so it qualifies for both.
+        Transaction payment = txn(savings, LocalDate.of(2026, 7, 10), "1000.00", Transaction.Type.EXPENSE, "NEFT CC PAYMENT");
         ccStatement(cardA, "1000.00", LocalDate.of(2026, 7, 10), chargeA);
         ccStatement(cardB, "1050.00", LocalDate.of(2026, 7, 12), chargeB);
         loadTransactions(chargeA, chargeB, payment);

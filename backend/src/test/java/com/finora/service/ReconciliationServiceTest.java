@@ -2482,7 +2482,7 @@ class ReconciliationServiceTest {
     }
 
     @Test
-    void reconcileForUser_doesNotThrow_whenTwoCandidatePaymentsHaveNoDescriptionAndTheCardIsUnmasked() {
+    void reconcileForUser_doesNotThrow_whenTwoPaymentsHaveNoDescriptionAndTheCardIsUnmasked_andLinksNeither() {
         // Regression: paymentCandidates.stream().min(comparator) only invokes the comparator when
         // there are 2+ candidates -- with exactly one, min() short-circuits and never calls it, so
         // this path is silent until a REAL collision happens. thisCardLast4 is null here (no
@@ -2491,8 +2491,9 @@ class ReconciliationServiceTest {
         // (its short-circuit for a null/blank description specifically -- a non-blank, merely
         // digit-free description returns a safe mutable HashSet instead, so this needs a null
         // description exactly, not just a description with no digits), and Set.of().contains(null)
-        // throws (the same class of bug RefundNetting hit earlier this session). The nearer-to-
-        // due-date candidate must still win, unchanged from before this feature existed.
+        // throws (the same class of bug RefundNetting hit earlier this session). A payment with no
+        // description now carries no evidence of being a card payment, so neither is linked --
+        // even at the exact amount -- but the null-safety this test was written for still holds.
         UUID cardAccountId = UUID.randomUUID();
         UUID savingsAccountId = UUID.randomUUID();
         com.finora.entity.StatementImport statement =
@@ -2512,10 +2513,7 @@ class ReconciliationServiceTest {
 
         assertThatCode(() -> reconciliationService.reconcileForUser(userId)).doesNotThrowAnyException();
 
-        List<TransactionGraphService.PendingEdge> ccEdges = capturePendingEdges().stream()
-                .filter(e -> e.relationshipType() == TransactionRelationship.RelationshipType.CC_PAYMENT).toList();
-        assertThat(ccEdges).hasSize(1);
-        assertThat(ccEdges.get(0).fromTransactionId()).isEqualTo(closerPayment.getId());
+        assertThat(ccPendingEdgesIfAny()).isEmpty();
     }
 
     @Test
@@ -3498,8 +3496,9 @@ class ReconciliationServiceTest {
         UUID savingsAccountId = UUID.randomUUID();
         com.finora.entity.StatementImport statement =
                 ccStatement(UUID.randomUUID(), cardAccountId, new BigDecimal("2500.00"), LocalDate.of(2026, 7, 15));
+        // A bill-payment app name: evidence enough at the exact amount, not for a partial one.
         Transaction exact = txn(UUID.randomUUID(), savingsAccountId, LocalDate.of(2026, 7, 12),
-                new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "NEFT", Instant.now());
+                new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "UPI CRED", Instant.now());
         Transaction partial = txn(UUID.randomUUID(), savingsAccountId, LocalDate.of(2026, 7, 15),
                 new BigDecimal("1000.00"), Transaction.Type.EXPENSE, "CC PAYMENT", Instant.now());
         Transaction charge = txn(UUID.randomUUID(), cardAccountId, LocalDate.of(2026, 6, 20),
@@ -3636,6 +3635,65 @@ class ReconciliationServiceTest {
         List<TransactionGraphService.PendingEdge> edges = ccPendingEdgesIfAny();
         assertThat(edges).hasSize(1);
         assertThat(edges.get(0).fromTransactionId()).isEqualTo(payment.getId());
+    }
+
+    /** One savings payment against one 2,500.00 statement due 2026-07-15; the edges it produced. */
+    private List<TransactionGraphService.PendingEdge> ccEdgesForSinglePayment(String amount, String description,
+                                                                              String cardMask) {
+        UUID cardAccountId = UUID.randomUUID();
+        UUID savingsAccountId = UUID.randomUUID();
+        com.finora.entity.StatementImport statement =
+                ccStatement(UUID.randomUUID(), cardAccountId, new BigDecimal("2500.00"), LocalDate.of(2026, 7, 15));
+        if (cardMask != null) maskCardAccount(cardAccountId, cardMask);
+        Transaction payment = txn(UUID.randomUUID(), savingsAccountId, LocalDate.of(2026, 7, 14),
+                new BigDecimal(amount), Transaction.Type.EXPENSE, description, Instant.now());
+        Transaction charge = txn(UUID.randomUUID(), cardAccountId, LocalDate.of(2026, 6, 20),
+                new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "SHOP", Instant.now());
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(payment, charge));
+        when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(statement));
+        when(transactionRepository.findByStatementImportId(statement.getId())).thenReturn(List.of(charge));
+        reconciliationService.reconcileForUser(userId);
+        return ccPendingEdgesIfAny();
+    }
+
+    @Test
+    void reconcileForUser_aPurchaseOfExactlyTheAmountDue_isNotAPayment_withoutAnyEvidence() {
+        assertThat(ccEdgesForSinglePayment("2500.00", "UPI ELECTRONICS STORE", null)).isEmpty();
+    }
+
+    @Test
+    void reconcileForUser_aBillPaymentApp_isEvidenceAtTheExactAmountDue() {
+        assertThat(ccEdgesForSinglePayment("2500.00", "UPI CRED CLUB", null)).hasSize(1);
+    }
+
+    @Test
+    void reconcileForUser_aBillPaymentApp_isNotEvidenceForAPartialAmount() {
+        assertThat(ccEdgesForSinglePayment("1000.00", "UPI CRED CLUB", null)).isEmpty();
+    }
+
+    @Test
+    void reconcileForUser_creditedIsNotTheCredApp() {
+        assertThat(ccEdgesForSinglePayment("2500.00", "AMOUNT CREDITED BACK", null)).isEmpty();
+    }
+
+    @Test
+    void reconcileForUser_aMaskedCardNumber_namesTheCard_forAPartialAmount() {
+        assertThat(ccEdgesForSinglePayment("1000.00", "PAYMENT TO XXXXXXXX9876", "4111XXXXXXXX9876")).hasSize(1);
+    }
+
+    @Test
+    void reconcileForUser_aDatesYear_doesNotNameTheCard() {
+        // A card whose last 4 happen to be a year that appears in the narration's date.
+        assertThat(ccEdgesForSinglePayment("1000.00", "CC PAYMENT DUE 15/07/2026", "4111XXXXXXXX2026"))
+                .as("still linked by the phrase, but not as a named-card match")
+                .singleElement()
+                .satisfies(e -> assertThat(e.explanation()).containsEntry("matchedByLast4", false));
+    }
+
+    @Test
+    void reconcileForUser_aBareNumberInANarrationNotAboutACard_doesNotNameTheCard() {
+        // An amount printed in a purchase narration that equals the card's last 4.
+        assertThat(ccEdgesForSinglePayment("1000.00", "UPI-SWIGGY-1500", "4111XXXXXXXX1500")).isEmpty();
     }
 
     @Test

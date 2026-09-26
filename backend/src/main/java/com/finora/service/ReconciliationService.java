@@ -1633,11 +1633,13 @@ public class ReconciliationService {
         boolean exactAmount = t.getAmount().compareTo(statement.getTotalAmountDue()) == 0;
         if (requireExactAmount ? !exactAmount : !amountRatioInRange(t.getAmount(), statement.getTotalAmountDue())) return false;
         String thisCardLast4 = cardLast4ByAccountId.get(statement.getAccountId());
-        // Anything but the exact amount due needs the narration to say it is a card payment. The
-        // 0.05x-2.5x window alone admits nearly every debit near a due date: on the real corpus,
-        // every edge this pass wrote came from that window, and 9 of the 10 were groceries,
-        // shopping and travel purchases, each then dropped from spending.
-        if (!exactAmount && !hasCardPaymentEvidence(t, thisCardLast4)) return false;
+        // Every candidate needs the narration to say it is a card payment. The 0.05x-2.5x window
+        // alone admits nearly every debit near a due date: on the real corpus, every edge this pass
+        // wrote came from that window, and 9 of the 10 were groceries, shopping and travel
+        // purchases, each then dropped from spending. The exact amount is strong evidence but not
+        // proof -- a purchase can equal a round total due -- so it too needs a narration that
+        // could be a card payment, but a weaker one: see hasCardPaymentEvidence.
+        if (!hasCardPaymentEvidence(t, thisCardLast4, exactAmount)) return false;
         if (Math.abs(ChronoUnit.DAYS.between(t.getTxnDate(), statement.getPaymentDueDate()))
                 > ReconciliationPolicy.CC_PAYMENT_DUE_DATE_WINDOW_DAYS) return false;
         // A candidate whose OWN description names a DIFFERENT known card is excluded outright --
@@ -1661,12 +1663,25 @@ public class ReconciliationService {
     private static final List<String> CARD_PAYMENT_PHRASES =
             List.of("credit card payment", "card bill", "cc payment", "cc bill");
 
-    /** The narration names this card's last 4 digits, or says it is a card payment. */
-    private static boolean hasCardPaymentEvidence(Transaction t, String thisCardLast4) {
+    /**
+     * Bill-payment apps and rails. On the real corpus, both savings-side card payments the transfer
+     * pass caught named only the CRED app -- no card phrase, no last 4 -- so an exact-amount payment
+     * made that way must still qualify. The same word is on 8 other debits there, though, so it is
+     * evidence only alongside the exact amount due, never for a partial one.
+     */
+    private static final List<String> BILL_PAYMENT_RAILS = List.of("cred", "bbps", "billpay", "bill pay");
+
+    /**
+     * The narration names this card's last 4 digits, or says it is a card payment; for the exact
+     * amount due, naming a bill-payment app or rail is enough.
+     */
+    private static boolean hasCardPaymentEvidence(Transaction t, String thisCardLast4, boolean exactAmount) {
         if (namesCard(t, thisCardLast4)) return true;
         // Each phrase must start a word: "cc payment" is not evidence inside "acc payment".
-        String normalized = " " + CategoryRules.normalize(t.getDescription());
-        return CARD_PAYMENT_PHRASES.stream().anyMatch(phrase -> normalized.contains(" " + phrase));
+        String normalized = " " + CategoryRules.normalize(t.getDescription()) + " ";
+        if (CARD_PAYMENT_PHRASES.stream().anyMatch(phrase -> normalized.contains(" " + phrase))) return true;
+        // Rails are whole words: "cred" is not evidence inside "credit" or "credited".
+        return exactAmount && BILL_PAYMENT_RAILS.stream().anyMatch(rail -> normalized.contains(" " + rail + " "));
     }
 
     /** Whether the narration names this card's last 4 digits as a fragment of their own; see {@link #cardFragmentsIn}. */
@@ -1818,26 +1833,44 @@ public class ReconciliationService {
     private static final java.util.regex.Pattern ISOLATED_FOUR_DIGITS =
             java.util.regex.Pattern.compile("(?<!\\d)\\d{4}(?!\\d)");
 
+    /** Four digits right after masking characters, as a masked card number prints its last 4. */
+    private static final java.util.regex.Pattern MASKED_FOUR_DIGITS =
+            java.util.regex.Pattern.compile("(?<=[Xx*])\\d{4}(?!\\d)");
+
+    /** A day-month-year or year-month-day date, whose year would otherwise read as a fragment. */
+    private static final java.util.regex.Pattern DATE =
+            java.util.regex.Pattern.compile("(?<!\\d)(\\d{1,2}[/.-]\\d{1,2}[/.-]\\d{4}|\\d{4}[/.-]\\d{1,2}[/.-]\\d{1,2})(?!\\d)");
+
+    /** Words that make a narration about a card, so a bare 4-digit fragment in it can be one. */
+    private static final java.util.regex.Pattern CARD_CONTEXT =
+            java.util.regex.Pattern.compile("(^| )(card|cc|credit card|creditcard|billpay|bill pay)( |$)");
+
     /**
-     * Every run of exactly four digits in {@code text} that is not part of a longer number -- the
-     * shape a card's last 4 takes in a real bank narration (roadmap Part 4's "issuer-name +
-     * last-4-digit matching", verified against this project's own real bank-statement corpus: an
-     * ICICI savings-side bill payment printed the paid card's last 4 after a hyphen, and the card's
-     * masked number printed them after a run of X's; masking characters or a separator isolate the
-     * real last 4, so no bank-specific parsing is needed). Not every bank's narration carries this
-     * (an HDFC sample's trailing digits were a payment reference, not its card's last 4).
+     * The 4-digit fragments in {@code text} that can be a card's last 4 -- the shape they take in a
+     * real bank narration (roadmap Part 4's "issuer-name + last-4-digit matching", verified against
+     * this project's own real bank-statement corpus: an ICICI savings-side bill payment printed the
+     * paid card's last 4 after a hyphen in a narration saying it was a card bill payment, and the
+     * card's masked number printed them after a run of X's). Not every bank's narration carries
+     * this (an HDFC sample's trailing digits were a payment reference, not its card's last 4).
      *
-     * <p>Deliberately not the tail of a longer digit run. Every UPI, NEFT or IMPS debit carries a
-     * 12+ digit reference, whose last 4 digits equal a given card's about once in 10,000
-     * references; with a hundred debits near a due date that coincidence is common enough, and a
-     * fragment naming this card both admits a partial payment and outranks every other candidate,
-     * while one naming another card excludes the payment outright.
+     * <p>Three things are deliberately not fragments. The tail of a longer digit run: every UPI,
+     * NEFT or IMPS debit carries a 12+ digit reference, whose last 4 digits equal a given card's
+     * about once in 10,000 references, and with a hundred debits near a due date that coincidence
+     * is common enough. A date's year. And any other bare 4-digit number -- an amount or a time --
+     * in a narration that is not about a card at all. A fragment naming this card both admits a
+     * partial payment and outranks every other candidate, and one naming another card excludes the
+     * payment outright, so it has to be a card number, not a number.
      */
     private static Set<String> cardFragmentsIn(String text) {
         if (text == null || text.isBlank()) return Set.of();
+        String withoutDates = DATE.matcher(text).replaceAll(" ");
         Set<String> fragments = new HashSet<>();
-        java.util.regex.Matcher m = ISOLATED_FOUR_DIGITS.matcher(text);
-        while (m.find()) fragments.add(m.group());
+        java.util.regex.Matcher masked = MASKED_FOUR_DIGITS.matcher(withoutDates);
+        while (masked.find()) fragments.add(masked.group());
+        if (CARD_CONTEXT.matcher(CategoryRules.normalize(withoutDates)).find()) {
+            java.util.regex.Matcher m = ISOLATED_FOUR_DIGITS.matcher(withoutDates);
+            while (m.find()) fragments.add(m.group());
+        }
         return fragments;
     }
 

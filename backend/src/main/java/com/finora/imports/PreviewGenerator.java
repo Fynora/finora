@@ -69,6 +69,7 @@ public class PreviewGenerator {
         List<String[]> allRows = csvParser.readAll(contentStream);
 
         int headerIdx = csvParser.findHeaderRowIndex(allRows);
+        statementValidator.scanPreamble(allRows, headerIdx, signals);
         if (headerIdx < 0) {
             // No recognizable header anywhere — nothing to stage, but still return a well-formed
             // (empty) response rather than letting a downstream NPE surface as a 500. Previously

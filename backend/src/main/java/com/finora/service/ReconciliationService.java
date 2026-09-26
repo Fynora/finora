@@ -721,6 +721,7 @@ public class ReconciliationService {
                 if (isCard(t, accountTypes)) continue;
                 if (t.getCounterpartyType() == com.finora.util.CounterpartyType.BUSINESS) continue;
                 if (looksLikeSalary.getOrDefault(t.getId(), false)) continue;
+                if (OwnAccountEvidence.looksLikeCardBill(t.getDescription())) continue;
                 java.util.Optional<String> slot = OwnAccountEvidence.counterpartySlot(t.getDescription());
                 if (slot.isEmpty()) continue;
                 String holder = null;

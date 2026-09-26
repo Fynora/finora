@@ -1215,6 +1215,25 @@ class ReconciliationServiceTest {
         assertThat(List.of(onCard, business, otherAsha, rejected, freeText)).noneMatch(Transaction::isTransfer);
     }
 
+    // Paying your own credit card by UPI to the card's own UPI id names YOU as payee. With the card
+    // statement not imported, that bill is the only record of the card's spending -- rule 2 must
+    // leave it counted, exactly as before (the card-payment pass handles it once the card is imported).
+    @Test
+    void reconcileForUser_aCardBillPaidToTheUsersOwnCardIsNotAOneSidedTransfer() {
+        UUID savings = UUID.randomUUID();
+        Transaction bill = ownRow(savings, "18000.00", Transaction.Type.EXPENSE,
+                "UPI-ASHA VERMA-cc.1111@okbank-IFSC0000001-111111111111-CREDIT CARD BILL");
+        Transaction ccPayment = ownRow(savings, "9000.00", Transaction.Type.EXPENSE,
+                "UPI-ASHA VERMA-cc.1111@okbank-IFSC0000001-222222222222-CC PAYMENT");
+        holder(savings, "ASHA VERMA");
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(bill, ccPayment));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(bill.isTransfer()).isFalse();
+        assertThat(ccPayment.isTransfer()).isFalse();
+    }
+
     @Test
     void noHolderNameMeansNoOneSidedTransfer() {
         UUID savings = UUID.randomUUID();

@@ -44,6 +44,16 @@ public final class OwnAccountEvidence {
             // NEFT credit, star: "NEFT*<ifsc>*<ref>*<remitter> ..."
             Pattern.compile("(?i)\\bNEFT\\*[A-Z0-9]{11}\\*[^*]*\\*([^*]{2,80})"));
 
+    /** A credit-card bill payment: paid to the card's own UPI id it names the cardholder as payee,
+     *  yet it is the only record of the card's spending when the card is not imported. */
+    private static final Pattern CARD_BILL = Pattern.compile(
+            "\\b(credit card|cc payment|ccpayment|cc bill|card bill|bbps)\\b");
+
+    /** Whether the narration reads as a credit-card bill payment -- never an own-account transfer by name. */
+    public static boolean looksLikeCardBill(String description) {
+        return description != null && CARD_BILL.matcher(CategoryRules.normalize(description)).find();
+    }
+
     private static final Set<String> TITLES = Set.of("mr", "mrs", "ms", "miss", "dr", "shri", "smt");
     private static final Set<String> RELATION_WORDS = Set.of("so", "do", "wo", "co");
 

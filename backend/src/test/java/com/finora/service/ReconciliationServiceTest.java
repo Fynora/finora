@@ -1433,6 +1433,113 @@ class ReconciliationServiceTest {
         assertThat(newIncome.getRefundOfTransactionId()).isNull();
     }
 
+    // --- Refund candidate choice must not depend on row ids ---
+    //
+    // Found by importing the same statements into two fresh databases: three refunds linked to a
+    // different purchase in each run, and one run's spending total came out higher by the refund's
+    // amount. Every same-day candidate tied on the old ranking (exact amount, then days apart), so
+    // the tie fell to list order, which was sorted by (date, id) -- and ids are random UUIDs. Each
+    // test below runs its scenario twice with the competing rows' ids at opposite ends of UUID
+    // order, so a tie still decided by id fails one of the two runs.
+
+    private static final UUID LOWEST_ID = new UUID(Long.MIN_VALUE, 1);
+    private static final UUID HIGHEST_ID = new UUID(Long.MAX_VALUE, 1);
+
+    private void assertSameOutcomeEitherIdOrder(java.util.function.Function<Boolean, String> scenario, String expected) {
+        assertThat(scenario.apply(false)).isEqualTo(expected);
+        assertThat(scenario.apply(true)).isEqualTo(expected);
+    }
+
+    @Test
+    void reconcileForUser_refundTiedAcrossSameDayPurchases_linksTheClosestCoveringAmount_whateverTheIds() {
+        UUID accountId = UUID.randomUUID();
+        LocalDate day = LocalDate.of(2026, 5, 4);
+        assertSameOutcomeEitherIdOrder(swap -> {
+            Transaction large = txn(swap ? HIGHEST_ID : LOWEST_ID, accountId, day, new BigDecimal("1804.00"),
+                    Transaction.Type.EXPENSE, "STORE ONE ORDER", Instant.now());
+            Transaction close = txn(swap ? LOWEST_ID : HIGHEST_ID, accountId, day, new BigDecimal("335.00"),
+                    Transaction.Type.EXPENSE, "STORE TWO ORDER", Instant.now());
+            Transaction refund = txn(UUID.randomUUID(), accountId, day, new BigDecimal("233.00"),
+                    Transaction.Type.INCOME, "STORE REFUND", Instant.now());
+            when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                    .thenReturn(List.of(large, close, refund));
+
+            reconciliationService.reconcileForUser(userId);
+
+            assertThat(refund.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.REFUND);
+            return refund.getRefundOfTransactionId().equals(close.getId()) ? "close" : "large";
+        }, "close");
+    }
+
+    @Test
+    void reconcileForUser_refundTiedAcrossSameDayPurchases_prefersOneStillCountedAsSpending_overAnInvestment() {
+        UUID accountId = UUID.randomUUID();
+        LocalDate day = LocalDate.of(2026, 5, 4);
+        assertSameOutcomeEitherIdOrder(swap -> {
+            // Closer in amount, but excluded from spending as an investment -- netting the refund
+            // against it would change no total, so the refund would vanish from both sides.
+            Transaction investment = categorized(investmentsCategoryId, accountId, day, new BigDecimal("800.00"),
+                    Transaction.Type.EXPENSE, "FUND HOUSE SIP");
+            ReflectionTestUtils.setField(investment, "id", swap ? HIGHEST_ID : LOWEST_ID);
+            Transaction purchase = txn(swap ? LOWEST_ID : HIGHEST_ID, accountId, day, new BigDecimal("1804.00"),
+                    Transaction.Type.EXPENSE, "STORE ONE ORDER", Instant.now());
+            Transaction refund = txn(UUID.randomUUID(), accountId, day, new BigDecimal("233.00"),
+                    Transaction.Type.INCOME, "STORE REFUND", Instant.now());
+            when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                    .thenReturn(List.of(investment, purchase, refund));
+
+            reconciliationService.reconcileForUser(userId);
+
+            assertThat(investment.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.INVESTMENT_TRANSFER);
+            return refund.getRefundOfTransactionId().equals(purchase.getId()) ? "purchase" : "investment";
+        }, "purchase");
+    }
+
+    @Test
+    void reconcileForUser_refundTiedAcrossSameDayPurchases_prefersTheSameMerchant_overACloserAmount() {
+        UUID accountId = UUID.randomUUID();
+        LocalDate day = LocalDate.of(2026, 5, 21);
+        assertSameOutcomeEitherIdOrder(swap -> {
+            Transaction sameMerchant = txn(swap ? HIGHEST_ID : LOWEST_ID, accountId, day, new BigDecimal("123.00"),
+                    Transaction.Type.EXPENSE, "ACME BILL", Instant.now());
+            sameMerchant.setMerchant("acme");
+            Transaction closerAmount = txn(swap ? LOWEST_ID : HIGHEST_ID, accountId, day, new BigDecimal("100.00"),
+                    Transaction.Type.EXPENSE, "OTHER SHOP", Instant.now());
+            closerAmount.setMerchant("other shop");
+            Transaction refund = txn(UUID.randomUUID(), accountId, day, new BigDecimal("38.00"),
+                    Transaction.Type.INCOME, "ACME REFUND", Instant.now());
+            refund.setMerchant("acme");
+            when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                    .thenReturn(List.of(sameMerchant, closerAmount, refund));
+
+            reconciliationService.reconcileForUser(userId);
+
+            return refund.getRefundOfTransactionId().equals(sameMerchant.getId()) ? "sameMerchant" : "closerAmount";
+        }, "sameMerchant");
+    }
+
+    @Test
+    void reconcileForUser_twoRefundsCompetingForOnePurchasesCapacity_resolveTheSameWay_whateverTheIds() {
+        UUID accountId = UUID.randomUUID();
+        LocalDate day = LocalDate.of(2026, 7, 11);
+        // Only room for one of the two -- whichever the pass visits first claims the capacity, so
+        // the visiting order itself has to be id-independent, not just the per-refund ranking.
+        assertSameOutcomeEitherIdOrder(swap -> {
+            Transaction purchase = txn(UUID.randomUUID(), accountId, day.minusDays(1), new BigDecimal("500.00"),
+                    Transaction.Type.EXPENSE, "STORE ORDER", Instant.now());
+            Transaction refundA = txn(swap ? HIGHEST_ID : LOWEST_ID, accountId, day, new BigDecimal("300.00"),
+                    Transaction.Type.INCOME, "STORE REFUND A", Instant.now());
+            Transaction refundB = txn(swap ? LOWEST_ID : HIGHEST_ID, accountId, day, new BigDecimal("300.00"),
+                    Transaction.Type.INCOME, "STORE REFUND B", Instant.now());
+            when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                    .thenReturn(List.of(purchase, refundA, refundB));
+
+            reconciliationService.reconcileForUser(userId);
+
+            return refundA.getReconciliationStatus() + "/" + refundB.getReconciliationStatus();
+        }, "REFUND/OK");
+    }
+
     // --- RECONCILIATION_RUN audit summary (Financial Intelligence Workspace, Reconciliation
     // Monitor module -- see ReconciliationService.reconcileForUser's own doc comment on the
     // counters) ---
@@ -1959,6 +2066,37 @@ class ReconciliationServiceTest {
         assertThat(gmail.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.DUPLICATE);
         assertThat(gmail.getIsDuplicateOf()).isEqualTo(aa.getId());
         assertThat(aa.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+    }
+
+    @Test
+    void aaGmailTiedCandidates_resolveTheSameWay_whateverTheRepositoryOrder() {
+        // The first receipt is two days from each AA row, so it ties between them; the second is
+        // in range of only the later AA row. If the first receipt takes the later row, both
+        // receipts claim it and the ambiguity guard leaves both counted; if it takes the earlier
+        // row, both resolve. Which happened used to follow the repository's unordered result.
+        UUID accountId = UUID.randomUUID();
+        assertSameOutcomeEitherIdOrder(swap -> {
+            Transaction earlierAa = txn(swap ? HIGHEST_ID : LOWEST_ID, accountId, LocalDate.of(2026, 9, 1),
+                    new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PAYMENT-REF123", Instant.now());
+            earlierAa.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+            Transaction laterAa = txn(swap ? LOWEST_ID : HIGHEST_ID, accountId, LocalDate.of(2026, 9, 5),
+                    new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PAYMENT-REF123", Instant.now());
+            laterAa.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+            Transaction tiedReceipt = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 3),
+                    new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PAYMENT-REF123", Instant.now());
+            tiedReceipt.setSource(Transaction.Source.GMAIL_IMPORT);
+            Transaction lateReceipt = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 8),
+                    new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PAYMENT-REF123", Instant.now());
+            lateReceipt.setSource(Transaction.Source.GMAIL_IMPORT);
+            when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(swap
+                    ? List.of(laterAa, earlierAa, tiedReceipt, lateReceipt)
+                    : List.of(earlierAa, laterAa, tiedReceipt, lateReceipt));
+
+            reconciliationService.reconcileForUser(userId);
+
+            return tiedReceipt.getReconciliationStatus() + "/" + lateReceipt.getReconciliationStatus()
+                    + (earlierAa.getId().equals(tiedReceipt.getIsDuplicateOf()) ? "/earlier" : "/other");
+        }, "DUPLICATE/DUPLICATE/earlier");
     }
 
     @Test
@@ -2889,6 +3027,110 @@ class ReconciliationServiceTest {
                 .as("the earlier due-date statement claims the coincidental payment, regardless of repository order")
                 .hasSize(1);
         assertThat(ccEdges.get(0).toTransactionId()).isEqualTo(earlierCharge.getId());
+    }
+
+    // The same-statements-into-fresh-databases comparison that found the refund tie (see the
+    // refund tests above) found this one too: two partial payments the same number of days from a
+    // statement's due date, neither naming the card, tied on every rule, and min() handed the
+    // match to whichever one the unordered repository query returned first. Each scenario runs
+    // with both the ids and the repository order reversed.
+
+    private List<TransactionGraphService.PendingEdge> ccPaymentEdges() {
+        return capturePendingEdges().stream()
+                .filter(e -> e.relationshipType() == TransactionRelationship.RelationshipType.CC_PAYMENT).toList();
+    }
+
+    @Test
+    void reconcileForUser_ccPaymentTiedOnDate_prefersTheAmountClosestToTheStatementTotal_whateverTheOrder() {
+        UUID cardAccountId = UUID.randomUUID();
+        UUID otherAccountId = UUID.randomUUID();
+        LocalDate due = LocalDate.of(2026, 8, 27);
+        assertSameOutcomeEitherIdOrder(swap -> {
+            org.mockito.Mockito.clearInvocations(transactionGraphService);
+            com.finora.entity.StatementImport statement =
+                    ccStatement(UUID.randomUUID(), cardAccountId, new BigDecimal("55584.00"), due);
+            Transaction smaller = txn(swap ? HIGHEST_ID : LOWEST_ID, otherAccountId, due.plusDays(10),
+                    new BigDecimal("10980.00"), Transaction.Type.EXPENSE, "BILL ONE", Instant.now());
+            Transaction closer = txn(swap ? LOWEST_ID : HIGHEST_ID, otherAccountId, due.plusDays(10),
+                    new BigDecimal("20010.00"), Transaction.Type.EXPENSE, "BILL TWO", Instant.now());
+            Transaction charge = txn(UUID.randomUUID(), cardAccountId, due.minusDays(30),
+                    new BigDecimal("55584.00"), Transaction.Type.EXPENSE, "SHOP", Instant.now());
+            when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                    .thenReturn(swap ? List.of(closer, smaller, charge) : List.of(smaller, closer, charge));
+            when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(statement));
+            when(transactionRepository.findByStatementImportId(statement.getId())).thenReturn(List.of(charge));
+
+            reconciliationService.reconcileForUser(userId);
+
+            List<TransactionGraphService.PendingEdge> edges = ccPaymentEdges();
+            assertThat(edges).hasSize(1);
+            return edges.get(0).fromTransactionId().equals(closer.getId()) ? "closer" : "smaller";
+        }, "closer");
+    }
+
+    @Test
+    void reconcileForUser_ccPaymentTiedOnEveryRule_resolvesTheSameWay_whateverTheOrder() {
+        UUID cardAccountId = UUID.randomUUID();
+        UUID otherAccountId = UUID.randomUUID();
+        LocalDate due = LocalDate.of(2026, 7, 29);
+        // 900 and 1,100 against a 1,000 total: equally far from it, same day, no card named.
+        assertSameOutcomeEitherIdOrder(swap -> {
+            org.mockito.Mockito.clearInvocations(transactionGraphService);
+            com.finora.entity.StatementImport statement =
+                    ccStatement(UUID.randomUUID(), cardAccountId, new BigDecimal("1000.00"), due);
+            Transaction under = txn(swap ? HIGHEST_ID : LOWEST_ID, otherAccountId, due,
+                    new BigDecimal("900.00"), Transaction.Type.EXPENSE, "BILL", Instant.now());
+            Transaction over = txn(swap ? LOWEST_ID : HIGHEST_ID, otherAccountId, due,
+                    new BigDecimal("1100.00"), Transaction.Type.EXPENSE, "BILL", Instant.now());
+            Transaction charge = txn(UUID.randomUUID(), cardAccountId, due.minusDays(20),
+                    new BigDecimal("1000.00"), Transaction.Type.EXPENSE, "SHOP", Instant.now());
+            when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                    .thenReturn(swap ? List.of(over, under, charge) : List.of(under, over, charge));
+            when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(statement));
+            when(transactionRepository.findByStatementImportId(statement.getId())).thenReturn(List.of(charge));
+
+            reconciliationService.reconcileForUser(userId);
+
+            List<TransactionGraphService.PendingEdge> edges = ccPaymentEdges();
+            assertThat(edges).hasSize(1);
+            return edges.get(0).fromTransactionId().equals(under.getId()) ? "under" : "over";
+        }, "under");
+    }
+
+    @Test
+    void reconcileForUser_twoStatementsSameDueDateAndTotal_theEarlierImportedClaimsThePayment_whateverTheOrder() {
+        UUID firstCard = UUID.randomUUID();
+        UUID secondCard = UUID.randomUUID();
+        UUID savingsAccountId = UUID.randomUUID();
+        LocalDate due = LocalDate.of(2026, 7, 10);
+        assertSameOutcomeEitherIdOrder(swap -> {
+            org.mockito.Mockito.clearInvocations(transactionGraphService);
+            com.finora.entity.StatementImport first =
+                    ccStatement(swap ? HIGHEST_ID : LOWEST_ID, firstCard, new BigDecimal("2500.00"), due);
+            ReflectionTestUtils.setField(first, "createdAt", Instant.parse("2026-07-01T10:00:00Z"));
+            com.finora.entity.StatementImport second =
+                    ccStatement(swap ? LOWEST_ID : HIGHEST_ID, secondCard, new BigDecimal("2500.00"), due);
+            ReflectionTestUtils.setField(second, "createdAt", Instant.parse("2026-07-01T10:05:00Z"));
+            Transaction payment = txn(UUID.randomUUID(), savingsAccountId, due,
+                    new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "CARD BILL", Instant.now());
+            Transaction firstCharge = txn(UUID.randomUUID(), firstCard, due.minusDays(20),
+                    new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "SHOP ONE", Instant.now());
+            Transaction secondCharge = txn(UUID.randomUUID(), secondCard, due.minusDays(20),
+                    new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "SHOP TWO", Instant.now());
+            when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                    .thenReturn(List.of(payment, firstCharge, secondCharge));
+            when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId))
+                    .thenReturn(swap ? List.of(second, first) : List.of(first, second));
+            when(transactionRepository.findByStatementImportId(first.getId())).thenReturn(List.of(firstCharge));
+            when(transactionRepository.findByStatementImportId(second.getId())).thenReturn(List.of(secondCharge));
+
+            reconciliationService.reconcileForUser(userId);
+
+            List<TransactionGraphService.PendingEdge> edges = ccPaymentEdges().stream()
+                    .filter(e -> e.fromTransactionId().equals(payment.getId())).toList();
+            assertThat(edges).hasSize(1);
+            return edges.get(0).toTransactionId().equals(firstCharge.getId()) ? "first" : "second";
+        }, "first");
     }
 
     // --- Last-4 disambiguation (roadmap Part 4's "issuer-name + last-4-digit matching"),

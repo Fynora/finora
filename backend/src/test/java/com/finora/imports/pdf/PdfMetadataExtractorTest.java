@@ -1429,4 +1429,136 @@ class PdfMetadataExtractorTest {
         assertThat(extractor.extract(List.of("HSBC Bank Customer Number 100-000000")).accountHolderName())
                 .isNull();
     }
+
+    @Test
+    void extract_doesNotTakeAGridHeaderRowsNextHeading_asAnEmptyAccountNumber() {
+        // A summary grid's header row starts with the label; the "value" after it is the next
+        // column's heading. Masking that produced "" and blocked the grid reading of the real
+        // number printed on the row below.
+        var metadata = extractor.extract(List.of(
+                "Account Number Credit Limit Available Credit Limit Available Cash Limit",
+                "123456******7890 30,000.00 25,000.00 5,000.00"));
+        assertThat(metadata.accountNumberMasked()).isNull();
+    }
+
+    // ---- holder shapes traced on real documents whose holder was null (plan 3, Task 6) ----
+
+    @Test
+    void extract_readsTheHolder_fromAGreetingLine() {
+        var metadata = extractor.extract(List.of(
+                "Hello, SAMPLE PERSON KUMAR",
+                "12, SAMPLE APARTMENTS SAMPLE ROAD NO. 1 SAMPLE CITY, ST",
+                "Statement for your credit card ending with 1234 (01 Mar - 31 Mar 2026)"));
+        assertThat(metadata.accountHolderName()).isEqualTo("SAMPLE PERSON KUMAR");
+    }
+
+    @Test
+    void extract_readsTheHolder_afterAMidLineAccountNameLabelWithNoColon() {
+        // A details grid joined into one line: an address fragment, the label, then the name.
+        var metadata = extractor.extract(List.of(
+                "Savings Account",
+                "Address 12 ROAD NO 1,BEHIND  Account Name SAMPLE PERSON KUMAR",
+                "Account Number 100000000000001"));
+        assertThat(metadata.accountHolderName()).isEqualTo("SAMPLE PERSON KUMAR");
+    }
+
+    @Test
+    void extract_readsTheHolder_beforeABranchLabel_orACardNumberLabel_orABaseBranchLabel() {
+        assertThat(extractor.extract(List.of("ACCOUNT STATEMENT", "MR SAMPLE PERSON KUMAR BRANCH                  : Sample Nagar"))
+                .accountHolderName()).isEqualTo("MR SAMPLE PERSON KUMAR");
+        assertThat(extractor.extract(List.of("Sample Card Statement", "SAMPLE PERSON Credit Card No. 400000XXXXXX0004"))
+                .accountHolderName()).isEqualTo("SAMPLE PERSON");
+        assertThat(extractor.extract(List.of("GSTIN of Sample Card : 22AAAAA0000A1Z5", "T S SAMPLE Credit Card Number", "XXXX XXXX XXXX XX04"))
+                .accountHolderName()).as("initials count as name words").isEqualTo("T S SAMPLE");
+        assertThat(extractor.extract(List.of("1", "Statement of Transactions in Saving Account no. 000000000001 in INR for the period July 1, 2026 - August 1, 2026",
+                        "SAMPLE PERSON KUMAR Your Base Branch:  SAMPLE BANK LIMITED,"))
+                .accountHolderName()).isEqualTo("SAMPLE PERSON KUMAR");
+        assertThat(extractor.extract(List.of("MISS SAMPLE PERSON Customer/CIF ID 100000001")).accountHolderName())
+                .as("MISS is a courtesy title").isEqualTo("MISS SAMPLE PERSON");
+    }
+
+    @Test
+    void extract_cutsALabelledHolderValue_atTheFirstTokenHoldingADigit() {
+        var metadata = extractor.extract(List.of(
+                "Account Holder Name : SAMPLE PERSON KUMAR SAMPLECITY-100001,SAMPLECITY,SAMPLECITY"));
+        assertThat(metadata.accountHolderName()).isEqualTo("SAMPLE PERSON KUMAR");
+    }
+
+    @Test
+    void extract_aGreetingFollowedByProse_isNotAHolder() {
+        var metadata = extractor.extract(List.of("Hello, please find your statement below"));
+        assertThat(metadata.accountHolderName()).isNull();
+    }
+
+    // ---- period and card-number shapes traced on real documents (plan 3, Tasks 7 and 8) ----
+
+    @Test
+    void extract_readsAnIsoPeriod_underAPeriodOfLabel() {
+        // Through the LABELLED rule: the unlabelled-range fallback would also read this line, so
+        // the capability decides which path did (a labelled read is the stronger evidence).
+        var ctx = new com.finora.imports.DocumentContext("PDF", "test");
+        var metadata = extractor.extract(List.of(
+                "Report Generation Date & Time : 13-08-2026 10:00:00",
+                "STATEMENT OF THE ACCOUNT FOR THE PERIOD OF : 2026-07-13 to 2026-08-13"), ctx);
+        assertThat(metadata.statementPeriodStart()).isEqualTo(java.time.LocalDate.of(2026, 7, 13));
+        assertThat(metadata.statementPeriodEnd()).isEqualTo(java.time.LocalDate.of(2026, 8, 13));
+        assertThat(ctx.capabilities().stream().map(c -> c.capability()))
+                .contains("GRID_METADATA_TRAILING_LABEL").doesNotContain("STATEMENT_PERIOD_UNLABELLED_RANGE");
+    }
+
+    @Test
+    void extract_readsAPeriod_afterAStatementDateLabelFollowedByARange() {
+        var ctx = new com.finora.imports.DocumentContext("PDF", "test");
+        var metadata = extractor.extract(List.of(
+                "ACCOUNT STATEMENT",
+                "STATEMENT DATE : 01 May 2026 To 30 Jun 2026",
+                "CURRENCY : INR"), ctx);
+        assertThat(metadata.statementPeriodStart()).isEqualTo(java.time.LocalDate.of(2026, 5, 1));
+        assertThat(metadata.statementPeriodEnd()).isEqualTo(java.time.LocalDate.of(2026, 6, 30));
+        assertThat(ctx.capabilities().stream().map(c -> c.capability()))
+                .contains("STATEMENT_PERIOD_FROM_STATEMENT_DATE_RANGE").doesNotContain("STATEMENT_PERIOD_UNLABELLED_RANGE");
+    }
+
+    @Test
+    void extract_aLoneStatementDate_isNotAPeriod() {
+        var metadata = extractor.extract(List.of("Statement Date 20 Jul, 2026", "Some other line"));
+        assertThat(metadata.statementPeriodStart()).isNull();
+        assertThat(metadata.statementPeriodEnd()).isNull();
+    }
+
+    @Test
+    void extract_readsAnUnlabelledRange_onAnEarlyLine_whenNothingElseNamesThePeriod() {
+        var metadata = extractor.extract(List.of(
+                "20 AUG 2026 0.00",
+                "MR SAMPLE HOLDER",
+                "XXXXXXXXXXX   24 JUN 2026  To 23 JUL 2026 0.00 ",
+                "XXXXXXXXXXX SAMPLE PLATINUM"));
+        assertThat(metadata.statementPeriodStart()).isEqualTo(java.time.LocalDate.of(2026, 6, 24));
+        assertThat(metadata.statementPeriodEnd()).isEqualTo(java.time.LocalDate.of(2026, 7, 23));
+    }
+
+    @Test
+    void extract_anUnlabelledRangeRunningBackwards_orDeepInTheDocument_isIgnored() {
+        assertThat(extractor.extract(List.of("23 JUL 2026 To 24 JUN 2026")).statementPeriodStart()).isNull();
+        List<String> deep = new java.util.ArrayList<>(java.util.Collections.nCopies(9, "filler line"));
+        deep.add("24 JUN 2026 To 23 JUL 2026");
+        assertThat(extractor.extract(deep).statementPeriodStart()).isNull();
+    }
+
+    @Test
+    void extract_readsAnUnlabelledMaskedCardNumber_asPrintedOnAStateLine() {
+        var metadata = extractor.extract(List.of(
+                "MR SAMPLE HOLDER",
+                "State: 27 - SAMPLESTATE 48xx xxxx xxxx 6048 48xx xxxx xxxx 6048"));
+        assertThat(metadata.accountNumberMasked()).isEqualTo("48xx xxxx xxxx 6048");
+        assertThat(metadata.accountNumberFullForHashingOnly()).isNull();
+    }
+
+    @Test
+    void extract_aLabelledNumber_stillWinsOverAnUnlabelledMaskedToken() {
+        var metadata = extractor.extract(List.of(
+                "Account Number: 000123456789", // synthetic-ok: reuses this file's existing placeholder
+                "State: 27 - SAMPLESTATE 48xx xxxx xxxx 6048"));
+        assertThat(metadata.accountNumberMasked()).endsWith("6789");
+    }
 }

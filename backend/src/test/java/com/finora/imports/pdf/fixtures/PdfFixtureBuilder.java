@@ -733,6 +733,124 @@ public final class PdfFixtureBuilder {
      * to be the bare words "amount" and "date" -- that must not be misread as a second table's
      * header and wrongly split this into two account sections.
      */
+    /**
+     * A card's summary grid printed document-wide, a savings ledger that classifies SAVINGS, and a
+     * second table whose product cannot be classified (no balance column, no card vocabulary, no
+     * deposit vocabulary). The grid facts belong to that second table -- it is the document's only
+     * section that can be a card -- not to the savings ledger. With {@code twoUnclassified} a third
+     * table of the same unclassifiable shape is printed too, so no single candidate exists.
+     */
+    public static byte[] buildCardGridWithSavingsAndUnclassifiedTablesSample(boolean twoUnclassified) throws IOException {
+        float[] col = {LEFT_MARGIN, 130f, 300f, 380f, 460f};
+        float[] gridCol = {LEFT_MARGIN, 200f, 300f, 430f};
+        float[] plainCol = {LEFT_MARGIN, 150f, 470f};
+        PageBuilder page = new PageBuilder();
+        page.line("Relationship Summary")
+                .row(gridCol, "Credit Card Number", "Credit Limit", "Available Credit Limit", "Available Cash Limit")
+                .row(gridCol, "123456******7890", "30,000.00", "25,000.00", "5,000.00")
+                .line("Payment Due Date : 20/07/2026")
+                .blankLine()
+                .line("SAVINGS ACCOUNT  - 10000000000001")
+                .row(col, "Date", "Narration", "Withdrawal", "Deposit", "Balance")
+                .row(col, "01/06/2026", "Opening Balance", null, null, "7,277.40")
+                .row(col, "05/06/2026", "UPI SAMPLE GROCER", "200.00", null, "7,077.40")
+                .row(col, "12/06/2026", "SALARY SAMPLE EMPLOYER", null, "1,000.00", "8,077.40")
+                .blankLine()
+                .line("OTHER FACILITY  - 20000000000002")
+                .row(plainCol, "Date", "Details", "Amount")
+                .row(plainCol, "15/06/2026", "SAMPLE RETAILER ONE", "1,817.02")
+                .row(plainCol, "18/06/2026", "SAMPLE RETAILER TWO", "240.00");
+        if (twoUnclassified) {
+            page.blankLine()
+                .line("ANOTHER FACILITY  - 30000000000003")
+                .row(plainCol, "Txn Date", "Particulars", "Amount")
+                .row(plainCol, "21/06/2026", "SAMPLE RETAILER THREE", "99.00");
+        }
+        return render(List.of(page));
+    }
+
+    /** The savings-with-card-grid document again, but the ledger's own banner prints no account
+     *  number -- the only shape on which a section could borrow the grid's card number. */
+    public static byte[] buildSavingsLedgerWithoutOwnNumberBesideCardGridSample() throws IOException {
+        return buildSavingsLedgerWithoutOwnNumberBesideGrid("Credit Card Number");
+    }
+
+    /** The same document with the grid's number labelled as an account number, as a real HSBC
+     *  composite's portfolio grid labels the savings account's own number. */
+    public static byte[] buildSavingsLedgerWithoutOwnNumberBesideAccountNumberGridSample() throws IOException {
+        return buildSavingsLedgerWithoutOwnNumberBesideGrid("Account Number");
+    }
+
+    private static byte[] buildSavingsLedgerWithoutOwnNumberBesideGrid(String numberLabel) throws IOException {
+        float[] col = {LEFT_MARGIN, 130f, 300f, 380f, 460f};
+        float[] gridCol = {LEFT_MARGIN, 200f, 300f, 430f};
+        PageBuilder page = new PageBuilder();
+        page.line("Relationship Summary")
+                .row(gridCol, numberLabel, "Credit Limit", "Available Credit Limit", "Available Cash Limit")
+                .row(gridCol, "123456******7890", "30,000.00", "25,000.00", "5,000.00")
+                .blankLine()
+                .line("Savings Account Statement")
+                .row(col, "Date", "Narration", "Withdrawal", "Deposit", "Balance")
+                .row(col, "01/06/2026", "Opening Balance", null, null, "7,277.40")
+                .row(col, "05/06/2026", "UPI SAMPLE GROCER", "200.00", null, "7,077.40")
+                .row(col, "12/06/2026", "SALARY SAMPLE EMPLOYER", null, "1,000.00", "8,077.40");
+        return render(List.of(page));
+    }
+
+    /** A card statement whose holder is the leftmost run of a page-top line that shares its
+     *  physical line with a marketing sentence starting at mid-page, and no holder label anywhere. */
+    public static byte[] buildCardStatementWithHolderBesideProseSample() throws IOException {
+        float[] nameAndProse = {LEFT_MARGIN, 276f};
+        float[] col = {LEFT_MARGIN, 150f, 470f};
+        PageBuilder page = new PageBuilder();
+        page.line("CREDIT CARD STATEMENT")
+                .row(nameAndProse, "MS SAMPLE HOLDER", "Download the mobile app to -")
+                .row(nameAndProse, "12 SAMPLE STREET", "View statement instantly")
+                .line("Sample City 100001")
+                .blankLine()
+                .row(col, "Date", "Transaction Details", "Amount")
+                .row(col, "01/07/2026", "SAMPLE STORE", "1,000.00")
+                .row(col, "02/07/2026", "SAMPLE PAYMENT RECEIVED", "500.00 CR");
+        return render(List.of(page));
+    }
+
+    /** A savings ledger with no running-balance column (so the balance chain yields nothing) under a
+     *  printed summary grid whose values carry a currency prefix -- the real Bandhan Bank shape. */
+    public static byte[] buildLedgerWithoutBalanceColumnUnderAPrintedSummarySample() throws IOException {
+        float[] summaryCol = {LEFT_MARGIN, 160f, 280f, 400f};
+        float[] col = {LEFT_MARGIN, 130f, 330f, 430f};
+        PageBuilder page = new PageBuilder();
+        page.line("Sample Bank Savings Account Statement")
+                .line("SAVINGS ACCOUNT  - 10000000000001")
+                .row(summaryCol, "Opening Balance", "Total Credits", "Total Debits", "Closing Balance")
+                .blankLine()
+                .row(summaryCol, "INR10,728.84", "INR12,000.00", "INR3,281.00", "INR19,447.84")
+                .blankLine()
+                .row(col, "Date", "Narration", "Withdrawal", "Deposit")
+                .row(col, "05/06/2026", "SALARY SAMPLE EMPLOYER", null, "12,000.00")
+                .row(col, "12/06/2026", "UPI SAMPLE GROCER", "3,281.00", null);
+        return render(List.of(page));
+    }
+
+    /** A card statement that prints "OPENING BALANCE" in its summary -- the previous statement's
+     *  dues on a real HSBC card, not a ledger opening balance. */
+    public static byte[] buildCardStatementWithPrintedOpeningBalanceSample() throws IOException {
+        float[] gridCol = {LEFT_MARGIN, 200f, 300f, 430f};
+        float[] two = {LEFT_MARGIN, 300f};
+        float[] col = {LEFT_MARGIN, 150f, 470f};
+        PageBuilder page = new PageBuilder();
+        page.line("Sample Bank Credit Card Statement")
+                .row(gridCol, "Credit Card Number", "Credit Limit", "Available Credit Limit", "Available Cash Limit")
+                .row(gridCol, "123456******7890", "30,000.00", "25,000.00", "5,000.00")
+                .row(two, "OPENING BALANCE", "1,234.00")
+                .row(two, "Total Amount Due", "2,234.00")
+                .row(two, "Minimum Amount Due", "223.40")
+                .blankLine()
+                .row(col, "Date", "Transaction Details", "Amount")
+                .row(col, "01/07/2026", "SAMPLE STORE", "1,000.00");
+        return render(List.of(page));
+    }
+
     public static byte[] buildOffsetColumnAnchorsSample() throws IOException {
         float[] headerCol = {LEFT_MARGIN, 183.5f, 386.5f, 514f};
         float[] dataCol = {35f, 90f, 372f, 500f};

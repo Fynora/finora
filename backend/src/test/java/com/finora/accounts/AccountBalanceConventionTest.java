@@ -154,6 +154,14 @@ class AccountBalanceConventionTest {
                 .isEqualTo(com.finora.entity.StatementImport.BalanceApplicationMode.ADDITIVE);
         assertThat(AccountBalanceConvention.movedBalanceAtImport(statement, after)).isTrue();
 
+        statement.setBalanceApplicationMode(com.finora.entity.StatementImport.BalanceApplicationMode.COVERED);
+        assertThat(AccountBalanceConvention.effectiveMode(statement, after))
+                .as("a COVERED statement's row edited past its covered day counts like an imported row")
+                .isEqualTo(com.finora.entity.StatementImport.BalanceApplicationMode.ADDITIVE);
+        assertThat(AccountBalanceConvention.effectiveMode(statement, onTheDate))
+                .isEqualTo(com.finora.entity.StatementImport.BalanceApplicationMode.COVERED);
+        statement.setBalanceApplicationMode(com.finora.entity.StatementImport.BalanceApplicationMode.ADDITIVE);
+
         statement.setBalanceCoveredThrough(null);
         assertThat(AccountBalanceConvention.effectiveMode(statement, onTheDate))
                 .as("with nothing covered, every row has the statement's own mode")

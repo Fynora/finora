@@ -138,6 +138,14 @@ public class Account extends BaseEntity {
     @Column(name = "balance_baseline_date")
     private java.time.LocalDate balanceBaselineDate;
 
+    /** When the user last typed this account's balance in ({@code AccountService.create} with a
+     *  balance, or {@code AccountService.update} changing it). Every transaction already on the
+     *  account at that moment is inside the typed figure: editing or deleting one of them later does
+     *  not move the balance (see {@code RowBalanceEffect}). Null when the balance was never typed,
+     *  and for accounts from before V231. */
+    @Column(name = "balance_typed_at")
+    private java.time.Instant balanceTypedAt;
+
     // Which system is the source of truth for this account's transactions going forward. MANUAL
     // (the default, and the only value before this column existed) means the user uploads
     // statements themselves. ACCOUNT_AGGREGATOR means a live AccountAggregatorLink owns this
@@ -197,6 +205,8 @@ public class Account extends BaseEntity {
     public void setLastAbsoluteSetStatementId(UUID lastAbsoluteSetStatementId) { this.lastAbsoluteSetStatementId = lastAbsoluteSetStatementId; }
     public java.time.LocalDate getBalanceBaselineDate() { return balanceBaselineDate; }
     public void setBalanceBaselineDate(java.time.LocalDate balanceBaselineDate) { this.balanceBaselineDate = balanceBaselineDate; }
+    public java.time.Instant getBalanceTypedAt() { return balanceTypedAt; }
+    public void setBalanceTypedAt(java.time.Instant balanceTypedAt) { this.balanceTypedAt = balanceTypedAt; }
     public PrimarySource getPrimarySource() { return primarySource; }
     public void setPrimarySource(PrimarySource primarySource) { this.primarySource = primarySource; }
 }

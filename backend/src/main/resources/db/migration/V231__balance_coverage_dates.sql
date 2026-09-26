@@ -15,5 +15,12 @@
 -- did not move Account.balance when it was imported, because the balance already held them.
 -- NULL for every existing statement (they were imported under the old rule, and their recorded
 -- balance_application_mode still says exactly what they did).
+--
+-- accounts.balance_typed_at: when the user last typed this account's balance in (creating it by
+-- hand with a balance, or editing the balance). Everything already on the account at that moment
+-- is inside the typed figure, so editing or deleting one of those rows later does not move the
+-- balance. NULL when the balance was never typed, and for every existing account: when an
+-- earlier edit happened was never recorded.
 ALTER TABLE accounts ADD COLUMN balance_baseline_date DATE;
+ALTER TABLE accounts ADD COLUMN balance_typed_at TIMESTAMPTZ;
 ALTER TABLE statement_imports ADD COLUMN balance_covered_through DATE;

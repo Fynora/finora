@@ -72,9 +72,34 @@ public class StatementImportService {
         this.statementContentService = statementContentService;
         this.reimportClaimRepository = reimportClaimRepository;
         this.balanceCoverage = new com.finora.accounts.BalanceCoverage(statementImportRepository, transactionRepository);
+        this.rowBalanceEffect = new com.finora.accounts.RowBalanceEffect(statementImportRepository);
     }
 
     private final com.finora.accounts.BalanceCoverage balanceCoverage;
+    private final com.finora.accounts.RowBalanceEffect rowBalanceEffect;
+
+    /**
+     * Takes these rows of {@code statement} off wherever their effect sits (see RowBalanceEffect):
+     * the current balance, or the pre-SET snapshot of the statement whose closing balance replaced
+     * them. A row inside a stated figure -- a later closing balance, a balance the user typed since
+     * -- is left alone: removing it does not change what the bank or the user said the balance is.
+     * This used to take every such row off the current balance, the same as deleting them one by
+     * one did (TransactionService.locateEffect gives both the same rule).
+     *
+     * <p>Mutates {@code account}'s balance in place; the caller saves it. Returns the rows whose
+     * effect was taken off somewhere.
+     */
+    private List<Transaction> takeOffBalance(Account account, StatementImport statement, List<Transaction> rows) {
+        List<Transaction> takenOff = new ArrayList<>();
+        for (Transaction t : rows) {
+            com.finora.accounts.RowBalanceEffect.Location location = rowBalanceEffect.locate(account, t, statement);
+            if (location.where() == com.finora.accounts.RowBalanceEffect.Where.NOWHERE) continue;
+            rowBalanceEffect.apply(account, location, AccountBalanceConvention
+                    .balanceDelta(account.getAccountType(), t.getTxnType(), t.getAmount()).negate());
+            takenOff.add(t);
+        }
+        return takenOff;
+    }
 
     // How long a deleted account's statement history stays visible in Statement History before
     // it's dropped from the response for good. Chosen to give "oops, wrong account" a real
@@ -522,12 +547,9 @@ public class StatementImportService {
                                 && AccountBalanceConvention.effectiveMode(statementImport, t)
                                         != StatementImport.BalanceApplicationMode.COVERED)
                         .toList();
-                BigDecimal reversal = AccountBalanceConvention
-                        .netDelta(account.getAccountType(), stillContributing).negate();
-                if (reversal.signum() != 0) {
-                    account.setBalance(account.getBalance().add(reversal));
-                    accountRepository.save(account);
-                }
+                BigDecimal before = account.getBalance();
+                takeOffBalance(account, statementImport, stillContributing);
+                if (account.getBalance().compareTo(before) != 0) accountRepository.save(account);
             });
         }
 
@@ -798,18 +820,18 @@ public class StatementImportService {
                     if (!stillContributing.isEmpty()) {
                         Optional<Account> account = accountRepository.findById(original.getAccountId());
                         if (account.isPresent()) {
-                            BigDecimal reversal = AccountBalanceConvention
-                                    .netDelta(account.get().getAccountType(), stillContributing).negate();
-                            if (reversal.signum() != 0) {
-                                account.get().setBalance(account.get().getBalance().add(reversal));
+                            BigDecimal before = account.get().getBalance();
+                            List<Transaction> takenOff = takeOffBalance(account.get(), original, stillContributing);
+                            if (account.get().getBalance().compareTo(before) != 0) {
                                 accountRepository.save(account.get());
                                 balanceReversed = true;
                             }
-                            // A marked row summed here was one whose mark took nothing off (held
+                            // A marked row taken off here was one whose mark took nothing off (held
                             // behind an absolute SET). Its effect is off now, by this reversal, and
                             // the row records that -- so reversing the SET later does not take it
-                            // off a second time, and an un-mark knows to put it back.
-                            for (Transaction t : stillContributing) {
+                            // off a second time, and an un-mark knows to put it back. A row inside a
+                            // stated figure had nothing taken off and keeps its record.
+                            for (Transaction t : takenOff) {
                                 if (t.getIsDuplicateOf() == null) continue;
                                 t.setDuplicateBalanceReversed(true);
                                 t.setDuplicateBalanceAnchorId(null);

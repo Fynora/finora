@@ -1418,13 +1418,19 @@ public class ImportService {
         // so a statement for an earlier month, uploaded later, does not add those again (see
         // BalanceCoverage). Nothing is recorded when no opening was stated -- the account then
         // started from zero, which says nothing about any date.
-        final LocalDate baselineDate = request.statementPeriodStart() != null
-                ? request.statementPeriodStart().minusDays(1)
-                : minDate != null ? minDate.minusDays(1) : null;
-        if (!accountsCreated.isEmpty() && request.newAccount() != null
-                && request.newAccount().openingBalance() != null && baselineDate != null) {
+        //
+        // AccountService.create records any balance it is given as typed by the user, today. This
+        // one was not typed, it was read off this statement, so that record is replaced: the
+        // opening is as of the day before the statement's period, and nothing was typed.
+        final LocalDate baselineDate = request.newAccount() == null || request.newAccount().openingBalance() == null
+                ? null
+                : request.statementPeriodStart() != null
+                        ? request.statementPeriodStart().minusDays(1)
+                        : minDate != null ? minDate.minusDays(1) : null;
+        if (!accountsCreated.isEmpty()) {
             accountRepository.findById(accountId).ifPresent(account -> {
                 account.setBalanceBaselineDate(baselineDate);
+                account.setBalanceTypedAt(null);
                 accountRepository.save(account);
             });
         }
@@ -1801,6 +1807,12 @@ public class ImportService {
         if (transactionRepository.existsLiveTransactionAfterDate(userId, accountId, thisStatementLastActivity, thisStatementId)) {
             return false;
         }
+        // The balance is already known as of a later day than this statement reaches -- the user
+        // typed it in since, or the account was created from a later statement's opening balance.
+        // An older closing balance must not overwrite that. Neither leaves a statement row behind
+        // for the checks around this one to find.
+        LocalDate baseline = accountRepository.findById(accountId).map(Account::getBalanceBaselineDate).orElse(null);
+        if (baseline != null && !thisStatementLastActivity.isAfter(baseline)) return false;
         Optional<LocalDate> latestOther =
                 statementImportRepository.findLatestPeriodEndForAccount(userId, accountId, thisStatementId);
         if (latestOther.isPresent()) return !latestOther.get().isAfter(thisStatementLastActivity);

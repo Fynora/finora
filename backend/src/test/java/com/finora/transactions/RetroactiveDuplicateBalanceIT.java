@@ -304,15 +304,19 @@ class RetroactiveDuplicateBalanceIT extends AbstractIntegrationTest {
                 "Retroactive Duplicate Balance IT Account", "SAVINGS", new BigDecimal("7000.00"),
                 null, null, null, null, null, null, null, null), f.user().getId());
 
-        // The typed figure is the balance, whole; the marked fare is recorded as not in it.
+        // The typed figure is the balance, whole, like a statement's closing balance: the marked
+        // fare is inside it or not, and either way the mark took nothing off it.
         assertThat(balanceOf(f)).isEqualByComparingTo("7000.00");
         Transaction rebased = transactionRepository.findById(marked.getId()).orElseThrow();
         assertThat(rebased.getIsDuplicateOf()).isNotNull();
-        assertThat(rebased.isDuplicateBalanceReversed()).isTrue();
+        assertThat(rebased.isDuplicateBalanceReversed()).isFalse();
         assertThat(rebased.getDuplicateBalanceAnchorId()).isNull();
 
+        // So correcting Finora's view of the ledger -- "not a duplicate after all" -- or deleting the
+        // row does not change the balance the user stated. This used to add the fare on top of the
+        // typed 7000 (6955) on un-mark.
         transactionService.confirmNotDuplicate(f.user().getId(), rebased.getId());
-        assertThat(balanceOf(f)).isEqualByComparingTo("6955.00");
+        assertThat(balanceOf(f)).isEqualByComparingTo("7000.00");
         transactionService.delete(f.user().getId(), rebased.getId(), f.user().getId());
         assertThat(balanceOf(f)).isEqualByComparingTo("7000.00");
     }

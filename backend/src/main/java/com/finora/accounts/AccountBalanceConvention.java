@@ -222,6 +222,12 @@ public final class AccountBalanceConvention {
         if (coveredThrough != null && row != null && row.getTxnDate() != null && !row.getTxnDate().isAfter(coveredThrough)) {
             return StatementImport.BalanceApplicationMode.COVERED;
         }
+        // A COVERED statement's rows were all on or before its covered day when imported; one past it
+        // now had its date edited out of the stated figure, and counts like any imported row
+        // (TransactionService.update puts its effect on the balance when that happens).
+        if (coveredThrough != null && statement.getBalanceApplicationMode() == StatementImport.BalanceApplicationMode.COVERED) {
+            return StatementImport.BalanceApplicationMode.ADDITIVE;
+        }
         return statement.getBalanceApplicationMode();
     }
 

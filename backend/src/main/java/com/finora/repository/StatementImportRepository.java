@@ -425,6 +425,9 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
         UUID getPreviousAbsoluteSetStatementId();
         UUID getSupersededBy();
         Boolean getDeleted();
+        /** When this SET happened -- which rows' effects its pre-SET snapshot holds (the ones that
+         *  were already on the account then). Read by {@code RowBalanceEffect}. */
+        Instant getImportedAt();
     }
 
     @Query(value = """
@@ -433,12 +436,29 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
                    closing_balance AS "closingBalance",
                    previous_absolute_set_statement_id AS "previousAbsoluteSetStatementId",
                    superseded_by AS "supersededBy",
-                   (deleted_at IS NOT NULL) AS "deleted"
+                   (deleted_at IS NOT NULL) AS "deleted",
+                   imported_at AS "importedAt"
             FROM statement_imports
             WHERE id = :id AND user_id = :userId AND account_id = :accountId
             """, nativeQuery = true)
     Optional<AnchorSnapshot> findAnchorSnapshotIncludingDeleted(
             @Param("userId") UUID userId, @Param("accountId") UUID accountId, @Param("id") UUID id);
+
+    /** Moves a SET's pre-SET snapshot by {@code delta}, whether or not the statement has since been
+     *  soft-deleted -- a deleted link of the anchor chain is still reversed through its snapshot
+     *  (see {@link #findAnchorSnapshotIncludingDeleted}), and the entity cannot load it. Only for a
+     *  row whose effect that snapshot holds being edited or deleted ({@code RowBalanceEffect}).
+     *  Scoped to user and account like the read above. A null snapshot is left null: nothing can be
+     *  reversed through it anyway. */
+    @org.springframework.data.jpa.repository.Modifying
+    @Query(value = """
+            UPDATE statement_imports
+               SET balance_before_absolute_set = balance_before_absolute_set + :delta
+             WHERE id = :id AND user_id = :userId AND account_id = :accountId
+               AND balance_before_absolute_set IS NOT NULL
+            """, nativeQuery = true)
+    int adjustBalanceBeforeAbsoluteSetIncludingDeleted(@Param("userId") UUID userId, @Param("accountId") UUID accountId,
+                                                       @Param("id") UUID id, @Param("delta") BigDecimal delta);
 
     // Removed: findByIdIncludingDeleted(UUID). It bypassed the entity's
     // @SQLRestriction("deleted_at IS NULL") AND took no user id, so it read any user's statement

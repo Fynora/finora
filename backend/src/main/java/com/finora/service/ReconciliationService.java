@@ -49,17 +49,48 @@ public class ReconciliationService {
     private static final Set<String> REVERSAL_KEYWORDS = Set.of("reversal", "payment reversed");
 
     /**
-     * The order the transfer and refund passes walk their candidates in: by date (the windowed
+     * The order every pass walks its rows in (see {@link #candidateOrder}): by date (the windowed
      * lookups binary-search on it), then by what the row itself says, so that rows tying on date
-     * sort the same way however many times the same statements are imported. The id, a random
-     * UUID, only separates rows identical in every one of those fields.
+     * sort the same way however many times the same statements are imported.
      */
-    private static final Comparator<Transaction> CANDIDATE_ORDER = Comparator.comparing(Transaction::getTxnDate)
+    private static final Comparator<Transaction> CONTENT_ORDER = Comparator.comparing(Transaction::getTxnDate)
             .thenComparing(Transaction::getAmount)
             .thenComparing(Transaction::getTxnType)
             .thenComparing(Transaction::getDescription, Comparator.nullsFirst(Comparator.naturalOrder()))
             .thenComparing(Transaction::getSourceRowPosition, Comparator.nullsFirst(Comparator.naturalOrder()))
-            .thenComparing(Transaction::getId);
+            .thenComparing(Transaction::getReferenceNumber, Comparator.nullsFirst(Comparator.naturalOrder()))
+            .thenComparing(Transaction::getBalanceAfter, Comparator.nullsFirst(Comparator.naturalOrder()));
+
+    /**
+     * {@link #CONTENT_ORDER}, then -- for rows that say exactly the same thing -- the order they
+     * were imported in: the row's own creation instant, then its account's (two rows written by
+     * one multi-account import can share an instant; their accounts were still created one after
+     * the other). Both are set in import order, so the same statements imported the same way sort
+     * the same way. Then the account itself -- its masked number, name and type -- for accounts
+     * created in the same instant. The id, a random UUID, is only the last resort: it used to
+     * follow the row position directly, and then decided which of two such rows a transfer paired
+     * with. What it can still separate now is two rows identical in every field on the same
+     * account, and swapping those changes nothing anyone can see.
+     */
+    private static Comparator<Transaction> candidateOrder(Map<UUID, com.finora.entity.Account> accountsById) {
+        java.util.function.Function<Transaction, com.finora.entity.Account> account = t -> accountsById.get(t.getAccountId());
+        return CONTENT_ORDER
+                .thenComparing(Transaction::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(t -> accountField(account.apply(t), com.finora.entity.Account::getCreatedAt),
+                        Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(t -> accountField(account.apply(t), com.finora.entity.Account::getAccountNumberMasked),
+                        Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(t -> accountField(account.apply(t), com.finora.entity.Account::getName),
+                        Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(t -> accountField(account.apply(t), com.finora.entity.Account::getAccountType),
+                        Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(Transaction::getId);
+    }
+
+    private static <T> T accountField(com.finora.entity.Account account,
+                                      java.util.function.Function<com.finora.entity.Account, T> field) {
+        return account == null ? null : field.apply(account);
+    }
 
     // A run past this is worth a log line on its own. Chosen against the measurement in
     // scaling-triggers.md rather than picked as a round number: the windowed passes take ~105 ms
@@ -242,12 +273,6 @@ public class ReconciliationService {
     private void reconcile(UUID userId, List<Transaction> all, Map<String, Object> scopeAudit,
                            boolean alwaysRecord) {
         long startedAtNanos = System.nanoTime();
-        // Both callers load `all` with no ORDER BY, and several passes below keep the first of
-        // equally-ranked candidates in `all` order (the duplicate pass's canonical row, the Gmail
-        // and AA matches' max()). The AA-vs-Gmail pass turns that into money: whether two receipts
-        // converge on one bank row, and so both stay counted, depended on which row the database
-        // returned first. One fixed order for every pass.
-        all = all.stream().sorted(CANDIDATE_ORDER).toList();
 
         // General retroactive edge cleanup (docs/proposals/reconciliation-evolution-roadmap-
         // proposal.md, Part 3's supersession gap). AccountService.delete() rejects graph edges for
@@ -287,6 +312,13 @@ public class ReconciliationService {
         // trip -- see that pass's own comment.
         Map<UUID, com.finora.entity.Account> accountsById = liveAccounts.stream()
                 .collect(java.util.stream.Collectors.toMap(com.finora.entity.Account::getId, a -> a));
+        // Both callers load `all` with no ORDER BY, and several passes below keep the first of
+        // equally-ranked candidates in `all` order (the duplicate pass's canonical row, the Gmail
+        // and AA matches' max()). The AA-vs-Gmail pass turns that into money: whether two receipts
+        // converge on one bank row, and so both stay counted, depended on which row the database
+        // returned first. One fixed order for every pass.
+        Comparator<Transaction> order = candidateOrder(accountsById);
+        all = all.stream().sorted(order).toList();
         List<UUID> deadAccountTransactionIds = transactionRepository.findByUserId(userId).stream()
                 .filter(t -> !liveAccountIds.contains(t.getAccountId()))
                 .map(Transaction::getId)
@@ -488,7 +520,7 @@ public class ReconciliationService {
 
         // 2) Transfers
         //
-        // Ordered by date, then by the row's own content (see CANDIDATE_ORDER), which does two
+        // Ordered by date, then by the row's own content (see candidateOrder), which does two
         // things at once.
         //
         // Determinism first: findByUserId() carries no ORDER BY, so the order this pass used to
@@ -508,7 +540,7 @@ public class ReconciliationService {
         // see docs/engineering/scaling-triggers.md.
         List<Transaction> candidates = all.stream()
                 .filter(t -> t.getIsDuplicateOf() == null && !t.isTransfer())
-                .sorted(CANDIDATE_ORDER)
+                .sorted(order)
                 .toList();
 
         // Fetched ONCE per reconcileForUser() call (not once per candidate, and not once per
@@ -581,7 +613,7 @@ public class ReconciliationService {
             // Collects every qualifying candidate and scores it, rather than committing to the
             // first one found (reconciliation benchmark finding: docs/proposals/
             // reconciliation-benchmark/remaining-failures-classification.md, "first-match-wins"
-            // misclassification). `candidates` is sorted by CANDIDATE_ORDER for determinism (see its own
+            // misclassification). `candidates` is sorted by candidateOrder for determinism (see its own
             // comment above), but sort order is not plausibility: a coincidental same-amount match
             // several days away previously won over the real transfer leg one day away, purely
             // because it happened to sort earlier -- transferCandidateScore below ranks every
@@ -1155,14 +1187,19 @@ public class ReconciliationService {
             // though any single run stays internally consistent. Earliest due date first (settle
             // the oldest bill first) is a reasonable tiebreak, not just an arbitrary stable one.
             // On the same due date, the statement imported first goes first, by the same
-            // settle-the-oldest reasoning. The statement id is only the last resort: it is a
-            // random UUID, so on its own it made the winner differ between two imports of the
-            // same statements into fresh databases.
+            // settle-the-oldest reasoning. Two statements can still share that instant (the
+            // sections of one multi-account import are written together), so then the file's own
+            // SHA-256 and the section's place in it -- both identical on every import of the same
+            // file. The statement id is only the last resort: it is a random UUID, so on its own
+            // it made the winner differ between two imports of the same statements into fresh
+            // databases.
             ccStatements = ccStatements.stream()
                     .filter(s -> liveAccountIds.contains(s.getAccountId()))
                     .sorted(Comparator.comparing(StatementImport::getPaymentDueDate,
                                     Comparator.nullsLast(Comparator.naturalOrder()))
                             .thenComparing(StatementImport::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder()))
+                            .thenComparing(StatementImport::getContentHash, Comparator.nullsLast(Comparator.naturalOrder()))
+                            .thenComparing(StatementImport::getSourceSectionIndex, Comparator.nullsLast(Comparator.naturalOrder()))
                             .thenComparing(StatementImport::getId))
                     .toList();
         }
@@ -1197,7 +1234,7 @@ public class ReconciliationService {
             Set<UUID> settledStatementIds = new HashSet<>();
             for (StatementImport statement : validStatements) {
                 if (matchCcStatement(userId, statement, all, liveAccountIds, claimedPaymentIds,
-                        cardLast4ByAccountId, true, pendingEdges)) {
+                        cardLast4ByAccountId, true, order, pendingEdges)) {
                     settledStatementIds.add(statement.getId());
                     ccMatchesThisRun[0]++;
                 }
@@ -1205,7 +1242,7 @@ public class ReconciliationService {
             for (StatementImport statement : validStatements) {
                 if (settledStatementIds.contains(statement.getId())) continue;
                 if (matchCcStatement(userId, statement, all, liveAccountIds, claimedPaymentIds,
-                        cardLast4ByAccountId, false, pendingEdges)) {
+                        cardLast4ByAccountId, false, order, pendingEdges)) {
                     ccMatchesThisRun[0]++;
                 }
             }
@@ -1487,7 +1524,7 @@ public class ReconciliationService {
      */
     private boolean matchCcStatement(UUID userId, StatementImport statement, List<Transaction> all,
                                       Set<UUID> liveAccountIds, Set<UUID> claimedPaymentIds,
-                                      Map<UUID, String> cardLast4ByAccountId, boolean requireExactAmount,
+                                      Map<UUID, String> cardLast4ByAccountId, boolean requireExactAmount, Comparator<Transaction> order,
                                       List<TransactionGraphService.PendingEdge> pendingEdges) {
         String thisCardLast4 = cardLast4ByAccountId.get(statement.getAccountId());
         List<Transaction> paymentCandidates = all.stream()
@@ -1523,7 +1560,7 @@ public class ReconciliationService {
         // sees a partial/overpaid candidate at all. Among whatever's left tied on both, closest
         // to the printed due date wins, same tiebreak shape as the other passes above. Still tied,
         // the payment closest in amount to what the statement said was owed -- the same amount
-        // factor ConfidenceScorer scores this edge on. Only then CANDIDATE_ORDER: `all` comes from
+        // factor ConfidenceScorer scores this edge on. Only then candidateOrder: `all` came from
         // a query with no ORDER BY, and min() keeps the first of equal elements, so without these
         // two a tie went to whichever row the database returned first -- and the same statements
         // imported into two fresh databases excluded a different payment from spending.
@@ -1534,7 +1571,7 @@ public class ReconciliationService {
                         .thenComparing((Transaction t) -> t.getAmount().compareTo(statement.getTotalAmountDue()) != 0)
                         .thenComparingLong(t -> Math.abs(ChronoUnit.DAYS.between(t.getTxnDate(), statement.getPaymentDueDate())))
                         .thenComparing(t -> t.getAmount().subtract(statement.getTotalAmountDue()).abs())
-                        .thenComparing(CANDIDATE_ORDER))
+                        .thenComparing(order))
                 .orElseThrow();
         boolean matchedByLast4 = thisCardLast4 != null
                 && last4CandidatesIn(payment.getDescription()).contains(thisCardLast4);
@@ -1889,7 +1926,7 @@ public class ReconciliationService {
     // of synchronous work on a request-handling thread, run after every transaction create,
     // update, delete, import confirm and statement delete.
     //
-    // These take a list already sorted by date (CANDIDATE_ORDER) -- see where `candidates` is built -- and
+    // These take a list already sorted by date (candidateOrder) -- see where `candidates` is built -- and
     // return the contiguous slice that could possibly match. Every predicate the loops applied
     // before is still applied; this changes only how many candidates are offered to them, never
     // which ones qualify.
@@ -1956,7 +1993,7 @@ public class ReconciliationService {
      *    <li>The purchase closest in amount -- the same factor ConfidenceScorer already scores
      *        a refund edge on.</li>
      *  </ol>
-     *  Only a candidate identical on all of these falls back to CANDIDATE_ORDER. */
+     *  Only a candidate identical on all of these falls back to candidateOrder. */
     private boolean isCloserRefundMatch(Transaction candidate, Transaction currentBest, Transaction income) {
         boolean candidateExact = candidate.getAmount().compareTo(income.getAmount()) == 0;
         boolean currentExact = currentBest.getAmount().compareTo(income.getAmount()) == 0;

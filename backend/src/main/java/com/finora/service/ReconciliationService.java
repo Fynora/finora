@@ -1894,12 +1894,15 @@ public class ReconciliationService {
         return low;
     }
 
-    private boolean looksLikeRefund(String description) {
+    /** Package-visible and static so {@link FlowClassifier} reads the exact same refund vocabulary
+     *  this pass matches on -- one word list, not two that can drift. */
+    static boolean looksLikeRefund(String description) {
         String normalized = CategoryRules.normalize(description);
         return REFUND_KEYWORDS.stream().anyMatch(normalized::contains);
     }
 
-    private boolean looksLikeReversal(String description) {
+    /** See {@link #looksLikeRefund}. */
+    static boolean looksLikeReversal(String description) {
         String normalized = CategoryRules.normalize(description);
         return REVERSAL_KEYWORDS.stream().anyMatch(normalized::contains);
     }

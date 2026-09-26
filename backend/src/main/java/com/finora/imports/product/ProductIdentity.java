@@ -44,7 +44,8 @@ import java.util.Locale;
  * "plausible but unproven" that doesn't need one.
  */
 public record ProductIdentity(String institutionId, FinancialProductType type, String strongKey,
-                              String maskedNumber, String ifscCode, String accountHolderName) {
+                              String maskedNumber, String ifscCode, String accountHolderName,
+                              String printedMask) {
 
     /** How confident a match between two identities is. */
     public enum Match {
@@ -90,7 +91,7 @@ public record ProductIdentity(String institutionId, FinancialProductType type, S
                                      String fullNumber, String maskedNumber, String discriminator) {
         return new ProductIdentity(normalize(institutionId), type,
                 hash(institutionId, fullNumber, discriminator), normalizeDigits(maskedNumber),
-                null, null);
+                null, null, printedMaskOf(maskedNumber));
     }
 
     /** Attaches the weak fallback signals (see this class's own "When there is no number at all"
@@ -98,7 +99,7 @@ public record ProductIdentity(String institutionId, FinancialProductType type, S
      *  so callers that never have these values (most of them) are unaffected. */
     public ProductIdentity withWeakSignals(String ifscCode, String accountHolderName) {
         return new ProductIdentity(institutionId, type, strongKey, maskedNumber,
-                normalizeIfsc(ifscCode), normalizeHolderName(accountHolderName));
+                normalizeIfsc(ifscCode), normalizeHolderName(accountHolderName), printedMask);
     }
 
     /**
@@ -136,7 +137,84 @@ public record ProductIdentity(String institutionId, FinancialProductType type, S
     public static ProductIdentity stored(String institutionId, FinancialProductType type,
                                          String strongKey, String maskedNumber) {
         return new ProductIdentity(normalize(institutionId), type, strongKey,
-                normalizeDigits(maskedNumber), null, null);
+                normalizeDigits(maskedNumber), null, null, printedMaskOf(maskedNumber));
+    }
+
+    /**
+     * How many customer-discriminating digits a printed card mask leaves visible. The credit-card
+     * collision study (docs/roadmap/extraction-and-identity-state.md) measured that mask verbosity
+     * is cosmetic: on a 16-position card number, positions 1-6 are the BIN (identifies the product,
+     * which the identity already carries as the institution), 7-15 the account and 16 the Luhn
+     * check. Visible digits at account and check positions are what tell one of a customer's cards
+     * from another. The study ruled that any EXACT promotion must be gated on this measured entropy,
+     * never on a visible-digit count and never on an issuer table; five issuers' masks converge on
+     * 4, an SBI-style "XX14" mask keeps 2.
+     *
+     * <p>Shapes: a 15- or 16-position mask (digits and mask characters, spaces and hyphens ignored)
+     * is read by position; 4 to 6 bare trailing digits (a "card ending with 7550" sentence capture,
+     * or a bullet-masked "\u2022\u2022\u2022\u20226385" whose bullets stand for the hidden prefix)
+     * are the trailing positions; anything else, including a full unmasked number, is 0 -- a full
+     * number resolves on its strong key, not on this rule.
+     */
+    public record MaskCensus(int dEff) {
+        private static final int CARD_LENGTH_MIN = 15, CARD_LENGTH_MAX = 16, BIN_POSITIONS = 6;
+
+        public static MaskCensus of(String maskedNumber) {
+            if (maskedNumber == null) return new MaskCensus(0);
+            String compact = maskedNumber.replaceAll("[\\s-]", "");
+            if (compact.isEmpty() || !compact.chars().allMatch(c -> Character.isDigit(c) || isMaskCharacter(c))) {
+                return new MaskCensus(0);
+            }
+            boolean hasMask = compact.chars().anyMatch(ProductIdentity::isMaskCharacter);
+            int length = compact.length();
+            if (length >= CARD_LENGTH_MIN && length <= CARD_LENGTH_MAX) {
+                if (!hasMask) return new MaskCensus(0);
+                int visible = 0;
+                for (int position = BIN_POSITIONS + 1; position <= length; position++) {
+                    if (Character.isDigit(compact.charAt(position - 1))) visible++;
+                }
+                return new MaskCensus(visible);
+            }
+            String digits = compact.replaceAll("\\D", "");
+            if (digits.length() >= 4 && digits.length() <= 6 && compact.endsWith(digits)) {
+                return new MaskCensus(digits.length());
+            }
+            return new MaskCensus(0);
+        }
+    }
+
+    /** The threshold the card rule promotes at: four customer-discriminating digits, the level both
+     *  clients' account matchers already resolve a card on, and the study's 10^-3 tolerance. */
+    public static final int CARD_MASK_D_EFF_FLOOR = 4;
+
+    static boolean isMaskCharacter(int c) {
+        return c == 'X' || c == 'x' || c == '*' || c == '\u2022';
+    }
+
+    /**
+     * The number of discriminating digits on which this identity and {@code other} are the same
+     * credit card, or 0 when the card rule does not apply: it needs both sides keyless, both
+     * CREDIT_CARD, the same institution, the same masked digits, and a census of at least
+     * {@link #CARD_MASK_D_EFF_FLOOR} on this side's printed mask. Deposits and savings are never
+     * decided this way; their masked match stays PROBABLE.
+     */
+    public int cardMaskMatch(ProductIdentity other) {
+        if (other == null || institutionId == null || !institutionId.equals(other.institutionId)) return 0;
+        if (strongKey != null || other.strongKey != null) return 0;
+        if (type != FinancialProductType.CREDIT_CARD || other.type != FinancialProductType.CREDIT_CARD) return 0;
+        if (!sameCardDigits(maskedNumber, other.maskedNumber)) return 0;
+        int dEff = Math.min(MaskCensus.of(printedMask).dEff(), MaskCensus.of(other.printedMask).dEff());
+        return dEff >= CARD_MASK_D_EFF_FLOOR ? dEff : 0;
+    }
+
+    /** The two masks' visible digits name the same card: equal, or one a suffix of the other when
+     *  both keep at least four digits -- the same card printed with more or less of its BIN
+     *  visible on two statements (the study: mask verbosity is cosmetic). The clients' account
+     *  matchers apply the same suffix rule. The census is taken on BOTH sides, and the smaller
+     *  count decides, so a bare last-four capture never lends a two-digit mask its entropy. */
+    private static boolean sameCardDigits(String a, String b) {
+        if (a == null || b == null || a.length() < 4 || b.length() < 4) return false;
+        return a.equals(b) || a.endsWith(b) || b.endsWith(a);
     }
 
     public Match matches(ProductIdentity other) {
@@ -167,6 +245,7 @@ public record ProductIdentity(String institutionId, FinancialProductType type, S
         // account and a fixed deposit at the same bank ending in the same four digits are a
         // coincidence, not one product -- and without the type check this fallback would happily
         // merge them.
+        if (cardMaskMatch(other) > 0) return Match.EXACT;
         boolean sameMasked = maskedNumber != null && maskedNumber.equals(other.maskedNumber);
         if (sameMasked && type == other.type) return Match.PROBABLE;
 
@@ -193,7 +272,17 @@ public record ProductIdentity(String institutionId, FinancialProductType type, S
         return institutionId != null && strongKey != null;
     }
 
+    /** A character a bank prints in place of a hidden digit. A value carrying one is a masked number,
+     *  never a full one. */
+    private static final java.util.regex.Pattern MASK_CHARACTER = java.util.regex.Pattern.compile("[Xx*\\u2022]");
+
     private static String hash(String institutionId, String fullNumber, String discriminator) {
+        // A masked value has fewer digits than the account it stands for. Hashing what is left made a
+        // key that could never equal the full number's key, so a statement that masks and a later
+        // one that prints the number in full resolved to two accounts (both sides carried a key,
+        // which is the NONE branch of matches). A masked value yields no key; the masked comparison
+        // handles it.
+        if (fullNumber != null && MASK_CHARACTER.matcher(fullNumber).find()) return null;
         String digits = normalizeDigits(fullNumber);
         if (institutionId == null || digits == null || digits.length() < 4) return null;
         try {
@@ -211,6 +300,13 @@ public record ProductIdentity(String institutionId, FinancialProductType type, S
 
     /** Digits only: statements render the same number as "1234 5678", "1234-5678" and "XXXX5678"
      *  across pages of one document, and three spellings of one number must not be three products. */
+    /** The mask exactly as printed (trimmed), kept beside the digit-only {@code maskedNumber} so the
+     *  card rule can read which positions the bank left visible. */
+    private static String printedMaskOf(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        return raw.trim();
+    }
+
     private static String normalizeDigits(String raw) {
         if (raw == null) return null;
         String digits = raw.replaceAll("\\D", "");

@@ -6,7 +6,7 @@ sections: 1
   rows: 61
   auxLines: 445
   accountNumberMasked: XXXX XXXX XXXX XX99
-  accountHolderName: null
+  accountHolderName: X X XXX
   ifscCode: null
   statementPeriod: 2026-07-08 .. 2026-08-07
   product: CREDIT_CARD (76%, VALIDATED)

@@ -666,3 +666,45 @@ postings is then a derivation, not a rewrite.
 6. **People who earn from people** (traders on personal UPI, landlords, tutors) are handled by an onboarding persona question, an account-level setting and a recurring-payer prompt in Plan 2; the classifier default for money from a person stays "unresolved".
 
 Implementation plan: `docs/superpowers/plans/2026-09-26-financial-flow-classification.md` (to be added with the plan's execution).
+
+---
+
+## Plan 0 measurement (2026-09-26, classifier v1)
+
+Probe: `FlowClassCorpusProbe` over the real out-of-tree corpus, 31 statements after removing two that
+re-download the same periods (identical parsed rows): 10 credit-card, 21 savings/other. Single-statement
+view (no reconciliation context, no OCR), so classes are upper bounds and lending is a lower bound.
+Row-level output stays outside the repository.
+
+| | Value |
+|---|---|
+| Credits (old income) | ₹16,92,246 |
+| New income | ₹12,67,160 |
+| Removed | ₹4,25,086 (25.1%), 123 rows |
+
+Removed, by class/reason:
+
+| Class / reason | Rows | Value | Share |
+|---|---|---|---|
+| UNRESOLVED / person inflow | 85 | ₹2,26,765 | 53.3% |
+| TRANSFER / card payment received | 11 | ₹1,65,949 | 39.0% |
+| UNRESOLVED / unexplained card credit | 10 | ₹22,918 | 5.4% |
+| REFUND / unlinked | 10 | ₹7,011 | 1.6% |
+| INVESTMENT / withdrawal | 6 | ₹2,416 | 0.6% |
+| ADJUSTMENT / card | 1 | ₹27 | 0.0% |
+
+Severity (share of a statement's credit value removed): card statements 10/10 affected, median 100%
+(by design); non-card statements 12 of 16 with credits affected, median 4.3%, p95 100%.
+
+Candidate mechanisms (within one statement): counterparty ledger 0 candidates; cash round-trips 0;
+pass-through 15 rows / ₹24,078 in 2 sections (exploratory). Rhythm: no statement shows a trader-like
+shape -- the most distinct person payers in any statement is 8, and the three sections labelled
+STEADY are ordinary personal accounts with 1-3 small payers a week, so the STEADY rule as written
+is too loose to drive a "looks like a shop" suggestion.
+
+Kept as income but visibly not earned income, found by reading the kept rows (not yet classified):
+transfers naming people who are the holders of other statements in this corpus -- own or family
+accounts moving money (largest single group, about ₹2.3L), person payments in UPI narration shapes the counterparty classifier does not
+read as a person (about ₹0.7L), a cash deposit, merchant credits without a refund word, a UPI return,
+and a clearing-corporation payout. These point at the counterparty classifier's coverage and at
+Plan 3's holder-name/self-transfer detection, not at more classifier keywords.

@@ -1878,11 +1878,19 @@ public class ReconciliationService {
             // balance left to correct, same as every other writer treats it.
             accountRepository.findById(entry.getKey()).ifPresent(account -> {
                 StatementImport anchor = importOf.apply(account.getLastAbsoluteSetStatementId());
-                java.time.Instant anchoredAt = anchor == null ? null : anchor.getImportedAt();
+                java.time.Instant setAt = anchor == null ? null : anchor.getImportedAt();
+                // A balance the user typed is a stated figure too: a row already on the account
+                // when it was typed is inside it, and marking the row takes nothing off.
+                java.time.Instant typedAt = account.getBalanceTypedAt();
+                java.time.Instant anchoredAt = setAt == null ? typedAt
+                        : typedAt == null || setAt.isAfter(typedAt) ? setAt : typedAt;
                 List<Transaction> inBalance = new java.util.ArrayList<>();
                 for (Transaction t : entry.getValue()) {
                     StatementImport si = importOf.apply(t.getStatementImportId());
-                    StatementImport.BalanceApplicationMode mode = si == null ? null : si.getBalanceApplicationMode();
+                    // Per row, not per statement: a row its import found already inside the
+                    // balance never moved it (StatementImport.balanceCoveredThrough).
+                    StatementImport.BalanceApplicationMode mode =
+                            com.finora.accounts.AccountBalanceConvention.effectiveMode(si, t);
                     boolean reversed = com.finora.accounts.AccountBalanceConvention
                             .netEffectIsInBalance(t.getSource(), mode, t.getCreatedAt(), anchoredAt);
                     // Recorded on the row, for the sites that later clear the mark or remove the
@@ -1891,7 +1899,10 @@ public class ReconciliationService {
                     // held by the SET, and reversed if the SET ever is.
                     boolean heldByAnchor = !reversed && anchor != null
                             && com.finora.accounts.AccountBalanceConvention
-                                    .netEffectIsInBalance(t.getSource(), mode, t.getCreatedAt(), null);
+                                    .netEffectIsInBalance(t.getSource(), mode, t.getCreatedAt(), null)
+                            // Inside the typed figure instead (older than the typing): no SET's
+                            // snapshot holds it separately.
+                            && (typedAt == null || t.getCreatedAt() == null || !t.getCreatedAt().isBefore(typedAt));
                     t.setDuplicateBalanceReversed(reversed);
                     t.setDuplicateBalanceAnchorId(heldByAnchor ? anchor.getId() : null);
                     if (reversed) inBalance.add(t);

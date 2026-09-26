@@ -3,7 +3,6 @@ package com.finora.accounts;
 import com.finora.entity.Account;
 import com.finora.entity.FeatureEntitlement;
 import com.finora.entity.Transaction;
-import com.finora.entity.StatementImport;
 import com.finora.exception.ApiException;
 import com.finora.exception.ErrorCode;
 import com.finora.repository.AccountRepository;
@@ -198,6 +197,10 @@ public class AccountService {
         a.setName(req.name());
         a.setAccountType(accountType);
         a.setBalance(req.balance() != null ? req.balance() : java.math.BigDecimal.ZERO);
+        // Only a balance the caller actually gave. No balance means the account starts from zero,
+        // which states nothing about any date -- recording it as typed would make every older
+        // statement imported later look already counted, and freeze the balance at zero.
+        if (req.balance() != null) markBalanceTyped(a);
         a.setCreditLimit(req.creditLimit());
         a.setDueDate(req.dueDate());
         a.setInvestmentKind(req.investmentKind());
@@ -229,31 +232,43 @@ public class AccountService {
     }
 
     /**
-     * A typed balance is a baseline for the ledger as it stands: every row still counted is in
-     * it, and a row hidden behind a DUPLICATE mark is not -- the bank's own figure carries a real
-     * transaction once. The rows' records of what their marks did ({@link
-     * Transaction#isDuplicateBalanceReversed()}) are brought in line with that, so that from here
-     * on an un-mark puts the row's effect on top of the figure and a delete of the marked row
-     * moves nothing -- the same pair of moves a mark written after this edit would leave. Nothing
-     * moves the balance here: the figure is the user's, whole.
+     * A typed balance is the whole truth as of the moment it was typed, the same as a statement's
+     * closing balance: the bank's figure already carries every real transaction, whether or not
+     * Finora is currently showing a given row as a duplicate. So nothing already on the account is
+     * separately in the balance any more, and a marked row's record ({@link
+     * Transaction#isDuplicateBalanceReversed()}) says its mark took nothing off: un-marking it later
+     * adds nothing, and deleting it moves nothing -- exactly how a mark behaves for a row inside a
+     * statement's closing balance. Nothing moves the balance here: the figure is the user's, whole.
+     *
+     * <p>This used to record a marked row as taken off the typed figure, so un-marking it after a
+     * balance edit added it on top: a correction to Finora's own view of the ledger changed a
+     * balance the user had just stated.
      *
      * <p>In particular this releases every mark the outgoing SET held ({@link
      * Transaction#getDuplicateBalanceAnchorId()}); the SET's pre-set snapshot is unreachable once
-     * the pointer is cleared, so nothing else could. A mark whose row was never in any balance
-     * (an aggregator row, a row of a non-ADDITIVE import) stays recorded as taking nothing off.
+     * the pointer is cleared, so nothing else could.
      */
+    /**
+     * Records that the user has just stated this account's balance. The figure holds everything
+     * already on the account (see {@link RowBalanceEffect}), and every transaction dated before
+     * today: a statement for an earlier period imported afterwards does not add those again (see
+     * {@link BalanceCoverage}). Today itself is left out -- a transaction made later today may or
+     * may not be in a balance typed this morning, and counting it is the recoverable mistake.
+     * "Today" is the app's default zone (India): a user elsewhere typing near midnight can be a day
+     * off, which only moves the cut-off by that day.
+     */
+    private static void markBalanceTyped(Account account) {
+        account.setBalanceTypedAt(java.time.Instant.now());
+        account.setBalanceBaselineDate(java.time.LocalDate.now(com.finora.util.UserZone.DEFAULT).minusDays(1));
+    }
+
     private void rebaseDuplicateMarks(Account account) {
         List<Transaction> marked = transactionRepository.findByAccountIdAndIsDuplicateOfIsNotNull(account.getId());
         if (marked.isEmpty()) return;
-        Map<UUID, StatementImport.BalanceApplicationMode> modes = new HashMap<>();
         List<Transaction> dirty = new java.util.ArrayList<>();
         for (Transaction t : marked) {
-            if (t.isDuplicateBalanceReversed() && t.getDuplicateBalanceAnchorId() == null) continue;
-            StatementImport.BalanceApplicationMode mode = t.getStatementImportId() == null ? null
-                    : modes.computeIfAbsent(t.getStatementImportId(), id -> statementImportRepository.findById(id)
-                            .map(StatementImport::getBalanceApplicationMode).orElse(null));
-            t.setDuplicateBalanceReversed(AccountBalanceConvention.netEffectIsInBalance(
-                    t.getSource(), mode, t.getCreatedAt(), null));
+            if (!t.isDuplicateBalanceReversed() && t.getDuplicateBalanceAnchorId() == null) continue;
+            t.setDuplicateBalanceReversed(false);
             t.setDuplicateBalanceAnchorId(null);
             dirty.add(t);
         }
@@ -282,6 +297,7 @@ public class AccountService {
             // "absolute balance reversal" design spec's Case D / product-decision note: automatic
             // balance lineage is intentionally abandoned once a manual edit occurs.
             a.setLastAbsoluteSetStatementId(null);
+            markBalanceTyped(a);
             rebaseDuplicateMarks(a);
         }
         if (req.creditLimit() != null) a.setCreditLimit(req.creditLimit());

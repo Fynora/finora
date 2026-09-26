@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import Setup from './Setup';
 import { accountsApi, banksApi } from '../api/endpoints';
@@ -80,5 +80,28 @@ describe('Setup', () => {
 
     expect(await screen.findByText('Salary Account')).toBeInTheDocument();
     expect(screen.getByText('Travel Card')).toBeInTheDocument();
+  });
+
+  // The server records a balance it is given as one the user stated today; a blank box used to be
+  // sent as 0, which would make every older statement uploaded afterwards look already counted.
+  it('sends no balance when the box is left blank, and the typed figure when it is not', async () => {
+    vi.mocked(accountsApi.list).mockResolvedValue([]);
+    vi.mocked(accountsApi.create).mockResolvedValue(account());
+    renderPage();
+    await screen.findByText(/No accounts yet/);
+
+    const nameInput = screen.getByText('Name').nextElementSibling as HTMLInputElement;
+    const balanceInput = screen.getByText('Balance').nextElementSibling as HTMLInputElement;
+
+    fireEvent.change(nameInput, { target: { value: 'Blank Balance' } });
+    fireEvent.click(screen.getByRole('button', { name: /^add$/i }));
+    await waitFor(() => expect(accountsApi.create).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(accountsApi.create).mock.calls[0][0].balance).toBeUndefined();
+
+    fireEvent.change(nameInput, { target: { value: 'Typed Balance' } });
+    fireEvent.change(balanceInput, { target: { value: '2500' } });
+    fireEvent.click(screen.getByRole('button', { name: /^add$/i }));
+    await waitFor(() => expect(accountsApi.create).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(accountsApi.create).mock.calls[1][0].balance).toBe(2500);
   });
 });

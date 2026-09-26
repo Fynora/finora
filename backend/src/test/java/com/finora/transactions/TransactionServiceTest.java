@@ -1407,10 +1407,11 @@ class TransactionServiceTest {
         assertThat(acct.getBalance()).isEqualByComparingTo("1000");
     }
 
-    /** An account-aggregator row never moved the balance, so its mark took nothing off and the
-     *  pre-existing delete reversal still applies to it unchanged. */
+    /** An account-aggregator row never moved the balance (the aggregator path saves rows straight
+     *  to the repository and never touches Account.balance), so deleting it must not move it
+     *  either. This used to subtract the row anyway, taking off money that was never added. */
     @Test
-    void delete_stillReversesTheBalance_forAMarkedAggregatorRow() {
+    void delete_movesNothing_forAMarkedAggregatorRow() {
         UUID txnId = UUID.randomUUID();
         UUID accountId = UUID.randomUUID();
         Transaction t = ownedTransaction(txnId, userId);
@@ -1425,7 +1426,7 @@ class TransactionServiceTest {
 
         transactionService.delete(userId, txnId, userId);
 
-        assertThat(acct.getBalance()).isEqualByComparingTo("800");
+        assertThat(acct.getBalance()).isEqualByComparingTo("1000");
     }
 
     @Test

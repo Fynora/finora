@@ -53,6 +53,12 @@ public class StatementImport extends BaseEntity implements com.finora.imports.st
         /** No rows were imported, so this statement never moved Account.balance at all. Nothing to
          *  reverse. */
         NONE,
+        /** Rows were imported, but every one of them was already inside Account.balance -- the
+         *  statement is older than the point the balance is known as of ({@link
+         *  #getBalanceCoveredThrough()}), typically a month uploaded after a later one. Nothing was
+         *  moved, so nothing is reversed; ADDITIVE is used instead when only some rows were
+         *  covered, with the covered ones excluded by the same date. */
+        COVERED,
         /** This row predates the field (backfilled by V119) -- which branch its own confirm took
          *  was never recorded. Superseding it applies no automatic reversal, since guessing wrong
          *  would silently corrupt Account.balance; an administrator is warned to check by hand
@@ -314,6 +320,16 @@ public class StatementImport extends BaseEntity implements com.finora.imports.st
     @Column(name = "previous_absolute_set_statement_id")
     private UUID previousAbsoluteSetStatementId;
 
+    /** This statement's rows dated on or before this day did not move {@code Account.balance} when
+     *  it was imported: the balance already held them (a later statement's closing balance, or the
+     *  opening balance the account was created with -- see {@code BalanceCoverage}). Every site that
+     *  reverses a row's balance effect reads it, through {@code AccountBalanceConvention
+     *  .effectiveMode}, so nothing takes off what was never put on. Lowered when the statement that
+     *  covered those rows is reversed and they have to count after all. Null when nothing was
+     *  covered, and for every statement confirmed before V231. */
+    @Column(name = "balance_covered_through")
+    private LocalDate balanceCoveredThrough;
+
     /** Snapshot of what {@code PdfMetadataExtractor} saw for this statement's account holder at
      *  confirm time -- see {@link OwnershipMatchStatus}'s class doc. Never recomputed after the
      *  fact, same "best-effort, left null on a path with no session" discipline as
@@ -405,6 +421,8 @@ public class StatementImport extends BaseEntity implements com.finora.imports.st
     public java.math.BigDecimal getBalanceBeforeAbsoluteSet() { return balanceBeforeAbsoluteSet; }
     public UUID getPreviousAbsoluteSetStatementId() { return previousAbsoluteSetStatementId; }
     public void setPreviousAbsoluteSetStatementId(UUID id) { this.previousAbsoluteSetStatementId = id; }
+    public LocalDate getBalanceCoveredThrough() { return balanceCoveredThrough; }
+    public void setBalanceCoveredThrough(LocalDate balanceCoveredThrough) { this.balanceCoveredThrough = balanceCoveredThrough; }
     public void setBalanceBeforeAbsoluteSet(java.math.BigDecimal balanceBeforeAbsoluteSet) { this.balanceBeforeAbsoluteSet = balanceBeforeAbsoluteSet; }
     public String getExtractedHolderName() { return extractedHolderName; }
     public void setExtractedHolderName(String extractedHolderName) { this.extractedHolderName = extractedHolderName; }

@@ -94,6 +94,19 @@ describe('MarkTransferModal (Phase 6)', () => {
     expect(screen.queryByTestId('transfer-candidate-t-2')).toBeNull();
   });
 
+  it('offers a one-sided transfer still awaiting its other leg, never a paired one', async () => {
+    transactions.search.mockResolvedValue(page([
+      txn({ id: 't-2', merchant: 'Awaiting partner', reconciliationStatus: 'TRANSFER', awaitingTransferPartner: true }),
+      txn({ id: 't-3', merchant: 'Paired', reconciliationStatus: 'TRANSFER', awaitingTransferPartner: false }),
+    ]));
+
+    renderModal(txn({ id: 't-1' }));
+    fireEvent.changeText(screen.getByPlaceholderText(SEARCH_PLACEHOLDER), 'rent');
+
+    expect(await screen.findByTestId('transfer-candidate-t-2')).toBeTruthy();
+    expect(screen.queryByTestId('transfer-candidate-t-3')).toBeNull();
+  });
+
   it('marks the pair and calls onMarked on success', async () => {
     transactions.search.mockResolvedValue(page([txn({ id: 'c-1', merchant: 'Landlord' })]));
     transactions.markTransfer.mockResolvedValue(txn({ id: 't-1', reconciliationStatus: 'TRANSFER' }));

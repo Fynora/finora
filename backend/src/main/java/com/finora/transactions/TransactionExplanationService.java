@@ -187,9 +187,16 @@ public class TransactionExplanationService {
             case DUPLICATE -> "Matched as a duplicate of an existing transaction — same account, date, "
                     + "amount, and description.";
             case TRANSFER -> {
+                if ("OWN_ACCOUNT_NAME".equals(reason.get("rule"))) {
+                    String who = "PAYEE".equals(reason.get("direction")) ? "payee" : "sender";
+                    yield "Money moved between your own accounts: the " + who + " on this payment is you.";
+                }
                 Object days = reason.get("dateDifferenceDays");
-                yield "Matched as a transfer between your own accounts"
-                        + (days != null ? ", " + days + " day(s) apart" : "") + ".";
+                String apart = days != null ? ", " + days + " day(s) apart" : "";
+                if (reason.get("sharedReference") != null) {
+                    yield "Matched as a transfer between your own accounts: both sides carry the same reference" + apart + ".";
+                }
+                yield "Matched as a transfer between your own accounts" + apart + ".";
             }
             case REFUND -> {
                 boolean sameMerchant = Boolean.TRUE.equals(reason.get("sameMerchant"));
@@ -218,11 +225,23 @@ public class TransactionExplanationService {
 
     private List<String> reconciliationEvidence(Transaction.ReconciliationStatus status, java.util.Map<String, Object> reason) {
         return switch (status) {
-            case TRANSFER -> List.of(
-                    "Opposite direction: " + reason.getOrDefault("oppositeDirection", "?"),
-                    "Amount difference: ₹" + reason.getOrDefault("amountDifference", "0"),
-                    "Days apart: " + reason.getOrDefault("dateDifferenceDays", "?")
-                            + " (window: " + reason.getOrDefault("dayWindowApplied", "?") + ")");
+            case TRANSFER -> {
+                if ("OWN_ACCOUNT_NAME".equals(reason.get("rule"))) {
+                    yield List.of("Name on the payment: " + reason.getOrDefault("nameOnPayment", "?"),
+                            "Your account holder name: " + reason.getOrDefault("holderName", "?"));
+                }
+                List<String> lines = new java.util.ArrayList<>(List.of(
+                        "Opposite direction: " + reason.getOrDefault("oppositeDirection", "?"),
+                        "Amount difference: ₹" + reason.getOrDefault("amountDifference", "0"),
+                        "Days apart: " + reason.getOrDefault("dateDifferenceDays", "?")
+                                + " (window: " + reason.getOrDefault("dayWindowApplied", "?") + ")"));
+                Object ref = reason.get("sharedReference");
+                if (ref != null) {
+                    String s = ref.toString();
+                    lines.add("Same reference on both sides, ending " + s.substring(Math.max(0, s.length() - 4)));
+                }
+                yield lines;
+            }
             case REFUND -> List.of(
                     "Refund amount: ₹" + reason.getOrDefault("refundAmount", "?"),
                     "Original purchase: ₹" + reason.getOrDefault("purchaseAmount", "?"),

@@ -47,7 +47,8 @@ export function MarkTransferModal({
   if (transaction === null) return null;
 
   const candidates = (data?.content ?? [])
-    .filter((cand) => cand.id !== transaction.id && cand.reconciliationStatus !== 'TRANSFER');
+    // A one-sided own-account transfer (no partner yet) can be picked; an already-paired one cannot.
+    .filter((cand) => cand.id !== transaction.id && (cand.reconciliationStatus !== 'TRANSFER' || cand.awaitingTransferPartner === true));
 
   async function pick(candidate: Transaction) {
     if (transaction === null) return;

@@ -1055,6 +1055,22 @@ describe('Ledger — Mark/Unmark as transfer (Phase 6)', () => {
     expect(screen.queryByText('Already Paired')).not.toBeInTheDocument();
   });
 
+  it('offers a one-sided transfer still awaiting its other leg as a picker candidate', async () => {
+    const user = userEvent.setup();
+    mockSearchByKeywordPresence([
+      txn({ id: 'txn-1', merchant: 'Self' }),
+      txn({ id: 'txn-2', merchant: 'Awaiting Partner', reconciliationStatus: 'TRANSFER', awaitingTransferPartner: true }),
+      txn({ id: 'txn-3', merchant: 'Already Paired', reconciliationStatus: 'TRANSFER', awaitingTransferPartner: false }),
+    ]);
+    renderLedger();
+
+    await user.click(await screen.findByTitle('Mark as transfer'));
+    await user.type(screen.getByPlaceholderText(/search by description/i), 'a');
+
+    expect(await screen.findByText('Awaiting Partner')).toBeInTheDocument();
+    expect(screen.queryByText('Already Paired')).not.toBeInTheDocument();
+  });
+
   it('offers Unmark as transfer, not Mark, for a row already at TRANSFER status', async () => {
     vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
       content: [txn({ reconciliationStatus: 'TRANSFER' })], page: 0, size: 10, totalElements: 1, totalPages: 1,

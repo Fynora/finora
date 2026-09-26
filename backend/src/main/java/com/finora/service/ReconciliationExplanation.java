@@ -119,7 +119,7 @@ final class ReconciliationExplanation {
     static Map<String, Object> ownAccountByName(Transaction self, String nameOnPayment, String holderName) {
         Map<String, Object> reason = new LinkedHashMap<>();
         reason.put("rule", OWN_ACCOUNT_NAME_RULE);
-        reason.put("direction", self.getTxnType() == Transaction.Type.INCOME ? "SENDER" : "PAYEE");
+        reason.put("direction", self.getTxnType() == Transaction.Type.EXPENSE ? "PAYEE" : "SENDER");
         reason.put("nameOnPayment", nameOnPayment.trim());
         reason.put("holderName", holderName);
         return envelope("TRANSFER", null, reason);

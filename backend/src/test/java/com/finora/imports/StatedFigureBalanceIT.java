@@ -344,6 +344,30 @@ class StatedFigureBalanceIT extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("replacing a statement with a copy whose closing balance sets the account, then deleting "
+            + "that copy, leaves nothing of the replaced statement in the balance")
+    void supersededByASettingCopy_thenCopyDeleted_leavesTheOriginalOut() throws Exception {
+        UUID user = user().getId();
+        UUID account = untypedAccount(user, "1000.00");
+        LocalDate juneStart = LocalDate.of(2026, 6, 1), juneEnd = LocalDate.of(2026, 6, 30);
+        UUID original = importStatement(user, account, null, null, juneStart, juneEnd,
+                row(LocalDate.of(2026, 6, 15), "GROCERIES", "100.00", "EXPENSE"));
+        assertThat(balanceOf(account)).isEqualByComparingTo("900.00");
+        // The corrected copy states a closing balance that corroborates its own row: it sets the account.
+        UUID copy = importStatement(user, account, new BigDecimal("1000.00"), new BigDecimal("870.00"),
+                juneStart, juneEnd, row(juneEnd, "GROCERIES STORE", "130.00", "EXPENSE"));
+        assertThat(balanceOf(account)).isEqualByComparingTo("870.00");
+
+        statementImportService.supersede(user, original, copy);
+        assertThat(balanceOf(account)).isEqualByComparingTo("870.00");
+
+        statementImportService.delete(user, copy, user);
+        assertThat(balanceOf(account))
+                .as("the original is superseded and the copy is gone: nothing is left on the account but its 1000")
+                .isEqualByComparingTo("1000.00");
+    }
+
+    @Test
     @DisplayName("an account created with a balance of exactly zero by the app itself is not a typed balance")
     void anAccountCreatedWithZeroBalance_isNotATypedBalance() throws Exception {
         UUID user = user().getId();

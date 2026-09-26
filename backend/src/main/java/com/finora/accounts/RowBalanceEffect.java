@@ -71,9 +71,14 @@ public class RowBalanceEffect {
             this.ended = next == null;
         }
 
-        /** The i-th link back from the live anchor, or null past the end. */
+        private final java.util.Set<UUID> seen = new java.util.HashSet<>();
+
+        /** The i-th link back from the live anchor, or null past the end. A link naming one already
+         *  read ends the chain: pointers that loop are corrupt, and following them would never stop
+         *  (measured: a two-link loop ran a test JVM out of heap). */
         StatementImportRepository.AnchorSnapshot link(int i) {
             while (links.size() <= i && !ended) {
+                if (!seen.add(next)) { ended = true; break; }
                 StatementImportRepository.AnchorSnapshot link = statementImportRepository
                         .findAnchorSnapshotIncludingDeleted(account.getUserId(), account.getId(), next).orElse(null);
                 if (link == null) { ended = true; break; }
@@ -101,16 +106,18 @@ public class RowBalanceEffect {
     public Location locate(Account account, Transaction row, StatementImport statement, Chain chain) {
         if (row.getIsDuplicateOf() != null && row.isDuplicateBalanceReversed()) return Location.NOWHERE;
         if (row.getSource() == Transaction.Source.ACCOUNT_AGGREGATOR) return Location.NOWHERE;
+        Instant createdAt = row.getCreatedAt();
+        // Checked before the statement's mode: whatever a row once did to the balance -- including a
+        // legacy statement's, which was never recorded -- a balance typed since holds it whole.
+        if (createdAt != null && account.getBalanceTypedAt() != null && createdAt.isBefore(account.getBalanceTypedAt())) {
+            return Location.NOWHERE;
+        }
         if (statement != null) {
             StatementImport.BalanceApplicationMode mode = AccountBalanceConvention.effectiveMode(statement, row);
             if (mode == StatementImport.BalanceApplicationMode.UNKNOWN_LEGACY) return Location.BALANCE;
             if (mode != StatementImport.BalanceApplicationMode.ADDITIVE) return Location.NOWHERE;
         }
-        Instant createdAt = row.getCreatedAt();
         if (createdAt == null) return Location.BALANCE;
-        if (account.getBalanceTypedAt() != null && createdAt.isBefore(account.getBalanceTypedAt())) {
-            return Location.NOWHERE;
-        }
         // Walk the SET chain back from the live anchor: the row is held by the earliest SET that
         // happened after it arrived. One that arrived after the live SET is in the balance itself.
         StatementImportRepository.AnchorSnapshot holder = null;

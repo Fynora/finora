@@ -798,15 +798,17 @@ public class StatementImportService {
         String warning = null;
         switch (original.getBalanceApplicationMode()) {
             case ADDITIVE -> {
-                // Skip entirely when replacement is ABSOLUTE: that mode doesn't add to
-                // Account.balance, it OVERWRITES it with replacement's own stated closing balance
-                // (ImportService.persistSection) -- discarding original's ADDITIVE contribution
-                // along with everything else that predates it. Reversing original's delta against a
-                // balance that already discarded it (rather than one it was layered on top of) would
-                // move the balance by that amount for no reason; see this method's own doc comment
-                // and SupersedeSkipsReversalWhenReplacementOverwritesTheBalanceIT for the concrete
-                // numeric case.
-                if (replacement.getBalanceApplicationMode() != StatementImport.BalanceApplicationMode.ABSOLUTE) {
+                // When the replacement is ABSOLUTE it OVERWROTE the balance with its own stated
+                // closing balance (ImportService.persistSection), discarding the original's ADDITIVE
+                // contribution from the CURRENT balance -- reversing it there would move the balance
+                // for no reason (SupersedeSkipsReversalWhenReplacementOverwritesTheBalanceIT). This
+                // used to skip the original's rows entirely in that case. But the contribution is
+                // still inside the replacement's pre-SET snapshot, so deleting the replacement later
+                // restored a balance counting a statement nothing counts any more (measured: 900
+                // where the ledger held 1000). takeOffBalance locates each row: behind the
+                // replacement's SET it corrects that snapshot and leaves the current balance alone;
+                // otherwise it reverses the balance, as it always did.
+                {
                     // Excludes a DUPLICATE-flagged row whose mark took its contribution off Account
                     // .balance (ReconciliationService.reverseBalanceContribution, BH-003; recorded
                     // as Transaction.duplicateBalanceReversed) -- summing it again here would move

@@ -88,6 +88,33 @@ class RowBalanceEffectTest {
     }
 
     @Test
+    void aCorruptedChainThatLoops_endsInsteadOfWalkingForever() {
+        UUID a = UUID.randomUUID(), b = UUID.randomUUID();
+        link(a, Instant.parse("2026-06-01T00:00:00Z"), b);
+        link(b, Instant.parse("2026-05-01T00:00:00Z"), a); // points back at a
+        account.setLastAbsoluteSetStatementId(a);
+
+        RowBalanceEffect.Location location = effect.locate(account, manualRow(Instant.parse("2026-01-01T00:00:00Z")), null);
+
+        assertThat(location.where()).isEqualTo(RowBalanceEffect.Where.SNAPSHOT);
+        verify(repository, times(1)).findAnchorSnapshotIncludingDeleted(any(), any(), eq(a));
+        verify(repository, times(1)).findAnchorSnapshotIncludingDeleted(any(), any(), eq(b));
+    }
+
+    @Test
+    void aLegacyStatementsRowFromBeforeTheBalanceWasTyped_isInsideTheTypedFigure() {
+        account.setBalanceTypedAt(Instant.parse("2026-09-01T00:00:00Z"));
+        StatementImport legacy = new StatementImport();
+        legacy.setBalanceApplicationMode(StatementImport.BalanceApplicationMode.UNKNOWN_LEGACY);
+        Transaction row = manualRow(Instant.parse("2026-01-01T00:00:00Z"));
+        row.setSource(Transaction.Source.CSV_IMPORT);
+
+        assertThat(effect.locate(account, row, legacy).where())
+                .as("whatever it once did, the typed figure holds everything that was there when it was typed")
+                .isEqualTo(RowBalanceEffect.Where.NOWHERE);
+    }
+
+    @Test
     void aStatementsModeDecides_legacyStatementsKeepMovingTheBalance() {
         StatementImport statement = new StatementImport();
         Transaction row = manualRow(Instant.parse("2026-09-02T00:00:00Z"));

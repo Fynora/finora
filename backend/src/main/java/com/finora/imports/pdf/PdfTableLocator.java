@@ -2176,7 +2176,8 @@ public class PdfTableLocator {
                     // Date beside a printed Value Date is the bank's "ditto" for the date of the row
                     // above, and it is filled in here, first, so that the leading-narration prepend
                     // below sees an already-valid date it must not overwrite. See inheritDittoDate.
-                    if (inheritDittoDate(bucketed, currentRows, headerNames) && ctx != null) {
+                    if (inheritDittoDate(bucketed, currentRows, headerNames,
+                            yearsByPage.getOrDefault(rowPageIndex, PageDateEvidence.NONE)) && ctx != null) {
                         ctx.record("DITTO_DATE_INHERITED");
                     }
                     // Read BEFORE any leading narration is merged in: the question is whether this
@@ -5967,9 +5968,19 @@ public class PdfTableLocator {
      * cell, and only when it holds a parseable date -- the first row of a table, or one under a
      * row whose date is itself missing, is left exactly as before (the normalizer still falls
      * back to its value date). Returns true when a date was written.
+     *
+     * <p>A Date cell that holds text is treated as blank when no token of that text is a date: a
+     * wrapped narration run whose x lands nearest the Date anchor buckets there (the same
+     * mis-bucketing mergeInto redirects for continuation lines), and the row is still admitted on
+     * its Value Date. Left alone, the fragment reached the normalizer as the row's "date" and the
+     * transaction was dropped. The fragment is moved to the front of the description cell -- it
+     * was printed left of the description text -- and the date is inherited as above. A cell
+     * holding ANY date token (the row's own date, even with stray text beside it) is never
+     * overwritten. No document in the real corpus prints this shape; the rule is bounded by the
+     * same three preconditions as the blank case and exercised synthetically.
      */
     private boolean inheritDittoDate(Map<String, String> bucketed, List<Map<String, String>> currentRows,
-                                     List<String> headerNames) {
+                                     List<String> headerNames, PageDateEvidence candidateYears) {
         if (headerNames == null || currentRows == null || currentRows.isEmpty()) return false;
         String dateColumn = null, valueDateColumn = null;
         for (String column : headerNames) {
@@ -5978,11 +5989,19 @@ public class PdfTableLocator {
         }
         if (dateColumn == null || valueDateColumn == null) return false;
         String own = bucketed.get(dateColumn);
-        if (own != null && !own.isBlank()) return false;
+        boolean ownHoldsText = own != null && !own.isBlank();
+        if (ownHoldsText && cellHoldsADateToken(own, candidateYears)) return false;
         String valueDate = bucketed.get(valueDateColumn);
         if (valueDate == null || valueDate.isBlank()) return false;
         String above = currentRows.get(currentRows.size() - 1).get(dateColumn);
         if (above == null || above.isBlank() || CsvParser.parseDate(above.trim()) == null) return false;
+        if (ownHoldsText) {
+            String keep = descriptionColumnIn(bucketed, headerNames);
+            if (keep == null) keep = firstUnstructuredColumn(bucketed, headerNames);
+            if (keep == null) return false;   // nowhere to keep the fragment: the row is left untouched
+            String existing = bucketed.get(keep);
+            bucketed.put(keep, existing == null || existing.isBlank() ? own.trim() : own.trim() + " " + existing);
+        }
         bucketed.put(dateColumn, above);
         return true;
     }
@@ -5993,8 +6012,26 @@ public class PdfTableLocator {
             if (!isDateColumn(column)) continue;
             String value = bucketed.get(column);
             if (value == null || value.isBlank()) continue;
-            for (String token : value.trim().split("\\s+")) {
-                if (CsvParser.parseDate(token) != null) return true;
+            if (cellHoldsADateToken(value, PageDateEvidence.NONE)) return true;
+        }
+        return false;
+    }
+
+    /** True when the whole cell, or any span of up to three consecutive whitespace-separated
+     *  tokens of it, parses as a date -- with a year, or yearless against the page's own year
+     *  evidence. Three tokens because a spelled-out date ("05 May 2026") is three words; a
+     *  single-token check saw only "05", "May", "2026" and missed it. */
+    private boolean cellHoldsADateToken(String value, PageDateEvidence candidateYears) {
+        String whole = value.trim();
+        if (CsvParser.parseDate(whole) != null || resolveYearlessDate(whole, candidateYears) != null) return true;
+        String[] tokens = whole.split("\\s+");
+        for (int start = 0; start < tokens.length; start++) {
+            StringBuilder span = new StringBuilder();
+            for (int end = start; end < tokens.length && end < start + 3; end++) {
+                if (end > start) span.append(' ');
+                span.append(tokens[end]);
+                String candidate = span.toString();
+                if (CsvParser.parseDate(candidate) != null || resolveYearlessDate(candidate, candidateYears) != null) return true;
             }
         }
         return false;

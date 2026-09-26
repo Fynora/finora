@@ -154,6 +154,64 @@ class DittoDatePdfTableLocatorTest {
         assertThat(ctx.capabilities().stream().map(c -> c.capability())).doesNotContain("DITTO_DATE_INHERITED");
     }
 
+    @Test
+    void aNarrationFragmentMisBucketedIntoTheDateCell_stillInheritsAndKeepsTheFragment() {
+        // A wrapped-narration run whose x lands nearest the Date anchor fills the Date cell with
+        // text that is not a date. The row is still admitted on its Value Date; without the rule
+        // the fragment would reach the normalizer as the "date" and the row would be dropped.
+        List<PositionedText> runs = new ArrayList<>(header());
+        float y = HEADER_Y + PITCH;
+        runs.add(run("04 May 2026", DATE_X, y));
+        runs.add(run("03 May 2026", VALUE_DATE_X, y));
+        runs.add(run("UPI/000000000001/", NARRATION_X, y));
+        runs.add(run("100.00", WITHDRAWAL_X, y));
+        runs.add(run("900.00", BALANCE_X, y));
+        y += PITCH;
+        runs.add(run("REF/0002", DATE_X, y));                        // narration, not a date
+        runs.add(run("03 May 2026", VALUE_DATE_X, y));
+        runs.add(run("UPI/000000000002/", NARRATION_X, y));
+        runs.add(run("50.00", WITHDRAWAL_X, y));
+        runs.add(run("850.00", BALANCE_X, y));
+
+        DocumentContext ctx = new DocumentContext("PDF", "test");
+        List<Map<String, String>> rows = rowsOf(runs, ctx);
+
+        assertThat(rows).hasSize(2);
+        assertThat(rows.get(1))
+                .containsEntry("Date", "04 May 2026").containsEntry("Value Date", "03 May 2026")
+                .containsEntry("Description", "REF/0002 UPI/000000000002/")
+                .containsEntry("Withdrawal", "50.00");
+        assertThat(ctx.capabilities().stream().map(c -> c.capability())).contains("DITTO_DATE_INHERITED");
+
+        StagedRow staged = normalizer().normalize(UUID.randomUUID(), rows.get(1));
+        assertThat(staged).isNotNull();
+        assertThat(staged.date()).isEqualTo(LocalDate.of(2026, 5, 4));
+    }
+
+    @Test
+    void aDateCellHoldingItsOwnDateToken_isNeverOverwritten() {
+        List<PositionedText> runs = new ArrayList<>(header());
+        float y = HEADER_Y + PITCH;
+        runs.add(run("04 May 2026", DATE_X, y));
+        runs.add(run("03 May 2026", VALUE_DATE_X, y));
+        runs.add(run("UPI/000000000001/", NARRATION_X, y));
+        runs.add(run("100.00", WITHDRAWAL_X, y));
+        runs.add(run("900.00", BALANCE_X, y));
+        y += PITCH;
+        runs.add(run("05 May 2026 REF", DATE_X, y));                 // its own date, plus a fragment
+        runs.add(run("03 May 2026", VALUE_DATE_X, y));
+        runs.add(run("UPI/000000000002/", NARRATION_X, y));
+        runs.add(run("50.00", WITHDRAWAL_X, y));
+        runs.add(run("850.00", BALANCE_X, y));
+
+        DocumentContext ctx = new DocumentContext("PDF", "test");
+        List<Map<String, String>> rows = rowsOf(runs, ctx);
+
+        assertThat(rows).hasSize(2);
+        assertThat(rows.get(1)).containsEntry("Date", "05 May 2026 REF").containsEntry("Description", "UPI/000000000002/");
+        assertThat(ctx.capabilities().stream().map(c -> c.capability())).doesNotContain("DITTO_DATE_INHERITED");
+    }
+
     private static TransactionNormalizer normalizer() {
         CategorizationService categorizationService = mock(CategorizationService.class);
         when(categorizationService.suggestReadOnly(any(), any(), any(), any()))

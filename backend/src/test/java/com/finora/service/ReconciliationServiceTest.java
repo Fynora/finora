@@ -2971,6 +2971,107 @@ class ReconciliationServiceTest {
         }, "first");
     }
 
+    // --- The last two places a random id could still settle a tie ---
+    //
+    // After content ordering, the id only separated rows identical in date, amount, type,
+    // description and row position -- and statements sharing a due date and a creation instant.
+    // Both now fall to something that is the same on every import before the id: when each row
+    // and its account were created (import order), and a statement's file hash.
+
+    private Account liveAccount(UUID accountId) {
+        return liveAccounts.stream().filter(a -> a.getId().equals(accountId)).findFirst().orElseThrow();
+    }
+
+    @Test
+    void reconcileForUser_transferTiedBetweenIdenticalRows_pairsWithTheOneImportedFirst_whateverTheOrder() {
+        UUID cardAccountId = UUID.randomUUID();
+        UUID firstAccountId = UUID.randomUUID();
+        UUID secondAccountId = UUID.randomUUID();
+        LocalDate day = LocalDate.of(2026, 7, 14);
+        assertSameOutcomeEitherIdOrder(swap -> {
+            Transaction payment = txn(UUID.randomUUID(), cardAccountId, day, new BigDecimal("5000.00"),
+                    Transaction.Type.EXPENSE, "CARD PAYMENT", Instant.parse("2026-07-20T10:00:00Z"));
+            Transaction importedFirst = txn(swap ? HIGHEST_ID : LOWEST_ID, firstAccountId, day, new BigDecimal("5000.00"),
+                    Transaction.Type.INCOME, "CREDIT 4471", Instant.parse("2026-07-20T09:00:00Z"));
+            Transaction importedSecond = txn(swap ? LOWEST_ID : HIGHEST_ID, secondAccountId, day, new BigDecimal("5000.00"),
+                    Transaction.Type.INCOME, "CREDIT 4471", Instant.parse("2026-07-20T09:30:00Z"));
+            when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(swap
+                    ? List.of(payment, importedSecond, importedFirst)
+                    : List.of(payment, importedFirst, importedSecond));
+
+            reconciliationService.reconcileForUser(userId);
+
+            assertThat(payment.isTransfer()).isTrue();
+            return payment.getTransferPairId().equals(importedFirst.getId()) ? "first" : "second";
+        }, "first");
+    }
+
+    @Test
+    void reconcileForUser_transferTiedBetweenRowsCreatedTogether_pairsWithTheEarlierCreatedAccount_whateverTheOrder() {
+        UUID cardAccountId = UUID.randomUUID();
+        UUID olderAccountId = UUID.randomUUID();
+        UUID newerAccountId = UUID.randomUUID();
+        LocalDate day = LocalDate.of(2026, 7, 14);
+        Instant sameInstant = Instant.parse("2026-07-20T09:00:00Z");
+        assertSameOutcomeEitherIdOrder(swap -> {
+            Transaction payment = txn(UUID.randomUUID(), cardAccountId, day, new BigDecimal("5000.00"),
+                    Transaction.Type.EXPENSE, "CARD PAYMENT", sameInstant);
+            Transaction onOlder = txn(swap ? HIGHEST_ID : LOWEST_ID, olderAccountId, day, new BigDecimal("5000.00"),
+                    Transaction.Type.INCOME, "CREDIT 4471", sameInstant);
+            Transaction onNewer = txn(swap ? LOWEST_ID : HIGHEST_ID, newerAccountId, day, new BigDecimal("5000.00"),
+                    Transaction.Type.INCOME, "CREDIT 4471", sameInstant);
+            ReflectionTestUtils.setField(liveAccount(olderAccountId), "createdAt", Instant.parse("2026-01-01T00:00:00Z"));
+            ReflectionTestUtils.setField(liveAccount(newerAccountId), "createdAt", Instant.parse("2026-06-01T00:00:00Z"));
+            when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(swap
+                    ? List.of(payment, onNewer, onOlder)
+                    : List.of(payment, onOlder, onNewer));
+
+            reconciliationService.reconcileForUser(userId);
+
+            assertThat(payment.isTransfer()).isTrue();
+            return payment.getTransferPairId().equals(onOlder.getId()) ? "older" : "newer";
+        }, "older");
+    }
+
+    @Test
+    void reconcileForUser_statementsSameDueDateAndCreationInstant_orderByFileHash_whateverTheOrder() {
+        UUID firstCard = UUID.randomUUID();
+        UUID secondCard = UUID.randomUUID();
+        UUID savingsAccountId = UUID.randomUUID();
+        LocalDate due = LocalDate.of(2026, 7, 10);
+        Instant sameInstant = Instant.parse("2026-07-01T10:00:00Z");
+        assertSameOutcomeEitherIdOrder(swap -> {
+            org.mockito.Mockito.clearInvocations(transactionGraphService);
+            com.finora.entity.StatementImport lowerHash =
+                    ccStatement(swap ? HIGHEST_ID : LOWEST_ID, firstCard, new BigDecimal("2500.00"), due);
+            ReflectionTestUtils.setField(lowerHash, "createdAt", sameInstant);
+            ReflectionTestUtils.setField(lowerHash, "contentHash", "a".repeat(64));
+            com.finora.entity.StatementImport higherHash =
+                    ccStatement(swap ? LOWEST_ID : HIGHEST_ID, secondCard, new BigDecimal("2500.00"), due);
+            ReflectionTestUtils.setField(higherHash, "createdAt", sameInstant);
+            ReflectionTestUtils.setField(higherHash, "contentHash", "b".repeat(64));
+            Transaction payment = txn(UUID.randomUUID(), savingsAccountId, due,
+                    new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "CARD BILL", Instant.now());
+            Transaction lowerCharge = txn(UUID.randomUUID(), firstCard, due.minusDays(20),
+                    new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "SHOP ONE", Instant.now());
+            Transaction higherCharge = txn(UUID.randomUUID(), secondCard, due.minusDays(20),
+                    new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "SHOP TWO", Instant.now());
+            when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                    .thenReturn(List.of(payment, lowerCharge, higherCharge));
+            when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId))
+                    .thenReturn(swap ? List.of(higherHash, lowerHash) : List.of(lowerHash, higherHash));
+            when(transactionRepository.findByStatementImportId(lowerHash.getId())).thenReturn(List.of(lowerCharge));
+            when(transactionRepository.findByStatementImportId(higherHash.getId())).thenReturn(List.of(higherCharge));
+
+            reconciliationService.reconcileForUser(userId);
+
+            List<TransactionGraphService.PendingEdge> edges = ccPaymentEdges().stream()
+                    .filter(e -> e.fromTransactionId().equals(payment.getId())).toList();
+            assertThat(edges).hasSize(1);
+            return edges.get(0).toTransactionId().equals(lowerCharge.getId()) ? "lowerHash" : "higherHash";
+        }, "lowerHash");
+    }
+
     // --- Last-4 disambiguation (roadmap Part 4's "issuer-name + last-4-digit matching"),
     // verified feasible against this project's own real bank-statement corpus: an ICICI
     // savings-side payment narration ("BIL/INFT/.../CC BillPay-5001/Self") embedded the exact

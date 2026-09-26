@@ -417,6 +417,28 @@ class CapabilityCorpusCoverageTest {
                 "no trace yet -- evidenced from a real PNB ONE savings statement with no "
                         + "committed trace in this corpus. Real-corpus behavior verified directly "
                         + "via CorpusProbe against the original file instead.");
+        // Three capabilities from the parser P0 fix (PR #1769). Each evidencing document's
+        // committed trace predates the fix and is a partial capture (sbi-credit-card-statement
+        // locates 5 rows in 3 sections; scb-savings-single-cell-header-rename 2 rows), so neither
+        // reaches the row the rule fires on. Verified directly: dumped every committed trace's
+        // fired-capability set under the fixed locator; none of the three fires. Each rule is
+        // exercised by its own synthetic fixture test and was measured row by row on the real
+        // corpus (a card statement 58 -> 59 rows; 26 weekend dates moved on a savings export; a
+        // savings section's borrowed card limit withheld).
+        DECLARED_WITHOUT_A_TRACE.put("DATELESS_AMOUNT_ROW_SPLIT",
+                "no trace yet -- the evidencing card statement's committed trace is a partial "
+                        + "capture that stops before its fee-and-tax pair. Exercised by "
+                        + "DatelessAmountRowPdfTableLocatorTest; real-corpus effect verified directly.");
+        DECLARED_WITHOUT_A_TRACE.put("DITTO_DATE_INHERITED",
+                "no trace yet -- the evidencing savings export's committed trace is a two-row "
+                        + "capture with no blank-Date row. Exercised by DittoDatePdfTableLocatorTest, "
+                        + "including the normalizer end to end; real-corpus effect verified directly.");
+        DECLARED_WITHOUT_A_TRACE.put("CREDIT_LIMIT_WITHHELD_FROM_NON_CARD_SECTION",
+                "no trace -- fires in PdfPreviewGenerator, never in PdfTableLocator.locateAll, the "
+                        + "same scoping gap as PRINTED_CREDIT_LIMIT_GRID above; the evidencing savings "
+                        + "document has no committed trace. Exercised by "
+                        + "SectionScopedCreditLimitPdfPreviewGeneratorTest, whose fixture reproduces the "
+                        + "grid shape and asserts the limit was read and withheld.");
         // PAGE_LEGEND_BLOCK_SUPPRESSED was DECLARED_WITHOUT_A_TRACE here -- the real SBI Credit
         // Card.PDF it was originally evidenced from has no committed trace in this corpus. Entry
         // deleted per this test's own ratchet: kotak-credit-card-category-sections-and-page-footer

@@ -5,7 +5,7 @@ import { referralsApi } from '../api/endpoints';
 import { formatDate } from '../utils/date';
 import { FinoraCard, EmptyState } from '../design-system';
 import { UpgradeCelebration } from '../components/UpgradeCelebration';
-import { paidMembershipName, visiblePlanCode } from '../lib/planDisplay';
+import { visiblePlanCode } from '../lib/planDisplay';
 import { safeStorage } from '../lib/safeStorage';
 
 // A grant activates asynchronously via the backend's nightly sweep (design spec section 6.4:
@@ -29,10 +29,11 @@ function statusLabel(status: string) {
   }
 }
 
-/** Small reusable piece for one tier's row -- either a progress bar (below threshold) or a
- *  redeem card (at/above threshold). Both tiers render independently and simultaneously: reaching
- *  Premium's threshold never hides or replaces Plus's row, and vice versa (design spec section
- *  6.1, revised after product review -- progress is persistent, nothing is ever forfeited). */
+/** Mirrors ReferralService.MILESTONE_REFERRALS on the backend. */
+const REFERRAL_MILESTONE = 7;
+
+/** The referral reward row -- either a progress bar (below threshold) or a redeem card (at/above
+ *  threshold). There is one milestone: 7 referrals earn a free month of Plus. */
 function MilestoneRow({
   label, counter, threshold, onRedeem, redeeming, error,
 }: {
@@ -60,7 +61,7 @@ function MilestoneRow({
   return (
     <FinoraCard padding="lg">
       <p className="text-sm font-semibold text-ink mb-2">
-        {counter} / {threshold} toward {label}
+        {counter} / {threshold} referrals — 1 month of {label} free
       </p>
       <div className="h-2 rounded-full bg-bg overflow-hidden">
         <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
@@ -193,7 +194,12 @@ export default function Referrals() {
             {[...mine.grants].filter((g) => g.status === 'PENDING').reverse().map((g) => (
               <div key={g.id} className="flex items-center justify-between text-sm">
                 <span className="text-ink font-medium">{visiblePlanCode(g.tier) === 'PREMIUM' ? 'Premium' : 'Plus'} queued</span>
-                <span className="text-xs text-muted">activates automatically</span>
+                {/* A grant queues while the user is already on that plan -- paying for it, or on
+                    another free month -- and the hourly sweep starts it once they are not. For a
+                    paying subscriber that can be never, so "activates automatically" misled. */}
+                <span className="text-xs text-muted">
+                  starts when you&apos;re not already on {visiblePlanCode(g.tier) === 'PREMIUM' ? 'Premium' : 'Plus'}
+                </span>
               </div>
             ))}
           </div>
@@ -202,23 +208,15 @@ export default function Referrals() {
 
       {mine && (
         <>
+          {/* The one reward: 7 referrals -> a free month of Plus. The API still names this
+              counter premiumMilestoneCounter (it used to track a 7-referral Premium reward);
+              plusMilestoneCounter is always 0 now. This row must always render: redemption is
+              self-service and the backend's "Open Fynora to redeem it now" email/push at the 7th
+              referral points here. */}
           <MilestoneRow
-            label="Plus" counter={mine.plusMilestoneCounter} threshold={3}
+            label="Plus" counter={mine.premiumMilestoneCounter} threshold={REFERRAL_MILESTONE}
             onRedeem={() => redeemMutation.mutate('PLUS')} redeeming={redeemMutation.isPending}
-            error={redeemError?.tier === 'PLUS' ? redeemError.message : null}
-          />
-          {/* Bug found in review: hiding this row entirely (as the Premium column, badge etc. do)
-              would have hidden the ONLY way to click Redeem -- redemption is self-service
-              (ReferralService.redeemMilestone), nothing auto-grants it, and the backend fires a
-              REFERRAL_MILESTONE_REACHED push/email at the moment the 7th referral lands, inviting
-              the person to "Open Fynora to redeem it now". Hiding the row would have made that
-              notification a dead end: real money value (a free month, worth Plus's entitlements
-              today) earned and unclaimable. So this row always renders, labelled with the same
-              masked name active/queued grants already use above. */}
-          <MilestoneRow
-            label={paidMembershipName()} counter={mine.premiumMilestoneCounter} threshold={7}
-            onRedeem={() => redeemMutation.mutate('PREMIUM')} redeeming={redeemMutation.isPending}
-            error={redeemError?.tier === 'PREMIUM' ? redeemError.message : null}
+            error={redeemError?.message ?? null}
           />
         </>
       )}

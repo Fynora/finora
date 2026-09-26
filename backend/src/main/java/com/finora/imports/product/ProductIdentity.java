@@ -193,7 +193,17 @@ public record ProductIdentity(String institutionId, FinancialProductType type, S
         return institutionId != null && strongKey != null;
     }
 
+    /** A character a bank prints in place of a hidden digit. A value carrying one is a masked number,
+     *  never a full one. */
+    private static final java.util.regex.Pattern MASK_CHARACTER = java.util.regex.Pattern.compile("[Xx*\\u2022]");
+
     private static String hash(String institutionId, String fullNumber, String discriminator) {
+        // A masked value has fewer digits than the account it stands for. Hashing what is left made a
+        // key that could never equal the full number's key, so a statement that masks and a later
+        // one that prints the number in full resolved to two accounts (both sides carried a key,
+        // which is the NONE branch of matches). A masked value yields no key; the masked comparison
+        // handles it.
+        if (fullNumber != null && MASK_CHARACTER.matcher(fullNumber).find()) return null;
         String digits = normalizeDigits(fullNumber);
         if (institutionId == null || digits == null || digits.length() < 4) return null;
         try {

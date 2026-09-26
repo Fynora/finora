@@ -181,4 +181,26 @@ class ProductIdentityTest {
 
         assertThat(withNumber.matches(withoutNumber)).isEqualTo(ProductIdentity.Match.NONE);
     }
+
+    @Test
+    void aMaskedNumberIsNeverHashedAsIfItWereFull() {
+        // A masked value has fewer digits than the account, so hashing what is left produced a key
+        // that could never equal the key of the full number: a statement that masks and a later one
+        // that prints the number in full resolved to two accounts (NONE), because both sides then
+        // carried a key. With no key on the masked side the masked comparison runs instead.
+        var masked = ProductIdentity.of("HDFC", FinancialProductType.SAVINGS, "XXXXXXXXXX1234", "XXXXXXXXXX1234");
+        var full = ProductIdentity.of("HDFC", FinancialProductType.SAVINGS, "50100012341234", "XXXXXXXXXX1234"); // masked the way the extractor masks a full number
+
+        assertThat(masked.strongKey()).as("a masked value yields no strong key").isNull();
+        assertThat(masked.matches(full)).isEqualTo(ProductIdentity.Match.PROBABLE);
+        assertThat(full.matches(masked)).isEqualTo(ProductIdentity.Match.PROBABLE);
+    }
+
+    @Test
+    void everyMaskCharacterShapeIsRefused() {
+        for (String shape : new String[]{"XXXX1234", "xxxx1234", "****1234", "\u2022\u2022\u2022\u20221234", "6530 47** **** 7550"}) {
+            assertThat(ProductIdentity.of("AXIS", FinancialProductType.CREDIT_CARD, shape, shape).strongKey())
+                    .as(shape).isNull();
+        }
+    }
 }

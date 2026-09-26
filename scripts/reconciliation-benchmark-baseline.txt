@@ -10,12 +10,13 @@
 # growing allowlist nobody prunes.
 #
 # Baseline as of PR #1082 (69.5% -> 84.7% overall): 9 known failures.
+# 8 since the CC_PAYMENT accumulation fix: account() now gives fixture accounts a real type, and
+# with typed accounts savingsToCreditCardAutoDebit_noPaymentKeyword_missed already passed on main.
 com.finora.service.CreditCardPaymentBenchmark.latePayment_beyondTenDayWindow_missedAndDoubleCounted
 com.finora.service.DuplicateDetectionBenchmark.manualEntryThenImport_sameRealTransaction_differentDescription_notCaught
 com.finora.service.DuplicateDetectionBenchmark.nearDuplicate_reformattedNarrationAcrossPendingAndSettled_isNotCaught
 com.finora.service.GmailMatchingBenchmark.falsePositive_shortTokenEditDistanceCoincidence_wronglyMatched
 com.finora.service.GmailMatchingBenchmark.merchantAlias_brandToLegalEntityName_isNotFound
-com.finora.service.TransferBenchmark.savingsToCreditCardAutoDebit_noPaymentKeyword_missed
 com.finora.service.TransferBenchmark.splitTransfer_twoPartialDebitsOneLumpCredit_notMatchedAtAll
 com.finora.service.TransferBenchmark.transferWithRealisticFee_exceedsOneRupeeTolerance_notMatched
 com.finora.service.TransferBenchmark.walletFunding_noPaymentKeyword_missed

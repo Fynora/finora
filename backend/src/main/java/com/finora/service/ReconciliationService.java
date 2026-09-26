@@ -1643,11 +1643,14 @@ public class ReconciliationService {
     }
 
     /**
-     * The phrases CategoryRules already files under "Transfer" that name a card payment
-     * specifically. Its other Transfer phrases ("neft to", "autopay", "billdesk", ...) also cover
-     * payments to people, mandates and utilities, so they are not evidence of a card payment.
+     * Phrases that name a card payment specifically: CategoryRules' own card phrases from its
+     * "Transfer" list, plus the "card bill"/"cc bill" stems a bill-pay narration uses without the
+     * word "payment" (an autopay narration reading "...CARD BILL", or "CC BILL PAY"). CategoryRules'
+     * other Transfer phrases ("neft to", "autopay", "billdesk", ...) also cover payments to people,
+     * mandates and utilities, so they are not evidence of a card payment.
      */
-    private static final List<String> CARD_PAYMENT_PHRASES = List.of("credit card payment", "card bill payment", "cc payment");
+    private static final List<String> CARD_PAYMENT_PHRASES =
+            List.of("credit card payment", "card bill", "cc payment", "cc bill");
 
     /** The narration names this card's last 4 digits, or says it is a card payment. */
     private static boolean hasCardPaymentEvidence(Transaction t, String thisCardLast4) {

@@ -227,10 +227,9 @@ public class TransactionGraphService {
         return live.size();
     }
 
-    /** Every live (not REJECTED, not superseded) edge of {@code type} this user has. */
-    public List<TransactionRelationship> liveEdgesOfType(UUID userId, TransactionRelationship.RelationshipType type) {
-        return repository.findByUserIdAndRelationshipTypeAndStatusNotAndSupersededByIsNull(
-                userId, type, TransactionRelationship.Status.REJECTED);
+    /** Every non-superseded edge of {@code type} this user has, REJECTED ones included. */
+    public List<TransactionRelationship> edgesOfType(UUID userId, TransactionRelationship.RelationshipType type) {
+        return repository.findByUserIdAndRelationshipTypeAndSupersededByIsNull(userId, type);
     }
 
     /**

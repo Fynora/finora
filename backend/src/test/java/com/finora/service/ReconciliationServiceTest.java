@@ -3327,8 +3327,8 @@ class ReconciliationServiceTest {
     private List<TransactionRelationship> captureRejectedEdges() {
         org.mockito.ArgumentCaptor<java.util.Collection<TransactionRelationship>> captor =
                 org.mockito.ArgumentCaptor.forClass(java.util.Collection.class);
-        verify(transactionGraphService).rejectEdges(captor.capture());
-        return new ArrayList<>(captor.getValue());
+        verify(transactionGraphService, org.mockito.Mockito.atMost(1)).rejectEdges(captor.capture());
+        return captor.getAllValues().stream().flatMap(java.util.Collection::stream).toList();
     }
 
     private List<TransactionGraphService.PendingEdge> ccPendingEdgesIfAny() {
@@ -3418,7 +3418,7 @@ class ReconciliationServiceTest {
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(linked, arrivedLater, charge));
         when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(statement));
         when(transactionRepository.findByStatementImportId(statement.getId())).thenReturn(List.of(charge));
-        when(transactionGraphService.liveEdgesOfType(userId, TransactionRelationship.RelationshipType.CC_PAYMENT))
+        when(transactionGraphService.edgesOfType(userId, TransactionRelationship.RelationshipType.CC_PAYMENT))
                 .thenReturn(List.of(ruleCcEdge(linked, charge, statement)));
         when(transactionRepository.findAllById(any())).thenReturn(List.of(linked));
 
@@ -3448,7 +3448,7 @@ class ReconciliationServiceTest {
         when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(first, second));
         when(transactionRepository.findByStatementImportId(first.getId())).thenReturn(List.of(firstCharge));
         when(transactionRepository.findByStatementImportId(second.getId())).thenReturn(List.of(secondCharge));
-        when(transactionGraphService.liveEdgesOfType(userId, TransactionRelationship.RelationshipType.CC_PAYMENT))
+        when(transactionGraphService.edgesOfType(userId, TransactionRelationship.RelationshipType.CC_PAYMENT))
                 .thenReturn(List.of(ruleCcEdge(payment, firstCharge, first)));
         when(transactionRepository.findAllById(any())).thenReturn(List.of(payment));
 
@@ -3477,7 +3477,7 @@ class ReconciliationServiceTest {
                 .thenReturn(List.of(groceries, realPayment, charge1, charge2));
         when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(statement));
         when(transactionRepository.findByStatementImportId(statement.getId())).thenReturn(List.of(charge1, charge2));
-        when(transactionGraphService.liveEdgesOfType(userId, TransactionRelationship.RelationshipType.CC_PAYMENT))
+        when(transactionGraphService.edgesOfType(userId, TransactionRelationship.RelationshipType.CC_PAYMENT))
                 .thenReturn(List.of(stale1, stale2));
         when(transactionRepository.findAllById(any())).thenReturn(List.of(groceries));
         when(transactionGraphService.rejectEdges(any())).thenReturn(2);
@@ -3509,7 +3509,7 @@ class ReconciliationServiceTest {
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(exact, partial, charge));
         when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(statement));
         when(transactionRepository.findByStatementImportId(statement.getId())).thenReturn(List.of(charge));
-        when(transactionGraphService.liveEdgesOfType(userId, TransactionRelationship.RelationshipType.CC_PAYMENT))
+        when(transactionGraphService.edgesOfType(userId, TransactionRelationship.RelationshipType.CC_PAYMENT))
                 .thenReturn(List.of(partialEdge, exactEdge));
         when(transactionRepository.findAllById(any())).thenReturn(List.of(partial, exact));
 
@@ -3534,7 +3534,7 @@ class ReconciliationServiceTest {
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(charge));
         when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(statement));
         when(transactionRepository.findByStatementImportId(statement.getId())).thenReturn(List.of(charge));
-        when(transactionGraphService.liveEdgesOfType(userId, TransactionRelationship.RelationshipType.CC_PAYMENT))
+        when(transactionGraphService.edgesOfType(userId, TransactionRelationship.RelationshipType.CC_PAYMENT))
                 .thenReturn(List.of(edge));
         // findAllById honours the soft-delete restriction: the deleted row does not come back.
         when(transactionRepository.findAllById(any())).thenReturn(List.of());
@@ -3560,13 +3560,130 @@ class ReconciliationServiceTest {
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(confirmed, exactPayment, charge));
         when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(statement));
         when(transactionRepository.findByStatementImportId(statement.getId())).thenReturn(List.of(charge));
-        when(transactionGraphService.liveEdgesOfType(userId, TransactionRelationship.RelationshipType.CC_PAYMENT))
+        when(transactionGraphService.edgesOfType(userId, TransactionRelationship.RelationshipType.CC_PAYMENT))
                 .thenReturn(List.of(ccEdge(confirmed, charge, statement, TransactionRelationship.Status.USER_CONFIRMED,
                         TransactionRelationship.DetectionMethod.RULE_ENGINE)));
 
         reconciliationService.reconcileForUser(userId);
 
         assertThat(captureRejectedEdges()).isEmpty();
+        assertThat(ccPendingEdgesIfAny()).isEmpty();
+    }
+
+    @Test
+    void reconcileForUser_aCardPaymentPhraseMustStartAWord_soAccPaymentIsNotEvidence() {
+        UUID cardAccountId = UUID.randomUUID();
+        UUID savingsAccountId = UUID.randomUUID();
+        com.finora.entity.StatementImport statement =
+                ccStatement(UUID.randomUUID(), cardAccountId, new BigDecimal("7000.00"), LocalDate.of(2026, 7, 29));
+        Transaction accountPayment = txn(UUID.randomUUID(), savingsAccountId, LocalDate.of(2026, 7, 29),
+                new BigDecimal("3000.00"), Transaction.Type.EXPENSE, "LOAN ACC PAYMENT", Instant.now());
+        Transaction charge = txn(UUID.randomUUID(), cardAccountId, LocalDate.of(2026, 7, 1),
+                new BigDecimal("7000.00"), Transaction.Type.EXPENSE, "SHOP", Instant.now());
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(accountPayment, charge));
+        when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(statement));
+        when(transactionRepository.findByStatementImportId(statement.getId())).thenReturn(List.of(charge));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(ccPendingEdgesIfAny()).isEmpty();
+    }
+
+    @Test
+    void reconcileForUser_theTailOfALongReferenceNumber_isNotEvidenceThatANarrationNamesTheCard() {
+        UUID cardAccountId = UUID.randomUUID();
+        UUID savingsAccountId = UUID.randomUUID();
+        com.finora.entity.StatementImport statement =
+                ccStatement(UUID.randomUUID(), cardAccountId, new BigDecimal("7000.00"), LocalDate.of(2026, 7, 29));
+        maskCardAccount(cardAccountId, "4111XXXXXXXX9876");
+        // A 12-digit UPI reference that merely ends in the card's last 4.
+        Transaction purchase = txn(UUID.randomUUID(), savingsAccountId, LocalDate.of(2026, 7, 29),
+                new BigDecimal("3000.00"), Transaction.Type.EXPENSE, "UPI/123456789876/GROCER", Instant.now()); // synthetic-ok: made-up 12-digit reference
+        Transaction charge = txn(UUID.randomUUID(), cardAccountId, LocalDate.of(2026, 7, 1),
+                new BigDecimal("7000.00"), Transaction.Type.EXPENSE, "SHOP", Instant.now());
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(purchase, charge));
+        when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(statement));
+        when(transactionRepository.findByStatementImportId(statement.getId())).thenReturn(List.of(charge));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(ccPendingEdgesIfAny()).isEmpty();
+    }
+
+    @Test
+    void reconcileForUser_aReferenceNumberEndingInAnotherCardsLast4_doesNotExcludeTheRealPayment() {
+        UUID cardAccountId = UUID.randomUUID();
+        UUID otherCardId = UUID.randomUUID();
+        UUID savingsAccountId = UUID.randomUUID();
+        com.finora.entity.StatementImport statement =
+                ccStatement(UUID.randomUUID(), cardAccountId, new BigDecimal("2500.00"), LocalDate.of(2026, 7, 15));
+        com.finora.entity.StatementImport otherStatement =
+                ccStatement(UUID.randomUUID(), otherCardId, new BigDecimal("1.00"), LocalDate.of(2020, 1, 1));
+        maskCardAccount(otherCardId, "4111XXXXXXXX9876");
+        // The 12-digit reference only ends in the other card's last 4; it does not name that card.
+        Transaction payment = txn(UUID.randomUUID(), savingsAccountId, LocalDate.of(2026, 7, 15),
+                new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "NEFT 123456789876 CC PAYMENT", Instant.now()); // synthetic-ok: made-up 12-digit reference
+        Transaction charge = txn(UUID.randomUUID(), cardAccountId, LocalDate.of(2026, 6, 20),
+                new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "SHOP", Instant.now());
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(payment, charge));
+        // Both statements, so the other card's last 4 is known to the pass.
+        when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId))
+                .thenReturn(List.of(statement, otherStatement));
+        when(transactionRepository.findByStatementImportId(statement.getId())).thenReturn(List.of(charge));
+
+        reconciliationService.reconcileForUser(userId);
+
+        List<TransactionGraphService.PendingEdge> edges = ccPendingEdgesIfAny();
+        assertThat(edges).hasSize(1);
+        assertThat(edges.get(0).fromTransactionId()).isEqualTo(payment.getId());
+    }
+
+    @Test
+    void reconcileForUser_aRejectedPair_isNeverProposedAgain_soTheNextBestPaymentIsLinked() {
+        UUID cardAccountId = UUID.randomUUID();
+        UUID savingsAccountId = UUID.randomUUID();
+        com.finora.entity.StatementImport statement =
+                ccStatement(UUID.randomUUID(), cardAccountId, new BigDecimal("2500.00"), LocalDate.of(2026, 7, 15));
+        Transaction rejected = txn(UUID.randomUUID(), savingsAccountId, LocalDate.of(2026, 7, 15),
+                new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "CC PAYMENT", Instant.now());
+        Transaction nextBest = txn(UUID.randomUUID(), savingsAccountId, LocalDate.of(2026, 7, 11),
+                new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "CC PAYMENT", Instant.now());
+        Transaction charge = txn(UUID.randomUUID(), cardAccountId, LocalDate.of(2026, 6, 20),
+                new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "SHOP", Instant.now());
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(rejected, nextBest, charge));
+        when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(statement));
+        when(transactionRepository.findByStatementImportId(statement.getId())).thenReturn(List.of(charge));
+        when(transactionGraphService.edgesOfType(userId, TransactionRelationship.RelationshipType.CC_PAYMENT))
+                .thenReturn(List.of(ccEdge(rejected, charge, statement, TransactionRelationship.Status.REJECTED,
+                        TransactionRelationship.DetectionMethod.RULE_ENGINE)));
+
+        reconciliationService.reconcileForUser(userId);
+
+        List<TransactionGraphService.PendingEdge> edges = ccPendingEdgesIfAny();
+        assertThat(edges).hasSize(1);
+        assertThat(edges.get(0).fromTransactionId()).isEqualTo(nextBest.getId());
+    }
+
+    @Test
+    void reconcileForUser_anEdgeWithAnUnreadableStatementId_doesNotFailTheRun() {
+        UUID cardAccountId = UUID.randomUUID();
+        UUID savingsAccountId = UUID.randomUUID();
+        com.finora.entity.StatementImport statement =
+                ccStatement(UUID.randomUUID(), cardAccountId, new BigDecimal("2500.00"), LocalDate.of(2026, 7, 15));
+        Transaction payment = txn(UUID.randomUUID(), savingsAccountId, LocalDate.of(2026, 7, 15),
+                new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "CC PAYMENT", Instant.now());
+        Transaction charge = txn(UUID.randomUUID(), cardAccountId, LocalDate.of(2026, 6, 20),
+                new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "SHOP", Instant.now());
+        TransactionRelationship odd = ruleCcEdge(payment, charge, statement);
+        odd.getExplanation().put("statementImportId", "not-a-uuid");
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(payment, charge));
+        when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(statement));
+        when(transactionRepository.findByStatementImportId(statement.getId())).thenReturn(List.of(charge));
+        when(transactionGraphService.edgesOfType(userId, TransactionRelationship.RelationshipType.CC_PAYMENT))
+                .thenReturn(List.of(odd));
+
+        assertThatCode(() -> reconciliationService.reconcileForUser(userId)).doesNotThrowAnyException();
+        // Treated like a hand-drawn edge: its payment stays claimed, nothing is rejected.
         assertThat(ccPendingEdgesIfAny()).isEmpty();
     }
 

@@ -1140,7 +1140,7 @@ public class ReconciliationService {
         // as the Gmail pass above (a wrong match here would silently exclude or double-count real
         // money -- a payment must now come from a savings account and, unless it is the exact
         // amount due, name the card or a card payment, but a last-4 match is real yet
-        // bank-dependent evidence, not a guarantee, per last4CandidatesIn's own doc comment);
+        // bank-dependent evidence, not a guarantee, per cardFragmentsIn's own doc comment);
         // second, this pass runs AFTER the TRANSFER pass in this same method specifically so it can read `!isTransfer()` and skip
         // anything TRANSFER already claimed -- a real credit-card bill payment is, today, already
         // caught by TRANSFER's generic "payment"-keyword/same-amount heuristic, so this pass only
@@ -1193,12 +1193,15 @@ public class ReconciliationService {
                             .thenComparing(StatementImport::getId))
                     .toList();
         }
-        if (!ccStatements.isEmpty()) {
+        // Not skipped when no card statement is left: the seeding below is also what rejects the
+        // edges of a statement that was deleted, and deleting a user's only card statement must
+        // still release the payment it settled back into spending.
+        {
             int[] ccMatchesThisRun = {0};
             Set<UUID> claimedPaymentIds = new HashSet<>();
             // Real card fragment matching (roadmap Part 4's "issuer-name + last-4-digit
             // matching"), confirmed feasible against this project's own real bank-statement
-            // corpus rather than assumed -- see last4CandidatesIn's own doc comment for the ICICI
+            // corpus rather than assumed -- see cardFragmentsIn's own doc comment for the ICICI
             // example that proved it and the HDFC one that didn't. Built once per run, not per
             // statement: every OTHER live card's last-4 needs to be known too, so a payment
             // description naming a DIFFERENT card can be excluded as a candidate, not just
@@ -1230,17 +1233,18 @@ public class ReconciliationService {
             // at all, or an earlier-due-date statement's wide search can steal a payment that is
             // actually EXACT for a different, later-due-date statement.
             Set<UUID> settledStatementIds = new HashSet<>();
+            Set<String> rejectedPairs = new HashSet<>();
             // Seeded from the edges earlier runs wrote, not started empty. The claim sets used to
             // live for one run only, and every import re-runs this pass over every statement, so
             // whenever an import brought a new best candidate into `all`, the same statement was
             // linked again from a different payment. linkAll never retracts an edge, so they piled
             // up: one card statement in the real corpus ended with four live payments, each dropped
             // from spending. Edges that no longer qualify are rejected here, not kept as seeds.
-            ccEdgesRejected = seedCcClaimsFromLiveEdges(userId, validStatements, paymentAccountIds,
-                    cardLast4ByAccountId, claimedPaymentIds, settledStatementIds);
+            ccEdgesRejected = seedCcClaims(userId, all, validStatements, paymentAccountIds,
+                    cardLast4ByAccountId, claimedPaymentIds, settledStatementIds, rejectedPairs);
             for (StatementImport statement : validStatements) {
                 if (settledStatementIds.contains(statement.getId())) continue;
-                if (matchCcStatement(userId, statement, all, paymentAccountIds, claimedPaymentIds,
+                if (matchCcStatement(userId, statement, all, paymentAccountIds, claimedPaymentIds, rejectedPairs,
                         cardLast4ByAccountId, true, pendingEdges)) {
                     settledStatementIds.add(statement.getId());
                     ccMatchesThisRun[0]++;
@@ -1248,7 +1252,7 @@ public class ReconciliationService {
             }
             for (StatementImport statement : validStatements) {
                 if (settledStatementIds.contains(statement.getId())) continue;
-                if (matchCcStatement(userId, statement, all, paymentAccountIds, claimedPaymentIds,
+                if (matchCcStatement(userId, statement, all, paymentAccountIds, claimedPaymentIds, rejectedPairs,
                         cardLast4ByAccountId, false, pendingEdges)) {
                     ccMatchesThisRun[0]++;
                 }
@@ -1533,11 +1537,17 @@ public class ReconciliationService {
      */
     private boolean matchCcStatement(UUID userId, StatementImport statement, List<Transaction> all,
                                       Set<UUID> paymentAccountIds, Set<UUID> claimedPaymentIds,
+                                      Set<String> rejectedPairs,
                                       Map<UUID, String> cardLast4ByAccountId, boolean requireExactAmount,
                                       List<TransactionGraphService.PendingEdge> pendingEdges) {
         String thisCardLast4 = cardLast4ByAccountId.get(statement.getAccountId());
         List<Transaction> paymentCandidates = all.stream()
                 .filter(t -> !claimedPaymentIds.contains(t.getId()))
+                // A pair whose edge was rejected stays rejected: linkAll never rewrites a pair that
+                // already has an edge in any status, so picking it would claim the payment and
+                // settle the statement in this run without writing anything, every run, and the
+                // statement would never reach its next-best payment.
+                .filter(t -> !rejectedPairs.contains(ccPairKey(t.getId(), statement.getId())))
                 .filter(t -> isCcPaymentCandidate(t, statement, requireExactAmount, paymentAccountIds, cardLast4ByAccountId))
                 .toList();
         if (paymentCandidates.isEmpty()) return false;
@@ -1546,8 +1556,7 @@ public class ReconciliationService {
         Transaction payment = paymentCandidates.stream()
                 .min(ccPaymentPreference(statement, thisCardLast4))
                 .orElseThrow();
-        boolean matchedByLast4 = thisCardLast4 != null
-                && last4CandidatesIn(payment.getDescription()).contains(thisCardLast4);
+        boolean matchedByLast4 = namesCard(payment, thisCardLast4);
 
         // EXPENSE only -- findByStatementImportId returns every transaction this statement's
         // confirm wrote, which can include an INCOME-type row for a credit/refund printed on the
@@ -1614,7 +1623,7 @@ public class ReconciliationService {
 
     /**
      * Whether {@code t} could be the payment that settles {@code statement}. Shared by the matching
-     * search and by {@link #seedCcClaimsFromLiveEdges}, so an edge an earlier run wrote is kept only
+     * search and by {@link #seedCcClaims}, so an edge an earlier run wrote is kept only
      * while it would still be written today.
      */
     private static boolean isCcPaymentCandidate(Transaction t, StatementImport statement, boolean requireExactAmount,
@@ -1635,7 +1644,7 @@ public class ReconciliationService {
         // real evidence it belongs elsewhere, not just a weaker candidate. A candidate with no
         // identifiable fragment at all, or one that matches THIS card, is unaffected here; see
         // ccPaymentPreference for how a match to THIS card is preferred among what's left.
-        Set<String> descriptionLast4s = last4CandidatesIn(t.getDescription());
+        Set<String> descriptionLast4s = cardFragmentsIn(t.getDescription());
         if (descriptionLast4s.isEmpty() || descriptionLast4s.contains(thisCardLast4)) return true;
         return cardLast4ByAccountId.entrySet().stream()
                 .noneMatch(e -> !e.getKey().equals(statement.getAccountId())
@@ -1654,9 +1663,15 @@ public class ReconciliationService {
 
     /** The narration names this card's last 4 digits, or says it is a card payment. */
     private static boolean hasCardPaymentEvidence(Transaction t, String thisCardLast4) {
-        if (thisCardLast4 != null && last4CandidatesIn(t.getDescription()).contains(thisCardLast4)) return true;
-        String normalized = CategoryRules.normalize(t.getDescription());
-        return CARD_PAYMENT_PHRASES.stream().anyMatch(normalized::contains);
+        if (namesCard(t, thisCardLast4)) return true;
+        // Each phrase must start a word: "cc payment" is not evidence inside "acc payment".
+        String normalized = " " + CategoryRules.normalize(t.getDescription());
+        return CARD_PAYMENT_PHRASES.stream().anyMatch(phrase -> normalized.contains(" " + phrase));
+    }
+
+    /** Whether the narration names this card's last 4 digits as a fragment of their own; see {@link #cardFragmentsIn}. */
+    private static boolean namesCard(Transaction t, String thisCardLast4) {
+        return thisCardLast4 != null && cardFragmentsIn(t.getDescription()).contains(thisCardLast4);
     }
 
     /**
@@ -1672,8 +1687,7 @@ public class ReconciliationService {
      */
     private static Comparator<Transaction> ccPaymentPreference(StatementImport statement, String thisCardLast4) {
         return Comparator
-                .comparing((Transaction t) -> thisCardLast4 == null
-                        || !last4CandidatesIn(t.getDescription()).contains(thisCardLast4))
+                .comparing((Transaction t) -> !namesCard(t, thisCardLast4))
                 .thenComparing((Transaction t) -> t.getAmount().compareTo(statement.getTotalAmountDue()) != 0)
                 .thenComparingLong(t -> Math.abs(ChronoUnit.DAYS.between(t.getTxnDate(), statement.getPaymentDueDate())))
                 .thenComparing(t -> t.getAmount().subtract(statement.getTotalAmountDue()).abs())
@@ -1683,16 +1697,35 @@ public class ReconciliationService {
     /** One (payment, statement) link as earlier runs persisted it: every edge it wrote, one per charge. */
     private record CcLink(UUID paymentId, UUID statementId, List<TransactionRelationship> edges) {}
 
+    private static String ccPairKey(UUID paymentId, UUID statementId) {
+        return paymentId + "|" + statementId;
+    }
+
+    /** The statement a CC_PAYMENT edge was written for, from its explanation; null if absent or unreadable. */
+    private static UUID ccEdgeStatementId(TransactionRelationship edge) {
+        Object value = edge.getExplanation() == null ? null : edge.getExplanation().get("statementImportId");
+        if (value == null) return null;
+        try {
+            return UUID.fromString(value.toString());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
     /**
-     * Fills {@code claimedPaymentIds} and {@code settledStatementIds} from the CC_PAYMENT edges
-     * earlier runs left live, and rejects the ones that should no longer stand.
+     * Fills {@code claimedPaymentIds}, {@code settledStatementIds} and {@code rejectedPairs} from
+     * the CC_PAYMENT edges earlier runs left, and rejects the live ones that should no longer stand.
      *
      * <p>A link this pass wrote (RULE_ENGINE, still CANDIDATE) is kept only if its payment would
-     * still be a candidate for its statement today. Where accumulation left one statement linked
-     * from several payments, or one payment linked to several statements, the same order a fresh
-     * run would use picks the one that stays: exact-amount links first, then statements in due-date
-     * order, then {@link #ccPaymentPreference}. Every other link is rejected. An edge a person
-     * confirmed or drew by hand is never rejected here; it seeds the claim sets as it stands.
+     * still be a candidate for its statement today -- which also rejects the links of a statement
+     * that has since been deleted. Where accumulation left one statement linked from several
+     * payments, or one payment linked to several statements, the same order a fresh run would use
+     * picks the one that stays: exact-amount links first, then statements in due-date order, then
+     * {@link #ccPaymentPreference}. Every other link is rejected. An edge a person confirmed or drew
+     * by hand is never rejected here; it seeds the claim sets as it stands.
+     *
+     * <p>A rejected pair -- rejected by a person, or by this method in this or an earlier run --
+     * goes into {@code rejectedPairs} and is never proposed again. See matchCcStatement for why.
      *
      * <p>A kept link is not revisited later: a better payment arriving in a later import does not
      * displace it. That is the trade for stability -- the alternative is the flip-flopping this
@@ -1700,17 +1733,20 @@ public class ReconciliationService {
      *
      * @return how many edges were rejected
      */
-    private int seedCcClaimsFromLiveEdges(UUID userId, List<StatementImport> validStatements, Set<UUID> paymentAccountIds,
-                                          Map<UUID, String> cardLast4ByAccountId, Set<UUID> claimedPaymentIds,
-                                          Set<UUID> settledStatementIds) {
-        List<TransactionRelationship> liveEdges =
-                transactionGraphService.liveEdgesOfType(userId, TransactionRelationship.RelationshipType.CC_PAYMENT);
-        if (liveEdges.isEmpty()) return 0;
+    private int seedCcClaims(UUID userId, List<Transaction> all, List<StatementImport> validStatements,
+                             Set<UUID> paymentAccountIds, Map<UUID, String> cardLast4ByAccountId,
+                             Set<UUID> claimedPaymentIds, Set<UUID> settledStatementIds, Set<String> rejectedPairs) {
+        List<TransactionRelationship> edges =
+                transactionGraphService.edgesOfType(userId, TransactionRelationship.RelationshipType.CC_PAYMENT);
+        if (edges.isEmpty()) return 0;
 
         Map<String, CcLink> ruleLinks = new java.util.LinkedHashMap<>();
-        for (TransactionRelationship edge : liveEdges) {
-            Object statementIdValue = edge.getExplanation() == null ? null : edge.getExplanation().get("statementImportId");
-            UUID statementId = statementIdValue == null ? null : UUID.fromString(statementIdValue.toString());
+        for (TransactionRelationship edge : edges) {
+            UUID statementId = ccEdgeStatementId(edge);
+            if (edge.getStatus() == TransactionRelationship.Status.REJECTED) {
+                if (statementId != null) rejectedPairs.add(ccPairKey(edge.getFromTransactionId(), statementId));
+                continue;
+            }
             boolean ruleEngineCandidate = edge.getStatus() == TransactionRelationship.Status.CANDIDATE
                     && edge.getDetectionMethod() == TransactionRelationship.DetectionMethod.RULE_ENGINE;
             if (!ruleEngineCandidate || statementId == null) {
@@ -1719,9 +1755,10 @@ public class ReconciliationService {
                 if (statementId != null) settledStatementIds.add(statementId);
                 continue;
             }
-            ruleLinks.computeIfAbsent(edge.getFromTransactionId() + "|" + statementId,
+            ruleLinks.computeIfAbsent(ccPairKey(edge.getFromTransactionId(), statementId),
                     k -> new CcLink(edge.getFromTransactionId(), statementId, new java.util.ArrayList<>())).edges().add(edge);
         }
+        if (ruleLinks.isEmpty()) return 0;
 
         Map<UUID, StatementImport> statementsById = new java.util.HashMap<>();
         Map<UUID, Integer> statementRank = new java.util.HashMap<>();
@@ -1729,12 +1766,19 @@ public class ReconciliationService {
             statementsById.put(s.getId(), s);
             statementRank.put(s.getId(), statementRank.size());
         }
-        // The payment rows themselves, not `all`: reconcileForImport's `all` is windowed, and a
-        // payment outside this import's window is still a claimed payment. Soft-deleted rows do not
-        // come back, so a link from a deleted payment is rejected below.
-        Map<UUID, Transaction> paymentsById = new java.util.HashMap<>();
+        // The rows in `all` first: the transfer pass earlier in this run may have just marked one of
+        // them, and that change is on those instances, not yet necessarily in the database. The rest
+        // from the database -- reconcileForImport's `all` is windowed, and a payment outside this
+        // import's window is still a claimed payment. Soft-deleted rows do not come back, so a link
+        // from a deleted payment is rejected below.
         Set<UUID> paymentIds = ruleLinks.values().stream().map(CcLink::paymentId).collect(java.util.stream.Collectors.toSet());
-        if (!paymentIds.isEmpty()) transactionRepository.findAllById(paymentIds).forEach(t -> paymentsById.put(t.getId(), t));
+        Map<UUID, Transaction> paymentsById = new java.util.HashMap<>();
+        for (Transaction t : all) {
+            if (paymentIds.contains(t.getId())) paymentsById.put(t.getId(), t);
+        }
+        Set<UUID> missing = new HashSet<>(paymentIds);
+        missing.removeAll(paymentsById.keySet());
+        if (!missing.isEmpty()) transactionRepository.findAllById(missing).forEach(t -> paymentsById.put(t.getId(), t));
 
         List<CcLink> valid = new java.util.ArrayList<>();
         List<TransactionRelationship> toReject = new java.util.ArrayList<>();
@@ -1764,34 +1808,37 @@ public class ReconciliationService {
             claimedPaymentIds.add(link.paymentId());
             settledStatementIds.add(link.statementId());
         }
+        for (TransactionRelationship edge : toReject) {
+            rejectedPairs.add(ccPairKey(edge.getFromTransactionId(), ccEdgeStatementId(edge)));
+        }
         return transactionGraphService.rejectEdges(toReject);
     }
 
-    private static final java.util.regex.Pattern DIGIT_RUN = java.util.regex.Pattern.compile("\\d{4,}");
+    /** A run of exactly four digits, not part of a longer number. */
+    private static final java.util.regex.Pattern ISOLATED_FOUR_DIGITS =
+            java.util.regex.Pattern.compile("(?<!\\d)\\d{4}(?!\\d)");
 
     /**
-     * Every trailing-4-digit window from each run of 4+ consecutive digits in {@code text} -- the
-     * shape a masked or reference-style card fragment takes in a real bank narration (roadmap
-     * Part 4's "issuer-name + last-4-digit matching", verified against this project's own real
-     * bank-statement corpus rather than assumed: an ICICI savings-side payment read
-     * "BIL/INFT/.../CC BillPay-5001/Self" and the paid card's own printed number was
-     * "5241XXXXXXXX5001" -- masking characters or a separator (hyphen, slash) already isolate the
-     * real last-4 at the right boundary, so no bank-specific parsing is needed. Not every bank's
-     * narration carries this (an HDFC sample's trailing digits did NOT match its own card's real
-     * last-4, evidently a payment reference number instead) -- and a pure reference number
-     * produces the identical shape with no way to tell it apart from a real card fragment by this
-     * alone. See the caller: only a match against a transaction's OWN known card counts as
-     * positive evidence; an unmatched candidate is treated as unknown, never as counter-evidence.
+     * Every run of exactly four digits in {@code text} that is not part of a longer number -- the
+     * shape a card's last 4 takes in a real bank narration (roadmap Part 4's "issuer-name +
+     * last-4-digit matching", verified against this project's own real bank-statement corpus: an
+     * ICICI savings-side bill payment printed the paid card's last 4 after a hyphen, and the card's
+     * masked number printed them after a run of X's; masking characters or a separator isolate the
+     * real last 4, so no bank-specific parsing is needed). Not every bank's narration carries this
+     * (an HDFC sample's trailing digits were a payment reference, not its card's last 4).
+     *
+     * <p>Deliberately not the tail of a longer digit run. Every UPI, NEFT or IMPS debit carries a
+     * 12+ digit reference, whose last 4 digits equal a given card's about once in 10,000
+     * references; with a hundred debits near a due date that coincidence is common enough, and a
+     * fragment naming this card both admits a partial payment and outranks every other candidate,
+     * while one naming another card excludes the payment outright.
      */
-    private static Set<String> last4CandidatesIn(String text) {
+    private static Set<String> cardFragmentsIn(String text) {
         if (text == null || text.isBlank()) return Set.of();
-        Set<String> candidates = new HashSet<>();
-        java.util.regex.Matcher m = DIGIT_RUN.matcher(text);
-        while (m.find()) {
-            String run = m.group();
-            candidates.add(run.substring(run.length() - 4));
-        }
-        return candidates;
+        Set<String> fragments = new HashSet<>();
+        java.util.regex.Matcher m = ISOLATED_FOUR_DIGITS.matcher(text);
+        while (m.find()) fragments.add(m.group());
+        return fragments;
     }
 
     /**

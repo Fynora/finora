@@ -128,6 +128,342 @@ class ReconciliationServiceTest {
         return t;
     }
 
+    /** {@code txn(...)} for a row that came from a statement import at a known printed position. */
+    private Transaction imported(UUID accountId, LocalDate date, BigDecimal amount, Transaction.Type type,
+                                 String description, UUID statementImportId, int rowPosition, Instant createdAt) {
+        Transaction t = txn(UUID.randomUUID(), accountId, date, amount, type, description, createdAt);
+        t.setSource(Transaction.Source.CSV_IMPORT);
+        t.setStatementImportId(statementImportId);
+        t.setSourceRowPosition(rowPosition);
+        return t;
+    }
+
+    @Test
+    void reconcileForUser_keepsTwoIdenticalLinesOfOneStatement_asTwoTransactions() {
+        UUID accountId = UUID.randomUUID();
+        UUID importId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 7, 13);
+        Instant at = Instant.parse("2026-07-20T10:00:00Z");
+        Transaction first = imported(accountId, date, new BigDecimal("10.00"), Transaction.Type.EXPENSE,
+                "FUEL SURCHARGE", importId, 148, at);
+        Transaction second = imported(accountId, date, new BigDecimal("10.00"), Transaction.Type.EXPENSE,
+                "FUEL SURCHARGE", importId, 155, at);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(first, second));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(first.getIsDuplicateOf()).isNull();
+        assertThat(second.getIsDuplicateOf()).isNull();
+    }
+
+    @Test
+    void reconcileForUser_neverPairsACreditWithADebitOfTheSameAmount() {
+        UUID accountId = UUID.randomUUID();
+        UUID importId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 1, 23);
+        Instant at = Instant.parse("2026-02-01T10:00:00Z");
+        Transaction credit = imported(accountId, date, new BigDecimal("3829.33"), Transaction.Type.INCOME,
+                "INSTALMENT PLAN MERCHANT", importId, 34, at);
+        Transaction debit = imported(accountId, date, new BigDecimal("3829.33"), Transaction.Type.EXPENSE,
+                "INSTALMENT PLAN MERCHANT", importId, 36, at);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(credit, debit));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(credit.getIsDuplicateOf()).isNull();
+        assertThat(debit.getIsDuplicateOf()).isNull();
+    }
+
+    @Test
+    void reconcileForUser_pairsRepeatedLinesOfAReimportedStatement_byRowRank() {
+        UUID accountId = UUID.randomUUID();
+        UUID firstImport = UUID.randomUUID();
+        UUID secondImport = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 7, 13);
+        Instant earlier = Instant.parse("2026-07-20T10:00:00Z");
+        Instant later = Instant.parse("2026-07-21T10:00:00Z");
+        Transaction a1 = imported(accountId, date, new BigDecimal("10.00"), Transaction.Type.EXPENSE, "FUEL SURCHARGE", firstImport, 148, earlier);
+        Transaction a2 = imported(accountId, date, new BigDecimal("10.00"), Transaction.Type.EXPENSE, "FUEL SURCHARGE", firstImport, 155, earlier);
+        Transaction b1 = imported(accountId, date, new BigDecimal("10.00"), Transaction.Type.EXPENSE, "FUEL SURCHARGE", secondImport, 148, later);
+        Transaction b2 = imported(accountId, date, new BigDecimal("10.00"), Transaction.Type.EXPENSE, "FUEL SURCHARGE", secondImport, 155, later);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(a1, a2, b1, b2));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(a1.getIsDuplicateOf()).isNull();
+        assertThat(a2.getIsDuplicateOf()).isNull();
+        assertThat(b1.getIsDuplicateOf()).isEqualTo(a1.getId());
+        assertThat(b2.getIsDuplicateOf()).isEqualTo(a2.getId());
+    }
+
+    /**
+     * The balance-keyed pass can meet a row the description-keyed pass already marked: the
+     * original carries no running balance (a card statement, a manual entry), the first re-import
+     * matched it by narration, and a third copy in another layout matches the re-import by balance
+     * only. The third copy must be marked against the original the ledger keeps, not skipped
+     * because the group's best member happens to be marked already.
+     */
+    @Test
+    void reconcileForUser_marksAThirdCopy_againstTheRootOfAnAlreadyMarkedRow() {
+        UUID accountId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 6, 1);
+        Transaction original = imported(accountId, date, new BigDecimal("1300.00"), Transaction.Type.EXPENSE,
+                "TRANSFER TO WALLET 0001", UUID.randomUUID(), 7, Instant.parse("2026-06-10T10:00:00Z"));
+        Transaction reimport = imported(accountId, date, new BigDecimal("1300.00"), Transaction.Type.EXPENSE,
+                "TRANSFER TO WALLET 0001", UUID.randomUUID(), 7, Instant.parse("2026-06-11T10:00:00Z"));
+        reimport.setBalanceAfter(new BigDecimal("500.00"));
+        Transaction otherLayout = imported(accountId, date, new BigDecimal("1300.00"), Transaction.Type.EXPENSE,
+                "TRANSFER TO WALLET 0001 VALUE DT 01/06 REF 000009", UUID.randomUUID(), 7, Instant.parse("2026-06-12T10:00:00Z"));
+        otherLayout.setBalanceAfter(new BigDecimal("500.00"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                .thenReturn(List.of(original, reimport, otherLayout));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(original.getIsDuplicateOf()).isNull();
+        assertThat(reimport.getIsDuplicateOf()).isEqualTo(original.getId());
+        assertThat(otherLayout.getIsDuplicateOf()).isEqualTo(original.getId());
+    }
+
+    private com.finora.entity.StatementImport statementImport(UUID id, com.finora.entity.StatementImport.BalanceApplicationMode mode) {
+        com.finora.entity.StatementImport si = new com.finora.entity.StatementImport();
+        ReflectionTestUtils.setField(si, "id", id);
+        si.setBalanceApplicationMode(mode);
+        when(statementImportRepository.findById(id)).thenReturn(java.util.Optional.of(si));
+        return si;
+    }
+
+    private Account savingsAccount(UUID accountId, String balance) {
+        Account account = new Account();
+        ReflectionTestUtils.setField(account, "id", accountId);
+        account.setUserId(userId);
+        account.setAccountType(Account.Type.SAVINGS);
+        account.setBalance(new BigDecimal(balance));
+        when(accountRepository.findById(accountId)).thenReturn(java.util.Optional.of(account));
+        return account;
+    }
+
+    /** BH-003, owned by reconciliation: a row marked in ANY run comes back off the balance when its
+     *  import moved the balance by its rows' net effect (ADDITIVE). */
+    @Test
+    void reconcileForUser_takesAMarkedRowOfAnAdditiveImport_backOffTheAccountBalance() {
+        UUID accountId = UUID.randomUUID();
+        UUID firstImport = UUID.randomUUID();
+        UUID secondImport = UUID.randomUUID();
+        statementImport(secondImport, com.finora.entity.StatementImport.BalanceApplicationMode.ADDITIVE);
+        Account account = savingsAccount(accountId, "1000.00");
+        LocalDate date = LocalDate.of(2026, 7, 13);
+        Transaction original = imported(accountId, date, new BigDecimal("250.00"), Transaction.Type.EXPENSE,
+                "METRO FARE", firstImport, 3, Instant.parse("2026-07-20T10:00:00Z"));
+        Transaction copy = imported(accountId, date, new BigDecimal("250.00"), Transaction.Type.EXPENSE,
+                "METRO FARE", secondImport, 3, Instant.parse("2026-07-21T10:00:00Z"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(original, copy));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(copy.getIsDuplicateOf()).isEqualTo(original.getId());
+        // The copy's 250.00 expense had been subtracted when its import landed; it is not counted
+        // any more, so it comes back.
+        assertThat(account.getBalance()).isEqualByComparingTo("1250.00");
+        verify(accountRepository).save(account);
+        // Recorded on the row, for the un-mark and delete sites.
+        assertThat(copy.isDuplicateBalanceReversed()).isTrue();
+        assertThat(copy.getDuplicateBalanceAnchorId()).isNull();
+    }
+
+    @Test
+    void reconcileForUser_leavesTheBalanceAlone_whenTheMarkedRowsImportSetItAbsolutely() {
+        UUID accountId = UUID.randomUUID();
+        UUID firstImport = UUID.randomUUID();
+        UUID secondImport = UUID.randomUUID();
+        statementImport(secondImport, com.finora.entity.StatementImport.BalanceApplicationMode.ABSOLUTE);
+        Account account = savingsAccount(accountId, "1000.00");
+        LocalDate date = LocalDate.of(2026, 7, 13);
+        Transaction original = imported(accountId, date, new BigDecimal("250.00"), Transaction.Type.EXPENSE,
+                "METRO FARE", firstImport, 3, Instant.parse("2026-07-20T10:00:00Z"));
+        Transaction copy = imported(accountId, date, new BigDecimal("250.00"), Transaction.Type.EXPENSE,
+                "METRO FARE", secondImport, 3, Instant.parse("2026-07-21T10:00:00Z"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(original, copy));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(copy.getIsDuplicateOf()).isEqualTo(original.getId());
+        assertThat(account.getBalance()).isEqualByComparingTo("1000.00");
+        verify(accountRepository, org.mockito.Mockito.never()).save(any(Account.class));
+        // Never in the balance: not reversed, and not held by any SET either.
+        assertThat(copy.isDuplicateBalanceReversed()).isFalse();
+        assertThat(copy.getDuplicateBalanceAnchorId()).isNull();
+    }
+
+    /** A manual row was counted when it was entered (TransactionService.create), so its mark takes
+     *  it back off exactly like an ADDITIVE-import row -- the rule this pass shares with
+     *  TransactionService.confirmNotDuplicate, which puts it back. */
+    @Test
+    void reconcileForUser_takesAMarkedManualRow_backOffTheAccountBalance() {
+        UUID accountId = UUID.randomUUID();
+        UUID firstImport = UUID.randomUUID();
+        Account account = savingsAccount(accountId, "1000.00");
+        LocalDate date = LocalDate.of(2026, 7, 13);
+        Transaction original = imported(accountId, date, new BigDecimal("250.00"), Transaction.Type.EXPENSE,
+                "METRO FARE", firstImport, 3, Instant.parse("2026-07-20T10:00:00Z"));
+        Transaction manual = txn(UUID.randomUUID(), accountId, date, new BigDecimal("250.00"), Transaction.Type.EXPENSE,
+                "METRO FARE", Instant.parse("2026-07-21T10:00:00Z"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(original, manual));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(manual.getIsDuplicateOf()).isEqualTo(original.getId());
+        assertThat(account.getBalance()).isEqualByComparingTo("1250.00");
+        verify(accountRepository).save(account);
+        assertThat(manual.isDuplicateBalanceReversed()).isTrue();
+    }
+
+    /** Nothing on the account-aggregator path ever writes Account.balance, so an aggregator row's
+     *  mark has nothing to take off. */
+    @Test
+    void reconcileForUser_leavesTheBalanceAlone_whenTheMarkedRowCameFromTheAggregator() {
+        UUID accountId = UUID.randomUUID();
+        UUID firstImport = UUID.randomUUID();
+        Account account = savingsAccount(accountId, "1000.00");
+        LocalDate date = LocalDate.of(2026, 7, 13);
+        Transaction original = imported(accountId, date, new BigDecimal("250.00"), Transaction.Type.EXPENSE,
+                "METRO FARE", firstImport, 3, Instant.parse("2026-07-20T10:00:00Z"));
+        Transaction aggregator = txn(UUID.randomUUID(), accountId, date, new BigDecimal("250.00"), Transaction.Type.EXPENSE,
+                "METRO FARE", Instant.parse("2026-07-21T10:00:00Z"));
+        aggregator.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(original, aggregator));
+
+        reconciliationService.reconcileForUser(userId);
+
+        // SourceTrust ranks CSV_IMPORT above ACCOUNT_AGGREGATOR, so the aggregator row is the one
+        // marked; nothing on the aggregator path ever put it into the balance, so nothing moves.
+        assertThat(aggregator.getIsDuplicateOf()).isEqualTo(original.getId());
+        assertThat(account.getBalance()).isEqualByComparingTo("1000.00");
+        verify(accountRepository, org.mockito.Mockito.never()).save(any(Account.class));
+        assertThat(aggregator.isDuplicateBalanceReversed()).isFalse();
+        assertThat(aggregator.getDuplicateBalanceAnchorId()).isNull();
+    }
+
+    /** The account's balance was SET from a later statement's stated closing figure; a marked row
+     *  that predates that SET is no longer separately in the balance and is left alone -- and the
+     *  row records which SET stood in the way, so reversing that SET later reverses the row too. */
+    @Test
+    void reconcileForUser_leavesTheBalanceAlone_whenTheMarkedRowPredatesALiveAbsoluteSet() {
+        UUID accountId = UUID.randomUUID();
+        UUID firstImport = UUID.randomUUID();
+        UUID secondImport = UUID.randomUUID();
+        UUID anchorImport = UUID.randomUUID();
+        statementImport(secondImport, com.finora.entity.StatementImport.BalanceApplicationMode.ADDITIVE);
+        com.finora.entity.StatementImport anchor = statementImport(anchorImport, com.finora.entity.StatementImport.BalanceApplicationMode.ABSOLUTE);
+        ReflectionTestUtils.setField(anchor, "importedAt", Instant.parse("2026-08-01T10:00:00Z"));
+        Account account = savingsAccount(accountId, "1000.00");
+        account.setLastAbsoluteSetStatementId(anchorImport);
+        LocalDate date = LocalDate.of(2026, 7, 13);
+        Transaction original = imported(accountId, date, new BigDecimal("250.00"), Transaction.Type.EXPENSE,
+                "METRO FARE", firstImport, 3, Instant.parse("2026-07-20T10:00:00Z"));
+        Transaction copy = imported(accountId, date, new BigDecimal("250.00"), Transaction.Type.EXPENSE,
+                "METRO FARE", secondImport, 3, Instant.parse("2026-07-21T10:00:00Z"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(original, copy));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(copy.getIsDuplicateOf()).isEqualTo(original.getId());
+        assertThat(account.getBalance()).isEqualByComparingTo("1000.00");
+        verify(accountRepository, org.mockito.Mockito.never()).save(any(Account.class));
+        assertThat(copy.isDuplicateBalanceReversed()).isFalse();
+        assertThat(copy.getDuplicateBalanceAnchorId()).isEqualTo(anchorImport);
+    }
+
+    @Test
+    void reconcileForUser_marksAReimportedEmiRow_asDuplicateOfTheOriginal() {
+        UUID accountId = UUID.randomUUID();
+        UUID firstImport = UUID.randomUUID();
+        UUID secondImport = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 9, 6);
+        Transaction original = imported(accountId, date, new BigDecimal("20010.00"), Transaction.Type.EXPENSE,
+                "EMI PRINCIPAL - 1/6, REF# 11111111", firstImport, 36, Instant.parse("2026-09-22T10:00:00Z"));
+        Transaction reimported = imported(accountId, date, new BigDecimal("20010.00"), Transaction.Type.EXPENSE,
+                "EMI PRINCIPAL - 1/6, REF# 11111111", secondImport, 36, Instant.parse("2026-09-23T10:00:00Z"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(original, reimported));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(original.getIsDuplicateOf()).isNull();
+        assertThat(reimported.getIsDuplicateOf()).isEqualTo(original.getId());
+    }
+
+    @Test
+    void reconcileForUser_stillKeepsManualMandateRowsApart() {
+        UUID accountId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 9, 6);
+        Transaction sip1 = txn(UUID.randomUUID(), accountId, date, new BigDecimal("5000.00"),
+                Transaction.Type.EXPENSE, "SIP MUTUAL FUND", Instant.parse("2026-09-06T10:00:00Z"));
+        Transaction sip2 = txn(UUID.randomUUID(), accountId, date, new BigDecimal("5000.00"),
+                Transaction.Type.EXPENSE, "SIP MUTUAL FUND", Instant.parse("2026-09-06T10:05:00Z"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(sip1, sip2));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(sip1.getIsDuplicateOf()).isNull();
+        assertThat(sip2.getIsDuplicateOf()).isNull();
+    }
+
+    @Test
+    void reconcileForUser_marksTheSamePostingImportedFromTwoLayouts_whenRunningBalancesAgree() {
+        UUID accountId = UUID.randomUUID();
+        UUID classicImport = UUID.randomUUID();
+        UUID compositeImport = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 6, 1);
+        Transaction classic = imported(accountId, date, new BigDecimal("1300.00"), Transaction.Type.EXPENSE,
+                "ACH D- CLEARING HOUSE-0000ABCDEFGH", classicImport, 12, Instant.parse("2026-08-01T10:00:00Z"));
+        classic.setBalanceAfter(new BigDecimal("23518.22"));
+        Transaction composite = imported(accountId, date, new BigDecimal("1300.00"), Transaction.Type.EXPENSE,
+                "ACH D- CLEARING HOUSE-0000ABCDEFGHValue Dt 01/06/2026 Ref 000001", compositeImport, 3, Instant.parse("2026-08-02T10:00:00Z"));
+        composite.setBalanceAfter(new BigDecimal("23518.22"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(classic, composite));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(classic.getIsDuplicateOf()).isNull();
+        assertThat(composite.getIsDuplicateOf()).isEqualTo(classic.getId());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> reason = (Map<String, Object>) composite.getReconciliationExplanation().get("reason");
+        assertThat(reason).containsEntry("sameBalance", true);
+    }
+
+    @Test
+    void reconcileForUser_doesNotUseTheBalancePass_whenEitherRowHasNoRunningBalance() {
+        UUID accountId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 6, 1);
+        Transaction withBalance = imported(accountId, date, new BigDecimal("1300.00"), Transaction.Type.EXPENSE,
+                "ACH D- CLEARING HOUSE-0000ABCDEFGH", UUID.randomUUID(), 12, Instant.parse("2026-08-01T10:00:00Z"));
+        withBalance.setBalanceAfter(new BigDecimal("23518.22"));
+        Transaction without = imported(accountId, date, new BigDecimal("1300.00"), Transaction.Type.EXPENSE,
+                "CARD PURCHASE 1300", UUID.randomUUID(), 3, Instant.parse("2026-08-02T10:00:00Z"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(withBalance, without));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(withBalance.getIsDuplicateOf()).isNull();
+        assertThat(without.getIsDuplicateOf()).isNull();
+    }
+
+    @Test
+    void reconcileForUser_keepsAManualMandateRowApartFromAnImportedOne() {
+        UUID accountId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 9, 6);
+        Transaction manual = txn(UUID.randomUUID(), accountId, date, new BigDecimal("5000.00"),
+                Transaction.Type.EXPENSE, "SIP MUTUAL FUND", Instant.parse("2026-09-06T10:00:00Z"));
+        Transaction fromStatement = imported(accountId, date, new BigDecimal("5000.00"), Transaction.Type.EXPENSE,
+                "SIP MUTUAL FUND", UUID.randomUUID(), 7, Instant.parse("2026-09-20T10:00:00Z"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(manual, fromStatement));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(manual.getIsDuplicateOf()).isNull();
+        assertThat(fromStatement.getIsDuplicateOf()).isNull();
+    }
+
     // --- Deleted-account leak (see DashboardService.summarize for the original fix): a deleted
     // account's transactions deliberately keep deleted_at unset (StatementImportService's 7-day
     // DELETED_ACCOUNT_RETENTION), so reconcileForUser must scope its transaction fetch to exactly

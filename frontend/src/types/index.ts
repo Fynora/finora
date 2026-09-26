@@ -766,9 +766,10 @@ export interface WorkspaceSummary {
 /**
  * An existing transaction that a staged row appears to repeat (WI5).
  *
- * `confidence` has one level, 'EXACT', because the backend matches on date AND amount AND
- * description being identical — there is no weaker tier to report, and inventing a spectrum the
- * detector cannot produce would be worse than saying so.
+ * `confidence` is 'EXACT' when date, amount and description are identical, and 'BALANCE' when
+ * the description differs but the row leaves the same running balance on the same day, amount and
+ * direction (the same posting printed in another layout). There is no weaker tier: inventing a
+ * spectrum the detector cannot produce would be worse than saying so.
  *
  * `matchCount` above 1 is a signal, and the opposite of the one a filter would draw: several
  * identical existing transactions usually means the user genuinely transacts this repeatedly (a
@@ -783,6 +784,6 @@ export interface DuplicateMatch {
   existingType: 'INCOME' | 'EXPENSE' | null;
   existingImportedAt: string;
   matchCount: number;
-  confidence: 'EXACT';
+  confidence: 'EXACT' | 'BALANCE';
   reason: string;
 }

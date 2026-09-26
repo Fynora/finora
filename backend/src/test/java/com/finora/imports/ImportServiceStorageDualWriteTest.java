@@ -164,7 +164,12 @@ class ImportServiceStorageDualWriteTest {
         verify(statementImportRepository).save(captor.capture());
         assertThat(captor.getValue().getFileContent()).isEqualTo(fileBytes);
         assertThat(captor.getValue().getObjectKey()).isNull();
-        assertThat(captor.getValue().getContentHash()).isNull();
+        // The hash is recorded even without a provider (corpus audit 2026-09-25): the same value the
+        // session carried, so a confirmed row identifies its file without re-hashing the blob.
+        // objectKey stays null, which is what StatementContentService.read keys its storage branch
+        // on, so the row's bytes are still read inline exactly as before.
+        assertThat(captor.getValue().getContentHash())
+                .isEqualTo(com.finora.imports.storage.ContentAddress.hashOf(fileBytes));
     }
 
     @Test

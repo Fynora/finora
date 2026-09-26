@@ -81,9 +81,9 @@ public class DuplicateDetector {
     public Optional<ImportDto.DuplicateMatch> findMatch(UUID userId, LocalDate date,
                                                           BigDecimal amount, String description) {
         List<UUID> liveAccountIds = accountRepository.findByUserId(userId).stream().map(Account::getId).toList();
-        if (liveAccountIds.isEmpty()) return describe(List.of());
+        if (liveAccountIds.isEmpty()) return describe(List.of(), "EXACT");
         return describe(transactionRepository.findPotentialDuplicatesByUserAndAccountIdIn(
-                userId, date, amount, description, liveAccountIds));
+                userId, date, amount, description, liveAccountIds), "EXACT");
     }
 
     /**
@@ -97,11 +97,26 @@ public class DuplicateDetector {
      */
     public Optional<ImportDto.DuplicateMatch> findMatch(DuplicateIndex index, LocalDate date,
                                                           BigDecimal amount, String description) {
-        return describe(index.matches(date, amount, description));
+        return describe(index.matches(date, amount, description), "EXACT");
+    }
+
+    /**
+     * The index path with the two signals a statement row carries that a bare description does not:
+     * direction and running balance. An exact description match is reported as before; otherwise a
+     * row that leaves the same balance behind on the same day, amount and direction is the same
+     * posting printed differently (composite vs classic layout, CSV vs PDF) and is reported as a
+     * "BALANCE" match so the review screen can say why.
+     */
+    public Optional<ImportDto.DuplicateMatch> findMatch(DuplicateIndex index, LocalDate date, BigDecimal amount,
+                                                          String description, Transaction.Type type,
+                                                          BigDecimal balanceAfter) {
+        List<Transaction> exact = index.matches(date, amount, description);
+        if (!exact.isEmpty()) return describe(exact, "EXACT");
+        return describe(index.matches(date, amount, description, type, balanceAfter), "BALANCE");
     }
 
     /** Turns matching rows into the evidence WI5 reports. One implementation for both paths. */
-    private Optional<ImportDto.DuplicateMatch> describe(List<Transaction> matches) {
+    private Optional<ImportDto.DuplicateMatch> describe(List<Transaction> matches, String level) {
         if (matches.isEmpty()) return Optional.empty();
 
         Transaction first = matches.get(0);
@@ -117,14 +132,17 @@ public class DuplicateDetector {
                 // One level, honestly named. Date and amount must be identical and the description
                 // must match once case and surrounding spaces are folded away (A2, 2026-09-01), so
                 // there is still no weaker tier to report -- see DuplicateMatch's own doc.
-                "EXACT",
+                level,
                 // Says "matching" rather than "same" deliberately: this sentence is rendered on the
                 // review screen directly beside the existing transaction's description, which since
                 // A2 can differ from the staged row's in case or surrounding spaces. Claiming they
                 // are "the same" while showing the user two visibly different strings reads as a
                 // bug in the detector rather than the match it actually is.
-                "Same date and amount, and a matching description, as a transaction already in "
-                        + "your ledger."));
+                "BALANCE".equals(level)
+                        ? "Same date, amount, direction and running balance as a transaction already in "
+                                + "your ledger; the narration is printed differently."
+                        : "Same date and amount, and a matching description, as a transaction already in "
+                                + "your ledger."));
     }
 
     /** Counts, among a just-imported batch, how many rows reconciliation flagged as duplicates
@@ -156,9 +174,11 @@ public class DuplicateDetector {
      * @param duplicates the rows themselves, not just how many. BH-003: {@code ImportService}
      *        moves {@code Account.balance} by the net effect of everything it inserted, and
      *        reconciliation then flags the duplicates and excludes them from every reported total
-     *        -- but nothing reversed the balance movement they had already caused, so re-importing
-     *        a statement left the balance permanently wrong by its net while the ledger view showed
-     *        nothing amiss. Reversing it needs the rows, and the count cannot supply them.
+     *        -- for a long time nothing reversed the balance movement they had already caused, so
+     *        re-importing a statement left the balance permanently wrong by its net while the ledger
+     *        view showed nothing amiss. The reversal now happens inside reconciliation itself
+     *        ({@code ReconciliationService.reverseBalanceContribution}, for every run); the rows are
+     *        still handed back here so the summary can name them, not just count them.
      *
      *        <p>Deliberately NOT the transfers. A transfer-flagged row is excluded from income and
      *        expense totals because it is not spending -- but the money genuinely moved out of this

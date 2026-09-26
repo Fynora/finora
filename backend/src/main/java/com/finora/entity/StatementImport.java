@@ -304,6 +304,16 @@ public class StatementImport extends BaseEntity implements com.finora.imports.st
     @Column(name = "balance_before_absolute_set")
     private java.math.BigDecimal balanceBeforeAbsoluteSet;
 
+    /** The account's live absolute-SET anchor at the moment this statement's own SET replaced it
+     *  ({@link Account#getLastAbsoluteSetStatementId()} just before the overwrite), or null when
+     *  there was none. The balance {@link #balanceBeforeAbsoluteSet} restores is standing on that
+     *  earlier SET's figure, so reversing this SET hands the anchor back to it (or reverses it too,
+     *  if it was deleted or superseded while this SET stood over it) -- see {@code
+     *  StatementImportService.reverseAbsoluteContribution}. Null for every statement confirmed
+     *  before V229; never backfilled. */
+    @Column(name = "previous_absolute_set_statement_id")
+    private UUID previousAbsoluteSetStatementId;
+
     /** Snapshot of what {@code PdfMetadataExtractor} saw for this statement's account holder at
      *  confirm time -- see {@link OwnershipMatchStatus}'s class doc. Never recomputed after the
      *  fact, same "best-effort, left null on a path with no session" discipline as
@@ -393,6 +403,8 @@ public class StatementImport extends BaseEntity implements com.finora.imports.st
     public BalanceApplicationMode getBalanceApplicationMode() { return balanceApplicationMode; }
     public void setBalanceApplicationMode(BalanceApplicationMode balanceApplicationMode) { this.balanceApplicationMode = balanceApplicationMode; }
     public java.math.BigDecimal getBalanceBeforeAbsoluteSet() { return balanceBeforeAbsoluteSet; }
+    public UUID getPreviousAbsoluteSetStatementId() { return previousAbsoluteSetStatementId; }
+    public void setPreviousAbsoluteSetStatementId(UUID id) { this.previousAbsoluteSetStatementId = id; }
     public void setBalanceBeforeAbsoluteSet(java.math.BigDecimal balanceBeforeAbsoluteSet) { this.balanceBeforeAbsoluteSet = balanceBeforeAbsoluteSet; }
     public String getExtractedHolderName() { return extractedHolderName; }
     public void setExtractedHolderName(String extractedHolderName) { this.extractedHolderName = extractedHolderName; }

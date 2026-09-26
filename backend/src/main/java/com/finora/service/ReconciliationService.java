@@ -324,6 +324,8 @@ public class ReconciliationService {
         // distinct rows are never interchangeable even when their fields match (that is the whole
         // subject of the duplicate pass).
         Set<Transaction> dirty = new LinkedHashSet<>();
+        // Rows this run marks DUPLICATE, for reverseBalanceContribution at the end -- see it.
+        List<Transaction> newlyMarked = new java.util.ArrayList<>();
 
         // Every graph edge the four passes below produce, written once via TransactionGraphService
         // .linkAll(...) at the end -- same reasoning as `dirty` above, and for the same run: an
@@ -338,14 +340,22 @@ public class ReconciliationService {
         for (Transaction t : all) byId.put(t.getId(), t);
 
         Map<String, List<Transaction>> byDuplicateKey = new HashMap<>();
+        Map<String, List<Transaction>> byBalanceKey = new HashMap<>();
         for (Transaction t : all) {
             if (t.getIsDuplicateOf() != null) continue; // already resolved by a prior run
             byDuplicateKey.computeIfAbsent(duplicateKey(t), k -> new java.util.ArrayList<>()).add(t);
+            String bk = balanceKey(t);
+            if (bk != null) byBalanceKey.computeIfAbsent(bk, k -> new java.util.ArrayList<>()).add(t);
         }
-        for (List<Transaction> coarseGroup : byDuplicateKey.values()) {
+        List<List<Transaction>> coarseGroups = new java.util.ArrayList<>(byDuplicateKey.values());
+        // Balance-keyed groups run after the description-keyed ones; a row marked in the first pass
+        // is skipped by the `t.getIsDuplicateOf() != null` checks inside the loop below.
+        coarseGroups.addAll(byBalanceKey.values());
+        for (List<Transaction> coarseGroup : coarseGroups) {
             if (coarseGroup.size() < 2) continue;
-            for (List<Transaction> group : splitByDiscriminator(coarseGroup)) {
-                if (group.size() < 2) continue;
+            for (List<Transaction> discriminated : splitByDiscriminator(coarseGroup)) {
+                if (discriminated.size() < 2) continue;
+                for (List<Transaction> group : alignByImportPosition(discriminated)) {
                 // Canonical selection: higher SourceTrust wins outright (Phase 1 of the reconciliation
                 // roadmap); creation order is only the tiebreak between two rows from the same source,
                 // which is what this comparison degrades to when SourceTrust can't distinguish them --
@@ -354,6 +364,19 @@ public class ReconciliationService {
                         .min(Comparator.<Transaction>comparingInt(t -> -SourceTrust.of(t.getSource()))
                                 .thenComparing(Transaction::getCreatedAt))
                         .orElseThrow();
+                // The best-trusted member can already be marked by this same run: the first,
+                // description-keyed pass marked it against a row that carries no balance (a manual
+                // entry, a Gmail receipt), and this balance-keyed group does not contain that row.
+                // Follow the mark to the row the ledger keeps, so the remaining members are marked
+                // against it rather than skipped -- a skip here is a third copy that stays counted.
+                // Bounded: a mark always points at a row that was unmarked when it was written, so
+                // the chain is short and acyclic; the bound only guards against a corrupt ledger.
+                for (int hop = 0; canonical.getIsDuplicateOf() != null && hop < 8; hop++) {
+                    Transaction root = byId.get(canonical.getIsDuplicateOf());
+                    if (root == null) break; // outside this run's window: nothing safe to mark against
+                    canonical = root;
+                }
+                if (canonical.getIsDuplicateOf() != null) continue;
                 for (Transaction t : group) {
                     if (t == canonical || t.getIsDuplicateOf() != null) continue;
                     // A human already ruled on this row and said it is a real, separate transaction.
@@ -386,6 +409,7 @@ public class ReconciliationService {
                     clearStaleTransferPairing(t, byId, dirty);
                     t.setIsDuplicateOf(canonical.getId());
                     t.setReconciliationStatus(Transaction.ReconciliationStatus.DUPLICATE);
+                    newlyMarked.add(t);
                     // t and canonical are members of the same splitByDiscriminator sub-group, so
                     // when that group was split by balance/reference, EVERY member (both of these
                     // included) shares the identical value by construction -- a direct pairwise
@@ -413,6 +437,7 @@ public class ReconciliationService {
                             TransactionRelationship.RelationshipType.DUPLICATE, t.getAmount(), duplicateConfidence,
                             SourceTrust.of(t.getSource()), statusFor(duplicateConfidence),
                             TransactionRelationship.DetectionMethod.RULE_ENGINE, explanation));
+                }
                 }
             }
         }
@@ -1027,6 +1052,7 @@ public class ReconciliationService {
                 clearStaleTransferPairing(gmailTxn, byId, dirty);
                 gmailTxn.setIsDuplicateOf(matched.getId());
                 gmailTxn.setReconciliationStatus(Transaction.ReconciliationStatus.DUPLICATE);
+                newlyMarked.add(gmailTxn);
                 long daysApart = Math.abs(ChronoUnit.DAYS.between(gmailTxn.getTxnDate(), matched.getTxnDate()));
                 Map<String, Object> explanation = new java.util.LinkedHashMap<>();
                 explanation.put("type", "ACCOUNT_AGGREGATOR_GMAIL_AUTO_EXCLUDE");
@@ -1162,6 +1188,9 @@ public class ReconciliationService {
         // One write for the whole run. Ordered and de-duplicated by the LinkedHashSet above, so
         // Hibernate's configured batch_size/order_updates can actually apply -- they could do
         // nothing when this was a save() per match.
+        // Before the save: it records on each newly marked row what its mark did to the balance,
+        // and every one of those rows is in `dirty`.
+        reverseBalanceContribution(newlyMarked);
         if (!dirty.isEmpty()) transactionRepository.saveAll(dirty);
         // Captured rather than discarded: linkAll returns only the edges it actually wrote, never
         // the ones its own idempotent dedup skipped (see that method's own doc comment) -- the
@@ -1597,7 +1626,25 @@ public class ReconciliationService {
         // duplicate paths have to answer identically -- see that class's own comment.
         return t.getAccountId() + "|" + t.getTxnDate() + "|"
                 + t.getAmount().stripTrailingZeros().toPlainString() + "|"
+                + (t.getTxnType() == null ? "" : t.getTxnType().name()) + "|"
                 + com.finora.util.DuplicateMatching.normalizeDescription(t.getDescription());
+    }
+
+    /**
+     * Second duplicate key: the same posting in a different narration.
+     *
+     * <p>Two statements of one account can print one transaction differently -- a composite
+     * statement appends the value date and reference to every narration, a CSV export spaces the
+     * segments differently -- and {@link #duplicateKey} then never matches. A running balance is
+     * the bank's own sequence number for the posting: two rows on the same account, day, amount and
+     * direction that leave the same balance behind are the same row. Null when the row carries no
+     * balance, so rows without one never enter this pass.
+     */
+    private String balanceKey(Transaction t) {
+        if (t.getBalanceAfter() == null || t.getAmount() == null || t.getTxnType() == null) return null;
+        return t.getAccountId() + "|" + t.getTxnDate() + "|"
+                + t.getAmount().stripTrailingZeros().toPlainString() + "|"
+                + t.getTxnType().name() + "|bal:" + t.getBalanceAfter().stripTrailingZeros().toPlainString();
     }
 
     /**
@@ -1650,7 +1697,14 @@ public class ReconciliationService {
         if (group.stream().allMatch(t -> t.getReferenceNumber() != null && !t.getReferenceNumber().isBlank())) {
             return groupBy(group, t -> "ref:" + t.getReferenceNumber());
         }
-        if (looksLikeRecurringMandate(group.get(0).getDescription())) {
+        // A recurring mandate (SIP, EMI, NACH) legitimately repeats with an identical narration, so
+        // rows that carry no import position cannot be told apart and are left alone. Rows from
+        // statement imports carry their printed position, and alignByImportPosition pairs them
+        // across imports without ever pooling two lines of the same statement -- which is exactly
+        // the case this exemption existed to protect. Without this narrowing a re-imported EMI row
+        // was never marked and its amount was added to the balance on every re-import.
+        if (looksLikeRecurringMandate(group.get(0).getDescription())
+                && group.stream().filter(t -> t.getStatementImportId() != null && t.getSourceRowPosition() != null).count() < 2) {
             return group.stream().map(List::of).toList();
         }
         return List.of(group);
@@ -1683,6 +1737,113 @@ public class ReconciliationService {
             byKey.computeIfAbsent(keyFn.apply(t), k -> new java.util.ArrayList<>()).add(t);
         }
         return new java.util.ArrayList<>(byKey.values());
+    }
+
+    /**
+     * Rows that came from statement imports are paired by their printed position, not pooled.
+     *
+     * <p>Two lines of one statement that carry the same date, amount, type and narration are two
+     * transactions the bank printed twice (a repeated fuel surcharge, two identical recharges), never
+     * duplicates of each other. A re-import of that statement prints them twice again, and the k-th
+     * repeat of the new import is the duplicate of the k-th repeat of the old one. Rows with no
+     * import position (manual, Gmail, legacy) join the first rank so they keep matching as before.
+     *
+     * @return the sets that may contain duplicates; every set holds at most one row per statement
+     *         import, and sets of one row are dropped
+     */
+    static List<List<Transaction>> alignByImportPosition(List<Transaction> group) {
+        List<Transaction> unpositioned = new java.util.ArrayList<>();
+        Map<UUID, List<Transaction>> byImport = new java.util.LinkedHashMap<>();
+        for (Transaction t : group) {
+            if (t.getStatementImportId() == null || t.getSourceRowPosition() == null) {
+                unpositioned.add(t);
+            } else {
+                byImport.computeIfAbsent(t.getStatementImportId(), k -> new java.util.ArrayList<>()).add(t);
+            }
+        }
+        if (byImport.size() < 2 && unpositioned.isEmpty()) {
+            // Everything comes from one import: each row is its own printed line.
+            return List.of();
+        }
+        if (byImport.isEmpty()) {
+            return List.of(group);
+        }
+        for (List<Transaction> rows : byImport.values()) {
+            rows.sort(Comparator.comparingInt(Transaction::getSourceRowPosition));
+        }
+        int deepest = byImport.values().stream().mapToInt(List::size).max().orElse(0);
+        List<List<Transaction>> sets = new java.util.ArrayList<>();
+        for (int rank = 0; rank < deepest; rank++) {
+            List<Transaction> set = new java.util.ArrayList<>();
+            for (List<Transaction> rows : byImport.values()) {
+                if (rank < rows.size()) set.add(rows.get(rank));
+            }
+            if (rank == 0) set.addAll(unpositioned);
+            if (set.size() >= 2) sets.add(set);
+        }
+        return sets;
+    }
+
+    /**
+     * BH-003, owned here for every run rather than only at confirm time.
+     *
+     * <p>{@code Account.balance} moves with the transactions Finora counts. A row this run has just
+     * marked DUPLICATE is no longer counted, so the contribution it made when it arrived comes back
+     * off -- when it is in the balance at all, which {@link com.finora.accounts
+     * .AccountBalanceConvention#netEffectIsInBalance} decides (manual rows and rows of ADDITIVE
+     * statement imports, unless a later stated closing balance replaced the history they were part
+     * of). The mirror image lives at every site that clears a mark: {@code TransactionService
+     * .confirmNotDuplicate}, {@code TransactionService.clearReconciliationPointersTo} and {@code
+     * StatementImportService.delete} put exactly these rows back under exactly this rule, and
+     * {@code TransactionService.delete} / {@code update} skip the balance for them because their
+     * contribution is already gone.
+     *
+     * <p>Until this lived here, only the confirm that inserted a row could reverse it
+     * ({@code ImportService.summarise}, scoped to that import's own batch). A mark written by any
+     * later run -- an edit that made an old narration match, a delete, a later import whose row
+     * became the canonical one, the balance-keyed pass meeting an older ledger -- left the balance
+     * permanently overstated by that row, with the row itself hidden from the ledger view.
+     */
+    private void reverseBalanceContribution(List<Transaction> newlyMarked) {
+        if (newlyMarked.isEmpty()) return;
+        Map<UUID, StatementImport> importsById = new HashMap<>();
+        java.util.function.Function<UUID, StatementImport> importOf = id -> id == null ? null
+                : importsById.computeIfAbsent(id, k -> statementImportRepository.findById(k).orElse(null));
+        Map<UUID, List<Transaction>> byAccount = new java.util.LinkedHashMap<>();
+        for (Transaction t : newlyMarked) {
+            if (t.getAccountId() != null) byAccount.computeIfAbsent(t.getAccountId(), k -> new java.util.ArrayList<>()).add(t);
+        }
+        for (Map.Entry<UUID, List<Transaction>> entry : byAccount.entrySet()) {
+            // findById is filtered by Account's @SQLRestriction: a since-deleted account has no
+            // balance left to correct, same as every other writer treats it.
+            accountRepository.findById(entry.getKey()).ifPresent(account -> {
+                StatementImport anchor = importOf.apply(account.getLastAbsoluteSetStatementId());
+                java.time.Instant anchoredAt = anchor == null ? null : anchor.getImportedAt();
+                List<Transaction> inBalance = new java.util.ArrayList<>();
+                for (Transaction t : entry.getValue()) {
+                    StatementImport si = importOf.apply(t.getStatementImportId());
+                    StatementImport.BalanceApplicationMode mode = si == null ? null : si.getBalanceApplicationMode();
+                    boolean reversed = com.finora.accounts.AccountBalanceConvention
+                            .netEffectIsInBalance(t.getSource(), mode, t.getCreatedAt(), anchoredAt);
+                    // Recorded on the row, for the sites that later clear the mark or remove the
+                    // row (see Transaction.duplicateBalanceReversed). A row kept out of the balance
+                    // only by the live SET has its effect in that SET's pre-set snapshot: it is
+                    // held by the SET, and reversed if the SET ever is.
+                    boolean heldByAnchor = !reversed && anchor != null
+                            && com.finora.accounts.AccountBalanceConvention
+                                    .netEffectIsInBalance(t.getSource(), mode, t.getCreatedAt(), null);
+                    t.setDuplicateBalanceReversed(reversed);
+                    t.setDuplicateBalanceAnchorId(heldByAnchor ? anchor.getId() : null);
+                    if (reversed) inBalance.add(t);
+                }
+                BigDecimal reversal = com.finora.accounts.AccountBalanceConvention
+                        .netDelta(account.getAccountType(), inBalance).negate();
+                if (reversal.signum() != 0) {
+                    account.setBalance(account.getBalance().add(reversal));
+                    accountRepository.save(account);
+                }
+            });
+        }
     }
 
     // --- Date-windowed candidate lookup -------------------------------------------------------

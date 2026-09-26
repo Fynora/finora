@@ -72,19 +72,21 @@ public class ReportService {
         // Only the cross-category income/expense totals below use this; `byCategory` keeps reading
         // `txns` so an Investments line still shows up in the report's own category table.
         List<Transaction> txnsForTotals = RefundNetting.excludingInvestmentTransfers(txns);
+        // Spend netting: linked refunds against their purchases, unlinked ones in this period.
+        RefundNetting spend = refunds.withUnlinkedOffsets(txns, flow);
 
         // Only flow-classified income: a credit from a person, a card credit, an investment
         // redemption or a loan disbursal is money in, not income. See FlowClassifier.
         BigDecimal income = txnsForTotals.stream().filter(t -> FlowTotals.countsAsIncome(t, flow))
                 .map(refunds::reportableAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal expense = txnsForTotals.stream().filter(t -> t.getTxnType() == Transaction.Type.EXPENSE)
-                .map(refunds::reportableAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal expense = RefundNetting.floorAtZero(txnsForTotals.stream().filter(spend::countsAsSpend)
+                .map(spend::spendAmount).reduce(BigDecimal.ZERO, BigDecimal::add));
 
-        Map<String, BigDecimal> byCategory = txns.stream()
-                .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE)
+        Map<String, BigDecimal> byCategory = RefundNetting.withoutNegativeSpend(txns.stream()
+                .filter(spend::countsAsSpend)
                 .collect(Collectors.groupingBy(
                         t -> categoriesById.containsKey(t.getCategoryId()) ? categoriesById.get(t.getCategoryId()).getName() : "Uncategorized",
-                        Collectors.reducing(BigDecimal.ZERO, refunds::reportableAmount, BigDecimal::add)));
+                        Collectors.reducing(BigDecimal.ZERO, spend::spendAmount, BigDecimal::add))));
 
         List<ReportDto.CategoryAmount> categories = byCategory.entrySet().stream()
                 .sorted((a, b) -> b.getValue().compareTo(a.getValue()))
@@ -118,13 +120,15 @@ public class ReportService {
         List<Transaction> txns = RefundNetting.reportable(
                 rangeTxns, transactionGraphService.ccPaymentFromTransactionIds(rangeTxns));
         List<Transaction> txnsForTotals = RefundNetting.excludingInvestmentTransfers(txns);
+        // Spend netting: linked refunds against their purchases, unlinked ones in this period.
+        RefundNetting spend = refunds.withUnlinkedOffsets(txns, flow);
 
         // Only flow-classified income: a credit from a person, a card credit, an investment
         // redemption or a loan disbursal is money in, not income. See FlowClassifier.
         BigDecimal income = txnsForTotals.stream().filter(t -> FlowTotals.countsAsIncome(t, flow))
                 .map(refunds::reportableAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal expense = txnsForTotals.stream().filter(t -> t.getTxnType() == Transaction.Type.EXPENSE)
-                .map(refunds::reportableAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal expense = RefundNetting.floorAtZero(txnsForTotals.stream().filter(spend::countsAsSpend)
+                .map(spend::spendAmount).reduce(BigDecimal.ZERO, BigDecimal::add));
         FlowClassifier.FlowReason topReason = FlowTotals.unresolvedTopReason(txnsForTotals, flow);
         return new RangeTotals(income, expense, txnsForTotals.size(),
                 FlowTotals.unresolvedInflow(txnsForTotals, flow),

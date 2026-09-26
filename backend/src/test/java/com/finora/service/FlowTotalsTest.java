@@ -177,4 +177,37 @@ class FlowTotalsTest {
         c.setName(" salary ");
         assertThat(FlowTotals.context(List.of(), List.of(c)).salaryCategoryIds()).containsExactly(c.getId());
     }
+
+    // ---- which credits give spend back ----
+
+    @Test void offsetsSpend_unlinkedRefundReversalAndCardAdjustment() {
+        Account savings = account(Account.Type.SAVINGS);
+        Account card = account(Account.Type.CREDIT_CARD);
+        FlowTotals.Context c = ctx(List.of(savings, card));
+        assertThat(FlowTotals.offsetsSpend(credit(savings, "300.00", "REFUND FROM MERCHANTCO ORDER 1"), c)).isTrue();
+        assertThat(FlowTotals.offsetsSpend(credit(card, "26.59", "FUEL SURCHARGE WAIVER"), c)).isTrue();
+        assertThat(FlowTotals.offsetsSpend(credit(card, "30000.00", "EMI CONVERSION CREDIT"), c)).isTrue();
+    }
+
+    @Test void offsetsSpend_neverForLinkedRefundsIncomeTransfersOrPeople() {
+        Account savings = account(Account.Type.SAVINGS);
+        Account card = account(Account.Type.CREDIT_CARD);
+        FlowTotals.Context c = ctx(List.of(savings, card));
+        Transaction linked = credit(savings, "300.00", "REFUND FROM MERCHANTCO ORDER 1");
+        linked.setReconciliationStatus(Transaction.ReconciliationStatus.REFUND);
+        Transaction reversedLinked = credit(savings, "300.00", "REVERSAL OF TXN 1");
+        reversedLinked.setReconciliationStatus(Transaction.ReconciliationStatus.REVERSAL);
+        Transaction taxRefund = credit(savings, "12000.00", "ITD TAX REFUND AY 2026");
+        taxRefund.setCounterpartyType(CounterpartyType.GOVERNMENT);
+
+        assertThat(FlowTotals.offsetsSpend(linked, c)).isFalse();
+        assertThat(FlowTotals.offsetsSpend(reversedLinked, c)).isFalse();
+        assertThat(FlowTotals.offsetsSpend(taxRefund, c)).as("a tax refund is income").isFalse();
+        assertThat(FlowTotals.offsetsSpend(credit(savings, "50000.00", "NEFT ACME SALARY JUL"), c)).isFalse();
+        assertThat(FlowTotals.offsetsSpend(credit(card, "20000.00", "PAYMENT RECEIVED THANK YOU"), c)).isFalse();
+        assertThat(FlowTotals.offsetsSpend(fromAPerson(savings, "800.00"), c)).isFalse();
+        Transaction debit = credit(savings, "300.00", "REFUND FROM MERCHANTCO ORDER 1");
+        debit.setTxnType(Transaction.Type.EXPENSE);
+        assertThat(FlowTotals.offsetsSpend(debit, c)).isFalse();
+    }
 }

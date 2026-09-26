@@ -385,4 +385,57 @@ class ReportServiceTest {
         assertThat(totals.unresolvedInflowCount()).isEqualTo(1);
         assertThat(totals.unresolvedTopReason()).isEqualTo("PERSON_INFLOW");
     }
+
+    // ---- unlinked refunds give spend back instead of vanishing ----
+
+    private Transaction unlinkedRefund(String amount) {
+        Transaction t = txn(new BigDecimal(amount), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
+        t.setAccountId(liveAccount.getId());
+        t.setDescription("REFUND FROM MERCHANTCO ORDER 1");
+        t.setSource(Transaction.Source.CSV_IMPORT);
+        return t;
+    }
+
+    @Test
+    void forMonth_unlinkedRefund_reducesExpenseAndItsCategory_notIncome() {
+        liveAccount.setAccountType(Account.Type.SAVINGS);
+        Transaction purchase = txn(new BigDecimal("1000.00"), Transaction.Type.EXPENSE, Transaction.ReconciliationStatus.OK);
+        purchase.setAccountId(liveAccount.getId());
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
+                .thenReturn(List.of(purchase, unlinkedRefund("300.00")));
+
+        ReportDto report = reportService.forMonth(userId, "2026-07");
+
+        assertThat(report.expense()).isEqualByComparingTo("700.00");
+        assertThat(report.income()).isEqualByComparingTo("0");
+        assertThat(report.unresolvedInflow()).isEqualByComparingTo("0");
+        assertThat(report.categories()).singleElement()
+                .satisfies(c -> assertThat(c.amount()).isEqualByComparingTo("700.00"));
+    }
+
+    @Test
+    void forMonth_refundLargerThanTheMonthsSpend_floorsAtZeroAndDropsTheCategory() {
+        liveAccount.setAccountType(Account.Type.SAVINGS);
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
+                .thenReturn(List.of(unlinkedRefund("300.00")));
+
+        ReportDto report = reportService.forMonth(userId, "2026-07");
+
+        assertThat(report.expense()).isEqualByComparingTo("0");
+        assertThat(report.categories()).isEmpty();
+    }
+
+    @Test
+    void forRange_unlinkedRefund_reducesExpense() {
+        liveAccount.setAccountType(Account.Type.SAVINGS);
+        Transaction purchase = txn(new BigDecimal("1000.00"), Transaction.Type.EXPENSE, Transaction.ReconciliationStatus.OK);
+        purchase.setAccountId(liveAccount.getId());
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
+                .thenReturn(List.of(purchase, unlinkedRefund("300.00")));
+
+        var totals = reportService.forRange(userId, LocalDate.of(2026, 7, 1), LocalDate.of(2026, 7, 31));
+
+        assertThat(totals.expense()).isEqualByComparingTo("700.00");
+        assertThat(totals.income()).isEqualByComparingTo("0");
+    }
 }

@@ -769,4 +769,76 @@ class AnalyticsServiceTest {
         p.setConfidence(confidence);
         return p;
     }
+
+    // --- unlinked refunds give spend back in the spend totals and category views ---
+
+    private Transaction unlinkedRefund(LocalDate date, String amount) {
+        Transaction t = income(date, new BigDecimal(amount));
+        t.setDescription("REFUND FROM MERCHANTCO ORDER 1");
+        t.setSource(Transaction.Source.CSV_IMPORT);
+        return t;
+    }
+
+    @Test
+    void categoryBreakdown_netsAnUnlinkedRefundIntoItsCategory_withoutCountingItAsAPurchase() {
+        UUID dining = UUID.randomUUID();
+        UUID shopping = UUID.randomUUID();
+        Transaction meal = expense(null, LocalDate.of(2026, 9, 1), new BigDecimal("300"));
+        meal.setCategoryId(dining);
+        Transaction refund = unlinkedRefund(LocalDate.of(2026, 9, 2), "100");
+        refund.setCategoryId(dining);
+        Transaction onlyARefund = unlinkedRefund(LocalDate.of(2026, 9, 3), "50");
+        onlyARefund.setCategoryId(shopping);
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(
+                eq(userId), eq(LocalDate.of(2026, 9, 1)), eq(LocalDate.of(2026, 9, 30)), any()))
+                .thenReturn(List.of(meal, refund, onlyARefund));
+        Category d = new Category();
+        ReflectionTestUtils.setField(d, "id", dining);
+        d.setName("Dining");
+        Category sh = new Category();
+        ReflectionTestUtils.setField(sh, "id", shopping);
+        sh.setName("Shopping");
+        when(categoryRepository.findByUserId(userId)).thenReturn(List.of(d, sh));
+
+        var result = analyticsService.categoryBreakdown(userId, java.time.YearMonth.of(2026, 9));
+
+        // Dining: 300 - 100, one purchase. Shopping held only a refund: dropped, not shown negative.
+        assertThat(result).containsExactly(
+                new com.finora.dto.AnalyticsDto.CategorySpend("Dining", new BigDecimal("200"), 1));
+        assertThat(analyticsService.topCategories(userId, java.time.YearMonth.of(2026, 9)))
+                .singleElement().satisfies(c -> {
+                    assertThat(c.totalSpend()).isEqualByComparingTo("200");
+                    assertThat(c.transactionCount()).isEqualTo(1);
+                });
+    }
+
+    @Test
+    void totalExpense_netsAnUnlinkedRefund_andFloorsAtZero() {
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(
+                eq(userId), eq(LocalDate.of(2026, 9, 1)), eq(LocalDate.of(2026, 9, 30)), any()))
+                .thenReturn(List.of(expense(null, LocalDate.of(2026, 9, 1), new BigDecimal("300")),
+                        unlinkedRefund(LocalDate.of(2026, 9, 2), "100")));
+        assertThat(analyticsService.totalExpense(userId, java.time.YearMonth.of(2026, 9))).isEqualByComparingTo("200");
+
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(
+                eq(userId), eq(LocalDate.of(2026, 8, 1)), eq(LocalDate.of(2026, 8, 31)), any()))
+                .thenReturn(List.of(unlinkedRefund(LocalDate.of(2026, 8, 2), "100")));
+        assertThat(analyticsService.totalExpense(userId, java.time.YearMonth.of(2026, 8))).isEqualByComparingTo("0");
+    }
+
+    @Test
+    void multiYearSpend_netsAnUnlinkedRefund_butTheIncomeSeriesDoesNotCountIt() {
+        when(transactionRepository.findEarliestTxnDate(eq(userId), any()))
+                .thenReturn(LocalDate.of(2025, 1, 5));
+        Transaction purchase = expense(null, LocalDate.of(2025, 4, 1), new BigDecimal("500"));
+        Transaction salary = income(LocalDate.of(2025, 4, 1), new BigDecimal("50000"));
+        salary.setDescription("NEFT ACME TECHNOLOGIES SALARY APR");
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(eq(userId), any(), any(), any()))
+                .thenReturn(List.of(purchase, salary, unlinkedRefund(LocalDate.of(2025, 4, 10), "200")));
+
+        assertThat(analyticsService.multiYearSpend(userId).fullYears().stream()
+                .filter(p -> p.year() == 2025).findFirst().orElseThrow().total()).isEqualByComparingTo("300");
+        assertThat(analyticsService.multiYearIncome(userId).fullYears().stream()
+                .filter(p -> p.year() == 2025).findFirst().orElseThrow().total()).isEqualByComparingTo("50000");
+    }
 }

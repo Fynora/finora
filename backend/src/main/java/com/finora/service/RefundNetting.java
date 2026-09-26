@@ -59,8 +59,81 @@ public final class RefundNetting {
     /** Expense id -> the total that has been refunded against it. */
     private final Map<UUID, BigDecimal> refundedByExpenseId;
 
+    /** Unlinked refund/adjustment credits that count as NEGATIVE spend -- see withUnlinkedOffsets.
+     *  Held by identity as well as id: a row not yet persisted has no id to look up by. */
+    private final Set<UUID> offsetIds;
+    private final Set<Transaction> offsetRows;
+
     private RefundNetting(Map<UUID, BigDecimal> refundedByExpenseId) {
+        this(refundedByExpenseId, Set.of(), Set.of());
+    }
+
+    private RefundNetting(Map<UUID, BigDecimal> refundedByExpenseId, Set<UUID> offsetIds, Set<Transaction> offsetRows) {
         this.refundedByExpenseId = refundedByExpenseId;
+        this.offsetIds = offsetIds;
+        this.offsetRows = offsetRows;
+    }
+
+    /**
+     * This netting plus the UNLINKED spend offsets among {@code rows} -- a refund, reversal or card
+     * adjustment the reconciliation pass could not tie to a purchase ({@link FlowTotals#offsetsSpend}).
+     *
+     * <p>A linked refund nets against its own purchase, in the purchase's period (see the class
+     * comment). An unlinked one has no purchase to net against, so it lands in the only period and
+     * category it has: its own. It used to be counted as income, which kept net savings right by
+     * accident; excluded from income and from spend alike, it made net savings understate by exactly
+     * that money.
+     *
+     * <p>Only the spend TOTALS and category spend read this ({@link #countsAsSpend},
+     * {@link #spendAmount}). Transaction counts, merchant rankings and foreign-currency sums keep
+     * reading expense rows alone: a refund is not a purchase, and its foreign amount is not spend.
+     */
+    public RefundNetting withUnlinkedOffsets(Collection<Transaction> rows, FlowTotals.Context flow) {
+        Set<UUID> ids = new java.util.HashSet<>();
+        Set<Transaction> identity = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        for (Transaction t : rows) {
+            if (!FlowTotals.offsetsSpend(t, flow)) continue;
+            identity.add(t);
+            if (t.getId() != null) ids.add(t.getId());
+        }
+        return identity.isEmpty() ? this : new RefundNetting(refundedByExpenseId, ids, identity);
+    }
+
+    /** Whether this row takes part in a spend total: every expense, plus the unlinked offsets. */
+    public boolean countsAsSpend(Transaction t) {
+        return t.getTxnType() == Transaction.Type.EXPENSE || isOffset(t);
+    }
+
+    /**
+     * What this row contributes to a spend total: an expense's {@link #reportableAmount}, an
+     * unlinked offset's amount NEGATED, and any other row its amount as it stands (so it is safe on
+     * an income list too). Sum it, then pass the total through {@link #floorAtZero} -- a month whose
+     * refunds exceed its purchases spent nothing, not a negative amount.
+     */
+    public BigDecimal spendAmount(Transaction t) {
+        if (isOffset(t)) return t.getAmount() == null ? BigDecimal.ZERO : t.getAmount().negate();
+        return reportableAmount(t);
+    }
+
+    private boolean isOffset(Transaction t) {
+        if (offsetRows.isEmpty()) return false;
+        return offsetRows.contains(t) || (t.getId() != null && offsetIds.contains(t.getId()));
+    }
+
+    public static BigDecimal floorAtZero(BigDecimal amount) {
+        return amount.signum() < 0 ? BigDecimal.ZERO : amount;
+    }
+
+    /**
+     * A category (or other key) spend map with offsets applied: a key whose unlinked refunds exceed
+     * its purchases in the period is DROPPED rather than shown as negative spend -- a negative
+     * category is an accounting statement none of these screens makes (see the class comment). The
+     * period's total still carries the full refund, so it can sit below the sum of the categories.
+     */
+    public static <K> Map<K, BigDecimal> withoutNegativeSpend(Map<K, BigDecimal> spendByKey) {
+        Map<K, BigDecimal> out = new java.util.LinkedHashMap<>();
+        spendByKey.forEach((k, v) -> { if (v.signum() >= 0) out.put(k, v); });
+        return out;
     }
 
     /**

@@ -188,8 +188,8 @@ public class AnalyticsService {
         Map<UUID, String> categoryNames = new HashMap<>();
         categoryRepository.findByUserId(userId).forEach(c -> categoryNames.put(c.getId(), c.getName()));
 
-        RefundNetting refunds = refundsFor(userId);
-        Map<UUID, List<Transaction>> byCategory = activeExpenseTransactions(userId, month).stream()
+        SpendRows spend = activeSpend(userId, month);
+        Map<UUID, List<Transaction>> byCategory = spend.rows().stream()
                 .filter(t -> t.getCategoryId() != null)
                 .collect(Collectors.groupingBy(Transaction::getCategoryId));
 
@@ -197,8 +197,10 @@ public class AnalyticsService {
                 .map(e -> new AnalyticsDto.TopCategory(
                         e.getKey(),
                         categoryNames.getOrDefault(e.getKey(), "Uncategorized"),
-                        e.getValue().stream().map(refunds::reportableAmount).reduce(BigDecimal.ZERO, BigDecimal::add),
-                        e.getValue().size()))
+                        e.getValue().stream().map(spend.netting()::spendAmount).reduce(BigDecimal.ZERO, BigDecimal::add),
+                        (int) purchasesIn(e.getValue())))
+                // A category whose unlinked refunds exceed its purchases spent nothing this period.
+                .filter(c -> c.totalSpend().signum() >= 0)
                 .sorted(Comparator.comparing(AnalyticsDto.TopCategory::totalSpend).reversed())
                 .limit(TOP_MERCHANTS_LIMIT)
                 .toList();
@@ -220,16 +222,17 @@ public class AnalyticsService {
         Map<UUID, String> categoryNames = new HashMap<>();
         categoryRepository.findByUserId(userId).forEach(c -> categoryNames.put(c.getId(), c.getName()));
 
-        RefundNetting refunds = refundsFor(userId);
-        Map<String, List<Transaction>> byName = activeExpenseTransactions(userId, month).stream()
+        SpendRows spend = activeSpend(userId, month);
+        Map<String, List<Transaction>> byName = spend.rows().stream()
                 .collect(Collectors.groupingBy(t -> t.getCategoryId() == null ? UNCATEGORIZED
                         : categoryNames.getOrDefault(t.getCategoryId(), UNCATEGORIZED)));
 
         return byName.entrySet().stream()
                 .map(e -> new AnalyticsDto.CategorySpend(
                         e.getKey(),
-                        e.getValue().stream().map(refunds::reportableAmount).reduce(BigDecimal.ZERO, BigDecimal::add),
-                        e.getValue().size()))
+                        e.getValue().stream().map(spend.netting()::spendAmount).reduce(BigDecimal.ZERO, BigDecimal::add),
+                        (int) purchasesIn(e.getValue())))
+                .filter(c -> c.totalSpend().signum() >= 0)
                 .sorted(Comparator.comparing(AnalyticsDto.CategorySpend::totalSpend).reversed()
                         .thenComparing(AnalyticsDto.CategorySpend::categoryName))
                 .toList();
@@ -257,10 +260,10 @@ public class AnalyticsService {
      * the dashboard shows as Expenses.
      */
     public BigDecimal totalExpense(UUID userId, YearMonth month) {
-        RefundNetting refunds = refundsFor(userId);
-        return RefundNetting.excludingInvestmentTransfers(activeExpenseTransactions(userId, month)).stream()
-                .map(refunds::reportableAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        SpendRows spend = activeSpend(userId, month);
+        return RefundNetting.floorAtZero(RefundNetting.excludingInvestmentTransfers(spend.rows()).stream()
+                .map(spend.netting()::spendAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add));
     }
 
     /** See {@link AnalyticsDto.InternationalSpend}. {@code month} null means all time, same as
@@ -353,16 +356,17 @@ public class AnalyticsService {
     /** Total refund-netted INCOME per calendar year (Multi-Year Comparison, issue #1455;
      *  docs/superpowers/specs/2026-09-14-multi-year-comparison-design.md §2.1). */
     public AnalyticsDto.MultiYearReport multiYearIncome(UUID userId) {
-        return multiYearScalarReport(userId, this::activeIncomeTransactions);
+        return multiYearScalarReport(userId, (u, from, to) -> new SpendRows(activeIncomeTransactions(u, from, to), refundsFor(u)));
     }
 
     /** Total refund-netted EXPENSE per calendar year (spec §2.2). */
     public AnalyticsDto.MultiYearReport multiYearSpend(UUID userId) {
-        return multiYearScalarReport(userId, this::activeExpenseTransactions);
+        return multiYearScalarReport(userId, this::activeSpend);
     }
 
+    /** Rows for a window, with the netting that prices them -- see {@link SpendRows}. */
     private interface RangeFetcher {
-        List<Transaction> fetch(UUID userId, LocalDate from, LocalDate to);
+        SpendRows fetch(UUID userId, LocalDate from, LocalDate to);
     }
 
     private AnalyticsDto.MultiYearReport multiYearScalarReport(UUID userId, RangeFetcher fetcher) {
@@ -376,9 +380,8 @@ public class AnalyticsService {
         YearMonth currentMonth = YearMonth.now(UserZone.forUser(userRepository, userId));
         List<AccountCoverageService.DateRange> gaps = accountCoverageService.gapsForUser(userId);
 
-        RefundNetting refunds = refundsFor(userId);
-        Map<YearMonth, BigDecimal> byMonth = sumByMonth(
-                fetcher.fetch(userId, firstDataMonth.atDay(1), currentMonth.atEndOfMonth()), refunds);
+        SpendRows fetched = fetcher.fetch(userId, firstDataMonth.atDay(1), currentMonth.atEndOfMonth());
+        Map<YearMonth, BigDecimal> byMonth = sumByMonth(fetched.rows(), fetched.netting());
 
         List<AnalyticsDto.MultiYearPoint> fullYears = MultiYearCoverage.yearCoverages(firstDataMonth, currentMonth, gaps)
                 .stream()
@@ -408,8 +411,11 @@ public class AnalyticsService {
         Map<YearMonth, BigDecimal> byMonth = new HashMap<>();
         for (Transaction t : txns) {
             YearMonth m = YearMonth.from(t.getTxnDate());
-            byMonth.merge(m, refunds.reportableAmount(t), BigDecimal::add);
+            // spendAmount: an unlinked refund in a spend list counts negative; any other row, as
+            // reportableAmount always priced it -- so this stays right for the income series too.
+            byMonth.merge(m, refunds.spendAmount(t), BigDecimal::add);
         }
+        byMonth.replaceAll((m, v) -> RefundNetting.floorAtZero(v));
         return byMonth;
     }
 
@@ -462,7 +468,8 @@ public class AnalyticsService {
         RefundNetting refunds = refundsFor(userId);
         LocalDate from = firstDataMonth.atDay(1);
         LocalDate to = currentMonth.atEndOfMonth();
-        Map<YearMonth, BigDecimal> expenseByMonth = sumByMonth(activeExpenseTransactions(userId, from, to), refunds);
+        SpendRows spend = activeSpend(userId, from, to);
+        Map<YearMonth, BigDecimal> expenseByMonth = sumByMonth(spend.rows(), spend.netting());
         Map<YearMonth, BigDecimal> incomeByMonth = sumByMonth(activeIncomeTransactions(userId, from, to), refunds);
 
         List<AnalyticsDto.LifestyleInflationPoint> fullYears = MultiYearCoverage.yearCoverages(firstDataMonth, currentMonth, gaps)
@@ -516,8 +523,9 @@ public class AnalyticsService {
         Map<UUID, String> categoryNames = new HashMap<>();
         categoryRepository.findByUserId(userId).forEach(c -> categoryNames.put(c.getId(), c.getName()));
 
-        RefundNetting refunds = refundsFor(userId);
-        List<Transaction> txns = activeExpenseTransactions(userId, firstDataMonth.atDay(1), currentMonth.atEndOfMonth());
+        SpendRows spend = activeSpend(userId, firstDataMonth.atDay(1), currentMonth.atEndOfMonth());
+        RefundNetting refunds = spend.netting();
+        List<Transaction> txns = spend.rows();
 
         // month -> categoryId -> total.
         Map<YearMonth, Map<UUID, BigDecimal>> byMonthAndCategory = new HashMap<>();
@@ -525,7 +533,7 @@ public class AnalyticsService {
             if (t.getCategoryId() == null) continue;
             YearMonth m = YearMonth.from(t.getTxnDate());
             byMonthAndCategory.computeIfAbsent(m, k -> new HashMap<>())
-                    .merge(t.getCategoryId(), refunds.reportableAmount(t), BigDecimal::add);
+                    .merge(t.getCategoryId(), refunds.spendAmount(t), BigDecimal::add);
         }
 
         List<AnalyticsDto.MultiYearCategoryPoint> fullYears = MultiYearCoverage.yearCoverages(firstDataMonth, currentMonth, gaps)
@@ -577,7 +585,8 @@ public class AnalyticsService {
 
     private List<AnalyticsDto.CategoryYearBreakdown> toBreakdownList(Map<UUID, BigDecimal> totals,
                                                                        Map<UUID, String> categoryNames) {
-        return totals.entrySet().stream()
+        // A category whose unlinked refunds exceed its purchases in the period spent nothing there.
+        return RefundNetting.withoutNegativeSpend(totals).entrySet().stream()
                 .map(e -> new AnalyticsDto.CategoryYearBreakdown(e.getKey(),
                         categoryNames.getOrDefault(e.getKey(), "Uncategorized"), e.getValue()))
                 .sorted(Comparator.comparing(AnalyticsDto.CategoryYearBreakdown::totalSpend).reversed())
@@ -632,6 +641,46 @@ public class AnalyticsService {
         return RefundNetting.reportable(rangeTxns, transactionGraphService.ccPaymentFromTransactionIds(rangeTxns)).stream()
                 .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE)
                 .toList();
+    }
+
+    /**
+     * Spend rows for a window: every reportable expense plus the unlinked refunds and card
+     * adjustments that give spend back (see {@link RefundNetting#withUnlinkedOffsets}), with the
+     * netting that prices both -- {@code netting.spendAmount} is negative for an offset. Only the
+     * spend totals and category views read this; merchant, international and count-based views
+     * keep {@link #activeExpenseTransactions}, since a refund is not a purchase.
+     */
+    private record SpendRows(List<Transaction> rows, RefundNetting netting) {}
+
+    private SpendRows activeSpend(UUID userId, YearMonth month) {
+        return month != null ? activeSpend(userId, month.atDay(1), month.atEndOfMonth())
+                : spendRowsOf(userId, reportableRows(userId, null, null));
+    }
+
+    private SpendRows activeSpend(UUID userId, LocalDate from, LocalDate to) {
+        return spendRowsOf(userId, reportableRows(userId, from, to));
+    }
+
+    private SpendRows spendRowsOf(UUID userId, List<Transaction> reportable) {
+        FlowTotals.Context flow = FlowTotals.context(accountRepository.findByUserId(userId), categoryRepository.findByUserId(userId));
+        RefundNetting netting = refundsFor(userId).withUnlinkedOffsets(reportable, flow);
+        return new SpendRows(reportable.stream().filter(netting::countsAsSpend).toList(), netting);
+    }
+
+    /** Reportable rows (duplicates, transfers, refund legs and card-bill payments removed) on live
+     *  accounts, in [from, to] -- or all time when both are null. */
+    private List<Transaction> reportableRows(UUID userId, LocalDate from, LocalDate to) {
+        List<UUID> liveAccountIds = liveAccountIds(userId);
+        if (liveAccountIds.isEmpty()) return List.of();
+        List<Transaction> rows = from == null
+                ? transactionRepository.findByUserIdAndAccountIdIn(userId, liveAccountIds)
+                : transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(userId, from, to, liveAccountIds);
+        return RefundNetting.reportable(rows, transactionGraphService.ccPaymentFromTransactionIds(rows));
+    }
+
+    /** How many of these rows are purchases -- a group's count never includes the refunds netted into it. */
+    private static long purchasesIn(List<Transaction> rows) {
+        return rows.stream().filter(t -> t.getTxnType() == Transaction.Type.EXPENSE).count();
     }
 
     /** The offsets for the same user, so a refunded purchase contributes what it actually cost. */

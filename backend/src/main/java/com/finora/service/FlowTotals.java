@@ -53,6 +53,24 @@ public final class FlowTotals {
                 && decide(t, ctx).flowClass() == FlowClassifier.FlowClass.UNRESOLVED;
     }
 
+    /**
+     * A credit that gives spend back without being matched to the purchase it reverses: a refund
+     * or reversal the reconciliation pass could not link, or a card adjustment (a fee waiver, an
+     * EMI conversion). It is not income, and before flow classification it was counted as income
+     * -- which, by accident, kept net savings right. Now it offsets spend instead, in its own month
+     * and category; see {@link RefundNetting#withUnlinkedOffsets}. A LINKED refund or reversal is
+     * never one of these: RefundNetting already nets it off its own purchase.
+     */
+    public static boolean offsetsSpend(Transaction t, Context ctx) {
+        if (t.getTxnType() != Transaction.Type.INCOME) return false;
+        if (t.getReconciliationStatus() == Transaction.ReconciliationStatus.REFUND
+                || t.getReconciliationStatus() == Transaction.ReconciliationStatus.REVERSAL) return false;
+        FlowClassifier.FlowReason reason = decide(t, ctx).reason();
+        return reason == FlowClassifier.FlowReason.UNLINKED_REFUND
+                || reason == FlowClassifier.FlowReason.REVERSAL
+                || reason == FlowClassifier.FlowReason.CARD_ADJUSTMENT;
+    }
+
     /** Money that came in and that Fynora cannot yet say is income -- shown beside income, never in it. */
     public static BigDecimal unresolvedInflow(Collection<Transaction> reportable, Context ctx) {
         return reportable.stream().filter(t -> isUnresolvedInflow(t, ctx))

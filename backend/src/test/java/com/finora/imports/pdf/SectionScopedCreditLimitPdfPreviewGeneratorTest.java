@@ -19,7 +19,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * A printed credit limit is a credit-card fact. It is attached to a section only when that section
+ * A printed credit limit, and a printed payment due date, are credit-card facts. Each is attached to
+ * a section only when that section
  * is a credit card, or when the document is a single section whose product could not be
  * classified at all (a bare card statement the classifier did not recognise must keep its limit).
  *
@@ -70,6 +71,9 @@ class SectionScopedCreditLimitPdfPreviewGeneratorTest {
                 .as("the grid WAS read -- the limit is withheld, not missed")
                 .contains("PRINTED_CREDIT_LIMIT_GRID", "CREDIT_LIMIT_WITHHELD_FROM_NON_CARD_SECTION");
         assertThat(savings.detectedAccount().creditLimit()).isNull();
+        assertThat(savings.detectedAccount().paymentDueDate())
+                .as("the card's payment due date printed on the same page is withheld the same way")
+                .isNull();
     }
 
     @Test

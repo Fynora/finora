@@ -2122,8 +2122,10 @@ public class PdfTableLocator {
                 // reference tail whose digit run lands in the amount column's x-range parses as a
                 // number and is not one). Balance is left to the rule above.
                 //
-                // Unlike the Balance rule, this one is gated on samePage and on the trailing count
-                // cap, and a row it splits off does NOT reset that cap (see below): measured on the
+                // Unlike the Balance rule, this one is gated on samePage, on the trailing count
+                // cap and on the page-top furniture zone being open (pageRepeatSinceLastAnchor --
+                // like every other route to the row above), and a row it splits off does NOT
+                // reset that cap (see below): measured on the
                 // committed traces, without those two gates a card statement's illustrative
                 // interest panel -- fifty-odd lines of fine print, each with a figure in the
                 // Amount column's x-range, printed under the page's last transaction and running
@@ -2137,6 +2139,7 @@ public class PdfTableLocator {
                         && (closesADifferentTransactionThanTheOpenAnchor(bucketed,
                                 currentRows.get(currentRows.size() - 1), headerNames)
                             || (samePage
+                                && !pageRepeatSinceLastAnchor
                                 && trailingCountSinceLastAnchor < MAX_TRAILING_CONTINUATION_ROWS
                                 && repeatsAnAmountColumnOf(bucketed,
                                         currentRows.get(currentRows.size() - 1), headerNames)))) {

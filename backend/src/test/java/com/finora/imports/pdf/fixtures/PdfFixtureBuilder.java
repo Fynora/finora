@@ -704,6 +704,7 @@ public final class PdfFixtureBuilder {
         page.line("Relationship Summary")
                 .row(gridCol, "Credit Card Number", "Credit Limit", "Available Credit Limit", "Available Cash Limit")
                 .row(gridCol, "123456******7890", "30,000.00", "25,000.00", "5,000.00")
+                .line("Payment Due Date : 20/07/2026")
                 .blankLine()
                 .line("SAVINGS ACCOUNT  - 10000000000001")
                 .row(col, "Date", "Narration", "Withdrawal", "Deposit", "Balance")

@@ -424,14 +424,16 @@ public class PdfPreviewGenerator {
             // deposit schedule the way it does to a ledger's own transaction date range.
             // No payment-summary panel applies to a deposit schedule -- totalAmountDue is a
             // credit-card-ledger-only concept.
-            // No credit limit either: a deposit is never a credit card, and the line-based
-            // reading is document-wide -- see CREDIT_LIMIT_WITHHELD_FROM_NON_CARD_SECTION.
+            // No credit limit and no payment due date either: a deposit is never a credit card,
+            // and both line-based readings are document-wide -- see
+            // CREDIT_LIMIT_WITHHELD_FROM_NON_CARD_SECTION. (On a real composite statement the due
+            // date label matched the recurring deposit's own "Due Date" column heading.)
             if (facts.metadata().creditLimit() != null && ctx != null) {
                 ctx.record("CREDIT_LIMIT_WITHHELD_FROM_NON_CARD_SECTION");
             }
             DetectedAccountInfo detected = facts.toDetectedAccountInfo(product, suggestedAccountType,
                     null, null, facts.metadata().statementPeriodStart(), facts.metadata().statementPeriodEnd(), attrs,
-                    null, facts.metadata().paymentDueDate(), null, null);
+                    null, null, null, null);
             result.add(new StagedAccountSection(detected, List.of(), 0, 0, List.of()));
         }
         return result;
@@ -856,7 +858,8 @@ public class PdfPreviewGenerator {
     }
 
     /**
-     * Whether a printed credit limit may be attached to a section: only a credit card has one. A
+     * Whether a printed credit limit or payment due date may be attached to a section: only a
+     * credit card has either. A
      * single-section document whose product could not be classified at all keeps it -- a bare
      * card statement the classifier did not recognise must not lose its limit -- but a section
      * classified as anything else, and any section of a multi-section document that is not a
@@ -932,8 +935,13 @@ public class PdfPreviewGenerator {
         // line-based field wins when present, and the positioned-text grid reading is only tried
         // once that comes up empty -- see PaymentDueDateGridExtractor's own doc comment for why
         // its two real evidencing documents (Axis, SBI) can never be read the line-based way.
-        LocalDate paymentDueDate = facts.metadata().paymentDueDate() != null
+        LocalDate printedPaymentDueDate = facts.metadata().paymentDueDate() != null
                 ? facts.metadata().paymentDueDate() : gridPaymentDueDate;
+        // A payment due date is a credit-card fact exactly as the credit limit below is, and it is
+        // read the same document-wide way: on a real composite statement the line-based label
+        // matched the recurring deposit's own "Due Date" column heading and the savings and fixed
+        // deposit sections were staged with an installment due date as a payment due date.
+        LocalDate paymentDueDate = creditLimitApplies ? printedPaymentDueDate : null;
 
         // INVERTED precedence from paymentDueDate above -- the positioned-text grid wins here, and
         // PdfMetadataExtractor's own line-based reading (GRID_CREDIT_LIMIT_LABEL's findGridValue

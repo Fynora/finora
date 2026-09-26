@@ -423,4 +423,37 @@ class CategoryRulesTest {
         assertThat(CategoryRules.suggestCategory("NSDL PAYMENTS BANK TOPUP")).isEqualTo("Other");
         assertThat(CategoryRules.suggestCategory("AXIS BK ATM CLEARING CHARGES")).isEqualTo("Other");
     }
+
+    // Plan 4 (audit F-21 and the CBI "RRN" shape): a clock time and the literal RRN label name no
+    // counterparty. Left in, they were the merchant -- "upi 02 44 32" on every Bank of Baroda UPI row,
+    // "upi rrn upi ..." on every Central Bank one -- and the grouping key that pooled unrelated payees.
+
+    @Test
+    void extractMerchantLabel_aClockTimeIsNeverTheMerchant() {
+        String label = CategoryRules.extractMerchantLabel("UPI/100000000001/02:44:32/UPI/samplestore@okaxis/UPI");
+        assertThat(label).isNotNull().doesNotContainPattern("\\b\\d{2} \\d{2}\\b").contains("samplestore");
+    }
+
+    @Test
+    void extractMerchantLabel_anRrnLabelWithNoPayee_isNoMerchant() {
+        assertThat(CategoryRules.extractMerchantLabel("UPI/RRN 100000000001/UPI")).isNull();
+    }
+
+    @Test
+    void extractMerchantLabel_anRrnLabelWithAPayee_isThePayee() {
+        assertThat(CategoryRules.extractMerchantLabel("UPI/RRN 100000000001/UPI_SAMPLE PAYEE NAME"))
+                .doesNotContain("rrn").contains("sample payee");
+    }
+
+    @Test
+    void extractMerchant_aDescriptionWithNeitherShape_isUnchanged() {
+        assertThat(CategoryRules.extractMerchant("SWIGGY*ORDR9182 BANGALORE")).isEqualTo("swiggy bangalore");
+        assertThat(CategoryRules.extractMerchant("NEFT CR-SAMPLE PAYER-RENT FOR JULY")).isEqualTo("neft cr sample payer");
+    }
+
+    @Test
+    void extractMerchant_aWordContainingRrnIsNotTheLabel() {
+        assertThat(CategoryRules.extractMerchant("TERRNOVA SAMPLE STORE")).isEqualTo("terrnova sample store");
+    }
 }
+

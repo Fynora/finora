@@ -157,6 +157,25 @@ public final class PdfFixtureBuilder {
             y -= ROW_HEIGHT;
             return this;
         }
+
+        /** A row of cells at a fixed height, outside the top-down flow -- for layouts whose lines sit a
+         *  few points apart rather than a whole row height (a three-tier header, a transaction whose
+         *  reference and amounts sit between its two narration lines). */
+        PageBuilder rowAt(float fixedY, float[] colX, String... values) {
+            List<Cell> cells = new ArrayList<>();
+            for (int i = 0; i < values.length && i < colX.length; i++) {
+                if (values[i] != null && !values[i].isEmpty()) cells.add(new Cell(colX[i], values[i]));
+            }
+            rows.add(new Row(fixedY, cells));
+            return this;
+        }
+
+        /** A single-cell line at a fixed height, outside the top-down flow -- page furniture a bank
+         *  prints at the same spot on every page (a footer). */
+        PageBuilder at(float fixedY, String text) {
+            rows.add(new Row(fixedY, List.of(new Cell(LEFT_MARGIN, text))));
+            return this;
+        }
     }
 
     private static byte[] render(List<PageBuilder> pages) throws IOException {
@@ -829,6 +848,118 @@ public final class PdfFixtureBuilder {
                 .row(col, "Date", "Narration", "Withdrawal", "Deposit")
                 .row(col, "05/06/2026", "SALARY SAMPLE EMPLOYER", null, "12,000.00")
                 .row(col, "12/06/2026", "UPI SAMPLE GROCER", "3,281.00", null);
+        return render(List.of(page));
+    }
+
+    /** A savings ledger whose narrations wrap by width through a UPI handle and after a field
+     *  separator -- the two wrap shapes that hold on any bank (plan 4, NarrationLineBreaks). */
+    public static byte[] buildLedgerWithNarrationsWrappedThroughIdentifiersSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 130f, 380f, 470f};
+        PageBuilder page = new PageBuilder();
+        page.line("Sample Bank Savings Account Statement")
+                .row(col, "Date", "Narration", "Withdrawal", "Balance")
+                .row(col, "01/07/2026", "UPI-SAMPLE STORE-900000001@", "100.00", "900.00")
+                .row(col, null, "okaxis-UPI", null, null)
+                .row(col, "02/07/2026", "NEFT-", "200.00", "700.00")
+                .row(col, null, "100000000001-SAMPLE PAYEE", null, null);
+        return render(List.of(page));
+    }
+
+    /** Three ledger pages, each ending with the same bank-name footer in the date column's x-range at
+     *  the same height -- the real HDFC shape whose footer was glued onto the next page's first
+     *  transaction as leading narration (plan 4, F-03). */
+    public static byte[] buildLedgerWithBankNameFooterOnEveryPageSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 130f, 380f, 470f};
+        PageBuilder p1 = new PageBuilder();
+        p1.line("Sample Bank Savings Account Statement")
+                .row(col, "Date", "Narration", "Withdrawal", "Balance")
+                .row(col, "01/07/2026", "UPI-SAMPLE STORE-PAYMENT", "100.00", "900.00")
+                .row(col, "02/07/2026", "UPI-SAMPLE GROCER-PAYMENT", "50.00", "850.00")
+                .at(40f, "SAMPLE BANK LIMITED");
+        PageBuilder p2 = new PageBuilder();
+        p2.row(col, "Date", "Narration", "Withdrawal", "Balance")
+                .row(col, "03/07/2026", "UPI-SAMPLE CAFE-PAYMENT", "20.00", "830.00")
+                .row(col, "04/07/2026", "UPI-SAMPLE CHEMIST-PAYMENT", "30.00", "800.00")
+                .at(40f, "SAMPLE BANK LIMITED");
+        PageBuilder p3 = new PageBuilder();
+        p3.row(col, "Date", "Narration", "Withdrawal", "Balance")
+                .row(col, "05/07/2026", "UPI-SAMPLE BAKERY-PAYMENT", "10.00", "790.00")
+                .at(40f, "SAMPLE BANK LIMITED");
+        return render(List.of(p1, p2, p3));
+    }
+
+    /** Two pages, the bank-name line printed on page one only: nothing repeats it, so nothing marks
+     *  it as furniture and it keeps today's handling. */
+    public static byte[] buildLedgerWithBankNameFooterOnOnePageSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 130f, 380f, 470f};
+        PageBuilder p1 = new PageBuilder();
+        p1.line("Sample Bank Savings Account Statement")
+                .row(col, "Date", "Narration", "Withdrawal", "Balance")
+                .row(col, "01/07/2026", "UPI-SAMPLE STORE-PAYMENT", "100.00", "900.00")
+                .row(col, "02/07/2026", "UPI-SAMPLE GROCER-PAYMENT", "50.00", "850.00")
+                .at(40f, "SAMPLE BANK LIMITED");
+        PageBuilder p2 = new PageBuilder();
+        p2.row(col, "Date", "Narration", "Withdrawal", "Balance")
+                .row(col, "03/07/2026", "UPI-SAMPLE CAFE-PAYMENT", "20.00", "830.00")
+                .row(col, "04/07/2026", "UPI-SAMPLE CHEMIST-PAYMENT", "30.00", "800.00");
+        return render(List.of(p1, p2));
+    }
+
+    /** Four ledger pages printed on a fixed row grid, where the same wrapped narration line lands at the
+     *  same height on two of them -- a recurring payee, not page furniture. */
+    public static byte[] buildLedgerWithARecurringNarrationLineOnTwoPagesSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 130f, 380f, 470f};
+        List<PageBuilder> pages = new ArrayList<>();
+        String[][] first = {{"01/07/2026", "UPI-SAMPLE PAYEE-PAYMENT", "100.00", "900.00"},
+                {"02/07/2026", "UPI-SAMPLE PAYEE-PAYMENT", "100.00", "800.00"},
+                {"03/07/2026", "UPI-SAMPLE CAFE-PAYMENT", "20.00", "780.00"},
+                {"04/07/2026", "UPI-SAMPLE CHEMIST-PAYMENT", "30.00", "750.00"}};
+        for (int i = 0; i < 4; i++) {
+            PageBuilder page = new PageBuilder();
+            page.row(col, "Date", "Narration", "Withdrawal", "Balance")
+                    .row(col, first[i]);
+            if (i < 2) page.row(col, null, "SENT FROM PHONE", null, null);
+            pages.add(page);
+        }
+        return render(pages);
+    }
+
+    /**
+     * The Indian Overseas Bank layout (plan 4, audit F-26), with invented values: a three-tier header
+     * ("Date(Value" / "Date)", "Ref No." / "/Cheque No", "Transaction" / "Type" around a middle band
+     * of Particulars and the amounts), and each transaction printed over three lines a few points
+     * apart -- date and first narration line; reference, type and amounts; the bracketed value date
+     * under the date and the second narration line. Some first narration lines run past the
+     * reference column's left edge, which is what made the parser measure Particulars that wide.
+     */
+    public static byte[] buildIobStyleThreeLineTransactionsSample() throws IOException {
+        float[] top = {50f, 283f, 333f};
+        float[] mid = {168f, 398f, 456f, 507f};
+        float[] bottom = {63f, 275f, 346f};
+        float[] line1 = {45f, 112f};
+        float[] line2 = {278f, 344f, 415f, 468f, 522f};
+        float[] line3 = {45f, 112f};
+        PageBuilder page = new PageBuilder();
+        page.line("Sample Bank Statement of Account")
+                .rowAt(700f, top, "Date(Value", "Ref No.", "Transaction")
+                .rowAt(697f, mid, "Particulars", "Debit(Rs)", "Credit(Rs)", "Balance(Rs)")
+                .rowAt(691.5f, bottom, "Date)", "/Cheque No", "Type");
+        String[][] txns = {
+                {"13-Jul-26", "UPI/100000000001/DR/SAMPLE PAYEE LONGER", "S10000001", "Transfer", "150.00", "-", "9,850.00",
+                        "(13-Jul-26)", "SAMPLE/UBI/Payment for goods"},
+                {"16-Jul-26", "UPI/100000000002/DR/SAMPLE TWO", "S10000002", "Transfer", "200.00", "-", "9,650.00",
+                        "(16-Jul-26)", "PAYEE/BAR/Payment for rent"},
+                {"22-Jul-26", "UPI/100000000003/CR/SAMPLE PAYER THREE X", "S10000003", "Transfer", "-", "1,000.00", "10,650.00",
+                        "(22-Jul-26)", "SAMPLE/IPO/Refund"},
+                {"29-Jul-26", "UPI/100000000004/DR/SAMPLE FOUR", "S10000004", "Transfer", "50.00", "-", "10,600.00",
+                        "(29-Jul-26)", "STORE/UBI/Groceries"}};
+        float y = 675f;
+        for (String[] t : txns) {
+            page.rowAt(y, line1, t[0], t[1])
+                    .rowAt(y - 4f, line2, t[2], t[3], t[4], t[5], t[6])
+                    .rowAt(y - 9f, line3, t[7], t[8]);
+            y -= 23f;
+        }
         return render(List.of(page));
     }
 

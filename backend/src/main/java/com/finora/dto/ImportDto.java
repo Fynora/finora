@@ -502,7 +502,25 @@ public class ImportDto {
      *  frontend review screen needs a per-section "Account 1 of N" UI to review/confirm each one
      *  before posting {@link MultiAccountConfirmRequest}. */
     public record PdfStagingSessionResponse(UUID sessionId, boolean multiAccount,
-                                             StagingResponse staging, List<StagedAccountSection> sections) {}
+                                             StagingResponse staging, List<StagedAccountSection> sections,
+                                             PreviousImport previousImport) {
+        /** Every construction site that predates the re-upload notice; null means "no earlier
+         *  import of these exact bytes". */
+        public PdfStagingSessionResponse(UUID sessionId, boolean multiAccount, StagingResponse staging,
+                                         List<StagedAccountSection> sections) {
+            this(sessionId, multiAccount, staging, sections, null);
+        }
+    }
+
+    /**
+     * A confirmed import of the exact same file bytes by this user, shown on the review screen as a
+     * notice. Never a refusal: the product contract (e2e smoke test 4, dashboard-consistency Phase 8)
+     * is that a repeat upload always stages, reconciliation marks its rows, and "Import anyway" can
+     * override. Found by content hash, so a renamed copy is still recognised; a deleted statement no
+     * longer counts. Null on every response when there is none.
+     */
+    public record PreviousImport(UUID statementImportId, java.time.Instant importedAt, UUID accountId,
+                                 String accountName, int transactionsImported) {}
 
     /** One account's worth of reviewed rows within a {@link MultiAccountConfirmRequest} --
      *  structurally identical to {@link ConfirmRequest} minus the sessionId (shared once at the
@@ -568,7 +586,12 @@ public class ImportDto {
      *  sessionId field) so the internal byte-stream parseAndStage() overload used by
      *  StatementImportService's reimport flow (which has no session concept -- it's replaying an
      *  already-stored file, not a fresh upload that could be interrupted) doesn't need to change. */
-    public record StagingSessionResponse(UUID sessionId, StagingResponse staging) {}
+    public record StagingSessionResponse(UUID sessionId, StagingResponse staging, PreviousImport previousImport) {
+        /** See {@link PdfStagingSessionResponse}'s matching constructor. */
+        public StagingSessionResponse(UUID sessionId, StagingResponse staging) {
+            this(sessionId, staging, null);
+        }
+    }
 
     /** One entry in "your unfinished imports" -- GET /import/sessions. Deliberately doesn't
      *  include the full staged rows (that's a second call, GET /import/sessions/{id}, once the

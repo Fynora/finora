@@ -363,6 +363,11 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
      */
     boolean existsByObjectKey(String objectKey);
 
+    /** The newest live import of these exact bytes for this user -- the re-upload notice
+     *  ({@code ImportDto.PreviousImport}). Soft-deleted rows are excluded by the entity's
+     *  {@code @SQLRestriction}; {@code idx_statement_imports_content_hash} (V54) serves the lookup. */
+    Optional<StatementImport> findFirstByUserIdAndContentHashOrderByImportedAtDesc(UUID userId, String contentHash);
+
     /**
      * BH-017 sweep candidates: every {@code (content_hash, object_key)} pair whose most recent
      * removal from this table -- a user deleting that statement, i.e. the soft-delete's

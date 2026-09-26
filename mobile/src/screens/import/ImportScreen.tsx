@@ -15,13 +15,13 @@ import { UploadProgressPanel, type UploadPanelState } from '../../components/Upl
 import { StagedRowCard } from './StagedRowCard';
 import {
   accountsApi, categoriesApi, importApi, importJobsApi, statementImportsApi,
-  type ImportJobProgress, type RNFile, type StagingResult,
+  type ImportJobProgress, type PreviousImport, type RNFile, type StagingResult,
 } from '../../api/endpoints';
 import { PDF_PASSWORD_INVALID, PDF_PASSWORD_REQUIRED } from '../../api/errorCodes';
 import { importFailureMessage } from '../../api/importFailureMessages';
 import { apiErrorCode, isCanceled, toUserMessage } from '../../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
-import { fmtCurrency, fmtRelativeTime } from '../../lib/format';
+import { fmtCurrency, fmtDate, fmtRelativeTime } from '../../lib/format';
 import { hapticError, hapticSuccess } from '../../lib/haptics';
 import { invalidateFinancialData } from '../../lib/invalidateFinancialData';
 import { newIdempotencyKey } from '../../lib/idempotencyKey';
@@ -162,6 +162,8 @@ export function ImportScreen() {
   const [unparseableRows, setUnparseableRows] = useState<UnparseableRow[]>([]);
   const [detected, setDetected] = useState<DetectedAccountInfo | null>(null);
   const [verification, setVerification] = useState<VerificationReport | null>(null);
+  // F-33: an earlier import of these exact bytes, shown as a notice on the review step. Never a gate.
+  const [previousImport, setPreviousImport] = useState<PreviousImport | null>(null);
 
   const [accountChoice, setAccountChoice] = useState<AccountChoice>('new');
   const [selectedAccountId, setSelectedAccountId] = useState('');
@@ -340,6 +342,7 @@ export function ImportScreen() {
     setUnparseableRows([]);
     setDetected(null);
     setVerification(null);
+    setPreviousImport(null);
     setSummary(null);
     setAccountForm(initialAccountForm(null));
     // Cleared here as well as being set explicitly on every successful upload: leaving the
@@ -433,6 +436,7 @@ export function ImportScreen() {
     try {
       const res = await importApi.getSession(id);
       setSessionId(res.sessionId);
+      setPreviousImport(res.previousImport ?? null);
       hydrateReviewFrom(res.staging);
       setStep('review');
     } catch (e) {
@@ -511,6 +515,7 @@ export function ImportScreen() {
         return;
       }
       setSessionId(res.sessionId);
+      setPreviousImport(res.previousImport ?? null);
       hydrateReviewFrom(res.staging);
       setJobId(null);
       setStep('review');
@@ -591,6 +596,7 @@ export function ImportScreen() {
         : await importApi.stageCsv(file, setUploadProgress, controller.signal);
 
       setSessionId(res.sessionId);
+      setPreviousImport(res.previousImport ?? null);
       // The document opened, so the password has done its whole job -- drop it and the file.
       setPendingPdf(null);
       setPdfPassword('');
@@ -1091,6 +1097,16 @@ export function ImportScreen() {
                 </Text>
               ) : null}
             </Card>
+
+            {previousImport ? (
+              <View style={styles.section} testID="previous-import-notice" accessibilityRole="text">
+                <Text style={[styles.body, { color: c.ink }]}>
+                  You already imported this file on {fmtDate(previousImport.importedAt) ?? previousImport.importedAt}
+                  {previousImport.accountName ? ` into ${previousImport.accountName}` : ''}. Rows already in Fynora are
+                  marked as duplicates — you can still import them.
+                </Text>
+              </View>
+            ) : null}
 
             {verification ? (
               <View style={styles.section}>

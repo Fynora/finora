@@ -6,7 +6,7 @@ import {
   CheckCircle2, UploadCloud, AlertTriangle, Clock, FileText, FileSpreadsheet, Trash2, RefreshCw,
   ChevronLeft, ChevronRight, Shield, Sparkles, Lock, X, ArrowRight,
 } from 'lucide-react';
-import { importApi, importJobsApi, statementImportsApi, categoriesApi, accountsApi, type StagingResult } from '../api/endpoints';
+import { importApi, importJobsApi, statementImportsApi, categoriesApi, accountsApi, type StagingResult, type PreviousImport } from '../api/endpoints';
 import { newIdempotencyKey } from '../lib/idempotencyKey';
 import {
   PDF_PASSWORD_REQUIRED, PDF_PASSWORD_INVALID, IMPORT_SESSION_ALREADY_CONFIRMED,
@@ -228,6 +228,8 @@ export default function Import() {
   const [existingAccounts, setExistingAccounts] = useState<Account[]>([]);
   const [detectedAccount, setDetectedAccount] = useState<DetectedAccountInfo | null>(null);
   const [verification, setVerification] = useState<VerificationReport | null>(null);
+  // F-33: an earlier import of these exact bytes, shown as a notice on the review step. Never a gate.
+  const [previousImport, setPreviousImport] = useState<PreviousImport | null>(null);
   const [accountChoice, setAccountChoice] = useState<AccountChoice>('new');
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [newName, setNewName] = useState('');
@@ -475,6 +477,7 @@ export default function Import() {
     try {
       const session = await importApi.getSession(sessionId);
       setSessionId(session.sessionId);
+      setPreviousImport(session.previousImport ?? null);
       hydrateReviewFrom(session.staging);
       setJobId(null);
       setStep('review');
@@ -514,6 +517,7 @@ export default function Import() {
     try {
       const session = await importApi.getSession(id);
       setSessionId(session.sessionId);
+      setPreviousImport(session.previousImport ?? null);
       hydrateReviewFrom(session.staging, accountsForMatch);
       setStep('review');
     } catch (e: any) {
@@ -634,6 +638,7 @@ export default function Import() {
         ? await importApi.stagePdf(file, setUploadProgress, password)
         : await importApi.stageCsv(file, setUploadProgress);
       setSessionId(res.sessionId);
+      setPreviousImport(res.previousImport ?? null);
       setFileFormat(isPdf ? 'PDF' : 'CSV');
       // The document opened, so the password (if any) has done its whole job -- neither it nor the
       // file is needed again, confirm/reimport work from the server-side session. Not cleared here
@@ -866,6 +871,7 @@ export default function Import() {
 
   function startOver() {
     setStep('upload');
+    setPreviousImport(null);
     setRows([]);
     setReview(EMPTY_REVIEW);
     setUnparseableRows([]);
@@ -1430,6 +1436,17 @@ export default function Import() {
 
         {step === 'review' && (
           <motion.div key="review" className="space-y-4" {...stepMotionProps}>
+          {previousImport && (
+            <p
+              data-testid="previous-import-notice"
+              role="status"
+              className="bg-card rounded-xl2 shadow-card border border-border p-4 text-sm text-ink"
+            >
+              You already imported this file on {formatDate(previousImport.importedAt)}
+              {previousImport.accountName ? ` into ${previousImport.accountName}` : ''}. Rows already in Fynora are
+              marked as duplicates — you can still import them.
+            </p>
+          )}
           {multiSections && (
             <>
               {/* Multi-account PDF (e.g. an HSBC-style composite statement bundling a savings

@@ -156,7 +156,10 @@ public class ImportController {
         // had already computed one.
         StagingResponse staging = new StagingResponse(rows, rows.size(), dupCount,
                 importSessionService.readDetectedAccount(session), List.of(), importSessionService.readVerification(session));
-        return ApiResponse.ok(new StagingSessionResponse(session.getId(), staging));
+        // The async job queue resolves review through this endpoint too, so the re-upload notice has
+        // to be here as well as on the synchronous staging responses.
+        return ApiResponse.ok(new StagingSessionResponse(session.getId(), staging,
+                importService.previousImportOf(currentUser.id(), session.getContentHash())));
     }
 
     @DeleteMapping("/sessions/{id}")

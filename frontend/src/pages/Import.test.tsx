@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { formatDate } from '../utils/date';
 
 // Phase 4b's wizard-step AnimatePresence, mocked out the same way Button.tsx/IconButton.tsx's own
 // tests treat framer-motion: an implementation detail, not something worth exercising for real.
@@ -3087,5 +3088,74 @@ describe('Import — redesigned upload-step chrome', () => {
 
     await screen.findByText(/haven't connected any accounts yet/i);
     expect(screen.queryByText('old.csv')).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * F-33 of the 2026-09-25 corpus audit, as a notice: the backend names an earlier import of these
+ * exact bytes (`previousImport`), and the review step says so -- without blocking anything, because
+ * a repeat upload is never refused (the product contract e2e smoke test 4 pins).
+ */
+describe('Import — re-upload notice', () => {
+  const previousImport = {
+    statementImportId: 'stmt-1',
+    importedAt: '2026-07-05T10:00:00Z',
+    accountId: 'acct-1',
+    accountName: 'Sample Savings',
+    transactionsImported: 12,
+  };
+
+  beforeEach(() => {
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(importApi.stagePdf).mockReset().mockResolvedValue(stagingResultWith());
+    vi.mocked(importApi.getSession).mockReset();
+  });
+
+  it('names the earlier import on the review step when the same file was already imported', async () => {
+    vi.mocked(importApi.stageCsv).mockReset().mockResolvedValue({ ...stagingResultWith(), previousImport });
+    const user = userEvent.setup();
+    renderImport();
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+
+    const notice = await screen.findByTestId('previous-import-notice');
+    expect(notice).toHaveTextContent(/already imported this file/i);
+    expect(notice).toHaveTextContent(formatDate(previousImport.importedAt));
+    expect(notice).toHaveTextContent('Sample Savings');
+    // A notice, never a gate: the confirm button is still there to press.
+    expect(screen.getByRole('button', { name: /confirm import/i })).toBeInTheDocument();
+  });
+
+  it('shows no notice for a file that was never imported', async () => {
+    vi.mocked(importApi.stageCsv).mockReset().mockResolvedValue(stagingResultWith());
+    const user = userEvent.setup();
+    renderImport();
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+
+    expect(await screen.findByRole('button', { name: /confirm import/i })).toBeInTheDocument();
+    expect(screen.queryByTestId('previous-import-notice')).not.toBeInTheDocument();
+  });
+
+  it('names the earlier import when an unfinished import is resumed', async () => {
+    vi.mocked(importApi.stageCsv).mockReset().mockResolvedValue(stagingResultWith());
+    vi.mocked(importApi.getSession).mockResolvedValue({
+      sessionId: 'session-9',
+      staging: stagingResultWith().staging,
+      previousImport,
+    });
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[{ pathname: '/app/import', state: { kind: 'resume', resumeSessionId: 'session-9' } }]}>
+          <AuthProvider>
+            <Import />
+          </AuthProvider>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByTestId('previous-import-notice')).toHaveTextContent('Sample Savings');
   });
 });

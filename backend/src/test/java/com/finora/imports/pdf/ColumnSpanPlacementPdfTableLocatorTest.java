@@ -113,6 +113,25 @@ class ColumnSpanPlacementPdfTableLocatorTest {
     /** Guards 1+2, directly: a date/amount/balance column is never a redirect target and its own
      *  value is never disturbed, even on the exact rows whose narration triggers containment. */
     @Test
+    void aReferenceShapedNarrationTailLeftOfTheReferenceHeader_staysInNarration() {
+        // Plan 4 (F-26) keeps a reference-shaped token in the reference column -- but only one
+        // printed at or after that column's own header position. A narration tail that merely
+        // carries digits and spills past the midpoint (a real HDFC narration ends "... FOR 123456"
+        // this way) is still narration.
+        List<PositionedText> runs = new ArrayList<>(header());
+        runs.addAll(row(120f, "UPI-SAMPLE PAYEE ONE-000000000001", "FROM", "000111222333", "50.00", "469.40")); // synthetic-ok: invented reference number, not a real one
+        runs.addAll(row(140f, "UPI-SAMPLE PAYEE TWO-000000000002", "PHONE", "000111222334", "28.00", "441.40")); // synthetic-ok: invented reference number, not a real one
+        runs.addAll(row(160f, "UPI-SAMPLE PAYEE THREE-000000000003", "PHONE", "000111222335", "25.00", "416.40")); // synthetic-ok: invented reference number, not a real one
+        runs.addAll(row(180f, "UPI-SAMPLE PAYEE FOUR-000000000004", "AB1234", "000111222336", "40.00", "376.40")); // synthetic-ok: invented reference number, not a real one
+
+        var table = new PdfTableLocator().locate(runs, new DocumentContext("PDF", "ColumnSpanPlacementPdfTableLocatorTest"));
+
+        Map<String, String> last = table.rows().get(3);
+        assertThat(last.get("Narration")).isEqualTo("UPI-SAMPLE PAYEE FOUR-000000000004 AB1234");
+        assertThat(last.get("Chq./Ref.No.")).isEqualTo("000111222336"); // synthetic-ok: invented reference number, not a real one
+    }
+
+    @Test
     void dateAndAmountColumnsAreNeverTouchedByContainment() {
         List<PositionedText> runs = new ArrayList<>(header());
         runs.addAll(row(120f, "UPI-SAMPLE PAYEE ONE-000000000001", "FROM", "000111222333", "50.00", "469.40")); // synthetic-ok: invented reference number, not a real one

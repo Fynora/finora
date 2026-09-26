@@ -158,7 +158,10 @@ public class TransactionNormalizer {
     // match a normalizer's quirks rather than the real-world string is coupled to those quirks.
     private static final String[] REFERENCE_HINTS =
             {"reference number", "ref no", "reference no", "cheque no", "chq no", "chq/ref no",
-                    "chq/ref. no", "instrument id", "reference", "reference / cheque no"};
+                    "chq/ref. no", "instrument id", "reference", "reference / cheque no",
+                    // The real Indian Overseas Bank header prints "Ref No." over "/Cheque No"; the
+                    // wrapped-header merge joins the two tiers into exactly this cell.
+                    "ref no. /cheque no"};
     // Deliberately separate from AMOUNT_HINTS, even though the literal column names overlap:
     // AMOUNT_HINTS' "balance"/"running balance"/"closing balance" entries exist as a last-resort
     // fallback AMOUNT for a summary row with no debit/credit column at all (see AMOUNT_HINTS' own

@@ -10,7 +10,7 @@ import java.util.UUID;
 /**
  * A row of a confirmed statement that the user left out on the review screen -- unticked by hand,
  * or left unticked after the import flagged it as a likely duplicate. A statement refresh re-reads
- * the statement and must recognise these rows rather than add them as "new"; see V233 for why this
+ * the statement and must recognise these rows rather than add them as "new"; see V234 for why this
  * can only be recorded at import time.
  */
 @Entity

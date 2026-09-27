@@ -2,8 +2,9 @@
 -- its transactions in place). Two things a refresh needs to know about each statement, which only
 -- the moment of import can record.
 
--- Which build parsed this statement's rows: the running build's short commit id at confirm, the
--- same value import sessions and jobs already record. Null for statements confirmed before this
+-- Which build parsed this statement's rows: the short commit id its import session was staged
+-- by (the running build, for paths that parse in the confirming request) -- the same value
+-- import sessions and jobs already record. Null for statements confirmed before this
 -- column existed, which a refresh treats as "parsed by an older build".
 ALTER TABLE statement_imports ADD COLUMN parser_version VARCHAR(40);
 

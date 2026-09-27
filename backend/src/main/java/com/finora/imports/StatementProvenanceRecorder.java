@@ -11,7 +11,7 @@ import java.util.UUID;
 
 /**
  * What a statement refresh will need to know about a statement that only the moment of import can
- * record: which build parsed it, and which of its rows the user left out. See V233.
+ * record: which build parsed it, and which of its rows the user left out. See V234.
  */
 @Component
 public class StatementProvenanceRecorder {

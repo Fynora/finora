@@ -361,7 +361,7 @@ public class StatementImport extends BaseEntity implements com.finora.imports.st
     public void setLayoutMetadataJson(String layoutMetadataJson) { this.layoutMetadataJson = layoutMetadataJson; }
     public String getLayoutFingerprint() { return layoutFingerprint; }
 
-    /** The build that parsed this statement's rows (short commit id), set at confirm. Null before V233. */
+    /** The build that parsed this statement's rows (short commit id), taken from its import session. Null before V234. */
     @Column(name = "parser_version", length = 40)
     private String parserVersion;
 

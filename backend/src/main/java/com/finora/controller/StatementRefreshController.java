@@ -38,7 +38,7 @@ public class StatementRefreshController {
     }
 
     @PostMapping("/{id}/refresh")
-    public ApiResponse<StatementRefreshOutcome> refresh(@PathVariable UUID id,
+    public ApiResponse<StatementRefreshOutcome> refreshStatement(@PathVariable UUID id,
                                                         @RequestBody(required = false) StatementRefreshRequest request)
             throws Exception {
         UUID userId = currentUser.id();

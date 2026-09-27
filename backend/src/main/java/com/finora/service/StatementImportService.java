@@ -580,6 +580,7 @@ public class StatementImportService {
         transactionRepository.deleteAll(toRemove);
         statementImportRepository.deleteExcludedRowsOfStatement(statementImport.getUserId(), statementImport.getId());
         statementImportRepository.deleteRefreshPreviewsOfStatement(statementImport.getUserId(), statementImport.getId());
+        statementImportRepository.deleteRefreshRunsOfStatement(statementImport.getUserId(), statementImport.getId());
         statementImportRepository.delete(statementImport);
 
         // With this statement gone, a restored original's own closing balance -- undone when it was

@@ -1060,6 +1060,70 @@ public class TransactionService {
                         "actorId", actingAdminId.toString()));
     }
 
+    // --- Statement refresh (imports.refresh.StatementRefreshService) -------------------------------
+    // A refresh patches a statement's rows in place. Each change moves the account balance exactly
+    // the way the matching user action does -- an edit, a delete -- through the one owner of that
+    // rule (locateEffect/moveEffect). None of these reconciles, detects recurring or audits: the
+    // refresh does each once, for the whole statement, after every row is patched.
+
+    /**
+     * Applies a statement's corrected reading to one of its rows. Same balance rule as {@link #update}:
+     * the row's old effect comes out of wherever it sat, its new one goes where it now belongs.
+     */
+    @Transactional
+    public Transaction correctFromStatement(Transaction t, java.util.function.Consumer<Transaction> patch) {
+        BigDecimal oldDelta = balanceOf(t);
+        com.finora.accounts.RowBalanceEffect.Location oldLocation = locateEffect(t);
+        patch.accept(t);
+        Transaction saved = transactionRepository.save(t);
+        BigDecimal newDelta = balanceOf(saved);
+        com.finora.accounts.RowBalanceEffect.Location newLocation = locateEffect(saved);
+        if (oldLocation.equals(newLocation)) {
+            moveEffect(saved, newLocation, newDelta.subtract(oldDelta));
+        } else {
+            moveEffect(saved, oldLocation, oldDelta.negate());
+            moveEffect(saved, newLocation, newDelta);
+        }
+        return saved;
+    }
+
+    /**
+     * Inserts a row its statement always had but an older parser missed. Its balance effect is
+     * placed as of the statement's import, where that statement's other rows' effects are -- see
+     * {@link com.finora.accounts.RowBalanceEffect#locate(Account, Transaction, StatementImport,
+     * com.finora.accounts.RowBalanceEffect.Chain, java.time.Instant)}.
+     */
+    @Transactional
+    public Transaction insertFromStatement(Transaction t, StatementImport statement) {
+        Transaction saved = transactionRepository.save(t);
+        Account account = accountRepository.findById(saved.getAccountId()).orElse(null);
+        if (account != null) {
+            com.finora.accounts.RowBalanceEffect.Location location = rowBalanceEffect.locate(
+                    account, saved, statement, rowBalanceEffect.chainOf(account), statement.getImportedAt());
+            moveEffect(saved, location, balanceOf(saved));
+        }
+        return saved;
+    }
+
+    /**
+     * Removes rows a statement no longer contains. Same as {@link #bulkDelete} -- reconciliation
+     * pointers cleared, each row's effect reversed, soft-deleted -- and the rows' graph edges are
+     * rejected too: a link to a row that was never on the statement must not keep settling a
+     * payment or a transfer.
+     */
+    @Transactional
+    public void removeFromStatement(UUID userId, List<UUID> ids) {
+        if (ids.isEmpty()) return;
+        List<Transaction> owned = getOwnedAll(userId, ids);
+        clearReconciliationPointersTo(owned.stream().map(Transaction::getId).toList());
+        Map<UUID, com.finora.accounts.RowBalanceEffect.Chain> chains = new HashMap<>();
+        for (Transaction t : owned) {
+            moveEffect(t, locateEffect(t, chains), balanceOf(t).negate());
+            transactionRepository.delete(t);
+        }
+        transactionGraphService.rejectEdgesTouchingTransactions(owned.stream().map(Transaction::getId).toList());
+    }
+
     /**
      * Bug 36: recorded no actorId at all, unlike {@link #delete}, which was fixed for the exact
      * same reason -- an admin bulk-deleting a user's transactions was indistinguishable from the

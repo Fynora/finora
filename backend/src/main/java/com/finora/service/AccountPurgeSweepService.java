@@ -679,6 +679,7 @@ public class AccountPurgeSweepService {
             // anonymised below, never deleted, so nothing cascades to these.
             statementImportRepository.deleteExcludedRowsOfUser(userId);
             statementImportRepository.deleteRefreshPreviewsOfUser(userId);
+            statementImportRepository.deleteRefreshRunsOfUser(userId);
 
             merchantLearningEventRepository.deleteByUserId(userId);
             merchantLearningAuditRepository.deleteByUserId(userId);

@@ -507,6 +507,23 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
     @Query("DELETE FROM StatementRefreshPreview p WHERE p.userId = :userId")
     int deleteRefreshPreviewsOfUser(@Param("userId") UUID userId);
 
+    /** A statement's refresh results (StatementRefreshRun), which quote its narrations -- deleted
+     *  with it, the same as its previews above. */
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
+    @Query("DELETE FROM StatementRefreshRun r WHERE r.userId = :userId AND r.statementImportId = :statementImportId")
+    int deleteRefreshRunsOfStatement(@Param("userId") UUID userId, @Param("statementImportId") UUID statementImportId);
+
+    /** Every refresh result a user has, deleted by the account purge. */
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
+    @Query("DELETE FROM StatementRefreshRun r WHERE r.userId = :userId")
+    int deleteRefreshRunsOfUser(@Param("userId") UUID userId);
+
+    /** The statement, locked for the rest of the transaction: a refresh re-reads its rows and patches
+     *  them under this lock, so two refreshes (or a refresh and a delete) never interleave. */
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT s FROM StatementImport s WHERE s.id = :id")
+    java.util.Optional<StatementImport> findByIdForUpdate(@Param("id") UUID id);
+
     /**
      * The statements a refresh dry run has not yet checked under {@code parserVersion}: live, on a
      * live account, not replaced by a re-upload (a superseded statement's rows no longer count, so a

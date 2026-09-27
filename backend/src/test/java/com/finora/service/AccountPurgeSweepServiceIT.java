@@ -155,6 +155,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     @Autowired private UserRepository userRepository;
     @Autowired private com.finora.repository.StatementImportExcludedRowRepository excludedRowRepository;
     @Autowired private com.finora.repository.StatementRefreshPreviewRepository refreshPreviewRepository;
+    @Autowired private com.finora.repository.StatementRefreshRunRepository refreshRunRepository;
     @Autowired private GmailConnectionService gmailConnectionService;
     @Autowired private GmailConnectionRepository gmailConnectionRepository;
     @Autowired private RazorpaySubscriptionGateway gateway;
@@ -551,6 +552,11 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 statementId, userId, "somebuild", com.finora.entity.StatementRefreshPreview.Status.CHANGES);
         preview.setDetail(java.util.Map.of("added", java.util.List.of(java.util.Map.of("description", "SAMPLE ROW"))));
         refreshPreviewRepository.save(preview);
+        // ...and the record of a refresh of it, which quotes it the same way.
+        com.finora.entity.StatementRefreshRun run = new com.finora.entity.StatementRefreshRun(
+                statementId, userId, "somebuild", com.finora.entity.StatementRefreshRun.Status.APPLIED);
+        run.setDetail(java.util.Map.of("removed", java.util.List.of(java.util.Map.of("description", "SAMPLE ROW"))));
+        refreshRunRepository.save(run);
         entityManager.flush();
 
         AccountPurgeSweepService.Result result = service.sweep();
@@ -582,6 +588,10 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 .createNativeQuery("SELECT count(*) FROM statement_refresh_previews WHERE user_id = :userId")
                 .setParameter("userId", userId).getSingleResult();
         assertThat(previewsLeft.intValue()).isZero();
+        Number runsLeft = (Number) entityManager
+                .createNativeQuery("SELECT count(*) FROM statement_refresh_runs WHERE user_id = :userId")
+                .setParameter("userId", userId).getSingleResult();
+        assertThat(runsLeft.intValue()).isZero();
 
         User purgedUser = userRepository.findById(userId).orElseThrow();
         assertThat(purgedUser.getStatus()).isEqualTo(User.STATUS_DELETED);

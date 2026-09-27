@@ -201,6 +201,9 @@ public class TransactionExplanationService {
             case REFUND -> {
                 boolean sameMerchant = Boolean.TRUE.equals(reason.get("sameMerchant"));
                 boolean keyword = Boolean.TRUE.equals(reason.get("refundKeyword"));
+                if (reason.get("sharedReference") != null && !keyword && !sameMerchant) {
+                    yield "Matched as a refund of an earlier purchase, based on the same reference on both.";
+                }
                 yield "Matched as a refund of an earlier purchase" + reasonClause(keyword, sameMerchant) + ".";
             }
             case REVERSAL -> {
@@ -242,19 +245,29 @@ public class TransactionExplanationService {
                 }
                 yield lines;
             }
-            case REFUND -> List.of(
+            case REFUND -> withSharedReference(reason, List.of(
                     "Refund amount: ₹" + reason.getOrDefault("refundAmount", "?"),
                     "Original purchase: ₹" + reason.getOrDefault("purchaseAmount", "?"),
-                    Boolean.TRUE.equals(reason.get("partialRefund")) ? "This is a partial refund" : "Full refund");
-            case REVERSAL -> List.of(
+                    Boolean.TRUE.equals(reason.get("partialRefund")) ? "This is a partial refund" : "Full refund"));
+            case REVERSAL -> withSharedReference(reason, List.of(
                     "Reversal amount: ₹" + reason.getOrDefault("reversalAmount", "?"),
                     "Original purchase: ₹" + reason.getOrDefault("purchaseAmount", "?"),
-                    Boolean.TRUE.equals(reason.get("partialReversal")) ? "This is a partial reversal" : "Full reversal");
+                    Boolean.TRUE.equals(reason.get("partialReversal")) ? "This is a partial reversal" : "Full reversal"));
             case INVESTMENT_TRANSFER -> List.of(
                     "Amount: ₹" + reason.getOrDefault("amount", "?"),
                     "Category: " + reason.getOrDefault("category", "Investments"));
             case DUPLICATE, OK, SUPERSEDED -> List.of();
         };
+    }
+
+    /** Adds "Same reference on both sides, ending NNNN" when a shared reference linked the pair. */
+    private static List<String> withSharedReference(java.util.Map<String, Object> reason, List<String> lines) {
+        Object ref = reason.get("sharedReference");
+        if (ref == null) return lines;
+        String s = ref.toString();
+        List<String> out = new java.util.ArrayList<>(lines);
+        out.add("Same reference on both sides, ending " + s.substring(Math.max(0, s.length() - 4)));
+        return out;
     }
 
     private String merchantPhrase(Transaction t) {

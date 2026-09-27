@@ -227,26 +227,25 @@ class ImportServiceAskOnceTest {
 
     @Test
     void confirm_learnsFromAnEligibleBusinessCounterparty_recordsSharedCorpusObservation() throws Exception {
-        // Same narration this session's own shared-corpus audit and TransactionServiceTest's
-        // equivalent test both use, confirmed BUSINESS-typed, vpa:zeptoonline-keyed by the real
-        // classifier pipeline.
-        var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOONLINE@YBL/0000000000@PTAXIS",
+        // Synthetic merchant narration, shared with TransactionServiceTest's equivalent test:
+        // BUSINESS-typed and vpa:zeptosample-keyed by the real classifier pipeline.
+        var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOSAMPLE@YBL/0000000000@PTAXIS",
                 BigDecimal.valueOf(486), "EXPENSE", "Dining", true, "rule", null, false, null, null);
 
         importService.confirm(userId, dummyFile(), requestWith(row));
 
-        verify(sharedCorpusService).recordObservation(eq(userId), eq("vpa:zeptoonline"),
+        verify(sharedCorpusService).recordObservation(eq(userId), eq("vpa:zeptosample"),
                 eq(com.finora.util.CounterpartyType.BUSINESS), eq(Transaction.Type.EXPENSE), eq("Dining"));
     }
 
     @Test
     void confirm_learnsFromAnEligibleBusinessCounterparty_pinsResolution() throws Exception {
-        var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOONLINE@YBL/0000000000@PTAXIS",
+        var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOSAMPLE@YBL/0000000000@PTAXIS",
                 BigDecimal.valueOf(486), "EXPENSE", "Dining", true, "rule", null, false, null, null);
 
         importService.confirm(userId, dummyFile(), requestWith(row));
 
-        verify(resolutionService).pin(eq(userId), eq("vpa:zeptoonline"), eq(Transaction.Type.EXPENSE), any());
+        verify(resolutionService).pin(eq(userId), eq("vpa:zeptosample"), eq(Transaction.Type.EXPENSE), any());
     }
 
     /**
@@ -276,7 +275,7 @@ class ImportServiceAskOnceTest {
         ReflectionTestUtils.setField(shopping, "id", shoppingId);
         when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Shopping"))).thenReturn(shopping);
 
-        String description = "UPI/ZEPTO/ZEPTOONLINE@YBL/0000000000@PTAXIS";
+        String description = "UPI/ZEPTO/ZEPTOSAMPLE@YBL/0000000000@PTAXIS";
         var firstDining = new ConfirmedRow(LocalDate.of(2026, 7, 10), description,
                 BigDecimal.valueOf(486), "EXPENSE", "Dining", true, "rule", null, false, null, null);
         var secondDining = new ConfirmedRow(LocalDate.of(2026, 7, 12), description,
@@ -288,14 +287,14 @@ class ImportServiceAskOnceTest {
 
         importService.confirm(userId, dummyFile(), request);
 
-        verify(resolutionService, times(1)).pin(eq(userId), eq("vpa:zeptoonline"), eq(Transaction.Type.EXPENSE), eq(diningId));
-        verify(resolutionService, times(1)).pin(eq(userId), eq("vpa:zeptoonline"), eq(Transaction.Type.EXPENSE), eq(shoppingId));
-        verify(resolutionService, times(2)).pin(eq(userId), eq("vpa:zeptoonline"), eq(Transaction.Type.EXPENSE), any());
+        verify(resolutionService, times(1)).pin(eq(userId), eq("vpa:zeptosample"), eq(Transaction.Type.EXPENSE), eq(diningId));
+        verify(resolutionService, times(1)).pin(eq(userId), eq("vpa:zeptosample"), eq(Transaction.Type.EXPENSE), eq(shoppingId));
+        verify(resolutionService, times(2)).pin(eq(userId), eq("vpa:zeptosample"), eq(Transaction.Type.EXPENSE), any());
     }
 
     @Test
     void confirm_unresolvedGuessLeftAsOther_recordsNoSharedCorpusObservation() throws Exception {
-        var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOONLINE@YBL/0000000000@PTAXIS",
+        var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOSAMPLE@YBL/0000000000@PTAXIS",
                 BigDecimal.valueOf(500), "EXPENSE", "Other", true, "default", null, false, null, null);
 
         importService.confirm(userId, dummyFile(), requestWith(row));
@@ -313,16 +312,16 @@ class ImportServiceAskOnceTest {
         // staged with categorySource=shared_corpus (so it WAS that suggestion), but review changed
         // it to "Dining". That's a real correction and must be recorded, not silently dropped --
         // this is the exact gap ImportRuleLearningService.matchesLiveSuggestion fixes.
-        when(sharedCorpusService.findTrustedSuggestion("vpa:zeptoonline",
+        when(sharedCorpusService.findTrustedSuggestion("vpa:zeptosample",
                 com.finora.util.CounterpartyType.BUSINESS, Transaction.Type.EXPENSE))
                 .thenReturn(java.util.Optional.of("Shopping"));
-        var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOONLINE@YBL/0000000000@PTAXIS",
+        var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOSAMPLE@YBL/0000000000@PTAXIS",
                 BigDecimal.valueOf(486), "EXPENSE", "Dining", true,
                 com.finora.service.CategorizationService.SHARED_CORPUS_SOURCE, null, false, null, null);
 
         importService.confirm(userId, dummyFile(), requestWith(row));
 
-        verify(sharedCorpusService).recordObservation(eq(userId), eq("vpa:zeptoonline"),
+        verify(sharedCorpusService).recordObservation(eq(userId), eq("vpa:zeptosample"),
                 eq(com.finora.util.CounterpartyType.BUSINESS), eq(Transaction.Type.EXPENSE), eq("Dining"));
     }
 
@@ -331,10 +330,10 @@ class ImportServiceAskOnceTest {
         // Final category still matches the corpus's own current answer -- ambiguous (could be an
         // untouched batch-confirmed suggestion, not a real human corroboration), so this must NOT
         // feed back into the corpus as if it were fresh evidence.
-        when(sharedCorpusService.findTrustedSuggestion("vpa:zeptoonline",
+        when(sharedCorpusService.findTrustedSuggestion("vpa:zeptosample",
                 com.finora.util.CounterpartyType.BUSINESS, Transaction.Type.EXPENSE))
                 .thenReturn(java.util.Optional.of("Dining"));
-        var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOONLINE@YBL/0000000000@PTAXIS",
+        var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOSAMPLE@YBL/0000000000@PTAXIS",
                 BigDecimal.valueOf(486), "EXPENSE", "Dining", true,
                 com.finora.service.CategorizationService.SHARED_CORPUS_SOURCE, null, false, null, null);
 
@@ -347,19 +346,19 @@ class ImportServiceAskOnceTest {
     void confirm_userCorrectsAiFallbackSuggestion_recordsTheCorrection() throws Exception {
         com.finora.entity.SharedMerchantCategoryAiSuggestion cached =
                 new com.finora.entity.SharedMerchantCategoryAiSuggestion();
-        cached.setCounterpartyKey("vpa:zeptoonline");
+        cached.setCounterpartyKey("vpa:zeptosample");
         cached.setDirection(Transaction.Type.EXPENSE);
         cached.setCategory("Shopping");
         cached.setModel("claude-haiku-4-5-20251001");
-        when(aiSuggestionRepository.findByCounterpartyKeyAndDirection("vpa:zeptoonline", Transaction.Type.EXPENSE))
+        when(aiSuggestionRepository.findByCounterpartyKeyAndDirection("vpa:zeptosample", Transaction.Type.EXPENSE))
                 .thenReturn(java.util.Optional.of(cached));
-        var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOONLINE@YBL/0000000000@PTAXIS",
+        var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOSAMPLE@YBL/0000000000@PTAXIS",
                 BigDecimal.valueOf(486), "EXPENSE", "Dining", true,
                 com.finora.service.CategorizationService.AI_FALLBACK_SOURCE, null, false, null, null);
 
         importService.confirm(userId, dummyFile(), requestWith(row));
 
-        verify(sharedCorpusService).recordObservation(eq(userId), eq("vpa:zeptoonline"),
+        verify(sharedCorpusService).recordObservation(eq(userId), eq("vpa:zeptosample"),
                 eq(com.finora.util.CounterpartyType.BUSINESS), eq(Transaction.Type.EXPENSE), eq("Dining"));
     }
 

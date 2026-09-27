@@ -11466,6 +11466,12 @@
                     },
                     "awaitingTransferPartner": {
                         "type": "boolean"
+                    },
+                    "referenceNumber": {
+                        "type": "string"
+                    },
+                    "balanceAfter": {
+                        "type": "number"
                     }
                 }
             },

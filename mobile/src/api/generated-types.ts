@@ -4052,6 +4052,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/statement-refresh/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["summary_3"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/search": {
         parameters: {
             query?: never;
@@ -4155,7 +4171,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["summary_3"];
+        get: operations["summary_4"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4299,7 +4315,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["summary_4"];
+        get: operations["summary_5"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4379,7 +4395,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["summary_5"];
+        get: operations["summary_6"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4507,7 +4523,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["summary_6"];
+        get: operations["summary_7"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4603,7 +4619,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["summary_7"];
+        get: operations["summary_8"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4667,7 +4683,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["summary_8"];
+        get: operations["summary_9"];
         put?: never;
         post?: never;
         delete?: never;
@@ -8972,6 +8988,41 @@ export interface components {
             totalTransactions?: number;
             /** Format: int64 */
             totalStatementImports?: number;
+        };
+        ApiResponseRefreshSummary: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["RefreshSummary"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        RefreshStatusTotals: {
+            status?: string;
+            /** Format: int64 */
+            statements?: number;
+            /** Format: int64 */
+            users?: number;
+            /** Format: int64 */
+            rowsChanged?: number;
+            /** Format: int64 */
+            rowsAdded?: number;
+            /** Format: int64 */
+            rowsRemoved?: number;
+            /** Format: int64 */
+            rowsConflicting?: number;
+            /** Format: int64 */
+            factsChanged?: number;
+        };
+        RefreshSummary: {
+            parserVersion?: string;
+            /** Format: int64 */
+            statementsAwaitingCheck?: number;
+            byStatus?: components["schemas"]["RefreshStatusTotals"][];
         };
         ApiResponseListSearchResultDto: {
             success?: boolean;
@@ -16919,6 +16970,28 @@ export interface operations {
             };
         };
     };
+    summary_3: {
+        parameters: {
+            query?: {
+                parserVersion?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseRefreshSummary"];
+                };
+            };
+        };
+    };
     search_1: {
         parameters: {
             query?: {
@@ -17052,7 +17125,7 @@ export interface operations {
             };
         };
     };
-    summary_3: {
+    summary_4: {
         parameters: {
             query?: never;
             header?: never;
@@ -17248,7 +17321,7 @@ export interface operations {
             };
         };
     };
-    summary_4: {
+    summary_5: {
         parameters: {
             query?: never;
             header?: never;
@@ -17354,7 +17427,7 @@ export interface operations {
             };
         };
     };
-    summary_5: {
+    summary_6: {
         parameters: {
             query?: never;
             header?: never;
@@ -17520,7 +17593,7 @@ export interface operations {
             };
         };
     };
-    summary_6: {
+    summary_7: {
         parameters: {
             query?: never;
             header?: never;
@@ -17656,7 +17729,7 @@ export interface operations {
             };
         };
     };
-    summary_7: {
+    summary_8: {
         parameters: {
             query?: never;
             header?: never;
@@ -17743,7 +17816,7 @@ export interface operations {
             };
         };
     };
-    summary_8: {
+    summary_9: {
         parameters: {
             query?: never;
             header?: never;

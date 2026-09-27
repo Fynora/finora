@@ -9435,6 +9435,36 @@
                 }
             }
         },
+        "/api/v1/admin/statement-refresh/summary": {
+            "get": {
+                "tags": [
+                    "admin-statement-refresh-controller"
+                ],
+                "operationId": "summary_3",
+                "parameters": [
+                    {
+                        "name": "parserVersion",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseRefreshSummary"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/search": {
             "get": {
                 "tags": [
@@ -9644,7 +9674,7 @@
                 "tags": [
                     "admin-notification-controller"
                 ],
-                "operationId": "summary_3",
+                "operationId": "summary_4",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -9936,7 +9966,7 @@
                 "tags": [
                     "admin-learning-queue-controller"
                 ],
-                "operationId": "summary_4",
+                "operationId": "summary_5",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -10068,7 +10098,7 @@
                 "tags": [
                     "admin-import-telemetry-controller"
                 ],
-                "operationId": "summary_5",
+                "operationId": "summary_6",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -10259,7 +10289,7 @@
                 "tags": [
                     "admin-statement-analysis-controller"
                 ],
-                "operationId": "summary_6",
+                "operationId": "summary_7",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -10495,7 +10525,7 @@
                 "tags": [
                     "admin-held-statement-telemetry-controller"
                 ],
-                "operationId": "summary_7",
+                "operationId": "summary_8",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -10620,7 +10650,7 @@
                 "tags": [
                     "admin-held-import-controller"
                 ],
-                "operationId": "summary_8",
+                "operationId": "summary_9",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -21672,6 +21702,88 @@
                     "totalStatementImports": {
                         "type": "integer",
                         "format": "int64"
+                    }
+                }
+            },
+            "ApiResponseRefreshSummary": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/RefreshSummary"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "RefreshStatusTotals": {
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string"
+                    },
+                    "statements": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "users": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "rowsChanged": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "rowsAdded": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "rowsRemoved": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "rowsConflicting": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "factsChanged": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "RefreshSummary": {
+                "type": "object",
+                "properties": {
+                    "parserVersion": {
+                        "type": "string"
+                    },
+                    "statementsAwaitingCheck": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "byStatus": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/RefreshStatusTotals"
+                        }
                     }
                 }
             },

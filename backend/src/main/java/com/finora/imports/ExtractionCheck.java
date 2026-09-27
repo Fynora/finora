@@ -83,6 +83,10 @@ final class ExtractionCheck {
      * a layout it recognises and cannot parse.
      */
     static void rejectIfNothingWasExtracted(StagingResponse staged, DocumentContext ctx) {
+        // The one refusal here that does not depend on how many rows were read: the document's own
+        // headings say it is a payment app's history, whose rows span several bank accounts. Every
+        // staging path calls this method, which is why it lives here despite the name. Audit F-08.
+        if (ctx != null && ctx.paymentAppHistory()) throw paymentAppHistory();
         if (!staged.rows().isEmpty()) return;
 
         // Checked first, because it is the most specific thing knowable and the only one of the
@@ -126,6 +130,14 @@ final class ExtractionCheck {
                             : ""));
         }
 
+        // Before the generic branch, for the same reason as the two checks above: it is a more
+        // specific, certain fact. A payment app's history is the wrong kind of document, not a
+        // statement layout Finora failed to read, and "could not find a transaction table" sends
+        // the user looking for a problem with a file that has none. Audit F-08.
+        if (PaymentAppHistoryDetector.isPaytmPaymentHistory(staged.unparseableRows())) {
+            throw paymentAppHistory();
+        }
+
         int transactionShaped = countTransactionShaped(staged.unparseableRows());
         boolean locatedATable = ctx != null && ctx.buildMetadata().tables() > 0;
         ErrorCode code = locatedATable ? ErrorCode.IMPORT_NO_TRANSACTIONS_FOUND : ErrorCode.IMPORT_NO_HEADER_DETECTED;
@@ -146,6 +158,13 @@ final class ExtractionCheck {
                 Map.of("recoveredLines", recoveredLines,
                         "transactionShapedLines", transactionShaped,
                         "looksLikeAStatement", transactionShaped >= MIN_TRANSACTION_SHAPED_LINES));
+    }
+
+    private static ApiException paymentAppHistory() {
+        return new ApiException(ErrorCode.IMPORT_PAYMENT_APP_HISTORY,
+                "This is a Paytm payment history, not a bank statement. Each payment in it was made "
+                        + "from one of your bank accounts and is already in that bank's own "
+                        + "statement, so import those bank statements instead.");
     }
 
     /**

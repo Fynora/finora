@@ -1106,6 +1106,78 @@ public class TransactionService {
     }
 
     /**
+     * Before a refresh corrects these rows' amount, type or date: the reconciliation decided against
+     * the old values -- a transfer pair, a refund link, a duplicate mark -- is undone, so the
+     * reconciliation run after the refresh decides again from the corrected ones. Otherwise a pair
+     * matched on a misread amount would outlive the correction (a 20.00 purchase left "transferred"
+     * against a 2.00 credit). What the user decided (a transfer they marked, a pairing they
+     * rejected) is kept.
+     */
+    @Transactional
+    public void releaseReconciliationForRefresh(UUID userId, List<UUID> ids) {
+        if (ids.isEmpty()) return;
+        java.util.Set<UUID> userDecided = transactionGraphService.releaseMachineEdgesTouching(ids);
+        java.util.Set<Transaction> dirty = new java.util.LinkedHashSet<>();
+        for (Transaction t : getOwnedAll(userId, ids)) {
+            if (t.isTransfer() && !userDecided.contains(t.getId())) {
+                UUID partnerId = t.getTransferPairId();
+                releaseTransfer(t);
+                dirty.add(t);
+                if (partnerId != null) {
+                    transactionRepository.findById(partnerId).filter(p -> p.getUserId().equals(userId))
+                            .filter(p -> t.getId().equals(p.getTransferPairId()) || p.getTransferPairId() == null)
+                            .ifPresent(p -> { releaseTransfer(p); dirty.add(p); });
+                }
+            }
+            if (t.getRefundOfTransactionId() != null && !userDecided.contains(t.getId())) {
+                t.setRefundOfTransactionId(null);
+                t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
+                dirty.add(t);
+            }
+            if (t.getIsDuplicateOf() != null) {
+                releaseDuplicate(t);
+                dirty.add(t);
+            }
+        }
+        for (Transaction r : transactionRepository.findByRefundOfTransactionIdIn(ids)) {
+            if (userDecided.contains(r.getId())) continue;
+            r.setRefundOfTransactionId(null);
+            r.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
+            dirty.add(r);
+        }
+        for (Transaction d : transactionRepository.findByIsDuplicateOfIn(ids)) {
+            releaseDuplicate(d);
+            dirty.add(d);
+        }
+        if (!dirty.isEmpty()) transactionRepository.saveAll(dirty);
+    }
+
+    private static void releaseTransfer(Transaction t) {
+        t.setTransfer(false);
+        t.setTransferPairId(null);
+        t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
+        t.setReconciliationExplanation(null);
+    }
+
+    /** A duplicate mark undone, its balance effect put back if the mark had taken it out -- the same
+     *  restore {@link #clearReconciliationPointersTo} does. A row of a replaced statement stays
+     *  SUPERSEDED: its rows no longer count either way. */
+    private void releaseDuplicate(Transaction t) {
+        boolean reversedAtMark = t.isDuplicateBalanceReversed();
+        t.setIsDuplicateOf(null);
+        t.setDuplicateBalanceReversed(false);
+        boolean superseded = t.getStatementImportId() != null && statementImportRepository.findById(t.getStatementImportId())
+                .map(si -> si.getSupersededBy() != null).orElse(false);
+        if (superseded) {
+            t.setReconciliationStatus(Transaction.ReconciliationStatus.SUPERSEDED);
+            return;
+        }
+        t.setDuplicateBalanceAnchorId(null);
+        t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
+        if (reversedAtMark) moveEffect(t, locateEffect(t), balanceOf(t));
+    }
+
+    /**
      * Removes rows a statement no longer contains. Same as {@link #bulkDelete} -- reconciliation
      * pointers cleared, each row's effect reversed, soft-deleted -- and the rows' graph edges are
      * rejected too: a link to a row that was never on the statement must not keep settling a

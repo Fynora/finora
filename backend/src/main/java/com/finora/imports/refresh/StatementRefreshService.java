@@ -7,6 +7,7 @@ import com.finora.dto.ImportDto.StagingResponse;
 import com.finora.entity.Account;
 import com.finora.entity.Category;
 import com.finora.entity.StatementImport;
+import com.finora.entity.StatementImportExcludedRow;
 import com.finora.entity.StatementRefreshRun;
 import com.finora.entity.Transaction;
 import com.finora.exception.ApiException;
@@ -18,6 +19,7 @@ import com.finora.imports.refresh.StatementRefreshDiff.KnownRow;
 import com.finora.imports.storage.StatementContentService;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.StatementImportRepository;
+import com.finora.repository.StatementImportExcludedRowRepository;
 import com.finora.repository.StatementRefreshRunRepository;
 import com.finora.repository.TransactionRepository;
 import com.finora.service.AuditService;
@@ -80,6 +82,7 @@ public class StatementRefreshService {
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
     private final StatementRefreshRunRepository runRepository;
+    private final StatementImportExcludedRowRepository excludedRowRepository;
     private final StatementRefreshInputs inputs;
     private final StatementContentService statementContentService;
     private final ImportService importService;
@@ -99,6 +102,7 @@ public class StatementRefreshService {
                                    AccountRepository accountRepository,
                                    TransactionRepository transactionRepository,
                                    StatementRefreshRunRepository runRepository,
+                                   StatementImportExcludedRowRepository excludedRowRepository,
                                    StatementRefreshInputs inputs,
                                    StatementContentService statementContentService,
                                    ImportService importService,
@@ -113,6 +117,7 @@ public class StatementRefreshService {
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
         this.runRepository = runRepository;
+        this.excludedRowRepository = excludedRowRepository;
         this.inputs = inputs;
         this.statementContentService = statementContentService;
         this.importService = importService;
@@ -139,6 +144,10 @@ public class StatementRefreshService {
         if (statement.getSupersededBy() != null) {
             throw new ApiException(HttpStatus.CONFLICT,
                     "This statement was replaced by a newer upload, so there is nothing to refresh.");
+        }
+        if (accountRepository.findById(statement.getAccountId()).isEmpty()) {
+            // Same rule as the dry run: a deleted account's statements are never offered or patched.
+            throw new ApiException(HttpStatus.CONFLICT, "This statement's account was deleted.");
         }
         String version = buildVersionResolver.currentCommit();
 
@@ -207,6 +216,13 @@ public class StatementRefreshService {
         RunBuilder run = new RunBuilder(statement, version, StatementRefreshRun.Status.APPLIED);
         run.counts(diff, facts);
 
+        // Links decided against a misread amount, type or date are undone first; the reconciliation
+        // at the end decides them again from the corrected values.
+        transactionService.releaseReconciliationForRefresh(userId, diff.changed().stream()
+                .filter(c -> c.changes().stream().anyMatch(f -> f.field() == StatementRefreshDiff.Field.AMOUNT
+                        || f.field() == StatementRefreshDiff.Field.TYPE || f.field() == StatementRefreshDiff.Field.DATE))
+                .map(StatementRefreshDiff.Changed::transactionId)
+                .toList());
         for (StatementRefreshDiff.Changed changed : diff.changed()) {
             Transaction t = transactionRepository.findById(changed.transactionId()).orElse(null);
             if (t == null) continue;
@@ -219,11 +235,26 @@ public class StatementRefreshService {
         int nextOrdinal = nextRowOrdinal(statement);
         List<com.finora.entity.CategoryRule> rules = categorizationService.ruleSetFor(userId);
         Transaction.Source source = importSourceOf(statement);
+        Set<UUID> ownRows = new java.util.HashSet<>();
+        for (KnownRow k : known) if (k.transactionId() != null) ownRows.add(k.transactionId());
+        int inserted = 0;
         for (FreshRow added : diff.added()) {
-            Transaction t = newRow(userId, statement, fresh.staged().get(added), source, rules);
+            StagedRow staged = fresh.staged().get(added);
+            if (duplicatesAnotherStatement(staged, ownRows)) {
+                // What an import does by default: a row matching a transaction the user already has
+                // from another statement (overlapping periods) is left out, not counted twice. Kept
+                // as a left-out row, so the next refresh recognises it instead of offering it again.
+                excludedRowRepository.save(new StatementImportExcludedRow(statement.getId(), userId,
+                        staged.rowPosition(), staged.date(), staged.description(), staged.amount(), staged.type(), true));
+                run.skippedAsDuplicate(staged);
+                continue;
+            }
+            Transaction t = newRow(userId, statement, staged, source, rules);
             t.setRowOrdinal(nextOrdinal++);
             run.added(transactionService.insertFromStatement(t, statement));
+            inserted++;
         }
+        run.addedCount(inserted);
 
         List<KnownRow> gone = new ArrayList<>(diff.removed());
         gone.addAll(diff.conflicts());
@@ -233,7 +264,7 @@ public class StatementRefreshService {
 
         // Rows on this statement now: what its history shows as imported.
         statement.setTransactionsImported(Math.max(0,
-                statement.getTransactionsImported() + diff.added().size() - gone.size()));
+                statement.getTransactionsImported() + inserted - gone.size()));
         applyFacts(statement, facts, run);
         stamp(statement, version);
 
@@ -257,11 +288,18 @@ public class StatementRefreshService {
     /** The corrected fields, onto the row. Only fields the diff reported -- it already left out any the user edited. */
     private void applyCorrections(UUID userId, Transaction t, List<FieldChange> changes, FreshRow fresh, StagedRow staged) {
         Set<Transaction.EditableField> edited = t.getUserEditedFields();
+        boolean recategorize = false;
         for (FieldChange change : changes) {
             switch (change.field()) {
                 case DATE -> t.setTxnDate(fresh.date());
-                case AMOUNT -> t.setAmount(fresh.amount());
-                case TYPE -> t.setTxnType(EnumParsing.parse(Transaction.Type.class, fresh.type(), "type"));
+                case AMOUNT -> {
+                    t.setAmount(fresh.amount());
+                    recategorize = true;
+                }
+                case TYPE -> {
+                    t.setTxnType(EnumParsing.parse(Transaction.Type.class, fresh.type(), "type"));
+                    recategorize = true;
+                }
                 case BALANCE_AFTER -> t.setBalanceAfter(fresh.balanceAfter());
                 case REFERENCE_NUMBER -> t.setReferenceNumber(fresh.referenceNumber());
                 case DESCRIPTION -> {
@@ -271,18 +309,40 @@ public class StatementRefreshService {
                         t.setMerchant(CategoryRules.extractMerchantLabel(fresh.description()));
                         t.setMerchantId(categorizationService.resolveMerchantId(userId, fresh.description()));
                     }
-                    // A corrected narration can mean a different category -- unless the user chose
-                    // this row's category themselves.
-                    if (!t.isCategoryManuallySet() && staged != null && staged.suggestedCategory() != null) {
-                        Category category = categorizationService.resolveOrCreateCategory(userId, staged.suggestedCategory());
-                        t.setCategoryId(category.getId());
-                        t.setDecisionSource(CategorizationService.decisionSourceFor(staged.categorySource()));
-                        t.setDecisionRuleId(staged.ruleId());
-                        t.setDecisionConfidence(staged.categoryConfidence());
-                    }
+                    recategorize = true;
                 }
             }
         }
+        // The category and its review flag were decided from the old reading; a corrected
+        // narration, amount or type is decided again from the new one, as a clean import of the
+        // file would -- unless the user chose this row's category themselves.
+        if (recategorize && !t.isCategoryManuallySet() && staged != null) applyCategoryDecision(userId, t, staged);
+    }
+
+    /** Category, decision record and review flag for a row read from {@code staged} and not reviewed by the user. */
+    private void applyCategoryDecision(UUID userId, Transaction t, StagedRow staged) {
+        String name = staged.suggestedCategory() == null || staged.suggestedCategory().isBlank()
+                ? "Other" : staged.suggestedCategory();
+        Category category = categorizationService.resolveOrCreateCategory(userId, name);
+        t.setCategoryId(category.getId());
+        t.setDecisionSource(CategorizationService.decisionSourceFor(staged.categorySource()));
+        t.setDecisionRuleId(staged.ruleId());
+        t.setDecisionConfidence(staged.categoryConfidence());
+        t.setNeedsCategoryReview(categorizationService.needsCategoryReview(userId, unresolvedGuess(staged),
+                staged.categoryConfidence()));
+    }
+
+    /**
+     * The import's own rule ({@code RuleLearningService.recordDecision}) for a row the user did not
+     * review: a corpus or AI suggestion is still a guess, and so is a default or unconfirmed source.
+     */
+    private static boolean unresolvedGuess(StagedRow staged) {
+        String source = staged.categorySource();
+        if (CategorizationService.SHARED_CORPUS_SOURCE.equals(source)
+                || CategorizationService.AI_FALLBACK_SOURCE.equals(source)) {
+            return true;
+        }
+        return CategorizationService.isUnconfirmedGuess(source, staged.suggestedCategory());
     }
 
     /**
@@ -292,14 +352,11 @@ public class StatementRefreshService {
      */
     private Transaction newRow(UUID userId, StatementImport statement, StagedRow row, Transaction.Source source,
                                List<com.finora.entity.CategoryRule> rules) {
-        String categoryName = row.suggestedCategory() == null || row.suggestedCategory().isBlank()
-                ? "Other" : row.suggestedCategory();
-        Category category = categorizationService.resolveOrCreateCategory(userId, categoryName);
         Transaction t = new Transaction();
         t.setUserId(userId);
         t.setAccountId(statement.getAccountId());
         t.setStatementImportId(statement.getId());
-        t.setCategoryId(category.getId());
+        applyCategoryDecision(userId, t, row);
         t.setMerchantId(categorizationService.resolveMerchantId(userId, row.description()));
         t.applyCounterpartyTyping(row.description());
         t.setTxnDate(row.date());
@@ -310,11 +367,6 @@ public class StatementRefreshService {
         t.setSource(source);
         t.setReferenceNumber(row.referenceNumber());
         t.setBalanceAfter(row.balanceAfter());
-        t.setNeedsCategoryReview(categorizationService.needsCategoryReview(userId,
-                "default".equals(row.categorySource()), row.categoryConfidence()));
-        t.setDecisionSource(CategorizationService.decisionSourceFor(row.categorySource()));
-        t.setDecisionRuleId(row.ruleId());
-        t.setDecisionConfidence(row.categoryConfidence());
         t.setSourceRowPosition(row.rowPosition());
         t.setInternational(row.international());
         t.setForeignAmount(row.foreignCurrency(), row.foreignAmount());
@@ -361,6 +413,13 @@ public class StatementRefreshService {
         if (version != null) statement.setParserVersion(version);
         statementImportRepository.save(statement);
         statementImportRepository.deleteRefreshPreviewsOfStatement(statement.getUserId(), statement.getId());
+    }
+
+    /** A likely duplicate of a transaction that is not one of this statement's own rows. */
+    private static boolean duplicatesAnotherStatement(StagedRow staged, Set<UUID> ownRows) {
+        if (staged == null || !staged.likelyDuplicate()) return false;
+        UUID match = staged.duplicateMatch() == null ? null : staged.duplicateMatch().existingTransactionId();
+        return match == null || !ownRows.contains(match);
     }
 
     /** After every ordinal the statement has used, deleted rows included: (statement, ordinal) is unique (V67). */
@@ -412,6 +471,7 @@ public class StatementRefreshService {
         private final List<Map<String, Object>> added = new ArrayList<>();
         private final List<Map<String, Object>> removed = new ArrayList<>();
         private final List<Map<String, Object>> facts = new ArrayList<>();
+        private final List<Map<String, Object>> skipped = new ArrayList<>();
         private String reason;
 
         RunBuilder(StatementImport statement, String version, StatementRefreshRun.Status status) {
@@ -427,6 +487,10 @@ public class StatementRefreshService {
 
         void balanceChange(BigDecimal change) { run.setBalanceChange(change); }
 
+        void addedCount(int inserted) {
+            run.setCounts(run.getRowsChanged(), inserted, run.getRowsRemoved(), run.getFactsChanged());
+        }
+
         void changed(Transaction t, List<FieldChange> changes) {
             Map<String, Object> m = row(t);
             m.put("changes", changes.stream().map(fc -> {
@@ -440,6 +504,15 @@ public class StatementRefreshService {
         }
 
         void added(Transaction t) { added.add(row(t)); }
+
+        void skippedAsDuplicate(StagedRow r) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("date", r.date() == null ? null : r.date().toString());
+            m.put("description", r.description());
+            m.put("amount", r.amount() == null ? null : r.amount().toPlainString());
+            m.put("type", r.type());
+            skipped.add(m);
+        }
 
         void removed(KnownRow k, boolean userEdited) {
             Map<String, Object> m = new LinkedHashMap<>();
@@ -470,6 +543,7 @@ public class StatementRefreshService {
             if (!changed.isEmpty()) detail.put("changed", changed);
             if (!added.isEmpty()) detail.put("added", added);
             if (!removed.isEmpty()) detail.put("removed", removed);
+            if (!skipped.isEmpty()) detail.put("skippedAsDuplicate", skipped);
             if (!facts.isEmpty()) detail.put("facts", facts);
             run.setDetail(detail.isEmpty() ? null : detail);
             return run;

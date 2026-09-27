@@ -37,11 +37,15 @@ ARG MANAGEMENT_PORT=9091
 # an alert, an error and a dashboard should agree about which deploy they mean.
 ARG ENVIRONMENT=production
 
+# The Alertmanager service's Railway private address. Like the backend's, it must stay a
+# *.railway.internal name: Alertmanager has no public domain and must not be given one.
+ARG ALERTMANAGER_PRIVATE_ADDRESS=alertmanager.railway.internal:9093
+
 WORKDIR /render
 COPY prometheus.yml alerts.yml ./
 
-# Two substitutions, and only two -- everything else (scrape_interval, metrics_path, rule_files) is
-# identical to what runs locally, which is the point of building from the same file.
+# Three substitutions, and only three -- everything else (scrape_interval, metrics_path, rule_files)
+# is identical to what runs locally, which is the point of building from the same file.
 #
 # The guards are not decoration. A silent no-op sed is exactly how this would ship
 # scraping `host.docker.internal` from inside Railway: the build succeeds, the image runs, the
@@ -53,10 +57,14 @@ COPY prometheus.yml alerts.yml ./
 RUN set -eux; \
     grep -q "host.docker.internal:9091" prometheus.yml; \
     grep -q "environment: local" prometheus.yml; \
+    grep -q "'alertmanager:9093'" prometheus.yml; \
     sed -i "s|host\.docker\.internal:9091|${BACKEND_PRIVATE_DOMAIN}:${MANAGEMENT_PORT}|" prometheus.yml; \
     sed -i "s|environment: local|environment: ${ENVIRONMENT}|" prometheus.yml; \
+    sed -i "s|'alertmanager:9093'|'${ALERTMANAGER_PRIVATE_ADDRESS}'|" prometheus.yml; \
     grep -q "${BACKEND_PRIVATE_DOMAIN}:${MANAGEMENT_PORT}" prometheus.yml; \
     grep -q "environment: ${ENVIRONMENT}" prometheus.yml; \
+    grep -q "'${ALERTMANAGER_PRIVATE_ADDRESS}'" prometheus.yml; \
+    ! grep -q "'alertmanager:9093'" prometheus.yml; \
     ! grep -E "^[[:space:]]*-[[:space:]]*targets:" prometheus.yml | grep -q "host.docker.internal" 
 
 FROM prom/prometheus:v2.54.1

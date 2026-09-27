@@ -433,18 +433,27 @@ public class Transaction extends BaseEntity {
     public java.util.Set<EditableField> getUserEditedFields() {
         java.util.EnumSet<EditableField> fields = java.util.EnumSet.noneOf(EditableField.class);
         if (userEditedFields != null) {
-            for (String name : userEditedFields) fields.add(EditableField.valueOf(name));
+            // A name this build doesn't know (written by a later version, read after a rollback) is
+            // skipped rather than thrown: failing here would make the whole row unloadable.
+            for (String name : userEditedFields) {
+                for (EditableField f : EditableField.values()) {
+                    if (f.name().equals(name)) fields.add(f);
+                }
+            }
         }
         return java.util.Collections.unmodifiableSet(fields);
     }
 
-    /** Records that a person changed {@code field}. A new list each time, so Hibernate sees the change. */
+    /**
+     * Records that a person changed {@code field}. A new list each time, so Hibernate sees the
+     * change; every name already stored is kept, including one this build doesn't know, so an edit
+     * made under an older build never erases a mark a newer one wrote.
+     */
     public void markUserEdited(EditableField field) {
         if (isUserEdited(field)) return;
-        java.util.EnumSet<EditableField> fields = java.util.EnumSet.noneOf(EditableField.class);
-        fields.addAll(getUserEditedFields());
-        fields.add(field);
-        this.userEditedFields = new java.util.ArrayList<>(fields.stream().map(Enum::name).toList());
+        java.util.List<String> names = new java.util.ArrayList<>(userEditedFields == null ? List.of() : userEditedFields);
+        names.add(field.name());
+        this.userEditedFields = names;
     }
     public void setCategoryManuallySet(boolean categoryManuallySet) { this.categoryManuallySet = categoryManuallySet; }
     public UUID getStatementImportId() { return statementImportId; }

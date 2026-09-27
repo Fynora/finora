@@ -999,6 +999,21 @@ class TransactionServiceTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void anEditedFieldNameThisBuildDoesNotKnow_isSkipped_notThrown() {
+        Transaction t = importedRow(UUID.randomUUID());
+        ReflectionTestUtils.setField(t, "userEditedFields", new java.util.ArrayList<>(List.of("AMOUNT", "SOMETHING_NEWER")));
+
+        assertThat(t.getUserEditedFields()).containsExactly(Transaction.EditableField.AMOUNT);
+        t.markUserEdited(Transaction.EditableField.DATE);
+        assertThat(t.getUserEditedFields())
+                .containsExactlyInAnyOrder(Transaction.EditableField.AMOUNT, Transaction.EditableField.DATE);
+        // ...and writing a new mark keeps the unknown one, so a newer build's mark survives.
+        assertThat((List<Object>) ReflectionTestUtils.getField(t, "userEditedFields"))
+                .containsExactlyInAnyOrder("AMOUNT", "SOMETHING_NEWER", "DATE");
+    }
+
+    @Test
     void update_withCategoryName_marksManuallySetAndClearsReviewFlag() {
         UUID txnId = UUID.randomUUID();
         Transaction existing = ownedTransaction(txnId, userId);

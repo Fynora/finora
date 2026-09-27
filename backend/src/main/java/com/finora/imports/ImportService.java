@@ -1132,11 +1132,12 @@ public class ImportService {
                 t.setNotDuplicateConfirmedAt(java.time.Instant.now());
             }
             // See CategorizationService.decisionSourceFor -- categorySource/ruleId are carried
-            // through from staging (StagedRow -> ConfirmedRow) unchanged by review, same as
-            // category itself; a user changing the category during review doesn't currently
-            // relabel categorySource as a manual override (pre-existing limitation of the
-            // staging/review contract, not introduced by this change).
+            // through from staging (StagedRow -> ConfirmedRow), except for a row whose category the
+            // user changed on the review screen: ConfirmedRowIntegrity.withStatementFacts relabels
+            // that one "review", which maps to MANUAL here and is stored as a manual category, the
+            // same as a category chosen from the Ledger. A statement refresh keeps exactly those.
             t.setDecisionSource(CategorizationService.decisionSourceFor(row.categorySource()));
+            if (CategorizationService.REVIEW_SOURCE.equals(row.categorySource())) t.setCategoryManuallySet(true);
             t.setDecisionRuleId(row.ruleId());
             t.setDecisionConfidence(row.categoryConfidence());
             // Import Row Trace (Founder Operations Dashboard) -- see Transaction.sourceRowPosition's

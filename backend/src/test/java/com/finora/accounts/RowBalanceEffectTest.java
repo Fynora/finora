@@ -126,6 +126,24 @@ class RowBalanceEffectTest {
     }
 
     @Test
+    void aReplacedStatementsRow_isNowhere_unlessTheStatementIsLegacy() {
+        StatementImport statement = new StatementImport();
+        statement.setSupersededBy(UUID.randomUUID());
+        Transaction row = manualRow(Instant.parse("2026-09-02T00:00:00Z"));
+        row.setSource(Transaction.Source.CSV_IMPORT);
+        row.setReconciliationStatus(Transaction.ReconciliationStatus.TRANSFER);
+
+        statement.setBalanceApplicationMode(StatementImport.BalanceApplicationMode.ADDITIVE);
+        assertThat(effect.locate(account, row, statement).where())
+                .as("replacing it took the effect off, whatever the row's own status")
+                .isEqualTo(RowBalanceEffect.Where.NOWHERE);
+        statement.setBalanceApplicationMode(StatementImport.BalanceApplicationMode.UNKNOWN_LEGACY);
+        assertThat(effect.locate(account, row, statement).where())
+                .as("a legacy statement's replacement reversed nothing")
+                .isEqualTo(RowBalanceEffect.Where.BALANCE);
+    }
+
+    @Test
     void aStatementsModeDecides_legacyStatementsKeepMovingTheBalance() {
         StatementImport statement = new StatementImport();
         Transaction row = manualRow(Instant.parse("2026-09-02T00:00:00Z"));

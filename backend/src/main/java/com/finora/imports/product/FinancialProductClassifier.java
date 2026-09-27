@@ -258,6 +258,19 @@ public class FinancialProductClassifier {
                     && (forbidden == ProductSignal.OPENING_BALANCE_FIELD
                             || forbidden == ProductSignal.INSTALLMENT_FIELD)
                     && hasOwnCardField(collected)) continue;
+            // Audit F-11, the same reasoning again for the transaction accounts. A real PNB savings
+            // statement was disqualified from every account type by one sentence of its terms and
+            // conditions ("charges ... on installments"). A savings, current or overdraft ledger
+            // can mention installments in prose -- charges, a loan offer, a standing instruction --
+            // without being an installment product. Exempted only when SECTION_TEXT is the
+            // strongest source, and only when the section is itself a ledger (dated rows, a
+            // narration column, amounts): an installment schedule has no narration column, so a
+            // recurring deposit's own installment field still disqualifies these hypotheses, and a
+            // real column named for installments still disqualifies them too.
+            if (forbidden == ProductSignal.INSTALLMENT_FIELD
+                    && where == EvidenceSource.SECTION_TEXT
+                    && isTransactionAccount(hypothesis.type())
+                    && collected.looksLikeALedger()) continue;
             evidence.add(Evidence.contradictory(forbidden,
                     hypothesis.type() + " should not carry this, but it is present in "
                             + where.name().toLowerCase().replace('_', ' ')));
@@ -380,6 +393,11 @@ public class FinancialProductClassifier {
             return 0;
         }
         return Math.min(earned / available, 0.95);
+    }
+
+    private static boolean isTransactionAccount(FinancialProductType type) {
+        return type == FinancialProductType.SAVINGS || type == FinancialProductType.CURRENT
+                || type == FinancialProductType.OVERDRAFT || type == FinancialProductType.WALLET;
     }
 
     private static double round(double value) {

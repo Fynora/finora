@@ -142,13 +142,22 @@ public class ProductEvidenceCollector {
      *                     and let {@link #demoteEnumeratedNames} find the summary blocks in
      *                     {@code sectionText} instead.
      * @param rowCount     how many rows the section produced
+     * @param rows         the section's located rows, column name to cell, before any row is read
+     *                     as a transaction. Nullable -- a caller without them passes null, and the
+     *                     row-level direction evidence is simply not collected.
      */
     public record Section(List<String> columnNames, List<String> sectionText,
-                          List<String> documentText, int rowCount, int index, int of) {
+                          List<String> documentText, int rowCount, int index, int of,
+                          List<Map<String, String>> rows) {
+
+        public Section(List<String> columnNames, List<String> sectionText,
+                       List<String> documentText, int rowCount, int index, int of) {
+            this(columnNames, sectionText, documentText, rowCount, index, of, null);
+        }
 
         public Section(List<String> columnNames, List<String> sectionText,
                        List<String> documentText, int rowCount) {
-            this(columnNames, sectionText, documentText, rowCount, 0, 1);
+            this(columnNames, sectionText, documentText, rowCount, 0, 1, null);
         }
 
         public static Section of(List<String> columnNames, List<String> sectionText, int rowCount) {
@@ -170,6 +179,7 @@ public class ProductEvidenceCollector {
         collectStructural(facts, documentText, EvidenceSource.DOCUMENT_TEXT);
 
         collectAmountColumns(facts, columns, EvidenceSource.COLUMN_HEADERS);
+        collectDirectionMarkedRows(facts, section.rows());
 
         if (section.rowCount() > 0) {
             facts.add(ObservedFact.of(ProductSignal.TRANSACTION_ROWS, EvidenceSource.ROW_DATA,
@@ -304,6 +314,53 @@ public class ProductEvidenceCollector {
         String amount = firstMentioned(columns, AMOUNT_WORDS);
         if (amount != null) {
             facts.add(ObservedFact.of(ProductSignal.SINGLE_AMOUNT_COLUMN, source, amount));
+        }
+    }
+
+    /** A cell that is only a direction marker: "DR", "Cr.", "(CR)". */
+    private static final java.util.regex.Pattern MARKER_ONLY =
+            java.util.regex.Pattern.compile("(?i)^\\(?\\s*(dr|cr)\\.?\\s*\\)?$");
+    /** A cell that is an amount followed directly by a direction marker: "500.00(Cr)", "1,200.00 DR". */
+    private static final java.util.regex.Pattern AMOUNT_WITH_MARKER =
+            java.util.regex.Pattern.compile("(?i)^[\\d,]+(?:\\.\\d+)?\\s*\\(?\\s*(dr|cr)\\.?\\s*\\)?$");
+
+    /**
+     * Audit F-11. A ledger can record money in and money out without separate debit and credit
+     * columns: one amount column whose values carry "(Cr)"/"(Dr)", or one amount column beside a
+     * "Type" column holding DR or CR. Two real savings statements print exactly these, and without
+     * this they never earned {@link ProductSignal#DEBIT_CREDIT_COLUMNS} and stayed UNKNOWN.
+     *
+     * <p>Recorded from ROW_DATA, and only when some single column shows BOTH directions -- a balance
+     * column that is "(Cr)" on every row says only that the account is in credit. Only a cell that
+     * is a marker on its own, or a number followed directly by one, counts: the shared trailing-
+     * marker test has no word boundary, so narration ending "...HDR" would otherwise read as a debit.
+     * Skipped when the headers already named both sides, so the signal never counts twice.
+     */
+    private void collectDirectionMarkedRows(List<ObservedFact> facts, List<Map<String, String>> rows) {
+        if (rows == null || rows.isEmpty()) return;
+        for (ObservedFact f : facts) {
+            if (f.signal() == ProductSignal.DEBIT_CREDIT_COLUMNS) return;
+        }
+        Map<String, boolean[]> seen = new LinkedHashMap<>();
+        for (Map<String, String> row : rows) {
+            if (row == null) continue;
+            for (Map.Entry<String, String> cell : row.entrySet()) {
+                String value = cell.getValue() == null ? "" : cell.getValue().trim();
+                java.util.regex.Matcher m = MARKER_ONLY.matcher(value);
+                if (!m.matches()) {
+                    m = AMOUNT_WITH_MARKER.matcher(value);
+                    if (!m.matches()) continue;
+                }
+                boolean[] sides = seen.computeIfAbsent(cell.getKey(), k -> new boolean[2]);
+                if (m.group(1).equalsIgnoreCase("dr")) sides[0] = true; else sides[1] = true;
+            }
+        }
+        for (Map.Entry<String, boolean[]> column : seen.entrySet()) {
+            if (column.getValue()[0] && column.getValue()[1]) {
+                facts.add(ObservedFact.of(ProductSignal.DEBIT_CREDIT_COLUMNS, EvidenceSource.ROW_DATA,
+                        "debit and credit marked row by row"));
+                return;
+            }
         }
     }
 

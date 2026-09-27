@@ -5073,6 +5073,8 @@ export interface components {
             foreignCurrency?: string;
             foreignAmount?: number;
             awaitingTransferPartner?: boolean;
+            referenceNumber?: string;
+            balanceAfter?: number;
         };
         SetChoiceRequest: {
             /** Format: uuid */

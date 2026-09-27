@@ -154,8 +154,9 @@ final class ReconciliationExplanation {
      * merchant evidence from one carried by refund-flavored wording in a narration, a distinction
      * that matters when the classification turns out to be wrong.
      */
+    /** @param sharedReference the 12-digit reference both rows print, or null when none linked them */
     static Map<String, Object> refund(Transaction income, Transaction purchase,
-                                      boolean refundKeyword, boolean sameMerchant) {
+                                      boolean refundKeyword, boolean sameMerchant, String sharedReference) {
         Map<String, Object> reason = new LinkedHashMap<>();
         reason.put("sameAccount", income.getAccountId().equals(purchase.getAccountId()));
         reason.put("dateDifferenceDays", daysBetween(purchase.getTxnDate(), income.getTxnDate()));
@@ -164,6 +165,7 @@ final class ReconciliationExplanation {
         reason.put("refundAmount", income.getAmount().toPlainString());
         reason.put("purchaseAmount", purchase.getAmount().toPlainString());
         reason.put("partialRefund", income.getAmount().compareTo(purchase.getAmount()) < 0);
+        if (sharedReference != null) reason.put("sharedReference", sharedReference);
         return envelope("REFUND", purchase.getId(), reason);
     }
 
@@ -177,7 +179,8 @@ final class ReconciliationExplanation {
      * records signals that were necessarily true -- it is what a reader disputing the
      * classification needs to see without re-deriving it.
      */
-    static Map<String, Object> reversal(Transaction income, Transaction purchase, boolean sameMerchant) {
+    static Map<String, Object> reversal(Transaction income, Transaction purchase, boolean sameMerchant,
+                                        String sharedReference) {
         Map<String, Object> reason = new LinkedHashMap<>();
         reason.put("sameAccount", income.getAccountId().equals(purchase.getAccountId()));
         reason.put("dateDifferenceDays", daysBetween(purchase.getTxnDate(), income.getTxnDate()));
@@ -186,6 +189,7 @@ final class ReconciliationExplanation {
         reason.put("reversalAmount", income.getAmount().toPlainString());
         reason.put("purchaseAmount", purchase.getAmount().toPlainString());
         reason.put("partialReversal", income.getAmount().compareTo(purchase.getAmount()) < 0);
+        if (sharedReference != null) reason.put("sharedReference", sharedReference);
         return envelope("REVERSAL", purchase.getId(), reason);
     }
 

@@ -120,6 +120,27 @@ public final class RefundNetting {
         return offsetRows.contains(t) || (t.getId() != null && offsetIds.contains(t.getId()));
     }
 
+    /**
+     * A spend total that always equals the sum of its category breakdown: the rows that count as
+     * spend, summed per category, each category floored at zero, then added up. An unlinked refund
+     * gives spend back only in its own category -- one filed under a category with no spend in the
+     * period lowers nothing, rather than lowering the total while its category is hidden from the
+     * breakdown (measured on prod: Expenses read 1,285 while the categories summed to 2,776).
+     * Rows with no category are one group, as the breakdowns' "Uncategorized".
+     */
+    public BigDecimal spendTotal(Collection<Transaction> rows) {
+        Map<UUID, BigDecimal> byCategory = new java.util.HashMap<>();
+        BigDecimal uncategorised = BigDecimal.ZERO;
+        for (Transaction t : rows) {
+            if (!countsAsSpend(t)) continue;
+            if (t.getCategoryId() == null) uncategorised = uncategorised.add(spendAmount(t));
+            else byCategory.merge(t.getCategoryId(), spendAmount(t), BigDecimal::add);
+        }
+        BigDecimal total = floorAtZero(uncategorised);
+        for (BigDecimal v : byCategory.values()) total = total.add(floorAtZero(v));
+        return total;
+    }
+
     public static BigDecimal floorAtZero(BigDecimal amount) {
         return amount.signum() < 0 ? BigDecimal.ZERO : amount;
     }
@@ -127,8 +148,8 @@ public final class RefundNetting {
     /**
      * A category (or other key) spend map with offsets applied: a key whose unlinked refunds exceed
      * its purchases in the period is DROPPED rather than shown as negative spend -- a negative
-     * category is an accounting statement none of these screens makes (see the class comment). The
-     * period's total still carries the full refund, so it can sit below the sum of the categories.
+     * category is an accounting statement none of these screens makes (see the class comment).
+     * {@link #spendTotal} floors the same way, so a period's total is the sum of its categories.
      */
     public static <K> Map<K, BigDecimal> withoutNegativeSpend(Map<K, BigDecimal> spendByKey) {
         Map<K, BigDecimal> out = new java.util.LinkedHashMap<>();

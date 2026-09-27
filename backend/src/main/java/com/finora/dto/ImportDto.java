@@ -871,6 +871,15 @@ public class ImportDto {
                     rowPosition, international, foreignCurrency, foreignAmount);
         }
 
+        /** A copy whose category was decided by {@code categorySource} alone -- no rule and no
+         *  confidence. Used for a category the user chose on the review screen; see
+         *  {@code ConfirmedRowIntegrity.withStatementFacts}. */
+        public ConfirmedRow withCategoryDecidedBy(String categorySource) {
+            return new ConfirmedRow(date, description, amount, type, category, include, categorySource, null,
+                    likelyDuplicate, referenceNumber, balanceAfter, confirmedNotDuplicate, null, rowPosition,
+                    international, foreignCurrency, foreignAmount);
+        }
+
         /** Pre-international arity. */
         public ConfirmedRow(LocalDate date, String description, BigDecimal amount, String type,
                             String category, boolean include, String categorySource, UUID ruleId,

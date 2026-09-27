@@ -236,7 +236,7 @@ class RefundNettingTest {
 
     // ---- unlinked refunds and card adjustments give spend back ----
 
-    private static final FlowTotals.Context NO_CARDS = FlowTotals.context(List.of(), List.of());
+    private static final FlowTotals.Context NO_CARDS = FlowTotals.context(List.of(), List.of(), InflowChoices.NONE);
 
     private static Transaction credit(String amount, String description) {
         Transaction t = new Transaction();

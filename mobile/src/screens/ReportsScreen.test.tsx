@@ -288,6 +288,30 @@ describe('money not counted as income', () => {
     expect(screen.getByText('₹84,500 not counted as income')).toBeOnTheScreen();
   });
 
+  it('lists income by kind and opens the review screen for the month (Plan 2)', async () => {
+    api.forMonth.mockImplementation(async (m: string) => ({
+      ...reportFor(m), unresolvedInflow: 700,
+      incomeByKind: [{ label: 'Salary', amount: 72000 }, { label: 'Family support', amount: 10000 }],
+    }));
+    const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
+    navigate.mockClear();
+    renderScreen();
+    await loadedReport();
+
+    expect(screen.getByText('Income by kind')).toBeOnTheScreen();
+    expect(screen.getByText('Family support')).toBeOnTheScreen();
+    fireEvent.press(screen.getByRole('button', { name: 'Review money not counted yet' }));
+    expect(navigate).toHaveBeenCalledWith('MoneyReview', { start: '2026-07-01', end: '2026-07-31' });
+  });
+
+  it('shows no income-by-kind list for a single line', async () => {
+    api.forMonth.mockImplementation(async (m: string) => ({ ...reportFor(m), incomeByKind: [{ label: 'Salary', amount: 82000 }] }));
+    renderScreen();
+    await loadedReport();
+
+    expect(screen.queryByText('Income by kind')).not.toBeOnTheScreen();
+  });
+
   it('says nothing when the server reports nothing unresolved', async () => {
     api.forMonth.mockImplementation(async (m: string) => ({ ...reportFor(m), unresolvedInflow: 0 }));
     renderScreen();

@@ -1941,6 +1941,16 @@ describe('Dashboard — unresolved inflow banner', () => {
       .toBeInTheDocument();
   });
 
+  it('links to the review page for the same period', async () => {
+    vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
+      unresolvedInflow: 84500, unresolvedInflowCount: 12, unresolvedTopReason: null,
+    }));
+    renderDashboard();
+
+    expect(await screen.findByRole('link', { name: 'Review these payments' }))
+      .toHaveAttribute('href', '/app/money-review?start=2026-03-01&end=2026-08-31');
+  });
+
   it('uses the singular for one transaction', async () => {
     vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
       unresolvedInflow: 1479, unresolvedInflowCount: 1, unresolvedTopReason: null,

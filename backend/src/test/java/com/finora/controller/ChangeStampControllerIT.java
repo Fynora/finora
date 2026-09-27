@@ -63,6 +63,8 @@ class ChangeStampControllerIT extends AbstractIntegrationTest {
     @Autowired private PlanRepository planRepository;
     @Autowired private SubscriptionRepository subscriptionRepository;
     @Autowired private ReferralGrantRepository referralGrantRepository;
+    @Autowired private com.finora.repository.InflowKindRepository inflowKindRepository;
+    @Autowired private com.finora.repository.SenderInflowRuleRepository senderInflowRuleRepository;
 
     private User user;
     private Account account;
@@ -160,6 +162,27 @@ class ChangeStampControllerIT extends AbstractIntegrationTest {
         Map<String, String> before = stampOf(user);
         newAccount(user, "Second account");
         assertMovedOnly(before, stampOf(user), "accounts");
+    }
+
+    /** Plan 2: an inflow kind or a remembered sender changes the figures the transactions
+     *  section's queries show, so either one moves that section on another device. */
+    @Test
+    void movesOnlyTransactionsWhenAnInflowKindOrSenderRuleChanges() {
+        Map<String, String> before = stampOf(user);
+        com.finora.entity.InflowKind kind = new com.finora.entity.InflowKind();
+        kind.setUserId(user.getId());
+        kind.setName("Rent from tenant");
+        kind.setCountsAsIncome(true);
+        kind = inflowKindRepository.save(kind);
+        Map<String, String> afterKind = stampOf(user);
+        assertMovedOnly(before, afterKind, "transactions");
+
+        com.finora.entity.SenderInflowRule rule = new com.finora.entity.SenderInflowRule();
+        rule.setUserId(user.getId());
+        rule.setCounterpartyKey("vpa:tenant1");
+        rule.setInflowKindId(kind.getId());
+        senderInflowRuleRepository.save(rule);
+        assertMovedOnly(afterKind, stampOf(user), "transactions");
     }
 
     @Test

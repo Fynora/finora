@@ -74,6 +74,13 @@ function recurringExpectedLabel(nextEstimate: string): string {
   return `expected in ${days} days (${date})`;
 }
 
+/** The review screen's period for a YYYY-MM reporting month; undefined (this month) when unknown. */
+function monthParams(month: string | null): { start: string; end: string } | undefined {
+  const [y, m] = (month ?? '').split('-').map(Number);
+  if (!y || !m) return undefined;
+  return { start: `${month}-01`, end: `${month}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}` };
+}
+
 export function DashboardScreen() {
   // SEC-17 (docs/quality/bug-reports/2026-08-19-security-review-findings.md). Balances and
   // account totals render on this screen the moment it mounts -- prevents screenshots/screen
@@ -536,20 +543,30 @@ export function DashboardScreen() {
         {/* Money that came in this reporting month but is not counted in Income -- a transfer from
             a person, an unexplained credit on a card (see FlowClassifier on the backend). Without
             it, income that drops because a parent's transfer stopped counting drops with no
-            explanation. Display-only for now; mirrors frontend/src/pages/Dashboard.tsx. */}
+            explanation. Pressing it opens the review screen (Plan 2); mirrors frontend/src/pages/Dashboard.tsx. */}
         {summary && summary.unresolvedInflowCount > 0 ? (
-          <Card style={styles.unresolvedBanner} testID="unresolved-inflow-banner">
-            <Text style={[styles.unresolvedTitle, { color: c.ink }]}>
-              {summary.unresolvedInflowCount}{' '}
-              {summary.unresolvedInflowCount === 1 ? 'transaction needs' : 'transactions need'} classification
-              {' · '}{fmtCurrency(summary.unresolvedInflow)} not counted as income
-            </Text>
-            {summary.unresolvedTopReason && UNRESOLVED_REASON_LINE[summary.unresolvedTopReason] ? (
-              <Text style={[styles.unresolvedBody, { color: c.mutedInk }]}>
-                {UNRESOLVED_REASON_LINE[summary.unresolvedTopReason]}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Review money not counted yet"
+            onPress={() => {
+              trackNavigation('money-review', 'contextual');
+              navigation.navigate('More', { screen: 'MoneyReview', params: monthParams(summary.reportingMonth) });
+            }}
+          >
+            <Card style={styles.unresolvedBanner} testID="unresolved-inflow-banner">
+              <Text style={[styles.unresolvedTitle, { color: c.ink }]}>
+                {summary.unresolvedInflowCount}{' '}
+                {summary.unresolvedInflowCount === 1 ? 'transaction needs' : 'transactions need'} classification
+                {' · '}{fmtCurrency(summary.unresolvedInflow)} not counted as income
               </Text>
-            ) : null}
-          </Card>
+              {summary.unresolvedTopReason && UNRESOLVED_REASON_LINE[summary.unresolvedTopReason] ? (
+                <Text style={[styles.unresolvedBody, { color: c.mutedInk }]}>
+                  {UNRESOLVED_REASON_LINE[summary.unresolvedTopReason]}
+                </Text>
+              ) : null}
+              <Text style={[styles.unresolvedBody, { color: c.primary, fontWeight: '600' }]}>Review these payments</Text>
+            </Card>
+          </Pressable>
         ) : null}
       </View>
 

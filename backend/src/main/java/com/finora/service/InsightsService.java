@@ -73,11 +73,16 @@ public class InsightsService {
      *  AccountCoverageService already makes, not a new data source. */
     private final StatementImportRepository statementImportRepository;
 
+    /** Built into every FlowTotals.Context here -- the user's inflow kinds (Plan 2). */
+    private final InflowChoiceService inflowChoices;
+
     public InsightsService(TransactionRepository transactionRepository, AccountRepository accountRepository,
                             CategoryRepository categoryRepository,
                             BudgetRepository budgetRepository, UserRepository userRepository,
                             TransactionGraphService transactionGraphService,
-                            StatementImportRepository statementImportRepository) {
+                            StatementImportRepository statementImportRepository,
+                           InflowChoiceService inflowChoices) {
+        this.inflowChoices = inflowChoices;
         this.transactionRepository = transactionRepository;
         this.accountRepository = accountRepository;
         this.categoryRepository = categoryRepository;
@@ -306,7 +311,7 @@ public class InsightsService {
         // the dashboard and reports use (RefundNetting.withUnlinkedOffsets). Price with
         // refunds.spendAmount; merchant views filter back to purchases.
         List<Category> categories = categoryRepository.findByUserId(userId);
-        RefundNetting spend = refunds.withUnlinkedOffsets(reportable, FlowTotals.context(accounts, categories));
+        RefundNetting spend = refunds.withUnlinkedOffsets(reportable, inflowChoices.contextFor(userId, accounts, categories));
         List<Transaction> txns = reportable.stream().filter(spend::countsAsSpend).toList();
 
         if (txns.stream().noneMatch(t -> t.getTxnType() == Transaction.Type.EXPENSE)) {

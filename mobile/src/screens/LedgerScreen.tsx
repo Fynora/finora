@@ -222,7 +222,7 @@ export function LedgerScreen() {
   // viewingSourceId's panel) this one echoes the row's own current category as on-screen context,
   // and the row's already-loaded Transaction is gone from this closure by the time the query
   // resolves if the list refetches in between.
-  const [explaining, setExplaining] = useState<{ id: string; category: string } | null>(null);
+  const [explaining, setExplaining] = useState<{ id: string; category: string; credit: boolean } | null>(null);
   // Phase 6. markingTransfer opens the paired-transaction picker; unmarkingId tracks an in-flight
   // unmark for its own row's loading state, same convention as deletingId above.
   const [markingTransfer, setMarkingTransfer] = useState<Transaction | null>(null);
@@ -921,6 +921,7 @@ export function LedgerScreen() {
       <TransactionExplanationModal
         transactionId={explaining?.id ?? null}
         category={explaining?.category ?? null}
+        showCountsAs={explaining?.credit ?? false}
         onClose={() => setExplaining(null)}
       />
 
@@ -977,7 +978,7 @@ export function LedgerScreen() {
           onViewSource={() => { setViewingDetail(null); setViewingSourceId(viewingDetail.id); }}
           onExplainCategory={() => {
             setViewingDetail(null);
-            setExplaining({ id: viewingDetail.id, category: viewingDetail.categoryName });
+            setExplaining({ id: viewingDetail.id, category: viewingDetail.categoryName, credit: viewingDetail.type !== 'EXPENSE' });
           }}
           onMarkTransfer={() => { setViewingDetail(null); setMarkingTransfer(viewingDetail); }}
           // Same reasoning as onDelete below: deferred until the request settles, not fired the

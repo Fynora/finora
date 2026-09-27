@@ -5,7 +5,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Button } from '../components/Button';
 import { MerchantLogo } from '../components/MerchantLogo';
 import { counterpartyLabel } from '../lib/counterpartyLabel';
-import { fmtCurrency, fmtForeignAmount } from '../lib/format';
+import { fmtCurrency, fmtForeignAmount, fmtStatementBalance } from '../lib/format';
 import { reconciliationBadge } from '../lib/reconciliationBadge';
 import { radius, spacing, useTheme } from '../theme';
 import type { Transaction } from '../types';
@@ -143,6 +143,12 @@ export function TransactionDetailSheet({
                   label="International"
                   value={fmtForeignAmount(t.foreignCurrency, t.foreignAmount) ?? 'Yes'}
                 />
+              ) : null}
+              {/* What the statement printed beside this row, exactly as printed. Nothing renders
+                  for a manual entry or a statement that printed neither. */}
+              {t.referenceNumber ? <InfoRow label="Reference" value={t.referenceNumber} /> : null}
+              {t.balanceAfter != null ? (
+                <InfoRow label="Balance after" value={fmtStatementBalance(t.balanceAfter)} />
               ) : null}
             </View>
 

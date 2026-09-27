@@ -84,6 +84,33 @@ describe('TransactionDetailSheet', () => {
     expect(screen.queryByText('International')).toBeNull();
   });
 
+  it('shows the reference number and running balance the statement printed', () => {
+    renderSheet({ ...TXN, referenceNumber: 'REF000000001', balanceAfter: 24361.97 } as Transaction);
+
+    expect(screen.getByText('Reference')).toBeTruthy();
+    expect(screen.getByText('REF000000001')).toBeTruthy();
+    expect(screen.getByText('Balance after')).toBeTruthy();
+    // To the paisa, unlike the rounded amount above: it is checked against the statement.
+    expect(screen.getByText('₹24,361.97')).toBeTruthy();
+  });
+
+  it('keeps the sign of an overdrawn balance', () => {
+    renderSheet({ ...TXN, balanceAfter: -250 } as Transaction);
+    expect(screen.getByText('-₹250.00')).toBeTruthy();
+  });
+
+  it('shows a zero balance rather than hiding it', () => {
+    renderSheet({ ...TXN, balanceAfter: 0 } as Transaction);
+    expect(screen.getByText('₹0.00')).toBeTruthy();
+  });
+
+  it('omits both rows when the statement printed neither', () => {
+    renderSheet({ ...TXN, referenceNumber: null, balanceAfter: null } as Transaction);
+
+    expect(screen.queryByText('Reference')).toBeNull();
+    expect(screen.queryByText('Balance after')).toBeNull();
+  });
+
   it('omits the payment method row when the transaction has none', () => {
     renderSheet({ ...TXN, paymentMethod: '' } as Transaction);
 

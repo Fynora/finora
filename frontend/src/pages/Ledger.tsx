@@ -43,6 +43,13 @@ function fmt(n: number) {
   return (n < 0 ? '-₹' : '₹') + Math.round(Math.abs(n)).toLocaleString('en-IN');
 }
 
+// The running balance a statement printed, shown to the paisa -- unlike fmt(), which rounds. It is
+// the figure a user checks against the statement, so it has to read exactly as the bank printed it.
+function fmtStatementBalance(n: number) {
+  return (n < 0 ? '-₹' : '₹')
+    + Math.abs(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 function KpiCardHeader({ label, icon: Icon, iconBg, iconColor }: { label: string; icon: LucideIcon; iconBg: string; iconColor: string }) {
   return (
     <div className="flex items-start justify-between mb-4">
@@ -776,6 +783,11 @@ export default function Ledger() {
                           <p className="text-muted text-xs truncate">
                             {t.description && t.description !== t.merchant ? t.description : null}
                           </p>
+                          {t.referenceNumber && (
+                            <p className="text-muted text-2xs truncate" title="Reference number printed on the statement">
+                              Ref {t.referenceNumber}
+                            </p>
+                          )}
                           <div className="flex flex-wrap items-center gap-1 mt-0.5">
                             {/* WHO, next to the narration it was derived from -- deliberately not
                                 in the category cell, because "who" and "what for" are different
@@ -841,6 +853,11 @@ export default function Ledger() {
                       {formatForeignAmount(t.foreignCurrency, t.foreignAmount) && (
                         <div className="text-2xs text-muted font-normal">
                           {formatForeignAmount(t.foreignCurrency, t.foreignAmount)}
+                        </div>
+                      )}
+                      {t.balanceAfter != null && (
+                        <div className="text-2xs text-muted font-normal" title="Balance printed on the statement after this transaction">
+                          Bal {fmtStatementBalance(t.balanceAfter)}
                         </div>
                       )}
                     </td>

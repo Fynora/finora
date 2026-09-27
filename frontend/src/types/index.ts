@@ -120,6 +120,11 @@ export interface Transaction {
   foreignAmount: number | null;
   /** A transfer between the user's own accounts whose other leg is not linked yet (Plan 3) -- can be picked as a transfer partner. */
   awaitingTransferPartner?: boolean;
+  // The reference/cheque number and the running balance the statement printed beside this row,
+  // exactly as printed. Null when it printed none (manual entries, most card statements). The
+  // balance is the bank's figure for that moment and does not follow an edit to `amount`.
+  referenceNumber?: string | null;
+  balanceAfter?: number | null;
 }
 
 // One AuditLog row behind a pendingBankCorrection badge -- see

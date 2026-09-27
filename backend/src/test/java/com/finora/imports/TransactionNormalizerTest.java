@@ -506,6 +506,60 @@ class TransactionNormalizerTest {
     }
 
     @Test
+    void normalize_capturesReferenceNumber_fromTheRealHdfcColumnHeader_whateverItsPunctuation() {
+        // Measured on every real HDFC statement in the corpus: the column is "Chq./Ref.No.", which
+        // normalizes to "chq./ref.no" -- a spelling no hint listed, so all 854 printed references
+        // were dropped. Reference headers are now compared by their letters alone, so the next
+        // bank's punctuation variant is caught without another literal entry.
+        Map<String, String> row = rowOf(
+                "Date", "01/07/26", "Narration", "UPI-SAMPLE PAYEE-PAYMENT",
+                "Chq./Ref.No.", "0000100000000001", "Withdrawal Amt.", "100.00", "Closing Balance", "900.00");
+
+        assertThat(normalizer.normalize(userId, row).referenceNumber()).isEqualTo("0000100000000001");
+    }
+
+    @Test
+    void normalize_capturesReferenceNumber_fromADottedChequeNumberHeader() {
+        Map<String, String> row = rowOf(
+                "Date", "01/07/2026", "Narration", "CHEQUE DEPOSIT", "CHQ.NO.", "100001",
+                "Deposit", "100.00", "Balance", "900.00");
+
+        assertThat(normalizer.normalize(userId, row).referenceNumber()).isEqualTo("100001");
+    }
+
+    @Test
+    void normalize_rejoinsAReferenceWrappedInsideItsOwnColumn_whenTheNarrationPrintsItWhole() {
+        // Measured on a real HDFC statement: a 22-character reference wraps inside the reference
+        // column (16 characters, then 6 on the next line) and arrives with a space in it, while the
+        // same reference is printed unbroken at the end of the row's own narration.
+        Map<String, String> row = rowOf(
+                "Date", "01/07/26", "Narration", "NEFT CR-SAMPLE PAYER-SAMPL1000000000100001",
+                "Chq./Ref.No.", "SAMPL10000000001 00001", "Deposit Amt.", "100.00", "Closing Balance", "900.00");
+
+        assertThat(normalizer.normalize(userId, row).referenceNumber()).isEqualTo("SAMPL1000000000100001");
+    }
+
+    @Test
+    void normalize_keepsAReferenceAsPrinted_whenNothingPrintsItWhole() {
+        Map<String, String> row = rowOf(
+                "Date", "01/07/26", "Narration", "CHEQUE DEPOSIT",
+                "Chq./Ref.No.", "100001 200002", "Deposit Amt.", "100.00", "Closing Balance", "900.00");
+
+        assertThat(normalizer.normalize(userId, row).referenceNumber()).isEqualTo("100001 200002");
+    }
+
+    @Test
+    void normalize_leavesReferenceNumberNull_whenTheReferenceCellHoldsNoDigitAtAll() {
+        // Measured on a real Bank of Baroda statement: the one value in its "CHQ.NO." column is a
+        // four-word fragment of page text. A reference with no digit in it is not a reference.
+        Map<String, String> row = rowOf(
+                "Date", "01/07/2026", "Narration", "UPI/SAMPLE", "CHQ.NO.", "sample page text here",
+                "Deposit", "100.00", "Balance", "900.00");
+
+        assertThat(normalizer.normalize(userId, row).referenceNumber()).isNull();
+    }
+
+    @Test
     void normalize_fallsBackToTheTransactionIdColumn_whenNoRealDescriptionColumnHasAnyValue() {
         // Bug fix: verified against a real Union Bank of India statement. Its header row detects
         // a "Remarks" column, but PdfTableLocator's column-anchor bucketing never actually

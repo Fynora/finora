@@ -1,3 +1,8 @@
+-- Numbered V236_1, not V235: it was first merged as V235 after V236 had already been applied to
+-- Production and Dev, and this Flyway runs with outOfOrder=false, so every deploy failed
+-- validation ("Detected resolved migration not applied to database: 235") until it was renamed
+-- to sort after V236. It had never been applied anywhere, so the rename changes nothing that ran.
+--
 -- V233 (inflow kinds) gave inflow_kinds.user_id and sender_inflow_rules.user_id both a plain
 -- REFERENCES users(id), defaulting to NO ACTION -- the same gap V106, V157 and V165 already fixed,
 -- caught again by the e2e/tests/workflow/isolation.spec.ts "records which user_id foreign keys

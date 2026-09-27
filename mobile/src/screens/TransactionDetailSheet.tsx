@@ -106,7 +106,7 @@ export function TransactionDetailSheet({
             </View>
 
             <View style={styles.summary}>
-              <MerchantLogo merchant={t.merchant || t.description || '?'} size={44} />
+              <MerchantLogo merchant={t.merchant || t.description || '?'} size={44} person={t.counterpartyType === 'PERSON'} />
               <View style={styles.summaryText}>
                 <Text style={[styles.desc, { color: c.ink }]}>{t.description || t.merchant || 'Transaction'}</Text>
                 <Text style={[styles.amount, { color: t.type === 'INCOME' ? c.success : c.danger }]}>

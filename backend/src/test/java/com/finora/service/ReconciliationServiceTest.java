@@ -5,6 +5,7 @@ import com.finora.entity.Transaction;
 import com.finora.entity.TransactionRelationship;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.TransactionRepository;
+import com.finora.util.CounterpartyType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -1553,6 +1554,7 @@ class ReconciliationServiceTest {
         Transaction partialCredit = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 7, 3),
                 new BigDecimal("500.00"), Transaction.Type.INCOME, "SWIGGY CREDIT ADJ", Instant.now());
         partialCredit.setMerchant("swiggy ordr");
+        partialCredit.setCounterpartyType(CounterpartyType.BUSINESS);
 
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(purchase, partialCredit));
 
@@ -1560,6 +1562,74 @@ class ReconciliationServiceTest {
 
         assertThat(partialCredit.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.REFUND);
         assertThat(partialCredit.getRefundOfTransactionId()).isEqualTo(purchase.getId());
+    }
+
+    // Money a person sends back after being paid is a repayment or their share of a bill, not a
+    // refund (product decision, 2026-09-27). A name match alone must not net it against the payment.
+    @Test
+    void reconcileForUser_keepsMoneyBackFromAPersonAsIncome_whenOnlyTheNameMatches() {
+        UUID accountId = UUID.randomUUID();
+        Transaction paid = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 7, 1),
+                new BigDecimal("1000.00"), Transaction.Type.EXPENSE, "UPI-ASHA RAO-ASHA@OKAXIS-DINNER", Instant.now());
+        paid.setMerchant("asha rao");
+        paid.setCounterpartyType(CounterpartyType.PERSON);
+        Transaction back = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 7, 4),
+                new BigDecimal("1000.00"), Transaction.Type.INCOME, "UPI-ASHA RAO-ASHA@OKAXIS-NA", Instant.now());
+        back.setMerchant("asha rao");
+        back.setCounterpartyType(CounterpartyType.PERSON);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(paid, back));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(back.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+        assertThat(back.getRefundOfTransactionId()).isNull();
+    }
+
+    // Measured on the corpus: a friend paying through a wallet handle reads UNKNOWN, not PERSON.
+    // Not knowing who sent the money is no evidence of a business refund either.
+    @Test
+    void reconcileForUser_keepsACreditFromAnUnidentifiedSenderAsIncome_whenOnlyTheNameMatches() {
+        UUID accountId = UUID.randomUUID();
+        Transaction paid = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 7, 1),
+                new BigDecimal("500.00"), Transaction.Type.EXPENSE, "UPI-ASHA-ASHA@MBK-NA", Instant.now());
+        paid.setMerchant("asha");
+        Transaction back = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 7, 4),
+                new BigDecimal("500.00"), Transaction.Type.INCOME, "UPI-ASHA-ASHA@MBK-NA", Instant.now());
+        back.setMerchant("asha");
+        back.setCounterpartyType(CounterpartyType.UNKNOWN);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(paid, back));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(back.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+        assertThat(back.getRefundOfTransactionId()).isNull();
+    }
+
+    // Only the name stops counting as evidence. A person's credit that says "refund", or that
+    // carries the payment's own reference (a transfer that came back), is still linked.
+    @Test
+    void reconcileForUser_stillLinksAPersonsCredit_thatSaysRefundOrSharesThePaymentsReference() {
+        UUID accountId = UUID.randomUUID();
+        Transaction paid = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 7, 1),
+                new BigDecimal("800.00"), Transaction.Type.EXPENSE, "UPI-ASHA RAO-ASHA@OKAXIS-111111111111-RENT", Instant.now());
+        paid.setMerchant("asha rao");
+        paid.setCounterpartyType(CounterpartyType.PERSON);
+        Transaction bounced = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 7, 1),
+                new BigDecimal("300.00"), Transaction.Type.INCOME, "UPI-ASHA RAO-ASHA@OKAXIS-111111111111-NA", Instant.now());
+        bounced.setMerchant("asha rao");
+        bounced.setCounterpartyType(CounterpartyType.PERSON);
+        Transaction saysRefund = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 7, 5),
+                new BigDecimal("200.00"), Transaction.Type.INCOME, "UPI-ASHA RAO-ASHA@OKAXIS-REFUND", Instant.now());
+        saysRefund.setMerchant("asha rao");
+        saysRefund.setCounterpartyType(CounterpartyType.PERSON);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                .thenReturn(List.of(paid, bounced, saysRefund));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(bounced.getRefundOfTransactionId()).isEqualTo(paid.getId());
+        assertThat(saysRefund.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.REFUND);
+        assertThat(saysRefund.getRefundOfTransactionId()).isEqualTo(paid.getId());
     }
 
     @Test
@@ -1690,6 +1760,38 @@ class ReconciliationServiceTest {
 
         assertThat(credit.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
         assertThat(credit.getRefundOfTransactionId()).isNull();
+    }
+
+    @Test
+    void reconcileForUser_aTruncatedReversalWordDoesNotLinkToAnUnrelatedPurchase() {
+        // "... R02 SHOPCO REVERS": the pass would admit any purchase that covers it and pick the
+        // closest -- on the corpus, a payment to a person. The flow classifier reads the word instead.
+        UUID accountId = UUID.randomUUID();
+        Transaction unrelated = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 8, 18),
+                new BigDecimal("90.00"), Transaction.Type.EXPENSE, "UPI-A PERSON-person@okbank-111111111111", Instant.now());
+        Transaction reversal = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 8, 18),
+                new BigDecimal("57.00"), Transaction.Type.INCOME, "UPI-SHOPCO-shopco@okbank-222222222222-R02 SHOPCO REVERS", Instant.now());
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(unrelated, reversal));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(reversal.getRefundOfTransactionId()).isNull();
+        assertThat(reversal.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+    }
+
+    @Test
+    void reconcileForUser_aRefundWordSplitByAWrapStillLinks() {
+        UUID accountId = UUID.randomUUID();
+        Transaction purchase = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 8, 18),
+                new BigDecimal("267.00"), Transaction.Type.EXPENSE, "UPI/DR/111111111111/SHOPCO/HDFC/**T.RZP@HDFCBANK/PA Y", Instant.now());
+        Transaction refund = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 8, 18),
+                new BigDecimal("267.00"), Transaction.Type.INCOME, "UPI/CR/222222222222/SHOPCO/HDFC/**.PAYU@HDFCBANK/R EFUND//", Instant.now());
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(purchase, refund));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(refund.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.REFUND);
+        assertThat(refund.getRefundOfTransactionId()).isEqualTo(purchase.getId());
     }
 
     @Test

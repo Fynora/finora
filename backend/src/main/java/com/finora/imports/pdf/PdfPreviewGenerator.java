@@ -397,7 +397,7 @@ public class PdfPreviewGenerator {
         List<String> columns = section.rows().stream().flatMap(row -> row.keySet().stream()).distinct().toList();
         ProductDiscovery.DiscoveredProduct product = productDiscovery.discover(
                 new ProductEvidenceCollector.Section(columns, section.auxiliaryText(), null,
-                        section.rows().size(), sectionIndex, sectionCount));
+                        section.rows().size(), sectionIndex, sectionCount, section.rows()));
         // CodeQL (java/dereferenced-value-may-be-null #73), 2026-09-04, round 2: this and the two
         // other `ctx != null` checks in this file (originally at buildLedgerSection/
         // attributePrintedSummary) were never actually reachable with a null ctx -- traced the
@@ -803,7 +803,7 @@ public class PdfPreviewGenerator {
                 .distinct()
                 .toList();
         return productDiscovery.discover(new ProductEvidenceCollector.Section(columns, section.auxiliaryText(),
-                null, section.rows().size(), sectionIndex, sectionCount));
+                null, section.rows().size(), sectionIndex, sectionCount, section.rows()));
     }
 
     /**

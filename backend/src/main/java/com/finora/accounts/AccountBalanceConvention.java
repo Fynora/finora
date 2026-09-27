@@ -231,6 +231,16 @@ public final class AccountBalanceConvention {
         return statement.getBalanceApplicationMode();
     }
 
+    /** Whether a row with no statement (a manual entry) is dated inside the stated figure that held
+     *  the balance when it was entered -- {@link Transaction#getBalanceCoveredThrough()} -- so its
+     *  effect is in that figure and not separately in the balance. The manual-entry counterpart of
+     *  {@link #effectiveMode} returning COVERED. */
+    public static boolean manualRowInsideStatedFigure(Transaction row) {
+        if (row == null || row.getStatementImportId() != null) return false;
+        LocalDate coveredThrough = row.getBalanceCoveredThrough();
+        return coveredThrough != null && row.getTxnDate() != null && !row.getTxnDate().isAfter(coveredThrough);
+    }
+
     /** Whether this row of {@code statement} moved {@code Account.balance} by its own net effect when
      *  imported -- see {@link #effectiveMode}. */
     public static boolean movedBalanceAtImport(StatementImport statement, Transaction row) {

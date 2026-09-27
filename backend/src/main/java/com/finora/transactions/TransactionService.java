@@ -48,6 +48,7 @@ public class TransactionService {
     private final AccountRepository accountRepository;
     private final StatementImportRepository statementImportRepository;
     private final com.finora.accounts.RowBalanceEffect rowBalanceEffect;
+    private final com.finora.accounts.BalanceCoverage balanceCoverage;
     private final CategorizationService categorizationService;
     private final ReconciliationService reconciliationService;
     private final RecurringService recurringService;
@@ -83,6 +84,7 @@ public class TransactionService {
         this.accountRepository = accountRepository;
         this.statementImportRepository = statementImportRepository;
         this.rowBalanceEffect = new com.finora.accounts.RowBalanceEffect(statementImportRepository);
+        this.balanceCoverage = new com.finora.accounts.BalanceCoverage(statementImportRepository, transactionRepository);
         this.categorizationService = categorizationService;
         this.reconciliationService = reconciliationService;
         this.recurringService = recurringService;
@@ -356,8 +358,18 @@ public class TransactionService {
             t.setCategoryId(category.getId());
         }
 
+        // A transaction dated on or before the day the balance is already known as of is inside that
+        // figure -- the bank's closing balance for that period, or the balance the user typed in
+        // (which is what they had then, this transaction included). Adding it counted it twice. It
+        // is recorded on the row so every later edit or delete knows its effect is not in the
+        // balance (AccountBalanceConvention.manualRowInsideStatedFigure).
+        java.time.LocalDate knownThrough = balanceCoverage.knownThrough(account);
+        boolean insideStatedFigure = knownThrough != null && t.getTxnDate() != null
+                && !t.getTxnDate().isAfter(knownThrough);
+        if (insideStatedFigure) t.setBalanceCoveredThrough(knownThrough);
+
         Transaction saved = transactionRepository.save(t);
-        adjustAccountBalance(saved.getAccountId(), balanceOf(saved));
+        if (!insideStatedFigure) adjustAccountBalance(saved.getAccountId(), balanceOf(saved));
         // Both re-run synchronously, right after persistence, on every write path that can
         // change a user's transaction set -- same treatment for both detection engines now (see
         // docs/team-message-financial-intelligence-v1-closeout.md). Recurring detection can't
@@ -475,6 +487,28 @@ public class TransactionService {
                 chains.computeIfAbsent(account.getId(), id -> rowBalanceEffect.chainOf(account)));
     }
 
+    /**
+     * A manual entry whose date was just edited, standing where create() would have put it: dated on
+     * or before the day the balance is known as of, it is inside that stated figure; after it, it
+     * is not. Only for an entry whose effect would otherwise be in the balance itself -- one already
+     * inside an older figure (entered before a statement's closing balance set the account, or
+     * before the balance was typed) stays there whatever its date, and keeps its record.
+     */
+    private void recordManualEntryCoverage(Transaction t) {
+        if (t.getStatementImportId() != null || t.getSource() != Transaction.Source.MANUAL) return;
+        Account account = accountRepository.findById(t.getAccountId()).orElse(null);
+        if (account == null) return;
+        java.time.LocalDate previous = t.getBalanceCoveredThrough();
+        t.setBalanceCoveredThrough(null);
+        if (rowBalanceEffect.locate(account, t, null).where() != com.finora.accounts.RowBalanceEffect.Where.BALANCE) {
+            t.setBalanceCoveredThrough(previous);
+            return;
+        }
+        java.time.LocalDate knownThrough = balanceCoverage.knownThrough(account);
+        boolean inside = knownThrough != null && t.getTxnDate() != null && !t.getTxnDate().isAfter(knownThrough);
+        t.setBalanceCoveredThrough(inside ? knownThrough : null);
+    }
+
     private void moveEffect(Transaction t, com.finora.accounts.RowBalanceEffect.Location location, BigDecimal delta) {
         switch (location.where()) {
             case BALANCE -> adjustAccountBalance(t.getAccountId(), delta);
@@ -569,6 +603,7 @@ public class TransactionService {
         userMerchantCategoryResolutionService.pin(userId, t.getCounterpartyKey(), t.getTxnType(), category.getId());
         }
 
+        if (req.date() != null) recordManualEntryCoverage(t);
         Transaction saved = transactionRepository.save(t);
 
         BigDecimal newDelta = balanceOf(saved);

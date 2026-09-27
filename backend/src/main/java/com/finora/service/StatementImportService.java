@@ -441,6 +441,24 @@ public class StatementImportService {
     public void delete(UUID userId, UUID statementImportId, UUID actingAdminId) {
         StatementImport statementImport = getOwned(userId, statementImportId);
 
+        // A statement this one replaced comes back: deleting the replacement used to leave the
+        // original superseded, so that period vanished from every report. Restored before anything
+        // below, so the survivor loop treats its rows as live and the reversal of this statement's
+        // closing balance stops at the original's, if that still stands in the chain.
+        // Unless this statement has itself been replaced: the period is then the later replacement's,
+        // and what this one replaced stays out -- replaced by that one now -- or both would count.
+        List<StatementImport> restored = new ArrayList<>();
+        List<StatementImport> closingBalancesToReapply = new ArrayList<>();
+        for (StatementImport original : statementImportRepository.findBySupersededBy(statementImportId)) {
+            if (statementImport.getSupersededBy() != null) {
+                original.setSupersededBy(statementImport.getSupersededBy());
+                statementImportRepository.save(original);
+                continue;
+            }
+            restored.add(original);
+            if (restoreSuperseded(original)) closingBalancesToReapply.add(original);
+        }
+
         List<Transaction> toRemove = transactionRepository.findByStatementImportId(statementImportId);
         List<UUID> removedIds = toRemove.stream().map(Transaction::getId).toList();
 
@@ -564,7 +582,24 @@ public class StatementImportService {
         statementImportRepository.deleteRefreshPreviewsOfStatement(statementImport.getUserId(), statementImport.getId());
         statementImportRepository.delete(statementImport);
 
-        if (!removedIds.isEmpty()) {
+        // With this statement gone, a restored original's own closing balance -- undone when it was
+        // replaced -- is applied again where it still can be, and its rows counted where it cannot.
+        // Then any row still recorded as covered by a figure that no longer stands is counted
+        // (BalanceCoverage.release): a restored original's rows were left out of the release that
+        // ran while it was superseded.
+        for (StatementImport original : closingBalancesToReapply) reapplyClosingBalance(original);
+        for (StatementImport original : restored) {
+            accountRepository.findById(original.getAccountId()).ifPresent(account -> {
+                BigDecimal before = account.getBalance();
+                balanceCoverage.release(account);
+                if (account.getBalance().compareTo(before) != 0) accountRepository.save(account);
+            });
+            auditService.record(userId, "STATEMENT_IMPORT_RESTORED", "StatementImport", original.getId(),
+                    Map.of("fileName", original.getFileName(), "replacementDeleted", statementImportId,
+                            "actorId", actingAdminId.toString()));
+        }
+
+        if (!removedIds.isEmpty() || !restored.isEmpty()) {
             // What's left might now match a *different* surviving transaction as a transfer
             // pair than it did before this batch existed — worth a fresh pass, not just a flag reset.
             reconciliationService.reconcileForUser(userId);
@@ -593,6 +628,195 @@ public class StatementImportService {
     private boolean isSuperseded(UUID statementImportId) {
         return statementImportId != null && statementImportRepository.findById(statementImportId)
                 .map(si -> si.getSupersededBy() != null).orElse(false);
+    }
+
+    /**
+     * Undoes {@link #supersede} for {@code original}, whose replacement is being deleted: its rows
+     * count in every report again, and what supersede took off the balance goes back.
+     *
+     * <p>An ADDITIVE original's rows go back where supersede took them from (RowBalanceEffect): the
+     * balance, or the pre-SET snapshot of a closing balance that has set the account since -- the
+     * replacement's own, when it is the one being deleted, so the reversal that follows restores a
+     * balance counting them. The same rows supersede took off: not ones a duplicate mark took off
+     * (supersede recorded those as taken off, and they stay marked), not ones covered at import.
+     *
+     * <p>An ABSOLUTE original whose closing balance still stands in the account's SET chain -- the
+     * replacement's SET came after it, so supersede had nothing to reverse -- needs nothing more:
+     * with the original live again, reversing the replacement's SET stops at it. One whose SET
+     * supersede reversed is handed back to the caller, to be re-applied once the replacement's rows
+     * are gone ({@link #reapplyClosingBalance}).
+     *
+     * @return whether {@code original}'s closing balance has to be re-applied
+     */
+    private boolean restoreSuperseded(StatementImport original) {
+        List<Transaction> rows = transactionRepository.findByStatementImportId(original.getId());
+        Account account = accountRepository.findById(original.getAccountId()).orElse(null);
+        boolean reapply = false;
+        if (account != null) {
+            switch (original.getBalanceApplicationMode()) {
+                case ADDITIVE -> {
+                    List<Transaction> contributing = rows.stream()
+                            .filter(t -> (t.getIsDuplicateOf() == null || !t.isDuplicateBalanceReversed())
+                                    && AccountBalanceConvention.effectiveMode(original, t)
+                                            != StatementImport.BalanceApplicationMode.COVERED)
+                            .toList();
+                    BigDecimal before = account.getBalance();
+                    com.finora.accounts.RowBalanceEffect.Chain chain = rowBalanceEffect.chainOf(account);
+                    for (Transaction t : contributing) {
+                        rowBalanceEffect.apply(account, rowBalanceEffect.locate(account, t, original, chain),
+                                AccountBalanceConvention.balanceDelta(account.getAccountType(), t.getTxnType(), t.getAmount()));
+                    }
+                    if (account.getBalance().compareTo(before) != 0) accountRepository.save(account);
+                }
+                case ABSOLUTE -> reapply = !rowBalanceEffect.inChain(account, original.getId());
+                // UNKNOWN_LEGACY: supersede reversed nothing (and said so); NONE/COVERED moved nothing.
+                default -> { }
+            }
+        }
+        List<Transaction> revived = new ArrayList<>();
+        for (Transaction t : rows) {
+            if (t.getReconciliationStatus() != Transaction.ReconciliationStatus.SUPERSEDED) continue;
+            // OK, and reconciliation re-runs after the delete: supersede folded OK and
+            // INVESTMENT_TRANSFER into SUPERSEDED, and the investment pass re-derives the latter.
+            t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
+            revived.add(t);
+        }
+        if (!revived.isEmpty()) transactionRepository.saveAll(revived);
+        original.setSupersededBy(null);
+        statementImportRepository.save(original);
+        return reapply;
+    }
+
+    /**
+     * A restored original's closing balance, reversed when it was replaced, applied again now that
+     * its replacement is gone -- when it still can be: nothing states the balance more recently (no
+     * closing balance set the account after it was imported, no balance typed since), and it is
+     * still the account's latest statement, by the same tests an import uses
+     * ({@code ImportService.isMostRecentStatementForAccount}).
+     *
+     * <p>Rows entered after it was imported and dated inside its period are inside its figure again,
+     * as if they had arrived while it stood: taken out of the pre-SET snapshot and recorded as
+     * covered (their statement's {@code balanceCoveredThrough}, or a manual entry's own), so a
+     * later reversal counts them once, through {@code BalanceCoverage.release}.
+     *
+     * <p>When it cannot, its rows count the way an import that could not use its closing balance
+     * counts them: those dated after the day the balance is known as of move it, the rest are
+     * covered -- so the balance still holds the statement, without its stated figure.
+     */
+    private void reapplyClosingBalance(StatementImport original) {
+        Account account = accountRepository.findById(original.getAccountId()).orElse(null);
+        if (account == null) return;
+        List<Transaction> absorbed = closingBalanceStillApplies(account, original);
+        if (absorbed != null) {
+            java.time.LocalDate asOf = balanceCoverage.asOf(original);
+            BigDecimal absorbedNet = AccountBalanceConvention.netDelta(account.getAccountType(), absorbed);
+            original.setPreviousAbsoluteSetStatementId(account.getLastAbsoluteSetStatementId());
+            original.setBalanceBeforeAbsoluteSet(account.getBalance().subtract(absorbedNet));
+            account.setBalance(original.getClosingBalance());
+            account.setLastAbsoluteSetStatementId(original.getId());
+            Map<UUID, StatementImport> coveredStatements = new LinkedHashMap<>();
+            List<Transaction> coveredEntries = new ArrayList<>();
+            for (Transaction t : absorbed) {
+                if (t.getStatementImportId() == null) {
+                    t.setBalanceCoveredThrough(asOf);
+                    coveredEntries.add(t);
+                } else {
+                    coveredStatements.computeIfAbsent(t.getStatementImportId(),
+                            id -> statementImportRepository.findById(id).orElseThrow());
+                }
+            }
+            if (!coveredEntries.isEmpty()) transactionRepository.saveAll(coveredEntries);
+            for (StatementImport statement : coveredStatements.values()) {
+                java.time.LocalDate existing = statement.getBalanceCoveredThrough();
+                java.time.LocalDate coveredThrough = existing != null && existing.isAfter(asOf) ? existing : asOf;
+                statement.setBalanceCoveredThrough(coveredThrough);
+                boolean everyRowCovered = transactionRepository.findByStatementImportId(statement.getId()).stream()
+                        .allMatch(t -> t.getTxnDate() != null && !t.getTxnDate().isAfter(coveredThrough));
+                if (everyRowCovered && statement.getBalanceApplicationMode() == StatementImport.BalanceApplicationMode.ADDITIVE) {
+                    statement.setBalanceApplicationMode(StatementImport.BalanceApplicationMode.COVERED);
+                }
+                statementImportRepository.save(statement);
+            }
+        } else {
+            java.time.LocalDate known = balanceCoverage.knownThrough(account);
+            List<Transaction> rows = transactionRepository.findByStatementImportId(original.getId());
+            List<Transaction> moving = new ArrayList<>();
+            List<Transaction> markedCopies = new ArrayList<>();
+            boolean anyCovered = false;
+            for (Transaction t : rows) {
+                boolean covered = known != null && t.getTxnDate() != null && !t.getTxnDate().isAfter(known);
+                if (covered) { anyCovered = true; continue; }
+                // A copy's mark says it does not count; its effect was never on the balance, and is
+                // recorded as off, the same state BalanceCoverage.release leaves one in.
+                if (t.getIsDuplicateOf() != null) {
+                    t.setDuplicateBalanceReversed(true);
+                    t.setDuplicateBalanceAnchorId(null);
+                    markedCopies.add(t);
+                } else {
+                    moving.add(t);
+                }
+            }
+            if (!markedCopies.isEmpty()) transactionRepository.saveAll(markedCopies);
+            BigDecimal net = AccountBalanceConvention.netDelta(account.getAccountType(), moving);
+            if (net.signum() != 0) account.setBalance(account.getBalance().add(net));
+            original.setBalanceCoveredThrough(anyCovered ? known : null);
+            original.setBalanceApplicationMode(rows.isEmpty() ? StatementImport.BalanceApplicationMode.NONE
+                    : moving.isEmpty() && markedCopies.isEmpty() ? StatementImport.BalanceApplicationMode.COVERED
+                    : StatementImport.BalanceApplicationMode.ADDITIVE);
+            // No longer a SET; nothing in the chain names it (see restoreSuperseded).
+            original.setBalanceBeforeAbsoluteSet(null);
+            original.setPreviousAbsoluteSetStatementId(null);
+        }
+        statementImportRepository.save(original);
+        accountRepository.save(account);
+    }
+
+    /**
+     * The rows {@code original}'s closing balance would take inside it if re-applied now, or null
+     * when it cannot be (see {@link #reapplyClosingBalance}): rows entered after it was imported
+     * whose effect is in the balance itself.
+     */
+    private List<Transaction> closingBalanceStillApplies(Account account, StatementImport original) {
+        Instant importedAt = original.getImportedAt();
+        if (original.getClosingBalance() == null || importedAt == null) return null;
+        if (account.getBalanceTypedAt() != null && !account.getBalanceTypedAt().isBefore(importedAt)) return null;
+        if (account.getLastAbsoluteSetStatementId() != null) {
+            Instant anchorAt = statementImportRepository.findById(account.getLastAbsoluteSetStatementId())
+                    .map(StatementImport::getImportedAt).orElse(null);
+            if (anchorAt == null || !anchorAt.isBefore(importedAt)) return null;
+        }
+        java.time.LocalDate asOf = balanceCoverage.asOf(original);
+        if (asOf == null) return null;
+        UUID userId = original.getUserId();
+        UUID accountId = account.getId();
+        if (transactionRepository.existsLiveTransactionAfterDate(userId, accountId, asOf, original.getId())) return null;
+        if (account.getBalanceBaselineDate() != null && !asOf.isAfter(account.getBalanceBaselineDate())) return null;
+        Optional<java.time.LocalDate> latestOther =
+                statementImportRepository.findLatestPeriodEndForAccount(userId, accountId, original.getId());
+        if (latestOther.isPresent() ? latestOther.get().isAfter(asOf)
+                : statementImportRepository.countOtherStatementsForAccount(userId, accountId, original.getId()) > 0) {
+            return null;
+        }
+        List<Transaction> absorbed = new ArrayList<>();
+        com.finora.accounts.RowBalanceEffect.Chain chain = rowBalanceEffect.chainOf(account);
+        Map<UUID, StatementImport> statements = new HashMap<>();
+        for (Transaction t : transactionRepository.findByUserIdAndAccountIdIn(userId, List.of(accountId))) {
+            if (original.getId().equals(t.getStatementImportId())) continue;
+            if (t.getCreatedAt() == null || t.getCreatedAt().isBefore(importedAt)) continue;
+            // Replaced rows: supersede already took their effect off.
+            if (t.getReconciliationStatus() == Transaction.ReconciliationStatus.SUPERSEDED) continue;
+            StatementImport statement = null;
+            if (t.getStatementImportId() != null) {
+                statement = statements.computeIfAbsent(t.getStatementImportId(),
+                        id -> statementImportRepository.findById(id).orElse(null));
+                if (statement == null) return null;
+            }
+            if (rowBalanceEffect.locate(account, t, statement, chain).where()
+                    != com.finora.accounts.RowBalanceEffect.Where.BALANCE) continue;
+            if (t.getTxnDate() == null) return null;
+            absorbed.add(t);
+        }
+        return absorbed;
     }
 
     /**

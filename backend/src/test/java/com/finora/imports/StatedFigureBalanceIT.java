@@ -345,8 +345,8 @@ class StatedFigureBalanceIT extends AbstractIntegrationTest {
 
     @Test
     @DisplayName("replacing a statement with a copy whose closing balance sets the account, then deleting "
-            + "that copy, leaves nothing of the replaced statement in the balance")
-    void supersededByASettingCopy_thenCopyDeleted_leavesTheOriginalOut() throws Exception {
+            + "that copy, brings the replaced statement back, balance and all")
+    void supersededByASettingCopy_thenCopyDeleted_bringsTheOriginalBack() throws Exception {
         UUID user = user().getId();
         UUID account = untypedAccount(user, "1000.00");
         LocalDate juneStart = LocalDate.of(2026, 6, 1), juneEnd = LocalDate.of(2026, 6, 30);
@@ -363,8 +363,13 @@ class StatedFigureBalanceIT extends AbstractIntegrationTest {
 
         statementImportService.delete(user, copy, user);
         assertThat(balanceOf(account))
-                .as("the original is superseded and the copy is gone: nothing is left on the account but its 1000")
-                .isEqualByComparingTo("1000.00");
+                .as("the copy is gone and the original it replaced is back: 1000 less its 100")
+                .isEqualByComparingTo("900.00");
+        assertThat(statementImportRepository.findById(original).orElseThrow().getSupersededBy()).isNull();
+        assertThat(only(original).getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+
+        statementImportService.delete(user, original, user);
+        assertThat(balanceOf(account)).isEqualByComparingTo("1000.00");
     }
 
     @Test
@@ -399,5 +404,221 @@ class StatedFigureBalanceIT extends AbstractIntegrationTest {
         transactionService.update(user, only(june).getId(),
                 new TransactionDto.UpdateRequest(LocalDate.of(2026, 8, 5), null, null, null, null, null, null, null));
         assertThat(balanceOf(account)).isEqualByComparingTo("750.00");
+    }
+
+    // ---- 3: deleting a replacement brings back the statement it replaced ----
+
+    private static final LocalDate JUNE_START = LocalDate.of(2026, 6, 1), JUNE_END = LocalDate.of(2026, 6, 30);
+
+    @Test
+    @DisplayName("deleting a replacement with no closing balance brings back an original with none either")
+    void additiveReplacementDeleted_bringsBackAnAdditiveOriginal() throws Exception {
+        UUID user = user().getId();
+        UUID account = untypedAccount(user, "1000.00");
+        UUID original = importStatement(user, account, null, null, JUNE_START, JUNE_END,
+                row(LocalDate.of(2026, 6, 15), "GROCERIES", "100.00", "EXPENSE"));
+        UUID copy = importStatement(user, account, null, null, JUNE_START, JUNE_END,
+                row(LocalDate.of(2026, 6, 16), "GROCERY STORE", "130.00", "EXPENSE"));
+        assertThat(balanceOf(account)).isEqualByComparingTo("770.00");
+        statementImportService.supersede(user, original, copy);
+        assertThat(balanceOf(account)).isEqualByComparingTo("870.00");
+
+        statementImportService.delete(user, copy, user);
+        assertThat(balanceOf(account)).isEqualByComparingTo("900.00");
+        assertThat(only(original).getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+        statementImportService.delete(user, original, user);
+        assertThat(balanceOf(account)).isEqualByComparingTo("1000.00");
+    }
+
+    @Test
+    @DisplayName("deleting a replacement that was itself replaced leaves the first statement replaced -- by the "
+            + "latest one -- and deleting that brings it back")
+    void deletingAReplacedReplacement_handsTheFirstStatementToTheLatest() throws Exception {
+        UUID user = user().getId();
+        UUID account = untypedAccount(user, "1000.00");
+        UUID first = importStatement(user, account, null, null, JUNE_START, JUNE_END,
+                row(LocalDate.of(2026, 6, 15), "GROCERIES", "100.00", "EXPENSE"));
+        UUID second = importStatement(user, account, null, null, JUNE_START, JUNE_END,
+                row(LocalDate.of(2026, 6, 16), "GROCERY STORE", "130.00", "EXPENSE"));
+        statementImportService.supersede(user, first, second);
+        UUID third = importStatement(user, account, null, null, JUNE_START, JUNE_END,
+                row(LocalDate.of(2026, 6, 17), "GROCERY MART", "150.00", "EXPENSE"));
+        statementImportService.supersede(user, second, third);
+        assertThat(balanceOf(account)).isEqualByComparingTo("850.00");
+
+        statementImportService.delete(user, second, user);
+        assertThat(balanceOf(account)).as("only the latest June counts").isEqualByComparingTo("850.00");
+        assertThat(statementImportRepository.findById(first).orElseThrow().getSupersededBy()).isEqualTo(third);
+
+        statementImportService.delete(user, third, user);
+        assertThat(balanceOf(account)).isEqualByComparingTo("900.00");
+        assertThat(only(first).getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+    }
+
+    @Test
+    @DisplayName("an original whose closing balance still stands under the replacement's is live again once "
+            + "the replacement is deleted")
+    void settingReplacementDeleted_bringsBackASettingOriginal() throws Exception {
+        UUID user = user().getId();
+        UUID account = untypedAccount(user, "1000.00");
+        UUID original = importStatement(user, account, new BigDecimal("1000.00"), new BigDecimal("870.00"),
+                JUNE_START, JUNE_END, row(LocalDate.of(2026, 6, 15), "GROCERIES", "130.00", "EXPENSE"));
+        // Its row on the last day: an import sets the balance only from the statement reaching latest.
+        UUID copy = importStatement(user, account, new BigDecimal("1000.00"), new BigDecimal("860.00"),
+                JUNE_START, JUNE_END, row(JUNE_END, "GROCERIES STORE", "140.00", "EXPENSE"));
+        assertThat(balanceOf(account)).isEqualByComparingTo("860.00");
+        statementImportService.supersede(user, original, copy);
+        assertThat(balanceOf(account)).isEqualByComparingTo("860.00");
+
+        statementImportService.delete(user, copy, user);
+        assertThat(balanceOf(account)).isEqualByComparingTo("870.00");
+        assertThat(accountRepository.findById(account).orElseThrow().getLastAbsoluteSetStatementId()).isEqualTo(original);
+        statementImportService.delete(user, original, user);
+        assertThat(balanceOf(account)).isEqualByComparingTo("1000.00");
+    }
+
+    @Test
+    @DisplayName("an original whose closing balance was undone when it was replaced gets it back once the "
+            + "replacement is deleted -- a manual entry inside its period stays inside it")
+    void undoneClosingBalance_isAppliedAgain_whenTheReplacementIsDeleted() throws Exception {
+        UUID user = user().getId();
+        UUID account = untypedAccount(user, "1000.00");
+        UUID original = importStatement(user, account, new BigDecimal("1000.00"), new BigDecimal("870.00"),
+                JUNE_START, JUNE_END, row(LocalDate.of(2026, 6, 15), "GROCERIES", "130.00", "EXPENSE"));
+        // A cash expense in June, entered after June's closing balance: the bank figure has it.
+        transactionService.create(user, new TransactionDto.CreateRequest(
+                account, "Other", LocalDate.of(2026, 6, 20), "CASH TAXI", new BigDecimal("50.00"), "EXPENSE", List.of()));
+        assertThat(balanceOf(account)).isEqualByComparingTo("870.00");
+        // A copy with no closing balance: June's figure already holds its row.
+        UUID copy = importStatement(user, account, null, null, JUNE_START, JUNE_END,
+                row(LocalDate.of(2026, 6, 16), "GROCERY STORE", "100.00", "EXPENSE"));
+        assertThat(balanceOf(account)).isEqualByComparingTo("870.00");
+
+        // Replacing June undoes its closing balance: the ledger is 1000 less the copy's 100 and the taxi.
+        statementImportService.supersede(user, original, copy);
+        assertThat(balanceOf(account)).isEqualByComparingTo("850.00");
+
+        statementImportService.delete(user, copy, user);
+        assertThat(balanceOf(account)).as("June's closing balance, stated by the bank, again").isEqualByComparingTo("870.00");
+        assertThat(accountRepository.findById(account).orElseThrow().getLastAbsoluteSetStatementId()).isEqualTo(original);
+
+        statementImportService.delete(user, original, user);
+        assertThat(balanceOf(account)).as("without June: 1000 less the taxi").isEqualByComparingTo("950.00");
+    }
+
+    @Test
+    @DisplayName("an original that is no longer the latest statement is counted row by row when its "
+            + "replacement is deleted, not by its old closing balance")
+    void undoneClosingBalance_thatNoLongerApplies_isCountedByItsRows() throws Exception {
+        UUID user = user().getId();
+        UUID account = untypedAccount(user, "1000.00");
+        UUID original = importStatement(user, account, new BigDecimal("1000.00"), new BigDecimal("870.00"),
+                JUNE_START, JUNE_END, row(LocalDate.of(2026, 6, 15), "GROCERIES", "130.00", "EXPENSE"));
+        UUID copy = importStatement(user, account, null, null, JUNE_START, JUNE_END,
+                row(LocalDate.of(2026, 6, 16), "GROCERY STORE", "100.00", "EXPENSE"));
+        transactionService.create(user, new TransactionDto.CreateRequest(
+                account, "Other", LocalDate.of(2026, 7, 5), "JULY BOOKS", new BigDecimal("20.00"), "EXPENSE", List.of()));
+        assertThat(balanceOf(account)).isEqualByComparingTo("850.00");
+        statementImportService.supersede(user, original, copy);
+        assertThat(balanceOf(account)).isEqualByComparingTo("880.00");
+
+        statementImportService.delete(user, copy, user);
+        assertThat(balanceOf(account)).as("1000 less June's 130 and July's 20").isEqualByComparingTo("850.00");
+        assertThat(statementImportRepository.findById(original).orElseThrow().getBalanceApplicationMode())
+                .isEqualTo(com.finora.entity.StatementImport.BalanceApplicationMode.ADDITIVE);
+        statementImportService.delete(user, original, user);
+        assertThat(balanceOf(account)).isEqualByComparingTo("980.00");
+    }
+
+    // ---- 4: a transaction entered by hand with an old date ----
+
+    @Test
+    @DisplayName("a manual entry dated inside a closing balance moves nothing, until its date leaves it")
+    void aManualEntryDatedInsideAClosingBalance_movesNothing() throws Exception {
+        UUID user = user().getId();
+        UUID account = untypedAccount(user, "1000.00");
+        UUID july = importStatement(user, account, new BigDecimal("1000.00"), new BigDecimal("850.00"),
+                LocalDate.of(2026, 7, 1), LocalDate.of(2026, 7, 31),
+                row(LocalDate.of(2026, 7, 20), "UTILITIES", "150.00", "EXPENSE"));
+        TransactionDto taxi = transactionService.create(user, new TransactionDto.CreateRequest(
+                account, "Other", LocalDate.of(2026, 7, 10), "CASH TAXI", new BigDecimal("40.00"), "EXPENSE", List.of()));
+        assertThat(balanceOf(account)).as("July's closing balance already has the taxi").isEqualByComparingTo("850.00");
+        // Exactly the covered day is still inside it.
+        TransactionDto lastDay = transactionService.create(user, new TransactionDto.CreateRequest(
+                account, "Other", LocalDate.of(2026, 7, 31), "CASH TEA", new BigDecimal("5.00"), "EXPENSE", List.of()));
+        assertThat(balanceOf(account)).isEqualByComparingTo("850.00");
+
+        transactionService.update(user, taxi.id(),
+                new TransactionDto.UpdateRequest(null, null, null, new BigDecimal("45.00"), null, null, null, null));
+        assertThat(balanceOf(account)).isEqualByComparingTo("850.00");
+        transactionService.update(user, taxi.id(),
+                new TransactionDto.UpdateRequest(LocalDate.of(2026, 8, 1), null, null, null, null, null, null, null));
+        assertThat(balanceOf(account)).as("on 1 August it is past the closing balance").isEqualByComparingTo("805.00");
+        transactionService.update(user, taxi.id(),
+                new TransactionDto.UpdateRequest(LocalDate.of(2026, 7, 10), null, null, null, null, null, null, null));
+        assertThat(balanceOf(account)).isEqualByComparingTo("850.00");
+
+        statementImportService.delete(user, july, user);
+        assertThat(balanceOf(account)).as("without July's figure, the entries count: 1000 - 45 - 5")
+                .isEqualByComparingTo("950.00");
+        transactionService.delete(user, lastDay.id(), user);
+        assertThat(balanceOf(account)).isEqualByComparingTo("955.00");
+    }
+
+    @Test
+    @DisplayName("a manual entry dated before the day a balance was typed moves nothing")
+    void aManualEntryDatedBeforeATypedBalance_movesNothing() throws Exception {
+        UUID user = user().getId();
+        UUID account = typedAccount(user, "5000.00");
+        TransactionDto old = transactionService.create(user, new TransactionDto.CreateRequest(
+                account, "Other", today().minusDays(3), "OLD CASH", new BigDecimal("30.00"), "EXPENSE", List.of()));
+        assertThat(balanceOf(account)).isEqualByComparingTo("5000.00");
+        transactionService.delete(user, old.id(), user);
+        assertThat(balanceOf(account)).isEqualByComparingTo("5000.00");
+
+        transactionService.create(user, new TransactionDto.CreateRequest(
+                account, "Other", today(), "TODAY CASH", new BigDecimal("30.00"), "EXPENSE", List.of()));
+        assertThat(balanceOf(account)).isEqualByComparingTo("4970.00");
+    }
+
+    @Test
+    @DisplayName("a manual entry entered today and moved back into the typed figure stops counting")
+    void aManualEntryMovedIntoTheTypedFigure_stopsCounting() throws Exception {
+        UUID user = user().getId();
+        UUID account = typedAccount(user, "5000.00");
+        TransactionDto entry = transactionService.create(user, new TransactionDto.CreateRequest(
+                account, "Other", today(), "CASH", new BigDecimal("30.00"), "EXPENSE", List.of()));
+        assertThat(balanceOf(account)).isEqualByComparingTo("4970.00");
+        transactionService.update(user, entry.id(),
+                new TransactionDto.UpdateRequest(today().minusDays(5), null, null, null, null, null, null, null));
+        assertThat(balanceOf(account)).isEqualByComparingTo("5000.00");
+        transactionService.delete(user, entry.id(), user);
+        assertThat(balanceOf(account)).isEqualByComparingTo("5000.00");
+    }
+
+    @Test
+    @DisplayName("a manual copy of a statement row, dated inside its closing balance, never moves the balance "
+            + "whichever of the two is marked the duplicate")
+    void aManualCopyInsideAClosingBalance_markedOrNot_movesNothing() throws Exception {
+        UUID user = user().getId();
+        UUID account = untypedAccount(user, "1000.00");
+        UUID july = importStatement(user, account, new BigDecimal("1000.00"), new BigDecimal("900.00"),
+                LocalDate.of(2026, 7, 1), LocalDate.of(2026, 7, 31),
+                row(LocalDate.of(2026, 7, 31), "RENT PAYMENT", "100.00", "EXPENSE"));
+        TransactionDto manual = transactionService.create(user, new TransactionDto.CreateRequest(
+                account, "Other", LocalDate.of(2026, 7, 31), "RENT PAYMENT", new BigDecimal("100.00"), "EXPENSE", List.of()));
+        assertThat(balanceOf(account)).isEqualByComparingTo("900.00");
+
+        Transaction imported = only(july);
+        Transaction entry = transactionRepository.findById(manual.id()).orElseThrow();
+        Transaction marked = entry.getIsDuplicateOf() != null ? entry
+                : imported.getIsDuplicateOf() != null ? imported : null;
+        assertThat(marked).as("the two identical rows are reconciled as duplicates").isNotNull();
+        transactionService.confirmNotDuplicate(user, marked.getId());
+        assertThat(balanceOf(account)).isEqualByComparingTo("900.00");
+
+        statementImportService.delete(user, july, user);
+        assertThat(balanceOf(account)).as("without July's figure, the manual rent counts: 1000 - 100")
+                .isEqualByComparingTo("900.00");
     }
 }

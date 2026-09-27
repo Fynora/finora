@@ -30,7 +30,8 @@ import java.util.UUID;
  *       so a change to the row is made to the snapshot -- otherwise deleting the statement later
  *       would bring a deleted row's effect back.</li>
  *   <li>{@link Where#NOWHERE}: inside a stated figure and nowhere else (a SET statement's own rows,
- *       rows covered at import, rows from before the balance was typed), taken off by a duplicate
+ *       rows covered at import, rows from before the balance was typed, a manual entry dated inside
+ *       the figure that held the balance when it was entered), taken off by a duplicate
  *       mark, or from a source that never moves the balance.</li>
  * </ul>
  *
@@ -94,6 +95,17 @@ public class RowBalanceEffect {
         return new Chain(account);
     }
 
+    /** Whether {@code statementId}'s closing balance is part of the account's SET chain -- the live
+     *  anchor or one reversing it would hand the balance back to. */
+    public boolean inChain(Account account, UUID statementId) {
+        Chain chain = chainOf(account);
+        for (int i = 0; ; i++) {
+            StatementImportRepository.AnchorSnapshot link = chain.link(i);
+            if (link == null) return false;
+            if (link.getId().equals(statementId)) return true;
+        }
+    }
+
     /**
      * @param statement the row's statement import, or null when it has none (a manual entry)
      */
@@ -112,6 +124,8 @@ public class RowBalanceEffect {
         if (createdAt != null && account.getBalanceTypedAt() != null && createdAt.isBefore(account.getBalanceTypedAt())) {
             return Location.NOWHERE;
         }
+        // A manual entry dated inside the stated figure that held the balance when it was entered.
+        if (AccountBalanceConvention.manualRowInsideStatedFigure(row)) return Location.NOWHERE;
         if (statement != null) {
             StatementImport.BalanceApplicationMode mode = AccountBalanceConvention.effectiveMode(statement, row);
             if (mode == StatementImport.BalanceApplicationMode.UNKNOWN_LEGACY) return Location.BALANCE;

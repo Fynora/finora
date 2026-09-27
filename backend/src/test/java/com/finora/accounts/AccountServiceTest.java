@@ -43,6 +43,7 @@ class AccountServiceTest {
     private TransactionGraphService transactionGraphService;
     private EntitlementService entitlementService;
     private com.finora.integrations.setu.AccountAggregatorLinkRepository aaLinks;
+    private final com.finora.repository.UserRepository userRepository = mock(com.finora.repository.UserRepository.class);
     private AccountService accountService;
     private final UUID userId = UUID.randomUUID();
     private final UUID accountId = UUID.randomUUID();
@@ -91,7 +92,8 @@ class AccountServiceTest {
         when(aaLinks.findByAccountIdInAndStatus(any(), any())).thenReturn(List.of());
         accountService = new AccountService(accountRepository, statementImportRepository,
                 transactionRepository, auditService, bankManagementService, transactionGraphService,
-                entitlementService, aaLinks, new com.finora.integrations.setu.AccountAggregatorLinkStalenessService(24));
+                entitlementService, aaLinks, new com.finora.integrations.setu.AccountAggregatorLinkStalenessService(24),
+                userRepository);
     }
 
     private AccountDto.CreateRequest newAccountRequest(String name) {
@@ -238,6 +240,31 @@ class AccountServiceTest {
         AccountDto result = accountService.create(userId, req, actingAdminId);
 
         assertThat(result.bank().id()).isEqualTo("OTHER");
+    }
+
+    /** A typed balance holds every day before the one it was typed on -- the user's day, not India's:
+     *  UTC+14 and UTC-11 are never on the same date. */
+    @Test
+    void create_withATypedBalance_holdsDaysBeforeTodayInTheUsersOwnTimezone() {
+        when(accountRepository.save(any(Account.class))).thenAnswer(inv -> {
+            Account a = inv.getArgument(0);
+            ReflectionTestUtils.setField(a, "id", UUID.randomUUID());
+            return a;
+        });
+        for (String zone : List.of("Pacific/Kiritimati", "Pacific/Pago_Pago")) {
+            com.finora.entity.User user = new com.finora.entity.User();
+            user.setTimezone(zone);
+            when(userRepository.findById(userId)).thenReturn(java.util.Optional.of(user));
+            java.time.LocalDate before = java.time.LocalDate.now(java.time.ZoneId.of(zone)).minusDays(1);
+
+            accountService.create(userId, new AccountDto.CreateRequest("Wallet", "WALLET", new BigDecimal("500.00"),
+                    null, null, null, null, null, null, null, null), actingAdminId);
+
+            java.time.LocalDate after = java.time.LocalDate.now(java.time.ZoneId.of(zone)).minusDays(1);
+            org.mockito.ArgumentCaptor<Account> saved = org.mockito.ArgumentCaptor.forClass(Account.class);
+            org.mockito.Mockito.verify(accountRepository, org.mockito.Mockito.atLeastOnce()).save(saved.capture());
+            assertThat(saved.getValue().getBalanceBaselineDate()).as(zone).isIn(before, after);
+        }
     }
 
     @Test

@@ -144,8 +144,8 @@ export function TransactionDetailSheet({
                   value={fmtForeignAmount(t.foreignCurrency, t.foreignAmount) ?? 'Yes'}
                 />
               ) : null}
-              {/* What the statement printed beside this row, exactly as printed. Nothing renders
-                  for a manual entry or a statement that printed neither. */}
+              {/* What the bank gave for this row (its statement or a bank sync), exactly as
+                  given. Nothing renders for a manual entry or when the bank gave neither. */}
               {t.referenceNumber ? <InfoRow label="Reference" value={t.referenceNumber} /> : null}
               {t.balanceAfter != null ? (
                 <InfoRow label="Balance after" value={fmtStatementBalance(t.balanceAfter)} />

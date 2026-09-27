@@ -43,8 +43,9 @@ function fmt(n: number) {
   return (n < 0 ? '-₹' : '₹') + Math.round(Math.abs(n)).toLocaleString('en-IN');
 }
 
-// The running balance a statement printed, shown to the paisa -- unlike fmt(), which rounds. It is
-// the figure a user checks against the statement, so it has to read exactly as the bank printed it.
+// The running balance the bank reported after a row (printed on the statement, or sent by a bank
+// sync), shown to the paisa -- unlike fmt(), which rounds. It is the figure a user checks against
+// their statement, so it has to read exactly as the bank gave it.
 function fmtStatementBalance(n: number) {
   return (n < 0 ? '-₹' : '₹')
     + Math.abs(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -784,7 +785,7 @@ export default function Ledger() {
                             {t.description && t.description !== t.merchant ? t.description : null}
                           </p>
                           {t.referenceNumber && (
-                            <p className="text-muted text-2xs truncate" title="Reference number printed on the statement">
+                            <p className="text-muted text-2xs truncate" title="Reference number from your bank">
                               Ref {t.referenceNumber}
                             </p>
                           )}
@@ -856,7 +857,7 @@ export default function Ledger() {
                         </div>
                       )}
                       {t.balanceAfter != null && (
-                        <div className="text-2xs text-muted font-normal" title="Balance printed on the statement after this transaction">
+                        <div className="text-2xs text-muted font-normal" title="Balance after this transaction, as reported by your bank">
                           Bal {fmtStatementBalance(t.balanceAfter)}
                         </div>
                       )}

@@ -412,6 +412,39 @@ class ReportServiceTest {
     }
 
     @Test
+    void unresolvedInflowsMatchForRangeCount() {
+        liveAccount.setAccountType(Account.Type.SAVINGS);
+        Transaction fromPerson = txn(new BigDecimal("2500.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
+        fromPerson.setAccountId(liveAccount.getId());
+        fromPerson.setDescription("UPI-SUNIL VERMA-sampleuser@ybl-REF1");
+        fromPerson.setCounterpartyType(com.finora.util.CounterpartyType.PERSON);
+        fromPerson.setSource(Transaction.Source.CSV_IMPORT);
+        Transaction fromAnother = txn(new BigDecimal("700.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
+        fromAnother.setAccountId(liveAccount.getId());
+        fromAnother.setDescription("UPI-ASHA VERMA-asha@okbank-HDFC0XXXXXX-111111111111-UPI");
+        fromAnother.setCounterpartyType(com.finora.util.CounterpartyType.PERSON);
+        fromAnother.setSource(Transaction.Source.CSV_IMPORT);
+        Transaction salary = txn(new BigDecimal("50000.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
+        salary.setAccountId(liveAccount.getId());
+        salary.setDescription("NEFT ACME TECHNOLOGIES SALARY JUL");
+        Transaction rent = txn(new BigDecimal("15000.00"), Transaction.Type.EXPENSE, Transaction.ReconciliationStatus.OK);
+        rent.setAccountId(liveAccount.getId());
+        rent.setDescription("UPI-LANDLORD ONE-landlord@okbank-111111111111-UPI");
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
+                .thenReturn(List.of(fromPerson, fromAnother, salary, rent));
+        LocalDate from = LocalDate.of(2026, 7, 1), to = LocalDate.of(2026, 7, 31);
+
+        ReportService.RangeTotals totals = reportService.forRange(userId, from, to);
+        ReportService.UnresolvedRows rows = reportService.unresolvedInflows(userId, from, to);
+
+        assertThat(rows.rows()).containsExactlyInAnyOrder(fromPerson, fromAnother);
+        assertThat(rows.rows()).hasSize(totals.unresolvedInflowCount());
+        assertThat(rows.rows().stream().map(Transaction::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add))
+                .isEqualByComparingTo(totals.unresolvedInflow());
+        assertThat(rows.accounts()).containsExactly(liveAccount);
+    }
+
+    @Test
     void forRange_reportsUnresolvedInflowWithItsTopReason() {
         liveAccount.setAccountType(Account.Type.SAVINGS);
         Transaction fromPerson = txn(new BigDecimal("2500.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);

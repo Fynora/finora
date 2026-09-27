@@ -151,6 +151,22 @@ public class ReportService {
                 topReason == null ? null : topReason.name());
     }
 
+    /** The rows forRange counts as unresolved, built the same way, so the review list and the
+     *  banner can never disagree. {@code accounts} is the user's live accounts, for display. */
+    public record UnresolvedRows(List<Transaction> rows, List<com.finora.entity.Account> accounts) {}
+
+    @Transactional(readOnly = true)
+    public UnresolvedRows unresolvedInflows(UUID userId, LocalDate from, LocalDate to) {
+        List<com.finora.entity.Account> accounts = accountRepository.findByUserId(userId);
+        List<UUID> liveAccountIds = accounts.stream().map(com.finora.entity.Account::getId).toList();
+        FlowTotals.Context flow = inflowChoices.contextFor(userId, accounts, categoryRepository.findByUserId(userId));
+        List<Transaction> rangeTxns = liveAccountIds.isEmpty() ? List.of()
+                : transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(userId, from, to, liveAccountIds);
+        List<Transaction> txnsForTotals = RefundNetting.excludingInvestmentTransfers(RefundNetting.reportable(
+                rangeTxns, transactionGraphService.ccPaymentFromTransactionIds(rangeTxns)));
+        return new UnresolvedRows(txnsForTotals.stream().filter(t -> FlowTotals.isUnresolvedInflow(t, flow)).toList(), accounts);
+    }
+
     /** @param transactionCount how many (refund-netted, transfer-excluded) transactions the totals
      *                          above were built from -- DashboardRangeService's comparison gating
      *                          needs this to decide whether a period is thin enough that a stray

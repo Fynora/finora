@@ -8,7 +8,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 
-/** What a statement refresh would change for one statement under one build. See V235. */
+/** What a statement refresh would change for one statement under one build. See V236. */
 @Entity
 @Table(name = "statement_refresh_previews")
 public class StatementRefreshPreview {

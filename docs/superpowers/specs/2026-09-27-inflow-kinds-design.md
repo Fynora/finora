@@ -89,29 +89,38 @@ call through the existing `FlowTotals` path, not once per row.
 ## API
 
 - Inflow kinds:
-  - `GET /api/inflow-kinds`, `POST /api/inflow-kinds` `{ name, countsAsIncome }`;
-  - `PATCH /api/inflow-kinds/{id}` `{ name?, countsAsIncome? }`: `countsAsIncome` on a built-in → 400;
-  - `DELETE /api/inflow-kinds/{id}`: a built-in → 400; a kind in use → 409 with the row and sender counts.
-- Setting a choice: `PUT /api/transactions/{id}/inflow-kind` `{ kindId, scope: ROW | SENDER }`.
+  - `GET /api/v1/inflow-kinds`, `POST /api/v1/inflow-kinds` `{ name, countsAsIncome }`;
+  - `PATCH /api/v1/inflow-kinds/{id}` `{ name?, countsAsIncome? }`: `countsAsIncome` on a built-in → 400;
+  - `DELETE /api/v1/inflow-kinds/{id}`: a built-in → 400; a kind in use → 409 with the row and sender counts.
+- Setting a choice: `PUT /api/v1/transactions/{id}/inflow-kind` `{ kindId, scope: ROW | SENDER }`.
   - SENDER: upserts the sender rule and clears this row's own choice, so the rule applies to it.
   - SENDER on a row with an empty key → 400.
   - A debit → 400.
   - A row that is a paired transfer, a linked refund or a reversal → 400, with a plain message.
-- Clearing a choice: `DELETE /api/transactions/{id}/inflow-kind?scope=ROW|SENDER`. The row falls back
+- Clearing a choice: `DELETE /api/v1/transactions/{id}/inflow-kind?scope=ROW|SENDER`. The row falls back
   to the next level of the order above.
-- Remembered senders: `GET /api/sender-inflow-rules` returns the sender display name, kind and row
-  count. `DELETE /api/sender-inflow-rules/{id}` forgets the sender.
-- Review list: `GET /api/transactions/unresolved-inflows?startDate&endDate` returns credits whose
+- Remembered senders: `GET /api/v1/sender-inflow-rules` returns the sender display name, kind and row
+  count. `DELETE /api/v1/sender-inflow-rules/{id}` forgets the sender.
+- Review list: `GET /api/v1/transactions/unresolved-inflows?startDate&endDate` returns credits whose
   flow class is UNRESOLVED, grouped by sender (display name, count, total, latest date, account),
   sorted by total descending. Rows with an empty key are grouped per row.
-- `TransactionDto` gains:
+- `GET /api/v1/transactions/{id}/counts-as` returns the reading shown on the detail screen:
   - `flowClass` and `flowReason`;
-  - `inflowKind` `{ id, name, countsAsIncome, appliedBy: ROW | SENDER }`, or null.
-- The sender is shown by the name printed on the payment, or by the UPI handle. The raw
-  `counterparty_key` never reaches the client: a `name:` key is a guess, not an identity.
-- Every endpoint is scoped to the current user. Another user's kind, rule or transaction id → 404.
-- `TransactionExplanationService` adds one evidence line: "You marked payments from this sender
-  as <kind>" or "You marked this payment as <kind>".
+  - `kind` `{ id, name, countsAsIncome }` and `appliedBy` (`ROW` or `SENDER`), or null;
+  - `choosable` and, when it is false, `notChoosableReason`;
+  - `senderAvailable`, `senderLabel` and `senderRowCount`;
+  - `summary`, for example "You marked payments from this sender as Family support" or
+    "Income · salary".
+
+  This replaces the earlier idea of new `TransactionDto` fields. Adding a flow reading to every
+  row in every list would load the choices for each listing, and only the detail screen needs it.
+  For the same reason, the "why" line comes from `summary` rather than from
+  `TransactionExplanationService`.
+- The sender is shown by the name printed on the payment (`OwnAccountEvidence.counterpartySlot`),
+  or else by the narration of the sender's most recent credit. That is the same fallback the
+  needs-review counterparty groups use. The raw `counterparty_key` never reaches the client: a
+  `name:` key is a guess, not an identity.
+- Every endpoint is scoped to the current user through `OwnershipGuard`: an unknown id → 404, another user's kind, rule or transaction → 403 (the project convention).
 - OpenAPI and the three generated type files are regenerated.
 
 ## Screens (web and mobile, matching each other)
@@ -146,10 +155,17 @@ call through the existing `FlowTotals` path, not once per row.
   actually links still wins, by the order above.
 - Flipping a custom kind between yes and no changes every row that uses it on the next read. No
   backfill is needed, since totals are derived.
-- Mobile change-sync: the new tables and writes to `transactions.inflow_kind_id` must join the
-  per-section change stamp, so a choice made on the web reaches the phone.
-- The Fyn tool-result cache (`CacheConfig.FYN_TOOL_RESULT_CACHE`) is evicted on a choice write, the
-  same way a transaction edit evicts it.
+- Mobile change-sync:
+  - A row choice is a transaction save, which already moves the transactions stamp.
+  - Kinds and sender rules are added to the transactions section of `ChangeStampService`, because
+    they change the figures the transactions section's queries show.
+  - The new mobile query keys join `FINANCIAL_QUERY_KEYS`.
+- The Fyn tool-result cache (`CacheConfig.FYN_TOOL_RESULT_CACHE`) has no eviction for any write: a
+  30-second lifetime is its whole staleness policy (see `CacheConfig`). A choice is treated the same
+  way as a transaction edit, so nothing is added.
+- Account purge (`AccountPurgeSweepService`) deletes the user's sender rules and kinds after their
+  transactions, because the purge never deletes the `users` row, so an `ON DELETE CASCADE` never
+  fires.
 - A soft-deleted transaction keeps its choice. It leaves totals through the existing delete filter.
 
 ## Testing
@@ -170,7 +186,7 @@ Each new test must fail before its change and pass after it. Synthetic narration
   - a debit or a paired transfer → 400;
   - deleting a kind in use → 409 with counts;
   - deleting a built-in, or flipping its yes/no → 400;
-  - another user's ids → 404;
+  - another user's ids → 403 (OwnershipGuard);
   - parallel first calls produce exactly five built-ins (integration test on real Postgres).
 - Totals: dashboard, range, report, budgets and insights all move together; Family support appears
   as its own income line; the review list drops a sender once it is set.

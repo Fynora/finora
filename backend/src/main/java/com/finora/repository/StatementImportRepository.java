@@ -543,7 +543,7 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
                AND NOT EXISTS (SELECT 1 FROM statement_refresh_previews p
                                 WHERE p.statement_import_id = s.id AND p.parser_version = :parserVersion)
                AND NOT EXISTS (SELECT 1 FROM transactions g
-                                WHERE g.statement_import_id = s.id AND g.source = 'GMAIL_IMPORT')
+                                WHERE g.statement_import_id = s.id AND g.source = 'GMAIL_IMPORT' AND g.deleted_at IS NULL)
              ORDER BY s.created_at, s.id
              LIMIT :limit
             """, nativeQuery = true)
@@ -551,11 +551,13 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
 
     /**
      * Whether this "statement" is a Gmail receipt: its stored file is a short provenance marker, not
-     * a document, so there is nothing to re-read. Statements don't record their origin; their rows do
-     * (deleted ones included, so a receipt whose row the user deleted is still recognised).
+     * a document, so there is nothing to re-read. Statements don't record their origin; their rows do.
+     * Live rows only, like the dry run's candidate query: that is what idx_transactions_statement_import
+     * (partial, deleted_at IS NULL) serves, and the dry run runs every minute. A receipt whose one row
+     * the user deleted is missed -- re-reading its marker then simply fails, harmlessly, once.
      */
     @Query(value = "SELECT EXISTS (SELECT 1 FROM transactions WHERE statement_import_id = :statementImportId "
-            + "AND source = 'GMAIL_IMPORT')", nativeQuery = true)
+            + "AND source = 'GMAIL_IMPORT' AND deleted_at IS NULL)", nativeQuery = true)
     boolean isGmailReceipt(@Param("statementImportId") UUID statementImportId);
 
     /** How many statements findIdsAwaitingRefreshCheck still has for this build -- the backlog. */
@@ -567,7 +569,7 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
                AND NOT EXISTS (SELECT 1 FROM statement_refresh_previews p
                                 WHERE p.statement_import_id = s.id AND p.parser_version = :parserVersion)
                AND NOT EXISTS (SELECT 1 FROM transactions g
-                                WHERE g.statement_import_id = s.id AND g.source = 'GMAIL_IMPORT')
+                                WHERE g.statement_import_id = s.id AND g.source = 'GMAIL_IMPORT' AND g.deleted_at IS NULL)
             """, nativeQuery = true)
     long countAwaitingRefreshCheck(@Param("parserVersion") String parserVersion);
 }

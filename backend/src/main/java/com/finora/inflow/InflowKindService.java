@@ -36,7 +36,7 @@ import java.util.UUID;
 @Service
 public class InflowKindService {
 
-    private static final Map<FlowClassifier.FlowReason, String> AUTOMATIC_SUMMARY = new EnumMap<>(Map.ofEntries(
+    static final Map<FlowClassifier.FlowReason, String> AUTOMATIC_SUMMARY = new EnumMap<>(Map.ofEntries(
             Map.entry(FlowClassifier.FlowReason.SALARY, "Income · salary"),
             Map.entry(FlowClassifier.FlowReason.INTEREST, "Income · interest"),
             Map.entry(FlowClassifier.FlowReason.DIVIDEND, "Income · dividend"),
@@ -53,7 +53,10 @@ public class InflowKindService {
             Map.entry(FlowClassifier.FlowReason.INVESTMENT_WITHDRAWAL, "Money back from an investment"),
             Map.entry(FlowClassifier.FlowReason.LOAN_DRAWDOWN, "Loan money received"),
             Map.entry(FlowClassifier.FlowReason.PERSON_INFLOW, "Not counted yet · from a person"),
-            Map.entry(FlowClassifier.FlowReason.CARD_UNEXPLAINED_CREDIT, "Not counted yet · card credit")));
+            Map.entry(FlowClassifier.FlowReason.CARD_UNEXPLAINED_CREDIT, "Not counted yet · card credit"),
+            Map.entry(FlowClassifier.FlowReason.CASH_DEPOSIT, "Not counted yet · cash paid in"),
+            Map.entry(FlowClassifier.FlowReason.MERCHANT_CREDIT, "Not counted yet · from a shop or app"),
+            Map.entry(FlowClassifier.FlowReason.UNKNOWN_SENDER, "Not counted yet · sender not recognised")));
 
     private final InflowKindRepository kinds;
     private final SenderInflowRuleRepository rules;

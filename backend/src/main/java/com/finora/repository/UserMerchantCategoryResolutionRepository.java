@@ -79,6 +79,21 @@ public interface UserMerchantCategoryResolutionRepository extends JpaRepository<
                        @Param("direction") String direction, @Param("categoryId") UUID categoryId,
                        @Param("resolvedAt") Instant resolvedAt);
 
+    /** Copies the user's resolutions for {@code oldKey} (every direction) to {@code newKey} when the
+     *  counterparty sweep re-keys a row, unless the new key already has its own -- that is the newer
+     *  answer and is kept. The old rows stay for transactions not yet re-keyed. Same shape as
+     *  {@code SenderInflowRuleRepository.carryToNewKey}; runs inside the sweep's transaction. */
+    @Modifying
+    @Query(value = """
+           INSERT INTO user_merchant_category_resolution
+               (id, user_id, counterparty_key, direction, category_id, resolved_at)
+           SELECT gen_random_uuid(), r.user_id, :newKey, r.direction, r.category_id, r.resolved_at
+           FROM user_merchant_category_resolution r
+           WHERE r.user_id = :userId AND r.counterparty_key = :oldKey
+           ON CONFLICT (user_id, counterparty_key, direction) DO NOTHING
+           """, nativeQuery = true)
+    int carryToNewKey(@Param("userId") UUID userId, @Param("oldKey") String oldKey, @Param("newKey") String newKey);
+
     /** Task 6's deletion-dependency count. */
     long countByUserIdAndCategoryId(UUID userId, UUID categoryId);
 

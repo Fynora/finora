@@ -56,7 +56,8 @@ class CounterpartyBackfillSweepServiceTest {
         }).when(transactionTemplate).executeWithoutResult(any());
 
         service = new CounterpartyBackfillSweepService(transactionRepository, transactionTemplate,
-                mock(com.finora.repository.SenderInflowRuleRepository.class));
+                mock(com.finora.repository.SenderInflowRuleRepository.class),
+                mock(com.finora.repository.UserMerchantCategoryResolutionRepository.class));
         ReflectionTestUtils.setField(service, "sweepEnabled", true);
         ReflectionTestUtils.setField(service, "batchSize", 3);
     }

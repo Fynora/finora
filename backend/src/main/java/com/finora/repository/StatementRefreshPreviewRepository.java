@@ -43,4 +43,13 @@ public interface StatementRefreshPreviewRepository extends JpaRepository<Stateme
              GROUP BY status
             """, nativeQuery = true)
     List<StatusTotals> totalsFor(@Param("parserVersion") String parserVersion);
+
+    /** Previews whose statement has since been deleted or superseded -- see
+     *  StatementRefreshDryRunService.runBatch for the race this closes. */
+    @Modifying
+    @Query(value = """
+            DELETE FROM statement_refresh_previews p USING statement_imports s
+             WHERE s.id = p.statement_import_id AND (s.deleted_at IS NOT NULL OR s.superseded_by IS NOT NULL)
+            """, nativeQuery = true)
+    int deleteOrphaned();
 }

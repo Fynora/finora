@@ -68,6 +68,7 @@ public class StatementRefreshDryRunService {
     private final BuildVersionResolver buildVersionResolver;
     private final TransactionTemplate readTransaction;
     private final TransactionTemplate writeTransaction;
+    private final java.util.concurrent.Executor executor;
 
     @Value("${app.statement-refresh.dry-run.enabled:true}")
     private boolean enabled;
@@ -82,7 +83,10 @@ public class StatementRefreshDryRunService {
                                          StatementContentService statementContentService,
                                          ImportService importService,
                                          BuildVersionResolver buildVersionResolver,
-                                         PlatformTransactionManager transactionManager) {
+                                         PlatformTransactionManager transactionManager,
+                                         @org.springframework.beans.factory.annotation.Qualifier("statementRefreshDryRunExecutor")
+                                         java.util.concurrent.Executor executor) {
+        this.executor = executor;
         this.statementImportRepository = statementImportRepository;
         this.transactionRepository = transactionRepository;
         this.excludedRowRepository = excludedRowRepository;
@@ -101,11 +105,15 @@ public class StatementRefreshDryRunService {
             initialDelayString = "${app.statement-refresh.dry-run.initial-delay-ms:120000}")
     public void scheduledRun() {
         if (!enabled) return;
-        BatchResult result = runBatch(batchSize);
-        if (result.checked() > 0) {
-            log.info("Statement refresh dry run: checked {} statement(s) under build {}.",
-                    result.checked(), result.parserVersion());
-        }
+        // Handed off, never run here: see BackgroundWorkConfig.statementRefreshDryRunExecutor. A tick
+        // arriving while a batch is still running is dropped by that executor.
+        executor.execute(() -> {
+            BatchResult result = runBatch(batchSize);
+            if (result.checked() > 0) {
+                log.info("Statement refresh dry run: checked {} statement(s) under build {}.",
+                        result.checked(), result.parserVersion());
+            }
+        });
     }
 
     /** Checks up to {@code limit} statements not yet checked under the running build. */
@@ -115,6 +123,10 @@ public class StatementRefreshDryRunService {
             // No way to tell one build's parse from another's, so nothing can be "older".
             return new BatchResult(null, 0);
         }
+        // A statement deleted or superseded in the moment between a check's re-read and its commit
+        // can still end up with a preview; this removes any such leftover within one tick, so a
+        // deleted statement's narrations never linger in a preview.
+        writeTransaction.executeWithoutResult(tx -> previewRepository.deleteOrphaned());
         int checked = 0;
         for (UUID statementId : statementImportRepository.findIdsAwaitingRefreshCheck(version, limit)) {
             try {
@@ -127,15 +139,28 @@ public class StatementRefreshDryRunService {
                 // parser can quote the statement's own text.
                 log.warn("Statement refresh dry run could not check statement {}: {}", statementId,
                         e.getClass().getSimpleName());
+                // Recorded, so it is not picked up again on every tick: with no preview for this
+                // build, the same statement -- or twenty of them, a whole batch -- would be
+                // re-parsed every minute and the rest of the backlog never reached.
+                recordUnexpectedFailure(statementId, version, e);
             }
         }
         return new BatchResult(version, checked);
     }
 
+    private void recordUnexpectedFailure(UUID statementId, String parserVersion, RuntimeException cause) {
+        try {
+            statementImportRepository.findById(statementId).ifPresent(statement ->
+                    save(failed(statement, parserVersion, "UNEXPECTED_" + cause.getClass().getSimpleName())));
+        } catch (RuntimeException ignored) {
+            // Nothing more to do: the statement stays a candidate and is retried next tick.
+        }
+    }
+
     /** Checks one statement now; visible for tests. */
     public void check(UUID statementId, String parserVersion) {
         StatementImport statement = statementImportRepository.findById(statementId).orElse(null);
-        if (statement == null) return;
+        if (statement == null || statement.getSupersededBy() != null) return;
 
         byte[] content;
         try {
@@ -164,6 +189,7 @@ public class StatementRefreshDryRunService {
         }
 
         writeTransaction.executeWithoutResult(tx -> {
+            if (!stillCurrent(statementId)) return;
             StatementRefreshPreview preview = compare(statement, parserVersion, staging);
             previewRepository.deleteOlderThan(statementId, parserVersion);
             previewRepository.save(preview);
@@ -172,9 +198,21 @@ public class StatementRefreshDryRunService {
 
     private void save(StatementRefreshPreview preview) {
         writeTransaction.executeWithoutResult(tx -> {
+            if (!stillCurrent(preview.getStatementImportId())) return;
             previewRepository.deleteOlderThan(preview.getStatementImportId(), preview.getParserVersion());
             previewRepository.save(preview);
         });
+    }
+
+    /**
+     * Re-read in the writing transaction: the user may have deleted the statement, or a re-upload
+     * superseded it, while it was being parsed. A preview written then would outlive a statement
+     * whose narrations the user asked to be deleted, or offer to refresh one that no longer counts.
+     */
+    private boolean stillCurrent(UUID statementId) {
+        return statementImportRepository.findById(statementId)
+                .map(s -> s.getSupersededBy() == null)
+                .orElse(false);
     }
 
     private static StatementRefreshPreview failed(StatementImport statement, String parserVersion, String reason) {

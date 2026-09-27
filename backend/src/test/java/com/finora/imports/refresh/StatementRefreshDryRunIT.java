@@ -214,6 +214,28 @@ class StatementRefreshDryRunIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void aSupersededStatement_isNotPickedUp_andAPreviewOfADeletedOneIsCleanedUp() throws Exception {
+        String current = buildVersionResolver.currentCommit();
+        Imported replaced = importStatement();
+        Imported deleted = importStatement();
+        jdbcTemplate.update("UPDATE statement_imports SET parser_version = 'oldbuild' WHERE id IN (?, ?)",
+                replaced.statement().getId(), deleted.statement().getId());
+        // A preview for the statement about to be deleted, as if written in the moment around it.
+        dryRun.check(deleted.statement().getId(), current);
+        assertThat(previewRepository.findByStatementImportIdAndParserVersion(deleted.statement().getId(), current)).isPresent();
+        jdbcTemplate.update("UPDATE statement_imports SET superseded_by = ? WHERE id = ?",
+                deleted.statement().getId(), replaced.statement().getId());
+        jdbcTemplate.update("UPDATE statement_imports SET deleted_at = now() WHERE id = ?", deleted.statement().getId());
+
+        dryRun.runBatch(10_000);
+
+        assertThat(previewRepository.findByStatementImportIdAndParserVersion(replaced.statement().getId(), current))
+                .as("a replaced statement's rows no longer count: it is never offered a refresh").isEmpty();
+        assertThat(previewRepository.findByStatementImportIdAndParserVersion(deleted.statement().getId(), current))
+                .as("a deleted statement's preview is removed on the next batch").isEmpty();
+    }
+
+    @Test
     void theBatch_checksOnlyStatementsAnOlderBuildParsed_andKeepsOnlyTheLatestPreview() throws Exception {
         String current = buildVersionResolver.currentCommit();
         assertThat(current).as("the test build must carry a commit id for this test to mean anything").isNotBlank();

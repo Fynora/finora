@@ -505,13 +505,15 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
 
     /**
      * The statements a refresh dry run has not yet checked under {@code parserVersion}: live, on a
-     * live account, parsed by a different (or unknown) build, and with no preview for this one.
+     * live account, not replaced by a re-upload (a superseded statement's rows no longer count, so a
+     * refresh must never touch them), parsed by a different (or unknown) build, and with no preview
+     * for this one.
      * Oldest first, so a backlog drains in import order.
      */
     @Query(value = """
             SELECT s.id FROM statement_imports s
               JOIN accounts a ON a.id = s.account_id
-             WHERE s.deleted_at IS NULL AND a.deleted_at IS NULL
+             WHERE s.deleted_at IS NULL AND a.deleted_at IS NULL AND s.superseded_by IS NULL
                AND (s.parser_version IS NULL OR s.parser_version <> :parserVersion)
                AND NOT EXISTS (SELECT 1 FROM statement_refresh_previews p
                                 WHERE p.statement_import_id = s.id AND p.parser_version = :parserVersion)
@@ -524,7 +526,7 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
     @Query(value = """
             SELECT count(*) FROM statement_imports s
               JOIN accounts a ON a.id = s.account_id
-             WHERE s.deleted_at IS NULL AND a.deleted_at IS NULL
+             WHERE s.deleted_at IS NULL AND a.deleted_at IS NULL AND s.superseded_by IS NULL
                AND (s.parser_version IS NULL OR s.parser_version <> :parserVersion)
                AND NOT EXISTS (SELECT 1 FROM statement_refresh_previews p
                                 WHERE p.statement_import_id = s.id AND p.parser_version = :parserVersion)

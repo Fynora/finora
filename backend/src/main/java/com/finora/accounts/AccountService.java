@@ -9,6 +9,7 @@ import com.finora.repository.AccountRepository;
 import com.finora.repository.StatementImportRepository;
 import com.finora.repository.StatementImportRepository.StatementMetadata;
 import com.finora.repository.TransactionRepository;
+import com.finora.repository.UserRepository;
 import com.finora.security.OwnershipGuard;
 import com.finora.service.AuditService;
 import com.finora.service.BankManagementService;
@@ -47,13 +48,15 @@ public class AccountService {
     private final EntitlementService entitlementService;
     private final com.finora.integrations.setu.AccountAggregatorLinkRepository aaLinks;
     private final com.finora.integrations.setu.AccountAggregatorLinkStalenessService aaStaleness;
+    private final UserRepository userRepository;
 
     public AccountService(AccountRepository accountRepository, StatementImportRepository statementImportRepository,
                            TransactionRepository transactionRepository, AuditService auditService,
                            BankManagementService bankManagementService, TransactionGraphService transactionGraphService,
                            EntitlementService entitlementService,
                            com.finora.integrations.setu.AccountAggregatorLinkRepository aaLinks,
-                           com.finora.integrations.setu.AccountAggregatorLinkStalenessService aaStaleness) {
+                           com.finora.integrations.setu.AccountAggregatorLinkStalenessService aaStaleness,
+                           UserRepository userRepository) {
         this.accountRepository = accountRepository;
         this.statementImportRepository = statementImportRepository;
         this.transactionRepository = transactionRepository;
@@ -63,6 +66,7 @@ public class AccountService {
         this.entitlementService = entitlementService;
         this.aaLinks = aaLinks;
         this.aaStaleness = aaStaleness;
+        this.userRepository = userRepository;
     }
 
     @Transactional(readOnly = true)
@@ -257,12 +261,14 @@ public class AccountService {
      * today: a statement for an earlier period imported afterwards does not add those again (see
      * {@link BalanceCoverage}). Today itself is left out -- a transaction made later today may or
      * may not be in a balance typed this morning, and counting it is the recoverable mistake.
-     * "Today" is the app's default zone (India): a user elsewhere typing near midnight can be a day
-     * off, which only moves the cut-off by that day.
+     * "Today" is the user's own day, in their timezone ({@link com.finora.util.UserZone}): it was the
+     * app's default zone (India), which put the cut-off a day off for a user elsewhere typing near
+     * midnight.
      */
-    private static void markBalanceTyped(Account account) {
+    private void markBalanceTyped(Account account) {
         account.setBalanceTypedAt(java.time.Instant.now());
-        account.setBalanceBaselineDate(java.time.LocalDate.now(com.finora.util.UserZone.DEFAULT).minusDays(1));
+        java.time.ZoneId zone = com.finora.util.UserZone.forUser(userRepository, account.getUserId());
+        account.setBalanceBaselineDate(java.time.LocalDate.now(zone).minusDays(1));
     }
 
     private void rebaseDuplicateMarks(Account account) {

@@ -474,6 +474,11 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
      *  balance edit rebases (AccountService.update). */
     List<Transaction> findByAccountIdAndIsDuplicateOfIsNotNull(UUID accountId);
 
+    /** Manual entries of an account dated inside the stated figure that held the balance when they
+     *  were entered ({@link Transaction#getBalanceCoveredThrough()}) -- what reversing that figure
+     *  has to count again (BalanceCoverage.release). */
+    List<Transaction> findByAccountIdAndStatementImportIdIsNullAndBalanceCoveredThroughIsNotNull(UUID accountId);
+
     /** Backs the Statement Imports page's per-import "duplicate count" (Financial Intelligence
      *  Workspace, Statement Imports module) -- one grouped COUNT query for the whole user rather
      *  than one query per statement, same AccountTransactionCount-style projection used by

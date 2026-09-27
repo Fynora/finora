@@ -115,6 +115,17 @@ class RowBalanceEffectTest {
     }
 
     @Test
+    void aManualEntryDatedInsideTheFigureThatHeldTheBalance_isNowhere_untilItsDateLeavesIt() {
+        Transaction entry = manualRow(Instant.parse("2026-08-02T00:00:00Z"));
+        entry.setTxnDate(java.time.LocalDate.of(2026, 7, 31));
+        entry.setBalanceCoveredThrough(java.time.LocalDate.of(2026, 7, 31));
+        assertThat(effect.locate(account, entry, null).where()).isEqualTo(RowBalanceEffect.Where.NOWHERE);
+
+        entry.setTxnDate(java.time.LocalDate.of(2026, 8, 1));
+        assertThat(effect.locate(account, entry, null).where()).isEqualTo(RowBalanceEffect.Where.BALANCE);
+    }
+
+    @Test
     void aStatementsModeDecides_legacyStatementsKeepMovingTheBalance() {
         StatementImport statement = new StatementImport();
         Transaction row = manualRow(Instant.parse("2026-09-02T00:00:00Z"));

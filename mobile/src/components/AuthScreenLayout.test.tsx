@@ -48,4 +48,13 @@ describe('AuthScreenLayout', () => {
     expect(screen.getByText('Sign in')).toBeTruthy();
     expect(screen.getByText('form fields')).toBeTruthy();
   });
+
+  it('puts no entering animation on the card or brand row, so the form can never be left invisible', () => {
+    // An `entering` animation starts from an opacity-0 frame and on Android intermittently never
+    // leaves it -- the nightly Maestro runs caught this card, the whole sign-in form with it,
+    // laid out but invisible. Nothing in this layout may carry one.
+    renderLayout();
+    const withEntering = screen.root.findAll((node) => node.props.entering !== undefined);
+    expect(withEntering).toHaveLength(0);
+  });
 });

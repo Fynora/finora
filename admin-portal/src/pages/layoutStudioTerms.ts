@@ -159,6 +159,64 @@ export function describeReason(reason: string): Term {
   }
 }
 
+/** FinancialProductType names (backend com.finora.imports.product) in plain words. */
+const STATEMENT_TYPE_LABELS: Record<string, string> = {
+  SAVINGS: 'Savings',
+  CURRENT: 'Current account',
+  OVERDRAFT: 'Overdraft',
+  WALLET: 'Wallet',
+  CREDIT_CARD: 'Credit card',
+  FIXED_DEPOSIT: 'Fixed deposit',
+  RECURRING_DEPOSIT: 'Recurring deposit',
+  PPF: 'PPF',
+  EPF: 'EPF',
+  NPS: 'NPS',
+  MUTUAL_FUND: 'Mutual fund',
+  DEMAT: 'Demat',
+  LOAN: 'Loan',
+  INSURANCE: 'Insurance',
+  FOREX_CARD: 'Forex card',
+};
+
+/** "SAVINGS,FIXED_DEPOSIT" -> "Savings + Fixed deposit"; null when nothing was identified. */
+export function describeStatementType(statementType: string | null): string | null {
+  if (!statementType) return null;
+  const parts = statementType.split(',').map((t) => t.trim()).filter(Boolean)
+    .map((t) => STATEMENT_TYPE_LABELS[t] ?? t.toLowerCase().replace(/_/g, ' '));
+  return parts.length ? parts.join(' + ') : null;
+}
+
+export interface BankCell {
+  /** What the cell says. */
+  bank: string;
+  /** Whether that is a real bank name (styled as a value) or an explanation (styled muted). */
+  recognised: boolean;
+  /** Hover text explaining a blank. */
+  note?: string;
+}
+
+/**
+ * The bank line for one analysis. Three different answers, kept apart on purpose: a recognised
+ * bank; detection ran and recognised none; detection never ran. Showing the last two the same way
+ * would send someone looking for a missing bank alias when the file simply never opened.
+ */
+export function describeBank(a: { identityChecked: boolean; bankName: string | null }): BankCell {
+  if (a.bankName) return { bank: a.bankName, recognised: true };
+  if (a.identityChecked) {
+    return {
+      bank: 'Bank not recognised',
+      recognised: false,
+      note: 'The engine read this file but did not recognise which bank issued it.',
+    };
+  }
+  return {
+    bank: '—',
+    recognised: false,
+    note: 'Not recorded: the file failed before the engine could look for a bank (for example a '
+      + 'wrong password), or it was uploaded before bank names were saved.',
+  };
+}
+
 /** The page glossary: every term the page uses, in the order it appears on screen. */
 export const GLOSSARY: Term[] = [
   {
@@ -170,6 +228,13 @@ export const GLOSSARY: Term[] = [
     label: 'Read / Failed',
     meaning: 'Read means the engine got transactions out of the file. Failed means it stopped; the '
       + 'reason is shown in plain words in the Result column.',
+  },
+  {
+    label: 'Bank & statement type',
+    meaning: 'Which bank issued the statement and what kind it is (savings, credit card, fixed '
+      + 'deposit…), as the engine detected it from the document. "Bank not recognised" means the '
+      + 'engine read the file but could not tell the bank; "—" means it never got that far, or the '
+      + 'upload is older than this column.',
   },
   {
     label: 'Statement format (layout / fingerprint)',

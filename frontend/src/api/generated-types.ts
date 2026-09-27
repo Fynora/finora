@@ -6961,6 +6961,9 @@ export interface components {
             byteSize?: number;
             /** Format: date-time */
             createdAt?: string;
+            identityChecked?: boolean;
+            bankName?: string;
+            statementType?: string;
         };
         ApiResponseAnalysisDetail: {
             success?: boolean;

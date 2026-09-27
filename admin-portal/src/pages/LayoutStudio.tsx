@@ -15,7 +15,9 @@ import { adminStatementAnalysisApi, adminAnalysisRunApi } from '../api/endpoints
 import type {
   StatementAnalysisDto, StatementAnalysisSummaryDto, UnanchoredReasons,
 } from '../types';
-import { GLOSSARY, describeFailure, describeReason, isPasswordFailure } from './layoutStudioTerms';
+import {
+  GLOSSARY, describeBank, describeFailure, describeReason, describeStatementType, isPasswordFailure,
+} from './layoutStudioTerms';
 
 /** Rows per page in the analyses table. */
 const PAGE_SIZE = 20;
@@ -192,6 +194,8 @@ function AnalysisDetailPanel({ reference }: { reference: string }) {
 
       <div className="bg-card border border-border rounded-xl2 shadow-card divide-y divide-border">
         <DetailRow label="Reference" value={analysis.reference} mono />
+        <DetailRow label="Bank" value={describeBank(analysis).bank} note={describeBank(analysis).note} />
+        <DetailRow label="Statement type" value={describeStatementType(analysis.statementType) ?? '—'} />
         <DetailRow
           label="Statement format (fingerprint)"
           value={analysis.layoutFingerprint ?? 'Not identified'}
@@ -278,6 +282,28 @@ function DetailRow({ label, value, mono, note }: { label: string; value: string;
   );
 }
 
+/** Bank on the first line; statement type and layout fingerprint underneath, smaller. */
+function BankCellView({ analysis }: { analysis: StatementAnalysisDto }) {
+  const bank = describeBank(analysis);
+  const type = describeStatementType(analysis.statementType);
+  return (
+    <td className="px-4 py-2" title={bank.note}>
+      <div className={bank.recognised ? 'text-ink font-medium whitespace-nowrap' : 'text-muted whitespace-nowrap'}>
+        {bank.bank}
+      </div>
+      <div className="text-xs text-muted whitespace-nowrap">
+        {type && <span>{type} · </span>}
+        <span
+          className="font-mono"
+          title={analysis.layoutFingerprint ? 'Statement format fingerprint' : 'Not identified — the file failed before its design could be read.'}
+        >
+          {analysis.layoutFingerprint ?? 'no fingerprint'}
+        </span>
+      </div>
+    </td>
+  );
+}
+
 function AnalysisTable({
   analyses, selected, onSelect,
 }: {
@@ -303,7 +329,7 @@ function AnalysisTable({
         <thead>
           <tr className="text-left text-xs text-muted uppercase tracking-wide border-b border-border">
             <th scope="col" className="px-4 py-2.5 font-medium">Reference</th>
-            <th scope="col" className="px-4 py-2.5 font-medium">Statement format</th>
+            <th scope="col" className="px-4 py-2.5 font-medium">Bank &amp; statement</th>
             <th scope="col" className="px-4 py-2.5 font-medium">Result</th>
             <th scope="col" className="px-4 py-2.5 font-medium text-right">Transactions</th>
             <th scope="col" className="px-4 py-2.5 font-medium text-right">Unmatched lines</th>
@@ -327,9 +353,7 @@ function AnalysisTable({
                   {analysis.reference}
                 </button>
               </th>
-              <td className="px-4 py-2.5 font-mono text-muted whitespace-nowrap" title={analysis.layoutFingerprint ? undefined : 'Not identified — the file failed before its design could be read.'}>
-                {analysis.layoutFingerprint ?? '—'}
-              </td>
+              <BankCellView analysis={analysis} />
               <td className="px-4 py-2.5">
                 <OutcomeBadge outcome={analysis.outcome} failureCode={analysis.failureCode} />
               </td>

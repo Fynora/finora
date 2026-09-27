@@ -16606,6 +16606,15 @@
                     "createdAt": {
                         "type": "string",
                         "format": "date-time"
+                    },
+                    "identityChecked": {
+                        "type": "boolean"
+                    },
+                    "bankName": {
+                        "type": "string"
+                    },
+                    "statementType": {
+                        "type": "string"
                     }
                 }
             },

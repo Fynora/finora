@@ -78,6 +78,9 @@ const PARSED: StatementAnalysisDto = {
   durationMs: 812,
   byteSize: 204800,
   createdAt: '2026-08-06T10:15:00Z',
+  identityChecked: true,
+  bankName: 'HDFC Bank',
+  statementType: 'SAVINGS',
 };
 
 /** A document that never opened -- no fingerprint, and a row count that was never measured. */
@@ -95,6 +98,10 @@ const LOCKED: StatementAnalysisDto = {
   durationMs: 40,
   byteSize: 1024,
   createdAt: '2026-08-06T10:16:00Z',
+  // Never opened, so detection never ran.
+  identityChecked: false,
+  bankName: null,
+  statementType: null,
 };
 
 const DETAIL: StatementAnalysisDetailDto = {
@@ -162,6 +169,10 @@ describe('LayoutStudio', () => {
       expect(adminStatementAnalysisApi.byReference).toHaveBeenCalledWith('SA-20260806-0145');
     });
     const history = await screen.findByRole('heading', { name: 'This layout' });
+    const drawer = screen.getByRole('dialog');
+    expect(within(drawer).getByText('Bank')).toBeInTheDocument();
+    expect(within(drawer).getAllByText('HDFC Bank').length).toBeGreaterThan(0);
+    expect(within(drawer).getByText('Savings')).toBeInTheDocument();
     const section = history.closest('section');
     expect(within(section as HTMLElement).getByText('12')).toBeInTheDocument();
     expect(within(section as HTMLElement).getByText('11')).toBeInTheDocument();
@@ -373,6 +384,42 @@ describe('LayoutStudio', () => {
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText(/unmatched lines \(unanchored rows\)/i)).toBeInTheDocument();
     expect(screen.getByText(/statement format \(layout \/ fingerprint\)/i)).toBeInTheDocument();
+  });
+
+  it('shows which bank and kind of statement each upload was read as', async () => {
+    renderPage();
+
+    const row = (await screen.findByRole('button', { name: 'SA-20260806-0145' })).closest('tr') as HTMLElement;
+    expect(within(row).getByText('HDFC Bank')).toBeInTheDocument();
+    expect(within(row).getByText(/Savings ·/)).toBeInTheDocument();
+    // The fingerprint moved under the bank rather than disappearing.
+    expect(within(row).getByText('FP-1-7A91D3C2')).toBeInTheDocument();
+  });
+
+  it('keeps "bank not recognised" and "never looked" as two different answers', async () => {
+    vi.mocked(adminStatementAnalysisApi.paged).mockResolvedValue(pageOf([
+      { ...PARSED, reference: 'SA-A', bankName: null, statementType: null },
+      LOCKED,
+    ]));
+    renderPage();
+
+    const looked = (await screen.findByRole('button', { name: 'SA-A' })).closest('tr') as HTMLElement;
+    expect(within(looked).getByText('Bank not recognised')).toBeInTheDocument();
+
+    const never = screen.getByRole('button', { name: 'SA-20260806-0146' }).closest('tr') as HTMLElement;
+    const cell = within(never).getAllByRole('cell')[0];
+    expect(cell).toHaveTextContent('—');
+    expect(cell).not.toHaveTextContent('Bank not recognised');
+    expect(cell).toHaveAttribute('title', expect.stringMatching(/not recorded/i));
+  });
+
+  it('names a composite statement by every product it holds', async () => {
+    vi.mocked(adminStatementAnalysisApi.paged).mockResolvedValue(pageOf([
+      { ...PARSED, bankName: 'HSBC', statementType: 'SAVINGS,FIXED_DEPOSIT' },
+    ]));
+    renderPage();
+
+    expect(await screen.findByText(/Savings \+ Fixed deposit ·/)).toBeInTheDocument();
   });
 
   it('names a failure in plain words rather than as a code', async () => {

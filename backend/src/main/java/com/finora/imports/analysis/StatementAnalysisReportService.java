@@ -82,7 +82,14 @@ public class StatementAnalysisReportService {
             int unanchoredRowCount,
             Long durationMs,
             Long byteSize,
-            Instant createdAt
+            Instant createdAt,
+            /** False when bank/type detection never ran -- the document failed before staging, or
+             *  the row predates V239. Only when true does a null bankName mean "not recognised". */
+            boolean identityChecked,
+            /** The bank the engine recognised, e.g. "HDFC Bank". Never a file name. */
+            String bankName,
+            /** Identified product types, comma-joined, e.g. "SAVINGS,FIXED_DEPOSIT". */
+            String statementType
     ) {}
 
     /**
@@ -311,7 +318,10 @@ public class StatementAnalysisReportService {
                 unanchored,
                 session.getDurationMs(),
                 session.getByteSize(),
-                session.getCreatedAt());
+                session.getCreatedAt(),
+                session.isIdentityChecked(),
+                session.getBankName(),
+                session.getStatementType());
     }
 
     /**

@@ -1009,6 +1009,13 @@ export interface StatementAnalysisDto {
   durationMs: number | null;
   byteSize: number | null;
   createdAt: string;
+  /** False when bank/type detection never ran (file failed before staging, or the row predates
+   *  V239). Only when true does a null bankName mean "the engine did not recognise the bank". */
+  identityChecked: boolean;
+  /** The bank the engine recognised, e.g. "HDFC Bank". Never a file name. */
+  bankName: string | null;
+  /** Identified product types, comma-joined, e.g. "SAVINGS,FIXED_DEPOSIT". */
+  statementType: string | null;
 }
 
 export interface StatementAnalysisDetailDto {

@@ -71,11 +71,15 @@ class AdminStatementAnalysisControllerIT extends AbstractIntegrationTest {
     }
 
     private HttpEntity<MultiValueMap<String, Object>> uploadRequest(User user) {
+        return uploadRequest(user, "synthetic-statement.csv");
+    }
+
+    private HttpEntity<MultiValueMap<String, Object>> uploadRequest(User user, String fileName) {
         HttpHeaders headers = bearerFor(user);
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
         body.add("file", new ByteArrayResource(CSV.getBytes(StandardCharsets.UTF_8)) {
-            @Override public String getFilename() { return "synthetic-statement.csv"; }
+            @Override public String getFilename() { return fileName; }
         });
         return new HttpEntity<>(body, headers);
     }
@@ -155,6 +159,61 @@ class AdminStatementAnalysisControllerIT extends AbstractIntegrationTest {
                 assertThat(firstRefs).doesNotContain(n.path("reference").asText()));
         // No file name or user id on this endpoint either -- same boundary as the rest of the page.
         assertThat(first.toString()).doesNotContain("statement.pdf").doesNotContain(admin.getId().toString());
+    }
+
+    @Test
+    void admin_analysingARecognisedBanksStatement_recordsTheBankItWasReadAs() throws Exception {
+        // BankRegistry's last signal is the file name, so a synthetic CSV named for a bank is
+        // recognised end to end without any real statement content.
+        User admin = createUser("ADMIN");
+        JsonNode analysis = analyse(admin, "hdfc-statement.csv");
+
+        assertThat(analysis.path("outcome").asText()).isEqualTo("PARSED");
+        assertThat(analysis.path("identityChecked").asBoolean()).isTrue();
+        assertThat(analysis.path("bankName").asText()).isEqualTo("HDFC Bank");
+        // The bank's name, never the file name it was recognised from.
+        assertThat(analysis.toString()).doesNotContain("hdfc-statement.csv");
+
+        // And it survives the round trip through the table the page actually lists.
+        String reference = analysis.path("reference").asText();
+        JsonNode listed = null;
+        for (JsonNode row : pagedAs(admin, 0, 100).path("content")) {
+            if (reference.equals(row.path("reference").asText())) listed = row;
+        }
+        assertThat(listed).as("the analysis just made is on the first page").isNotNull();
+        assertThat(listed.path("bankName").asText()).isEqualTo("HDFC Bank");
+    }
+
+    @Test
+    void admin_analysingAnUnrecognisedStatement_recordsThatDetectionRanAndFoundNoBank() throws Exception {
+        User admin = createUser("ADMIN");
+        JsonNode analysis = analyse(admin, "synthetic-statement.csv");
+
+        assertThat(analysis.path("identityChecked").asBoolean()).isTrue();
+        assertThat(analysis.path("bankName").isNull()).isTrue();
+    }
+
+    @Test
+    void aRowWhoseDetectionNeverRan_saysSoRatherThanLookingUnrecognised() throws Exception {
+        User admin = createUser("ADMIN");
+        String reference = "SA-" + UUID.randomUUID().toString().replace("-", "").substring(0, 20);
+        analysisRepository.save(StatementAnalysisSession.failed(reference, admin.getId(),
+                StatementAnalysisSession.Source.ADMIN_ANALYSIS, "locked.pdf", "PDF", 1L, null,
+                com.finora.exception.ErrorCode.IMPORT_PDF_PASSWORD_REQUIRED.name(), "x", 1L, null, null));
+
+        JsonNode analysis = mapper.readTree(restTemplate.exchange("/api/v1/admin/imports/analyses/" + reference,
+                HttpMethod.GET, new HttpEntity<>(bearerFor(admin)), String.class).getBody())
+                .path("data").path("analysis");
+
+        assertThat(analysis.path("identityChecked").asBoolean()).isFalse();
+        assertThat(analysis.path("bankName").isNull()).isTrue();
+    }
+
+    private JsonNode analyse(User admin, String fileName) throws Exception {
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/admin/imports/analyses", HttpMethod.POST, uploadRequest(admin, fileName), String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        return mapper.readTree(response.getBody()).path("data").path("analysis");
     }
 
     @Test

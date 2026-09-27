@@ -56,8 +56,9 @@ class CategoryRulesTest {
 
     @Test
     void extractMerchantLabel_keepsTheRealMerchantWhenARailTokenLeadsIt() {
+        // Plan 5: the rail word itself is no longer part of the name (it was "upi sunil verma").
         assertThat(CategoryRules.extractMerchantLabel("UPI-SUNIL VERMA-REF9182736"))
-                .isEqualTo("upi sunil verma");
+                .isEqualTo("sunil verma");
     }
 
     @Test

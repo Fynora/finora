@@ -247,11 +247,138 @@ public final class CategoryRules {
      * own description when merchant is empty.
      */
     public static String extractMerchantLabel(String desc) {
+        if (desc != null && !desc.isBlank()) {
+            java.util.Optional<String> structured = payeeOfStructuredNarration(desc);
+            if (structured != null) return structured.orElse(null);
+        }
         String merchant = extractMerchant(desc);
-        for (String token : merchant.split(" ")) {
-            if (!PaymentRailTokens.isRailToken(token)) return merchant;
+        String[] tokens = merchant.split(" ");
+        for (int i = 0; i < tokens.length; i++) {
+            // Plan 5: a leading rail word is dropped rather than kept as part of the name.
+            if (!PaymentRailTokens.isRailToken(tokens[i])) {
+                return String.join(" ", java.util.Arrays.copyOfRange(tokens, i, tokens.length));
+            }
         }
         return null;
+    }
+
+    // ---- Plan 5, task 1: the payee field of a structured narration -------------------------------
+    //
+    // Measured on the 33-document corpus: the name used to be the first four words of the
+    // narration, so 1,671 of 1,940 rows began with a rail word ("upi ..."), 274 carried a payment
+    // app's or bank's handle ("... ybl", "... paytm") and 179 carried digits. Structured narrations
+    // name their payee in a field of their own -- UPI-NAME-HANDLE-IFSC-REF-NOTE, or
+    // UPI/[DR|CR]/REF/NAME/HANDLE/..., with IMPS, NEFT and mobile-banking variants -- so the name is
+    // taken from that field.
+
+    /** Head words that make a narration structured: rails, their direction words, and a channel. */
+    private static final Set<String> HEAD_WORDS = Set.of(
+            "upi", "imps", "neft", "rtgs", "mob", "mmt", "ib", "ach", "nach", "dr", "cr", "p2a", "p2m");
+    /** Tokens that are never part of a payee field's name. */
+    private static final Set<String> FILLER_TOKENS = Set.of(
+            "upi", "imps", "neft", "rtgs", "mob", "mmt", "ib", "ach", "nach", "dr", "cr", "p2a", "p2m",
+            "na", "null", "rrn", "from", "upiintent");
+    private static final Pattern FIELD_SEPARATOR = Pattern.compile("[/-]");
+    private static final Pattern IFSC_FIELD = Pattern.compile("(?i)^[a-z]{4}0[a-z0-9]{6}$");
+    /** A code mixing letters and digits with no space in it: a transaction or merchant ID. */
+    private static final Pattern CODE_FIELD = Pattern.compile("^(?=.*\\d)(?=.*[A-Za-z])\\S{6,}$");
+    /** A short all-capitals word on its own: a bank code printed beside the payee ("KKBK", "YESB"). */
+    private static final Pattern BANK_CODE_FIELD = Pattern.compile("^[A-Z]{3,4}$");
+
+    /**
+     * The payee of a structured narration, or null when {@code desc} is not structured (the caller
+     * then falls back to the leading words). An empty Optional means structured but naming no
+     * payee, so no name at all rather than a guess.
+     */
+    private static java.util.Optional<String> payeeOfStructuredNarration(String desc) {
+        String cleaned = RRN_LABEL.matcher(CLOCK_TIME.matcher(desc).replaceAll(" ")).replaceAll(" ");
+        String[] fields = FIELD_SEPARATOR.split(cleaned.trim());
+        if (fields.length < 2) return null;
+        if (!isHead(fields[0])) {
+            // ICICI prints the payee ahead of the rail: "NAME UPI/NAME/HANDLE/NOTE/BANK/REF/CODE".
+            String first = normalize(fields[0]);
+            if (!first.endsWith(" upi")) return null;
+            return java.util.Optional.ofNullable(nameOf(fields[0]));
+        }
+        String handleName = null;
+        for (int i = 1; i < fields.length; i++) {
+            String field = fields[i].trim();
+            if (field.isEmpty()) continue;
+            if (field.contains("@")) {
+                if (handleName == null) handleName = handleName(field);
+                continue;
+            }
+            if (IFSC_FIELD.matcher(field).matches() || CODE_FIELD.matcher(field).matches()) continue;
+            if (BANK_CODE_FIELD.matcher(field).matches() && !HEAD_WORDS.contains(field.toLowerCase())) continue;
+            // A reference, phone or account number has no letters, so nameOf returns null for it. A
+            // name field that also carries a code ("SAMPLE PERSON S1234567 CHO") keeps its words.
+            String name = nameOf(field);
+            if (name != null) return java.util.Optional.of(name);
+        }
+        return java.util.Optional.ofNullable(handleName);
+    }
+
+    /** True when every word of the first field is a rail, direction or channel word, including a
+     *  rail with a bank's short suffix ("UPIAB", "UPIAR"). */
+    private static boolean isHead(String field) {
+        String n = normalize(field);
+        if (n.isEmpty()) return false;
+        for (String word : n.split(" ")) {
+            if (!HEAD_WORDS.contains(word) && !word.matches("upi[a-z]{1,3}")) return false;
+        }
+        return true;
+    }
+
+    /** A field's words, minus filler, at most four -- the same length the name always had. A
+     *  payment app's own name is dropped when a name remains beside it ("Payment from PhonePe_NAME"
+     *  names NAME), and kept when it is the only name (a refund from the app itself). Null when
+     *  nothing with letters remains. */
+    private static String nameOf(String field) {
+        List<String> words = new java.util.ArrayList<>();
+        boolean leading = true;
+        for (String word : normalize(field).split(" ")) {
+            // Filler is stripped only from the front of a field ("UPI_NAME", "Payment from ..."):
+            // inside a name a word such as "DR" is part of it.
+            if (leading && (FILLER_TOKENS.contains(word) || PaymentRailTokens.isRailToken(word))) continue;
+            // A word carrying a run of four or more digits is a code -- the same rule extractMerchant
+            // applies -- while a brand with a few digits ("one97") stays.
+            if (word.length() < 2 || !word.matches(".*[a-z].*") || word.matches(".*\\d{4,}.*")) continue;
+            leading = false;
+            words.add(word);
+        }
+        List<String> named = words.stream().filter(w -> !PAYMENT_APP_HANDLE_WORDS.contains(w)).toList();
+        List<String> chosen = named.isEmpty() ? words : named;
+        if (chosen.isEmpty()) return null;
+        return String.join(" ", chosen.subList(0, Math.min(4, chosen.size())));
+    }
+
+    /** Payment apps whose own name, or QR-code prefix, starts a handle that names no payee. */
+    private static final Set<String> PAYMENT_APP_HANDLE_WORDS = Set.of(
+            "paytm", "paytmqr", "bharatpe", "gpay", "phonepe", "phonepemerchant", "razorpay", "payu",
+            "cashfree", "billdesk", "upi", "ybl", "axl", "ibl");
+
+    /**
+     * The name part of a UPI handle. Used only when no field names the payee (Bank of Baroda prints
+     * only the handle). A line wrap can put a space inside the handle ("samplepoun d@okicici"), so
+     * the part before "@" is rejoined first. Each dot- or underscore-separated piece keeps its
+     * leading letters ("samplestore27" is "samplestore"). A piece that is a payment app's own word,
+     * or a generated code (letters, digits, letters), names nobody. Null when no piece of three or
+     * more letters remains, which covers a phone number or a code on its own.
+     */
+    private static String handleName(String field) {
+        String local = field.substring(0, field.indexOf('@')).replaceAll("\\s+", "").toLowerCase();
+        StringBuilder sb = new StringBuilder();
+        int pieces = 0;
+        for (String piece : local.split("[._]+")) {
+            java.util.regex.Matcher m = Pattern.compile("^([a-z]+)\\d*$").matcher(piece);
+            if (!m.matches()) continue; // empty, digits first, or a code such as "s25j48"
+            String letters = m.group(1);
+            if (letters.length() < 3 || PAYMENT_APP_HANDLE_WORDS.contains(letters)) continue;
+            if (sb.length() > 0) sb.append(' ');
+            sb.append(letters);
+            if (++pieces == 2) break;
+        }
+        return sb.length() > 0 ? sb.toString() : null;
     }
 
     // Compiled once at class-load time rather than per suggestCategory() call -- this runs once

@@ -422,13 +422,12 @@ public class DashboardService {
     }
 
     /** A month's spend: every reportable debit netted of its linked refunds, less the unlinked
-     *  refunds and card adjustments {@code spend} carries -- floored at zero. See
-     *  {@link RefundNetting#withUnlinkedOffsets}. */
+     *  refunds and card adjustments {@code spend} carries -- each category floored at zero, so it
+     *  equals the month's category breakdown. See {@link RefundNetting#spendTotal}. */
     private static BigDecimal spendForMonth(List<Transaction> txns, String month, RefundNetting spend) {
         if (month == null) return BigDecimal.ZERO;
-        return RefundNetting.floorAtZero(txns.stream()
-                .filter(t -> spend.countsAsSpend(t) && YearMonth.from(t.getTxnDate()).toString().equals(month))
-                .map(spend::spendAmount).reduce(BigDecimal.ZERO, BigDecimal::add));
+        return spend.spendTotal(txns.stream()
+                .filter(t -> YearMonth.from(t.getTxnDate()).toString().equals(month)).toList());
     }
 
     private Double pct(BigDecimal current, BigDecimal prior, boolean priorReliable) {

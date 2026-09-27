@@ -84,8 +84,8 @@ public class ReportService {
         // redemption or a loan disbursal is money in, not income. See FlowClassifier.
         BigDecimal income = txnsForTotals.stream().filter(t -> FlowTotals.countsAsIncome(t, flow))
                 .map(refunds::reportableAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal expense = RefundNetting.floorAtZero(txnsForTotals.stream().filter(spend::countsAsSpend)
-                .map(spend::spendAmount).reduce(BigDecimal.ZERO, BigDecimal::add));
+        // Sum of the categories, each floored -- see RefundNetting.spendTotal.
+        BigDecimal expense = spend.spendTotal(txnsForTotals);
 
         Map<String, BigDecimal> byCategory = RefundNetting.withoutNegativeSpend(txns.stream()
                 .filter(spend::countsAsSpend)
@@ -142,8 +142,8 @@ public class ReportService {
         // redemption or a loan disbursal is money in, not income. See FlowClassifier.
         BigDecimal income = txnsForTotals.stream().filter(t -> FlowTotals.countsAsIncome(t, flow))
                 .map(refunds::reportableAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal expense = RefundNetting.floorAtZero(txnsForTotals.stream().filter(spend::countsAsSpend)
-                .map(spend::spendAmount).reduce(BigDecimal.ZERO, BigDecimal::add));
+        // Sum of the categories, each floored -- see RefundNetting.spendTotal.
+        BigDecimal expense = spend.spendTotal(txnsForTotals);
         FlowClassifier.FlowReason topReason = FlowTotals.unresolvedTopReason(txnsForTotals, flow);
         return new RangeTotals(income, expense, txnsForTotals.size(),
                 FlowTotals.unresolvedInflow(txnsForTotals, flow),

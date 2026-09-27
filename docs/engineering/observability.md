@@ -647,7 +647,10 @@ identical.
   an IPv6 dual-stack wildcard, identical to how the application port binds `*:8080`. What a local
   boot cannot settle is the container and the Railway network themselves, so confirm the Prometheus
   target on the first deploy; `MANAGEMENT_SERVER_ADDRESS=::` is the lever if it does not come up.
-- **No alerting configured.** Thresholds are proposed in §7 but nothing evaluates them.
+- **Alerting has no watchdog.** The §7 rules are evaluated by Prometheus and delivered through
+  Alertmanager to Better Stack (`ops/monitoring/README.md`, "Alertmanager"). If Prometheus or
+  Alertmanager itself stops, alerts stop with it and nothing reports that. The fix is an
+  always-firing rule sent to a Better Stack heartbeat.
 - **Import pipeline instrumentation is done at the queue and thin on the synchronous path.**
   `ImportJobWorker` reuses this framework and adds none of its own, as required, and per-import
   evidence is covered above. What is still missing is on the *synchronous* upload: it records a total

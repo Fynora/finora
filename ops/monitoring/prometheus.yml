@@ -32,6 +32,15 @@ global:
 rule_files:
   - alerts.yml
 
+# Where firing rules go. Without this block Prometheus evaluates alerts.yml and tells no one.
+# `alertmanager:9093` is the compose service name. On Railway, railway/prometheus/Dockerfile rewrites
+# it at image-build time to the Alertmanager service's private address. See
+# alertmanager/alertmanager.yml for where the alerts go from there.
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
 scrape_configs:
   - job_name: finora-backend
     metrics_path: /actuator/prometheus

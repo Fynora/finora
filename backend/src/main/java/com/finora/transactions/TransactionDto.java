@@ -59,7 +59,15 @@ public record TransactionDto(
         BigDecimal foreignAmount,
         /** A transfer between the user's own accounts whose other leg is not linked yet (found by
          *  the user's own name, Plan 3). A client lets the user link it to that leg by hand. */
-        boolean awaitingTransferPartner
+        boolean awaitingTransferPartner,
+        /** The reference, cheque or instrument number the statement printed for this row, as
+         *  printed; null when it printed none or the row was not imported from a statement. */
+        String referenceNumber,
+        /** The running balance the statement printed after this row, sign included (an overdrawn
+         *  account prints a negative one); null when none was printed, as on most card
+         *  statements. It is the bank's figure for that moment, not recomputed here, so it does
+         *  not change when the user edits the row's amount. */
+        BigDecimal balanceAfter
 ) {
     public static TransactionDto from(Transaction t, String categoryName) {
         return new TransactionDto(t.getId(), t.getAccountId(), t.getCategoryId(), categoryName, t.getTxnDate(),
@@ -73,7 +81,8 @@ public record TransactionDto(
                 // a resolved identity. Grouping by it stays a server-side concern.
                 t.getCounterpartyType().name(),
                 t.isInternational(), t.getForeignCurrency(), t.getForeignAmount(),
-                t.isTransfer() && t.getTransferPairId() == null);
+                t.isTransfer() && t.getTransferPairId() == null,
+                t.getReferenceNumber(), t.getBalanceAfter());
     }
 
     // Bug fix: neither request record had any Bean Validation at all, and TransactionController's

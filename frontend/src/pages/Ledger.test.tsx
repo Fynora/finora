@@ -325,6 +325,49 @@ describe('Ledger — Status column', () => {
  * listed. The actual matching happens server-side (TransactionRepositoryIT); this only locks in
  * that the UI's own promise mentions it.
  */
+describe('Ledger — what the statement printed beside a row', () => {
+  beforeEach(() => {
+    vi.mocked(transactionsApi.needsReview).mockReset().mockResolvedValue([]);
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+  });
+
+  function showing(t: Transaction) {
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [t], page: 0, size: 10, totalElements: 1, totalPages: 1,
+    });
+    renderLedger();
+  }
+
+  it('shows the reference number and the running balance to the paisa, as printed', async () => {
+    showing(txn({ referenceNumber: 'REF000000001', balanceAfter: 24361.97 }));
+
+    expect(await screen.findByText('Ref REF000000001')).toBeInTheDocument();
+    // Exact, not rounded like the amount column: this is the figure a user checks against the
+    // statement, and "₹24,362" would not match what the bank printed.
+    expect(screen.getByText('Bal ₹24,361.97')).toBeInTheDocument();
+  });
+
+  it('keeps the sign of an overdrawn balance', async () => {
+    showing(txn({ balanceAfter: -250 }));
+
+    expect(await screen.findByText('Bal -₹250.00')).toBeInTheDocument();
+  });
+
+  it('shows a zero balance rather than hiding it', async () => {
+    showing(txn({ balanceAfter: 0 }));
+
+    expect(await screen.findByText('Bal ₹0.00')).toBeInTheDocument();
+  });
+
+  it('shows neither when the statement printed neither', async () => {
+    showing(txn({ referenceNumber: null, balanceAfter: null }));
+
+    expect(await screen.findByText('Amazon')).toBeInTheDocument();
+    expect(screen.queryByText(/^Ref /)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Bal /)).not.toBeInTheDocument();
+  });
+});
+
 describe('Ledger — search bar', () => {
   it('tells the user category is one of the things it searches', async () => {
     vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({

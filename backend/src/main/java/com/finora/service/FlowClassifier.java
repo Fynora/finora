@@ -35,7 +35,10 @@ public final class FlowClassifier {
     // 4: a dividend or IDCW payout is income, even when the narration names a mutual fund.
     // 5: a kind the user chose for the row or its sender (Plan 2) outranks every automatic rule
     //    except a pairing reconciliation made (transfer, linked refund, linked reversal).
-    public static final short VERSION = 5;
+    // 6: coverage from the corpus -- a cash deposit, a merchant's UPI credit and a UPI credit from an
+    //    unrecognised sender are left for the user instead of counted as income; a card "CC PAYMENT"
+    //    is a bill payment; a clearing-corporation payout is an investment even when wrapped mid-word.
+    public static final short VERSION = 6;
 
     public enum FlowClass { INCOME, EXPENSE, REFUND, TRANSFER, INVESTMENT, LIABILITY, ADJUSTMENT, UNRESOLVED }
 
@@ -47,7 +50,7 @@ public final class FlowClassifier {
         OWN_ACCOUNT_TRANSFER, USER_OWN_MONEY, CARD_PAYMENT_RECEIVED,
         INVESTMENT_CONTRIBUTION, INVESTMENT_WITHDRAWAL,
         LOAN_DRAWDOWN,
-        PERSON_INFLOW, CARD_UNEXPLAINED_CREDIT
+        PERSON_INFLOW, CARD_UNEXPLAINED_CREDIT, CASH_DEPOSIT, MERCHANT_CREDIT, UNKNOWN_SENDER
     }
 
     public record FlowDecision(FlowClass flowClass, FlowReason reason) {}
@@ -56,12 +59,20 @@ public final class FlowClassifier {
     // Initial lists; the corpus probe (FlowClassCorpusProbe) is the evidence that confirms or
     // corrects them.
     static final List<String> CARD_PAYMENT_KEYWORDS = List.of(
-            "payment received", "payment recd", "payment thank", "thank you", "bbps", "autopay", "auto debit");
+            "payment received", "payment recd", "payment thank", "thank you", "bbps", "autopay", "auto debit", "cc payment");
     static final List<String> CARD_ADJUSTMENT_KEYWORDS = List.of(
             "waiver", "waived", "surcharge", "emi conversion", "converted to emi", "conv to emi");
     static final List<String> REWARD_KEYWORDS = List.of("cashback", "cash back", "reward");
     static final List<String> INVESTMENT_INFLOW_KEYWORDS = List.of(
             "redemption", "redeem", "fd closure", "fd maturity", "maturity proceeds", "iccl");
+    /** Share-sale proceeds. Compared with the spaces taken out: a wrapped narration splits the name
+     *  mid-word ("INDIAN C LEARING CORPORATION"). Only the long phrase -- a short one like "iccl"
+     *  would also match across two words ("UPI CCLUB"); the word-start "iccl" is in the list above. */
+    static final List<String> CLEARING_CORPORATION_COMPACT = List.of("clearingcorporation");
+    /** Cash paid into the account: the user's own money, a loan repaid, or takings -- they say which.
+     *  Each ends at a word (trailing space on the padded text): "by cash" alone matched "BY CASHFREE",
+     *  a payment gateway. */
+    static final List<String> CASH_DEPOSIT_KEYWORDS = List.of("by cash ", "cash deposit", "cash dep ");
     static final List<String> LOAN_DRAWDOWN_KEYWORDS = List.of("loan disb", "disbursal", "disbursement");
     /** Earned ON an investment, so income -- checked before the investment rule, which "mutual fund" would match. */
     static final List<String> DIVIDEND_KEYWORDS = List.of("dividend", "idcw");
@@ -123,6 +134,12 @@ public final class FlowClassifier {
         // Before the refund word: an income-tax refund is income, not money back from a merchant.
         if (looksLikeTaxRefund(t)) return of(FlowClass.INCOME, FlowReason.TAX_REFUND);
         if (ReconciliationService.looksLikeReversal(description)) return of(FlowClass.ADJUSTMENT, FlowReason.REVERSAL);
+        // A narration cut off mid-word ("... R02 PHONEPE REVERS"). Read here and not by the
+        // reconciliation pass: on the corpus that pass linked both such credits to unrelated
+        // purchases, taking money off spend that was never refunded. The cut-off word exactly
+        // (trailing space on the padded text): "REVERSE SWEEP" is a deposit coming back, not a
+        // payment reversed, and a REVERSAL reason takes the amount off spend.
+        if (hasAny(text, List.of("revers "))) return of(FlowClass.ADJUSTMENT, FlowReason.REVERSAL);
         if (ReconciliationService.looksLikeRefund(description)) return of(FlowClass.REFUND, FlowReason.UNLINKED_REFUND);
 
         if (accountType == Account.Type.CREDIT_CARD) {
@@ -136,7 +153,8 @@ public final class FlowClassifier {
 
         String suggested = CategoryRules.suggestCategory(description);
         if (hasAny(text, DIVIDEND_KEYWORDS)) return of(FlowClass.INCOME, FlowReason.DIVIDEND);
-        if (ReconciliationService.INVESTMENTS_CATEGORY.equals(suggested) || hasAny(text, INVESTMENT_INFLOW_KEYWORDS)) {
+        if (ReconciliationService.INVESTMENTS_CATEGORY.equals(suggested) || hasAny(text, INVESTMENT_INFLOW_KEYWORDS)
+                || CLEARING_CORPORATION_COMPACT.stream().anyMatch(text.replace(" ", "")::contains)) {
             return of(FlowClass.INVESTMENT, FlowReason.INVESTMENT_WITHDRAWAL);
         }
         if (hasAny(text, LOAN_DRAWDOWN_KEYWORDS)) return of(FlowClass.LIABILITY, FlowReason.LOAN_DRAWDOWN);
@@ -151,6 +169,20 @@ public final class FlowClassifier {
         if (t.getSource() == Transaction.Source.MANUAL) return of(FlowClass.INCOME, FlowReason.USER_ENTERED);
         if (inUsersSalaryCategory && salaryCategoryIsTheUsersChoice(t)) return of(FlowClass.INCOME, FlowReason.SALARY);
         if (t.getCounterpartyType() == CounterpartyType.PERSON) return of(FlowClass.UNRESOLVED, FlowReason.PERSON_INFLOW);
+        // Below: shapes the corpus showed counted as income with nothing saying they were earned.
+        // Each is left for the user to name rather than guessed either way.
+        if (hasAny(text, CASH_DEPOSIT_KEYWORDS)) return of(FlowClass.UNRESOLVED, FlowReason.CASH_DEPOSIT);
+        if (hasAny(text, List.of("upi"))) {
+            // A shop paying back over UPI with no refund word: a refund, a seller's payout or a
+            // cashback. NEFT/IMPS from a company stays income -- that is how employers and clients pay.
+            if (t.getCounterpartyType() == CounterpartyType.BUSINESS) {
+                return of(FlowClass.UNRESOLVED, FlowReason.MERCHANT_CREDIT);
+            }
+            // A one-word name or a bare phone-number VPA: neither a person nor a shop can be told.
+            if (t.getCounterpartyType() == null || t.getCounterpartyType() == CounterpartyType.UNKNOWN) {
+                return of(FlowClass.UNRESOLVED, FlowReason.UNKNOWN_SENDER);
+            }
+        }
         return of(FlowClass.INCOME, FlowReason.OTHER_INCOME);
     }
 

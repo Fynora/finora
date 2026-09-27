@@ -139,6 +139,9 @@ abstract class ReconciliationBenchmarkSupport {
         if ("Investments".equals(com.finora.util.CategoryRules.suggestCategory(description))) {
             t.setCategoryId(INVESTMENTS_CATEGORY_ID);
         }
+        // Import types the sender from the same narration, and the refund pass reads it: a name
+        // in common is refund evidence only for a credit from an organisation.
+        t.applyCounterpartyTyping(description);
         return t;
     }
 

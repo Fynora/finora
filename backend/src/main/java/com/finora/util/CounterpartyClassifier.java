@@ -72,10 +72,13 @@ public final class CounterpartyClassifier {
     // 3: PersonToPersonTransferDetector reads the fixed name slot of slash-delimited UPI narrations
     //    (UPI/CR/<ref>/<name>/<bank>/..., UPIAB/..., "..._<name>" tails) -- measured on the corpus,
     //    52 rows UNKNOWN -> PERSON and one PERSON -> UNKNOWN (a "GOOGLE IN" payee), every flip read.
-    // 4: PersonToPersonTransferDetector treats the DC0099 merchant branch code as a merchant-acquiring
+    // 4: the counterparty KEY changed (CounterpartyIdentity): a masked VPA is a weak "masked:" key, a
+    //    payment app's name is never the sender, and a reference no longer takes the payee's name
+    //    with it. Bumped so the backfill sweep re-keys stored rows; sender rules move with them.
+    // 5: PersonToPersonTransferDetector treats the DC0099 merchant branch code as a merchant-acquiring
     //    rail -- measured on the corpus, 3 rows PERSON -> BUSINESS and 1 UNKNOWN -> BUSINESS, every
     //    one a merchant; 5 more already-BUSINESS rows stop reading as a personal transfer. All read.
-    public static final short VERSION = 4;
+    public static final short VERSION = 5;
 
     /**
      * Bank-generated activity, where the counterparty is the institution itself. These words are

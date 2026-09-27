@@ -7,7 +7,6 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, { FadeInDown } from 'react-native-reanimated';
 import { AuthAmbientBackground } from './AuthAmbientBackground';
 import { BrandMark } from './BrandMark';
 import { fonts, radius, spacing, useTheme } from '../theme';
@@ -47,22 +46,20 @@ export function AuthScreenLayout({ title, subtitle, error, banner, children, foo
         ]}
         keyboardShouldPersistTaps="handled"
       >
-        <Animated.View entering={FadeInDown.duration(400)} style={styles.brandRow}>
+        <View style={styles.brandRow}>
           <BrandMark size={30} />
           <Text style={[styles.brandName, { color: c.ink }]}>FYNORA</Text>
-        </Animated.View>
+        </View>
 
-        {/* Bug fix: this used to carry its own `FadeInDown.delay(80)` on top of the brandRow's
-            un-delayed one above -- the same delay differential web's AuthEntry.tsx card had before
-            it was removed (see that fix's own comment). A Reanimated `entering` animation holds its
-            fully-invisible start frame for the whole delay, not a partial fade, so for that 80ms
-            window this entire card -- title, subtitle, and the real sign-in form inside it -- simply
-            wasn't there yet, next to an already-rendering brand row. Matching web's fix: no delay
-            differential means neither element can ever be in a state the other isn't. */}
-        <Animated.View
-          entering={FadeInDown.duration(450)}
-          style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}
-        >
+        {/* No `entering` animation on this card or the brand row, on purpose. A Reanimated
+            `entering` animation starts from an opacity-0 frame, and on Android it intermittently
+            never leaves it: the nightly Maestro runs (2026-09-24, 09-27) captured this card laid
+            out at full size but reported not-visible-to-user, the whole sign-in form with it, while
+            the un-animated footer beside it rendered. The same views were the only invisible ones
+            in each failure. The form must never depend on an animation finishing; the ambient
+            background still carries the screen's motion. #1523 removed an 80ms delay here for the
+            same reason -- the start frame is fully invisible. */}
+        <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}>
           <Text style={[styles.title, { color: c.ink }]}>{title}</Text>
           {subtitle ? <Text style={[styles.subtitle, { color: c.muted }]}>{subtitle}</Text> : null}
 
@@ -74,7 +71,7 @@ export function AuthScreenLayout({ title, subtitle, error, banner, children, foo
           ) : null}
 
           {children}
-        </Animated.View>
+        </View>
 
         {footer ? <View style={styles.footer}>{footer}</View> : null}
       </ScrollView>

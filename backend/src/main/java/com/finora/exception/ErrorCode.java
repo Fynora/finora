@@ -33,6 +33,11 @@ public enum ErrorCode {
     // idempotency key must not permit.
     TXN_IDEMPOTENCY_KEY_REUSED("TXN_004", HttpStatus.CONFLICT,
             "This idempotency key was already used for a different request."),
+    // Inflow kinds (Plan 2, com.finora.inflow): a kind still used by payments or senders, and a
+    // name the user already gave another kind -- both carry a message the client shows as-is.
+    INFLOW_KIND_IN_USE("TXN_005", HttpStatus.CONFLICT,
+            "This kind is still used. Move those payments and senders to another kind first."),
+    INFLOW_KIND_NAME_TAKEN("TXN_006", HttpStatus.CONFLICT, "You already have a kind with this name."),
 
     // Statement import (com.finora.imports)
     IMPORT_NO_HEADER_DETECTED("IMPORT_001", HttpStatus.UNPROCESSABLE_ENTITY, "Could not find a transaction table in this file", true),

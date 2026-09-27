@@ -1,0 +1,15 @@
+-- A transaction entered by hand with a date the balance already covers.
+--
+-- Account.balance is known as of some date: the period end of the statement whose closing balance
+-- last SET it, or the day before the user typed the balance in (see V231). A real transaction dated
+-- on or before that day is already inside that figure -- the bank's closing balance, or what the
+-- user said they had -- so entering it by hand afterwards must not move the balance again. It used
+-- to, counting the transaction twice.
+--
+-- transactions.balance_covered_through: set on a manual entry whose date was on or before the day
+-- the balance was known as of when it was entered, to that day. Its effect is inside the stated
+-- figure, not separately in the balance; editing its date past this day puts its effect on the
+-- balance. Lowered when the statement that covered it is reversed and it has to count after all
+-- (BalanceCoverage.release). NULL for every other transaction, and for every existing one: they
+-- were entered under the old rule and did move the balance.
+ALTER TABLE transactions ADD COLUMN balance_covered_through DATE;

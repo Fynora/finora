@@ -168,6 +168,14 @@ public class Transaction extends BaseEntity {
     @Column(name = "duplicate_balance_anchor_id")
     private UUID duplicateBalanceAnchorId;
 
+    // A manual entry dated on or before the day the balance was already known as of when it was
+    // entered (BalanceCoverage.knownThrough): its effect is inside that stated figure, so it did not
+    // move the balance, and editing or deleting it moves nothing while its date stays on or before
+    // this day. Lowered when the figure that covered it is reversed (BalanceCoverage.release).
+    // Null for every other row. V237.
+    @Column(name = "balance_covered_through")
+    private java.time.LocalDate balanceCoveredThrough;
+
     @Column(name = "is_transfer", nullable = false)
     private boolean isTransfer = false;
 
@@ -413,6 +421,8 @@ public class Transaction extends BaseEntity {
     public void setDuplicateBalanceReversed(boolean reversed) { this.duplicateBalanceReversed = reversed; }
     public UUID getDuplicateBalanceAnchorId() { return duplicateBalanceAnchorId; }
     public void setDuplicateBalanceAnchorId(UUID anchorId) { this.duplicateBalanceAnchorId = anchorId; }
+    public java.time.LocalDate getBalanceCoveredThrough() { return balanceCoveredThrough; }
+    public void setBalanceCoveredThrough(java.time.LocalDate balanceCoveredThrough) { this.balanceCoveredThrough = balanceCoveredThrough; }
     public boolean isTransfer() { return isTransfer; }
     public void setTransfer(boolean transfer) { isTransfer = transfer; }
     public UUID getTransferPairId() { return transferPairId; }

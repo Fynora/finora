@@ -21,6 +21,10 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
      *  so the entity load (with the eager {@code fileContent} documented below) stays rare. */
     List<StatementImport> findByAccountIdAndBalanceCoveredThroughIsNotNull(UUID accountId);
 
+    /** The live statements {@code replacementId} replaced -- restored when it is deleted
+     *  ({@code StatementImportService.delete}). Rare, so the entity load is fine. */
+    List<StatementImport> findBySupersededBy(UUID replacementId);
+
     /**
      * Every column any caller of this repository actually needs for a list/summary view,
      * deliberately excluding {@code fileContent}.

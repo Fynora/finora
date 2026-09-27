@@ -21,7 +21,8 @@ import java.util.Objects;
  *       its period end, or its last row's date when it printed no period. A closing balance is the
  *       bank's own statement of everything up to then.</li>
  *   <li>the account's {@code balanceBaselineDate}: the day before the period of the statement that
- *       created the account with a stated opening balance. That opening is everything before it.</li>
+ *       created the account with a stated opening balance (that opening is everything before it),
+ *       or the day before the user typed the balance in ({@code AccountService}).</li>
  * </ul>
  *
  * <p>Measured before this existed, on one savings account with five chained monthly statements:
@@ -29,9 +30,8 @@ import java.util.Objects;
  * month was added on top of July's closing balance, which already held it. Uploaded July first with
  * no closing balances stated, the same happened through the account's opening balance.
  *
- * <p>Deliberately says nothing about an account whose balance was typed in by hand
- * ({@code AccountService.update}) or created by hand: when that figure was "as of" was never
- * recorded, so it is not guessed, and imports on such accounts move the balance as they always did.
+ * <p>The same holds for a transaction entered by hand with an old date ({@code TransactionService
+ * .create}): dated on or before this day, it is already inside the figure.
  *
  * <p>Stateless; each service that needs it builds one from repositories it already holds, rather
  * than every hand-built instance of those services in tests growing a constructor argument.
@@ -76,9 +76,33 @@ public class BalanceCoverage {
     public void release(Account account) {
         List<StatementImport> covered = statementImportRepository
                 .findByAccountIdAndBalanceCoveredThroughIsNotNull(account.getId());
-        if (covered.isEmpty()) return;
+        List<Transaction> coveredEntries = transactionRepository
+                .findByAccountIdAndStatementImportIdIsNullAndBalanceCoveredThroughIsNotNull(account.getId());
+        if (covered.isEmpty() && coveredEntries.isEmpty()) return;
         LocalDate known = knownThrough(account);
-        BigDecimal added = BigDecimal.ZERO;
+        // Manual entries, one by one: each carries its own covered day (Transaction
+        // .balanceCoveredThrough), the one the balance was known as of when it was entered.
+        List<Transaction> entriesNowCounted = new ArrayList<>();
+        List<Transaction> changedEntries = new ArrayList<>();
+        for (Transaction t : coveredEntries) {
+            LocalDate coveredThrough = t.getBalanceCoveredThrough();
+            if (known != null && !coveredThrough.isAfter(known)) continue;
+            LocalDate date = t.getTxnDate();
+            boolean wasInside = date != null && !date.isAfter(coveredThrough);
+            boolean stillInside = wasInside && known != null && !date.isAfter(known);
+            if (wasInside && !stillInside) {
+                if (t.getIsDuplicateOf() != null) {
+                    t.setDuplicateBalanceReversed(true);
+                    t.setDuplicateBalanceAnchorId(null);
+                } else {
+                    entriesNowCounted.add(t);
+                }
+            }
+            t.setBalanceCoveredThrough(known);
+            changedEntries.add(t);
+        }
+        if (!changedEntries.isEmpty()) transactionRepository.saveAll(changedEntries);
+        BigDecimal added = AccountBalanceConvention.netDelta(account.getAccountType(), entriesNowCounted);
         for (StatementImport statement : covered) {
             if (statement.getSupersededBy() != null) continue;
             LocalDate coveredThrough = statement.getBalanceCoveredThrough();
@@ -109,7 +133,9 @@ public class BalanceCoverage {
         if (added.signum() != 0) account.setBalance(account.getBalance().add(added));
     }
 
-    private LocalDate asOf(StatementImport anchor) {
+    /** The day a statement's closing balance is "as of": its period end, or its last row's date
+     *  when it printed no period. */
+    public LocalDate asOf(StatementImport anchor) {
         if (anchor.getStatementPeriodEnd() != null) return anchor.getStatementPeriodEnd();
         return transactionRepository.findByStatementImportId(anchor.getId()).stream()
                 .map(Transaction::getTxnDate).filter(Objects::nonNull)

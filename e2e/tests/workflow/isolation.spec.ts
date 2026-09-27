@@ -267,6 +267,6 @@ test.describe('Phase 10 — one user cannot see or shape another', () => {
     // same treatment by V157 for the same reason.
     // user_financial_focus/user_checklist_events (first-login onboarding flow, V162) got the
     // same treatment by V165 for the same reason.
-    // inflow_kinds/sender_inflow_rules (inflow kinds, V233) got the same treatment by V235.
+    // inflow_kinds/sender_inflow_rules (inflow kinds, V233) got the same treatment by V236_1.
   });
 });

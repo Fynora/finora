@@ -72,7 +72,10 @@ public final class CounterpartyClassifier {
     // 3: PersonToPersonTransferDetector reads the fixed name slot of slash-delimited UPI narrations
     //    (UPI/CR/<ref>/<name>/<bank>/..., UPIAB/..., "..._<name>" tails) -- measured on the corpus,
     //    52 rows UNKNOWN -> PERSON and one PERSON -> UNKNOWN (a "GOOGLE IN" payee), every flip read.
-    public static final short VERSION = 3;
+    // 4: PersonToPersonTransferDetector treats the DC0099 merchant branch code as a merchant-acquiring
+    //    rail -- measured on the corpus, 3 rows PERSON -> BUSINESS and 1 UNKNOWN -> BUSINESS, every
+    //    one a merchant; 5 more already-BUSINESS rows stop reading as a personal transfer. All read.
+    public static final short VERSION = 4;
 
     /**
      * Bank-generated activity, where the counterparty is the institution itself. These words are

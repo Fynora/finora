@@ -22,6 +22,30 @@ class CounterpartyClassifierTest {
     }
 
     @Test
+    void aBrandCollectingThroughAMerchantPseudoBranchIsABusiness_notAPersonReadOffItsRemark() {
+        // A real corpus shape, with the brand and product words invented: HDFC writes UPI rows as
+        // UPI-<payee>-<handle>-<IFSC>-<ref>-<remark>. The payee here is one brand word, which the
+        // person check rightly declines, but the remark the brand's own app writes is three words
+        // and an initial, and the person check reads every segment -- so the remark alone typed the
+        // row PERSON, and a refund on the same narration was never linked to its payment. The IFSC
+        // is what settles it: DC0099 is a merchant pseudo-branch, and every corpus row routed
+        // through it is a business or an institution.
+        String brand = "UPI-ACMETRIP-ACMETRIP.RAIL@ICICI-XXXX0DC0099-REF31-ACMETRIP RAIL TRIP I"; // synthetic-ok
+        assertThat(PersonToPersonTransferDetector.hasMerchantAcquirerMarker(brand)).isTrue();
+        assertThat(CounterpartyClassifier.classify(brand)).isEqualTo(CounterpartyType.BUSINESS);
+    }
+
+    @Test
+    void aPersonsDottedHandleOnAnOrdinaryBranchIsStillAPerson() {
+        // The counterweight to the test above: <first>.<last>@<bank> is also how people name their
+        // own handles, so the handle's shape is not what makes that row a business. Only the
+        // pseudo-branch does, and an ordinary branch code must leave a person a person.
+        String person = "UPI-SUNIL VERMA-sunil.verma@icici-XXXX0001234-REF32-UPI"; // synthetic-ok
+        assertThat(PersonToPersonTransferDetector.hasMerchantAcquirerMarker(person)).isFalse();
+        assertThat(CounterpartyClassifier.classify(person)).isEqualTo(CounterpartyType.PERSON);
+    }
+
+    @Test
     void aCorporateSuffixMakesItABusinessWithoutAnyRailMarker() {
         assertThat(CounterpartyClassifier.classify("NEFT ACME TECHNOLOGIES PVT LTD REF23"))
                 .isEqualTo(CounterpartyType.BUSINESS);

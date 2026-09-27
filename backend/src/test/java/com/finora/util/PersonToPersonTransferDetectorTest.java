@@ -129,6 +129,9 @@ class PersonToPersonTransferDetectorTest {
                 "UPI-RAJESH KUMAR-rajesh@OKBIZAXIS-REF4")).isFalse();                // GPay business
         assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
                 "UPI-RAJESH KUMAR-VYAPAR.1234@HDFCBANK-XXXX0MERUPI-REF5")).isFalse(); // synthetic-ok
+        // A bank's own merchant pseudo-branch: every corpus row routed through DC0099 is a business.
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI-RAJESH KUMAR-rajesh.kumar@icici-XXXX0DC0099-REF5A")).isFalse(); // synthetic-ok
     }
 
     @Test

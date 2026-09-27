@@ -245,6 +245,13 @@ public final class PersonToPersonTransferDetector {
             // merchant collections through dedicated pseudo-branches whose code spells out what
             // they are, so the bank prefix is the part that varies and is deliberately a wildcard.
             + "|[a-z]{4}0(?:MCHUPI|MERUPI|PTMUPI)"
+            // The same shape on a bank's own merchant handles: DC0099 is not a customer branch
+            // number, and on the real corpus only businesses collect through it -- 32 rows, every
+            // payee a business or an institution, none a person. Among them a brand whose one-word
+            // payee and <brand>.<product> handle carry no business word, which the person check then
+            // typed PERSON from the brand's own free-text remark. Only one bank's prefix has been
+            // observed; it is a wildcard to match the family above, not because others were seen.
+            + "|[a-z]{4}0DC0099"
             + "|@okbiz"                           // Google Pay for Business
             + "|\\bbharatpe\\b"
             + "|\\bvyapar\\."

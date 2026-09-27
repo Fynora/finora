@@ -7,23 +7,28 @@
 # ops/monitoring/railway.json, which names the Prometheus Dockerfile. So it would silently build
 # Prometheus. Keeping this Dockerfile at the root of its own directory removes that collision.
 #
-# REQUIRED RAILWAY VARIABLE
-# -------------------------
-# ALERT_WEBHOOK_URL is the Better Stack Prometheus integration's webhook URL. entrypoint.sh refuses
-# to start without it. See alertmanager.yml for why this is a webhook and not email.
+# RAILWAY VARIABLES
+# -----------------
+# Required: ALERT_EMAIL_TO (who gets the alerts) and ALERT_SMTP_PASSWORD (a Resend API key).
+# The defaults below cover everything else. entrypoint.sh refuses to start without the required
+# two. See alertmanager.yml for why this is email through Resend.
 
 FROM prom/alertmanager:v0.27.0
 
-COPY alertmanager.yml /etc/alertmanager/alertmanager.yml
+# Resend's SMTP relay. Port 587 is STARTTLS, and the username is literally "resend". The sender must
+# be on a domain verified in Resend. fynora.net is the domain the backend already sends from.
+ENV ALERT_SMTP_SMARTHOST=smtp.resend.com:587 \
+    ALERT_SMTP_USERNAME=resend \
+    ALERT_SMTP_REQUIRE_TLS=true \
+    ALERT_EMAIL_FROM="Fynora Alerts <alerts@fynora.net>"
 
-# Validate at build time, so a broken routing file fails the deploy rather than a restart loop.
-RUN ["/bin/amtool", "check-config", "/etc/alertmanager/alertmanager.yml"]
+COPY alertmanager.yml /etc/alertmanager/alertmanager.yml
 
 USER root
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod 0755 /usr/local/bin/entrypoint.sh
 # The base image runs as nobody and /etc/alertmanager is already owned by nobody, so entrypoint.sh
-# can write the URL file without root. Only the chmod above needed privilege.
+# can write the rendered config and the password file without root. Only the chmod needed privilege.
 USER nobody
 
 ENTRYPOINT [ "/usr/local/bin/entrypoint.sh" ]
@@ -36,7 +41,7 @@ ENTRYPOINT [ "/usr/local/bin/entrypoint.sh" ]
 #   gossip off means it never has to.
 # No volume. /alertmanager holds silences and the notification log. Losing them on a redeploy costs
 #   at most one repeated notification, and there is no silence worth preserving yet.
-CMD [ "--config.file=/etc/alertmanager/alertmanager.yml", \
+CMD [ "--config.file=/etc/alertmanager/rendered.yml", \
       "--storage.path=/alertmanager", \
       "--web.listen-address=:9093", \
       "--cluster.listen-address=" ]

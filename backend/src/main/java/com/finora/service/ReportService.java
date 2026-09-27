@@ -98,8 +98,18 @@ public class ReportService {
                 .map(e -> new ReportDto.CategoryAmount(e.getKey(), e.getValue()))
                 .toList();
 
+        Map<String, BigDecimal> incomeByLabel = new java.util.LinkedHashMap<>();
+        for (Transaction t : txnsForTotals) {
+            if (!FlowTotals.countsAsIncome(t, flow)) continue;
+            incomeByLabel.merge(FlowTotals.incomeLabel(t, flow), refunds.reportableAmount(t), BigDecimal::add);
+        }
+        List<ReportDto.IncomeLine> incomeByKind = incomeByLabel.entrySet().stream()
+                .sorted((a, b) -> b.getValue().compareTo(a.getValue()))
+                .map(e -> new ReportDto.IncomeLine(e.getKey(), e.getValue()))
+                .toList();
+
         return new ReportDto(monthStr, income, expense, categories,
-                FlowTotals.unresolvedInflow(txnsForTotals, flow));
+                FlowTotals.unresolvedInflow(txnsForTotals, flow), incomeByKind);
     }
 
     /**

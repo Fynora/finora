@@ -41,9 +41,9 @@ class StatementRefreshSummaryServiceTest {
 
         assertThat(summary.parserVersion()).isEqualTo("abc1234");
         assertThat(summary.statementsAwaitingCheck()).isEqualTo(3);
-        assertThat(summary.byStatus()).extracting(StatementRefreshSummaryService.StatusTotals::status,
-                        StatementRefreshSummaryService.StatusTotals::statements,
-                        StatementRefreshSummaryService.StatusTotals::rowsChanged)
+        assertThat(summary.byStatus()).extracting(StatementRefreshSummaryService.RefreshStatusTotals::status,
+                        StatementRefreshSummaryService.RefreshStatusTotals::statements,
+                        StatementRefreshSummaryService.RefreshStatusTotals::rowsChanged)
                 .containsExactly(org.assertj.core.groups.Tuple.tuple("CHANGES", 5L, 7L),
                         org.assertj.core.groups.Tuple.tuple("NO_CHANGES", 20L, 0L));
     }

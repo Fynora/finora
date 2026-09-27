@@ -16,10 +16,10 @@ import java.util.List;
 @Service
 public class StatementRefreshSummaryService {
 
-    public record StatusTotals(String status, long statements, long users, long rowsChanged, long rowsAdded,
+    public record RefreshStatusTotals(String status, long statements, long users, long rowsChanged, long rowsAdded,
                                long rowsRemoved, long rowsConflicting, long factsChanged) {}
 
-    public record Summary(String parserVersion, long statementsAwaitingCheck, List<StatusTotals> byStatus) {}
+    public record RefreshSummary(String parserVersion, long statementsAwaitingCheck, List<RefreshStatusTotals> byStatus) {}
 
     private final StatementRefreshPreviewRepository previewRepository;
     private final StatementImportRepository statementImportRepository;
@@ -35,13 +35,13 @@ public class StatementRefreshSummaryService {
 
     /** @param parserVersion a build's short commit, or null/blank for the running build */
     @Transactional(readOnly = true)
-    public Summary summary(String parserVersion) {
+    public RefreshSummary summary(String parserVersion) {
         String version = parserVersion != null && !parserVersion.isBlank() ? parserVersion : buildVersionResolver.currentCommit();
-        if (version == null) return new Summary(null, 0, List.of());
-        List<StatusTotals> totals = previewRepository.totalsFor(version).stream()
-                .map(t -> new StatusTotals(t.getStatus(), t.getStatements(), t.getUsers(), t.getRowsChanged(),
+        if (version == null) return new RefreshSummary(null, 0, List.of());
+        List<RefreshStatusTotals> totals = previewRepository.totalsFor(version).stream()
+                .map(t -> new RefreshStatusTotals(t.getStatus(), t.getStatements(), t.getUsers(), t.getRowsChanged(),
                         t.getRowsAdded(), t.getRowsRemoved(), t.getRowsConflicting(), t.getFactsChanged()))
                 .toList();
-        return new Summary(version, statementImportRepository.countAwaitingRefreshCheck(version), totals);
+        return new RefreshSummary(version, statementImportRepository.countAwaitingRefreshCheck(version), totals);
     }
 }

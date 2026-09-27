@@ -22,7 +22,7 @@ public class AdminStatementRefreshController {
 
     /** @param parserVersion a build's short commit; defaults to the running build */
     @GetMapping("/summary")
-    public ApiResponse<StatementRefreshSummaryService.Summary> summary(@RequestParam(required = false) String parserVersion) {
+    public ApiResponse<StatementRefreshSummaryService.RefreshSummary> summary(@RequestParam(required = false) String parserVersion) {
         return ApiResponse.ok(summaryService.summary(parserVersion));
     }
 }

@@ -214,6 +214,8 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     @Autowired private ChatMessageRepository chatMessageRepository;
     @Autowired private CounterpartyCategoryObservationRepository counterpartyCategoryObservationRepository;
     @Autowired private TimelineEventRepository timelineEventRepository;
+    @Autowired private com.finora.repository.InflowKindRepository inflowKindRepository;
+    @Autowired private com.finora.repository.SenderInflowRuleRepository senderInflowRuleRepository;
     // Not passed to the service constructor -- fixture setup and assertions only, the same role
     // roleRepository already plays below.
     @Autowired private SupportTicketAttachmentRepository supportTicketAttachmentRepository;
@@ -254,6 +256,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 userChecklistEventRepository, healthScoreSnapshotRepository, featureViewCountRepository,
                 recurringDismissalRepository, accountAggregatorLinkRepository, aiAuditLogRepository,
                 chatConversationRepository, chatMessageRepository, counterpartyCategoryObservationRepository,
+                inflowKindRepository, senderInflowRuleRepository,
                 auditService,
                 passwordEncoder, transactionTemplate,
                 auditLogRepository, emailProvider);
@@ -312,6 +315,39 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         assertThat(result.failed()).isZero();
         entityManager.clear();
         assertThat(transactionRepository.findByUserId(userId)).isEmpty();
+    }
+
+    /**
+     * Plan 2 (V233): a user's inflow kinds, a sender rule on one of them and a transaction whose own
+     * choice is that kind. The purge never deletes the users row, so no cascade removes these; they
+     * need explicit deletes, rules before kinds and kinds after the transactions pointing at them.
+     */
+    @Test
+    @Transactional
+    void purgeDeletesInflowKindsAndRules() {
+        com.finora.entity.InflowKind kind = new com.finora.entity.InflowKind();
+        kind.setUserId(userId);
+        kind.setName("Rent from tenant");
+        kind.setCountsAsIncome(true);
+        kind = inflowKindRepository.save(kind);
+        com.finora.entity.SenderInflowRule rule = new com.finora.entity.SenderInflowRule();
+        rule.setUserId(userId);
+        rule.setCounterpartyKey("vpa:tenant1");
+        rule.setInflowKindId(kind.getId());
+        senderInflowRuleRepository.save(rule);
+        Transaction txn = saveTransaction(BigDecimal.valueOf(500));
+        txn.setTxnType(Transaction.Type.INCOME);
+        txn.setInflowKindId(kind.getId());
+        transactionRepository.save(txn);
+        entityManager.flush();
+
+        AccountPurgeSweepService.Result result = service.sweep();
+
+        assertThat(result.purged()).isEqualTo(1);
+        assertThat(result.failed()).isZero();
+        entityManager.clear();
+        assertThat(inflowKindRepository.findByUserId(userId)).isEmpty();
+        assertThat(senderInflowRuleRepository.findByUserId(userId)).isEmpty();
     }
 
     /**

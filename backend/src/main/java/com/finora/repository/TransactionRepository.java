@@ -12,6 +12,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface TransactionRepository extends JpaRepository<Transaction, UUID> {
@@ -657,4 +658,23 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     @org.springframework.data.jpa.repository.Modifying
     @Query(value = "DELETE FROM transactions WHERE user_id = :userId", nativeQuery = true)
     void hardDeleteByUserId(@Param("userId") UUID userId);
+
+    /** Live rows whose own inflow choice is this kind -- InflowKindService.delete's "in use" count. */
+    @Query(value = "SELECT count(*) FROM transactions WHERE inflow_kind_id = :kindId AND deleted_at IS NULL",
+            nativeQuery = true)
+    long countLiveByInflowKindId(@Param("kindId") UUID kindId);
+
+    /** A soft-deleted row still holds its FK; clearing it lets a kind the user can no longer see in
+     *  use be deleted. Bumps version like every bulk transactions write (ChangeStampBulkWriteGuardTest). */
+    @Modifying
+    @Query(value = "UPDATE transactions SET inflow_kind_id = NULL, version = version + 1 "
+            + "WHERE inflow_kind_id = :kindId AND deleted_at IS NOT NULL", nativeQuery = true)
+    int clearInflowKindOnDeletedRows(@Param("kindId") UUID kindId);
+
+    /** How many live credits a sender rule reaches -- shown before and after a SENDER choice. */
+    @Query(value = "SELECT count(*) FROM transactions WHERE user_id = :userId AND counterparty_key = :key "
+            + "AND txn_type <> 'EXPENSE' AND deleted_at IS NULL", nativeQuery = true)
+    long countLiveCreditsBySender(@Param("userId") UUID userId, @Param("key") String key);
+
+    Optional<Transaction> findFirstByUserIdAndCounterpartyKeyOrderByTxnDateDesc(UUID userId, String counterpartyKey);
 }

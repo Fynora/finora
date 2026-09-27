@@ -156,6 +156,38 @@ public class TransactionNormalizer {
     // and it stopped matching the moment the normalizer was fixed (which is how it was caught:
     // this list's own regression test went red). Worth noting as a pattern -- a hint spelled to
     // match a normalizer's quirks rather than the real-world string is coupled to those quirks.
+    /**
+     * The row's reference/cheque number, or null. Headers are compared by their LETTERS alone, not
+     * whole-cell: banks punctuate this column every way there is ("Chq./Ref.No.", "Chq/Ref. No.",
+     * "CHQ.NO.", "Ref No. /Cheque No"), and whole-cell matching dropped every reference on every
+     * real HDFC statement (854 of them) because "chq./ref.no" was one spelling nobody had listed --
+     * the same miss Kotak's "Chq/Ref. No." caused before it got a literal entry of its own. A value
+     * with no digit in it is not a reference (a real Bank of Baroda "CHQ.NO." cell held a fragment of
+     * page text) and is left out rather than stored.
+     *
+     * <p>A reference can wrap inside its own column and arrive with a space in it (a real HDFC
+     * 22-character reference printed as 16 characters, then 6 on the next line). When the row's own
+     * description prints the space-free form, that is the reference; otherwise it is kept as printed.
+     */
+    private static String referenceNumberOf(Map<String, String> row, String description) {
+        for (String hint : REFERENCE_HINTS) {
+            String wanted = lettersOf(hint);
+            for (Map.Entry<String, String> e : row.entrySet()) {
+                if (e.getKey() == null || !lettersOf(CsvParser.normalizeHeaderCell(e.getKey())).equals(wanted)) continue;
+                String v = e.getValue();
+                if (v == null || v.isBlank() || v.chars().noneMatch(Character::isDigit)) continue;
+                String joined = v.replaceAll("\\s+", "");
+                if (!joined.equals(v.trim()) && description != null && description.contains(joined)) return joined;
+                return v;
+            }
+        }
+        return null;
+    }
+
+    private static String lettersOf(String s) {
+        return s == null ? "" : s.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z]", "");
+    }
+
     private static final String[] REFERENCE_HINTS =
             {"reference number", "ref no", "reference no", "cheque no", "chq no", "chq/ref no",
                     "chq/ref. no", "instrument id", "reference", "reference / cheque no",
@@ -602,7 +634,7 @@ public class TransactionNormalizer {
 
         // findMatch, not isLikelyDuplicate: one query either way, but it carries the evidence the
         // review screen needs to let the user decide rather than just flagging the row (WI5).
-        String referenceNumber = CsvParser.firstNonBlank(row, REFERENCE_HINTS);
+        String referenceNumber = referenceNumberOf(row, description);
         String balanceRaw = firstParseableAmount(row, BALANCE_HINTS);
         BigDecimal balanceAfter = CsvParser.parseNumeric(balanceRaw);
         // Runs after the balance parse so the index path can match on direction and running

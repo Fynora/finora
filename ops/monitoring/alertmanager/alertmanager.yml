@@ -1,37 +1,45 @@
 # Alertmanager routing for Finora: where the rules in ../alerts.yml go when they fire.
 #
-# Until this file existed, Prometheus evaluated every rule in alerts.yml and sent the result
+# Until Alertmanager existed, Prometheus evaluated every rule in alerts.yml and sent the result
 # nowhere. A firing BackendDown was visible only to someone already looking at the Prometheus UI.
 #
-# ONE RECEIVER, OVER HTTPS
-# ------------------------
-# Alerts go to a webhook, never to SMTP. Railway blocks outbound SMTP on every plan below Pro, and
-# a mail receiver on such a plan fails at send time: the config loads and the service shows Online,
-# and the only sign is a log line nobody reads. A webhook over HTTPS has no such dependency.
+# ONE RECEIVER: EMAIL THROUGH RESEND
+# ----------------------------------
+# Alerts are sent by SMTP through Resend, the provider the backend already sends its own mail with.
+# Two things this depends on, both checked on 2026-09-27:
+#   - Railway allows outbound SMTP only on the Pro plan and above. The project is on Pro. On a lower
+#     plan this receiver would load, report healthy, and fail every send.
+#   - Better Stack, where the uptime monitor lives, accepts Prometheus alerts only on a paid plan.
+#     That is why this is email rather than a Better Stack incident.
 #
-# In production the webhook is Better Stack's Prometheus integration. Its incidents go through the
-# same on-call escalation (email and phone push) as the uptime monitor on /health, so there is only
-# one place to configure who gets told.
-#
-# The URL is a credential, since anyone holding it can open incidents, and this repository is
-# public. So it is not in this file. entrypoint.sh writes it from the ALERT_WEBHOOK_URL variable to
-# the file named by url_file below. Locally, docker-compose.yml points it at a sink that prints
-# what it receives.
+# THIS FILE IS A TEMPLATE
+# -----------------------
+# The __PLACEHOLDERS__ are filled from environment variables by entrypoint.sh, because Alertmanager
+# does not expand variables itself. The recipient is someone's personal address and this repository
+# is public, so it is never written here. The SMTP password (a Resend API key) never enters the
+# config at all: entrypoint.sh writes it to the file smtp_auth_password_file names.
+
+global:
+  smtp_smarthost: "__ALERT_SMTP_SMARTHOST__"
+  smtp_from: "__ALERT_EMAIL_FROM__"
+  smtp_auth_username: "__ALERT_SMTP_USERNAME__"
+  smtp_auth_password_file: /etc/alertmanager/smtp-password
+  smtp_require_tls: __ALERT_SMTP_REQUIRE_TLS__
 
 route:
-  receiver: webhook
+  receiver: email
   # One notification per alert and per worker/jobKind pair. Grouping every alert together would
-  # hide a second, unrelated problem inside the first one's still-open incident.
+  # hide a second, unrelated problem inside the first one's email thread.
   group_by: [alertname, worker, jobKind]
   # Every rule already has its own `for:` of 5 to 30 minutes, so the condition has been sustained
   # before Alertmanager sees it. There is nothing to gain by waiting longer here.
   group_wait: 30s
   group_interval: 5m
-  # Re-notify a still-firing alert every 4 hours, so an incident closed by mistake comes back.
+  # Re-send a still-firing alert every 4 hours, so one missed email is not the only notice.
   repeat_interval: 4h
 
 receivers:
-  - name: webhook
-    webhook_configs:
-      - url_file: /etc/alertmanager/webhook-url
+  - name: email
+    email_configs:
+      - to: "__ALERT_EMAIL_TO__"
         send_resolved: true

@@ -14,7 +14,7 @@ This file is how to run it.
 |---|---|
 | `prometheus.yml` | Scrape config. No credential — it reaches the backend's private management port. |
 | `alerts.yml` | 10 alert rules, every one on a sustained condition. |
-| `alertmanager/` | Where those alerts go: Alertmanager, delivering to Better Stack over HTTPS. |
+| `alertmanager/` | Where those alerts go: Alertmanager, emailing them through Resend. |
 | `grafana/dashboards/worker-health.json` | Worker + queue + infrastructure dashboard. |
 | `grafana/dashboards/reconciliation.json` | Reconciliation transfer-matching and duplicate-override counters (measurement only, no alerts yet). |
 | `grafana/dashboards/auth.json` | Session and authentication counters. |
@@ -254,38 +254,43 @@ resolve correctly behind Railway's proxy.
 Without this service, Prometheus evaluates the ten rules in `alerts.yml` and notifies no one: a
 firing `BackendDown` was visible only to someone already looking at the Prometheus UI.
 `alertmanager/Dockerfile` builds a third Railway service. Prometheus sends alerts to it over the
-private network, and it forwards them to **Better Stack's Prometheus integration**. There they
-become incidents with the same on-call escalation (email, phone push) as the uptime monitor above.
+private network, and it **emails** them through Resend, the provider the backend already uses.
 
-**Why a webhook and not email.** Railway blocks outbound SMTP on every plan below Pro. On such a
-plan an email receiver loads, reports healthy, and fails every send, and the only sign is a log line.
-A webhook over HTTPS has no such dependency.
+**Why email through Resend, and what it depends on** (both checked on 2026-09-27):
+
+- Railway allows outbound SMTP only on the **Pro** plan and above. The project is on Pro. On a
+  lower plan this service would load, report healthy, and fail every send.
+- Better Stack, where the `/health` uptime monitor lives, accepts Prometheus alerts and incoming
+  webhooks only on a paid plan. The account is on Free.
 
 | Setting | Value |
 |---|---|
 | Service name | `Alertmanager`. Its private domain must be `alertmanager.railway.internal`, which is the address the Prometheus image is built to send to (`ALERTMANAGER_PRIVATE_ADDRESS` in `railway/prometheus/Dockerfile`). |
 | Root Directory | `ops/monitoring/alertmanager`. There is nothing else to set, and no `railway.json` (same reason as Grafana's). |
-| Variable `ALERT_WEBHOOK_URL` | The webhook URL from Better Stack, under Integrations, then Prometheus. **It is a credential**: anyone holding it can open incidents. It lives only in Railway. `entrypoint.sh` refuses to start without it, so a missing value shows as a crashed deploy, not a silent one. |
+| Variable `ALERT_EMAIL_TO` | **Required.** Who receives the alerts. It is kept out of this public repository. |
+| Variable `ALERT_SMTP_PASSWORD` | **Required.** A Resend API key. The simplest choice is a Railway reference to the backend service's `RESEND_API_KEY`. Typing `${{` in the variable editor lists the references it offers. |
+| Defaults (override only if needed) | `ALERT_SMTP_SMARTHOST=smtp.resend.com:587`, `ALERT_SMTP_USERNAME=resend`, `ALERT_SMTP_REQUIRE_TLS=true`, `ALERT_EMAIL_FROM="Fynora Alerts <alerts@fynora.net>"`. The sender has to be on a domain verified in Resend. |
 | Public domain | **None.** Only Prometheus talks to it. |
 | Volume | None. The only state is silences and the notification log, and losing them on a redeploy costs at most one repeated notification. |
 
-After Alertmanager is Online, **redeploy Prometheus** (the `Fynora` service), so its image picks
-up the `alerting:` block from `prometheus.yml`.
+`entrypoint.sh` fills `alertmanager.yml`'s placeholders from these variables and validates the
+result with `amtool`. It **refuses to start** if a required variable is missing or malformed, so a
+misconfiguration shows up as a crashed deploy, not as a service that accepts alerts and delivers
+none.
 
-**Verifying it locally.** `docker compose up` (above) includes Alertmanager and a `webhook-sink`
-standing in for Better Stack. With no backend running, `BackendDown` fires after its 5-minute
-`for:`, and `docker compose logs webhook-sink` prints `firing BackendDown critical ...`. That shows
-the whole chain works: rule, Prometheus, Alertmanager, webhook.
+**Verifying it locally.** `docker compose up` (above) includes Alertmanager and **Mailpit**, which
+stands in for Resend. With no backend running, `BackendDown` fires after its 5-minute `for:`, and
+its email appears at http://localhost:8025. That shows the whole chain works: rule, Prometheus,
+Alertmanager, email.
 
-**Verifying it in production.** Prometheus' own log should show no
-`Error sending alert` lines. Better Stack should open an incident the first time a rule fires. The
-one production property no local run can prove is that Prometheus reaches
-`alertmanager.railway.internal:9093` over Railway's IPv6-only network. Alertmanager listens on
-`:9093`, which includes IPv6.
+**Verifying it in production.** Prometheus' log should show no `Error sending alert` lines, and
+Alertmanager's log should show no `Notify ... failed` lines. Two properties no local run can
+prove: that Prometheus reaches `alertmanager.railway.internal:9093` over Railway's IPv6-only
+network (Alertmanager listens on `[::]:9093`, measured), and that Resend accepts the credentials and
+sender.
 
 **Not covered: a dead Prometheus or Alertmanager.** If either stops, alerts stop with it, and
-nothing says so. A watchdog, meaning an always-firing rule sent to a Better Stack heartbeat, would
-close that gap, and is a follow-up.
+nothing says so. A watchdog would close that gap, and is a follow-up.
 
 ## Changing a dashboard or an alert
 

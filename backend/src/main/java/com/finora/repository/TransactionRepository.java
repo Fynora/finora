@@ -688,4 +688,35 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     long countLiveCreditsBySender(@Param("userId") UUID userId, @Param("key") String key);
 
     Optional<Transaction> findFirstByUserIdAndCounterpartyKeyOrderByTxnDateDesc(UUID userId, String counterpartyKey);
+
+    /** One of a statement's transactions as a statement refresh sees it -- see findStatementRowsIncludingDeleted. */
+    interface StatementRowView {
+        UUID getId();
+        Integer getSourceRowPosition();
+        Integer getRowOrdinal();
+        java.time.LocalDate getTxnDate();
+        String getDescription();
+        java.math.BigDecimal getAmount();
+        String getTxnType();
+        java.math.BigDecimal getBalanceAfter();
+        String getReferenceNumber();
+        java.time.Instant getDeletedAt();
+        String[] getUserEditedFields();
+    }
+
+    /**
+     * Every transaction a statement produced, INCLUDING the ones the user deleted -- native, so the
+     * entity's soft-delete restriction does not hide them. A statement refresh must recognise a row
+     * the user deleted, or re-reading the statement would bring it back as "new".
+     */
+    @Query(value = """
+            SELECT t.id AS id, t.source_row_position AS sourceRowPosition, t.row_ordinal AS rowOrdinal,
+                   t.txn_date AS txnDate, t.description AS description, t.amount AS amount,
+                   t.txn_type AS txnType, t.balance_after AS balanceAfter, t.reference_number AS referenceNumber,
+                   t.deleted_at AS deletedAt, t.user_edited_fields AS userEditedFields
+              FROM transactions t
+             WHERE t.statement_import_id = :statementImportId AND t.user_id = :userId
+            """, nativeQuery = true)
+    List<StatementRowView> findStatementRowsIncludingDeleted(@Param("userId") UUID userId,
+                                                             @Param("statementImportId") UUID statementImportId);
 }

@@ -678,6 +678,7 @@ public class AccountPurgeSweepService {
             // data as the transactions deleted just above. statement_imports rows themselves are
             // anonymised below, never deleted, so nothing cascades to these.
             statementImportRepository.deleteExcludedRowsOfUser(userId);
+            statementImportRepository.deleteRefreshPreviewsOfUser(userId);
 
             merchantLearningEventRepository.deleteByUserId(userId);
             merchantLearningAuditRepository.deleteByUserId(userId);

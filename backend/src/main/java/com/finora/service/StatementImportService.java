@@ -561,6 +561,7 @@ public class StatementImportService {
 
         transactionRepository.deleteAll(toRemove);
         statementImportRepository.deleteExcludedRowsOfStatement(statementImport.getUserId(), statementImport.getId());
+        statementImportRepository.deleteRefreshPreviewsOfStatement(statementImport.getUserId(), statementImport.getId());
         statementImportRepository.delete(statementImport);
 
         if (!removedIds.isEmpty()) {

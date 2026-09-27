@@ -762,6 +762,17 @@ app:
       # An object sits at zero references for 90 days before it is even a candidate.
       interval-ms: ${STATEMENT_STORAGE_SWEEP_INTERVAL_MS:21600000}
       initial-delay-ms: ${STATEMENT_STORAGE_SWEEP_INITIAL_DELAY_MS:300000}
+  statement-refresh:
+    dry-run:
+      # Statement refresh, step 2b (StatementRefreshDryRunService). After each deploy, re-reads
+      # every statement an older build parsed and records what a refresh would change -- never
+      # writes to anyone's transactions. The version is the build's commit, so every deploy makes
+      # every earlier statement a candidate (Sid's decision, 2026-09-27). Small batches, one
+      # statement at a time, so a backlog drains without competing hard with users' imports.
+      enabled: ${STATEMENT_REFRESH_DRY_RUN_ENABLED:true}
+      batch-size: ${STATEMENT_REFRESH_DRY_RUN_BATCH_SIZE:20}
+      interval-ms: ${STATEMENT_REFRESH_DRY_RUN_INTERVAL_MS:60000}
+      initial-delay-ms: ${STATEMENT_REFRESH_DRY_RUN_INITIAL_DELAY_MS:120000}
   audit:
     redaction:
       # BH-044. AuditService.redactExpiredMetadata replaces audit_logs.metadata with a small

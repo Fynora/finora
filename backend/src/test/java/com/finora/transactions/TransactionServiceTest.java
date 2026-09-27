@@ -909,6 +909,110 @@ class TransactionServiceTest {
         assertThat(existing.getTxnType()).isEqualTo(Transaction.Type.INCOME);
     }
 
+    // --- Which statement-derived fields the user changed (Transaction.EditableField), so a statement
+    // refresh keeps their value. Both clients send every field on every save, so these tests send
+    // full payloads the way the web Ledger and the mobile edit sheet do. ---
+
+    /** An imported row as it sits after import: merchant never set, like most parsed rows. */
+    private Transaction importedRow(UUID txnId) {
+        Transaction t = ownedTransaction(txnId, userId);
+        t.setTxnDate(java.time.LocalDate.of(2026, 7, 10));
+        t.setDescription("UPI GROCER");
+        t.setAmount(new BigDecimal("450.00"));
+        t.setTxnType(Transaction.Type.EXPENSE);
+        return t;
+    }
+
+    /** What a client sends when the user opens the edit form and changes only what's given. */
+    private TransactionDto.UpdateRequest fullPayload(java.time.LocalDate date, String description, String merchant,
+                                                     String amount, String type) {
+        return new TransactionDto.UpdateRequest(date, description, merchant, new BigDecimal(amount), type,
+                null, "", List.of());
+    }
+
+    @Test
+    void update_savingTheFormUnchanged_marksNoFieldAsUserEdited() {
+        UUID txnId = UUID.randomUUID();
+        Transaction existing = importedRow(txnId);
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(existing));
+
+        // The merchant is null in storage and comes back as "" from the form; the amount comes back
+        // as a JSON number without the stored scale.
+        transactionService.update(userId, txnId,
+                fullPayload(java.time.LocalDate.of(2026, 7, 10), "UPI GROCER", "", "450", "EXPENSE"));
+
+        assertThat(existing.getUserEditedFields()).isEmpty();
+    }
+
+    @Test
+    void update_changingOnlyTheAmount_marksOnlyTheAmount() {
+        UUID txnId = UUID.randomUUID();
+        Transaction existing = importedRow(txnId);
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(existing));
+
+        transactionService.update(userId, txnId,
+                fullPayload(java.time.LocalDate.of(2026, 7, 10), "UPI GROCER", "", "540", "EXPENSE"));
+
+        assertThat(existing.getUserEditedFields()).containsExactly(Transaction.EditableField.AMOUNT);
+    }
+
+    @Test
+    void update_changingDateDescriptionMerchantAndType_marksEachOfThem_butNotesAndTagsAreNotStatementFields() {
+        UUID txnId = UUID.randomUUID();
+        Transaction existing = importedRow(txnId);
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(existing));
+
+        transactionService.update(userId, txnId, new TransactionDto.UpdateRequest(java.time.LocalDate.of(2026, 7, 11),
+                "Groceries for the week", "Local Grocer", new BigDecimal("450.00"), "INCOME", null,
+                "split with a friend", List.of("shared")));
+
+        assertThat(existing.getUserEditedFields()).containsExactlyInAnyOrder(
+                Transaction.EditableField.DATE, Transaction.EditableField.DESCRIPTION,
+                Transaction.EditableField.MERCHANT, Transaction.EditableField.TYPE);
+    }
+
+    @Test
+    void update_aLaterUnchangedSave_keepsEarlierEdits() {
+        UUID txnId = UUID.randomUUID();
+        Transaction existing = importedRow(txnId);
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(existing));
+
+        transactionService.update(userId, txnId,
+                fullPayload(java.time.LocalDate.of(2026, 7, 12), "UPI GROCER", "", "450", "EXPENSE"));
+        transactionService.update(userId, txnId,
+                fullPayload(java.time.LocalDate.of(2026, 7, 12), "UPI GROCER", "", "450", "EXPENSE"));
+
+        assertThat(existing.getUserEditedFields()).containsExactly(Transaction.EditableField.DATE);
+    }
+
+    @Test
+    void update_clearingAMerchantTheParserSet_isAnEdit() {
+        UUID txnId = UUID.randomUUID();
+        Transaction existing = importedRow(txnId);
+        existing.setMerchant("Grocer");
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(existing));
+
+        transactionService.update(userId, txnId,
+                fullPayload(java.time.LocalDate.of(2026, 7, 10), "UPI GROCER", "", "450", "EXPENSE"));
+
+        assertThat(existing.getUserEditedFields()).containsExactly(Transaction.EditableField.MERCHANT);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void anEditedFieldNameThisBuildDoesNotKnow_isSkipped_notThrown() {
+        Transaction t = importedRow(UUID.randomUUID());
+        ReflectionTestUtils.setField(t, "userEditedFields", new java.util.ArrayList<>(List.of("AMOUNT", "SOMETHING_NEWER")));
+
+        assertThat(t.getUserEditedFields()).containsExactly(Transaction.EditableField.AMOUNT);
+        t.markUserEdited(Transaction.EditableField.DATE);
+        assertThat(t.getUserEditedFields())
+                .containsExactlyInAnyOrder(Transaction.EditableField.AMOUNT, Transaction.EditableField.DATE);
+        // ...and writing a new mark keeps the unknown one, so a newer build's mark survives.
+        assertThat((List<Object>) ReflectionTestUtils.getField(t, "userEditedFields"))
+                .containsExactlyInAnyOrder("AMOUNT", "SOMETHING_NEWER", "DATE");
+    }
+
     @Test
     void update_withCategoryName_marksManuallySetAndClearsReviewFlag() {
         UUID txnId = UUID.randomUUID();

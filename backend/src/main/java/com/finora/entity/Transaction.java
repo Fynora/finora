@@ -214,6 +214,19 @@ public class Transaction extends BaseEntity {
     @Column(name = "category_manually_set", nullable = false)
     private boolean categoryManuallySet = false;
 
+    /**
+     * The statement-derived fields a person has changed on this row. A statement refresh
+     * (re-reading the stored file with an improved parser) patches a row in place and must keep the
+     * user's value for any field listed here. Category is not here: {@link #categoryManuallySet}
+     * already records that. Written only by {@code TransactionService.update}, and only for a field
+     * whose submitted value differs from the stored one.
+     */
+    public enum EditableField { DATE, DESCRIPTION, MERCHANT, AMOUNT, TYPE }
+
+    @JdbcTypeCode(SqlTypes.ARRAY)
+    @Column(name = "user_edited_fields", nullable = false)
+    private List<String> userEditedFields = new java.util.ArrayList<>();
+
     // Null for manual transactions and anything imported before V10. This is what lets
     // "Delete Statement Import" remove exactly this batch's transactions instead of an
     // all-or-nothing wipe — see StatementImportService.delete().
@@ -412,6 +425,36 @@ public class Transaction extends BaseEntity {
     public boolean isPendingBankCorrection() { return pendingBankCorrection; }
     public void setPendingBankCorrection(boolean pendingBankCorrection) { this.pendingBankCorrection = pendingBankCorrection; }
     public boolean isCategoryManuallySet() { return categoryManuallySet; }
+
+    public boolean isUserEdited(EditableField field) {
+        return userEditedFields != null && userEditedFields.contains(field.name());
+    }
+
+    public java.util.Set<EditableField> getUserEditedFields() {
+        java.util.EnumSet<EditableField> fields = java.util.EnumSet.noneOf(EditableField.class);
+        if (userEditedFields != null) {
+            // A name this build doesn't know (written by a later version, read after a rollback) is
+            // skipped rather than thrown: failing here would make the whole row unloadable.
+            for (String name : userEditedFields) {
+                for (EditableField f : EditableField.values()) {
+                    if (f.name().equals(name)) fields.add(f);
+                }
+            }
+        }
+        return java.util.Collections.unmodifiableSet(fields);
+    }
+
+    /**
+     * Records that a person changed {@code field}. A new list each time, so Hibernate sees the
+     * change; every name already stored is kept, including one this build doesn't know, so an edit
+     * made under an older build never erases a mark a newer one wrote.
+     */
+    public void markUserEdited(EditableField field) {
+        if (isUserEdited(field)) return;
+        java.util.List<String> names = new java.util.ArrayList<>(userEditedFields == null ? List.of() : userEditedFields);
+        names.add(field.name());
+        this.userEditedFields = names;
+    }
     public void setCategoryManuallySet(boolean categoryManuallySet) { this.categoryManuallySet = categoryManuallySet; }
     public UUID getStatementImportId() { return statementImportId; }
     public Integer getRowOrdinal() { return rowOrdinal; }

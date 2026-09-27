@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import {
   RefreshCw, FileSearch, AlertTriangle, CheckCircle2, Layers, Ruler, ChevronRight, ChevronDown, Upload,
@@ -294,11 +294,14 @@ function AnalysisTable({
   }
 
   return (
-    <div className="bg-card border border-border rounded-xl2 shadow-card overflow-x-auto">
+    // contain:inline-size keeps the table's own width from counting toward the page's: without it
+    // the wide, no-wrap table stretched the whole admin layout (page 1431px wide in a 1009px window,
+    // measured) instead of scrolling inside this box.
+    <div className="bg-card border border-border rounded-xl2 shadow-card overflow-x-auto [contain:inline-size]">
       <table className="w-full text-sm">
         <caption className="sr-only">Statement uploads, newest first</caption>
         <thead>
-          <tr className="text-left text-xs text-muted uppercase tracking-wide border-b border-border whitespace-nowrap">
+          <tr className="text-left text-xs text-muted uppercase tracking-wide border-b border-border">
             <th scope="col" className="px-4 py-2.5 font-medium">Reference</th>
             <th scope="col" className="px-4 py-2.5 font-medium">Statement format</th>
             <th scope="col" className="px-4 py-2.5 font-medium">Result</th>
@@ -522,15 +525,24 @@ function AnalysisUploadPanel({ onAnalysed }: { onAnalysed: (reference: string) =
 function LayoutStudioContent() {
   const [selected, setSelected] = useState<string | null>(null);
   const [page, setPage] = useState(0);
+  // The moment the list is frozen at: the newest row's createdAt, taken from the first page.
+  // Every page is then read "as of" it, so an upload arriving mid-browse cannot push a row from
+  // page 1 onto page 2 and show it twice. Null means "not frozen yet -- show the newest".
+  const [snapshot, setSnapshot] = useState<string | null>(null);
   const { hasPermission } = useAdminAuth();
+  const queryClient = useQueryClient();
 
   const summary = useQuery({
     queryKey: ['admin-analyses-summary'],
     queryFn: () => adminStatementAnalysisApi.summary(),
   });
   const analyses = useQuery({
-    queryKey: ['admin-analyses', page],
-    queryFn: () => adminStatementAnalysisApi.paged(page, PAGE_SIZE),
+    queryKey: ['admin-analyses', page, snapshot],
+    queryFn: () => adminStatementAnalysisApi.paged(page, PAGE_SIZE, snapshot ?? undefined),
+    // A frozen page cannot change -- analysis rows are never edited after they are written (the
+    // only later write, a deleted user's anonymisation, touches no field shown here) -- so it is
+    // not refetched until Refresh or a new analysis unfreezes the list.
+    staleTime: snapshot ? Infinity : 0,
     // Keeps the current page on screen while the next one loads, instead of flashing "Loading…"
     // and collapsing the page height on every click.
     placeholderData: keepPreviousData,
@@ -538,14 +550,36 @@ function LayoutStudioContent() {
 
   const isFetching = summary.isFetching || analyses.isFetching;
 
+  // Freeze the list at the first page's newest row. The unfrozen first page is, by definition,
+  // the same rows as the first page frozen at its own newest row, so it is copied into that
+  // cache entry instead of being fetched a second time.
+  const firstRowAt = snapshot === null && page === 0 && !analyses.isPlaceholderData
+    ? analyses.data?.content[0]?.createdAt ?? null
+    : null;
+  useEffect(() => {
+    if (firstRowAt === null || !analyses.data) return;
+    queryClient.setQueryData(['admin-analyses', 0, firstRowAt], analyses.data);
+    setSnapshot(firstRowAt);
+  }, [firstRowAt, analyses.data, queryClient]);
+
+  /** Back to the newest uploads: unfreeze and start again from the first page. */
+  function showNewest() {
+    // Dropped, not just invalidated: a cached unfrozen first page would be shown at once and the
+    // list would re-freeze at its OLD newest row, hiding exactly the uploads Refresh is for.
+    queryClient.removeQueries({ queryKey: ['admin-analyses', 0, null], exact: true });
+    setSnapshot(null);
+    setPage(0);
+  }
+
   function refetchAll() {
     void summary.refetch();
-    void analyses.refetch();
+    if (snapshot === null && page === 0) void analyses.refetch();
+    else showNewest();
   }
 
   function showAnalysed(reference: string) {
-    // A new analysis is the newest row, so it is on the first page.
-    setPage(0);
+    // A new analysis is newer than any snapshot, so the list is unfrozen to include it.
+    showNewest();
     setSelected(reference);
   }
 
@@ -585,7 +619,12 @@ function LayoutStudioContent() {
           <h2 id="analyses-heading" className="text-sm font-semibold text-muted uppercase tracking-wide">
             All uploads
           </h2>
-          <span className="text-xs text-muted">newest first · click a reference for details</span>
+          <span className="text-xs text-muted">
+            newest first · click a reference for details
+            {snapshot && (
+              <> · showing uploads up to {formatWhen(snapshot)}, press Refresh for newer ones</>
+            )}
+          </span>
         </div>
         {/* A failed page is reported here, in the table's place, rather than replacing the whole
             screen: the summary and the upload panel above are still valid and still usable. */}

@@ -146,16 +146,22 @@ public class StatementAnalysisReportService {
     /**
      * One page of analyses, newest first, with the totals a pager needs. {@link #recent} stays for
      * callers that want "the latest N"; this is for walking the whole history a page at a time.
+     * {@code before} (optional) freezes the list at a moment, so pages stay consistent while new
+     * uploads keep arriving.
      */
     @Transactional(readOnly = true)
-    public com.finora.dto.PagedResponse<AnalysisView> page(int page, int size) {
+    public com.finora.dto.PagedResponse<AnalysisView> page(int page, int size, Instant before) {
         int safeSize = Math.max(1, Math.min(size, MAX_PAGE_SIZE));
         // JPA takes the offset as an int; page * size past Integer.MAX_VALUE was a 500 (measured).
         // A page that far out is empty either way, so clamping changes no answer.
         int safePage = Math.max(0, Math.min(page, Integer.MAX_VALUE / safeSize - 1));
-        return com.finora.dto.PagedResponse.of(repository
-                .findAllByOrderByCreatedAtDescIdDesc(PageRequest.of(safePage, safeSize))
-                .map(this::toView));
+        var request = PageRequest.of(safePage, safeSize);
+        // With a snapshot, offset paging is stable: a row written after `before` cannot shift the
+        // rows beneath it onto the next page. Without one, this is simply the newest page.
+        var rows = before == null
+                ? repository.findAllByOrderByCreatedAtDescIdDesc(request)
+                : repository.findByCreatedAtLessThanEqualOrderByCreatedAtDescIdDesc(before, request);
+        return com.finora.dto.PagedResponse.of(rows.map(this::toView));
     }
 
     /** One analysis by its quotable handle, or empty if that reference is unknown. */

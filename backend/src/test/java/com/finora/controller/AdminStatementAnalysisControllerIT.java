@@ -179,9 +179,50 @@ class AdminStatementAnalysisControllerIT extends AbstractIntegrationTest {
         assertThat(page.path("size").asInt()).isEqualTo(1);
     }
 
+    @Test
+    void admin_pagingFromASnapshot_isNotShiftedByAnUploadThatArrivesMidBrowse() throws Exception {
+        User admin = createUser("ADMIN");
+        for (int i = 0; i < 4; i++) saveParsed(admin);
+
+        String snapshot = pagedAs(admin, 0, 2, null).path("content").get(0).path("createdAt").asText();
+        JsonNode secondBefore = pagedAs(admin, 1, 2, snapshot);
+
+        String arrived = saveParsed(admin);
+
+        JsonNode secondAfter = pagedAs(admin, 1, 2, snapshot);
+        assertThat(refs(secondAfter)).containsExactlyElementsOf(refs(secondBefore));
+        assertThat(secondAfter.path("totalElements").asLong()).isEqualTo(secondBefore.path("totalElements").asLong());
+        assertThat(refs(pagedAs(admin, 0, 2, snapshot))).doesNotContain(arrived);
+        // The snapshot row itself is on its own first page -- no precision was lost on the way.
+        assertThat(pagedAs(admin, 0, 2, snapshot).path("content").get(0).path("createdAt").asText())
+                .isEqualTo(snapshot);
+        // Without a snapshot the new upload is the newest row.
+        assertThat(refs(pagedAs(admin, 0, 2, null)).get(0)).isEqualTo(arrived);
+    }
+
+    private String saveParsed(User owner) {
+        String reference = "SA-" + UUID.randomUUID().toString().replace("-", "").substring(0, 20);
+        analysisRepository.save(StatementAnalysisSession.parsed(reference, owner.getId(),
+                StatementAnalysisSession.Source.ADMIN_ANALYSIS, "statement.pdf", "PDF", 1L,
+                "FP-SNAPSHOT", 1, 1L, 1, null));
+        return reference;
+    }
+
+    private static java.util.List<String> refs(JsonNode page) {
+        var out = new java.util.ArrayList<String>();
+        page.path("content").forEach(n -> out.add(n.path("reference").asText()));
+        return out;
+    }
+
     private JsonNode pagedAs(User user, int page, int size) throws Exception {
-        URI uri = UriComponentsBuilder.fromPath("/api/v1/admin/imports/analyses/paged")
-                .queryParam("page", page).queryParam("size", size).build().toUri();
+        return pagedAs(user, page, size, null);
+    }
+
+    private JsonNode pagedAs(User user, int page, int size, String before) throws Exception {
+        var builder = UriComponentsBuilder.fromPath("/api/v1/admin/imports/analyses/paged")
+                .queryParam("page", page).queryParam("size", size);
+        if (before != null) builder.queryParam("before", before);
+        URI uri = builder.encode().build().toUri();
         ResponseEntity<String> response = restTemplate.exchange(
                 uri, HttpMethod.GET, new HttpEntity<>(bearerFor(user)), String.class);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);

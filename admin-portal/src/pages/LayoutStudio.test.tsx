@@ -256,14 +256,15 @@ describe('LayoutStudio', () => {
     renderPage();
 
     expect(await screen.findByRole('button', { name: 'SA-20260806-0145' })).toBeInTheDocument();
-    expect(adminStatementAnalysisApi.paged).toHaveBeenCalledWith(0, 20);
+    expect(adminStatementAnalysisApi.paged).toHaveBeenCalledWith(0, 20, undefined);
     expect(screen.getByText('Page 1 of 2')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled();
 
     await user.click(screen.getByRole('button', { name: 'Next page' }));
 
     expect(await screen.findByRole('button', { name: 'SA-20260806-0146' })).toBeInTheDocument();
-    expect(adminStatementAnalysisApi.paged).toHaveBeenLastCalledWith(1, 20);
+    // Page 2 is read as of the first page's newest row, so later uploads cannot shift it.
+    expect(adminStatementAnalysisApi.paged).toHaveBeenLastCalledWith(1, 20, PARSED.createdAt);
     expect(screen.getByText('Page 2 of 2')).toBeInTheDocument();
     expect(screen.getByText('Showing 21–25 of 25')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
@@ -288,10 +289,46 @@ describe('LayoutStudio', () => {
     expect(screen.getByRole('table').closest('[aria-busy]')).toHaveAttribute('aria-busy', 'true');
     await user.click(next);
 
-    await waitFor(() => expect(adminStatementAnalysisApi.paged).toHaveBeenLastCalledWith(2, 20));
+    await waitFor(() => expect(adminStatementAnalysisApi.paged).toHaveBeenLastCalledWith(2, 20, PARSED.createdAt));
     expect(await screen.findByText('Page 3 of 3')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole('table').closest('[aria-busy]')).toHaveAttribute('aria-busy', 'false'));
     releasePage1(pageOf([PARSED], 1, 45));
+  });
+
+  it('fetches the first page only once while freezing the list at it', async () => {
+    renderPage();
+    expect(await screen.findByText(/showing uploads up to/i)).toBeInTheDocument();
+    expect(adminStatementAnalysisApi.paged).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows an upload that arrived mid-browse only after Refresh, back on the first page', async () => {
+    const NEWER: StatementAnalysisDto = { ...PARSED, reference: 'SA-20260806-0200', createdAt: '2026-08-06T11:00:00Z' };
+    const OLDER: StatementAnalysisDto = { ...LOCKED, createdAt: '2026-08-06T10:00:00Z' };
+    let arrived = false;
+    vi.mocked(adminStatementAnalysisApi.paged).mockImplementation(async (page, _size, before) => {
+      // The server's snapshot filter, in miniature, over rows in real newest-first order.
+      const all = arrived ? [NEWER, PARSED, OLDER] : [PARSED, OLDER];
+      const visible = before ? all.filter((a) => a.createdAt <= before) : all;
+      return { content: visible.slice(page, page + 1), page, size: 1, totalElements: visible.length, totalPages: visible.length };
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByRole('button', { name: 'SA-20260806-0145' });
+    arrived = true;
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+    // Frozen: page 2 is still the row that was second when the list was opened.
+    expect(await screen.findByRole('button', { name: 'SA-20260806-0146' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'SA-20260806-0200' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /refresh/i }));
+
+    expect(await screen.findByRole('button', { name: 'SA-20260806-0200' })).toBeInTheDocument();
+    expect(screen.getByText(/page 1 of 3/i)).toBeInTheDocument();
+    // And the list is re-frozen at the NEW newest row, not the old one: the next page asks for it.
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+    await waitFor(() => expect(adminStatementAnalysisApi.paged).toHaveBeenLastCalledWith(1, 20, NEWER.createdAt));
+    expect(await screen.findByRole('button', { name: 'SA-20260806-0145' })).toBeInTheDocument();
   });
 
   it('shows the five largest reasons first and the rest on request', async () => {

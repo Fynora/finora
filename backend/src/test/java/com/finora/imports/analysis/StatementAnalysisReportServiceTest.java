@@ -177,7 +177,7 @@ class StatementAnalysisReportServiceTest {
         when(repository.findAllByOrderByCreatedAtDescIdDesc(any(Pageable.class)))
                 .thenReturn(org.springframework.data.domain.Page.empty());
 
-        service.page(-3, 100_000);
+        service.page(-3, 100_000, null);
 
         var pageable = org.mockito.ArgumentCaptor.forClass(Pageable.class);
         org.mockito.Mockito.verify(repository).findAllByOrderByCreatedAtDescIdDesc(pageable.capture());
@@ -191,7 +191,7 @@ class StatementAnalysisReportServiceTest {
         when(repository.findAllByOrderByCreatedAtDescIdDesc(any(Pageable.class)))
                 .thenReturn(org.springframework.data.domain.Page.empty());
 
-        service.page(0, 0);
+        service.page(0, 0, null);
 
         var pageable = org.mockito.ArgumentCaptor.forClass(Pageable.class);
         org.mockito.Mockito.verify(repository).findAllByOrderByCreatedAtDescIdDesc(pageable.capture());
@@ -205,7 +205,7 @@ class StatementAnalysisReportServiceTest {
                 .thenReturn(new org.springframework.data.domain.PageImpl<>(
                         List.of(parsed("SA-3", "FP-A", 4, null)), request, 5));
 
-        var page = service.page(1, 2);
+        var page = service.page(1, 2, null);
 
         assertThat(page.content()).extracting(StatementAnalysisReportService.AnalysisView::reference)
                 .containsExactly("SA-3");
@@ -213,5 +213,23 @@ class StatementAnalysisReportServiceTest {
         assertThat(page.size()).isEqualTo(2);
         assertThat(page.totalElements()).isEqualTo(5);
         assertThat(page.totalPages()).isEqualTo(3);
+    }
+
+    @Test
+    void aSnapshotPagesOnlyRowsWrittenAtOrBeforeIt() {
+        var before = java.time.Instant.parse("2026-09-27T10:00:00.123456Z");
+        when(repository.findByCreatedAtLessThanEqualOrderByCreatedAtDescIdDesc(any(), any(Pageable.class)))
+                .thenReturn(org.springframework.data.domain.Page.empty());
+
+        service.page(2, 20, before);
+
+        var at = org.mockito.ArgumentCaptor.forClass(java.time.Instant.class);
+        org.mockito.Mockito.verify(repository)
+                .findByCreatedAtLessThanEqualOrderByCreatedAtDescIdDesc(at.capture(), any(Pageable.class));
+        // Microseconds intact: the snapshot is the newest row's own timestamp, and any rounding
+        // would drop that row from its own page.
+        assertThat(at.getValue()).isEqualTo(before);
+        org.mockito.Mockito.verify(repository, org.mockito.Mockito.never())
+                .findAllByOrderByCreatedAtDescIdDesc(any(Pageable.class));
     }
 }

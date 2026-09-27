@@ -63,6 +63,11 @@ public interface StatementAnalysisSessionRepository extends JpaRepository<Statem
      *  rows written in the same instant, so a row cannot appear on two pages or on none. */
     org.springframework.data.domain.Page<StatementAnalysisSession> findAllByOrderByCreatedAtDescIdDesc(Pageable pageable);
 
+    /** The same order, frozen at {@code before}: rows written after the snapshot stay out of every
+     *  page, so an upload arriving mid-browse cannot push a row onto the next page twice. */
+    org.springframework.data.domain.Page<StatementAnalysisSession> findByCreatedAtLessThanEqualOrderByCreatedAtDescIdDesc(
+            Instant before, Pageable pageable);
+
     /**
      * A user's own recent failed imports — Premium Import Reliability v1, §2.1's durable failure
      * record. {@code source} is filtered to {@code CUSTOMER_IMPORT} deliberately: {@code userId}

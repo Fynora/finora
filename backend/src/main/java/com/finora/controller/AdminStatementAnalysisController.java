@@ -132,12 +132,15 @@ public class AdminStatementAnalysisController {
     /**
      * Every upload attempt, a page at a time, newest first -- the Layout Studio table's pager.
      * {@code size} is capped server-side, so a large value cannot pull the whole table.
+     * {@code before} is the snapshot the admin opened the list at -- the newest row's
+     * {@code createdAt} -- so paging does not shift as new uploads arrive.
      */
     @GetMapping("/paged")
     public ApiResponse<PagedResponse<AnalysisView>> paged(
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        return ApiResponse.ok(reportService.page(page, size));
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant before) {
+        return ApiResponse.ok(reportService.page(page, size, before));
     }
 
     /**

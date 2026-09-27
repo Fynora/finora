@@ -17657,6 +17657,7 @@ export interface operations {
             query?: {
                 page?: number;
                 size?: number;
+                before?: string;
             };
             header?: never;
             path?: never;

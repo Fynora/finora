@@ -10330,6 +10330,15 @@
                             "format": "int32",
                             "default": 20
                         }
+                    },
+                    {
+                        "name": "before",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date-time"
+                        }
                     }
                 ],
                 "responses": {

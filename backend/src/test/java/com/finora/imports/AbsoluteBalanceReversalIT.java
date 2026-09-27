@@ -120,27 +120,35 @@ class AbsoluteBalanceReversalIT extends AbstractIntegrationTest {
         assertThat(balanceOf(f)).isEqualByComparingTo("9850.00");
 
         // Replacement: corrects the row (200.00, not 150.00), states a closing balance (5000.00)
-        // that does NOT corroborate against its own row (9850 - 200 = 9650, not 5000) -> ADDITIVE.
-        // Its own confirm only ADDS its real -200.00 delta on top of 9850.00.
+        // that does NOT corroborate against its own row (9850 - 200 = 9650, not 5000), so it is not
+        // authoritative. Its July row is inside the original's July closing balance, which still
+        // stands until the user confirms the replacement, so it moves nothing yet: COVERED. (This
+        // used to add the -200 on top, reaching 9650 -- the same stacking of a covered period onto
+        // a closing balance that double-counted months uploaded out of order.)
         importService.confirm(f.user().getId(), statementFile("replacement.csv"),
                 new ConfirmRequest(null, List.of(row("COFFEE SHOP", "200.00")), f.account().getId(),
                         null, new BigDecimal("10000.00"), new BigDecimal("5000.00"), null,
                         periodStart, periodEnd, null, null));
-        assertThat(balanceOf(f)).isEqualByComparingTo("9650.00");
+        assertThat(balanceOf(f)).isEqualByComparingTo("9850.00");
 
         StatementImport original = findByFileName(f, "original.csv");
         StatementImport replacement = findByFileName(f, "replacement.csv");
         assertThat(original.getBalanceApplicationMode())
                 .isEqualTo(StatementImport.BalanceApplicationMode.ABSOLUTE);
         assertThat(replacement.getBalanceApplicationMode())
-                .isEqualTo(StatementImport.BalanceApplicationMode.ADDITIVE);
+                .isEqualTo(StatementImport.BalanceApplicationMode.COVERED);
 
         SupersedeResult result = statementImportService.supersede(
                 f.user().getId(), original.getId(), replacement.getId());
 
-        // 10000.00 (original's pre-SET baseline) - 200.00 (replacement's real net) = 9800.00.
-        // NEVER 5000.00 -- replacement's uncorroborated stated figure is never trusted.
+        // 10000.00 (original's pre-SET baseline) - 200.00 (replacement's real net) = 9800.00: with
+        // the original's SET reversed, nothing covers the replacement's row any more, so it counts
+        // now (BalanceCoverage.release). NEVER 5000.00 -- replacement's uncorroborated stated
+        // figure is never trusted.
         assertThat(balanceOf(f)).isEqualByComparingTo("9800.00");
+        assertThat(statementImportRepository.findById(replacement.getId()).orElseThrow().getBalanceApplicationMode())
+                .as("released rows moved the balance, so a later delete must reverse them")
+                .isEqualTo(StatementImport.BalanceApplicationMode.ADDITIVE);
         assertThat(result.balanceReversed()).isTrue();
         StatementImport originalAfter = statementImportRepository.findById(original.getId()).orElseThrow();
         assertThat(originalAfter.getSupersededBy()).isEqualTo(replacement.getId());
@@ -276,14 +284,16 @@ class AbsoluteBalanceReversalIT extends AbstractIntegrationTest {
                         null, julyStart, julyEnd, null, null));
         assertThat(balanceOf(f)).isEqualByComparingTo("850.00");
 
-        // Replacement for A: same period as A (June), states no closing balance -> ADDITIVE. Its
-        // own confirm only ADDS its real -130.00 delta on top of whatever balance already exists
-        // (850.00, set by B), landing on 720.00.
+        // Replacement for A: same period as A (June), states no closing balance. B's July closing
+        // balance (850.00) already holds all of June, so the replacement's June row moves nothing
+        // (COVERED). This used to add its -130.00 on top of B's figure, landing on 720.00 -- the
+        // stacking of an older period onto a later closing balance that double-counted months
+        // uploaded out of order.
         importService.confirm(f.user().getId(), statementFile("replacement-a.csv"),
                 new ConfirmRequest(null, List.of(expenseRow(juneEnd, "GROCERIES", "130.00")),
                         f.account().getId(), null, new BigDecimal("1000.00"), null, null,
                         juneStart, juneEnd, null, null));
-        assertThat(balanceOf(f)).isEqualByComparingTo("720.00");
+        assertThat(balanceOf(f)).isEqualByComparingTo("850.00");
 
         StatementImport a = findByFileName(f, "a.csv");
         StatementImport replacementA = findByFileName(f, "replacement-a.csv");
@@ -292,7 +302,7 @@ class AbsoluteBalanceReversalIT extends AbstractIntegrationTest {
                 f.user().getId(), a.getId(), replacementA.getId());
 
         // A's contribution was already fully gone once B set the balance -- nothing to reverse.
-        assertThat(balanceOf(f)).isEqualByComparingTo("720.00");
+        assertThat(balanceOf(f)).isEqualByComparingTo("850.00");
         assertThat(result.balanceReversed()).isFalse();
     }
 

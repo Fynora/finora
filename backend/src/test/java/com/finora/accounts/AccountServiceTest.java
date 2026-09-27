@@ -163,11 +163,12 @@ class AccountServiceTest {
         assertThat(existing.getLastAbsoluteSetStatementId()).isNull();
     }
 
-    /** The typed figure is a baseline for the ledger as it stands: a marked row is not in it,
-     *  so every mark whose row could have been in a balance is recorded as reversed -- above all
-     *  the ones the outgoing SET held, since its pre-set snapshot is unreachable from here on. A
-     *  mark on a row that was never in any balance stays as it was. The balance itself is the
-     *  user's figure, untouched. */
+    /** The typed figure is the whole truth as of now, like a statement's closing balance: nothing
+     *  already on the account is separately in it, marked or not. Every mark is recorded as having
+     *  taken nothing off -- so un-marking a row later adds nothing, and deleting it moves nothing --
+     *  including the ones the outgoing SET held, whose pre-set snapshot is unreachable from here
+     *  on. (This used to record a marked row as taken off the typed figure, so an un-mark after a
+     *  balance edit added it on top.) The balance itself is the user's figure, untouched. */
     @Test
     void update_withANewBalance_rebasesEveryDuplicateMarkOnTheAccount() {
         Account existing = existingAccount();
@@ -198,11 +199,13 @@ class AccountServiceTest {
         AccountDto result = accountService.update(userId, accountId, balanceEdit, actingAdminId);
 
         assertThat(result.balance()).isEqualByComparingTo(BigDecimal.valueOf(20000));
-        assertThat(heldManual.isDuplicateBalanceReversed()).isTrue();
+        assertThat(heldManual.isDuplicateBalanceReversed()).isFalse();
         assertThat(heldManual.getDuplicateBalanceAnchorId()).isNull();
         assertThat(aggregator.isDuplicateBalanceReversed()).isFalse();
-        assertThat(alreadyReversed.isDuplicateBalanceReversed()).isTrue();
-        verify(transactionRepository).saveAll(List.of(heldManual, aggregator));
+        assertThat(alreadyReversed.isDuplicateBalanceReversed()).isFalse();
+        // The aggregator row already said "took nothing off", so only the other two change.
+        verify(transactionRepository).saveAll(List.of(heldManual, alreadyReversed));
+        assertThat(result.balance()).isEqualByComparingTo(BigDecimal.valueOf(20000));
     }
 
     @Test

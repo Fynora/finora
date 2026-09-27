@@ -3,6 +3,7 @@ package com.finora.transactions;
 import com.finora.dto.PagedResponse;
 import com.finora.entity.Account;
 import com.finora.entity.Category;
+import com.finora.entity.StatementImport;
 import com.finora.entity.Transaction;
 import com.finora.entity.User;
 import com.finora.exception.ApiException;
@@ -31,6 +32,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -45,6 +47,7 @@ public class TransactionService {
     private final CategoryRepository categoryRepository;
     private final AccountRepository accountRepository;
     private final StatementImportRepository statementImportRepository;
+    private final com.finora.accounts.RowBalanceEffect rowBalanceEffect;
     private final CategorizationService categorizationService;
     private final ReconciliationService reconciliationService;
     private final RecurringService recurringService;
@@ -79,6 +82,7 @@ public class TransactionService {
         this.categoryRepository = categoryRepository;
         this.accountRepository = accountRepository;
         this.statementImportRepository = statementImportRepository;
+        this.rowBalanceEffect = new com.finora.accounts.RowBalanceEffect(statementImportRepository);
         this.categorizationService = categorizationService;
         this.reconciliationService = reconciliationService;
         this.recurringService = recurringService;
@@ -438,24 +442,46 @@ public class TransactionService {
     }
 
     /**
-     * Whether this row's own net effect is currently sitting in {@code Account.balance}.
+     * Where this row's own net effect sits right now -- see {@link com.finora.accounts.RowBalanceEffect}
+     * for the rule. Editing or deleting a row moves only that place.
      *
-     * <p>False for a row reconciliation has marked DUPLICATE and took back off the balance when it
-     * wrote the mark (BH-003, {@code ReconciliationService.reverseBalanceContribution}; recorded
-     * as {@link Transaction#isDuplicateBalanceReversed()}). {@link #confirmNotDuplicate} is what
-     * puts it back. Deleting or editing such a row must not move the balance by an amount that is
-     * not in it -- that left an import / mark / delete cycle short by the row. Same rule at every
-     * site that writes or clears the mark: ReconciliationService marks and reverses;
-     * confirmNotDuplicate, {@link #clearReconciliationPointersTo} and StatementImportService.delete
-     * un-mark and add back; delete / update here skip what is gone.
+     * <p>Not in the balance at all: a row reconciliation marked DUPLICATE and took back off when it
+     * wrote the mark (BH-003, {@code ReconciliationService.reverseBalanceContribution}; recorded as
+     * {@link Transaction#isDuplicateBalanceReversed()}) -- {@link #confirmNotDuplicate} is what
+     * puts it back -- and a row inside a stated figure: a statement's closing balance, a balance
+     * the user typed, the opening the account started from.
      *
-     * <p>A marked row the mark did NOT take off still contributes here, whatever the reason the
-     * record gives -- including a row held behind an absolute SET: removing it moves the balance
-     * the same way removing any other pre-SET row does, and its soft-deleted row is then out of
-     * the SET's reach, so reversing the SET later cannot move it again.
+     * <p>A row held behind an absolute SET (it was on the account before a statement's closing
+     * balance replaced the history) used to move the balance when deleted or edited, though the
+     * stated figure had not changed. It now changes that statement's pre-SET snapshot instead, so
+     * reversing the SET later restores a balance without the deleted row, and the current balance
+     * stays the stated figure.
      */
-    private boolean contributesToBalance(Transaction t) {
-        return t.getIsDuplicateOf() == null || !t.isDuplicateBalanceReversed();
+    private com.finora.accounts.RowBalanceEffect.Location locateEffect(Transaction t) {
+        return locateEffect(t, new HashMap<>());
+    }
+
+    /** @param chains one SET chain per account, shared by every row of one operation (bulkDelete) so
+     *                each link is read once -- see RowBalanceEffect.Chain. */
+    private com.finora.accounts.RowBalanceEffect.Location locateEffect(
+            Transaction t, Map<UUID, com.finora.accounts.RowBalanceEffect.Chain> chains) {
+        Account account = accountRepository.findById(t.getAccountId()).orElse(null);
+        // A since-deleted account has no balance left to correct -- same as adjustAccountBalance.
+        if (account == null) return new com.finora.accounts.RowBalanceEffect.Location(
+                com.finora.accounts.RowBalanceEffect.Where.NOWHERE, null);
+        StatementImport statement = t.getStatementImportId() == null ? null
+                : statementImportRepository.findById(t.getStatementImportId()).orElse(null);
+        return rowBalanceEffect.locate(account, t, statement,
+                chains.computeIfAbsent(account.getId(), id -> rowBalanceEffect.chainOf(account)));
+    }
+
+    private void moveEffect(Transaction t, com.finora.accounts.RowBalanceEffect.Location location, BigDecimal delta) {
+        switch (location.where()) {
+            case BALANCE -> adjustAccountBalance(t.getAccountId(), delta);
+            case SNAPSHOT -> accountRepository.findById(t.getAccountId())
+                    .ifPresent(account -> rowBalanceEffect.apply(account, location, delta));
+            case NOWHERE -> { }
+        }
     }
 
     /**
@@ -504,6 +530,8 @@ public class TransactionService {
         Transaction t = getOwned(userId, txnId);
 
         BigDecimal oldDelta = balanceOf(t);
+        // Located before the edit: a date change can move the row in or out of a stated figure.
+        com.finora.accounts.RowBalanceEffect.Location oldLocation = locateEffect(t);
 
         if (req.date() != null) t.setTxnDate(req.date());
         if (req.description() != null) {
@@ -543,7 +571,13 @@ public class TransactionService {
         Transaction saved = transactionRepository.save(t);
 
         BigDecimal newDelta = balanceOf(saved);
-        if (contributesToBalance(saved)) adjustAccountBalance(saved.getAccountId(), newDelta.subtract(oldDelta));
+        com.finora.accounts.RowBalanceEffect.Location newLocation = locateEffect(saved);
+        if (oldLocation.equals(newLocation)) {
+            moveEffect(saved, newLocation, newDelta.subtract(oldDelta));
+        } else {
+            moveEffect(saved, oldLocation, oldDelta.negate());
+            moveEffect(saved, newLocation, newDelta);
+        }
 
         // Amount/date/type edits can change which surviving transactions look like duplicates or
         // transfer partners of this one, so re-run reconciliation rather than leaving stale flags.
@@ -662,8 +696,12 @@ public class TransactionService {
         // The row records what the mark did (Transaction.duplicateBalanceReversed), so this reads
         // the record rather than re-deriving it from state that may have changed since the mark.
         // V228 wrote the record for marks that predate it.
+        // Put back where the row's effect belongs NOW, not blindly on the balance: if a statement's
+        // closing balance set the account after the mark, the bank's figure already holds this real
+        // row, and it goes into that statement's pre-SET snapshot instead (locateEffect). Adding it
+        // to the balance overstated it by the row.
         if (reversedAtMark) {
-            adjustAccountBalance(saved.getAccountId(), balanceOf(saved));
+            moveEffect(saved, locateEffect(saved), balanceOf(saved));
         }
 
         reconciliationService.reconcileForUser(userId);
@@ -943,7 +981,7 @@ public class TransactionService {
     public void delete(UUID userId, UUID txnId, UUID actingAdminId) {
         Transaction t = getOwned(userId, txnId);
         clearReconciliationPointersTo(List.of(t.getId()));
-        if (contributesToBalance(t)) adjustAccountBalance(t.getAccountId(), balanceOf(t).negate());
+        moveEffect(t, locateEffect(t), balanceOf(t).negate());
         transactionRepository.delete(t); // soft delete via @SQLDelete on the entity
         // Removing a transaction can break a recurring group's pattern (e.g. deleting one of
         // three regularly-spaced charges), same reasoning as the reconciliation re-run below.
@@ -963,8 +1001,9 @@ public class TransactionService {
     public void bulkDelete(UUID userId, List<UUID> ids, UUID actingAdminId) {
         List<Transaction> owned = getOwnedAll(userId, ids);
         clearReconciliationPointersTo(owned.stream().map(Transaction::getId).toList());
+        Map<UUID, com.finora.accounts.RowBalanceEffect.Chain> chains = new HashMap<>();
         for (Transaction t : owned) {
-            if (contributesToBalance(t)) adjustAccountBalance(t.getAccountId(), balanceOf(t).negate());
+            moveEffect(t, locateEffect(t, chains), balanceOf(t).negate());
             transactionRepository.delete(t);
         }
         reconciliationService.reconcileForUser(userId);
@@ -1009,7 +1048,7 @@ public class TransactionService {
             if (removed.contains(t.getId())) continue;
             // Un-marking makes this survivor counted again. If BH-003 took its contribution off
             // when it was marked (recorded as Transaction.duplicateBalanceReversed -- see
-            // contributesToBalance), it goes back on now, the same way confirmNotDuplicate puts it
+            // locateEffect), it goes back on now, the same way confirmNotDuplicate puts it
             // back. Without this, deleting the canonical row reversed the canonical's contribution
             // AND left the survivor's off: the ledger kept one real transaction and the balance
             // reflected none.
@@ -1028,7 +1067,9 @@ public class TransactionService {
             }
             t.setDuplicateBalanceAnchorId(null);
             t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
-            if (reversedAtMark) adjustAccountBalance(t.getAccountId(), balanceOf(t));
+            // Where its effect belongs now -- see confirmNotDuplicate. The mark is already cleared
+            // on `t` above, so it is located as the counted row it is again.
+            if (reversedAtMark) moveEffect(t, locateEffect(t), balanceOf(t));
             dirty.add(t);
         }
         for (Transaction t : transactionRepository.findByTransferPairIdIn(removedIds)) {

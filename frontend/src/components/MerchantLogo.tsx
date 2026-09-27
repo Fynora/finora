@@ -12,6 +12,10 @@ interface MerchantLogoProps {
   /** Controls the image/initials-badge shape. Defaults to `rounded-xl`, matching BankLogo, so a
    *  merchant logo and a bank logo look like the same kind of object elsewhere in the app. */
   className?: string;
+  /** The counterparty is a person (a payment to or from a friend). A person has no brand logo, and
+   *  a Logo.dev name search for a person's name returns whichever company matches best -- so no
+   *  lookup is made and the initials badge (or the caller's fallback) shows instead. */
+  person?: boolean;
 }
 
 const LOGODEV_TOKEN = import.meta.env.VITE_LOGODEV_TOKEN;
@@ -62,9 +66,9 @@ function colorFor(name: string): string {
  * on its own; a page of transactions costs at most one concurrent request per visible row, not a
  * cascading failure.
  */
-export function MerchantLogo({ merchant, size = 32, fallback, className = 'rounded-xl' }: MerchantLogoProps) {
+export function MerchantLogo({ merchant, size = 32, fallback, className = 'rounded-xl', person = false }: MerchantLogoProps) {
   const sizePx = Math.max(64, Math.round(size * 2));
-  const src = logoDevUrl(merchant, sizePx, LOGODEV_TOKEN);
+  const src = person ? null : logoDevUrl(merchant, sizePx, LOGODEV_TOKEN);
 
   const [stage, setStage] = useState<Stage>(() => (src ? 'logodev' : 'fallback'));
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -75,7 +79,7 @@ export function MerchantLogo({ merchant, size = 32, fallback, className = 'round
   useEffect(() => {
     setStage(src ? 'logodev' : 'fallback');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [merchant]);
+  }, [merchant, person]);
 
   useEffect(() => {
     if (stage !== 'logodev') return undefined;

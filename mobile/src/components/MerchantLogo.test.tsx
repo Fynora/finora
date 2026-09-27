@@ -1,6 +1,6 @@
 import { Text } from 'react-native';
 import { render, screen } from '@testing-library/react-native';
-import { MerchantLogo, logoDevUrl } from './MerchantLogo';
+import { MerchantLogo, logoDevUrl, logoSourceFor } from './MerchantLogo';
 
 describe('logoDevUrl', () => {
   it('builds a name/ lookup URL with the merchant encoded', () => {
@@ -33,5 +33,17 @@ describe('MerchantLogo', () => {
     render(<MerchantLogo merchant="Swiggy" fallback={<Text>Custom</Text>} />);
     expect(screen.getByText('Custom')).toBeTruthy();
     expect(screen.queryByText('SW')).toBeNull();
+  });
+});
+
+describe('logoSourceFor', () => {
+  it('never builds a Logo.dev lookup for a person, even with a token configured', () => {
+    // A payment to a friend is named after the friend; a name search for a person's name returns
+    // whichever company matches best. A person gets initials and no request.
+    expect(logoSourceFor('Sample Person', 64, 'test-token', true)).toBeNull();
+  });
+
+  it('still builds one for a business', () => {
+    expect(logoSourceFor('Swiggy', 64, 'test-token', false)).toBe(logoDevUrl('Swiggy', 64, 'test-token'));
   });
 });

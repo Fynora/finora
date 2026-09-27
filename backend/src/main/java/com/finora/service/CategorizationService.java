@@ -84,6 +84,10 @@ public class CategorizationService {
     public static final String SHARED_CORPUS_SOURCE = "shared_corpus";
     /** {@code Suggestion.source()} for a Fyn categorization-fallback answer (spec §8). */
     public static final String AI_FALLBACK_SOURCE = "ai_fallback";
+    /** A confirmed import row whose category the user changed on the review screen: the server
+     *  sets this when the confirmed category differs from the one it suggested (see
+     *  {@code ConfirmedRowIntegrity.withStatementFacts}). A person's decision, like an edit. */
+    public static final String REVIEW_SOURCE = "review";
 
     private final MerchantNormalizationEngine merchantNormalizationEngine;
     private final MerchantLearningService merchantLearningService;
@@ -560,6 +564,7 @@ public class CategorizationService {
             case STRUCTURAL_P2P_SOURCE -> Transaction.DecisionSource.STRUCTURAL_P2P;
             case SHARED_CORPUS_SOURCE -> Transaction.DecisionSource.SHARED_CORPUS;
             case AI_FALLBACK_SOURCE -> Transaction.DecisionSource.AI_FALLBACK;
+            case REVIEW_SOURCE -> Transaction.DecisionSource.MANUAL;
             default -> Transaction.DecisionSource.MERCHANT_DEFAULT;
         };
     }

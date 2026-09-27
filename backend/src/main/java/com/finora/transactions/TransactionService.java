@@ -533,6 +533,7 @@ public class TransactionService {
         // Located before the edit: a date change can move the row in or out of a stated figure.
         com.finora.accounts.RowBalanceEffect.Location oldLocation = locateEffect(t);
 
+        recordUserEdits(t, req);
         if (req.date() != null) t.setTxnDate(req.date());
         if (req.description() != null) {
             t.setDescription(req.description());
@@ -591,6 +592,38 @@ public class TransactionService {
                 : categoryNamesById(userId).getOrDefault(saved.getCategoryId(), "Uncategorized");
         auditService.record(userId, "TRANSACTION_UPDATED", "Transaction", txnId, Map.of("amount", saved.getAmount()));
         return TransactionDto.from(saved, resolvedCategoryName);
+    }
+
+    /**
+     * Marks, before any field is overwritten, which statement-derived fields this edit actually
+     * changes -- so a later statement refresh keeps the user's value (see
+     * {@link Transaction.EditableField}). Both the web Ledger and the mobile edit sheet send every
+     * field on every save, so a field being present is not an edit; only a different value is. A
+     * merchant stored as null and submitted as an empty string is not a change: the clients show a
+     * missing merchant as an empty box and send it back that way.
+     */
+    private static void recordUserEdits(Transaction t, TransactionDto.UpdateRequest req) {
+        if (req.date() != null && !req.date().equals(t.getTxnDate())) {
+            t.markUserEdited(Transaction.EditableField.DATE);
+        }
+        if (req.description() != null && !req.description().equals(t.getDescription())) {
+            t.markUserEdited(Transaction.EditableField.DESCRIPTION);
+        }
+        if (req.merchant() != null && !blankAsEmpty(req.merchant()).equals(blankAsEmpty(t.getMerchant()))) {
+            t.markUserEdited(Transaction.EditableField.MERCHANT);
+        }
+        if (req.amount() != null && (t.getAmount() == null || req.amount().compareTo(t.getAmount()) != 0)) {
+            t.markUserEdited(Transaction.EditableField.AMOUNT);
+        }
+        if (req.type() != null
+                && com.finora.util.EnumParsing.parse(Transaction.Type.class, req.type(), "type") != t.getTxnType()) {
+            t.markUserEdited(Transaction.EditableField.TYPE);
+        }
+    }
+
+    /** "" for null or blank, so the two compare equal; see recordUserEdits. */
+    private static String blankAsEmpty(String s) {
+        return s == null || s.isBlank() ? "" : s;
     }
 
     @Transactional

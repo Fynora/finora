@@ -152,13 +152,13 @@ class CounterpartyIdentityTest {
 
     @Test
     void aMaskedVpaIsNotAStrongIdentity_andKeepsItsHandle() {
-        // Some statements print only the last characters of the payer's VPA ("**EMAIL@OKICICI").
+        // Some statements print only the last characters of the payer's VPA ("**TAILX@OKICICI").
         // The tail alone is shared by strangers; with its handle it at least splits by PSP, and it
         // must never pass as a strong key.
-        String one = CounterpartyIdentity.keyOf("UPI/CR/111111111111/ALPHA B/SBIN/**EMAIL@OKICICI/UPI");
-        String two = CounterpartyIdentity.keyOf("UPI/CR/222222222222/CHARLIE D/PUNB/**EMAIL@OKAXIS/UPI");
-        assertThat(one).isEqualTo("masked:email@okicici");
-        assertThat(two).isEqualTo("masked:email@okaxis");
+        String one = CounterpartyIdentity.keyOf("UPI/CR/111111111111/ALPHA B/SBIN/**TAILX@OKICICI/UPI");
+        String two = CounterpartyIdentity.keyOf("UPI/CR/222222222222/CHARLIE D/PUNB/**TAILX@OKAXIS/UPI");
+        assertThat(one).isEqualTo("masked:tailx@okicici");
+        assertThat(two).isEqualTo("masked:tailx@okaxis");
         assertThat(CounterpartyIdentity.isStrong(one)).isFalse();
     }
 

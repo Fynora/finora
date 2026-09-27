@@ -252,7 +252,7 @@ class UserMerchantCategoryResolutionServiceTest {
         huft.setCategoryId(petCareId);
         UserMerchantCategoryResolution zepto = new UserMerchantCategoryResolution();
         zepto.setUserId(userId);
-        zepto.setCounterpartyKey("vpa:zeptoonline");
+        zepto.setCounterpartyKey("vpa:zeptosample");
         zepto.setDirection(Transaction.Type.EXPENSE);
         zepto.setCategoryId(diningId);
         when(resolutionRepository.findAllByUserId(userId)).thenReturn(List.of(huft, zepto));
@@ -269,7 +269,7 @@ class UserMerchantCategoryResolutionServiceTest {
         var index = service.indexFor(userId);
 
         assertThat(index.categoryNameFor("vpa:headsupfortails", Transaction.Type.EXPENSE)).contains("Pet Care");
-        assertThat(index.categoryNameFor("vpa:zeptoonline", Transaction.Type.EXPENSE)).contains("Dining");
+        assertThat(index.categoryNameFor("vpa:zeptosample", Transaction.Type.EXPENSE)).contains("Dining");
         // Different direction, same key -- must not cross-match; the index is keyed on both.
         assertThat(index.categoryNameFor("vpa:headsupfortails", Transaction.Type.INCOME)).isEmpty();
         // Never resolved at all.

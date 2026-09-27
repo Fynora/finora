@@ -90,7 +90,7 @@ class StructuredNarrationPayeeTest {
     @Test
     void aPaymentAppOnItsOwnIsKeptAsTheName() {
         // A refund from the app itself: the app is the counterparty.
-        assertThat(label("UPI-PHONEPE-PHONEPEMERCHANT@YESBANK-YESB0XXXXXX-100000000001-REVERSAL")).isEqualTo("phonepe");
+        assertThat(label("UPI-PHONEPE-PHONEPEMERCHANT@SAMPLEBK-YESB0XXXXXX-100000000001-REVERSAL")).isEqualTo("phonepe");
     }
 
     @Test

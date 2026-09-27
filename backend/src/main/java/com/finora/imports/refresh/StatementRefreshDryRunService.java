@@ -1,25 +1,17 @@
 package com.finora.imports.refresh;
 
 import com.finora.config.BuildVersionResolver;
-import com.finora.dto.ImportDto.DetectedAccountInfo;
-import com.finora.dto.ImportDto.StagedRow;
 import com.finora.dto.ImportDto.StagingResponse;
 import com.finora.entity.StatementImport;
-import com.finora.entity.StatementImportExcludedRow;
 import com.finora.entity.StatementRefreshPreview;
-import com.finora.entity.Transaction;
 import com.finora.exception.ApiException;
 import com.finora.exception.ErrorCode;
 import com.finora.imports.ImportService;
-import com.finora.imports.RowKind;
 import com.finora.imports.refresh.StatementRefreshDiff.FreshRow;
-import com.finora.imports.refresh.StatementRefreshDiff.KnownKind;
 import com.finora.imports.refresh.StatementRefreshDiff.KnownRow;
 import com.finora.imports.storage.StatementContentService;
-import com.finora.repository.StatementImportExcludedRowRepository;
 import com.finora.repository.StatementImportRepository;
 import com.finora.repository.StatementRefreshPreviewRepository;
-import com.finora.repository.TransactionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,14 +21,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -60,9 +47,7 @@ public class StatementRefreshDryRunService {
     private static final Logger log = LoggerFactory.getLogger(StatementRefreshDryRunService.class);
 
     private final StatementImportRepository statementImportRepository;
-    private final com.finora.repository.AccountRepository accountRepository;
-    private final TransactionRepository transactionRepository;
-    private final StatementImportExcludedRowRepository excludedRowRepository;
+    private final StatementRefreshInputs inputs;
     private final StatementRefreshPreviewRepository previewRepository;
     private final StatementContentService statementContentService;
     private final ImportService importService;
@@ -78,9 +63,7 @@ public class StatementRefreshDryRunService {
     private int batchSize;
 
     public StatementRefreshDryRunService(StatementImportRepository statementImportRepository,
-                                         com.finora.repository.AccountRepository accountRepository,
-                                         TransactionRepository transactionRepository,
-                                         StatementImportExcludedRowRepository excludedRowRepository,
+                                         StatementRefreshInputs inputs,
                                          StatementRefreshPreviewRepository previewRepository,
                                          StatementContentService statementContentService,
                                          ImportService importService,
@@ -89,10 +72,8 @@ public class StatementRefreshDryRunService {
                                          @org.springframework.beans.factory.annotation.Qualifier("statementRefreshDryRunExecutor")
                                          java.util.concurrent.Executor executor) {
         this.executor = executor;
-        this.accountRepository = accountRepository;
         this.statementImportRepository = statementImportRepository;
-        this.transactionRepository = transactionRepository;
-        this.excludedRowRepository = excludedRowRepository;
+        this.inputs = inputs;
         this.previewRepository = previewRepository;
         this.statementContentService = statementContentService;
         this.importService = importService;
@@ -213,7 +194,10 @@ public class StatementRefreshDryRunService {
      * whose narrations the user asked to be deleted, or offer to refresh one that no longer counts.
      */
     private boolean stillCurrent(UUID statementId) {
-        return statementImportRepository.findById(statementId)
+        // Locked, as a refresh locks it: a check that read the rows while a refresh of the same
+        // statement was mid-way would otherwise save a "changes available" preview for changes the
+        // refresh has just applied.
+        return statementImportRepository.findByIdForUpdate(statementId)
                 .map(s -> s.getSupersededBy() == null)
                 .orElse(false);
     }
@@ -226,118 +210,28 @@ public class StatementRefreshDryRunService {
     }
 
     private StatementRefreshPreview compare(StatementImport statement, String parserVersion, StagingResponse staging) {
-        List<KnownRow> known = new ArrayList<>();
-        for (TransactionRepository.StatementRowView row :
-                transactionRepository.findStatementRowsIncludingDeleted(statement.getUserId(), statement.getId())) {
-            known.add(new KnownRow(row.getId(), row.getDeletedAt() == null ? KnownKind.LIVE : KnownKind.DELETED,
-                    row.getSourceRowPosition(), row.getTxnDate(), row.getDescription(), row.getAmount(),
-                    row.getTxnType(), row.getBalanceAfter(), row.getReferenceNumber(),
-                    editedFields(row.getUserEditedFields())));
-        }
-        for (StatementImportExcludedRow row : excludedRowRepository.findByStatementImportIdOrderByRowPositionAsc(statement.getId())) {
-            known.add(new KnownRow(null, KnownKind.EXCLUDED, row.getRowPosition(), row.getTxnDate(),
-                    row.getDescription(), row.getAmount(), row.getTxnType(), null, null, Set.of()));
-        }
-        List<FreshRow> fresh = new ArrayList<>();
-        for (StagedRow row : staging.rows()) {
-            if (row.kind() != null && row.kind() != RowKind.TRANSACTION) continue;
-            fresh.add(new FreshRow(row.rowPosition(), row.date(), row.description(), row.amount(), row.type(),
-                    row.balanceAfter(), row.referenceNumber()));
-        }
+        List<KnownRow> known = inputs.knownRows(statement);
+        List<FreshRow> fresh = StatementRefreshInputs.freshRows(staging).rows();
 
-        if (namesAnotherAccount(statement, staging.detectedAccount())) {
-            // A multi-account PDF re-read by a parser that orders its account sections differently
-            // hands back a different account's section at the stored index. Compared anyway, that
-            // account's rows would be offered as this statement's.
-            return failed(statement, parserVersion, "ACCOUNT_MISMATCH");
-        }
-        long liveRows = known.stream().filter(k -> k.kind() == KnownKind.LIVE).count();
-        if (fresh.isEmpty() && liveRows > 0) {
-            // A statement that now parses to nothing is a parser or file problem, never "every
-            // transaction was wrong": reported as CHANGES it would offer to delete them all.
-            return failed(statement, parserVersion, "PARSED_NO_ROWS");
-        }
+        String refusal = inputs.refusal(statement, staging.detectedAccount(), known, fresh);
+        if (refusal != null) return failed(statement, parserVersion, refusal);
 
         StatementRefreshDiff.Result diff = StatementRefreshDiff.compute(known, fresh);
-        List<Map<String, Object>> facts = factChanges(statement, staging.detectedAccount());
+        List<StatementRefreshInputs.FactChange> facts = StatementRefreshInputs.factChanges(statement, staging.detectedAccount());
 
         StatementRefreshPreview.Status status = !diff.hasChanges() && facts.isEmpty()
                 ? StatementRefreshPreview.Status.NO_CHANGES
-                : removesTooMuch(diff.removed().size(), liveRows)
+                : StatementRefreshInputs.removesTooMuch(diff, StatementRefreshInputs.liveRows(known))
                         ? StatementRefreshPreview.Status.NEEDS_REVIEW
                         : StatementRefreshPreview.Status.CHANGES;
         StatementRefreshPreview preview = new StatementRefreshPreview(statement.getId(), statement.getUserId(),
                 parserVersion, status);
         preview.setCounts(diff.changed().size(), diff.added().size(), diff.removed().size(),
                 diff.conflicts().size(), diff.unchanged(), facts.size());
-        if (status != StatementRefreshPreview.Status.NO_CHANGES) preview.setDetail(detail(diff, facts));
-        return preview;
-    }
-
-    /**
-     * More than a quarter of a statement's live rows (and more than two) gone at once looks like a
-     * parser regression -- a layout it stopped recognising -- not a correction. A real fix removes a
-     * page-furniture row or two. Conservative on purpose, and a starting point: the dry run's own
-     * results on the corpus are what should tune it. Held statements are never offered to users.
-     */
-    static boolean removesTooMuch(int removed, long liveRows) {
-        return removed > 2 && removed * 4L > liveRows;
-    }
-
-    /** Both sides carry a card or account number and their last 4 digits differ. Either missing is not a mismatch. */
-    private boolean namesAnotherAccount(StatementImport statement, DetectedAccountInfo now) {
-        if (now == null) return false;
-        String reread = last4(now.accountNumberMasked());
-        if (reread == null) return false;
-        String stored = accountRepository.findById(statement.getAccountId())
-                .map(a -> last4(a.getAccountNumberMasked())).orElse(null);
-        return stored != null && !stored.equals(reread);
-    }
-
-    private static String last4(String masked) {
-        if (masked == null) return null;
-        String digits = masked.replaceAll("[^0-9]", "");
-        return digits.length() >= 4 ? digits.substring(digits.length() - 4) : null;
-    }
-
-    /** Tolerant: a name this build doesn't know is skipped, as Transaction.getUserEditedFields does. */
-    private static Set<Transaction.EditableField> editedFields(String[] names) {
-        EnumSet<Transaction.EditableField> fields = EnumSet.noneOf(Transaction.EditableField.class);
-        if (names == null) return fields;
-        for (String name : names) {
-            for (Transaction.EditableField f : Transaction.EditableField.values()) {
-                if (f.name().equals(name)) fields.add(f);
-            }
+        if (status != StatementRefreshPreview.Status.NO_CHANGES) {
+            preview.setDetail(detail(diff, facts.stream().map(StatementRefreshInputs::factJson).toList()));
         }
-        return fields;
-    }
-
-    /**
-     * The statement's own facts, as recorded against as read now. A fact the parser does not read
-     * now (null) is not reported: a parse that finds less is not evidence the stored value is wrong.
-     */
-    private static List<Map<String, Object>> factChanges(StatementImport s, DetectedAccountInfo now) {
-        List<Map<String, Object>> changes = new ArrayList<>();
-        if (now == null) return changes;
-        addFact(changes, "STATEMENT_PERIOD_START", s.getStatementPeriodStart(), now.statementPeriodStart());
-        addFact(changes, "STATEMENT_PERIOD_END", s.getStatementPeriodEnd(), now.statementPeriodEnd());
-        addFact(changes, "OPENING_BALANCE", s.getOpeningBalance(), now.openingBalance());
-        addFact(changes, "CLOSING_BALANCE", s.getClosingBalance(), now.closingBalance());
-        addFact(changes, "TOTAL_AMOUNT_DUE", s.getTotalAmountDue(), now.totalAmountDue());
-        addFact(changes, "PAYMENT_DUE_DATE", s.getPaymentDueDate(), now.paymentDueDate());
-        return changes;
-    }
-
-    private static void addFact(List<Map<String, Object>> changes, String field, Object before, Object after) {
-        if (after == null) return;
-        boolean same = before instanceof BigDecimal b && after instanceof BigDecimal a
-                ? b.compareTo(a) == 0 : Objects.equals(before, after);
-        if (same) return;
-        Map<String, Object> change = new LinkedHashMap<>();
-        change.put("field", field);
-        change.put("before", before == null ? null : before.toString());
-        change.put("after", after.toString());
-        changes.add(change);
+        return preview;
     }
 
     private static Map<String, Object> detail(StatementRefreshDiff.Result diff, List<Map<String, Object>> facts) {

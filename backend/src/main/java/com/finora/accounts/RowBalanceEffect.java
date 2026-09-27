@@ -116,9 +116,22 @@ public class RowBalanceEffect {
     /** {@link #locate(Account, Transaction, StatementImport)} against a chain already being read --
      *  use one {@link #chainOf} for every row of one operation on one account. */
     public Location locate(Account account, Transaction row, StatementImport statement, Chain chain) {
+        return locate(account, row, statement, chain, row.getCreatedAt());
+    }
+
+    /**
+     * {@link #locate(Account, Transaction, StatementImport, Chain)} for a row judged as if it had
+     * been on the account since {@code existedSince} rather than since its own creation. A statement
+     * refresh adds a row its statement always contained but an older parser missed: its effect
+     * belongs where that statement's other rows' effects are, so it is placed as of the statement's
+     * import. Placed by its own creation it would look newer than every later closing balance that
+     * already includes it, and count twice.
+     */
+    public Location locate(Account account, Transaction row, StatementImport statement, Chain chain,
+                           Instant existedSince) {
         if (row.getIsDuplicateOf() != null && row.isDuplicateBalanceReversed()) return Location.NOWHERE;
         if (row.getSource() == Transaction.Source.ACCOUNT_AGGREGATOR) return Location.NOWHERE;
-        Instant createdAt = row.getCreatedAt();
+        Instant createdAt = existedSince;
         // Checked before the statement's mode: whatever a row once did to the balance -- including a
         // legacy statement's, which was never recorded -- a balance typed since holds it whole.
         if (createdAt != null && account.getBalanceTypedAt() != null && createdAt.isBefore(account.getBalanceTypedAt())) {

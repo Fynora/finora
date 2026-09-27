@@ -49,7 +49,8 @@ class StatementRefreshDryRunServiceTest {
 
     private StatementRefreshDryRunService service() {
         when(txManager.getTransaction(any())).thenReturn(mock(TransactionStatus.class));
-        StatementRefreshDryRunService s = new StatementRefreshDryRunService(statements, mock(com.finora.repository.AccountRepository.class), transactions, excluded, previews,
+        StatementRefreshDryRunService s = new StatementRefreshDryRunService(statements,
+                new StatementRefreshInputs(transactions, excluded, mock(com.finora.repository.AccountRepository.class)), previews,
                 content, importService, build, txManager, handedOff::add);
         ReflectionTestUtils.setField(s, "enabled", true);
         ReflectionTestUtils.setField(s, "batchSize", 20);
@@ -82,6 +83,7 @@ class StatementRefreshDryRunServiceTest {
         when(build.currentCommit()).thenReturn("build1");
         when(statements.findIdsAwaitingRefreshCheck(eq("build1"), anyInt())).thenReturn(List.of(id));
         when(statements.findById(id)).thenReturn(Optional.of(st));
+        when(statements.findByIdForUpdate(id)).thenReturn(Optional.of(st));
         when(content.read(any())).thenReturn(new byte[]{1});
         when(importService.parseAndStageAnyFormat(any(), any(), any(), any(), any(), any())).thenReturn(
                 new StagingResponse(List.of(new StagedRow(LocalDate.of(2026, 7, 1), "ROW", new BigDecimal("1.00"),
@@ -105,6 +107,7 @@ class StatementRefreshDryRunServiceTest {
         StatementImport st = statement(id);
         st.setSupersededBy(UUID.randomUUID());
         when(statements.findById(id)).thenReturn(Optional.of(st));
+        when(statements.findByIdForUpdate(id)).thenReturn(Optional.of(st));
 
         service().check(id, "build1");
 

@@ -1060,6 +1060,142 @@ public class TransactionService {
                         "actorId", actingAdminId.toString()));
     }
 
+    // --- Statement refresh (imports.refresh.StatementRefreshService) -------------------------------
+    // A refresh patches a statement's rows in place. Each change moves the account balance exactly
+    // the way the matching user action does -- an edit, a delete -- through the one owner of that
+    // rule (locateEffect/moveEffect). None of these reconciles, detects recurring or audits: the
+    // refresh does each once, for the whole statement, after every row is patched.
+
+    /**
+     * Applies a statement's corrected reading to one of its rows. Same balance rule as {@link #update}:
+     * the row's old effect comes out of wherever it sat, its new one goes where it now belongs.
+     */
+    @Transactional
+    public Transaction correctFromStatement(Transaction t, java.util.function.Consumer<Transaction> patch) {
+        BigDecimal oldDelta = balanceOf(t);
+        com.finora.accounts.RowBalanceEffect.Location oldLocation = locateEffect(t);
+        patch.accept(t);
+        Transaction saved = transactionRepository.save(t);
+        BigDecimal newDelta = balanceOf(saved);
+        com.finora.accounts.RowBalanceEffect.Location newLocation = locateEffect(saved);
+        if (oldLocation.equals(newLocation)) {
+            moveEffect(saved, newLocation, newDelta.subtract(oldDelta));
+        } else {
+            moveEffect(saved, oldLocation, oldDelta.negate());
+            moveEffect(saved, newLocation, newDelta);
+        }
+        return saved;
+    }
+
+    /**
+     * Inserts a row its statement always had but an older parser missed. Its balance effect is
+     * placed as of the statement's import, where that statement's other rows' effects are -- see
+     * {@link com.finora.accounts.RowBalanceEffect#locate(Account, Transaction, StatementImport,
+     * com.finora.accounts.RowBalanceEffect.Chain, java.time.Instant)}.
+     */
+    @Transactional
+    public Transaction insertFromStatement(Transaction t, StatementImport statement) {
+        Transaction saved = transactionRepository.save(t);
+        Account account = accountRepository.findById(saved.getAccountId()).orElse(null);
+        if (account != null) {
+            com.finora.accounts.RowBalanceEffect.Location location = rowBalanceEffect.locate(
+                    account, saved, statement, rowBalanceEffect.chainOf(account), statement.getImportedAt());
+            moveEffect(saved, location, balanceOf(saved));
+        }
+        return saved;
+    }
+
+    /**
+     * Before a refresh corrects these rows' amount, type or date: the reconciliation decided against
+     * the old values -- a transfer pair, a refund link, a duplicate mark -- is undone, so the
+     * reconciliation run after the refresh decides again from the corrected ones. Otherwise a pair
+     * matched on a misread amount would outlive the correction (a 20.00 purchase left "transferred"
+     * against a 2.00 credit). What the user decided (a transfer they marked, a pairing they
+     * rejected) is kept.
+     */
+    @Transactional
+    public void releaseReconciliationForRefresh(UUID userId, List<UUID> ids) {
+        if (ids.isEmpty()) return;
+        java.util.Set<UUID> userDecided = transactionGraphService.releaseMachineEdgesTouching(ids);
+        java.util.Set<Transaction> dirty = new java.util.LinkedHashSet<>();
+        for (Transaction t : getOwnedAll(userId, ids)) {
+            if (t.isTransfer() && !userDecided.contains(t.getId())) {
+                UUID partnerId = t.getTransferPairId();
+                releaseTransfer(t);
+                dirty.add(t);
+                if (partnerId != null) {
+                    transactionRepository.findById(partnerId).filter(p -> p.getUserId().equals(userId))
+                            .filter(p -> t.getId().equals(p.getTransferPairId()) || p.getTransferPairId() == null)
+                            .ifPresent(p -> { releaseTransfer(p); dirty.add(p); });
+                }
+            }
+            if (t.getRefundOfTransactionId() != null && !userDecided.contains(t.getId())) {
+                t.setRefundOfTransactionId(null);
+                t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
+                dirty.add(t);
+            }
+            if (t.getIsDuplicateOf() != null) {
+                releaseDuplicate(t);
+                dirty.add(t);
+            }
+        }
+        for (Transaction r : transactionRepository.findByRefundOfTransactionIdIn(ids)) {
+            if (userDecided.contains(r.getId())) continue;
+            r.setRefundOfTransactionId(null);
+            r.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
+            dirty.add(r);
+        }
+        for (Transaction d : transactionRepository.findByIsDuplicateOfIn(ids)) {
+            releaseDuplicate(d);
+            dirty.add(d);
+        }
+        if (!dirty.isEmpty()) transactionRepository.saveAll(dirty);
+    }
+
+    private static void releaseTransfer(Transaction t) {
+        t.setTransfer(false);
+        t.setTransferPairId(null);
+        t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
+        t.setReconciliationExplanation(null);
+    }
+
+    /** A duplicate mark undone, its balance effect put back if the mark had taken it out -- the same
+     *  restore {@link #clearReconciliationPointersTo} does. A row of a replaced statement stays
+     *  SUPERSEDED: its rows no longer count either way. */
+    private void releaseDuplicate(Transaction t) {
+        boolean reversedAtMark = t.isDuplicateBalanceReversed();
+        t.setIsDuplicateOf(null);
+        t.setDuplicateBalanceReversed(false);
+        boolean superseded = t.getStatementImportId() != null && statementImportRepository.findById(t.getStatementImportId())
+                .map(si -> si.getSupersededBy() != null).orElse(false);
+        if (superseded) {
+            t.setReconciliationStatus(Transaction.ReconciliationStatus.SUPERSEDED);
+            return;
+        }
+        t.setDuplicateBalanceAnchorId(null);
+        t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
+        if (reversedAtMark) moveEffect(t, locateEffect(t), balanceOf(t));
+    }
+
+    /**
+     * Removes rows a statement no longer contains. Same as {@link #bulkDelete} -- reconciliation
+     * pointers cleared, each row's effect reversed, soft-deleted -- and the rows' graph edges are
+     * rejected too: a link to a row that was never on the statement must not keep settling a
+     * payment or a transfer.
+     */
+    @Transactional
+    public void removeFromStatement(UUID userId, List<UUID> ids) {
+        if (ids.isEmpty()) return;
+        List<Transaction> owned = getOwnedAll(userId, ids);
+        clearReconciliationPointersTo(owned.stream().map(Transaction::getId).toList());
+        Map<UUID, com.finora.accounts.RowBalanceEffect.Chain> chains = new HashMap<>();
+        for (Transaction t : owned) {
+            moveEffect(t, locateEffect(t, chains), balanceOf(t).negate());
+            transactionRepository.delete(t);
+        }
+        transactionGraphService.rejectEdgesTouchingTransactions(owned.stream().map(Transaction::getId).toList());
+    }
+
     /**
      * Bug 36: recorded no actorId at all, unlike {@link #delete}, which was fixed for the exact
      * same reason -- an admin bulk-deleting a user's transactions was indistinguishable from the

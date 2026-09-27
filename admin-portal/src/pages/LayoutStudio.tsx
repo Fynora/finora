@@ -536,8 +536,6 @@ function LayoutStudioContent() {
     placeholderData: keepPreviousData,
   });
 
-  const isLoading = summary.isLoading || analyses.isLoading;
-  const isError = summary.isError || analyses.isError;
   const isFetching = summary.isFetching || analyses.isFetching;
 
   function refetchAll() {
@@ -551,8 +549,8 @@ function LayoutStudioContent() {
     setSelected(reference);
   }
 
-  if (isLoading) return <p className="text-muted text-sm">Loading…</p>;
-  if (isError || !summary.data || !analyses.data) {
+  if (summary.isLoading) return <p className="text-muted text-sm">Loading…</p>;
+  if (summary.isError || !summary.data) {
     return (
       <p className="text-sm text-danger bg-danger-bg rounded-lg px-3.5 py-2.5">
         Couldn&apos;t load statement analyses — please try again later.
@@ -589,16 +587,43 @@ function LayoutStudioContent() {
           </h2>
           <span className="text-xs text-muted">newest first · click a reference for details</span>
         </div>
-        <AnalysisTable analyses={pageData.content} selected={selected} onSelect={setSelected} />
-        {/* The requested page, not pageData.page: while the next page loads, placeholderData still
-            holds the previous response, so a second quick click would re-request the same page. */}
-        <Pagination
-          page={page}
-          totalPages={pageData.totalPages}
-          totalElements={pageData.totalElements}
-          pageSize={pageData.size}
-          onPageChange={setPage}
-        />
+        {/* A failed page is reported here, in the table's place, rather than replacing the whole
+            screen: the summary and the upload panel above are still valid and still usable. */}
+        {analyses.isError ? (
+          <div className="text-sm text-danger bg-danger-bg rounded-lg px-3.5 py-2.5 flex items-center justify-between gap-3">
+            <span>Couldn&apos;t load statement analyses for page {page + 1}.</span>
+            <button
+              type="button"
+              onClick={() => void analyses.refetch()}
+              className="text-sm font-medium underline flex-shrink-0"
+            >
+              Try again
+            </button>
+          </div>
+        ) : !pageData ? (
+          <p className="text-muted text-sm">Loading…</p>
+        ) : (
+          <>
+            {/* Dimmed while the previous page stands in for the one being loaded, so the rows on
+                screen are never mistaken for the page the pager already names. */}
+            <div
+              aria-busy={analyses.isPlaceholderData}
+              className={analyses.isPlaceholderData ? 'opacity-50 transition-opacity' : 'transition-opacity'}
+            >
+              <AnalysisTable analyses={pageData.content} selected={selected} onSelect={setSelected} />
+            </div>
+            {/* The requested page, not pageData.page: while the next page loads, placeholderData
+                still holds the previous response, so a second quick click would re-request the
+                same page. */}
+            <Pagination
+              page={page}
+              totalPages={pageData.totalPages}
+              totalElements={pageData.totalElements}
+              pageSize={pageData.size}
+              onPageChange={setPage}
+            />
+          </>
+        )}
       </section>
 
       <div className="grid gap-6 lg:grid-cols-2">

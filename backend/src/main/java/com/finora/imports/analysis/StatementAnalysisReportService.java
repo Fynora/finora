@@ -149,8 +149,10 @@ public class StatementAnalysisReportService {
      */
     @Transactional(readOnly = true)
     public com.finora.dto.PagedResponse<AnalysisView> page(int page, int size) {
-        int safePage = Math.max(0, page);
         int safeSize = Math.max(1, Math.min(size, MAX_PAGE_SIZE));
+        // JPA takes the offset as an int; page * size past Integer.MAX_VALUE was a 500 (measured).
+        // A page that far out is empty either way, so clamping changes no answer.
+        int safePage = Math.max(0, Math.min(page, Integer.MAX_VALUE / safeSize - 1));
         return com.finora.dto.PagedResponse.of(repository
                 .findAllByOrderByCreatedAtDescIdDesc(PageRequest.of(safePage, safeSize))
                 .map(this::toView));

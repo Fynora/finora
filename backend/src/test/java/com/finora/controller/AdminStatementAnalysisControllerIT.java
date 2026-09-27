@@ -163,6 +163,22 @@ class AdminStatementAnalysisControllerIT extends AbstractIntegrationTest {
         assertThat(pagedAs(admin, 0, 100_000).path("size").asInt()).isEqualTo(100);
     }
 
+    @Test
+    void admin_askingForAPageFarPastTheEnd_getsAnEmptyPageNotAnError() throws Exception {
+        // page * size past Integer.MAX_VALUE is an offset JPA cannot express.
+        User admin = createUser("ADMIN");
+        JsonNode page = pagedAs(admin, Integer.MAX_VALUE, 100);
+        assertThat(page.path("content")).isEmpty();
+    }
+
+    @Test
+    void admin_negativeOrZeroPagingValues_areClampedNotRejected() throws Exception {
+        User admin = createUser("ADMIN");
+        JsonNode page = pagedAs(admin, -5, 0);
+        assertThat(page.path("page").asInt()).isZero();
+        assertThat(page.path("size").asInt()).isEqualTo(1);
+    }
+
     private JsonNode pagedAs(User user, int page, int size) throws Exception {
         URI uri = UriComponentsBuilder.fromPath("/api/v1/admin/imports/analyses/paged")
                 .queryParam("page", page).queryParam("size", size).build().toUri();

@@ -79,8 +79,8 @@ const FAILURE_TERMS: Record<string, Term & { wire?: string }> = {
     meaning: 'Too many imports were running at once; the document itself was never tried.',
   },
   ENGINE_CRASH: {
-    label: 'Engine crashed',
-    meaning: 'The parser hit an unexpected error. This is a bug in Finora, not a problem with the file.',
+    label: 'Unexpected error',
+    meaning: 'The engine stopped on an unexpected error instead of a known reason. Worth investigating.',
   },
 };
 
@@ -100,6 +100,15 @@ export function describeFailure(code: string | null): Term {
   const canonical = canonicalFailureCode(code);
   const known = canonical ? FAILURE_TERMS[canonical] : undefined;
   if (known) return { label: known.label, meaning: known.meaning };
+  // A failure that carried no ErrorCode is stored as the exception's simple class name
+  // (ErrorCode.failureCodeOf), e.g. "NullPointerException" -- the customer-import twin of
+  // AdminAnalysisService's ENGINE_CRASH.
+  if (code && /^[A-Z][A-Za-z0-9]*(Exception|Error)$/.test(code)) {
+    return {
+      label: 'Unexpected error',
+      meaning: `The engine stopped on an unexpected error (${code}) instead of a known reason. Worth investigating.`,
+    };
+  }
   return {
     label: 'Other failure',
     meaning: code

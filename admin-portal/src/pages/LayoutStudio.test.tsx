@@ -211,6 +211,26 @@ describe('LayoutStudio', () => {
     expect(await screen.findByText(/couldn't load statement analyses/i)).toBeInTheDocument();
   });
 
+  it('keeps the rest of the page when only a page of the table fails, and can retry it', async () => {
+    let failPage1 = true;
+    vi.mocked(adminStatementAnalysisApi.paged).mockImplementation(async (page) => {
+      if (page === 1 && failPage1) throw new Error('blip');
+      return pageOf([page === 0 ? PARSED : LOCKED], page, 25);
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole('button', { name: 'Next page' }));
+
+    expect(await screen.findByText(/couldn't load statement analyses for page 2/i)).toBeInTheDocument();
+    // The summary strip is still there -- the failure did not take the whole screen.
+    expect(screen.getByText('Uploads analysed')).toBeInTheDocument();
+
+    failPage1 = false;
+    await user.click(screen.getByRole('button', { name: /try again/i }));
+    expect(await screen.findByRole('button', { name: 'SA-20260806-0146' })).toBeInTheDocument();
+  });
+
   it('tells an admin the table is empty rather than showing nothing at all', async () => {
     vi.mocked(adminStatementAnalysisApi.paged).mockResolvedValue(pageOf([]));
     renderPage();
@@ -264,10 +284,13 @@ describe('LayoutStudio', () => {
 
     const next = await screen.findByRole('button', { name: 'Next page' });
     await user.click(next);
+    // Page 2 is still loading, so page 1's rows stand in for it -- and are marked as such.
+    expect(screen.getByRole('table').closest('[aria-busy]')).toHaveAttribute('aria-busy', 'true');
     await user.click(next);
 
     await waitFor(() => expect(adminStatementAnalysisApi.paged).toHaveBeenLastCalledWith(2, 20));
     expect(await screen.findByText('Page 3 of 3')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('table').closest('[aria-busy]')).toHaveAttribute('aria-busy', 'false'));
     releasePage1(pageOf([PARSED], 1, 45));
   });
 
@@ -325,10 +348,19 @@ describe('LayoutStudio', () => {
 
   it('falls back to the raw code for a failure it has no wording for', async () => {
     vi.mocked(adminStatementAnalysisApi.paged).mockResolvedValue(
-      pageOf([{ ...LOCKED, failureCode: 'NullPointerException' }]));
+      pageOf([{ ...LOCKED, failureCode: 'SOME_FUTURE_CODE' }]));
     renderPage();
 
     const badge = await screen.findByText('Other failure');
+    expect(badge.closest('span')).toHaveAttribute('title', expect.stringContaining('SOME_FUTURE_CODE'));
+  });
+
+  it('names a codeless failure (stored as an exception class name) as an unexpected error', async () => {
+    vi.mocked(adminStatementAnalysisApi.paged).mockResolvedValue(
+      pageOf([{ ...LOCKED, failureCode: 'NullPointerException' }]));
+    renderPage();
+
+    const badge = await screen.findByText('Unexpected error');
     expect(badge.closest('span')).toHaveAttribute('title', expect.stringContaining('NullPointerException'));
   });
 

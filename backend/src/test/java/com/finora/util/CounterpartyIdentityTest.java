@@ -188,4 +188,13 @@ class CounterpartyIdentityTest {
         // Word-level keying on every row re-picked the longest segment here ("EXCL TAX").
         assertThat(CounterpartyIdentity.keyOf("FP EMI 06/12(EXCL TAX   49.40)")).isEqualTo("name:fp emi");
     }
+
+    @Test
+    void aBankOrAppNameIsSkippedOnlyWhenItIsTheWholeSegment_soTwoInsurersStayApart() {
+        // As noise words, "HDFC" and "SBI" left both insurers keyed "life".
+        assertThat(CounterpartyIdentity.keyOf("NACH/HDFC LIFE INSURANCE/11111"))
+                .isNotEqualTo(CounterpartyIdentity.keyOf("NACH/SBI LIFE INSURANCE/22222"));
+        // "VALUE" is a word in real payee names; only the "Value Dt" date label is furniture.
+        assertThat(CounterpartyIdentity.keyOf("UPI/VALUE MART/REF")).isEqualTo("name:value mart");
+    }
 }

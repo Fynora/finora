@@ -2318,10 +2318,14 @@ public class ReconciliationService {
      *  this pass matches on -- one word list, not two that can drift. */
     static boolean looksLikeRefund(String description) {
         String normalized = CategoryRules.normalize(description);
-        // The compact form catches the word split by a wrapped line ("R EFUND").
         return REFUND_KEYWORDS.stream().anyMatch(normalized::contains)
-                || normalized.replace(" ", "").contains("refund");
+                || WRAPPED_REFUND.matcher(normalized).find();
     }
+
+    /** "refund" split by a wrapped line ("R EFUND", "REFU ND"), starting at a word. Not the word with
+     *  every space removed: that also matched fund names ("INFRASTRUCTURE FUND" -> "...urefund"). */
+    private static final java.util.regex.Pattern WRAPPED_REFUND =
+            java.util.regex.Pattern.compile("(^| )r ?e ?f ?u ?n ?d");
 
     /** See {@link #looksLikeRefund}. */
     static boolean looksLikeReversal(String description) {

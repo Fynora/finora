@@ -78,14 +78,23 @@ public final class CounterpartyIdentity {
             "(?i)^(UPI|NEFT|IMPS|RTGS|TRF|TRANSFER|PAYMENT|PAY|PAID|TO|FROM|BY|REF|RRN|TXN|MB|IB|NB"
             + "|NET|MOB|ONLINE|SELF|OWN|COLLECT|INTENT|CR|DR|ACH|NACH|ECS"
             + "|MANDATE|DEBIT|BALANCE|CMP"
-            // The app the money moved through, never the sender: "Payment from PhonePe_<NAME>" keyed
-            // every short-named sender on PhonePe to one key before this.
-            + "|PHONEPE|PAYTM|GPAY|BHIM"
             // Statement furniture printed after the narration, and card-bill boilerplate.
-            + "|VALUE|DT|CHQ|RECEIVED|RECD|BBPS|PMT"
-            // The remitter's bank, from the fixed bank slot of "UPI/<ref>/CR/<name>/<bank>/...":
-            // the same on every row of that statement, so keying on it merges every sender there.
-            + "|SBI|SBIN|HDFC|ICIC|ICICI|UTIB|AXIS|PUNB|BARB|YESB|KKBK|CNRB|UBIN|IDIB|IBKL|CBIN|SCBL|INDB|BANK)$");
+            + "|CHQ|RECEIVED|RECD|BBPS|PMT)$");
+
+    /**
+     * Never a payee on their own, but part of real names ("HDFC LIFE", "PAYTM MALL"), so a segment is
+     * skipped only when these are ALL it says. The app the money moved through ("Payment from
+     * PhonePe_<NAME>" keyed every short-named sender on PhonePe to one key), and the remitter's
+     * bank from the fixed bank slot of "UPI/<ref>/CR/<name>/<bank>/..." (the same on every row of
+     * that statement). As plain noise words they turned "HDFC LIFE" and "SBI LIFE" into one key.
+     */
+    private static final java.util.Set<String> NOT_A_PAYEE_ALONE = java.util.Set.of(
+            "phonepe", "paytm", "gpay", "bhim",
+            "sbi", "sbin", "hdfc", "icic", "icici", "utib", "axis", "punb", "barb", "yesb", "kkbk",
+            "cnrb", "ubin", "idib", "ibkl", "cbin", "scbl", "indb", "bank");
+
+    /** The value-date label some banks print after the narration ("Value Dt 01/01/2026"). */
+    private static final Pattern VALUE_DATE_LABEL = Pattern.compile("(?i)\\bvalue\\s+dt\\b");
 
     private static final Pattern SEGMENTS = Pattern.compile("[\\-/_|:]+");
     private static final Pattern PSP_HANDLE = Pattern.compile("@[A-Za-z0-9.]*");
@@ -151,7 +160,7 @@ public final class CounterpartyIdentity {
      */
     private static String longestName(String description, boolean byWord) {
         String best = "";
-        for (String segment : SEGMENTS.split(description)) {
+        for (String segment : SEGMENTS.split(VALUE_DATE_LABEL.matcher(description).replaceAll(" "))) {
             // "@handle" of a VPA too broken for the VPA pattern: the handle names the PSP, and one
             // PSP is shared by every payee on it.
             String trimmed = PSP_HANDLE.matcher(segment).replaceAll(" ").trim();
@@ -168,6 +177,7 @@ public final class CounterpartyIdentity {
             // Two letters is a scrap of a wrapped line ("/Pa"), not a name -- as a key it would join
             // every row that happens to end the same way.
             if (candidate.length() < 3) continue;
+            if (java.util.Arrays.stream(candidate.toLowerCase().split(" ")).allMatch(NOT_A_PAYEE_ALONE::contains)) continue;
             if (candidate.length() > best.length()) best = candidate;
         }
         return best;

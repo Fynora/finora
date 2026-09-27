@@ -369,9 +369,32 @@ class FlowClassifierTest {
         assertThat(savings(t)).isEqualTo(new FlowDecision(FlowClass.INVESTMENT, FlowReason.INVESTMENT_WITHDRAWAL));
     }
 
+    @Test void aUpiCreditFromACcSomething_isNotAClearingCorporationPayout() {
+        // With the spaces taken out, "UPI CCLUB" reads "upicclub" -- which contains "iccl".
+        Transaction t = credit("UPI-CCLUB FOODS-cclub@okbank-111111111111");
+        t.setCounterpartyType(CounterpartyType.BUSINESS);
+        assertThat(savings(t).flowClass()).isNotEqualTo(FlowClass.INVESTMENT);
+    }
+
     @Test void truncatedReversalWord_isAReversal() {
         assertThat(savings(credit("UPI-SHOPCO-shopco@okbank-111111111111-R02 SHOPCO REVERS")))
                 .isEqualTo(new FlowDecision(FlowClass.ADJUSTMENT, FlowReason.REVERSAL));
+    }
+
+    @Test void aReverseSweepFromADeposit_isNotAReversal() {
+        // Only the cut-off word itself: an automatic sweep back from a linked deposit is not a
+        // payment coming back, and a REVERSAL reason takes the amount off spend.
+        assertThat(savings(credit("REVERSE SWEEP FROM FD 111111111111")).reason())
+                .isNotEqualTo(FlowReason.REVERSAL);
+    }
+
+    @Test void aFundNameEndingInRe_isNotARefund() {
+        // With the spaces taken out, "INFRASTRUCTURE FUND" reads "...urefund". A refund reading
+        // would also let the reconciliation pass link it to an unrelated purchase.
+        assertThat(ReconciliationService.looksLikeRefund("MF INFRASTRUCTURE FUND PAYOUT 111111111111")).isFalse();
+        assertThat(ReconciliationService.looksLikeRefund("SAMPLE AMC CARE FUND IDCW")).isFalse();
+        assertThat(ReconciliationService.looksLikeRefund("UPI/CR/111111111111/SHOPCO/R EFUND//")).isTrue();
+        assertThat(ReconciliationService.looksLikeRefund("SHOPCO REFU ND 111111111111")).isTrue();
     }
 
     @Test void refundWordSplitByAWrap_isARefund() {

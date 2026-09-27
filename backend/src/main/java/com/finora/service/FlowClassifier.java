@@ -66,8 +66,9 @@ public final class FlowClassifier {
     static final List<String> INVESTMENT_INFLOW_KEYWORDS = List.of(
             "redemption", "redeem", "fd closure", "fd maturity", "maturity proceeds", "iccl");
     /** Share-sale proceeds. Compared with the spaces taken out: a wrapped narration splits the name
-     *  mid-word ("INDIAN C LEARING CORPORATION"). */
-    static final List<String> CLEARING_CORPORATION_COMPACT = List.of("clearingcorporation", "iccl");
+     *  mid-word ("INDIAN C LEARING CORPORATION"). Only the long phrase -- a short one like "iccl"
+     *  would also match across two words ("UPI CCLUB"); the word-start "iccl" is in the list above. */
+    static final List<String> CLEARING_CORPORATION_COMPACT = List.of("clearingcorporation");
     /** Cash paid into the account: the user's own money, a loan repaid, or takings -- they say which.
      *  Each ends at a word (trailing space on the padded text): "by cash" alone matched "BY CASHFREE",
      *  a payment gateway. */
@@ -135,8 +136,10 @@ public final class FlowClassifier {
         if (ReconciliationService.looksLikeReversal(description)) return of(FlowClass.ADJUSTMENT, FlowReason.REVERSAL);
         // A narration cut off mid-word ("... R02 PHONEPE REVERS"). Read here and not by the
         // reconciliation pass: on the corpus that pass linked both such credits to unrelated
-        // purchases, taking money off spend that was never refunded.
-        if (hasAny(text, List.of("revers"))) return of(FlowClass.ADJUSTMENT, FlowReason.REVERSAL);
+        // purchases, taking money off spend that was never refunded. The cut-off word exactly
+        // (trailing space on the padded text): "REVERSE SWEEP" is a deposit coming back, not a
+        // payment reversed, and a REVERSAL reason takes the amount off spend.
+        if (hasAny(text, List.of("revers "))) return of(FlowClass.ADJUSTMENT, FlowReason.REVERSAL);
         if (ReconciliationService.looksLikeRefund(description)) return of(FlowClass.REFUND, FlowReason.UNLINKED_REFUND);
 
         if (accountType == Account.Type.CREDIT_CARD) {

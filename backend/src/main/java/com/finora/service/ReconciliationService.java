@@ -319,7 +319,16 @@ public class ReconciliationService {
         // converge on one bank row, and so both stay counted, depended on which row the database
         // returned first. One fixed order for every pass.
         Comparator<Transaction> order = candidateOrder(accountsById);
-        all = all.stream().sorted(order).toList();
+        // A replaced statement's rows count nowhere, so nothing may be matched against them: a
+        // corrected copy's row marked a duplicate of the replaced original's counted nowhere either
+        // (measured: replacing a statement with a copy holding the same two rows left both out of
+        // the balance and every report), and a manual entry matched to a replaced transfer row was
+        // taken off the balance for a copy of nothing.
+        Set<UUID> replacedStatementIds = new HashSet<>(statementImportRepository.findSupersededIdsByUserId(userId));
+        all = all.stream()
+                .filter(t -> t.getReconciliationStatus() != Transaction.ReconciliationStatus.SUPERSEDED
+                        && (t.getStatementImportId() == null || !replacedStatementIds.contains(t.getStatementImportId())))
+                .sorted(order).toList();
         List<UUID> deadAccountTransactionIds = transactionRepository.findByUserId(userId).stream()
                 .filter(t -> !liveAccountIds.contains(t.getAccountId()))
                 .map(Transaction::getId)
@@ -1287,6 +1296,8 @@ public class ReconciliationService {
             // databases.
             ccStatements = ccStatements.stream()
                     .filter(s -> liveAccountIds.contains(s.getAccountId()))
+                    // A replaced bill settles nothing: its replacement is the one a payment pays.
+                    .filter(s -> s.getSupersededBy() == null)
                     .sorted(Comparator.comparing(StatementImport::getPaymentDueDate,
                                     Comparator.nullsLast(Comparator.naturalOrder()))
                             .thenComparing(StatementImport::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder()))

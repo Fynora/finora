@@ -246,7 +246,7 @@ class PersonToPersonTransferDetectorTest {
         // The whole point of the acquirer markers: the payee line looks exactly like a person,
         // because for a small merchant it IS a person -- but the money settled over a merchant QR.
         assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
-                "UPI-RAJESH KUMAR-PAYTMQR281005050101V2SAMPLE@paytm-REF11")).isFalse();  // synthetic-ok
+                "UPI-RAJESH KUMAR-PAYTMQR513007070202V2SAMPLE@paytm-REF11")).isFalse();  // synthetic-ok
     }
 
     @Test

@@ -1809,9 +1809,9 @@ class ReconciliationServiceTest {
     void reconcileForUser_aRefundWordSplitByAWrapStillLinks() {
         UUID accountId = UUID.randomUUID();
         Transaction purchase = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 8, 18),
-                new BigDecimal("267.00"), Transaction.Type.EXPENSE, "UPI/DR/111111111111/SHOPCO/HDFC/**T.RZP@HDFCBANK/PA Y", Instant.now());
+                new BigDecimal("267.00"), Transaction.Type.EXPENSE, "UPI/DR/111111111111/SHOPCO/HDFC/**T.RZP@SHOPCOBK/PA Y", Instant.now());
         Transaction refund = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 8, 18),
-                new BigDecimal("267.00"), Transaction.Type.INCOME, "UPI/CR/222222222222/SHOPCO/HDFC/**.PAYU@HDFCBANK/R EFUND//", Instant.now());
+                new BigDecimal("267.00"), Transaction.Type.INCOME, "UPI/CR/222222222222/SHOPCO/HDFC/**.PAYU@SHOPCOBK/R EFUND//", Instant.now());
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(purchase, refund));
 
         reconciliationService.reconcileForUser(userId);

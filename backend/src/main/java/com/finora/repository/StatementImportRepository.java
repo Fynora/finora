@@ -25,6 +25,10 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
      *  ({@code StatementImportService.delete}). Rare, so the entity load is fine. */
     List<StatementImport> findBySupersededBy(UUID replacementId);
 
+    /** Ids of this user's replaced statements -- whose rows reconciliation leaves out. */
+    @Query("SELECT si.id FROM StatementImport si WHERE si.userId = :userId AND si.supersededBy IS NOT NULL")
+    List<UUID> findSupersededIdsByUserId(@Param("userId") UUID userId);
+
     /**
      * Every column any caller of this repository actually needs for a list/summary view,
      * deliberately excluding {@code fileContent}.

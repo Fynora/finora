@@ -100,7 +100,7 @@ class CounterpartyClassifierTest {
         // Not a behaviour test -- a coupling test. The marker set has already grown twice; a second
         // copy inside this class would have missed the second wave and typed 232 corpus rows
         // UNKNOWN while the detector correctly treated them as businesses.
-        String secondWaveMarker = "UPI-ANITA DESAI-PAYTMQR2810050501@paytm-REF29";  // synthetic-ok
+        String secondWaveMarker = "UPI-ANITA DESAI-PAYTMQR5130070702@paytm-REF29";  // synthetic-ok
         assertThat(PersonToPersonTransferDetector.hasMerchantAcquirerMarker(secondWaveMarker)).isTrue();
         assertThat(CounterpartyClassifier.classify(secondWaveMarker)).isEqualTo(CounterpartyType.BUSINESS);
     }

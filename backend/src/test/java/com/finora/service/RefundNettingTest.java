@@ -314,4 +314,43 @@ class RefundNettingTest {
                 "Shopping", money("-200.00"), "Dining", money("0"), "Fuel", money("50.00"))))
                 .containsOnlyKeys("Dining", "Fuel");
     }
+
+    // ---- a spend total is the sum of its categories ----
+
+    @Test
+    @DisplayName("an unlinked refund in a category with no spend does not lower the total -- total = sum of categories")
+    void spendTotal_floorsEachCategory() {
+        UUID dining = UUID.randomUUID(), other = UUID.randomUUID();
+        Transaction purchase = expense(UUID.randomUUID(), "1491.00");
+        purchase.setCategoryId(other);
+        Transaction refund = credit("1491.00", "REFUND FROM MERCHANTCO ORDER 1");
+        refund.setCategoryId(dining);
+        RefundNetting spend = RefundNetting.from(List.of()).withUnlinkedOffsets(List.of(purchase, refund), NO_CARDS);
+
+        assertThat(spend.spendTotal(List.of(purchase, refund))).isEqualByComparingTo("1491.00");
+    }
+
+    @Test
+    @DisplayName("an unlinked refund in the purchase's own category still gives that spend back")
+    void spendTotal_sameCategoryRefundStillOffsets() {
+        UUID dining = UUID.randomUUID();
+        Transaction purchase = expense(UUID.randomUUID(), "1000.00");
+        purchase.setCategoryId(dining);
+        Transaction refund = credit("300.00", "REFUND FROM MERCHANTCO ORDER 1");
+        refund.setCategoryId(dining);
+        Transaction uncategorised = expense(UUID.randomUUID(), "50.00");
+        RefundNetting spend = RefundNetting.from(List.of()).withUnlinkedOffsets(List.of(purchase, refund, uncategorised), NO_CARDS);
+
+        assertThat(spend.spendTotal(List.of(purchase, refund, uncategorised))).isEqualByComparingTo("750.00");
+    }
+
+    @Test
+    @DisplayName("rows that do not count as spend are ignored by the total")
+    void spendTotal_ignoresNonSpendRows() {
+        Transaction purchase = expense(UUID.randomUUID(), "400.00");
+        Transaction salary = credit("50000.00", "NEFT ACME TECHNOLOGIES SALARY JUL");
+        RefundNetting spend = RefundNetting.from(List.of()).withUnlinkedOffsets(List.of(purchase, salary), NO_CARDS);
+
+        assertThat(spend.spendTotal(List.of(purchase, salary))).isEqualByComparingTo("400.00");
+    }
 }

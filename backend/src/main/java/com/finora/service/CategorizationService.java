@@ -252,7 +252,7 @@ public class CategorizationService {
             return new Suggestion(corpusMatch.get(), SHARED_CORPUS_SOURCE, merchant.getId(),
                     Transaction.DecisionSource.SHARED_CORPUS, null, ConfidenceEngine.INITIAL_SHARED_CORPUS_CONFIDENCE);
         }
-        Optional<String> aiMatch = direction == null ? Optional.empty()
+        Optional<String> aiMatch = direction == null || !hasCounterpartyKey(typing) ? Optional.empty()
                 : fynCategorizationFallbackService.suggest(userId, typing.key(), direction, description);
         if (aiMatch.isPresent()) {
             return new Suggestion(aiMatch.get(), AI_FALLBACK_SOURCE, merchant.getId(),
@@ -415,7 +415,7 @@ public class CategorizationService {
         // TransactionNormalizer's "staging is a preview the user may abandon... same matching,
         // same order, no writes" -- Bug 36) -- suggest() would create a category and pin a
         // resolution for a transaction that may never be confirmed.
-        Optional<String> aiMatch = direction == null ? Optional.empty()
+        Optional<String> aiMatch = direction == null || !hasCounterpartyKey(typing) ? Optional.empty()
                 : fynCategorizationFallbackService.suggestReadOnly(userId, typing.key(), direction, resolutionIndex);
         if (aiMatch.isPresent()) {
             return new Suggestion(aiMatch.get(), AI_FALLBACK_SOURCE, merchantId,
@@ -508,6 +508,17 @@ public class CategorizationService {
         if (!ruleCat.equals("Other")) return ruleCat;
         if (trustedMerchantName == null || trustedMerchantName.isBlank()) return ruleCat;
         return CategoryRules.suggestCategory(trustedMerchantName);
+    }
+
+    /** Whether the AI fallback may be consulted for this narration. Its understanding and
+     *  resolution caches are keyed on the counterparty key, both NOT NULL -- a narration with no
+     *  identifiable counterparty (e.g. only a reference fragment) has no key, so the fallback
+     *  would pay for an LLM call and then fail the caller's transaction on the cache write.
+     *  Such a row also has nothing for an answer to be cached against, so every repeat would
+     *  pay again. Blank is checked too, though {@code CounterpartyTyping.of} already maps it to
+     *  null, so the guard does not depend on that. */
+    private static boolean hasCounterpartyKey(com.finora.util.CounterpartyTyping typing) {
+        return typing.key() != null && !typing.key().isBlank();
     }
 
     /** The canonical name only if a person has confirmed this merchant's identity -- see

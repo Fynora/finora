@@ -216,7 +216,8 @@ public class UserMerchantCategoryResolutionService {
      *  <p>Every call site passes {@code t.getCounterpartyKey()} -- the PERSISTED column, which is
      *  nullable and can still be null on a transaction that predates {@code
      *  Transaction#applyCounterpartyTyping} (unlike this class's own {@code resolve()}, whose
-     *  caller always passes a freshly-computed, never-null {@code CounterpartyTyping.of(...).key()}).
+     *  caller, CategorizationService, skips the AI fallback entirely when a freshly-computed
+     *  {@code CounterpartyTyping.of(...).key()} is null or blank).
      *  {@code user_merchant_category_resolution.counterparty_key} is NOT NULL, so an unguarded call
      *  here would throw and roll back the caller's whole category-update transaction; a blank (but
      *  non-null) key would instead silently succeed and let one manual correction on a

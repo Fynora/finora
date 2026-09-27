@@ -140,6 +140,22 @@ public class StatementAnalysisReportService {
                 .stream().map(this::toView).toList();
     }
 
+    /** Largest page the admin table may ask for in one call. */
+    static final int MAX_PAGE_SIZE = 100;
+
+    /**
+     * One page of analyses, newest first, with the totals a pager needs. {@link #recent} stays for
+     * callers that want "the latest N"; this is for walking the whole history a page at a time.
+     */
+    @Transactional(readOnly = true)
+    public com.finora.dto.PagedResponse<AnalysisView> page(int page, int size) {
+        int safePage = Math.max(0, page);
+        int safeSize = Math.max(1, Math.min(size, MAX_PAGE_SIZE));
+        return com.finora.dto.PagedResponse.of(repository
+                .findAllByOrderByCreatedAtDescIdDesc(PageRequest.of(safePage, safeSize))
+                .map(this::toView));
+    }
+
     /** One analysis by its quotable handle, or empty if that reference is unknown. */
     @Transactional(readOnly = true)
     public java.util.Optional<AnalysisView> byReference(String reference) {

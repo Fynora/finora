@@ -691,8 +691,10 @@ export const setupApi = {
  *  gate as adminLayoutsApi (below), different source: every upload attempt rather than only the confirmed
  *  imports, which is where the failures are. */
 export const adminStatementAnalysisApi = {
-  recent: (limit = 50) =>
-    api.get<StatementAnalysisDto[]>('/admin/imports/analyses', { params: { limit } }).then((r) => r.data),
+  /** One page of the full history, newest first. The server caps `size`. */
+  paged: (page: number, size: number) =>
+    api.get<PagedResponse<StatementAnalysisDto>>('/admin/imports/analyses/paged', { params: { page, size } })
+      .then((r) => r.data),
   summary: () =>
     api.get<StatementAnalysisSummaryDto>('/admin/imports/analyses/summary').then((r) => r.data),
   byReference: (reference: string) =>

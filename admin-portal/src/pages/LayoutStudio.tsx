@@ -1,9 +1,12 @@
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import {
   RefreshCw, FileSearch, AlertTriangle, CheckCircle2, Layers, Ruler, ChevronRight, ChevronDown, Upload,
+  HelpCircle,
 } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
+import { EntityDrawer } from '../components/EntityDrawer';
+import { Pagination } from '../components/Pagination';
 import { PasswordInput } from '../components/PasswordInput';
 import { RequirePermission } from '../components/ProtectedRoute';
 import { useAdminAuth } from '../context/AdminAuthContext';
@@ -12,6 +15,12 @@ import { adminStatementAnalysisApi, adminAnalysisRunApi } from '../api/endpoints
 import type {
   StatementAnalysisDto, StatementAnalysisSummaryDto, UnanchoredReasons,
 } from '../types';
+import { GLOSSARY, describeFailure, describeReason, isPasswordFailure } from './layoutStudioTerms';
+
+/** Rows per page in the analyses table. */
+const PAGE_SIZE = 20;
+/** Reasons shown before "Show all" -- the list is sorted, so these are the largest. */
+const TOP_REASONS = 5;
 
 /**
  * Layout Studio — the workbench over the analysis evidence table.
@@ -45,21 +54,18 @@ function formatWhen(iso: string) {
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
 }
 
-/** Reads a reason code as a phrase without inventing meaning: NO_DATE_IN_ANCHOR → "no date in anchor". */
-function humanizeReason(reason: string) {
-  return reason.toLowerCase().replace(/_/g, ' ');
-}
-
 function OutcomeBadge({ outcome, failureCode }: { outcome: string; failureCode: string | null }) {
   const failed = outcome === 'FAILED';
+  const failure = failed ? describeFailure(failureCode) : null;
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${
         failed ? 'text-danger bg-danger-bg' : 'text-success bg-success-bg'
       }`}
+      title={failure ? `${failure.meaning}${failureCode ? ` (${failureCode})` : ''}` : 'The engine read transactions from this file.'}
     >
       {failed ? <AlertTriangle size={11} /> : <CheckCircle2 size={11} />}
-      {failed ? failureCode ?? 'FAILED' : 'PARSED'}
+      {failure ? failure.label : 'Read'}
     </span>
   );
 }
@@ -73,56 +79,83 @@ function OutcomeBadge({ outcome, failureCode }: { outcome: string; failureCode: 
  * responsible.
  */
 function ReasonHistogram({ reasons, emptyLabel }: { reasons: UnanchoredReasons; emptyLabel: string }) {
-  const entries = Object.entries(reasons);
+  const [showAll, setShowAll] = useState(false);
+  // Sorted here rather than trusting the payload's key order, because only the top few are shown
+  // by default and those have to be the largest.
+  const entries = Object.entries(reasons).sort(([, a], [, b]) => b - a);
   if (entries.length === 0) {
     return <p className="text-sm text-muted px-4 py-3">{emptyLabel}</p>;
   }
-  const largest = Math.max(...entries.map(([, count]) => count));
+  const largest = entries[0][1];
+  const visible = showAll ? entries : entries.slice(0, TOP_REASONS);
+  const hidden = entries.length - visible.length;
 
   return (
-    <ul className="divide-y divide-border">
-      {entries.map(([reason, count]) => (
-        <li key={reason} className="px-4 py-3">
-          <div className="flex items-baseline justify-between gap-3 mb-1.5">
-            <span className="text-sm text-ink font-mono truncate" title={reason}>{humanizeReason(reason)}</span>
-            <span className="text-sm font-semibold text-ink tabular-nums flex-shrink-0">
-              {count.toLocaleString()}
-              <span className="sr-only"> rows</span>
-            </span>
-          </div>
-          <div className="h-1.5 rounded-full bg-bg overflow-hidden" aria-hidden="true">
-            <div className="h-full rounded-full bg-primary" style={{ width: `${(count / largest) * 100}%` }} />
-          </div>
-        </li>
-      ))}
-    </ul>
+    <>
+      <ul className="divide-y divide-border">
+        {visible.map(([reason, count], index) => {
+          const term = describeReason(reason);
+          // Every "date not understood" shape shares one explanation; repeating it on each line
+          // only adds height, so it is shown on the first line that needs it.
+          const explainedAbove = visible.slice(0, index)
+            .some(([earlier]) => describeReason(earlier).meaning === term.meaning);
+          return (
+            <li key={reason} className="px-4 py-3">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-sm text-ink font-medium truncate" title={reason}>{term.label}</span>
+                <span className="text-sm font-semibold text-ink tabular-nums flex-shrink-0">
+                  {count.toLocaleString()}
+                  <span className="sr-only"> lines</span>
+                </span>
+              </div>
+              {explainedAbove
+                ? <div className="mb-1.5" />
+                : <p className="text-xs text-muted mt-0.5 mb-1.5">{term.meaning}</p>}
+              <div className="h-1.5 rounded-full bg-bg overflow-hidden" aria-hidden="true">
+                <div className="h-full rounded-full bg-primary" style={{ width: `${(count / largest) * 100}%` }} />
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      {entries.length > TOP_REASONS && (
+        <button
+          type="button"
+          onClick={() => setShowAll((all) => !all)}
+          aria-expanded={showAll}
+          className="w-full px-4 py-2.5 text-sm font-medium text-primary hover:bg-bg border-t border-border text-left"
+        >
+          {showAll ? 'Show only the largest reasons' : `Show all ${entries.length} reasons (${hidden} more)`}
+        </button>
+      )}
+    </>
   );
 }
 
 function SummaryStrip({ summary }: { summary: StatementAnalysisSummaryDto }) {
-  const cells: { label: string; value: string; hint?: string }[] = [
-    { label: 'Analyses', value: summary.totalAnalysesEver.toLocaleString(), hint: 'Every upload attempt ever recorded.' },
-    { label: 'Parsed', value: summary.parsed.toLocaleString() },
-    { label: 'Failed', value: summary.failed.toLocaleString() },
-    { label: 'Distinct layouts', value: summary.distinctLayouts.toLocaleString(), hint: 'Unique fingerprints seen.' },
+  // The last two figures cover a recent window, not all time -- each says so on the tile itself,
+  // because a total and a windowed count side by side read as the same kind of number otherwise.
+  const recent = `In the last ${summary.analysesInWindow.toLocaleString()} uploads`;
+  const cells: { label: string; value: string; hint: string }[] = [
+    { label: 'Uploads analysed', value: summary.totalAnalysesEver.toLocaleString(), hint: 'Every statement upload ever tried, by customers or admins.' },
+    { label: 'Read', value: summary.parsed.toLocaleString(), hint: 'The engine got transactions out of the file.' },
+    { label: 'Failed', value: summary.failed.toLocaleString(), hint: 'The engine stopped. The table below says why.' },
+    { label: 'Statement formats', value: summary.distinctLayouts.toLocaleString(), hint: 'Different statement designs seen (by fingerprint).' },
+    { label: 'Transactions found', value: summary.rowsExtractedInWindow.toLocaleString(), hint: `${recent}.` },
     {
-      label: 'Rows extracted',
-      value: summary.rowsExtractedInWindow.toLocaleString(),
-      hint: `Across the last ${summary.analysesInWindow} analyses.`,
-    },
-    {
-      label: 'Rows unanchored',
+      label: 'Unmatched lines',
       value: summary.unanchoredRowsInWindow.toLocaleString(),
-      hint: 'Lines that could not become transactions. Read against rows extracted, not on its own.',
+      hint: `${recent}. Lines not attached to any transaction — not necessarily lost ones.`,
     },
   ];
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-px bg-border border border-border rounded-xl2 overflow-hidden shadow-card">
       {cells.map((cell) => (
-        <div key={cell.label} className="bg-card px-4 py-3" title={cell.hint}>
+        <div key={cell.label} className="bg-card px-4 py-3">
           <p className="text-xs text-muted uppercase tracking-wide">{cell.label}</p>
           <p className="text-lg font-semibold text-ink tabular-nums mt-0.5">{cell.value}</p>
+          <p className="text-xs text-muted mt-1 leading-snug">{cell.hint}</p>
         </div>
       ))}
     </div>
@@ -146,50 +179,70 @@ function AnalysisDetailPanel({ reference }: { reference: string }) {
   }
 
   const { analysis, timesLayoutSeen, timesLayoutFailed } = data;
+  const failed = analysis.outcome === 'FAILED';
+  const failure = failed ? describeFailure(analysis.failureCode) : null;
 
   return (
     <div className="space-y-4">
+      <p className={`text-sm rounded-lg px-3.5 py-2.5 ${failed ? 'text-danger bg-danger-bg' : 'text-success bg-success-bg'}`}>
+        {failure
+          ? <><strong>{failure.label}.</strong> {failure.meaning}</>
+          : <><strong>Read.</strong> The engine got transactions out of this file.</>}
+      </p>
+
       <div className="bg-card border border-border rounded-xl2 shadow-card divide-y divide-border">
-        <DetailRow label="Analysis" value={analysis.reference} mono />
-        <DetailRow label="Fingerprint" value={analysis.layoutFingerprint ?? 'Not characterised'} mono
-          hint={analysis.layoutFingerprint ? undefined : 'The document failed before its structure could be identified — an encrypted PDF with the wrong password never gets that far.'} />
-        <DetailRow label="Format" value={analysis.sourceFormat ?? '—'} />
-        <DetailRow label="Outcome" value={analysis.outcome === 'FAILED' ? (analysis.failureCode ?? 'FAILED') : 'PARSED'} />
+        <DetailRow label="Reference" value={analysis.reference} mono />
         <DetailRow
-          label="Rows extracted"
+          label="Statement format (fingerprint)"
+          value={analysis.layoutFingerprint ?? 'Not identified'}
+          mono
+          note={analysis.layoutFingerprint ? undefined : 'The file failed before its design could be identified — a PDF with the wrong password never gets that far.'}
+        />
+        <DetailRow label="File type" value={analysis.sourceFormat ?? '—'} />
+        {failed && <DetailRow label="Failure code" value={analysis.failureCode ?? '—'} mono />}
+        <DetailRow
+          label="Transactions found"
           value={analysis.rowCount == null ? 'Never measured' : analysis.rowCount.toLocaleString()}
-          hint={analysis.rowCount == null
-            ? 'Not the same as zero: this document failed before extraction was attempted.'
+          note={analysis.rowCount == null
+            ? 'Not the same as zero: the file failed before the engine tried to read transactions.'
             : undefined}
         />
-        <DetailRow label="Rows unanchored" value={analysis.unanchoredRowCount.toLocaleString()} />
-        <DetailRow label="Sections" value={analysis.sectionCount == null ? '—' : String(analysis.sectionCount)} />
-        <DetailRow label="Duration" value={formatDuration(analysis.durationMs)} />
-        <DetailRow label="Size" value={formatBytes(analysis.byteSize)} />
-        <DetailRow label="Recorded" value={formatWhen(analysis.createdAt)} />
+        <DetailRow
+          label="Unmatched lines"
+          value={analysis.rowCount == null ? 'Never measured' : analysis.unanchoredRowCount.toLocaleString()}
+        />
+        <DetailRow label="Transaction tables (sections)" value={analysis.sectionCount == null ? '—' : String(analysis.sectionCount)} />
+        <DetailRow label="Time taken" value={formatDuration(analysis.durationMs)} />
+        <DetailRow label="File size" value={formatBytes(analysis.byteSize)} />
+        <DetailRow label="When" value={formatWhen(analysis.createdAt)} />
       </div>
 
       {analysis.layoutFingerprint && (
         <section aria-labelledby="layout-history-heading" className="bg-card border border-border rounded-xl2 shadow-card">
           <h3 id="layout-history-heading" className="text-sm font-semibold text-ink px-4 pt-3">This layout</h3>
           <p className="text-sm text-muted px-4 pb-3 pt-1">
-            Seen <strong className="text-ink tabular-nums">{timesLayoutSeen.toLocaleString()}</strong>{' '}
-            {timesLayoutSeen === 1 ? 'time' : 'times'}, of which{' '}
+            This statement format has been uploaded{' '}
+            <strong className="text-ink tabular-nums">{timesLayoutSeen.toLocaleString()}</strong>{' '}
+            {timesLayoutSeen === 1 ? 'time' : 'times'}, and failed{' '}
             <strong className="text-ink tabular-nums">{timesLayoutFailed.toLocaleString()}</strong>{' '}
-            defeated the parser. {timesLayoutSeen === 1
-              ? 'First sighting — there is nothing yet to compare it against.'
-              : 'Read the two together: eleven failures out of twelve is a layout the engine cannot read; one out of twelve is a single odd document.'}
+            of them. {timesLayoutSeen === 1
+              ? 'This is the first time — nothing to compare it against yet.'
+              : 'Most uploads failing means the engine cannot read this format; one failure out of many points to one odd file.'}
           </p>
         </section>
       )}
 
       <section aria-labelledby="diagnostics-heading" className="bg-card border border-border rounded-xl2 shadow-card overflow-hidden">
         <h3 id="diagnostics-heading" className="text-sm font-semibold text-ink px-4 pt-3 pb-1">
-          Why rows did not anchor
+          Why lines were not matched
         </h3>
+        {/* Same rule as the row count: a file that failed before extraction has an empty
+            histogram because nothing was read, not because every line matched. */}
         <ReasonHistogram
           reasons={analysis.unanchoredReasons}
-          emptyLabel="Every row anchored — nothing was left unexplained in this document."
+          emptyLabel={analysis.rowCount == null
+            ? 'Not measured — the file failed before its lines were read.'
+            : 'Every line was matched to a transaction — nothing was left over in this file.'}
         />
       </section>
 
@@ -213,11 +266,14 @@ function AnalysisDetailPanel({ reference }: { reference: string }) {
   );
 }
 
-function DetailRow({ label, value, mono, hint }: { label: string; value: string; mono?: boolean; hint?: string }) {
+function DetailRow({ label, value, mono, note }: { label: string; value: string; mono?: boolean; note?: string }) {
   return (
-    <div className="flex items-center gap-3 px-4 py-2.5" title={hint}>
-      <span className="text-sm text-muted flex-1">{label}</span>
-      <span className={`text-sm text-ink text-right truncate max-w-[60%] ${mono ? 'font-mono' : ''}`}>{value}</span>
+    <div className="px-4 py-2.5">
+      <div className="flex items-center gap-3">
+        <span className="text-sm text-muted flex-1">{label}</span>
+        <span className={`text-sm text-ink text-right truncate max-w-[60%] ${mono ? 'font-mono' : ''}`} title={value}>{value}</span>
+      </div>
+      {note && <p className="text-xs text-muted mt-1">{note}</p>}
     </div>
   );
 }
@@ -240,16 +296,16 @@ function AnalysisTable({
   return (
     <div className="bg-card border border-border rounded-xl2 shadow-card overflow-x-auto">
       <table className="w-full text-sm">
-        <caption className="sr-only">Recent statement analyses, newest first</caption>
+        <caption className="sr-only">Statement uploads, newest first</caption>
         <thead>
-          <tr className="text-left text-xs text-muted uppercase tracking-wide border-b border-border">
-            <th scope="col" className="px-4 py-2.5 font-medium">Analysis</th>
-            <th scope="col" className="px-4 py-2.5 font-medium">Layout</th>
-            <th scope="col" className="px-4 py-2.5 font-medium">Outcome</th>
-            <th scope="col" className="px-4 py-2.5 font-medium text-right">Rows</th>
-            <th scope="col" className="px-4 py-2.5 font-medium text-right">Unanchored</th>
-            <th scope="col" className="px-4 py-2.5 font-medium text-right">Duration</th>
-            <th scope="col" className="px-4 py-2.5 font-medium">Recorded</th>
+          <tr className="text-left text-xs text-muted uppercase tracking-wide border-b border-border whitespace-nowrap">
+            <th scope="col" className="px-4 py-2.5 font-medium">Reference</th>
+            <th scope="col" className="px-4 py-2.5 font-medium">Statement format</th>
+            <th scope="col" className="px-4 py-2.5 font-medium">Result</th>
+            <th scope="col" className="px-4 py-2.5 font-medium text-right">Transactions</th>
+            <th scope="col" className="px-4 py-2.5 font-medium text-right">Unmatched lines</th>
+            <th scope="col" className="px-4 py-2.5 font-medium text-right">Time taken</th>
+            <th scope="col" className="px-4 py-2.5 font-medium">When</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
@@ -263,12 +319,14 @@ function AnalysisTable({
                   type="button"
                   onClick={() => onSelect(analysis.reference)}
                   aria-current={selected === analysis.reference ? 'true' : undefined}
-                  className="font-mono text-primary hover:underline"
+                  className="font-mono text-primary hover:underline whitespace-nowrap"
                 >
                   {analysis.reference}
                 </button>
               </th>
-              <td className="px-4 py-2.5 font-mono text-muted">{analysis.layoutFingerprint ?? '—'}</td>
+              <td className="px-4 py-2.5 font-mono text-muted whitespace-nowrap" title={analysis.layoutFingerprint ? undefined : 'Not identified — the file failed before its design could be read.'}>
+                {analysis.layoutFingerprint ?? '—'}
+              </td>
               <td className="px-4 py-2.5">
                 <OutcomeBadge outcome={analysis.outcome} failureCode={analysis.failureCode} />
               </td>
@@ -278,7 +336,7 @@ function AnalysisTable({
                 {analysis.rowCount == null ? '—' : analysis.rowCount.toLocaleString()}
               </td>
               <td className="px-4 py-2.5 text-right tabular-nums text-muted">
-                {analysis.unanchoredRowCount.toLocaleString()}
+                {analysis.rowCount == null ? '—' : analysis.unanchoredRowCount.toLocaleString()}
               </td>
               <td className="px-4 py-2.5 text-right tabular-nums text-muted">{formatDuration(analysis.durationMs)}</td>
               <td className="px-4 py-2.5 text-muted whitespace-nowrap">{formatWhen(analysis.createdAt)}</td>
@@ -287,6 +345,39 @@ function AnalysisTable({
         </tbody>
       </table>
     </div>
+  );
+}
+
+/**
+ * Every term the page uses, in plain words. Collapsed by default so it costs one line of height
+ * for someone who already knows them.
+ */
+function Glossary() {
+  const [open, setOpen] = useState(false);
+  return (
+    <section className="bg-card border border-border rounded-xl2 shadow-card overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-controls="layout-studio-glossary"
+        className="w-full flex items-center gap-2 px-4 py-3 text-sm font-medium text-ink hover:bg-bg text-left"
+      >
+        <HelpCircle size={14} className="text-primary" />
+        <span className="flex-1">What do these terms mean?</span>
+        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+      </button>
+      {open && (
+        <dl id="layout-studio-glossary" className="divide-y divide-border border-t border-border">
+          {GLOSSARY.map((term) => (
+            <div key={term.label} className="px-4 py-2.5">
+              <dt className="text-sm font-medium text-ink">{term.label}</dt>
+              <dd className="text-sm text-muted mt-0.5">{term.meaning}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </section>
   );
 }
 
@@ -327,9 +418,6 @@ function NotYetRecorded() {
   );
 }
 
-/** IMPORT_008 = encrypted, no password given. IMPORT_009 = password given and wrong. */
-const PASSWORD_CODES = ['IMPORT_008', 'IMPORT_009'];
-
 /**
  * Run the engine on a document without importing it.
  *
@@ -357,11 +445,14 @@ function AnalysisUploadPanel({ onAnalysed }: { onAnalysed: (reference: string) =
       // purpose, so the admin gets the evidence link precisely when the engine could not read the
       // document. The one failure worth interrupting for is a password, because that one the
       // admin can actually fix and retry.
-      if (outcome === 'FAILED' && failureCode && PASSWORD_CODES.includes(failureCode)) {
+      // The API returns the stored ErrorCode NAME (IMPORT_PDF_PASSWORD_REQUIRED), not the wire
+      // code (IMPORT_008); isPasswordFailure accepts both. Matching only the wire code meant this
+      // prompt never appeared for a real encrypted upload.
+      if (outcome === 'FAILED' && isPasswordFailure(failureCode)) {
         setNeedsPassword(true);
         notify.error('This document is encrypted. Enter its password and analyse again.');
       } else if (outcome === 'FAILED') {
-        notify.error(`Analysed — the engine could not read this document (${failureCode}).`);
+        notify.error(`Analysed — the engine could not read this document: ${describeFailure(failureCode).label}.`);
       } else {
         notify.success(`Analysed as ${reference}.`);
         setNeedsPassword(false);
@@ -430,6 +521,7 @@ function AnalysisUploadPanel({ onAnalysed }: { onAnalysed: (reference: string) =
 
 function LayoutStudioContent() {
   const [selected, setSelected] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
   const { hasPermission } = useAdminAuth();
 
   const summary = useQuery({
@@ -437,8 +529,11 @@ function LayoutStudioContent() {
     queryFn: () => adminStatementAnalysisApi.summary(),
   });
   const analyses = useQuery({
-    queryKey: ['admin-analyses'],
-    queryFn: () => adminStatementAnalysisApi.recent(50),
+    queryKey: ['admin-analyses', page],
+    queryFn: () => adminStatementAnalysisApi.paged(page, PAGE_SIZE),
+    // Keeps the current page on screen while the next one loads, instead of flashing "Loading…"
+    // and collapsing the page height on every click.
+    placeholderData: keepPreviousData,
   });
 
   const isLoading = summary.isLoading || analyses.isLoading;
@@ -450,6 +545,12 @@ function LayoutStudioContent() {
     void analyses.refetch();
   }
 
+  function showAnalysed(reference: string) {
+    // A new analysis is the newest row, so it is on the first page.
+    setPage(0);
+    setSelected(reference);
+  }
+
   if (isLoading) return <p className="text-muted text-sm">Loading…</p>;
   if (isError || !summary.data || !analyses.data) {
     return (
@@ -458,6 +559,8 @@ function LayoutStudioContent() {
       </p>
     );
   }
+
+  const pageData = analyses.data;
 
   return (
     <div className="space-y-6">
@@ -472,49 +575,64 @@ function LayoutStudioContent() {
         </button>
       </div>
 
-      {hasPermission('ENGINE_ANALYSIS_RUN') && <AnalysisUploadPanel onAnalysed={setSelected} />}
+      <Glossary />
+
+      {hasPermission('ENGINE_ANALYSIS_RUN') && <AnalysisUploadPanel onAnalysed={showAnalysed} />}
 
       <SummaryStrip summary={summary.data} />
+
+      <section aria-labelledby="analyses-heading" className="space-y-3">
+        <div className="flex items-center gap-2">
+          <FileSearch size={16} className="text-primary" />
+          <h2 id="analyses-heading" className="text-sm font-semibold text-muted uppercase tracking-wide">
+            All uploads
+          </h2>
+          <span className="text-xs text-muted">newest first · click a reference for details</span>
+        </div>
+        <AnalysisTable analyses={pageData.content} selected={selected} onSelect={setSelected} />
+        {/* The requested page, not pageData.page: while the next page loads, placeholderData still
+            holds the previous response, so a second quick click would re-request the same page. */}
+        <Pagination
+          page={page}
+          totalPages={pageData.totalPages}
+          totalElements={pageData.totalElements}
+          pageSize={pageData.size}
+          onPageChange={setPage}
+        />
+      </section>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section aria-labelledby="engine-reasons-heading" className="bg-card border border-border rounded-xl2 shadow-card overflow-hidden">
           <div className="flex items-center gap-2 px-4 pt-3">
             <Layers size={14} className="text-primary" />
             <h2 id="engine-reasons-heading" className="text-sm font-semibold text-ink">
-              Why rows did not anchor, across the last {summary.data.analysesInWindow}
+              Why lines were not matched, in the last {summary.data.analysesInWindow.toLocaleString()} uploads
             </h2>
           </div>
           <p className="text-sm text-muted px-4 pt-1 pb-2">
-            One reason dominating across many documents describes a missing capability. The same
-            reason confined to a single document describes that document.
+            A reason that is large across many uploads points to something the engine cannot do yet.
+            The same reason in only one upload points to that one file.
           </p>
           <ReasonHistogram
             reasons={summary.data.unanchoredReasons}
-            emptyLabel="Every row anchored in every analysed document."
+            emptyLabel="Every line was matched to a transaction in every analysed upload."
           />
         </section>
 
         <NotYetRecorded />
       </div>
 
-      <section aria-labelledby="analyses-heading" className="space-y-3">
-        <div className="flex items-center gap-2">
-          <FileSearch size={16} className="text-primary" />
-          <h2 id="analyses-heading" className="text-sm font-semibold text-muted uppercase tracking-wide">
-            Recent analyses
-          </h2>
-        </div>
-        <AnalysisTable analyses={analyses.data} selected={selected} onSelect={setSelected} />
-      </section>
-
-      {selected && (
-        <section aria-labelledby="selected-heading" className="space-y-3">
-          <h2 id="selected-heading" className="text-sm font-semibold text-muted uppercase tracking-wide">
-            {selected}
-          </h2>
-          <AnalysisDetailPanel reference={selected} />
-        </section>
-      )}
+      <EntityDrawer
+        open={selected !== null}
+        onClose={() => setSelected(null)}
+        title={selected ?? ''}
+        subtitle="One upload attempt"
+        tabs={[{
+          id: 'summary',
+          label: 'Summary',
+          content: selected ? <AnalysisDetailPanel reference={selected} /> : null,
+        }]}
+      />
     </div>
   );
 }

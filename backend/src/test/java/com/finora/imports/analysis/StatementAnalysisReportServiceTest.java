@@ -171,4 +171,47 @@ class StatementAnalysisReportServiceTest {
         org.mockito.Mockito.verify(repository).findAllByOrderByCreatedAtDesc(pageable.capture());
         assertThat(pageable.getValue().getPageSize()).isEqualTo(500);
     }
+
+    @Test
+    void aPageIsBoundedAndClampedSoOneCallCannotPullTheWholeTable() {
+        when(repository.findAllByOrderByCreatedAtDescIdDesc(any(Pageable.class)))
+                .thenReturn(org.springframework.data.domain.Page.empty());
+
+        service.page(-3, 100_000);
+
+        var pageable = org.mockito.ArgumentCaptor.forClass(Pageable.class);
+        org.mockito.Mockito.verify(repository).findAllByOrderByCreatedAtDescIdDesc(pageable.capture());
+        assertThat(pageable.getValue().getPageNumber()).isZero();
+        assertThat(pageable.getValue().getPageSize()).isEqualTo(StatementAnalysisReportService.MAX_PAGE_SIZE);
+    }
+
+    @Test
+    void aZeroSizeStillAsksForOneRowRatherThanFailing() {
+        // PageRequest.of throws on size 0; a bad query parameter must not become a 500.
+        when(repository.findAllByOrderByCreatedAtDescIdDesc(any(Pageable.class)))
+                .thenReturn(org.springframework.data.domain.Page.empty());
+
+        service.page(0, 0);
+
+        var pageable = org.mockito.ArgumentCaptor.forClass(Pageable.class);
+        org.mockito.Mockito.verify(repository).findAllByOrderByCreatedAtDescIdDesc(pageable.capture());
+        assertThat(pageable.getValue().getPageSize()).isEqualTo(1);
+    }
+
+    @Test
+    void aPageCarriesTheTotalsAPagerNeeds() {
+        var request = org.springframework.data.domain.PageRequest.of(1, 2);
+        when(repository.findAllByOrderByCreatedAtDescIdDesc(any(Pageable.class)))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(
+                        List.of(parsed("SA-3", "FP-A", 4, null)), request, 5));
+
+        var page = service.page(1, 2);
+
+        assertThat(page.content()).extracting(StatementAnalysisReportService.AnalysisView::reference)
+                .containsExactly("SA-3");
+        assertThat(page.page()).isEqualTo(1);
+        assertThat(page.size()).isEqualTo(2);
+        assertThat(page.totalElements()).isEqualTo(5);
+        assertThat(page.totalPages()).isEqualTo(3);
+    }
 }

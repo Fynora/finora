@@ -119,6 +119,60 @@ class AdminStatementAnalysisControllerIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void plainUser_isForbiddenFromThePagedAnalyses() {
+        User user = createUser("USER");
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/admin/imports/analyses/paged", HttpMethod.GET, new HttpEntity<>(bearerFor(user)), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    void admin_pagesThroughAnalysesWithoutOverlap() throws Exception {
+        // The table is shared across every IT, so this asserts on shape and on the rows it wrote
+        // itself, never on an exact total.
+        User admin = createUser("ADMIN");
+        for (int i = 0; i < 3; i++) {
+            analysisRepository.save(StatementAnalysisSession.parsed(
+                    "SA-" + UUID.randomUUID().toString().replace("-", "").substring(0, 20),
+                    admin.getId(), StatementAnalysisSession.Source.ADMIN_ANALYSIS,
+                    "statement.pdf", "PDF", 1L, "FP-PAGED", 1, 1L, 1, null));
+        }
+
+        JsonNode first = pagedAs(admin, 0, 2);
+        JsonNode second = pagedAs(admin, 1, 2);
+
+        assertThat(first.path("content")).hasSize(2);
+        assertThat(first.path("page").asInt()).isZero();
+        assertThat(first.path("size").asInt()).isEqualTo(2);
+        assertThat(first.path("totalElements").asLong()).isGreaterThanOrEqualTo(3);
+        assertThat(first.path("totalPages").asInt()).isGreaterThanOrEqualTo(2);
+        assertThat(second.path("page").asInt()).isEqualTo(1);
+
+        var firstRefs = new java.util.HashSet<String>();
+        first.path("content").forEach(n -> firstRefs.add(n.path("reference").asText()));
+        second.path("content").forEach(n ->
+                assertThat(firstRefs).doesNotContain(n.path("reference").asText()));
+        // No file name or user id on this endpoint either -- same boundary as the rest of the page.
+        assertThat(first.toString()).doesNotContain("statement.pdf").doesNotContain(admin.getId().toString());
+    }
+
+    @Test
+    void admin_askingForAHugePage_getsTheCappedSize() throws Exception {
+        User admin = createUser("ADMIN");
+        assertThat(pagedAs(admin, 0, 100_000).path("size").asInt()).isEqualTo(100);
+    }
+
+    private JsonNode pagedAs(User user, int page, int size) throws Exception {
+        URI uri = UriComponentsBuilder.fromPath("/api/v1/admin/imports/analyses/paged")
+                .queryParam("page", page).queryParam("size", size).build().toUri();
+        ResponseEntity<String> response = restTemplate.exchange(
+                uri, HttpMethod.GET, new HttpEntity<>(bearerFor(user)), String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        return mapper.readTree(response.getBody()).path("data");
+    }
+
+    @Test
     void admin_canSeeTheSummary() {
         User admin = createUser("ADMIN");
         ResponseEntity<String> response = restTemplate.exchange(

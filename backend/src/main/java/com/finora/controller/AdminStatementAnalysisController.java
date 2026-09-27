@@ -1,6 +1,7 @@
 package com.finora.controller;
 
 import com.finora.dto.ApiResponse;
+import com.finora.dto.PagedResponse;
 import com.finora.dto.ImportDto.FailureCountDto;
 import com.finora.dto.ImportDto.ImportFailureSummaryDto;
 import com.finora.entity.User;
@@ -126,6 +127,17 @@ public class AdminStatementAnalysisController {
     public ApiResponse<List<AnalysisView>> recent(
             @RequestParam(required = false, defaultValue = "" + DEFAULT_LIMIT) int limit) {
         return ApiResponse.ok(reportService.recent(limit));
+    }
+
+    /**
+     * Every upload attempt, a page at a time, newest first -- the Layout Studio table's pager.
+     * {@code size} is capped server-side, so a large value cannot pull the whole table.
+     */
+    @GetMapping("/paged")
+    public ApiResponse<PagedResponse<AnalysisView>> paged(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ApiResponse.ok(reportService.page(page, size));
     }
 
     /**

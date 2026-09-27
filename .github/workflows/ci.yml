@@ -438,7 +438,8 @@ jobs:
     name: Re-check open PRs' migration order
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # Mostly idle: long enough to wait out open PRs' in-progress CI runs (median ~4 min).
+    timeout-minutes: 30
     permissions:
       actions: write
       contents: read
@@ -479,6 +480,13 @@ jobs:
             if [ -z "$job" ]; then
               echo "::warning::#$pr: run $run has no Migration version order job (predates it?)."
               continue
+            fi
+            # GitHub refuses to re-run a job while its run is still going (403 "The workflow run
+            # containing this job is already running" -- measured on #1819), and this job may have
+            # finished before main moved. So wait for the run, then re-run it.
+            if [ "$(gh run view "$run" --json status --jq .status)" != completed ]; then
+              echo "#$pr: run $run still in progress; waiting for it before re-running."
+              gh run watch "$run" --interval 20 > /dev/null || true
             fi
             if gh api -X POST "repos/$GH_REPO/actions/jobs/$job/rerun" --silent; then
               echo "#$pr: re-running Migration version order (run $run, job $job)."

@@ -29,11 +29,17 @@ describe('importFailureMessage', () => {
   // Every code that has a message also has a plain headline: a message with no headline leaves the
   // card leading with a generic error, which is what a user reads first.
   it('has a headline for every code that has a message', () => {
-    const codes = ['IMPORT_001', 'IMPORT_007', 'IMPORT_008', 'IMPORT_010', 'IMPORT_011', 'IMPORT_013', 'IMPORT_014', 'IMPORT_015', 'IMPORT_017'];
+    const codes = ['IMPORT_001', 'IMPORT_007', 'IMPORT_008', 'IMPORT_010', 'IMPORT_011', 'IMPORT_013', 'IMPORT_014', 'IMPORT_015', 'IMPORT_017', 'IMPORT_018'];
     for (const code of codes) {
       expect([code, importFailureMessage(code) !== undefined]).toEqual([code, true]);
       expect([code, importFailureTitle(code) !== undefined]).toEqual([code, true]);
     }
+  });
+
+  it('says what a Paytm payment history is and what to import instead', () => {
+    expect(importFailureMessage('IMPORT_018')).toMatch(/paytm payment history.*not a bank statement/i);
+    expect(importFailureMessage('IMPORT_018')).toMatch(/import those bank statements instead/i);
+    expect(importFailureTitle('IMPORT_018')).toBe('This is a Paytm payment history');
   });
 
   it('says what to do when a CSV is malformed, in plain words', () => {

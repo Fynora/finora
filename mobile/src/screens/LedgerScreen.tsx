@@ -838,7 +838,7 @@ export function LedgerScreen() {
               accessibilityHint="Opens transaction details"
             >
               <View style={styles.logoWrap}>
-                <MerchantLogo merchant={t.merchant || t.description || '?'} size={40} />
+                <MerchantLogo merchant={t.merchant || t.description || '?'} size={40} person={t.counterpartyType === 'PERSON'} />
               </View>
               <View style={styles.rowMain}>
                 <Text style={[styles.desc, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>

@@ -652,6 +652,9 @@ public class StatementImportService {
         List<Transaction> rows = transactionRepository.findByStatementImportId(original.getId());
         Account account = accountRepository.findById(original.getAccountId()).orElse(null);
         boolean reapply = false;
+        // Live again before its rows are located: a replaced statement's rows sit nowhere
+        // (RowBalanceEffect), so locating them first would put nothing back.
+        original.setSupersededBy(null);
         if (account != null) {
             switch (original.getBalanceApplicationMode()) {
                 case ADDITIVE -> {
@@ -662,10 +665,24 @@ public class StatementImportService {
                             .toList();
                     BigDecimal before = account.getBalance();
                     com.finora.accounts.RowBalanceEffect.Chain chain = rowBalanceEffect.chainOf(account);
+                    List<Transaction> markedCopies = new ArrayList<>();
                     for (Transaction t : contributing) {
-                        rowBalanceEffect.apply(account, rowBalanceEffect.locate(account, t, original, chain),
+                        com.finora.accounts.RowBalanceEffect.Location location = rowBalanceEffect.locate(account, t, original, chain);
+                        // A row marked a duplicate while replaced (supersede recorded every mark it
+                        // took off as taken off): the mark says it does not count, so its effect
+                        // stays off, recorded as off -- the state a mark on a live row leaves.
+                        if (t.getIsDuplicateOf() != null) {
+                            if (location.where() != com.finora.accounts.RowBalanceEffect.Where.NOWHERE) {
+                                t.setDuplicateBalanceReversed(true);
+                                t.setDuplicateBalanceAnchorId(null);
+                                markedCopies.add(t);
+                            }
+                            continue;
+                        }
+                        rowBalanceEffect.apply(account, location,
                                 AccountBalanceConvention.balanceDelta(account.getAccountType(), t.getTxnType(), t.getAmount()));
                     }
+                    if (!markedCopies.isEmpty()) transactionRepository.saveAll(markedCopies);
                     if (account.getBalance().compareTo(before) != 0) accountRepository.save(account);
                 }
                 case ABSOLUTE -> reapply = !rowBalanceEffect.inChain(account, original.getId());
@@ -682,7 +699,6 @@ public class StatementImportService {
             revived.add(t);
         }
         if (!revived.isEmpty()) transactionRepository.saveAll(revived);
-        original.setSupersededBy(null);
         statementImportRepository.save(original);
         return reapply;
     }

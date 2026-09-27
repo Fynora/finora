@@ -2218,14 +2218,17 @@ public class ReconciliationService {
                     // A manual entry dated inside the figure that held the balance when it was
                     // entered never moved it (Transaction.balanceCoveredThrough), like a covered
                     // statement row: nothing to take off, and no SET's snapshot holds it separately.
-                    boolean coveredEntry = com.finora.accounts.AccountBalanceConvention.manualRowInsideStatedFigure(t);
-                    boolean reversed = !coveredEntry && com.finora.accounts.AccountBalanceConvention
+                    boolean effectNotInBalance = com.finora.accounts.AccountBalanceConvention.manualRowInsideStatedFigure(t)
+                            // A replaced statement's row: replacing it already took its effect off
+                            // (RowBalanceEffect says the same for its edits and deletes).
+                            || (si != null && si.getSupersededBy() != null);
+                    boolean reversed = !effectNotInBalance && com.finora.accounts.AccountBalanceConvention
                             .netEffectIsInBalance(t.getSource(), mode, t.getCreatedAt(), anchoredAt);
                     // Recorded on the row, for the sites that later clear the mark or remove the
                     // row (see Transaction.duplicateBalanceReversed). A row kept out of the balance
                     // only by the live SET has its effect in that SET's pre-set snapshot: it is
                     // held by the SET, and reversed if the SET ever is.
-                    boolean heldByAnchor = !reversed && !coveredEntry && anchor != null
+                    boolean heldByAnchor = !reversed && !effectNotInBalance && anchor != null
                             && com.finora.accounts.AccountBalanceConvention
                                     .netEffectIsInBalance(t.getSource(), mode, t.getCreatedAt(), null)
                             // Inside the typed figure instead (older than the typing): no SET's

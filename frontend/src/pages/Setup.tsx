@@ -89,7 +89,10 @@ export default function Setup() {
     setSaving(true);
     try {
       await accountsApi.create({
-        name, accountType: type, balance: parseFloat(balance || '0'),
+        // A blank box sends no balance, not 0: the server records a balance it is given as one the
+        // user stated today, and a stated 0 would make every older statement uploaded afterwards
+        // look already counted. The account still starts at 0 either way.
+        name, accountType: type, balance: balance.trim() ? parseFloat(balance) : undefined,
         creditLimit: type === 'CREDIT_CARD' ? parseFloat(limit || '0') : undefined,
         dueDate: type === 'CREDIT_CARD' ? dueDate || undefined : undefined,
         accountHolderName: holderName.trim() || undefined,

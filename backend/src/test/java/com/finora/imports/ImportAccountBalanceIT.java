@@ -207,9 +207,10 @@ class ImportAccountBalanceIT extends AbstractIntegrationTest {
         // printed a statement period -- statementPeriodStart/End round-trip as null, same as a real
         // Kotak-shaped document with nothing printed. Its stated closing balance is corroborated, so
         // it becomes authoritative (nothing else exists yet to compare it against).
-        importRows(f, new BigDecimal("1000.00"), new BigDecimal("1455.00"),
+        // The two statements chain: B (5 Jul) runs 1000 -> 1200, A (20 Jul) runs 1200 -> 1655.
+        importRows(f, new BigDecimal("1200.00"), new BigDecimal("1655.00"),
                 row(LocalDate.of(2026, 7, 20), "SALARY", "455.00", "INCOME"));
-        assertThat(balanceOf(f)).isEqualByComparingTo("1455.00");
+        assertThat(balanceOf(f)).isEqualByComparingTo("1655.00");
 
         // Statement B: an OLDER statement (5 Jul), imported second. Its own closing balance is also
         // corroborated, so ClosingBalanceGuard alone would allow it to overwrite the account balance
@@ -221,15 +222,18 @@ class ImportAccountBalanceIT extends AbstractIntegrationTest {
         // all") -- treating B as the newest statement on file despite A being three weeks more
         // recent, and overwriting the account balance with B's stale 1200.00. The fix disambiguates
         // "no siblings" from "siblings exist but none states a period" via a COUNT query, so B is
-        // correctly refused authority and its own 200.00 ledger delta is applied on top of A's
-        // balance instead.
+        // correctly refused authority.
+        //
+        // Nor may B add its own +200 on top: A's closing balance already holds it (A opened at
+        // 1200, B's close). This test used to expect B's +200 stacked on A's figure, against figures
+        // that did not chain -- A opening at 1000 -- which is why out-of-order uploads double-counted
+        // older months without any test noticing. An undated A is known as of its last row (20 Jul).
         importRows(f, new BigDecimal("1000.00"), new BigDecimal("1200.00"),
                 row(LocalDate.of(2026, 7, 5), "OLD SALARY", "200.00", "INCOME"));
 
         assertThat(balanceOf(f))
-                .as("B is genuinely older than A, so it must not overwrite A's already-applied "
-                        + "balance with its own stale closing figure -- only its ledger delta (+200) "
-                        + "applies on top of A's 1455.00")
+                .as("B is genuinely older than A, so it must neither overwrite A's balance with its "
+                        + "own stale closing figure nor add its +200, which A's closing already holds")
                 .isEqualByComparingTo("1655.00");
     }
 
@@ -519,5 +523,192 @@ class ImportAccountBalanceIT extends AbstractIntegrationTest {
         } finally {
             logger.detachAppender(appender);
         }
+    }
+
+    // ---- statements imported out of month order ----
+    //
+    // One savings account, March to July 2026, each month opening where the previous one closed:
+    // SALARY +500 on the 1st, RENT -200 on the 10th, so every month nets +300. March opens at
+    // 1000.00, so the months close at 1300, 1600, 1900, 2200 and 2500. Uploaded in order the
+    // balance ends at 2500. Uploaded as March, July, April, June, May it used to end at 3400: once
+    // July's closing balance was on the account, each older month's rows were added on top of a
+    // figure that already contained them.
+
+    private static BigDecimal openingOf(int month) {
+        return new BigDecimal("1000.00").add(new BigDecimal("300.00").multiply(BigDecimal.valueOf(month - 3)));
+    }
+
+    private static BigDecimal closingOf(int month) {
+        return openingOf(month).add(new BigDecimal("300.00"));
+    }
+
+    private List<ConfirmedRow> monthRows(int month) {
+        return List.of(row(LocalDate.of(2026, month, 1), "SALARY 2026-" + month, "500.00", "INCOME"),
+                row(LocalDate.of(2026, month, 10), "RENT 2026-" + month, "200.00", "EXPENSE"));
+    }
+
+    /** Imports one month into {@code accountId} and returns the new statement's id. */
+    private UUID importMonth(UUID userId, UUID accountId, NewAccountRequest newAccount, int month,
+                             boolean withBalances) throws Exception {
+        LocalDate start = LocalDate.of(2026, month, 1);
+        importService.confirm(userId, statementFile(), new ConfirmRequest(null, monthRows(month),
+                accountId, newAccount,
+                withBalances ? openingOf(month) : null, withBalances ? closingOf(month) : null, null,
+                start, start.withDayOfMonth(start.lengthOfMonth())));
+        return statementImportRepository.findMetadataByUserIdOrderByImportedAtDesc(userId).get(0).getId();
+    }
+
+    private BigDecimal balanceOf(UUID accountId) {
+        return accountRepository.findById(accountId).orElseThrow().getBalance();
+    }
+
+    @Test
+    @DisplayName("March, July, April, June, May with stated closing balances ends on July's closing balance")
+    void outOfOrderMonthsWithClosingBalances_endOnTheLatestClosingBalance() throws Exception {
+        Fixture f = fixture(Account.Type.SAVINGS, "1000.00");
+        UUID user = f.user().getId();
+        UUID account = f.account().getId();
+
+        importMonth(user, account, null, 3, true);
+        assertThat(balanceOf(account)).isEqualByComparingTo("1300.00");
+        importMonth(user, account, null, 7, true);
+        assertThat(balanceOf(account)).isEqualByComparingTo("2500.00");
+        for (int month : new int[] {4, 6, 5}) {
+            importMonth(user, account, null, month, true);
+            assertThat(balanceOf(account))
+                    .as("month %d is already inside July's closing balance; adding it again counts it twice", month)
+                    .isEqualByComparingTo("2500.00");
+        }
+    }
+
+    @Test
+    @DisplayName("July first, then older months, with no stated closing balances ends on the true balance")
+    void newAccountFromALaterMonth_olderMonthsWithoutClosingBalances_doNotMoveTheBalance() throws Exception {
+        User user = userOnly();
+        NewAccountRequest newAccount = new NewAccountRequest("Out Of Order Savings", "SAVINGS",
+                openingOf(7), null, null,
+                null, null,
+                null,
+                null, null,
+                null, null,
+                null, null, null,
+                null, null,
+                null, null);
+        importMonth(user.getId(), null, newAccount, 7, false);
+        UUID account = accountRepository.findByUserId(user.getId()).get(0).getId();
+        assertThat(balanceOf(account)).isEqualByComparingTo("2500.00");
+
+        for (int month : new int[] {6, 5, 4, 3}) {
+            importMonth(user.getId(), account, null, month, false);
+            assertThat(balanceOf(account))
+                    .as("the account opened at July's opening balance, which already holds month %d", month)
+                    .isEqualByComparingTo("2500.00");
+        }
+    }
+
+    @Test
+    @DisplayName("deleting the latest statement hands the months it covered back to the balance")
+    void deletingTheCoveringStatement_restoresTheMonthsItCovered() throws Exception {
+        Fixture f = fixture(Account.Type.SAVINGS, "1000.00");
+        UUID user = f.user().getId();
+        UUID account = f.account().getId();
+        importMonth(user, account, null, 3, true);
+        UUID july = importMonth(user, account, null, 7, true);
+        importMonth(user, account, null, 4, true);
+        importMonth(user, account, null, 6, true);
+        importMonth(user, account, null, 5, true);
+        assertThat(balanceOf(account)).isEqualByComparingTo("2500.00");
+
+        statementImportService.delete(user, july, user);
+
+        assertThat(balanceOf(account))
+                .as("without July, June's closing balance is where the account ends")
+                .isEqualByComparingTo("2200.00");
+    }
+
+    @Test
+    @DisplayName("deleting a covered month moves nothing, and stays out if the covering statement goes too")
+    void deletingACoveredMonth_movesNothing() throws Exception {
+        Fixture f = fixture(Account.Type.SAVINGS, "1000.00");
+        UUID user = f.user().getId();
+        UUID account = f.account().getId();
+        importMonth(user, account, null, 3, true);
+        UUID july = importMonth(user, account, null, 7, true);
+        UUID april = importMonth(user, account, null, 4, true);
+        importMonth(user, account, null, 6, true);
+        importMonth(user, account, null, 5, true);
+
+        statementImportService.delete(user, april, user);
+        assertThat(balanceOf(account))
+                .as("April never moved the balance, so removing it must not either")
+                .isEqualByComparingTo("2500.00");
+
+        statementImportService.delete(user, july, user);
+        assertThat(balanceOf(account))
+                .as("March's 1300 plus May and June (+300 each); April is gone from the ledger")
+                .isEqualByComparingTo("1900.00");
+    }
+
+    @Test
+    @DisplayName("a statement that runs past the covered date moves the balance by its later rows only")
+    void aStatementStraddlingTheCoveredDate_movesOnlyByItsLaterRows() throws Exception {
+        Fixture f = fixture(Account.Type.SAVINGS, "1000.00");
+        UUID user = f.user().getId();
+        UUID account = f.account().getId();
+        importMonth(user, account, null, 7, true);
+        assertThat(balanceOf(account)).isEqualByComparingTo("2500.00");
+
+        // 20 July to 10 August, no closing balance stated. Its July rows are inside July's closing
+        // balance already; its August row is not.
+        importService.confirm(user, statementFile(), new ConfirmRequest(null, List.of(
+                        row(LocalDate.of(2026, 7, 25), "COFFEE", "50.00", "EXPENSE"),
+                        row(LocalDate.of(2026, 8, 5), "BOOKS", "80.00", "EXPENSE")),
+                account, null, null, null, null, LocalDate.of(2026, 7, 20), LocalDate.of(2026, 8, 10)));
+        assertThat(balanceOf(account)).isEqualByComparingTo("2420.00");
+
+        UUID straddling = statementImportRepository.findMetadataByUserIdOrderByImportedAtDesc(user).get(0).getId();
+        statementImportService.delete(user, straddling, user);
+        assertThat(balanceOf(account))
+                .as("deleting it reverses exactly what it applied: the August row, not the July one")
+                .isEqualByComparingTo("2500.00");
+    }
+
+    @Test
+    @DisplayName("replacing a statement reverses only the rows it had applied")
+    void supersedingAStatement_reversesOnlyItsUncoveredRows() throws Exception {
+        Fixture f = fixture(Account.Type.SAVINGS, "1000.00");
+        UUID user = f.user().getId();
+        UUID account = f.account().getId();
+        importMonth(user, account, null, 7, true);
+
+        // A covered month and a straddling statement, each then replaced by a corrected copy of the
+        // same period (different amounts, so nothing is skipped as a duplicate).
+        UUID april = importMonth(user, account, null, 4, true);
+        importService.confirm(user, statementFile(), new ConfirmRequest(null, List.of(
+                        row(LocalDate.of(2026, 4, 1), "SALARY CORRECTED", "510.00", "INCOME")),
+                account, null, null, null, null, LocalDate.of(2026, 4, 1), LocalDate.of(2026, 4, 30)));
+        UUID aprilFix = statementImportRepository.findMetadataByUserIdOrderByImportedAtDesc(user).get(0).getId();
+        assertThat(balanceOf(account)).isEqualByComparingTo("2500.00");
+        statementImportService.supersede(user, april, aprilFix);
+        assertThat(balanceOf(account))
+                .as("the replaced April never moved the balance, so replacing it reverses nothing")
+                .isEqualByComparingTo("2500.00");
+
+        importService.confirm(user, statementFile(), new ConfirmRequest(null, List.of(
+                        row(LocalDate.of(2026, 7, 25), "COFFEE", "50.00", "EXPENSE"),
+                        row(LocalDate.of(2026, 8, 5), "BOOKS", "80.00", "EXPENSE")),
+                account, null, null, null, null, LocalDate.of(2026, 7, 20), LocalDate.of(2026, 8, 10)));
+        UUID straddling = statementImportRepository.findMetadataByUserIdOrderByImportedAtDesc(user).get(0).getId();
+        importService.confirm(user, statementFile(), new ConfirmRequest(null, List.of(
+                        row(LocalDate.of(2026, 7, 25), "COFFEE SHOP", "50.00", "EXPENSE"),
+                        row(LocalDate.of(2026, 8, 5), "BOOKS AND MORE", "90.00", "EXPENSE")),
+                account, null, null, null, null, LocalDate.of(2026, 7, 20), LocalDate.of(2026, 8, 10)));
+        UUID straddlingFix = statementImportRepository.findMetadataByUserIdOrderByImportedAtDesc(user).get(0).getId();
+        assertThat(balanceOf(account)).isEqualByComparingTo("2330.00");
+        statementImportService.supersede(user, straddling, straddlingFix);
+        assertThat(balanceOf(account))
+                .as("July's 2500 less only the replacement's August row (90); the July rows of both "
+                        + "copies were inside July's closing balance all along")
+                .isEqualByComparingTo("2410.00");
     }
 }

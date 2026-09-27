@@ -263,4 +263,20 @@ public final class DataExportDto {
                     r.getDirection() == null ? null : r.getDirection().name(), r.getCategoryId(), categoryName, r.getResolvedAt());
         }
     }
+
+    /** Plan 2: a kind the user can give money coming in, and whether it counts as income. */
+    public record InflowKindExportDto(UUID id, String name, boolean countsAsIncome, String builtIn) {
+        public static InflowKindExportDto from(com.finora.entity.InflowKind k) {
+            return new InflowKindExportDto(k.getId(), k.getName(), k.isCountsAsIncome(),
+                    k.getBuiltIn() == null ? null : k.getBuiltIn().name());
+        }
+    }
+
+    /** Plan 2: "every payment from this sender is <kind>". {@code senderKey} is the key Finora
+     *  derives from the payment narration (a UPI handle, or a name fragment). */
+    public record SenderInflowRuleExportDto(UUID id, String senderKey, UUID inflowKindId, String kindName,
+                                            java.time.Instant updatedAt) {}
+
+    /** Plan 2: a kind the user chose for one payment on its own. */
+    public record PaymentInflowChoiceExportDto(UUID transactionId, UUID inflowKindId, String kindName) {}
 }

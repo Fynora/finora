@@ -89,6 +89,10 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     interface CounterpartyBackfillRow {
         UUID getId();
         String getDescription();
+        /** Whose row, and the key it carries now -- so a re-key can carry that user's remembered
+         *  sender (sender_inflow_rules, Plan 2) over to the new key. */
+        UUID getUserId();
+        String getCounterpartyKey();
     }
 
     /**
@@ -113,7 +117,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
      * version comparison alone will happily overwrite a human's answer.
      */
     @Query("""
-            SELECT t.id AS id, t.description AS description
+            SELECT t.id AS id, t.description AS description, t.userId AS userId, t.counterpartyKey AS counterpartyKey
             FROM Transaction t
             WHERE t.counterpartyClassifierVersion IS NULL
                OR t.counterpartyClassifierVersion < :version
@@ -664,16 +668,23 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
             nativeQuery = true)
     long countLiveByInflowKindId(@Param("kindId") UUID kindId);
 
-    /** A soft-deleted row still holds its FK; clearing it lets a kind the user can no longer see in
-     *  use be deleted. Bumps version like every bulk transactions write (ChangeStampBulkWriteGuardTest). */
+    /** Clears row choices of this kind that can never apply and that the user has no way to see:
+     *  on a soft-deleted row, or on a row since edited into a debit (a debit has no kind and no
+     *  "Counts as" row). Without this they would keep the kind "in use", or trip the FK on delete.
+     *  Bumps version like every bulk transactions write (ChangeStampBulkWriteGuardTest). */
     @Modifying
     @Query(value = "UPDATE transactions SET inflow_kind_id = NULL, version = version + 1 "
-            + "WHERE inflow_kind_id = :kindId AND deleted_at IS NOT NULL", nativeQuery = true)
-    int clearInflowKindOnDeletedRows(@Param("kindId") UUID kindId);
+            + "WHERE inflow_kind_id = :kindId AND (deleted_at IS NOT NULL OR txn_type = 'EXPENSE')", nativeQuery = true)
+    int clearUnreachableInflowKindChoices(@Param("kindId") UUID kindId);
 
-    /** How many live credits a sender rule reaches -- shown before and after a SENDER choice. */
-    @Query(value = "SELECT count(*) FROM transactions WHERE user_id = :userId AND counterparty_key = :key "
-            + "AND txn_type <> 'EXPENSE' AND deleted_at IS NULL", nativeQuery = true)
+    /** The credits a SENDER choice changes -- the "(N)" in "Every payment from X (N)". Leaves out
+     *  what the choice cannot reach: debits, a matched transfer, refund or reversal leg (those keep
+     *  their own reading), a duplicate, and rows on a deleted account (their transactions keep
+     *  deleted_at unset, see DashboardService). */
+    @Query(value = "SELECT count(*) FROM transactions t WHERE t.user_id = :userId AND t.counterparty_key = :key "
+            + "AND t.txn_type <> 'EXPENSE' AND t.deleted_at IS NULL AND NOT t.is_transfer "
+            + "AND t.reconciliation_status NOT IN ('REFUND', 'REVERSAL') AND t.is_duplicate_of IS NULL "
+            + "AND t.account_id IN (SELECT a.id FROM accounts a WHERE a.deleted_at IS NULL)", nativeQuery = true)
     long countLiveCreditsBySender(@Param("userId") UUID userId, @Param("key") String key);
 
     Optional<Transaction> findFirstByUserIdAndCounterpartyKeyOrderByTxnDateDesc(UUID userId, String counterpartyKey);

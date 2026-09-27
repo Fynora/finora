@@ -49,6 +49,8 @@ class CounterpartyBackfillSweepIT extends AbstractIntegrationTest {
     @Autowired private TransactionRepository transactionRepository;
     @Autowired private AccountRepository accountRepository;
     @Autowired private UserRepository userRepository;
+    @Autowired private com.finora.repository.InflowKindRepository inflowKindRepository;
+    @Autowired private com.finora.repository.SenderInflowRuleRepository senderInflowRuleRepository;
 
     private UUID userId;
     private UUID accountId;
@@ -122,6 +124,62 @@ class CounterpartyBackfillSweepIT extends AbstractIntegrationTest {
         // NULL, not "" -- two "no key" representations would become two groups in the GROUP BY the
         // value-weighted review runs, and Postgres is where that distinction is real.
         assertThat(reload(withoutKey).getCounterpartyKey()).isNull();
+    }
+
+    /**
+     * Plan 2: a user's remembered sender is keyed on counterparty_key. When a classifier bump makes
+     * the sweep re-key a row, the rule must follow the new key -- otherwise every payment from
+     * that sender silently drops back to "not counted" with nothing telling the user why.
+     */
+    @Test
+    void aRememberedSenderFollowsItsRowsToTheirNewKey() {
+        UUID kindId = newKind("Family support");
+        UUID otherKindId = newKind("Rent from tenant");
+        UUID moved = seedTypedWithOldKey("UPI-SUNIL VERMA-sampleuser@ybl-REF90", "name:sunil verma");
+        remember("name:sunil verma", kindId);
+        // A second sender whose new key already has its own rule: that newer answer is kept.
+        UUID kept = seedTypedWithOldKey("UPI-ASHA VERMA-ashauser@ybl-REF91", "name:asha verma");
+        remember("name:asha verma", kindId);
+        remember("vpa:ashauser", otherKindId);
+
+        drain();
+
+        assertThat(reload(moved).getCounterpartyKey()).isEqualTo("vpa:sampleuser");
+        assertThat(senderInflowRuleRepository.findByUserIdAndCounterpartyKey(userId, "vpa:sampleuser"))
+                .map(com.finora.entity.SenderInflowRule::getInflowKindId).contains(kindId);
+        assertThat(reload(kept).getCounterpartyKey()).isEqualTo("vpa:ashauser");
+        assertThat(senderInflowRuleRepository.findByUserIdAndCounterpartyKey(userId, "vpa:ashauser"))
+                .map(com.finora.entity.SenderInflowRule::getInflowKindId).contains(otherKindId);
+    }
+
+    private UUID newKind(String name) {
+        com.finora.entity.InflowKind k = new com.finora.entity.InflowKind();
+        k.setUserId(userId);
+        k.setName(name);
+        k.setCountsAsIncome(true);
+        return inflowKindRepository.save(k).getId();
+    }
+
+    private void remember(String key, UUID kindId) {
+        com.finora.entity.SenderInflowRule r = new com.finora.entity.SenderInflowRule();
+        r.setUserId(userId);
+        r.setCounterpartyKey(key);
+        r.setInflowKindId(kindId);
+        senderInflowRuleRepository.save(r);
+    }
+
+    /** A credit typed by an older classifier revision, under the key that revision derived. */
+    private UUID seedTypedWithOldKey(String description, String oldKey) {
+        Transaction t = new Transaction();
+        t.setUserId(userId);
+        t.setAccountId(accountId);
+        t.setTxnDate(LocalDate.now());
+        t.setAmount(BigDecimal.valueOf(486));
+        t.setTxnType(Transaction.Type.INCOME);
+        t.setDescription(description);
+        t.setCounterpartyKey(oldKey);
+        t.setCounterpartyClassifierVersion((short) 1);
+        return transactionRepository.save(t).getId();
     }
 
     @Test

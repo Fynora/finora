@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import MoneyReview from './MoneyReview';
 import { inflowApi } from '../api/endpoints';
@@ -8,6 +9,12 @@ import { inflowApi } from '../api/endpoints';
 vi.mock('../api/endpoints', () => ({
   inflowApi: { unresolved: vi.fn(), kinds: vi.fn(), setChoice: vi.fn(), clearChoice: vi.fn(), createKind: vi.fn() },
 }));
+
+/** These components refresh cached money figures after a change, so they need a QueryClient. */
+function renderQ(ui: React.ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(ui, { wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
+}
 
 const asha = {
   sampleTransactionId: 't1', label: 'ASHA VERMA', senderKnown: true, count: 2, senderPaymentCount: 5, total: 7000,
@@ -20,7 +27,7 @@ const asha = {
 const family = { id: 'k2', name: 'Family support', countsAsIncome: true, builtIn: 'FAMILY_SUPPORT' as const };
 
 function renderAt(url: string) {
-  return render(<MemoryRouter initialEntries={[url]}><MoneyReview /></MemoryRouter>);
+  return renderQ(<MemoryRouter initialEntries={[url]}><MoneyReview /></MemoryRouter>);
 }
 
 describe('MoneyReview', () => {

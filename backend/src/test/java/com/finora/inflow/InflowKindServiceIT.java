@@ -88,4 +88,68 @@ class InflowKindServiceIT extends AbstractIntegrationTest {
 
         assertThat(kinds.findById(rent.id())).isEmpty();
     }
+
+    private UUID newAccount(UUID userId) {
+        Account account = new Account();
+        account.setUserId(userId);
+        account.setName("Inflow IT Savings " + UUID.randomUUID());
+        account.setAccountType(Account.Type.SAVINGS);
+        account.setBalance(BigDecimal.valueOf(1000));
+        return accounts.save(account).getId();
+    }
+
+    private Transaction credit(UUID userId, UUID accountId, String key) {
+        Transaction t = new Transaction();
+        t.setUserId(userId);
+        t.setAccountId(accountId);
+        t.setTxnDate(LocalDate.now());
+        t.setAmount(BigDecimal.valueOf(500));
+        t.setTxnType(Transaction.Type.INCOME);
+        t.setDescription("UPI-ASHA VERMA-asha@okbank-HDFC0XXXXXX-111111111111-UPI");
+        t.setCounterpartyKey(key);
+        return transactions.save(t);
+    }
+
+    /** "Every payment from X (N)" must count only the payments a sender choice can change. */
+    @Test
+    void senderCountLeavesOutPaymentsTheChoiceCannotChange() {
+        UUID userId = newUser();
+        UUID live = newAccount(userId), gone = newAccount(userId);
+        String key = "vpa:asha-" + UUID.randomUUID();
+        credit(userId, live, key);                                   // counts
+        credit(userId, gone, key);                                   // account deleted below
+        Transaction paired = credit(userId, live, key);              // a matched transfer leg
+        paired.setTransfer(true);
+        transactions.save(paired);
+        Transaction refundLeg = credit(userId, live, key);           // linked as a refund
+        refundLeg.setReconciliationStatus(Transaction.ReconciliationStatus.REFUND);
+        transactions.save(refundLeg);
+        Transaction original = credit(userId, live, key);
+        Transaction duplicate = credit(userId, live, key);           // a duplicate of `original`
+        duplicate.setIsDuplicateOf(original.getId());
+        transactions.save(duplicate);
+        Transaction debit = credit(userId, live, key);               // money going out
+        debit.setTxnType(Transaction.Type.EXPENSE);
+        transactions.save(debit);
+        accounts.delete(accounts.findById(gone).orElseThrow());
+
+        assertThat(transactions.countLiveCreditsBySender(userId, key)).isEqualTo(2L); // the first and `original`
+    }
+
+    /** A credit later edited into a debit keeps its row choice, which can never apply again and has
+     *  no "Counts as" row to clear it from -- it must not keep its kind undeletable. */
+    @Test
+    void deleteIgnoresARowChoiceLeftOnADebit() {
+        UUID userId = newUser();
+        InflowDtos.InflowKindDto rent = service.create(userId, new InflowDtos.CreateKindRequest("Rent from tenant", true));
+        Transaction t = credit(userId, newAccount(userId), "vpa:tenant-" + UUID.randomUUID());
+        t.setInflowKindId(rent.id());
+        t.setTxnType(Transaction.Type.EXPENSE);
+        transactions.save(t);
+
+        service.delete(userId, rent.id());
+
+        assertThat(kinds.findById(rent.id())).isEmpty();
+        assertThat(transactions.findById(t.getId()).orElseThrow().getInflowKindId()).isNull();
+    }
 }

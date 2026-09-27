@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { inflowApi, type ChoiceScope, type CountsAs, type InflowKind } from '../../api/endpoints';
 import { Button } from '../../design-system/Button';
 import { InflowKindPicker } from './InflowKindPicker';
+import { useInvalidateMoneyFigures } from '../../lib/invalidateMoneyFigures';
 
 type ApiErr = { response?: { data?: { message?: string } } };
 
@@ -14,6 +15,7 @@ export function CountsAsSection({ transactionId, onChanged }: { transactionId: s
   const [picked, setPicked] = useState<InflowKind | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const invalidateMoneyFigures = useInvalidateMoneyFigures();
 
   useEffect(() => {
     let cancelled = false;
@@ -42,6 +44,7 @@ export function CountsAsSection({ transactionId, onChanged }: { transactionId: s
     try {
       setCountsAs(await action());
       setEditing(false);
+      invalidateMoneyFigures();
       onChanged?.();
     } catch (e: unknown) {
       setError((e as ApiErr)?.response?.data?.message ?? 'Could not save this choice.');

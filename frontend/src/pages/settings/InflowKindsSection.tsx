@@ -4,6 +4,7 @@ import { Button } from '../../design-system/Button';
 import { FinoraCard } from '../../design-system/FinoraCard';
 import { SectionHeader } from '../../design-system/SectionHeader';
 import { InflowKindPicker } from '../../components/inflow/InflowKindPicker';
+import { useInvalidateMoneyFigures } from '../../lib/invalidateMoneyFigures';
 
 type ApiErr = { response?: { data?: { message?: string; details?: { rows?: number; senders?: number } } } };
 
@@ -17,6 +18,7 @@ export function InflowKindsSection() {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [message, setMessage] = useState<string | null>(null);
+  const invalidateMoneyFigures = useInvalidateMoneyFigures();
 
   function load() {
     inflowApi.kinds().then(setKinds).catch(() => setMessage("Couldn't load your kinds."));
@@ -29,6 +31,7 @@ export function InflowKindsSection() {
     try {
       await action();
       load();
+      invalidateMoneyFigures();
       return true;
     } catch (e: unknown) {
       setMessage((e as ApiErr).response?.data?.message ?? fallback);
@@ -41,6 +44,7 @@ export function InflowKindsSection() {
     try {
       await inflowApi.deleteKind(k.id);
       load();
+      invalidateMoneyFigures();
     } catch (e: unknown) {
       const d = (e as ApiErr).response?.data;
       const rows = d?.details?.rows, senders = d?.details?.senders;

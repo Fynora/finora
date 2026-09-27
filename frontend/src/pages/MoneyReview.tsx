@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { inflowApi, type ChoiceScope, type InflowKind, type UnresolvedSender } from '../api/endpoints';
 import { Button, FinoraCard } from '../design-system';
 import { InflowKindPicker } from '../components/inflow/InflowKindPicker';
+import { useInvalidateMoneyFigures } from '../lib/invalidateMoneyFigures';
 
 function fmt(n: number) {
   return (n < 0 ? '-₹' : '₹') + Math.round(Math.abs(n)).toLocaleString('en-IN');
@@ -33,6 +34,7 @@ export default function MoneyReview() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [undo, setUndo] = useState<{ transactionId: string; scope: ChoiceScope; label: string } | null>(null);
+  const invalidateMoneyFigures = useInvalidateMoneyFigures();
 
   const load = useCallback(() => {
     inflowApi.unresolved(start, end).then(setSenders).catch(() => setError("Couldn't load this list — please try again."));
@@ -60,6 +62,7 @@ export default function MoneyReview() {
       setPicked(null);
       setOneRow(false);
       load();
+      invalidateMoneyFigures();
     } catch (e: unknown) {
       setError((e as ApiErr)?.response?.data?.message ?? 'Could not save this choice.');
     } finally {
@@ -73,6 +76,7 @@ export default function MoneyReview() {
       await inflowApi.clearChoice(undo.transactionId, undo.scope);
       setUndo(null);
       load();
+      invalidateMoneyFigures();
     } catch {
       setError('Could not undo that choice.');
     }

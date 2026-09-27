@@ -1,12 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CountsAsSection } from './CountsAsSection';
 import { inflowApi } from '../../api/endpoints';
 
 vi.mock('../../api/endpoints', () => ({
   inflowApi: { countsAs: vi.fn(), kinds: vi.fn(), setChoice: vi.fn(), clearChoice: vi.fn(), createKind: vi.fn() },
 }));
+
+/** These components refresh cached money figures after a change, so they need a QueryClient. */
+function renderQ(ui: React.ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(ui, { wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
+}
 
 const unresolved = {
   flowClass: 'UNRESOLVED', flowReason: 'PERSON_INFLOW', kind: null, appliedBy: null, choosable: true,
@@ -27,7 +34,7 @@ describe('CountsAsSection', () => {
       summary: 'You marked payments from this sender as Family support',
     });
     const onChanged = vi.fn();
-    render(<CountsAsSection transactionId="t1" onChanged={onChanged} />);
+    renderQ(<CountsAsSection transactionId="t1" onChanged={onChanged} />);
     expect(await screen.findByText('Not counted yet · from a person')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Change' }));
     await userEvent.click(await screen.findByRole('button', { name: /Family support/ }));
@@ -39,7 +46,7 @@ describe('CountsAsSection', () => {
 
   it('offers only this payment when the sender is unknown', async () => {
     vi.mocked(inflowApi.countsAs).mockResolvedValue({ ...unresolved, senderAvailable: false, senderLabel: null, senderRowCount: 0 });
-    render(<CountsAsSection transactionId="t1" />);
+    renderQ(<CountsAsSection transactionId="t1" />);
     await userEvent.click(await screen.findByRole('button', { name: 'Change' }));
     await userEvent.click(await screen.findByRole('button', { name: /Family support/ }));
     expect(screen.queryByRole('button', { name: /Every payment from/ })).toBeNull();
@@ -52,7 +59,7 @@ describe('CountsAsSection', () => {
       notChoosableReason: 'This payment is matched as a transfer between your accounts. Use "Not a transfer" first.',
       summary: 'Transfer between your accounts',
     });
-    render(<CountsAsSection transactionId="t1" />);
+    renderQ(<CountsAsSection transactionId="t1" />);
     expect(await screen.findByText(/Use "Not a transfer" first/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Change' })).toBeNull();
   });
@@ -63,7 +70,7 @@ describe('CountsAsSection', () => {
       summary: 'You marked payments from this sender as Family support',
     });
     vi.mocked(inflowApi.clearChoice).mockResolvedValue(unresolved);
-    render(<CountsAsSection transactionId="t1" />);
+    renderQ(<CountsAsSection transactionId="t1" />);
     await userEvent.click(await screen.findByRole('button', { name: 'Clear for every payment from ASHA VERMA (3)' }));
     await waitFor(() => expect(inflowApi.clearChoice).toHaveBeenCalledWith('t1', 'SENDER'));
   });
@@ -73,7 +80,7 @@ describe('CountsAsSection', () => {
       ...unresolved, flowClass: 'INCOME', kind: family, appliedBy: 'ROW', summary: 'You marked this payment as Family support',
     });
     vi.mocked(inflowApi.clearChoice).mockResolvedValue(unresolved);
-    render(<CountsAsSection transactionId="t1" />);
+    renderQ(<CountsAsSection transactionId="t1" />);
     await userEvent.click(await screen.findByRole('button', { name: 'Clear my choice' }));
     await waitFor(() => expect(inflowApi.clearChoice).toHaveBeenCalledWith('t1', 'ROW'));
     expect(await screen.findByText('Not counted yet · from a person')).toBeInTheDocument();

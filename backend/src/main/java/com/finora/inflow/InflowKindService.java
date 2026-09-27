@@ -124,8 +124,9 @@ public class InflowKindService {
         if (k.getBuiltIn() != null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Built-in kinds can be renamed but not deleted.");
         }
-        // A deleted row the user can no longer see must not keep the kind "in use" or trip the FK.
-        transactions.clearInflowKindOnDeletedRows(kindId);
+        // Row choices that can never apply again (a deleted row, a row edited into a debit) must not
+        // keep the kind "in use" or trip the FK -- the user has no way to find or clear them.
+        transactions.clearUnreachableInflowKindChoices(kindId);
         long rowCount = transactions.countLiveByInflowKindId(kindId);
         long senderCount = rules.countByInflowKindId(kindId);
         if (rowCount > 0 || senderCount > 0) {

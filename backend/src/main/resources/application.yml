@@ -773,6 +773,11 @@ app:
       batch-size: ${STATEMENT_REFRESH_DRY_RUN_BATCH_SIZE:20}
       interval-ms: ${STATEMENT_REFRESH_DRY_RUN_INTERVAL_MS:60000}
       initial-delay-ms: ${STATEMENT_REFRESH_DRY_RUN_INITIAL_DELAY_MS:120000}
+    apply:
+      # Statement refresh, step 3 (StatementRefreshService): actually patches a statement's rows
+      # from a re-read. Off until the user-facing button and summary (step 5) ship; while off,
+      # POST /statement-imports/{id}/refresh answers 404.
+      enabled: ${STATEMENT_REFRESH_APPLY_ENABLED:false}
   audit:
     redaction:
       # BH-044. AuditService.redactExpiredMetadata replaces audit_logs.metadata with a small

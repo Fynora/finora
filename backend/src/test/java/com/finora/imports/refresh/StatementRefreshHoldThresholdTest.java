@@ -9,19 +9,19 @@ class StatementRefreshHoldThresholdTest {
 
     @Test
     void oneOrTwoRemovedRows_areNeverHeld_evenOnATinyStatement() {
-        assertThat(StatementRefreshDryRunService.removesTooMuch(1, 1)).isFalse();
-        assertThat(StatementRefreshDryRunService.removesTooMuch(2, 2)).isFalse();
+        assertThat(StatementRefreshInputs.removesTooMuch(1, 1)).isFalse();
+        assertThat(StatementRefreshInputs.removesTooMuch(2, 2)).isFalse();
     }
 
     @Test
     void exactlyAQuarter_isNotHeld_andOneRowPastIt_is() {
-        assertThat(StatementRefreshDryRunService.removesTooMuch(3, 12)).isFalse();
-        assertThat(StatementRefreshDryRunService.removesTooMuch(3, 11)).isTrue();
+        assertThat(StatementRefreshInputs.removesTooMuch(3, 12)).isFalse();
+        assertThat(StatementRefreshInputs.removesTooMuch(3, 11)).isTrue();
     }
 
     @Test
     void noRemovals_areNeverHeld() {
-        assertThat(StatementRefreshDryRunService.removesTooMuch(0, 0)).isFalse();
-        assertThat(StatementRefreshDryRunService.removesTooMuch(0, 500)).isFalse();
+        assertThat(StatementRefreshInputs.removesTooMuch(0, 0)).isFalse();
+        assertThat(StatementRefreshInputs.removesTooMuch(0, 500)).isFalse();
     }
 }

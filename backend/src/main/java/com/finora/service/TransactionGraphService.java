@@ -227,6 +227,34 @@ public class TransactionGraphService {
         return live.size();
     }
 
+    /**
+     * Statement refresh: the edges a re-read may have made wrong. Deletes the machine's own live
+     * edges (CANDIDATE, AUTO_CONFIRMED) touching these transactions, so the next reconciliation
+     * decides them again from the corrected values -- deleted rather than REJECTED, because a
+     * rejected edge blocks that pair for good ({@link #linkAll} dedups on it), and the same two rows
+     * may well pair again. A user's own decisions (USER_CONFIRMED, REJECTED) are kept.
+     *
+     * @return the transactions on either side of an edge the user decided -- their pointer columns
+     *         must be kept too
+     */
+    public java.util.Set<UUID> releaseMachineEdgesTouching(Collection<UUID> transactionIds) {
+        java.util.Set<UUID> userDecided = new java.util.HashSet<>();
+        if (transactionIds.isEmpty()) return userDecided;
+        List<TransactionRelationship> machine = new java.util.ArrayList<>();
+        for (TransactionRelationship e : edgesTouching(transactionIds)) {
+            if (e.getSupersededBy() != null) continue;
+            if (e.getStatus() == TransactionRelationship.Status.USER_CONFIRMED
+                    || e.getStatus() == TransactionRelationship.Status.REJECTED) {
+                userDecided.add(e.getFromTransactionId());
+                userDecided.add(e.getToTransactionId());
+            } else {
+                machine.add(e);
+            }
+        }
+        if (!machine.isEmpty()) repository.deleteAll(machine);
+        return userDecided;
+    }
+
     /** Every non-superseded edge of {@code type} this user has, REJECTED ones included. */
     public List<TransactionRelationship> edgesOfType(UUID userId, TransactionRelationship.RelationshipType type) {
         return repository.findByUserIdAndRelationshipTypeAndSupersededByIsNull(userId, type);

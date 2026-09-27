@@ -42,7 +42,7 @@ import java.util.UUID;
 /**
  * Statement refresh, step 2b: the dry run. After each deploy, re-reads every statement an older
  * build parsed, compares the result with what the statement has now ({@link StatementRefreshDiff}),
- * and records what a refresh would change (V234). Never writes to anyone's transactions.
+ * and records what a refresh would change (V235). Never writes to anyone's transactions.
  *
  * <p>"After each deploy" falls out of the version: it is the build's commit, so every deploy makes
  * every earlier statement a candidate (Sid's decision, 2026-09-27: automatic on every deploy, not

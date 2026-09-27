@@ -672,7 +672,7 @@ export default function Dashboard() {
         {/* Money that came in over this range but is not counted in the Income card -- a transfer
             from a person, an unexplained credit on a card (see FlowClassifier on the backend).
             Without this line a user whose income drops because a parent's transfer stopped
-            counting sees the number fall with no explanation. Display-only for now. */}
+            counting sees the number fall with no explanation. Links to the review page (Plan 2). */}
         {rangeSummary.unresolvedInflowCount > 0 && (
           <div
             className="bg-card border border-border rounded-xl2 px-5 py-3.5 flex items-start gap-2.5 mb-6"
@@ -688,6 +688,12 @@ export default function Dashboard() {
               {rangeSummary.unresolvedTopReason && UNRESOLVED_REASON_LINE[rangeSummary.unresolvedTopReason] && (
                 <p className="text-xs text-muted mt-0.5">{UNRESOLVED_REASON_LINE[rangeSummary.unresolvedTopReason]}</p>
               )}
+              <Link
+                to={`/app/money-review?start=${rangeSummary.startDate}&end=${rangeSummary.endDate}`}
+                className="text-xs text-primary font-medium mt-1 inline-block"
+              >
+                Review these payments
+              </Link>
             </div>
           </div>
         )}

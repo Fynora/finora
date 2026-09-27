@@ -1,5 +1,9 @@
 package com.finora.budgets;
 
+import com.finora.repository.InflowKindRepository;
+import com.finora.repository.SenderInflowRuleRepository;
+import com.finora.service.InflowChoiceService;
+
 import com.finora.entity.Account;
 import com.finora.entity.Budget;
 import com.finora.entity.Category;
@@ -76,7 +80,8 @@ class BudgetServiceTest {
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(liveAccount));
 
         budgetService = new BudgetService(budgetRepository, categoryRepository, transactionRepository, accountRepository,
-                userRepository, mock(AuditService.class), transactionGraphService, timelineEventService);
+                userRepository, mock(AuditService.class), transactionGraphService, timelineEventService,
+                new InflowChoiceService(mock(InflowKindRepository.class), mock(SenderInflowRuleRepository.class)));
         when(userRepository.findById(any())).thenReturn(Optional.empty());
     }
 

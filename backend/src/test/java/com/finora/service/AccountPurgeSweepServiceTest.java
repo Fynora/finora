@@ -200,6 +200,8 @@ class AccountPurgeSweepServiceTest {
                 mock(AccountAggregatorLinkRepository.class), mock(AiAuditLogRepository.class),
                 mock(ChatConversationRepository.class), mock(ChatMessageRepository.class),
                 mock(CounterpartyCategoryObservationRepository.class),
+                mock(com.finora.repository.InflowKindRepository.class),
+                mock(com.finora.repository.SenderInflowRuleRepository.class),
                 auditService, passwordEncoder, transactionTemplate,
                 auditLogRepository, emailProvider);
         ReflectionTestUtils.setField(service, "sweepEnabled", true);

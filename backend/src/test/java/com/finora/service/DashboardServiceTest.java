@@ -1,5 +1,8 @@
 package com.finora.service;
 
+import com.finora.repository.InflowKindRepository;
+import com.finora.repository.SenderInflowRuleRepository;
+
 import com.finora.dto.DashboardSummaryDto;
 import com.finora.entity.Account;
 import com.finora.entity.Budget;
@@ -78,7 +81,8 @@ class DashboardServiceTest {
 
         dashboardService = new DashboardService(accountRepository, transactionRepository, categoryRepository,
                 budgetRepository, userRepository, statementImportRepository, transactionGraphService,
-                healthScoreSnapshotRepository);
+                healthScoreSnapshotRepository,
+                new InflowChoiceService(mock(InflowKindRepository.class), mock(SenderInflowRuleRepository.class)));
     }
 
     private Transaction txn(BigDecimal amount, Transaction.Type type, LocalDate date, Transaction.ReconciliationStatus status) {
@@ -914,7 +918,8 @@ class DashboardServiceTest {
         when(userRepository.findById(any())).thenReturn(Optional.of(user));
         dashboardService = new DashboardService(accountRepository, transactionRepository, categoryRepository,
                 budgetRepository, userRepository, statementImportRepository, transactionGraphService,
-                healthScoreSnapshotRepository);
+                healthScoreSnapshotRepository,
+                new InflowChoiceService(mock(InflowKindRepository.class), mock(SenderInflowRuleRepository.class)));
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of());
 
         DashboardSummaryDto summary = dashboardService.summarize(userId);
@@ -1173,7 +1178,8 @@ class DashboardServiceTest {
         when(accountRepositoryWithCard.findByUserId(any())).thenReturn(List.of(savings, card));
         DashboardService serviceWithCard = new DashboardService(accountRepositoryWithCard, transactionRepository,
                 categoryRepository, budgetRepository, userRepository, statementImportRepository, transactionGraphService,
-                healthScoreSnapshotRepository);
+                healthScoreSnapshotRepository,
+                new InflowChoiceService(mock(InflowKindRepository.class), mock(SenderInflowRuleRepository.class)));
 
         List<Transaction> txns = new java.util.ArrayList<>();
         for (int i = 0; i < 10; i++) {

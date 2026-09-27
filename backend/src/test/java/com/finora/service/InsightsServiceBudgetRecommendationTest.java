@@ -1,5 +1,8 @@
 package com.finora.service;
 
+import com.finora.repository.InflowKindRepository;
+import com.finora.repository.SenderInflowRuleRepository;
+
 import com.finora.entity.Budget;
 import com.finora.entity.Account;
 import com.finora.entity.Category;
@@ -58,7 +61,8 @@ class InsightsServiceBudgetRecommendationTest {
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(liveAccount));
 
         insightsService = new InsightsService(transactionRepository, accountRepository, categoryRepository, budgetRepository,
-                mock(UserRepository.class), transactionGraphService, statementImportRepository);
+                mock(UserRepository.class), transactionGraphService, statementImportRepository,
+                new InflowChoiceService(mock(InflowKindRepository.class), mock(SenderInflowRuleRepository.class)));
 
         dining = new Category();
         ReflectionTestUtils.setField(dining, "id", UUID.randomUUID());

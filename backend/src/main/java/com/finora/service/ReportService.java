@@ -25,8 +25,13 @@ public class ReportService {
     private final CategoryRepository categoryRepository;
     private final TransactionGraphService transactionGraphService;
 
+    /** Built into every FlowTotals.Context here -- the user's inflow kinds (Plan 2). */
+    private final InflowChoiceService inflowChoices;
+
     public ReportService(TransactionRepository transactionRepository, AccountRepository accountRepository,
-                          CategoryRepository categoryRepository, TransactionGraphService transactionGraphService) {
+                          CategoryRepository categoryRepository, TransactionGraphService transactionGraphService,
+                         InflowChoiceService inflowChoices) {
+        this.inflowChoices = inflowChoices;
         this.transactionRepository = transactionRepository;
         this.accountRepository = accountRepository;
         this.categoryRepository = categoryRepository;
@@ -59,7 +64,7 @@ public class ReportService {
         // StatementImportService's 7-day grace window.
         List<com.finora.entity.Account> accounts = accountRepository.findByUserId(userId);
         List<UUID> liveAccountIds = accounts.stream().map(com.finora.entity.Account::getId).toList();
-        FlowTotals.Context flow = FlowTotals.context(accounts, categoriesById.values());
+        FlowTotals.Context flow = inflowChoices.contextFor(userId, accounts, categoriesById.values());
         RefundNetting refunds = liveAccountIds.isEmpty() ? RefundNetting.from(List.of())
                 : RefundNetting.from(transactionRepository.findByUserIdAndReconciliationStatusInAndAccountIdIn(
                         userId, java.util.List.of(Transaction.ReconciliationStatus.REFUND, Transaction.ReconciliationStatus.REVERSAL),
@@ -93,8 +98,18 @@ public class ReportService {
                 .map(e -> new ReportDto.CategoryAmount(e.getKey(), e.getValue()))
                 .toList();
 
+        Map<String, BigDecimal> incomeByLabel = new java.util.LinkedHashMap<>();
+        for (Transaction t : txnsForTotals) {
+            if (!FlowTotals.countsAsIncome(t, flow)) continue;
+            incomeByLabel.merge(FlowTotals.incomeLabel(t, flow), refunds.reportableAmount(t), BigDecimal::add);
+        }
+        List<ReportDto.IncomeLine> incomeByKind = incomeByLabel.entrySet().stream()
+                .sorted((a, b) -> b.getValue().compareTo(a.getValue()))
+                .map(e -> new ReportDto.IncomeLine(e.getKey(), e.getValue()))
+                .toList();
+
         return new ReportDto(monthStr, income, expense, categories,
-                FlowTotals.unresolvedInflow(txnsForTotals, flow));
+                FlowTotals.unresolvedInflow(txnsForTotals, flow), incomeByKind);
     }
 
     /**
@@ -110,7 +125,7 @@ public class ReportService {
     public RangeTotals forRange(UUID userId, LocalDate from, LocalDate to) {
         List<com.finora.entity.Account> accounts = accountRepository.findByUserId(userId);
         List<UUID> liveAccountIds = accounts.stream().map(com.finora.entity.Account::getId).toList();
-        FlowTotals.Context flow = FlowTotals.context(accounts, categoryRepository.findByUserId(userId));
+        FlowTotals.Context flow = inflowChoices.contextFor(userId, accounts, categoryRepository.findByUserId(userId));
         RefundNetting refunds = liveAccountIds.isEmpty() ? RefundNetting.from(List.of())
                 : RefundNetting.from(transactionRepository.findByUserIdAndReconciliationStatusInAndAccountIdIn(
                         userId, List.of(Transaction.ReconciliationStatus.REFUND, Transaction.ReconciliationStatus.REVERSAL),
@@ -134,6 +149,22 @@ public class ReportService {
                 FlowTotals.unresolvedInflow(txnsForTotals, flow),
                 FlowTotals.unresolvedInflowCount(txnsForTotals, flow),
                 topReason == null ? null : topReason.name());
+    }
+
+    /** The rows forRange counts as unresolved, built the same way, so the review list and the
+     *  banner can never disagree. {@code accounts} is the user's live accounts, for display. */
+    public record UnresolvedRows(List<Transaction> rows, List<com.finora.entity.Account> accounts) {}
+
+    @Transactional(readOnly = true)
+    public UnresolvedRows unresolvedInflows(UUID userId, LocalDate from, LocalDate to) {
+        List<com.finora.entity.Account> accounts = accountRepository.findByUserId(userId);
+        List<UUID> liveAccountIds = accounts.stream().map(com.finora.entity.Account::getId).toList();
+        FlowTotals.Context flow = inflowChoices.contextFor(userId, accounts, categoryRepository.findByUserId(userId));
+        List<Transaction> rangeTxns = liveAccountIds.isEmpty() ? List.of()
+                : transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(userId, from, to, liveAccountIds);
+        List<Transaction> txnsForTotals = RefundNetting.excludingInvestmentTransfers(RefundNetting.reportable(
+                rangeTxns, transactionGraphService.ccPaymentFromTransactionIds(rangeTxns)));
+        return new UnresolvedRows(txnsForTotals.stream().filter(t -> FlowTotals.isUnresolvedInflow(t, flow)).toList(), accounts);
     }
 
     /** @param transactionCount how many (refund-netted, transfer-excluded) transactions the totals

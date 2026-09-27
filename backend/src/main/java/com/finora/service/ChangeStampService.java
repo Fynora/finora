@@ -37,6 +37,10 @@ import java.util.UUID;
  * hand, so a change that forgot it would go unnoticed. Deliberately NOT the whole row: last-login
  * style columns move on every sign-in and would refresh every other device each time.
  *
+ * <p>{@code transactions} also hashes the user's inflow kinds and remembered senders whole (Plan 2):
+ * a kind or sender choice made on the web changes which rows count as income without touching any
+ * transaction row, so without them the phone's income and review list would stay stale.
+ *
  * <p>{@code preferences} (timezone and low-balance threshold) is its own value, not part of the
  * profile: the server computes the dashboard's "this month" and its alerts from them, so a change
  * must refresh those figures too, where a rename refreshes nothing but the profile.
@@ -64,7 +68,9 @@ public class ChangeStampService {
     private static final String SQL = """
             SELECT
               (SELECT count(*) || ':' || coalesce(sum(version), 0) || ':' || coalesce(max(created_at)::text, '')
-                 FROM transactions WHERE user_id = ? AND deleted_at IS NULL),
+                 FROM transactions WHERE user_id = ? AND deleted_at IS NULL)
+                || ':' || coalesce((SELECT md5(string_agg(k::text, ',' ORDER BY k.id)) FROM inflow_kinds k WHERE k.user_id = ?), '')
+                || ':' || coalesce((SELECT md5(string_agg(r::text, ',' ORDER BY r.id)) FROM sender_inflow_rules r WHERE r.user_id = ?), ''),
               (SELECT count(*) || ':' || coalesce(sum(version), 0) || ':' || coalesce(max(created_at)::text, '')
                  FROM accounts WHERE user_id = ? AND deleted_at IS NULL),
               (SELECT count(*) || ':' || coalesce(sum(version), 0) || ':' || coalesce(max(created_at)::text, '')
@@ -101,7 +107,7 @@ public class ChangeStampService {
                     sha256Prefix(rs.getString(4)), sha256Prefix(rs.getString(5)),
                     sha256Prefix(rs.getString(6)), sha256Prefix(rs.getString(7)), sha256Prefix(rs.getString(8)),
                     sha256Prefix(rs.getString(9)));
-        }, userId, userId, userId, userId, userId, userId, userId, userId, userId, userId);
+        }, userId, userId, userId, userId, userId, userId, userId, userId, userId, userId, userId, userId);
     }
 
     /** Hashed so the value is opaque: a client compares it, it does not read counts out of it. */

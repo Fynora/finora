@@ -41,12 +41,17 @@ public class DashboardService {
     private final TransactionGraphService transactionGraphService;
     private final HealthScoreSnapshotRepository healthScoreSnapshotRepository;
 
+    /** Built into every FlowTotals.Context here -- the user's inflow kinds (Plan 2). */
+    private final InflowChoiceService inflowChoices;
+
     public DashboardService(AccountRepository accountRepository, TransactionRepository transactionRepository,
                              CategoryRepository categoryRepository, BudgetRepository budgetRepository,
                              UserRepository userRepository,
                              com.finora.repository.StatementImportRepository statementImportRepository,
                              TransactionGraphService transactionGraphService,
-                             HealthScoreSnapshotRepository healthScoreSnapshotRepository) {
+                             HealthScoreSnapshotRepository healthScoreSnapshotRepository,
+                            InflowChoiceService inflowChoices) {
+        this.inflowChoices = inflowChoices;
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
         this.categoryRepository = categoryRepository;
@@ -147,7 +152,7 @@ public class DashboardService {
         // credit, an investment redemption or a loan disbursal is money in, not income. Spend is
         // every reportable debit, less the refunds and card adjustments reconciliation could not
         // link to a purchase -- see RefundNetting.withUnlinkedOffsets.
-        FlowTotals.Context flow = FlowTotals.context(accounts, categoriesById.values());
+        FlowTotals.Context flow = inflowChoices.contextFor(userId, accounts, categoriesById.values());
         RefundNetting spend = refunds.withUnlinkedOffsets(active, flow);
         java.util.function.Predicate<Transaction> isIncome = t -> FlowTotals.countsAsIncome(t, flow);
         BigDecimal incomeCur = sumForMonth(activeForTotals, currentMonth, isIncome, refunds);

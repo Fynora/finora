@@ -1,6 +1,7 @@
 package com.finora.service;
 
 import com.finora.entity.Account;
+import com.finora.entity.InflowKind;
 import com.finora.entity.Transaction;
 import com.finora.service.FlowClassifier.FlowClass;
 import com.finora.service.FlowClassifier.FlowDecision;
@@ -213,5 +214,103 @@ class FlowClassifierTest {
         Transaction t = debit("NACH SIP FUNDHOUSE");
         t.setReconciliationStatus(Transaction.ReconciliationStatus.INVESTMENT_TRANSFER);
         assertThat(savings(t)).isEqualTo(new FlowDecision(FlowClass.INVESTMENT, FlowReason.INVESTMENT_CONTRIBUTION));
+    }
+
+    // ---- the user's own kind (Plan 2) ----
+
+    private static InflowKind builtIn(InflowKind.BuiltIn b) {
+        InflowKind k = new InflowKind();
+        k.setName(b.defaultName());
+        k.setCountsAsIncome(b.countsAsIncome());
+        k.setBuiltIn(b);
+        return k;
+    }
+
+    private static InflowKind custom(String name, boolean countsAsIncome) {
+        InflowKind k = new InflowKind();
+        k.setName(name);
+        k.setCountsAsIncome(countsAsIncome);
+        return k;
+    }
+
+    private static FlowDecision chosen(Transaction t, InflowKind k) {
+        return FlowClassifier.classify(t, Account.Type.SAVINGS, false, k);
+    }
+
+    @Test void chosenIncome_isIncome() {
+        assertThat(chosen(credit("UPI-ASHA VERMA-asha@okbank-111111111111-UPI"), builtIn(InflowKind.BuiltIn.INCOME)))
+                .isEqualTo(new FlowDecision(FlowClass.INCOME, FlowReason.USER_KIND));
+    }
+
+    @Test void chosenFamilySupport_isIncomeWithItsOwnReason() {
+        assertThat(chosen(credit("UPI-ASHA VERMA-asha@okbank-111111111111-UPI"), builtIn(InflowKind.BuiltIn.FAMILY_SUPPORT)))
+                .isEqualTo(new FlowDecision(FlowClass.INCOME, FlowReason.FAMILY_SUPPORT));
+    }
+
+    @Test void chosenOwnMoney_isTransfer() {
+        assertThat(chosen(credit("UPI-ASHA VERMA-asha@okbank-111111111111-UPI"), builtIn(InflowKind.BuiltIn.OWN_MONEY)))
+                .isEqualTo(new FlowDecision(FlowClass.TRANSFER, FlowReason.USER_OWN_MONEY));
+    }
+
+    @Test void chosenPaidBack_isNeitherIncomeNorSpend() {
+        assertThat(chosen(credit("UPI-ASHA VERMA-asha@okbank-111111111111-UPI"), builtIn(InflowKind.BuiltIn.PAID_BACK)))
+                .isEqualTo(new FlowDecision(FlowClass.ADJUSTMENT, FlowReason.PAID_BACK));
+    }
+
+    @Test void chosenRefund_isAnUnlinkedRefund() {
+        assertThat(FlowClassifier.classify(credit("MERCHANTCO 1001"), Account.Type.CREDIT_CARD, false,
+                builtIn(InflowKind.BuiltIn.REFUND)))
+                .isEqualTo(new FlowDecision(FlowClass.REFUND, FlowReason.UNLINKED_REFUND));
+    }
+
+    @Test void customKindThatCounts_isIncome() {
+        assertThat(chosen(credit("NEFT CR-HDFC0XXXXXX-TENANT ONE"), custom("Rent from tenant", true)))
+                .isEqualTo(new FlowDecision(FlowClass.INCOME, FlowReason.USER_KIND));
+    }
+
+    @Test void customKindThatDoesNotCount_isExcluded() {
+        assertThat(chosen(credit("NEFT CR-HDFC0XXXXXX-FLATMATE"), custom("Split with flatmate", false)))
+                .isEqualTo(new FlowDecision(FlowClass.ADJUSTMENT, FlowReason.USER_KIND_EXCLUDED));
+    }
+
+    @Test void pairedTransferBeatsAChosenKind() {
+        Transaction t = credit("UPI-ASHA VERMA-asha@okbank-111111111111-UPI");
+        t.setTransfer(true);
+        assertThat(chosen(t, builtIn(InflowKind.BuiltIn.INCOME)))
+                .isEqualTo(new FlowDecision(FlowClass.TRANSFER, FlowReason.OWN_ACCOUNT_TRANSFER));
+    }
+
+    @Test void linkedRefundBeatsAChosenKind() {
+        Transaction t = credit("UPI-ASHA VERMA-asha@okbank-111111111111-UPI");
+        t.setReconciliationStatus(Transaction.ReconciliationStatus.REFUND);
+        assertThat(chosen(t, builtIn(InflowKind.BuiltIn.OWN_MONEY)))
+                .isEqualTo(new FlowDecision(FlowClass.REFUND, FlowReason.LINKED_REFUND));
+    }
+
+    @Test void linkedReversalBeatsAChosenKind() {
+        Transaction t = credit("MERCHANTCO 1001");
+        t.setReconciliationStatus(Transaction.ReconciliationStatus.REVERSAL);
+        assertThat(chosen(t, builtIn(InflowKind.BuiltIn.INCOME)))
+                .isEqualTo(new FlowDecision(FlowClass.ADJUSTMENT, FlowReason.REVERSAL));
+    }
+
+    @Test void chosenKindBeatsTheNarrationRefundWord() {
+        assertThat(chosen(credit("REFUND FROM ASHA VERMA"), builtIn(InflowKind.BuiltIn.PAID_BACK)))
+                .isEqualTo(new FlowDecision(FlowClass.ADJUSTMENT, FlowReason.PAID_BACK));
+    }
+
+    @Test void aDebitIgnoresAChosenKind() {
+        assertThat(chosen(debit("UPI-ASHA VERMA-asha@okbank-111111111111-UPI"), builtIn(InflowKind.BuiltIn.INCOME)))
+                .isEqualTo(new FlowDecision(FlowClass.EXPENSE, FlowReason.PURCHASE));
+    }
+
+    @Test void noChosenKindKeepsTheAutomaticReading() {
+        Transaction t = credit("UPI-ASHA VERMA-asha@okbank-111111111111-UPI");
+        t.setCounterpartyType(CounterpartyType.PERSON);
+        assertThat(chosen(t, null)).isEqualTo(new FlowDecision(FlowClass.UNRESOLVED, FlowReason.PERSON_INFLOW));
+    }
+
+    @Test void versionIsFive() {
+        assertThat(FlowClassifier.VERSION).isEqualTo((short) 5);
     }
 }

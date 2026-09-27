@@ -1,5 +1,8 @@
 package com.finora.service;
 
+import com.finora.repository.InflowKindRepository;
+import com.finora.repository.SenderInflowRuleRepository;
+
 import com.finora.dto.AnalyticsDto;
 import com.finora.entity.Account;
 import com.finora.entity.Category;
@@ -80,7 +83,8 @@ class AnalyticsServiceTest {
 
         analyticsService = new AnalyticsService(transactionRepository, accountRepository, merchantRepository,
                 learningRepository, learningAuditRepository, categoryRepository, statementImportRepository,
-                new ConfidenceEngine(), userRepository, transactionGraphService, accountCoverageService);
+                new ConfidenceEngine(), userRepository, transactionGraphService, accountCoverageService,
+                new InflowChoiceService(mock(InflowKindRepository.class), mock(SenderInflowRuleRepository.class)));
     }
 
     private Transaction expense(UUID merchantId, LocalDate date, BigDecimal amount) {

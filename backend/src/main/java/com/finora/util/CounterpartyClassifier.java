@@ -72,7 +72,10 @@ public final class CounterpartyClassifier {
     // 3: PersonToPersonTransferDetector reads the fixed name slot of slash-delimited UPI narrations
     //    (UPI/CR/<ref>/<name>/<bank>/..., UPIAB/..., "..._<name>" tails) -- measured on the corpus,
     //    52 rows UNKNOWN -> PERSON and one PERSON -> UNKNOWN (a "GOOGLE IN" payee), every flip read.
-    public static final short VERSION = 3;
+    // 4: the counterparty KEY changed (CounterpartyIdentity): a masked VPA is a weak "masked:" key, a
+    //    payment app's name is never the sender, and a reference no longer takes the payee's name
+    //    with it. Bumped so the backfill sweep re-keys stored rows; sender rules move with them.
+    public static final short VERSION = 4;
 
     /**
      * Bank-generated activity, where the counterparty is the institution itself. These words are

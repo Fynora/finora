@@ -1763,6 +1763,38 @@ class ReconciliationServiceTest {
     }
 
     @Test
+    void reconcileForUser_aTruncatedReversalWordDoesNotLinkToAnUnrelatedPurchase() {
+        // "... R02 SHOPCO REVERS": the pass would admit any purchase that covers it and pick the
+        // closest -- on the corpus, a payment to a person. The flow classifier reads the word instead.
+        UUID accountId = UUID.randomUUID();
+        Transaction unrelated = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 8, 18),
+                new BigDecimal("90.00"), Transaction.Type.EXPENSE, "UPI-A PERSON-person@okbank-111111111111", Instant.now());
+        Transaction reversal = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 8, 18),
+                new BigDecimal("57.00"), Transaction.Type.INCOME, "UPI-SHOPCO-shopco@okbank-222222222222-R02 SHOPCO REVERS", Instant.now());
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(unrelated, reversal));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(reversal.getRefundOfTransactionId()).isNull();
+        assertThat(reversal.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+    }
+
+    @Test
+    void reconcileForUser_aRefundWordSplitByAWrapStillLinks() {
+        UUID accountId = UUID.randomUUID();
+        Transaction purchase = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 8, 18),
+                new BigDecimal("267.00"), Transaction.Type.EXPENSE, "UPI/DR/111111111111/SHOPCO/HDFC/**T.RZP@HDFCBANK/PA Y", Instant.now());
+        Transaction refund = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 8, 18),
+                new BigDecimal("267.00"), Transaction.Type.INCOME, "UPI/CR/222222222222/SHOPCO/HDFC/**.PAYU@HDFCBANK/R EFUND//", Instant.now());
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(purchase, refund));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(refund.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.REFUND);
+        assertThat(refund.getRefundOfTransactionId()).isEqualTo(purchase.getId());
+    }
+
+    @Test
     void reconcileForUser_prefersThePurchaseThatSharesTheReference() {
         UUID accountId = UUID.randomUUID();
         // Exact amount, same merchant, closer in time -- would win on every other tiebreak.

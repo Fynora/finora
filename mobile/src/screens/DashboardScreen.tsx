@@ -1141,4 +1141,7 @@ const styles = StyleSheet.create({
 const UNRESOLVED_REASON_LINE: Record<string, string> = {
   PERSON_INFLOW: 'Mostly money received from people',
   CARD_UNEXPLAINED_CREDIT: 'Mostly credits on your cards',
+  CASH_DEPOSIT: 'Mostly cash paid in',
+  MERCHANT_CREDIT: 'Mostly money back from shops and apps',
+  UNKNOWN_SENDER: 'Mostly from senders Fynora could not name',
 };

@@ -1,0 +1,37 @@
+# Alertmanager routing for Finora: where the rules in ../alerts.yml go when they fire.
+#
+# Until this file existed, Prometheus evaluated every rule in alerts.yml and sent the result
+# nowhere. A firing BackendDown was visible only to someone already looking at the Prometheus UI.
+#
+# ONE RECEIVER, OVER HTTPS
+# ------------------------
+# Alerts go to a webhook, never to SMTP. Railway blocks outbound SMTP on every plan below Pro, and
+# a mail receiver on such a plan fails at send time: the config loads and the service shows Online,
+# and the only sign is a log line nobody reads. A webhook over HTTPS has no such dependency.
+#
+# In production the webhook is Better Stack's Prometheus integration. Its incidents go through the
+# same on-call escalation (email and phone push) as the uptime monitor on /health, so there is only
+# one place to configure who gets told.
+#
+# The URL is a credential, since anyone holding it can open incidents, and this repository is
+# public. So it is not in this file. entrypoint.sh writes it from the ALERT_WEBHOOK_URL variable to
+# the file named by url_file below. Locally, docker-compose.yml points it at a sink that prints
+# what it receives.
+
+route:
+  receiver: webhook
+  # One notification per alert and per worker/jobKind pair. Grouping every alert together would
+  # hide a second, unrelated problem inside the first one's still-open incident.
+  group_by: [alertname, worker, jobKind]
+  # Every rule already has its own `for:` of 5 to 30 minutes, so the condition has been sustained
+  # before Alertmanager sees it. There is nothing to gain by waiting longer here.
+  group_wait: 30s
+  group_interval: 5m
+  # Re-notify a still-firing alert every 4 hours, so an incident closed by mistake comes back.
+  repeat_interval: 4h
+
+receivers:
+  - name: webhook
+    webhook_configs:
+      - url_file: /etc/alertmanager/webhook-url
+        send_resolved: true

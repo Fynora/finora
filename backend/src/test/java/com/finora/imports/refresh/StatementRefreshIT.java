@@ -498,4 +498,32 @@ class StatementRefreshIT extends AbstractIntegrationTest {
         assertThat(relationshipRepository.findByEitherSideIn(List.of(grocer)))
                 .extracting(TransactionRelationship::getStatus).containsOnly(TransactionRelationship.Status.USER_CONFIRMED);
     }
+
+    @Test
+    void aRemovedRowTheUserHadAnnotated_isFlaggedInTheSummary() throws Exception {
+        Imported i = importStatement();
+        UUID phantom = insertPhantom(i, "PAGE 1 OF 2", "3.00", 9);
+        moveBalance(i, "-3.00");
+        jdbcTemplate.update("UPDATE transactions SET notes = 'SAMPLE NOTE' WHERE id = ?", phantom);
+
+        refreshService.refresh(i.userId(), i.id(), null);
+
+        assertThat((List<Map<String, Object>>) lastRun(i).getDetail().get("removed"))
+                .extracting(m -> m.get("description"), m -> m.get("userEdited"))
+                .containsExactly(tuple("PAGE 1 OF 2", true));
+        assertThat(balance(i)).isEqualByComparingTo("-950.00");
+    }
+
+    @Test
+    void anEmailReceipt_isNeitherRefreshedNorCheckedByTheDryRun() throws Exception {
+        Imported i = importStatement();
+        // What a Gmail receipt import leaves behind: its row carries the receipt's source.
+        jdbcTemplate.update("UPDATE transactions SET source = 'GMAIL_IMPORT' WHERE statement_import_id = ?", i.id());
+        jdbcTemplate.update("UPDATE statement_imports SET parser_version = 'oldbuild' WHERE id = ?", i.id());
+
+        assertThatThrownBy(() -> refreshService.refresh(i.userId(), i.id(), null))
+                .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.getStatus().value()).isEqualTo(409));
+        assertThat(statementImportRepository.findIdsAwaitingRefreshCheck(buildVersionResolver.currentCommit(), 100_000))
+                .doesNotContain(i.id());
+    }
 }

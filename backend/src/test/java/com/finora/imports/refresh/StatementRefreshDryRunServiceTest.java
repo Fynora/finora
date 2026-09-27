@@ -83,6 +83,7 @@ class StatementRefreshDryRunServiceTest {
         when(build.currentCommit()).thenReturn("build1");
         when(statements.findIdsAwaitingRefreshCheck(eq("build1"), anyInt())).thenReturn(List.of(id));
         when(statements.findById(id)).thenReturn(Optional.of(st));
+        when(statements.findByIdForUpdate(id)).thenReturn(Optional.of(st));
         when(content.read(any())).thenReturn(new byte[]{1});
         when(importService.parseAndStageAnyFormat(any(), any(), any(), any(), any(), any())).thenReturn(
                 new StagingResponse(List.of(new StagedRow(LocalDate.of(2026, 7, 1), "ROW", new BigDecimal("1.00"),
@@ -106,6 +107,7 @@ class StatementRefreshDryRunServiceTest {
         StatementImport st = statement(id);
         st.setSupersededBy(UUID.randomUUID());
         when(statements.findById(id)).thenReturn(Optional.of(st));
+        when(statements.findByIdForUpdate(id)).thenReturn(Optional.of(st));
 
         service().check(id, "build1");
 

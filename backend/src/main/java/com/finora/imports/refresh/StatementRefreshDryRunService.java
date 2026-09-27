@@ -194,7 +194,10 @@ public class StatementRefreshDryRunService {
      * whose narrations the user asked to be deleted, or offer to refresh one that no longer counts.
      */
     private boolean stillCurrent(UUID statementId) {
-        return statementImportRepository.findById(statementId)
+        // Locked, as a refresh locks it: a check that read the rows while a refresh of the same
+        // statement was mid-way would otherwise save a "changes available" preview for changes the
+        // refresh has just applied.
+        return statementImportRepository.findByIdForUpdate(statementId)
                 .map(s -> s.getSupersededBy() == null)
                 .orElse(false);
     }

@@ -542,10 +542,21 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
                AND (s.parser_version IS NULL OR s.parser_version <> :parserVersion)
                AND NOT EXISTS (SELECT 1 FROM statement_refresh_previews p
                                 WHERE p.statement_import_id = s.id AND p.parser_version = :parserVersion)
+               AND NOT EXISTS (SELECT 1 FROM transactions g
+                                WHERE g.statement_import_id = s.id AND g.source = 'GMAIL_IMPORT')
              ORDER BY s.created_at, s.id
              LIMIT :limit
             """, nativeQuery = true)
     List<UUID> findIdsAwaitingRefreshCheck(@Param("parserVersion") String parserVersion, @Param("limit") int limit);
+
+    /**
+     * Whether this "statement" is a Gmail receipt: its stored file is a short provenance marker, not
+     * a document, so there is nothing to re-read. Statements don't record their origin; their rows do
+     * (deleted ones included, so a receipt whose row the user deleted is still recognised).
+     */
+    @Query(value = "SELECT EXISTS (SELECT 1 FROM transactions WHERE statement_import_id = :statementImportId "
+            + "AND source = 'GMAIL_IMPORT')", nativeQuery = true)
+    boolean isGmailReceipt(@Param("statementImportId") UUID statementImportId);
 
     /** How many statements findIdsAwaitingRefreshCheck still has for this build -- the backlog. */
     @Query(value = """
@@ -555,6 +566,8 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
                AND (s.parser_version IS NULL OR s.parser_version <> :parserVersion)
                AND NOT EXISTS (SELECT 1 FROM statement_refresh_previews p
                                 WHERE p.statement_import_id = s.id AND p.parser_version = :parserVersion)
+               AND NOT EXISTS (SELECT 1 FROM transactions g
+                                WHERE g.statement_import_id = s.id AND g.source = 'GMAIL_IMPORT')
             """, nativeQuery = true)
     long countAwaitingRefreshCheck(@Param("parserVersion") String parserVersion);
 }

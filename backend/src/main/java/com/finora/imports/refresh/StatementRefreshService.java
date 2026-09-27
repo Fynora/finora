@@ -145,6 +145,10 @@ public class StatementRefreshService {
             throw new ApiException(HttpStatus.CONFLICT,
                     "This statement was replaced by a newer upload, so there is nothing to refresh.");
         }
+        if (statementImportRepository.isGmailReceipt(statementId)) {
+            // Its stored "file" is a provenance marker, not a document: nothing to re-read.
+            throw new ApiException(HttpStatus.CONFLICT, "This came from an email receipt, so there is no statement to re-read.");
+        }
         if (accountRepository.findById(statement.getAccountId()).isEmpty()) {
             // Same rule as the dry run: a deleted account's statements are never offered or patched.
             throw new ApiException(HttpStatus.CONFLICT, "This statement's account was deleted.");
@@ -258,9 +262,13 @@ public class StatementRefreshService {
 
         List<KnownRow> gone = new ArrayList<>(diff.removed());
         gone.addAll(diff.conflicts());
+        // Read before removal: the summary must say which removed rows carried the user's own work
+        // (an edited field, a category they chose, notes, tags), because that work goes with them.
+        Map<UUID, Transaction> goneRows = new java.util.HashMap<>();
+        transactionRepository.findAllById(gone.stream().map(KnownRow::transactionId).toList())
+                .forEach(t -> goneRows.put(t.getId(), t));
         transactionService.removeFromStatement(userId, gone.stream().map(KnownRow::transactionId).toList());
-        for (KnownRow k : diff.removed()) run.removed(k, false);
-        for (KnownRow k : diff.conflicts()) run.removed(k, true);
+        for (KnownRow k : gone) run.removed(k, carriesUserWork(k, goneRows.get(k.transactionId())));
 
         // Rows on this statement now: what its history shows as imported.
         statement.setTransactionsImported(Math.max(0,
@@ -413,6 +421,14 @@ public class StatementRefreshService {
         if (version != null) statement.setParserVersion(version);
         statementImportRepository.save(statement);
         statementImportRepository.deleteRefreshPreviewsOfStatement(statement.getUserId(), statement.getId());
+    }
+
+    private static boolean carriesUserWork(KnownRow k, Transaction t) {
+        if (k.userEdited() != null && !k.userEdited().isEmpty()) return true;
+        if (t == null) return false;
+        return t.isCategoryManuallySet()
+                || (t.getNotes() != null && !t.getNotes().isBlank())
+                || (t.getTags() != null && !t.getTags().isEmpty());
     }
 
     /** A likely duplicate of a transaction that is not one of this statement's own rows. */

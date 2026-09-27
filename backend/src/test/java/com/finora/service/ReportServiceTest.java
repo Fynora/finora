@@ -31,6 +31,7 @@ class ReportServiceTest {
 
     private TransactionRepository transactionRepository;
     private AccountRepository accountRepository;
+    private CategoryRepository categoryRepository;
     private InflowKindRepository inflowKindRepository;
     private SenderInflowRuleRepository senderInflowRuleRepository;
     private ReportService reportService;
@@ -41,7 +42,7 @@ class ReportServiceTest {
     void setUp() {
         transactionRepository = mock(TransactionRepository.class);
         accountRepository = mock(AccountRepository.class);
-        CategoryRepository categoryRepository = mock(CategoryRepository.class);
+        categoryRepository = mock(CategoryRepository.class);
         when(categoryRepository.findByUserId(any())).thenReturn(List.of());
         TransactionGraphService transactionGraphService = mock(TransactionGraphService.class);
         when(transactionGraphService.ccPaymentFromTransactionIds(any())).thenReturn(Set.of());
@@ -307,6 +308,47 @@ class ReportServiceTest {
 
         assertThat(reportService.incomeTrend(userId)).isEmpty();
         verify(transactionRepository, never()).findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any());
+    }
+
+    // ---- the total is the sum of the category breakdown ----
+
+    /** Measured on prod: a refund filed under Dining (no Dining spend that month) lowered Expenses
+     *  to 1,285 while the breakdown -- which hides a negative category -- still summed to 2,776. */
+    @Test
+    void forMonth_expenseEqualsTheSumOfItsCategories() {
+        com.finora.entity.Category dining = new com.finora.entity.Category();
+        ReflectionTestUtils.setField(dining, "id", UUID.randomUUID());
+        dining.setName("Dining");
+        com.finora.entity.Category other = new com.finora.entity.Category();
+        ReflectionTestUtils.setField(other, "id", UUID.randomUUID());
+        other.setName("Other");
+        when(categoryRepository.findByUserId(any())).thenReturn(List.of(dining, other));
+        liveAccount.setAccountType(Account.Type.CREDIT_CARD);
+        Transaction purchase = txn(new BigDecimal("1491.00"), Transaction.Type.EXPENSE, Transaction.ReconciliationStatus.OK);
+        purchase.setAccountId(liveAccount.getId());
+        purchase.setCategoryId(other.getId());
+        purchase.setDescription("UPI PAYAPP 111111111111");
+        Transaction groceries = txn(new BigDecimal("1285.00"), Transaction.Type.EXPENSE, Transaction.ReconciliationStatus.OK);
+        groceries.setAccountId(liveAccount.getId());
+        groceries.setCategoryId(other.getId());
+        groceries.setDescription("GROCER 1");
+        Transaction refund = txn(new BigDecimal("1491.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
+        refund.setAccountId(liveAccount.getId());
+        refund.setCategoryId(dining.getId());
+        refund.setDescription("REFUND FROM MERCHANTCO ORDER 1");
+        refund.setSource(Transaction.Source.CSV_IMPORT);
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
+                .thenReturn(List.of(purchase, groceries, refund));
+
+        ReportDto report = reportService.forMonth(userId, "2026-07");
+
+        BigDecimal categorySum = report.categories().stream().map(ReportDto.CategoryAmount::amount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        assertThat(report.expense()).isEqualByComparingTo(categorySum);
+        assertThat(report.expense()).isEqualByComparingTo("2776.00");
+        // The web dashboard's Expenses card reads the range path -- the figure seen on prod.
+        assertThat(reportService.forRange(userId, LocalDate.of(2026, 7, 1), LocalDate.of(2026, 7, 31)).expense())
+                .isEqualByComparingTo("2776.00");
     }
 
     // ---- income by kind (Plan 2) ----

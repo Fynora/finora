@@ -266,9 +266,7 @@ public class AnalyticsService {
      */
     public BigDecimal totalExpense(UUID userId, YearMonth month) {
         SpendRows spend = activeSpend(userId, month);
-        return RefundNetting.floorAtZero(RefundNetting.excludingInvestmentTransfers(spend.rows()).stream()
-                .map(spend.netting()::spendAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add));
+        return spend.netting().spendTotal(RefundNetting.excludingInvestmentTransfers(spend.rows()));
     }
 
     /** See {@link AnalyticsDto.InternationalSpend}. {@code month} null means all time, same as
@@ -413,14 +411,21 @@ public class AnalyticsService {
     }
 
     private Map<YearMonth, BigDecimal> sumByMonth(List<Transaction> txns, RefundNetting refunds) {
-        Map<YearMonth, BigDecimal> byMonth = new HashMap<>();
+        // Month -> category -> amount, each category floored before the month is summed, so a
+        // month's spend equals its category breakdown (see RefundNetting.spendTotal). Not
+        // spendTotal itself: this also sums the income series, whose rows are not spend.
+        Map<YearMonth, Map<UUID, BigDecimal>> byMonthAndCategory = new HashMap<>();
+        UUID uncategorised = new UUID(0L, 0L);
         for (Transaction t : txns) {
             YearMonth m = YearMonth.from(t.getTxnDate());
+            UUID category = t.getCategoryId() == null ? uncategorised : t.getCategoryId();
             // spendAmount: an unlinked refund in a spend list counts negative; any other row, as
             // reportableAmount always priced it -- so this stays right for the income series too.
-            byMonth.merge(m, refunds.spendAmount(t), BigDecimal::add);
+            byMonthAndCategory.computeIfAbsent(m, k -> new HashMap<>()).merge(category, refunds.spendAmount(t), BigDecimal::add);
         }
-        byMonth.replaceAll((m, v) -> RefundNetting.floorAtZero(v));
+        Map<YearMonth, BigDecimal> byMonth = new HashMap<>();
+        byMonthAndCategory.forEach((m, cats) -> byMonth.put(m, cats.values().stream()
+                .map(RefundNetting::floorAtZero).reduce(BigDecimal.ZERO, BigDecimal::add)));
         return byMonth;
     }
 

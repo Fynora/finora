@@ -474,4 +474,21 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
     // why an unused unscoped one is worth deleting rather than leaving for that test to grow a
     // case for. Restore it from git history if a genuine caller ever appears -- with a user id
     // parameter.
+
+    /**
+     * The rows a user left out of this statement (StatementImportExcludedRow), deleted with the
+     * statement by StatementImportService.delete. Statements are soft-deleted, never hard-deleted,
+     * so no cascade would remove these; they are the statement's narrations, the user's financial
+     * data, and go with it.
+     */
+    // Not clearAutomatically: StatementImportService.delete keeps using the entities it loaded
+    // after this call, and these rows are never loaded into its persistence context anyway.
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
+    @Query("DELETE FROM StatementImportExcludedRow r WHERE r.userId = :userId AND r.statementImportId = :statementImportId")
+    int deleteExcludedRowsOfStatement(@Param("userId") UUID userId, @Param("statementImportId") UUID statementImportId);
+
+    /** Every excluded row a user has, deleted by the account purge. */
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
+    @Query("DELETE FROM StatementImportExcludedRow r WHERE r.userId = :userId")
+    int deleteExcludedRowsOfUser(@Param("userId") UUID userId);
 }

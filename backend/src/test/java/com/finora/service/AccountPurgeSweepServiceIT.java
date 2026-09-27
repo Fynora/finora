@@ -153,6 +153,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
 
     @Autowired private UserRepository userRepository;
+    @Autowired private com.finora.repository.StatementImportExcludedRowRepository excludedRowRepository;
     @Autowired private GmailConnectionService gmailConnectionService;
     @Autowired private GmailConnectionRepository gmailConnectionRepository;
     @Autowired private RazorpaySubscriptionGateway gateway;
@@ -505,6 +506,9 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         statement.setFileContent(new byte[]{1});
         statement.setContentHash("purge-it-hash-" + UUID.randomUUID());
         UUID statementId = statementImportRepository.save(statement).getId();
+        // A row the user left out of this statement: its narration is the user's financial data.
+        excludedRowRepository.save(new com.finora.entity.StatementImportExcludedRow(statementId, userId, 4,
+                java.time.LocalDate.of(2026, 7, 1), "SAMPLE LEFT OUT ROW", new java.math.BigDecimal("99.00"), "EXPENSE", true));
         entityManager.flush();
 
         AccountPurgeSweepService.Result result = service.sweep();
@@ -526,6 +530,12 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 .createNativeQuery("SELECT deleted_at FROM statement_imports WHERE id = :id")
                 .setParameter("id", statementId).getSingleResult();
         assertThat(deletedAt).isNotNull();
+        // ...but the rows the user left out of it are gone, not anonymised: nothing cascades from
+        // a statement row that is never deleted, so the purge removes them itself.
+        Number excludedLeft = (Number) entityManager
+                .createNativeQuery("SELECT count(*) FROM statement_import_excluded_rows WHERE user_id = :userId")
+                .setParameter("userId", userId).getSingleResult();
+        assertThat(excludedLeft.intValue()).isZero();
 
         User purgedUser = userRepository.findById(userId).orElseThrow();
         assertThat(purgedUser.getStatus()).isEqualTo(User.STATUS_DELETED);

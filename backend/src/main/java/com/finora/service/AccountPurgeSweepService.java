@@ -663,6 +663,10 @@ public class AccountPurgeSweepService {
             // transaction hard-delete above has no cascade path into this table at all -- see
             // TransactionRelationshipRepository.deleteByUserId's own doc comment.
             transactionRelationshipRepository.deleteByUserId(userId);
+            // The rows the user left out of each statement: its narrations, the same financial
+            // data as the transactions deleted just above. statement_imports rows themselves are
+            // anonymised below, never deleted, so nothing cascades to these.
+            statementImportRepository.deleteExcludedRowsOfUser(userId);
 
             merchantLearningEventRepository.deleteByUserId(userId);
             merchantLearningAuditRepository.deleteByUserId(userId);

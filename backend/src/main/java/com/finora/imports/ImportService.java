@@ -130,6 +130,7 @@ public class ImportService {
     private final AccountAggregatorGuard accountAggregatorGuard;
     private final com.finora.service.SharedCorpusService sharedCorpusService;
     private final com.finora.service.UserMerchantCategoryResolutionService userMerchantCategoryResolutionService;
+    private final StatementProvenanceRecorder provenanceRecorder;
 
     public ImportService(AccountRepository accountRepository, AccountService accountService,
                           TransactionRepository transactionRepository, MerchantRepository merchantRepository,
@@ -153,7 +154,9 @@ public class ImportService {
                           EntitlementService entitlementService,
                           AccountAggregatorGuard accountAggregatorGuard,
                           com.finora.service.SharedCorpusService sharedCorpusService,
-                          com.finora.service.UserMerchantCategoryResolutionService userMerchantCategoryResolutionService) {
+                          com.finora.service.UserMerchantCategoryResolutionService userMerchantCategoryResolutionService,
+                          StatementProvenanceRecorder provenanceRecorder) {
+        this.provenanceRecorder = provenanceRecorder;
         this.evidenceShadowObserver = evidenceShadowObserver;
         this.entitlementService = entitlementService;
         this.accountAggregatorGuard = accountAggregatorGuard;
@@ -1049,8 +1052,11 @@ public class ImportService {
         // "include" branch), so these match the transactions that actually landed in the ledger.
         java.math.BigDecimal totalCredits = java.math.BigDecimal.ZERO;
         java.math.BigDecimal totalDebits = java.math.BigDecimal.ZERO;
+        // Kept, not just counted: a statement refresh must recognise a row the user left out rather
+        // than add it back as "new" -- see StatementProvenanceRecorder.
+        List<ConfirmedRow> excludedRows = new ArrayList<>();
         for (ConfirmedRow row : request.rows()) {
-            if (!row.include()) { skipped++; continue; }
+            if (!row.include()) { skipped++; excludedRows.add(row); continue; }
             if ("INCOME".equals(row.type())) {
                 totalCredits = totalCredits.add(row.amount());
             } else {
@@ -1341,7 +1347,9 @@ public class ImportService {
         // (below), not the save itself. Slightly under-counts the true end-to-end time by exactly
         // one insert -- consistent across every row, which is what matters for comparing layouts.
         statementImport.setImportDurationMs(System.currentTimeMillis() - startedAtMs);
+        statementImport.setParserVersion(provenanceRecorder.currentParserVersion());
         StatementImport savedImport = statementImportRepository.save(statementImport);
+        provenanceRecorder.recordExcludedRows(userId, savedImport.getId(), excludedRows);
 
         // Milestone 2 item 2: the layout gets a row of its own, not just a string on this one.
         // Placed here because this is the single authoritative moment a confirmed import records

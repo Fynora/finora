@@ -278,12 +278,11 @@ public final class CategoryRules {
     private static final Set<String> FILLER_TOKENS = Set.of(
             "upi", "imps", "neft", "rtgs", "mob", "mmt", "ib", "ach", "nach", "dr", "cr", "p2a", "p2m",
             "na", "null", "rrn", "from", "upiintent");
-    private static final Pattern FIELD_SEPARATOR = Pattern.compile("[/-]");
-    private static final Pattern IFSC_FIELD = Pattern.compile("(?i)^[a-z]{4}0[a-z0-9]{6}$");
+    /** An IFSC, matched from the start of a field with its spaces removed: a line wrap can split it
+     *  ("U TIB0...", "IOB A0001 ...") and an account number can follow it. */
+    private static final Pattern IFSC_FIELD = Pattern.compile("(?i)^[a-z]{4}0[a-z0-9]{6}");
     /** A code mixing letters and digits with no space in it: a transaction or merchant ID. */
     private static final Pattern CODE_FIELD = Pattern.compile("^(?=.*\\d)(?=.*[A-Za-z])\\S{6,}$");
-    /** A short all-capitals word on its own: a bank code printed beside the payee ("KKBK", "YESB"). */
-    private static final Pattern BANK_CODE_FIELD = Pattern.compile("^[A-Z]{3,4}$");
 
     /**
      * The payee of a structured narration, or null when {@code desc} is not structured (the caller
@@ -291,32 +290,79 @@ public final class CategoryRules {
      * payee, so no name at all rather than a guess.
      */
     private static java.util.Optional<String> payeeOfStructuredNarration(String desc) {
-        String cleaned = RRN_LABEL.matcher(CLOCK_TIME.matcher(desc).replaceAll(" ")).replaceAll(" ");
-        String[] fields = FIELD_SEPARATOR.split(cleaned.trim());
-        if (fields.length < 2) return null;
-        if (!isHead(fields[0])) {
+        String cleaned = RRN_LABEL.matcher(CLOCK_TIME.matcher(desc).replaceAll(" ")).replaceAll(" ").trim();
+        String[] fields = fieldsOf(cleaned);
+        if (fields == null) {
             // ICICI prints the payee ahead of the rail: "NAME UPI/NAME/HANDLE/NOTE/BANK/REF/CODE".
-            String first = normalize(fields[0]);
-            if (!first.endsWith(" upi")) return null;
-            return java.util.Optional.ofNullable(nameOf(fields[0]));
+            String[] slash = cleaned.split("/");
+            if (slash.length < 2 || !normalize(slash[0]).endsWith(" upi")) return null;
+            return java.util.Optional.ofNullable(nameOf(slash[0]));
         }
-        String handleName = null;
         for (int i = 1; i < fields.length; i++) {
             String field = fields[i].trim();
             if (field.isEmpty()) continue;
             if (field.contains("@")) {
-                if (handleName == null) handleName = handleName(field);
-                continue;
+                // The payee is printed before the handle in almost every corpus layout; what follows
+                // is a note, a bank or an IFSC, often cut off or split by a line wrap ("UP", "IOB
+                // A0001 ..."). One Standard Chartered layout prints the name DIRECTLY after the
+                // handle (.../HANDLE/ NAME/IFSC/...), so only that one next field is still read, and
+                // only when it names something of at least three letters. Otherwise the handle's own
+                // name is the answer.
+                String next = i + 1 < fields.length ? fields[i + 1].trim() : "";
+                String after = next.contains("@") || isNotAName(next) ? null : nameOf(next);
+                String fromHandle = handleName(field);
+                // The next field can be the handle printed again ("SAMPLEPAYEE30 <ref>"), which is
+                // no better a name than the handle's own, cleaned of its digits.
+                boolean repeatsHandle = after != null && fromHandle != null
+                        && after.replaceAll("[^a-z]", "").equals(fromHandle.replace(" ", ""));
+                if (after != null && !repeatsHandle && after.replace(" ", "").length() >= 3) {
+                    return java.util.Optional.of(after);
+                }
+                return java.util.Optional.ofNullable(fromHandle);
             }
-            if (IFSC_FIELD.matcher(field).matches() || CODE_FIELD.matcher(field).matches()) continue;
-            if (BANK_CODE_FIELD.matcher(field).matches() && !HEAD_WORDS.contains(field.toLowerCase())) continue;
+            if (isNotAName(field)) continue;
             // A reference, phone or account number has no letters, so nameOf returns null for it. A
             // name field that also carries a code ("SAMPLE PERSON S1234567 CHO") keeps its words.
             String name = nameOf(field);
             if (name != null) return java.util.Optional.of(name);
         }
-        return java.util.Optional.ofNullable(handleName);
+        return java.util.Optional.empty();
     }
+
+    /**
+     * The fields of a structured narration, or null when it is not one. Slash layouts are split on
+     * "/" only, because a handle can itself contain a hyphen ("samplepayee30-1@okaxis") -- the head
+     * before the first "/" may still be hyphenated ("MOB-IMPS-CR/..."). A narration whose part
+     * before the first "/" is not a rail head is split on "-" instead: the HDFC layout, whose note
+     * can carry a date with slashes in it.
+     */
+    private static String[] fieldsOf(String cleaned) {
+        String[] slash = cleaned.split("/");
+        if (slash.length >= 2 && isHead(slash[0])) return slash;
+        String[] hyphen = cleaned.split("-");
+        if (hyphen.length >= 2 && isHead(hyphen[0])) return hyphen;
+        return null;
+    }
+
+    /** A field that is never a payee's name: an IFSC (possibly split by a line wrap), a letter-digit
+     *  code, or a real bank's code. */
+    private static boolean isNotAName(String field) {
+        return IFSC_FIELD.matcher(field.replace(" ", "")).lookingAt()
+                || CODE_FIELD.matcher(field).matches()
+                || isBankCode(field);
+    }
+
+    /** A real bank's four-letter IFSC code printed as a field of its own ("YESB", "UTIB"). Only the
+     *  registry's codes count: a short all-capitals payee ("JIO", "LIC") is a name. */
+    private static boolean isBankCode(String field) {
+        return BANK_CODES.contains(field.trim().toUpperCase(java.util.Locale.ROOT));
+    }
+
+    private static final Set<String> BANK_CODES = BankRegistry.all().stream()
+            .map(BankRegistry.BankInfo::ifscPrefix)
+            .filter(java.util.Objects::nonNull)
+            .map(code -> code.toUpperCase(java.util.Locale.ROOT))
+            .collect(Collectors.toUnmodifiableSet());
 
     /** True when every word of the first field is a rail, direction or channel word, including a
      *  rail with a bank's short suffix ("UPIAB", "UPIAR"). */
@@ -361,17 +407,22 @@ public final class CategoryRules {
      * The name part of a UPI handle. Used only when no field names the payee (Bank of Baroda prints
      * only the handle). A line wrap can put a space inside the handle ("samplepoun d@okicici"), so
      * the part before "@" is rejoined first. Each dot- or underscore-separated piece keeps its
-     * leading letters ("samplestore27" is "samplestore"). A piece that is a payment app's own word,
-     * or a generated code (letters, digits, letters), names nobody. Null when no piece of three or
+     * leading letters ("samplestore27" and "sample035store" are "samplestore" and "sample"). A piece
+     * that is a payment app's own word, or whose leading letters are fewer than three (a generated
+     * code such as "s25j48"), names nobody. Null when no piece of three or
      * more letters remains, which covers a phone number or a code on its own.
      */
+    /** A handle piece's leading letters. A generated code ("s25j48", "q1a2b3") leads with fewer than
+     *  three, so the length check below rejects it; a payment app's own prefix is rejected by name. */
+    private static final Pattern HANDLE_PIECE = Pattern.compile("^([a-z]+)");
+
     private static String handleName(String field) {
         String local = field.substring(0, field.indexOf('@')).replaceAll("\\s+", "").toLowerCase();
         StringBuilder sb = new StringBuilder();
         int pieces = 0;
         for (String piece : local.split("[._]+")) {
-            java.util.regex.Matcher m = Pattern.compile("^([a-z]+)\\d*$").matcher(piece);
-            if (!m.matches()) continue; // empty, digits first, or a code such as "s25j48"
+            java.util.regex.Matcher m = HANDLE_PIECE.matcher(piece);
+            if (!m.lookingAt()) continue; // empty, or digits first
             String letters = m.group(1);
             if (letters.length() < 3 || PAYMENT_APP_HANDLE_WORDS.contains(letters)) continue;
             if (sb.length() > 0) sb.append(' ');

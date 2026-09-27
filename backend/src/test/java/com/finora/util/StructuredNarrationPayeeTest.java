@@ -112,6 +112,48 @@ class StructuredNarrationPayeeTest {
     }
 
     @Test
+    void aShortAllCapitalsPayeeIsAName() {
+        // "JIO", "LIC", "BSNL" are payees, not bank codes; only a real bank's code is skipped.
+        assertThat(label("UPI/JIO/100000000001/Pay")).isEqualTo("jio");
+        assertThat(label("UPI/DR/100000000001/LIC/UTIB/sample@okaxis")).isEqualTo("lic");
+    }
+
+    @Test
+    void aKnownBankCodeBeforeTheHandleIsNotTheName() {
+        assertThat(label("UPI/DR/100000000001/ /YESB/samplestore@ybl")).isEqualTo("samplestore");
+    }
+
+    @Test
+    void nothingAfterTheHandleIsTheName() {
+        // Every corpus layout prints the payee before the handle; what follows is a note, a bank or
+        // an IFSC. A wrapped IFSC ("IOB A0001...") or a cut-off note ("UP") must never become it.
+        assertThat(label("UPI/100000000001/SAMPLEPAYEE@OKAXIS/SAMPLEPAYEE@OKAXIS/IOB A0001 100000000001/FIRST TRANSFER"))
+                .isEqualTo("samplepayee");
+        assertThat(label("UPI/100000000001/SAMPLE035PAYEE@OKAXIS/SAMPLE035PAYEE@OKAXIS/U TIB 100000000001/UPI"))
+                .isEqualTo("sample");
+        assertThat(label("UPI/100000000001/18:10:02/UPI/1000000001-3@ybl/UP")).isNull();
+    }
+
+    @Test
+    void aNameDirectlyAfterTheHandleIsTheName() {
+        // A Standard Chartered layout prints REF/REF/HANDLE/NAME/IFSC/...
+        assertThat(label("UPI/100000000001/100000000002/SAMPLEPAYEE@OKAXIS/ SAMPLE FULL PAYEE/IOBA0XXXXXX/UPI"))
+                .isEqualTo("sample full payee");
+    }
+
+    @Test
+    void aHyphenInsideAHandleDoesNotSplitIt() {
+        assertThat(label("UPI/100000000001/SAMPLEPAYEE30-1@OKAXIS/SAMPLEPAYEE30 100000000001/UPI"))
+                .isEqualTo("samplepayee");
+    }
+
+    @Test
+    void aHyphenLayoutWithASlashInItsNoteStaysAHyphenLayout() {
+        assertThat(label("UPI-SAMPLE TRADERS-sampletraders@ptys-YESB0XXXXXX-100000000001-UPI Value Dt 22/06/2026 Ref 100000000001"))
+                .isEqualTo("sample traders");
+    }
+
+    @Test
     void aRailWordJoinedToTheNameByAnUnderscoreIsDropped() {
         assertThat(label("UPI/RRN 100000000001/UPI_SAMPLE PAYEE NAME")).isEqualTo("sample payee name");
     }

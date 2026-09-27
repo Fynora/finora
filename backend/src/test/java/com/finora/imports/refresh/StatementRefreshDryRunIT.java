@@ -236,6 +236,24 @@ class StatementRefreshDryRunIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void aReReadThatNamesADifferentAccount_isFailed_notComparedAgainstThisStatement() throws Exception {
+        Imported i = importStatement();
+        // The CSV names no account number; give the account one, and make the re-read name another,
+        // as a multi-account PDF's re-ordered sections would.
+        jdbcTemplate.update("UPDATE accounts SET account_number_masked = 'XXXXXXXX1234' WHERE id = ?",
+                i.statement().getAccountId());
+        jdbcTemplate.update("UPDATE statement_imports SET file_content = ?, object_key = NULL WHERE id = ?",
+                ("Account Number,XXXXXXXX9876\n" + new String(FILE, StandardCharsets.UTF_8)).getBytes(StandardCharsets.UTF_8),
+                i.statement().getId());
+
+        dryRun.check(i.statement().getId(), NEW_BUILD);
+
+        StatementRefreshPreview p = preview(i, NEW_BUILD);
+        assertThat(p.getStatus()).isEqualTo(StatementRefreshPreview.Status.FAILED);
+        assertThat(p.getDetail()).containsEntry("reason", "ACCOUNT_MISMATCH");
+    }
+
+    @Test
     void theBatch_checksOnlyStatementsAnOlderBuildParsed_andKeepsOnlyTheLatestPreview() throws Exception {
         String current = buildVersionResolver.currentCommit();
         assertThat(current).as("the test build must carry a commit id for this test to mean anything").isNotBlank();

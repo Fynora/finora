@@ -49,7 +49,7 @@ class StatementRefreshDryRunServiceTest {
 
     private StatementRefreshDryRunService service() {
         when(txManager.getTransaction(any())).thenReturn(mock(TransactionStatus.class));
-        StatementRefreshDryRunService s = new StatementRefreshDryRunService(statements, transactions, excluded, previews,
+        StatementRefreshDryRunService s = new StatementRefreshDryRunService(statements, mock(com.finora.repository.AccountRepository.class), transactions, excluded, previews,
                 content, importService, build, txManager, handedOff::add);
         ReflectionTestUtils.setField(s, "enabled", true);
         ReflectionTestUtils.setField(s, "batchSize", 20);

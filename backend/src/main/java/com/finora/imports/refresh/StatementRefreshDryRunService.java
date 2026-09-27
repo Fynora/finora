@@ -60,6 +60,7 @@ public class StatementRefreshDryRunService {
     private static final Logger log = LoggerFactory.getLogger(StatementRefreshDryRunService.class);
 
     private final StatementImportRepository statementImportRepository;
+    private final com.finora.repository.AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
     private final StatementImportExcludedRowRepository excludedRowRepository;
     private final StatementRefreshPreviewRepository previewRepository;
@@ -77,6 +78,7 @@ public class StatementRefreshDryRunService {
     private int batchSize;
 
     public StatementRefreshDryRunService(StatementImportRepository statementImportRepository,
+                                         com.finora.repository.AccountRepository accountRepository,
                                          TransactionRepository transactionRepository,
                                          StatementImportExcludedRowRepository excludedRowRepository,
                                          StatementRefreshPreviewRepository previewRepository,
@@ -87,6 +89,7 @@ public class StatementRefreshDryRunService {
                                          @org.springframework.beans.factory.annotation.Qualifier("statementRefreshDryRunExecutor")
                                          java.util.concurrent.Executor executor) {
         this.executor = executor;
+        this.accountRepository = accountRepository;
         this.statementImportRepository = statementImportRepository;
         this.transactionRepository = transactionRepository;
         this.excludedRowRepository = excludedRowRepository;
@@ -242,6 +245,12 @@ public class StatementRefreshDryRunService {
                     row.balanceAfter(), row.referenceNumber()));
         }
 
+        if (namesAnotherAccount(statement, staging.detectedAccount())) {
+            // A multi-account PDF re-read by a parser that orders its account sections differently
+            // hands back a different account's section at the stored index. Compared anyway, that
+            // account's rows would be offered as this statement's.
+            return failed(statement, parserVersion, "ACCOUNT_MISMATCH");
+        }
         long liveRows = known.stream().filter(k -> k.kind() == KnownKind.LIVE).count();
         if (fresh.isEmpty() && liveRows > 0) {
             // A statement that now parses to nothing is a parser or file problem, never "every
@@ -273,6 +282,22 @@ public class StatementRefreshDryRunService {
      */
     static boolean removesTooMuch(int removed, long liveRows) {
         return removed > 2 && removed * 4L > liveRows;
+    }
+
+    /** Both sides carry a card or account number and their last 4 digits differ. Either missing is not a mismatch. */
+    private boolean namesAnotherAccount(StatementImport statement, DetectedAccountInfo now) {
+        if (now == null) return false;
+        String reread = last4(now.accountNumberMasked());
+        if (reread == null) return false;
+        String stored = accountRepository.findById(statement.getAccountId())
+                .map(a -> last4(a.getAccountNumberMasked())).orElse(null);
+        return stored != null && !stored.equals(reread);
+    }
+
+    private static String last4(String masked) {
+        if (masked == null) return null;
+        String digits = masked.replaceAll("[^0-9]", "");
+        return digits.length() >= 4 ? digits.substring(digits.length() - 4) : null;
     }
 
     /** Tolerant: a name this build doesn't know is skipped, as Transaction.getUserEditedFields does. */

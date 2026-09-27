@@ -100,6 +100,15 @@ public enum ErrorCode {
     // retried, and (like CORRUPT_PDF) plain failed rather than ACTION_REQUIRED.
     IMPORT_MALFORMED_CSV("IMPORT_017", HttpStatus.UNPROCESSABLE_ENTITY,
             "This file could not be read as a CSV -- it appears to be damaged or cut short"),
+    // A payment app's own payment history (Paytm's "Passbook Payments History"), not a statement of
+    // any account. Audit F-08: it lists payments made from several of the user's bank accounts,
+    // each of which also appears in that bank's own statement, so importing it into one account
+    // would put other banks' payments there and duplicate them. It used to reach IMPORT_001, which
+    // told the user Finora could not read their statement. userActionRequired=true because the fix
+    // is theirs to make: import the bank statements instead. Never retried: the same bytes are the
+    // same kind of document every time.
+    IMPORT_PAYMENT_APP_HISTORY("IMPORT_018", HttpStatus.UNPROCESSABLE_ENTITY,
+            "This is a Paytm payment history, not a bank statement.", true),
     // Distinct from a genuinely expired/missing session (still a codeless ApiException, since
     // "upload again" really is the right instruction there) because the frontend has to TELL THEM
     // APART, not just print a message: reaching a completed job's "Review this import" action

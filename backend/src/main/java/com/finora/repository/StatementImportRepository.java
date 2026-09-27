@@ -491,4 +491,45 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
     @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
     @Query("DELETE FROM StatementImportExcludedRow r WHERE r.userId = :userId")
     int deleteExcludedRowsOfUser(@Param("userId") UUID userId);
+
+    /** A statement's refresh previews (StatementRefreshPreview), which hold its narrations -- deleted
+     *  with it, the same as its excluded rows above. */
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
+    @Query("DELETE FROM StatementRefreshPreview p WHERE p.userId = :userId AND p.statementImportId = :statementImportId")
+    int deleteRefreshPreviewsOfStatement(@Param("userId") UUID userId, @Param("statementImportId") UUID statementImportId);
+
+    /** Every refresh preview a user has, deleted by the account purge. */
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
+    @Query("DELETE FROM StatementRefreshPreview p WHERE p.userId = :userId")
+    int deleteRefreshPreviewsOfUser(@Param("userId") UUID userId);
+
+    /**
+     * The statements a refresh dry run has not yet checked under {@code parserVersion}: live, on a
+     * live account, not replaced by a re-upload (a superseded statement's rows no longer count, so a
+     * refresh must never touch them), parsed by a different (or unknown) build, and with no preview
+     * for this one.
+     * Oldest first, so a backlog drains in import order.
+     */
+    @Query(value = """
+            SELECT s.id FROM statement_imports s
+              JOIN accounts a ON a.id = s.account_id
+             WHERE s.deleted_at IS NULL AND a.deleted_at IS NULL AND s.superseded_by IS NULL
+               AND (s.parser_version IS NULL OR s.parser_version <> :parserVersion)
+               AND NOT EXISTS (SELECT 1 FROM statement_refresh_previews p
+                                WHERE p.statement_import_id = s.id AND p.parser_version = :parserVersion)
+             ORDER BY s.created_at, s.id
+             LIMIT :limit
+            """, nativeQuery = true)
+    List<UUID> findIdsAwaitingRefreshCheck(@Param("parserVersion") String parserVersion, @Param("limit") int limit);
+
+    /** How many statements findIdsAwaitingRefreshCheck still has for this build -- the backlog. */
+    @Query(value = """
+            SELECT count(*) FROM statement_imports s
+              JOIN accounts a ON a.id = s.account_id
+             WHERE s.deleted_at IS NULL AND a.deleted_at IS NULL AND s.superseded_by IS NULL
+               AND (s.parser_version IS NULL OR s.parser_version <> :parserVersion)
+               AND NOT EXISTS (SELECT 1 FROM statement_refresh_previews p
+                                WHERE p.statement_import_id = s.id AND p.parser_version = :parserVersion)
+            """, nativeQuery = true)
+    long countAwaitingRefreshCheck(@Param("parserVersion") String parserVersion);
 }

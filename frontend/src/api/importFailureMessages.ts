@@ -26,6 +26,7 @@ import {
   SCANNED_OCR_REQUIRED,
   CORRUPT_PDF,
   MALFORMED_CSV,
+  PAYMENT_APP_HISTORY,
   PDF_TOO_LARGE,
   TRUST_REVIEW_REJECTED,
 } from './errorCodes';
@@ -62,6 +63,12 @@ export const IMPORT_FAILURE_MESSAGES: Record<string, string> = {
   [MALFORMED_CSV]:
     'This file could not be read as a CSV. It may be damaged or cut short -- downloading it again from ' +
     'your bank usually fixes this.',
+  // The wrong kind of document, not something Finora failed to read -- so it names what the file
+  // is and what to upload instead, rather than "couldn't find a transaction table".
+  [PAYMENT_APP_HISTORY]:
+    "This is a Paytm payment history, not a bank statement. Each payment in it was made from one " +
+    "of your bank accounts and is already in that bank's own statement, so import those bank " +
+    'statements instead.',
   [PDF_TOO_LARGE]:
     'This PDF has too many pages to process. Split it into smaller files (e.g. by date range) ' +
     'and import each one separately.',
@@ -102,6 +109,7 @@ export const IMPORT_FAILURE_TITLES: Record<string, string> = {
   [SCANNED_OCR_REQUIRED]: 'This looks like a scanned copy',
   [CORRUPT_PDF]: 'This file looks damaged',
   [MALFORMED_CSV]: 'This file looks damaged',
+  [PAYMENT_APP_HISTORY]: 'This is a Paytm payment history',
   [PDF_TOO_LARGE]: 'This statement is too long',
   [NO_ACTIVITY_IN_PERIOD]: 'Nothing to import',
   [TRUST_REVIEW_REJECTED]: "We couldn't read this accurately",

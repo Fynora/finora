@@ -84,6 +84,29 @@ public class BackgroundWorkConfig {
      * trigger. Nothing is lost either way -- the job row is already committed and the poller is the
      * backstop -- but a discarded nudge would silently delay an import to the next poll.
      */
+    /**
+     * The statement refresh dry run's own thread (StatementRefreshDryRunService). Every @Scheduled
+     * method in the app shares Spring's scheduler, which is a single thread here (no pool size is
+     * configured), so a dry-run batch -- up to 20 re-parses, OCR included -- run on it would hold
+     * up the import-queue poll, the notification dispatcher and every sweep for minutes. The
+     * scheduled tick only hands the batch to this thread. One thread and no queue: a tick that
+     * arrives while a batch is still running is dropped, never run on the scheduler instead.
+     * Not waited for on shutdown: the dry run writes nothing but previews, one per statement in its
+     * own transaction, and an interrupted batch simply resumes on the next deploy's run.
+     */
+    @Bean("statementRefreshDryRunExecutor")
+    public Executor statementRefreshDryRunExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setQueueCapacity(0);
+        executor.setThreadNamePrefix("statement-refresh-dry-run-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.DiscardPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(false);
+        executor.initialize();
+        return executor;
+    }
+
     @Bean("importQueueExecutor")
     public Executor importQueueExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();

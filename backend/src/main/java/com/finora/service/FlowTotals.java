@@ -26,10 +26,11 @@ public final class FlowTotals {
     private FlowTotals() {}
 
     /** What the classifier needs about the user beyond the row itself: each account's type (a card
-     *  credit is never income) and which category ids are the user's Salary category. */
-    public record Context(Map<UUID, Account.Type> accountTypes, Set<UUID> salaryCategoryIds) {}
+     *  credit is never income), which category ids are the user's Salary category, and the user's
+     *  inflow kinds (Plan 2). Production code builds this through InflowChoiceService.contextFor. */
+    public record Context(Map<UUID, Account.Type> accountTypes, Set<UUID> salaryCategoryIds, InflowChoices choices) {}
 
-    public static Context context(Collection<Account> accounts, Collection<Category> categories) {
+    public static Context context(Collection<Account> accounts, Collection<Category> categories, InflowChoices choices) {
         Map<UUID, Account.Type> types = new HashMap<>();
         for (Account a : accounts) {
             if (a.getId() != null && a.getAccountType() != null) types.put(a.getId(), a.getAccountType());
@@ -40,17 +41,17 @@ public final class FlowTotals {
         for (Category c : categories) {
             if (c.getId() != null && c.getName() != null && c.getName().trim().equalsIgnoreCase("Salary")) salary.add(c.getId());
         }
-        return new Context(types, salary);
+        return new Context(types, salary, choices);
     }
 
     public static boolean countsAsIncome(Transaction t, Context ctx) {
         return t.getTxnType() == Transaction.Type.INCOME
-                && decide(t, ctx).flowClass() == FlowClassifier.FlowClass.INCOME;
+                && decision(t, ctx).flowClass() == FlowClassifier.FlowClass.INCOME;
     }
 
     public static boolean isUnresolvedInflow(Transaction t, Context ctx) {
         return t.getTxnType() == Transaction.Type.INCOME
-                && decide(t, ctx).flowClass() == FlowClassifier.FlowClass.UNRESOLVED;
+                && decision(t, ctx).flowClass() == FlowClassifier.FlowClass.UNRESOLVED;
     }
 
     /**
@@ -65,7 +66,7 @@ public final class FlowTotals {
         if (t.getTxnType() != Transaction.Type.INCOME) return false;
         if (t.getReconciliationStatus() == Transaction.ReconciliationStatus.REFUND
                 || t.getReconciliationStatus() == Transaction.ReconciliationStatus.REVERSAL) return false;
-        FlowClassifier.FlowReason reason = decide(t, ctx).reason();
+        FlowClassifier.FlowReason reason = decision(t, ctx).reason();
         return reason == FlowClassifier.FlowReason.UNLINKED_REFUND
                 || reason == FlowClassifier.FlowReason.REVERSAL
                 || reason == FlowClassifier.FlowReason.CARD_ADJUSTMENT;
@@ -88,7 +89,7 @@ public final class FlowTotals {
         Map<FlowClassifier.FlowReason, BigDecimal> byReason = new EnumMap<>(FlowClassifier.FlowReason.class);
         for (Transaction t : reportable) {
             if (!isUnresolvedInflow(t, ctx)) continue;
-            byReason.merge(decide(t, ctx).reason(), t.getAmount(), BigDecimal::add);
+            byReason.merge(decision(t, ctx).reason(), t.getAmount(), BigDecimal::add);
         }
         // Ties break on enum declaration order, which EnumMap iterates in -- deterministic.
         FlowClassifier.FlowReason top = null;
@@ -102,9 +103,34 @@ public final class FlowTotals {
         return top;
     }
 
-    private static FlowClassifier.FlowDecision decide(Transaction t, Context ctx) {
+    /** The flow reading every total in this class uses, exposed for the counts-as endpoint. */
+    public static FlowClassifier.FlowDecision decision(Transaction t, Context ctx) {
+        InflowChoices.Chosen chosen = ctx.choices().chosenFor(t);
         return FlowClassifier.classify(t,
                 t.getAccountId() == null ? null : ctx.accountTypes().get(t.getAccountId()),
-                t.getCategoryId() != null && ctx.salaryCategoryIds().contains(t.getCategoryId()));
+                t.getCategoryId() != null && ctx.salaryCategoryIds().contains(t.getCategoryId()),
+                chosen == null ? null : chosen.kind());
+    }
+
+    /** The user's kind for this row (its own, else its sender's), or null. */
+    public static InflowChoices.Chosen chosen(Transaction t, Context ctx) {
+        return ctx.choices().chosenFor(t);
+    }
+
+    /** The line an income row is reported under: the user's kind when one made it income,
+     *  otherwise what the automatic reading found. Only meaningful for a row countsAsIncome accepts. */
+    public static String incomeLabel(Transaction t, Context ctx) {
+        FlowClassifier.FlowDecision d = decision(t, ctx);
+        if (d.reason() == FlowClassifier.FlowReason.USER_KIND || d.reason() == FlowClassifier.FlowReason.FAMILY_SUPPORT) {
+            return ctx.choices().chosenFor(t).kind().getName();
+        }
+        return switch (d.reason()) {
+            case SALARY -> "Salary";
+            case INTEREST -> "Interest";
+            case DIVIDEND -> "Dividends";
+            case REWARD -> "Rewards and cashback";
+            case TAX_REFUND -> "Tax refunds";
+            default -> "Other income";
+        };
     }
 }

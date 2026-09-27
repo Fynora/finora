@@ -69,6 +69,9 @@ public class AnalyticsService {
     // Multi-Year Comparison (issue #1455): the one caller of gapsForUser -- see MultiYearCoverage.
     private final AccountCoverageService accountCoverageService;
 
+    /** Built into every FlowTotals.Context here -- the user's inflow kinds (Plan 2). */
+    private final InflowChoiceService inflowChoices;
+
     public AnalyticsService(TransactionRepository transactionRepository, AccountRepository accountRepository,
                              MerchantRepository merchantRepository,
                              MerchantCategoryLearningRepository learningRepository,
@@ -76,7 +79,9 @@ public class AnalyticsService {
                              CategoryRepository categoryRepository, StatementImportRepository statementImportRepository,
                              ConfidenceEngine confidenceEngine, UserRepository userRepository,
                              TransactionGraphService transactionGraphService,
-                             AccountCoverageService accountCoverageService) {
+                             AccountCoverageService accountCoverageService,
+                            InflowChoiceService inflowChoices) {
+        this.inflowChoices = inflowChoices;
         this.transactionRepository = transactionRepository;
         this.accountRepository = accountRepository;
         this.merchantRepository = merchantRepository;
@@ -440,7 +445,7 @@ public class AnalyticsService {
     private List<Transaction> activeIncomeTransactions(UUID userId, LocalDate from, LocalDate to) {
         List<com.finora.entity.Account> accounts = accountRepository.findByUserId(userId);
         List<UUID> liveAccountIds = accounts.stream().map(com.finora.entity.Account::getId).toList();
-        FlowTotals.Context flow = FlowTotals.context(accounts, categoryRepository.findByUserId(userId));
+        FlowTotals.Context flow = inflowChoices.contextFor(userId, accounts, categoryRepository.findByUserId(userId));
         List<Transaction> rangeTxns = liveAccountIds.isEmpty() ? List.of()
                 : transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(userId, from, to, liveAccountIds);
         // Flow-classified income, the same rule the dashboard and reports use -- see FlowTotals.
@@ -662,7 +667,7 @@ public class AnalyticsService {
     }
 
     private SpendRows spendRowsOf(UUID userId, List<Transaction> reportable) {
-        FlowTotals.Context flow = FlowTotals.context(accountRepository.findByUserId(userId), categoryRepository.findByUserId(userId));
+        FlowTotals.Context flow = inflowChoices.contextFor(userId, accountRepository.findByUserId(userId), categoryRepository.findByUserId(userId));
         RefundNetting netting = refundsFor(userId).withUnlinkedOffsets(reportable, flow);
         return new SpendRows(reportable.stream().filter(netting::countsAsSpend).toList(), netting);
     }

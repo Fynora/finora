@@ -25,8 +25,13 @@ public class ReportService {
     private final CategoryRepository categoryRepository;
     private final TransactionGraphService transactionGraphService;
 
+    /** Built into every FlowTotals.Context here -- the user's inflow kinds (Plan 2). */
+    private final InflowChoiceService inflowChoices;
+
     public ReportService(TransactionRepository transactionRepository, AccountRepository accountRepository,
-                          CategoryRepository categoryRepository, TransactionGraphService transactionGraphService) {
+                          CategoryRepository categoryRepository, TransactionGraphService transactionGraphService,
+                         InflowChoiceService inflowChoices) {
+        this.inflowChoices = inflowChoices;
         this.transactionRepository = transactionRepository;
         this.accountRepository = accountRepository;
         this.categoryRepository = categoryRepository;
@@ -59,7 +64,7 @@ public class ReportService {
         // StatementImportService's 7-day grace window.
         List<com.finora.entity.Account> accounts = accountRepository.findByUserId(userId);
         List<UUID> liveAccountIds = accounts.stream().map(com.finora.entity.Account::getId).toList();
-        FlowTotals.Context flow = FlowTotals.context(accounts, categoriesById.values());
+        FlowTotals.Context flow = inflowChoices.contextFor(userId, accounts, categoriesById.values());
         RefundNetting refunds = liveAccountIds.isEmpty() ? RefundNetting.from(List.of())
                 : RefundNetting.from(transactionRepository.findByUserIdAndReconciliationStatusInAndAccountIdIn(
                         userId, java.util.List.of(Transaction.ReconciliationStatus.REFUND, Transaction.ReconciliationStatus.REVERSAL),
@@ -110,7 +115,7 @@ public class ReportService {
     public RangeTotals forRange(UUID userId, LocalDate from, LocalDate to) {
         List<com.finora.entity.Account> accounts = accountRepository.findByUserId(userId);
         List<UUID> liveAccountIds = accounts.stream().map(com.finora.entity.Account::getId).toList();
-        FlowTotals.Context flow = FlowTotals.context(accounts, categoryRepository.findByUserId(userId));
+        FlowTotals.Context flow = inflowChoices.contextFor(userId, accounts, categoryRepository.findByUserId(userId));
         RefundNetting refunds = liveAccountIds.isEmpty() ? RefundNetting.from(List.of())
                 : RefundNetting.from(transactionRepository.findByUserIdAndReconciliationStatusInAndAccountIdIn(
                         userId, List.of(Transaction.ReconciliationStatus.REFUND, Transaction.ReconciliationStatus.REVERSAL),

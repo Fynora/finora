@@ -1,5 +1,8 @@
 package com.finora.service;
 
+import com.finora.repository.InflowKindRepository;
+import com.finora.repository.SenderInflowRuleRepository;
+
 import com.finora.dto.ReportDto;
 import com.finora.entity.Account;
 import com.finora.entity.Transaction;
@@ -46,7 +49,8 @@ class ReportServiceTest {
         liveAccount.setUserId(userId);
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(liveAccount));
 
-        reportService = new ReportService(transactionRepository, accountRepository, categoryRepository, transactionGraphService);
+        reportService = new ReportService(transactionRepository, accountRepository, categoryRepository, transactionGraphService,
+                new InflowChoiceService(mock(InflowKindRepository.class), mock(SenderInflowRuleRepository.class)));
     }
 
     private Transaction txn(BigDecimal amount, Transaction.Type type, Transaction.ReconciliationStatus status) {

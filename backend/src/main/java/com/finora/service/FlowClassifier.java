@@ -1,6 +1,7 @@
 package com.finora.service;
 
 import com.finora.entity.Account;
+import com.finora.entity.InflowKind;
 import com.finora.entity.Transaction;
 import com.finora.util.CategoryRules;
 import com.finora.util.CounterpartyType;
@@ -32,15 +33,18 @@ public final class FlowClassifier {
     //    rule they taught), is income even when the narration names a person.
     // 3: a tax refund is recognised from its narration too, not only from a GOVERNMENT counterparty.
     // 4: a dividend or IDCW payout is income, even when the narration names a mutual fund.
-    public static final short VERSION = 4;
+    // 5: a kind the user chose for the row or its sender (Plan 2) outranks every automatic rule
+    //    except a pairing reconciliation made (transfer, linked refund, linked reversal).
+    public static final short VERSION = 5;
 
     public enum FlowClass { INCOME, EXPENSE, REFUND, TRANSFER, INVESTMENT, LIABILITY, ADJUSTMENT, UNRESOLVED }
 
     public enum FlowReason {
         SALARY, INTEREST, DIVIDEND, REWARD, TAX_REFUND, OTHER_INCOME, USER_ENTERED,
+        USER_KIND, FAMILY_SUPPORT,
         PURCHASE,
-        LINKED_REFUND, UNLINKED_REFUND, REVERSAL, CARD_ADJUSTMENT,
-        OWN_ACCOUNT_TRANSFER, CARD_PAYMENT_RECEIVED,
+        LINKED_REFUND, UNLINKED_REFUND, REVERSAL, CARD_ADJUSTMENT, PAID_BACK, USER_KIND_EXCLUDED,
+        OWN_ACCOUNT_TRANSFER, USER_OWN_MONEY, CARD_PAYMENT_RECEIVED,
         INVESTMENT_CONTRIBUTION, INVESTMENT_WITHDRAWAL,
         LOAN_DRAWDOWN,
         PERSON_INFLOW, CARD_UNEXPLAINED_CREDIT
@@ -79,7 +83,17 @@ public final class FlowClassifier {
      *                              caller resolves the id, since this class never loads categories
      */
     public static FlowDecision classify(Transaction t, Account.Type accountType, boolean inUsersSalaryCategory) {
-        return t.getTxnType() == Transaction.Type.EXPENSE ? outflow(t) : inflow(t, accountType, inUsersSalaryCategory);
+        return classify(t, accountType, inUsersSalaryCategory, null);
+    }
+
+    /**
+     * @param chosen the kind the user gave this row or its sender (InflowChoices.chosenFor), or null.
+     *               A debit ignores it: kinds describe money coming in.
+     */
+    public static FlowDecision classify(Transaction t, Account.Type accountType, boolean inUsersSalaryCategory,
+                                        InflowKind chosen) {
+        return t.getTxnType() == Transaction.Type.EXPENSE
+                ? outflow(t) : inflow(t, accountType, inUsersSalaryCategory, chosen);
     }
 
     private static FlowDecision outflow(Transaction t) {
@@ -90,7 +104,8 @@ public final class FlowClassifier {
         return of(FlowClass.EXPENSE, FlowReason.PURCHASE);
     }
 
-    private static FlowDecision inflow(Transaction t, Account.Type accountType, boolean inUsersSalaryCategory) {
+    private static FlowDecision inflow(Transaction t, Account.Type accountType, boolean inUsersSalaryCategory,
+                                       InflowKind chosen) {
         if (t.isTransfer()) return of(FlowClass.TRANSFER, FlowReason.OWN_ACCOUNT_TRANSFER);
         if (t.getReconciliationStatus() == Transaction.ReconciliationStatus.REFUND) {
             return of(FlowClass.REFUND, FlowReason.LINKED_REFUND);
@@ -98,6 +113,9 @@ public final class FlowClassifier {
         if (t.getReconciliationStatus() == Transaction.ReconciliationStatus.REVERSAL) {
             return of(FlowClass.ADJUSTMENT, FlowReason.REVERSAL);
         }
+        // The user's own answer outranks every rule below -- but not a pairing reconciliation made
+        // above, which has its own undo ("not a transfer").
+        if (chosen != null) return byKind(chosen);
 
         String description = t.getDescription();
         String text = " " + CategoryRules.normalize(description) + " ";
@@ -134,6 +152,23 @@ public final class FlowClassifier {
         if (inUsersSalaryCategory && salaryCategoryIsTheUsersChoice(t)) return of(FlowClass.INCOME, FlowReason.SALARY);
         if (t.getCounterpartyType() == CounterpartyType.PERSON) return of(FlowClass.UNRESOLVED, FlowReason.PERSON_INFLOW);
         return of(FlowClass.INCOME, FlowReason.OTHER_INCOME);
+    }
+
+    private static FlowDecision byKind(InflowKind k) {
+        if (k.getBuiltIn() != null) {
+            return switch (k.getBuiltIn()) {
+                case INCOME -> of(FlowClass.INCOME, FlowReason.USER_KIND);
+                case FAMILY_SUPPORT -> of(FlowClass.INCOME, FlowReason.FAMILY_SUPPORT);
+                case OWN_MONEY -> of(FlowClass.TRANSFER, FlowReason.USER_OWN_MONEY);
+                case PAID_BACK -> of(FlowClass.ADJUSTMENT, FlowReason.PAID_BACK);
+                // Gives spend back in its own month and category, like any unlinked refund
+                // (FlowTotals.offsetsSpend reads this reason).
+                case REFUND -> of(FlowClass.REFUND, FlowReason.UNLINKED_REFUND);
+            };
+        }
+        return k.isCountsAsIncome()
+                ? of(FlowClass.INCOME, FlowReason.USER_KIND)
+                : of(FlowClass.ADJUSTMENT, FlowReason.USER_KIND_EXCLUDED);
     }
 
     /** A credit that says "refund" and comes from the tax department. The reconciliation refund

@@ -5,6 +5,7 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
 import { SkeletonCard } from '../components/skeletons/Skeletons';
@@ -18,7 +19,7 @@ import {
 import { shareCsv, sharePdf } from '../lib/reportExport';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { radius, spacing, useTheme } from '../theme';
-import type { AppTabParamList } from '../navigation/types';
+import type { AppTabParamList, MoreStackParamList } from '../navigation/types';
 import { withBypass } from '../lib/changeSync';
 import { trackNavigation } from '../lib/trackNavigation';
 
@@ -50,6 +51,12 @@ function ReportBodySkeleton() {
  * and it shares `['report', month]` with the Dashboard's cash-flow chart, so a month that screen
  * already loaded opens instantly here instead of being fetched a second time.
  */
+/** YYYY-MM-DD of a YYYY-MM month's last day. */
+function lastDayOf(month: string): string {
+  const [y, m] = month.split('-').map(Number);
+  return `${month}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`;
+}
+
 export function ReportsScreen() {
   // D3 (Track D security cleanup). Category breakdowns and totals are financial figures like any
   // other -- same screenshot/screen-recording exposure Dashboard/Accounts/Statement History
@@ -259,6 +266,35 @@ export function ReportsScreen() {
             </Card>
           </View>
 
+          {/* Plan 2: income split by what it was -- Family support and the user's own kinds get their
+              own lines -- and a way to sort out what is not counted yet. Mirrors
+              frontend/src/pages/Reports.tsx. */}
+          {report.incomeByKind && report.incomeByKind.length > 1 ? (
+            <Card style={styles.section}>
+              <SectionHeading title="Income by kind" />
+              {report.incomeByKind.map((line) => (
+                <View key={line.label} style={styles.incomeLine}>
+                  <Text style={[styles.message, { color: c.ink }]}>{line.label}</Text>
+                  <Text style={[styles.message, { color: c.ink }]}>{fmtCurrency(line.amount)}</Text>
+                </View>
+              ))}
+            </Card>
+          ) : null}
+          {report.unresolvedInflow && report.unresolvedInflow > 0 ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Review money not counted yet"
+              style={styles.section}
+              onPress={() => {
+                trackNavigation('money-review', 'contextual');
+                (navigation as unknown as NativeStackNavigationProp<MoreStackParamList>)
+                  .navigate('MoneyReview', { start: `${report.month}-01`, end: lastDayOf(report.month) });
+              }}
+            >
+              <Text style={[styles.reviewLink, { color: c.primary }]}>Review money not counted yet</Text>
+            </Pressable>
+          ) : null}
+
           <Card style={styles.section}>
             <SectionHeading title="Category Breakdown" />
             {report.categories.length === 0 ? (
@@ -362,6 +398,8 @@ const styles = StyleSheet.create({
   totalValue: { fontSize: 16, fontWeight: '700', marginTop: 4 },
   totalCaption: { fontSize: 10, marginTop: 2 },
   section: { marginTop: spacing.md },
+  incomeLine: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: spacing.xs },
+  reviewLink: { fontSize: 13, fontWeight: '600' },
   categoryRow: { marginBottom: spacing.sm },
   categoryHeader: {
     flexDirection: 'row',

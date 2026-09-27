@@ -1,4 +1,4 @@
-# Local observability stack: Prometheus + Grafana against a locally running backend.
+# Local observability stack: Prometheus, Grafana and Alertmanager against a locally running backend.
 #
 # WHY THIS EXISTS
 # ---------------
@@ -16,6 +16,7 @@
 #      see prometheus.yml's header for why that is safe.
 #   2. docker compose -f ops/monitoring/docker-compose.yml up
 #   3. Prometheus http://localhost:9090  ·  Grafana http://localhost:3001 (admin/admin)
+#      Alertmanager http://localhost:9093  ·  delivered alert emails: http://localhost:8025
 #   4. Generate worker activity: confirm a merchant category in the app, or POST to the learning
 #      queue endpoints, then watch the worker panels on the dashboard move.
 #
@@ -62,3 +63,28 @@ services:
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - prometheus
+
+  # Built from the same Dockerfile Railway builds, so the routing validated here is the routing that
+  # ships. Only the SMTP server differs: here it is Mailpit below, with no TLS and no credentials; in
+  # production it is Resend (see alertmanager/alertmanager.yml).
+  alertmanager:
+    build: ./alertmanager
+    container_name: finora-alertmanager
+    ports:
+      - "9093:9093"
+    environment:
+      ALERT_EMAIL_TO: oncall@example.com
+      ALERT_SMTP_SMARTHOST: mailpit:1025
+      ALERT_SMTP_USERNAME: ""
+      ALERT_SMTP_REQUIRE_TLS: "false"
+    depends_on:
+      - mailpit
+
+  # Stands in for Resend: catches every email Alertmanager sends and shows it at
+  # http://localhost:8025. With no backend running, BackendDown fires after its 5-minute `for:` and
+  # lands here. That is the quickest end-to-end check that the chain delivers.
+  mailpit:
+    image: axllent/mailpit:v1.20
+    container_name: finora-mailpit
+    ports:
+      - "8025:8025"

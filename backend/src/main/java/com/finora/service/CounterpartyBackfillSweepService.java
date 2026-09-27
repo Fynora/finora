@@ -75,11 +75,14 @@ public class CounterpartyBackfillSweepService {
 
     private final TransactionRepository transactionRepository;
     private final TransactionTemplate transactionTemplate;
+    private final com.finora.repository.SenderInflowRuleRepository senderInflowRuleRepository;
 
     public CounterpartyBackfillSweepService(TransactionRepository transactionRepository,
-                                             TransactionTemplate transactionTemplate) {
+                                             TransactionTemplate transactionTemplate,
+                                             com.finora.repository.SenderInflowRuleRepository senderInflowRuleRepository) {
         this.transactionRepository = transactionRepository;
         this.transactionTemplate = transactionTemplate;
+        this.senderInflowRuleRepository = senderInflowRuleRepository;
     }
 
     /**
@@ -133,6 +136,13 @@ public class CounterpartyBackfillSweepService {
                     int updated = transactionRepository.applyCounterpartyTyping(
                             row.getId(), typing.type(), typing.key(), typing.version());
                     if (updated > 0) counts[0]++; else counts[1]++;
+                    // A remembered sender (Plan 2) is keyed on the old key; without this, every
+                    // payment from that sender would silently drop back to "not counted".
+                    String oldKey = row.getCounterpartyKey();
+                    if (updated > 0 && oldKey != null && !oldKey.isBlank() && typing.key() != null
+                            && !typing.key().equals(oldKey)) {
+                        senderInflowRuleRepository.carryToNewKey(row.getUserId(), oldKey, typing.key());
+                    }
                 } catch (RuntimeException e) {
                     // Left unstamped on purpose -- see this class's own doc on why a false stamp is
                     // worse than a repeated error. The transaction id is enough to reproduce:

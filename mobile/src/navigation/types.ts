@@ -43,6 +43,9 @@ export type MoreStackParamList = {
   // The categorization review queue. Reached from the More menu, from Settings' Categorization
   // section (which promises it), and from the Dashboard nudge when the backlog is non-empty.
   CategoryReview: undefined;
+  // Plan 2: "Money not counted yet" -- the credits left out of income, one row per sender. Opened
+  // from the Dashboard banner and Reports with the period they show; no params means this month.
+  MoneyReview: { start: string; end: string } | undefined;
   Statements: undefined;
   Budgets: undefined;
   Reports: undefined;

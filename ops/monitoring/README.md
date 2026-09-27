@@ -14,6 +14,7 @@ This file is how to run it.
 |---|---|
 | `prometheus.yml` | Scrape config. No credential — it reaches the backend's private management port. |
 | `alerts.yml` | 10 alert rules, every one on a sustained condition. |
+| `alertmanager/` | Where those alerts go: Alertmanager, emailing them through Resend. |
 | `grafana/dashboards/worker-health.json` | Worker + queue + infrastructure dashboard. |
 | `grafana/dashboards/reconciliation.json` | Reconciliation transfer-matching and duplicate-override counters (measurement only, no alerts yet). |
 | `grafana/dashboards/auth.json` | Session and authentication counters. |
@@ -247,6 +248,49 @@ If you do generate one, set `GF_SERVER_ROOT_URL` to `https://<that domain>` so l
 resolve correctly behind Railway's proxy.
 
 ---
+
+### Alertmanager
+
+Without this service, Prometheus evaluates the ten rules in `alerts.yml` and notifies no one: a
+firing `BackendDown` was visible only to someone already looking at the Prometheus UI.
+`alertmanager/Dockerfile` builds a third Railway service. Prometheus sends alerts to it over the
+private network, and it **emails** them through Resend, the provider the backend already uses.
+
+**Why email through Resend, and what it depends on** (both checked on 2026-09-27):
+
+- Railway allows outbound SMTP only on the **Pro** plan and above. The project is on Pro. On a
+  lower plan this service would load, report healthy, and fail every send.
+- Better Stack, where the `/health` uptime monitor lives, accepts Prometheus alerts and incoming
+  webhooks only on a paid plan. The account is on Free.
+
+| Setting | Value |
+|---|---|
+| Service name | `Alertmanager`. Its private domain must be `alertmanager.railway.internal`, which is the address the Prometheus image is built to send to (`ALERTMANAGER_PRIVATE_ADDRESS` in `railway/prometheus/Dockerfile`). |
+| Root Directory | `ops/monitoring/alertmanager`. There is nothing else to set, and no `railway.json` (same reason as Grafana's). |
+| Variable `ALERT_EMAIL_TO` | **Required.** Who receives the alerts. It is kept out of this public repository. |
+| Variable `ALERT_SMTP_PASSWORD` | **Required.** A Resend API key. The simplest choice is a Railway reference to the backend service's `RESEND_API_KEY`. Typing `${{` in the variable editor lists the references it offers. |
+| Defaults (override only if needed) | `ALERT_SMTP_SMARTHOST=smtp.resend.com:587`, `ALERT_SMTP_USERNAME=resend`, `ALERT_SMTP_REQUIRE_TLS=true`, `ALERT_EMAIL_FROM="Fynora Alerts <alerts@fynora.net>"`. The sender has to be on a domain verified in Resend. <!-- synthetic-ok: Fynora's own sender address, not customer data --> |
+| Public domain | **None.** Only Prometheus talks to it. |
+| Volume | None. The only state is silences and the notification log, and losing them on a redeploy costs at most one repeated notification. |
+
+`entrypoint.sh` fills `alertmanager.yml`'s placeholders from these variables and validates the
+result with `amtool`. It **refuses to start** if a required variable is missing or malformed, so a
+misconfiguration shows up as a crashed deploy, not as a service that accepts alerts and delivers
+none.
+
+**Verifying it locally.** `docker compose up` (above) includes Alertmanager and **Mailpit**, which
+stands in for Resend. With no backend running, `BackendDown` fires after its 5-minute `for:`, and
+its email appears at http://localhost:8025. That shows the whole chain works: rule, Prometheus,
+Alertmanager, email.
+
+**Verifying it in production.** Prometheus' log should show no `Error sending alert` lines, and
+Alertmanager's log should show no `Notify ... failed` lines. Two properties no local run can
+prove: that Prometheus reaches `alertmanager.railway.internal:9093` over Railway's IPv6-only
+network (Alertmanager listens on `[::]:9093`, measured), and that Resend accepts the credentials and
+sender.
+
+**Not covered: a dead Prometheus or Alertmanager.** If either stops, alerts stop with it, and
+nothing says so. A watchdog would close that gap, and is a follow-up.
 
 ## Changing a dashboard or an alert
 

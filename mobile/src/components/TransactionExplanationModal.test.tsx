@@ -6,6 +6,14 @@ import type { TransactionExplanation } from '../types';
 
 jest.mock('../api/endpoints', () => ({
   transactionsApi: { explanation: jest.fn() },
+  inflowApi: {
+    countsAs: jest.fn().mockResolvedValue({
+      flowClass: 'UNRESOLVED', flowReason: 'PERSON_INFLOW', kind: null, appliedBy: null, choosable: true,
+      notChoosableReason: null, senderAvailable: true, senderLabel: 'ASHA VERMA', senderRowCount: 1,
+      summary: 'Not counted yet · from a person',
+    }),
+    kinds: jest.fn(), setChoice: jest.fn(), clearChoice: jest.fn(), createKind: jest.fn(),
+  },
 }));
 
 const transactions = transactionsApi as jest.Mocked<typeof transactionsApi>;
@@ -22,14 +30,16 @@ function explanation(over: Partial<TransactionExplanation> = {}): TransactionExp
 function renderModal(
   transactionId: string | null,
   category: string | null = 'Food',
-  onClose = jest.fn()
+  onClose = jest.fn(),
+  showCountsAs = false,
 ) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   return {
     onClose,
     ...render(
       <QueryClientProvider client={queryClient}>
-        <TransactionExplanationModal transactionId={transactionId} category={category} onClose={onClose} />
+        <TransactionExplanationModal transactionId={transactionId} category={category} onClose={onClose}
+          showCountsAs={showCountsAs} />
       </QueryClientProvider>
     ),
   };
@@ -54,6 +64,24 @@ describe('TransactionExplanationModal (Phase 4)', () => {
     expect(await screen.findByText('Matched your rule for "Big Bazaar".')).toBeTruthy();
     expect(screen.getByText('Food')).toBeTruthy();
     expect(transactions.explanation).toHaveBeenCalledWith('t-1');
+  });
+
+  it('shows what a credit counts as (Plan 2)', async () => {
+    transactions.explanation.mockResolvedValue(explanation());
+
+    renderModal('t-1', 'Food', jest.fn(), true);
+
+    expect(await screen.findByText('Not counted yet · from a person')).toBeOnTheScreen();
+    expect(screen.getByText('Counts as')).toBeOnTheScreen();
+  });
+
+  it('does not show "Counts as" for a debit', async () => {
+    transactions.explanation.mockResolvedValue(explanation());
+
+    renderModal('t-1', 'Food', jest.fn(), false);
+
+    expect(await screen.findByText('Matched your rule for "Big Bazaar".')).toBeOnTheScreen();
+    expect(screen.queryByText('Counts as')).not.toBeOnTheScreen();
   });
 
   it('omits the category context line when none was given', async () => {

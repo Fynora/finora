@@ -1576,6 +1576,21 @@ describe('unresolved inflow banner', () => {
     expect(await screen.findByText('12 transactions need classification · ₹84,500 not counted as income')).toBeOnTheScreen();
   });
 
+  it('opens the review screen for the reporting month when pressed (Plan 2)', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary({
+      unresolvedInflow: 84500, unresolvedInflowCount: 12, unresolvedTopReason: null, reportingMonth: '2026-02',
+    }));
+    const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
+    navigate.mockClear();
+    renderScreen();
+
+    fireEvent.press(await screen.findByRole('button', { name: 'Review money not counted yet' }));
+
+    expect(navigate).toHaveBeenCalledWith('More', {
+      screen: 'MoneyReview', params: { start: '2026-02-01', end: '2026-02-28' },
+    });
+  });
+
   it('uses the singular for one transaction', async () => {
     dashboard.summary.mockResolvedValue(emptySummary({
       unresolvedInflow: 1479, unresolvedInflowCount: 1, unresolvedTopReason: null,

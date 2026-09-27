@@ -1,5 +1,8 @@
 package com.finora.service;
 
+import com.finora.repository.InflowKindRepository;
+import com.finora.repository.SenderInflowRuleRepository;
+
 import com.finora.dto.InsightsDto;
 import com.finora.entity.Account;
 import com.finora.entity.Category;
@@ -72,7 +75,8 @@ class InsightsServiceTest {
                 .thenReturn(List.of());
 
         insightsService = new InsightsService(transactionRepository, accountRepository, categoryRepository, budgetRepository,
-                mock(UserRepository.class), transactionGraphService, statementImportRepository);
+                mock(UserRepository.class), transactionGraphService, statementImportRepository,
+                new InflowChoiceService(mock(InflowKindRepository.class), mock(SenderInflowRuleRepository.class)));
 
         dining = new Category();
         ReflectionTestUtils.setField(dining, "id", UUID.randomUUID());

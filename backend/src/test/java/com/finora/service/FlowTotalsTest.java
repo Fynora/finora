@@ -2,6 +2,7 @@ package com.finora.service;
 
 import com.finora.entity.Account;
 import com.finora.entity.Category;
+import com.finora.entity.InflowKind;
 import com.finora.entity.Transaction;
 import com.finora.util.CounterpartyType;
 import org.junit.jupiter.api.Test;
@@ -94,7 +95,7 @@ class FlowTotalsTest {
         Category dining = new Category();
         ReflectionTestUtils.setField(dining, "id", UUID.randomUUID());
         dining.setName("Dining");
-        return FlowTotals.context(accounts, List.of(salary, dining));
+        return FlowTotals.context(accounts, List.of(salary, dining), InflowChoices.NONE);
     }
 
     private static Transaction fromAPerson(Account on, String amount) {
@@ -175,7 +176,7 @@ class FlowTotalsTest {
         Category c = new Category();
         ReflectionTestUtils.setField(c, "id", UUID.randomUUID());
         c.setName(" salary ");
-        assertThat(FlowTotals.context(List.of(), List.of(c)).salaryCategoryIds()).containsExactly(c.getId());
+        assertThat(FlowTotals.context(List.of(), List.of(c), InflowChoices.NONE).salaryCategoryIds()).containsExactly(c.getId());
     }
 
     // ---- which credits give spend back ----
@@ -209,5 +210,45 @@ class FlowTotalsTest {
         Transaction debit = credit(savings, "300.00", "REFUND FROM MERCHANTCO ORDER 1");
         debit.setTxnType(Transaction.Type.EXPENSE);
         assertThat(FlowTotals.offsetsSpend(debit, c)).isFalse();
+    }
+
+    // ---- the user's inflow kinds (Plan 2) ----
+
+    @Test void aSenderRuleMovesAPersonsCreditIntoIncomeUnderTheKindName() {
+        Account savings = account(Account.Type.SAVINGS);
+        Transaction t = fromAPerson(savings, "5000.00");
+        t.setCounterpartyKey("vpa:asha");
+        InflowKind family = new InflowKind();
+        ReflectionTestUtils.setField(family, "id", UUID.randomUUID());
+        family.setName("Family support");
+        family.setCountsAsIncome(true);
+        family.setBuiltIn(InflowKind.BuiltIn.FAMILY_SUPPORT);
+        FlowTotals.Context ctx = FlowTotals.context(List.of(savings), List.of(),
+                new InflowChoices(Map.of(family.getId(), family), Map.of("vpa:asha", family.getId())));
+
+        assertThat(FlowTotals.isUnresolvedInflow(t, ctx)).isFalse();
+        assertThat(FlowTotals.countsAsIncome(t, ctx)).isTrue();
+        assertThat(FlowTotals.incomeLabel(t, ctx)).isEqualTo("Family support");
+    }
+
+    @Test void incomeLabelNamesTheAutomaticReason() {
+        Account savings = account(Account.Type.SAVINGS);
+        Transaction t = credit(savings, "100.00", "SB INT CREDIT");
+        assertThat(FlowTotals.incomeLabel(t, FlowTotals.context(List.of(savings), List.of(), InflowChoices.NONE)))
+                .isEqualTo("Interest");
+    }
+
+    @Test void aRefundKindOffsetsSpend() {
+        Account card = account(Account.Type.CREDIT_CARD);
+        Transaction t = credit(card, "300.00", "MERCHANTCO 1001");
+        t.setInflowKindId(UUID.randomUUID());
+        InflowKind refund = new InflowKind();
+        ReflectionTestUtils.setField(refund, "id", t.getInflowKindId());
+        refund.setName("Refund");
+        refund.setBuiltIn(InflowKind.BuiltIn.REFUND);
+        FlowTotals.Context ctx = FlowTotals.context(List.of(card), List.of(),
+                new InflowChoices(Map.of(refund.getId(), refund), Map.of()));
+        assertThat(FlowTotals.offsetsSpend(t, ctx)).isTrue();
+        assertThat(FlowTotals.isUnresolvedInflow(t, ctx)).isFalse();
     }
 }

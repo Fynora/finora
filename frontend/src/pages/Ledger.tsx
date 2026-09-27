@@ -26,6 +26,7 @@ import { useMemoryReinforcement } from '../hooks/useMemoryReinforcement';
 import { MemoryReinforcementToast } from '../components/MemoryReinforcementToast';
 import { ICON_COMPONENTS, COLOR_HEX } from '../lib/categoryIcons';
 import { formatForeignAmount } from '../lib/foreignAmount';
+import { CountsAsSection } from '../components/inflow/CountsAsSection';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
 // Bounds the client-side aggregation the KPI row and category chips are built from (see
@@ -1109,6 +1110,14 @@ function ExplanationModal({ transaction, onClose }: { transaction: Transaction; 
                   </div>
                 );
               })()}
+
+              {/* Plan 2: what this credit counts as (income, family support, not counted yet...)
+                  and the user's way to change it. Money going out has no kind. */}
+              {transaction.type !== 'EXPENSE' && (
+                <div className="pb-4 border-b border-border">
+                  <CountsAsSection transactionId={transaction.id} />
+                </div>
+              )}
 
               <div className="space-y-2">
                 <p className="text-ink text-sm">{explanation.summary}</p>

@@ -1585,6 +1585,32 @@ class ReconciliationServiceTest {
         assertThat(back.getRefundOfTransactionId()).isNull();
     }
 
+    // The seam the rule above depends on: a merchant's refund is linked by name only if the
+    // classifier types it as an organisation. A real brand's HDFC credit was typed PERSON from its
+    // own free-text remark, so its refund was never linked. Merchant and type are derived here the
+    // way ImportService derives them, not set by hand, so this fails if the classifier regresses.
+    @Test
+    void reconcileForUser_linksABrandsRefund_whoseRemarkAloneLooksLikeAPersonsName() {
+        UUID accountId = UUID.randomUUID();
+        String paidNarration = "UPI-ACMETRIP-ACMETRIP.RAIL@ICICI-XXXX0DC0099-REF41-ACMETRIP RAIL TRIP I"; // synthetic-ok
+        String backNarration = "UPI-ACMETRIP-ACMETRIP.RAIL@ICICI-XXXX0DC0099-REF42-ACMETRIP RAIL TRIP I"; // synthetic-ok
+        Transaction paid = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 7, 1),
+                new BigDecimal("1200.00"), Transaction.Type.EXPENSE, paidNarration, Instant.now());
+        paid.setMerchant(com.finora.util.CategoryRules.extractMerchantLabel(paidNarration));
+        paid.setCounterpartyType(com.finora.util.CounterpartyTyping.of(paidNarration).type());
+        Transaction back = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 7, 9),
+                new BigDecimal("1200.00"), Transaction.Type.INCOME, backNarration, Instant.now());
+        back.setMerchant(com.finora.util.CategoryRules.extractMerchantLabel(backNarration));
+        back.setCounterpartyType(com.finora.util.CounterpartyTyping.of(backNarration).type());
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(paid, back));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(back.getCounterpartyType()).isEqualTo(CounterpartyType.BUSINESS);
+        assertThat(back.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.REFUND);
+        assertThat(back.getRefundOfTransactionId()).isEqualTo(paid.getId());
+    }
+
     // Measured on the corpus: a friend paying through a wallet handle reads UNKNOWN, not PERSON.
     // Not knowing who sent the money is no evidence of a business refund either.
     @Test

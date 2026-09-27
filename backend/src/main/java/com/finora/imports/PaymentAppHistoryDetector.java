@@ -23,10 +23,15 @@ import java.util.regex.Pattern;
  * Both the statement title ("Paytm Statement for ...") and the table heading ("Passbook Payments
  * History") must be present. Across the 33-document corpus the two appear together in the Paytm
  * history and in no other document, including the HDFC Paytm co-branded credit card statement,
- * which prints neither. {@link ExtractionCheck} only consults this after zero rows were staged, so
- * a statement that parses is never turned away by it.
+ * which prints neither.
+ *
+ * <p>Checked in two places. The PDF generator runs {@link #containsBothHeadings} over the acquired
+ * text and records the fact on {@link DocumentContext}, and {@link ExtractionCheck} refuses such a
+ * document even when a table reader staged rows from it: a longer history than the one in the
+ * corpus could reach one, and its rows would still span several accounts. When no context flag is
+ * available, the lines set aside after a zero-row extraction are checked instead.
  */
-final class PaymentAppHistoryDetector {
+public final class PaymentAppHistoryDetector {
 
     private PaymentAppHistoryDetector() {
     }
@@ -36,12 +41,19 @@ final class PaymentAppHistoryDetector {
     private static final Pattern PASSBOOK_PAYMENTS_HISTORY =
             Pattern.compile("(?i)\\bpassbook\\s+payments\\s+history\\b");
 
+    /** The lines a document yielded when nothing was extracted from it. */
     static boolean isPaytmPaymentHistory(List<UnparseableRow> recovered) {
         if (recovered == null || recovered.isEmpty()) return false;
+        return containsBothHeadings(recovered.stream().map(PaymentAppHistoryDetector::textOf).toList());
+    }
+
+    /** The document's own text, as acquired, before any table was located -- so the answer does not
+     *  depend on whether a table reader managed to stage rows from it. Each heading is one text run
+     *  on the real document. */
+    public static boolean containsBothHeadings(Iterable<String> texts) {
         boolean title = false;
         boolean table = false;
-        for (UnparseableRow row : recovered) {
-            String text = textOf(row);
+        for (String text : texts) {
             if (text == null) continue;
             title |= PAYTM_STATEMENT_TITLE.matcher(text).find();
             table |= PASSBOOK_PAYMENTS_HISTORY.matcher(text).find();

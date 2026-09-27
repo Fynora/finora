@@ -1015,6 +1015,28 @@ public final class PdfFixtureBuilder {
      * Modeled on a real Kotak Mahindra Bank statement, but none of these three shapes are specific
      * to that bank.
      */
+    /**
+     * A payment app's payment history (audit F-08) whose table the engine CAN read: the two headings
+     * a Paytm "Passbook Payments History" prints, above the same readable table as
+     * {@link #buildSingularDepositWithdrawalColumnsSample}. The real history staged no rows, but a
+     * longer one could reach a reader; this pins that it is refused even then. Every value invented.
+     */
+    public static byte[] buildPaymentAppHistoryWithAReadableTable() throws IOException {
+        float[] col = {LEFT_MARGIN, 150f, 320f, 400f, 480f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("SAMPLE NAME")
+                .line("Paytm Statement for 1 JAN'26 - 31 JAN'26")
+                .blankLine()
+                .line("Passbook Payments History")
+                .blankLine()
+                .row(col, "Date", "Description", "Withdrawal (Dr.)", "Deposit (Cr.)", "Balance")
+                .row(col, "01 Jul 2026", "IMPS to Landlord", "1000.00", null, "24361.97")
+                .row(col, "01 Jul 2026", "UPI/SAMPLE PAYEE A", null, "10.00", "24351.97");
+
+        return render(List.of(page));
+    }
+
     public static byte[] buildSingularDepositWithdrawalColumnsSample() throws IOException {
         // Description column kept short and Withdrawal/Deposit/Balance pushed well clear of it --
         // a longer description here would spatially overlap the amount columns' x-position and

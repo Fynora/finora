@@ -231,6 +231,20 @@ public class DocumentContext {
         return explicitZeroActivityDeclared;
     }
 
+    // Another claim the document makes about itself: its own headings say it is a payment app's
+    // payment history (Paytm's "Passbook Payments History"), not a statement of any account. Audit
+    // F-08; see PaymentAppHistoryDetector. Read by ExtractionCheck, which refuses such a document
+    // whether or not any of its rows could be read.
+    private boolean paymentAppHistory;
+
+    public void recordPaymentAppHistory() {
+        this.paymentAppHistory = true;
+    }
+
+    public boolean paymentAppHistory() {
+        return paymentAppHistory;
+    }
+
     // Another claim the document makes about its own content: which located rows it printed under
     // its own "International Transactions" heading (a real HDFC credit-card statement splits its
     // ledger into "Domestic Transactions" and "International Transactions"). Held by identity, not

@@ -386,6 +386,109 @@ jobs:
       - name: Reporting period labels
         run: python3 scripts/check-reporting-period-labels.py
 
+  # Flyway runs with outOfOrder=false, so production refuses to deploy a migration numbered at or
+  # below one it has already applied. On 2026-09-27 #1798 (V236) merged and deployed before #1811
+  # (V235); every deploy after that failed "Detected resolved migration not applied to database:
+  # 235" -- fixed by #1818, which renames it V236_1. No other job can see this: they all migrate a FRESH
+  # database, where any order applies cleanly.
+  #
+  # The floor is origin/main as fetched when this job runs -- not the PR's base SHA, which is
+  # frozen at the event -- so a re-run always judges against the main that exists now. What makes
+  # it re-run when main moves is migration-order-recheck below: the main ruleset's required checks
+  # are not "strict" (branches need not be up to date to merge), so without that job a PR that was
+  # green when opened would stay green after a higher version landed.
+  #
+  # Not draft-gated and not path-filtered: a PR with no migrations exits in seconds, so there is
+  # nothing to save by skipping it. fetch-depth: 0 because the merge base is needed.
+  migration-order:
+    name: Migration version order
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # Self-test first: a diff that silently finds nothing would pass every PR and look exactly
+      # like a clean one. It asserts lower/equal versions fail, higher and sub-versions pass, and a
+      # rename above the floor (#1818's shape) passes.
+      - name: Migration order (self-test)
+        run: python3 scripts/test-check-migration-order.py
+
+      - name: Migration order against current main
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          python3 scripts/check-migration-order.py --base origin/main --head "${{ github.event.pull_request.head.sha }}"
+
+  # When a push to main changes its migrations, the floor every open PR is judged against has
+  # moved. Re-run each affected open PR's migration-order job so its check turns red on the PR
+  # itself, before anyone merges it. A re-run keeps the original event payload (same head SHA) but
+  # fetches origin/main fresh, which is exactly the comparison wanted.
+  #
+  # The compare API lists at most 300 files; a push that hits that cap is treated as having
+  # changed migrations rather than trusted to be clean.
+  #
+  # Only PRs that touch the migration directory are re-run -- plus any PR whose file list the API
+  # truncated (changedFiles > files returned), so a large PR is never silently skipped.
+  #
+  # actions: write is scoped to this job only: it is what the job re-run endpoint requires, and
+  # this job only ever runs on a push to main, never on PR-controlled code.
+  migration-order-recheck:
+    name: Re-check open PRs' migration order
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Re-run migration-order on open PRs that add migrations
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          DIR: backend/src/main/resources/db/migration/
+        run: |
+          set -euo pipefail
+          changed=$(gh api "repos/$GH_REPO/compare/$BEFORE...$AFTER" \
+            --jq "if (.files | length) >= 300 then 300 else [.files[].filename | select(startswith(\"$DIR\"))] | length end")
+          if [ "$changed" = 0 ]; then
+            echo "This push did not change main's migrations; every open PR's floor is unchanged."
+            exit 0
+          fi
+          prs=$(gh pr list --state open --limit 300 --json number,headRefOid,changedFiles,files \
+            --jq ".[] | select(.changedFiles > (.files | length) or any(.files[]; .path | startswith(\"$DIR\")))
+                  | \"\(.number) \(.headRefOid)\"")
+          if [ -z "$prs" ]; then
+            echo "No open PR touches $DIR."
+            exit 0
+          fi
+          status=0
+          while read -r pr sha; do
+            run=$(gh run list --workflow ci.yml --event pull_request --commit "$sha" --limit 1 \
+              --json databaseId --jq '.[0].databaseId // empty')
+            if [ -z "$run" ]; then
+              echo "::warning::#$pr ($sha): no CI run found to re-run."
+              continue
+            fi
+            job=$(gh run view "$run" --json jobs \
+              --jq '.jobs[] | select(.name == "Migration version order") | .databaseId')
+            if [ -z "$job" ]; then
+              echo "::warning::#$pr: run $run has no Migration version order job (predates it?)."
+              continue
+            fi
+            if gh api -X POST "repos/$GH_REPO/actions/jobs/$job/rerun" --silent; then
+              echo "#$pr: re-running Migration version order (run $run, job $job)."
+            else
+              echo "::warning::#$pr: could not re-run job $job of run $run -- push to the PR or re-run it by hand."
+              status=1
+            fi
+          done <<< "$prs"
+          exit $status
+
   secret-scan:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest

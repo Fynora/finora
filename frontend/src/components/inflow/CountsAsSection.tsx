@@ -67,7 +67,9 @@ export function CountsAsSection({ transactionId, onChanged }: { transactionId: s
           {appliedBy && (
             <Button size="sm" variant="secondary" loading={busy}
               onClick={() => run(() => inflowApi.clearChoice(transactionId, appliedBy))}>
-              Clear my choice
+              {appliedBy === 'SENDER'
+                ? `Clear for every payment from ${countsAs.senderLabel} (${countsAs.senderRowCount})`
+                : 'Clear my choice'}
             </Button>
           )}
         </div>

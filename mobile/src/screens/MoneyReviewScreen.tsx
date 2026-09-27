@@ -121,7 +121,7 @@ export function MoneyReviewScreen({ route }: { route: RouteProp<MoreStackParamLi
               {picked && !oneRow ? (
                 <View style={styles.editor}>
                   {s.senderKnown ? (
-                    <Button label={`Every payment from ${s.label} (${s.count})`} loading={busy}
+                    <Button label={`Every payment from ${s.label} (${s.senderPaymentCount})`} loading={busy}
                       onPress={() => apply(s.sampleTransactionId, 'SENDER', s.label)} />
                   ) : null}
                   <Button label="Just this one" variant={s.senderKnown ? 'link' : 'primary'} disabled={busy}

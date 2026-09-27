@@ -48,10 +48,15 @@ public final class InflowDtos {
      * One sender in the review list. Identified by any of its row ids (a SENDER choice on one of
      * them reaches all); the raw counterparty key never leaves the server.
      *
-     * @param senderKnown false when the rows carry no sender key -- the client offers only
-     *                    "Just this one" for such a group, which then holds exactly one row
+     * @param senderKnown        false when the rows carry no sender key -- the client offers only
+     *                           "Just this one" for such a group, which then holds exactly one row
+     * @param count              the not-counted-yet payments listed here
+     * @param senderPaymentCount every live credit from this sender, which is what a SENDER choice
+     *                           changes -- it can be more than {@code count}: on the real corpus one
+     *                           sender had 1 payment read as from a person and 4 already counted as
+     *                           income, and "Every payment from ..." reaches all 5
      */
     public record UnresolvedSenderDto(UUID sampleTransactionId, String label, boolean senderKnown, int count,
-                                      BigDecimal total, LocalDate latestDate, String accountName,
-                                      List<UnresolvedRowDto> rows) {}
+                                      long senderPaymentCount, BigDecimal total, LocalDate latestDate,
+                                      String accountName, List<UnresolvedRowDto> rows) {}
 }

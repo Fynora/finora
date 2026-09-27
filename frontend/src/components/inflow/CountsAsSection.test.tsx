@@ -57,6 +57,17 @@ describe('CountsAsSection', () => {
     expect(screen.queryByRole('button', { name: 'Change' })).toBeNull();
   });
 
+  it('says a sender-wide choice is cleared for every payment from the sender', async () => {
+    vi.mocked(inflowApi.countsAs).mockResolvedValue({
+      ...unresolved, flowClass: 'INCOME', kind: family, appliedBy: 'SENDER',
+      summary: 'You marked payments from this sender as Family support',
+    });
+    vi.mocked(inflowApi.clearChoice).mockResolvedValue(unresolved);
+    render(<CountsAsSection transactionId="t1" />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Clear for every payment from ASHA VERMA (3)' }));
+    await waitFor(() => expect(inflowApi.clearChoice).toHaveBeenCalledWith('t1', 'SENDER'));
+  });
+
   it('clears the user choice', async () => {
     vi.mocked(inflowApi.countsAs).mockResolvedValue({
       ...unresolved, flowClass: 'INCOME', kind: family, appliedBy: 'ROW', summary: 'You marked this payment as Family support',

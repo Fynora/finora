@@ -739,7 +739,10 @@ export interface UnresolvedSender {
   sampleTransactionId: string;
   label: string;
   senderKnown: boolean;
+  /** The not-counted-yet payments listed in this group. */
   count: number;
+  /** Every payment from this sender -- what "Every payment from ..." changes. Can exceed `count`. */
+  senderPaymentCount: number;
   total: number;
   latestDate: string;
   accountName: string | null;

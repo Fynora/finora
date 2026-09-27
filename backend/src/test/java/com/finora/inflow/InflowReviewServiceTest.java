@@ -2,6 +2,7 @@ package com.finora.inflow;
 
 import com.finora.entity.Account;
 import com.finora.entity.Transaction;
+import com.finora.repository.TransactionRepository;
 import com.finora.service.ReportService;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -45,7 +46,11 @@ class InflowReviewServiceTest {
         when(reports.unresolvedInflows(userId, from, to))
                 .thenReturn(new ReportService.UnresolvedRows(List.of(early, cash, late), List.of(savings)));
 
-        List<InflowDtos.UnresolvedSenderDto> groups = new InflowReviewService(reports).groups(userId, from, to);
+        TransactionRepository transactions = mock(TransactionRepository.class);
+        // The sender also sent 3 credits that already count as income; a sender choice reaches all 5.
+        when(transactions.countLiveCreditsBySender(userId, "vpa:asha")).thenReturn(5L);
+
+        List<InflowDtos.UnresolvedSenderDto> groups = new InflowReviewService(reports, transactions).groups(userId, from, to);
 
         assertThat(groups).extracting(InflowDtos.UnresolvedSenderDto::count).containsExactly(2, 1);
         InflowDtos.UnresolvedSenderDto ashaGroup = groups.get(0);
@@ -54,10 +59,12 @@ class InflowReviewServiceTest {
         assertThat(ashaGroup.sampleTransactionId()).isEqualTo(late.getId());
         assertThat(ashaGroup.label()).isEqualTo("ASHA VERMA");
         assertThat(ashaGroup.senderKnown()).isTrue();
+        assertThat(ashaGroup.senderPaymentCount()).isEqualTo(5L);
         assertThat(ashaGroup.accountName()).isEqualTo("Savings One");
         assertThat(ashaGroup.rows()).extracting(InflowDtos.UnresolvedRowDto::id).containsExactly(late.getId(), early.getId());
         InflowDtos.UnresolvedSenderDto cashGroup = groups.get(1);
         assertThat(cashGroup.senderKnown()).isFalse();
+        assertThat(cashGroup.senderPaymentCount()).isEqualTo(1L);
         assertThat(cashGroup.label()).isEqualTo("CASH DEPOSIT BRANCH");
     }
 }

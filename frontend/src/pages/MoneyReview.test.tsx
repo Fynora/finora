@@ -10,7 +10,7 @@ vi.mock('../api/endpoints', () => ({
 }));
 
 const asha = {
-  sampleTransactionId: 't1', label: 'ASHA VERMA', senderKnown: true, count: 2, total: 7000,
+  sampleTransactionId: 't1', label: 'ASHA VERMA', senderKnown: true, count: 2, senderPaymentCount: 5, total: 7000,
   latestDate: '2026-08-20', accountName: 'Savings One',
   rows: [
     { id: 't1', date: '2026-08-20', amount: 2000, description: 'UPI-ASHA VERMA', accountName: 'Savings One' },
@@ -43,7 +43,7 @@ describe('MoneyReview', () => {
     renderAt('/app/money-review?start=2026-08-01&end=2026-08-31');
     await userEvent.click(await screen.findByText('ASHA VERMA'));
     await userEvent.click(await screen.findByRole('button', { name: /Family support/ }));
-    await userEvent.click(screen.getByRole('button', { name: 'Every payment from ASHA VERMA (2)' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Every payment from ASHA VERMA (5)' }));
     await waitFor(() => expect(inflowApi.setChoice).toHaveBeenCalledWith('t1', 'k2', 'SENDER'));
     expect(await screen.findByText("Everything's sorted")).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));

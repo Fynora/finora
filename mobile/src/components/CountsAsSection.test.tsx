@@ -70,6 +70,17 @@ describe('CountsAsSection', () => {
     expect(screen.queryByText('Change')).not.toBeOnTheScreen();
   });
 
+  it('says a sender-wide choice is cleared for every payment from the sender', async () => {
+    inflow.countsAs.mockResolvedValue({
+      ...unresolved, flowClass: 'INCOME', kind: family, appliedBy: 'SENDER',
+      summary: 'You marked payments from this sender as Family support',
+    });
+    inflow.clearChoice.mockResolvedValue(unresolved);
+    renderSection();
+    fireEvent.press(await screen.findByText('Clear for every payment from ASHA VERMA (3)'));
+    await waitFor(() => expect(inflow.clearChoice).toHaveBeenCalledWith('t1', 'SENDER'));
+  });
+
   it('clears the user choice', async () => {
     inflow.countsAs.mockResolvedValue({
       ...unresolved, flowClass: 'INCOME', kind: family, appliedBy: 'ROW', summary: 'You marked this payment as Family support',

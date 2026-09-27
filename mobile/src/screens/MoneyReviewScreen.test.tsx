@@ -19,7 +19,7 @@ jest.mock('react-native-safe-area-context', () => ({
 const inflow = inflowApi as jest.Mocked<typeof inflowApi>;
 
 const asha: UnresolvedSender = {
-  sampleTransactionId: 't1', label: 'ASHA VERMA', senderKnown: true, count: 2, total: 7000,
+  sampleTransactionId: 't1', label: 'ASHA VERMA', senderKnown: true, count: 2, senderPaymentCount: 5, total: 7000,
   latestDate: '2026-08-20', accountName: 'Savings One',
   rows: [
     { id: 't1', date: '2026-08-20', amount: 2000, description: 'UPI-ASHA VERMA', accountName: 'Savings One' },
@@ -58,7 +58,7 @@ describe('MoneyReviewScreen', () => {
     renderScreen();
     fireEvent.press(await screen.findByText('ASHA VERMA'));
     fireEvent.press(await screen.findByText('Family support'));
-    fireEvent.press(screen.getByText('Every payment from ASHA VERMA (2)'));
+    fireEvent.press(screen.getByText('Every payment from ASHA VERMA (5)'));
     await waitFor(() => expect(inflow.setChoice).toHaveBeenCalledWith('t1', 'k2', 'SENDER'));
     expect(await screen.findByText("Everything's sorted")).toBeOnTheScreen();
     fireEvent.press(screen.getByText('Undo'));

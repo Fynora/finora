@@ -2,6 +2,7 @@ package com.finora.inflow;
 
 import com.finora.entity.Account;
 import com.finora.entity.Transaction;
+import com.finora.repository.TransactionRepository;
 import com.finora.service.ReportService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,9 +22,11 @@ import java.util.UUID;
 public class InflowReviewService {
 
     private final ReportService reportService;
+    private final TransactionRepository transactions;
 
-    public InflowReviewService(ReportService reportService) {
+    public InflowReviewService(ReportService reportService, TransactionRepository transactions) {
         this.reportService = reportService;
+        this.transactions = transactions;
     }
 
     @Transactional(readOnly = true)
@@ -46,8 +49,10 @@ public class InflowReviewService {
             rows.sort(Comparator.comparing(Transaction::getTxnDate).reversed());
             Transaction latest = rows.get(0);
             BigDecimal total = rows.stream().map(Transaction::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
-            out.add(new InflowDtos.UnresolvedSenderDto(latest.getId(), SenderLabel.of(latest),
-                    !e.getKey().startsWith("row:"), rows.size(), total, latest.getTxnDate(),
+            boolean senderKnown = !e.getKey().startsWith("row:");
+            out.add(new InflowDtos.UnresolvedSenderDto(latest.getId(), SenderLabel.of(latest), senderKnown, rows.size(),
+                    senderKnown ? transactions.countLiveCreditsBySender(userId, e.getKey()) : rows.size(),
+                    total, latest.getTxnDate(),
                     accountNames.get(latest.getAccountId()),
                     rows.stream().map(t -> new InflowDtos.UnresolvedRowDto(t.getId(), t.getTxnDate(), t.getAmount(),
                             t.getDescription(), accountNames.get(t.getAccountId()))).toList()));

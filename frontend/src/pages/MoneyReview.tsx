@@ -124,7 +124,7 @@ export default function MoneyReview() {
                 <div className="flex flex-wrap gap-2">
                   {s.senderKnown && (
                     <Button size="sm" loading={busy} onClick={() => apply(s.sampleTransactionId, 'SENDER', s.label)}>
-                      {`Every payment from ${s.label} (${s.count})`}
+                      {`Every payment from ${s.label} (${s.senderPaymentCount})`}
                     </Button>
                   )}
                   <Button size="sm" variant={s.senderKnown ? 'secondary' : 'primary'} disabled={busy}

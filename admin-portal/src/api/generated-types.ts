@@ -7389,6 +7389,8 @@ export interface components {
             senderKnown?: boolean;
             /** Format: int32 */
             count?: number;
+            /** Format: int64 */
+            senderPaymentCount?: number;
             total?: number;
             /** Format: date */
             latestDate?: string;

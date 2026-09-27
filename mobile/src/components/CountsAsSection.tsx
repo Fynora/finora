@@ -56,7 +56,12 @@ export function CountsAsSection({ transactionId }: { transactionId: string }) {
         <View style={styles.row}>
           <Button label="Change" variant="link" onPress={() => { setEditing(true); setPicked(null); }} />
           {appliedBy ? (
-            <Button label="Clear my choice" variant="link" loading={busy}
+            <Button
+              label={appliedBy === 'SENDER'
+                ? `Clear for every payment from ${countsAs.senderLabel} (${countsAs.senderRowCount})`
+                : 'Clear my choice'}
+              variant="link"
+              loading={busy}
               onPress={() => run(() => inflowApi.clearChoice(transactionId, appliedBy))} />
           ) : null}
         </View>

@@ -17660,6 +17660,10 @@
                         "type": "integer",
                         "format": "int32"
                     },
+                    "senderPaymentCount": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
                     "total": {
                         "type": "number"
                     },

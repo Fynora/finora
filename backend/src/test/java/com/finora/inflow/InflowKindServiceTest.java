@@ -19,6 +19,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import com.finora.service.FlowClassifier;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -247,5 +248,15 @@ class InflowKindServiceTest {
         assertThat(dto.senderLabel()).isEqualTo("ASHA VERMA");
         assertThat(dto.senderRowCount()).isEqualTo(4L);
         assertThat(dto.summary()).isEqualTo("Not counted yet · from a person");
+    }
+
+    @Test void everyReasonLeftForTheUserSaysSoInItsSummary() {
+        // A reason missing from the map falls back to a bare "Money in", which hides that the row
+        // is not counted -- the three coverage reasons are new, so pin all five.
+        for (FlowClassifier.FlowReason r : List.of(FlowClassifier.FlowReason.PERSON_INFLOW,
+                FlowClassifier.FlowReason.CARD_UNEXPLAINED_CREDIT, FlowClassifier.FlowReason.CASH_DEPOSIT,
+                FlowClassifier.FlowReason.MERCHANT_CREDIT, FlowClassifier.FlowReason.UNKNOWN_SENDER)) {
+            assertThat(InflowKindService.AUTOMATIC_SUMMARY.get(r)).as(r.name()).startsWith("Not counted yet · ");
+        }
     }
 }

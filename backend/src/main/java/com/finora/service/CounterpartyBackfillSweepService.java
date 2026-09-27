@@ -76,13 +76,16 @@ public class CounterpartyBackfillSweepService {
     private final TransactionRepository transactionRepository;
     private final TransactionTemplate transactionTemplate;
     private final com.finora.repository.SenderInflowRuleRepository senderInflowRuleRepository;
+    private final com.finora.repository.UserMerchantCategoryResolutionRepository categoryResolutionRepository;
 
     public CounterpartyBackfillSweepService(TransactionRepository transactionRepository,
                                              TransactionTemplate transactionTemplate,
-                                             com.finora.repository.SenderInflowRuleRepository senderInflowRuleRepository) {
+                                             com.finora.repository.SenderInflowRuleRepository senderInflowRuleRepository,
+                                             com.finora.repository.UserMerchantCategoryResolutionRepository categoryResolutionRepository) {
         this.transactionRepository = transactionRepository;
         this.transactionTemplate = transactionTemplate;
         this.senderInflowRuleRepository = senderInflowRuleRepository;
+        this.categoryResolutionRepository = categoryResolutionRepository;
     }
 
     /**
@@ -142,6 +145,9 @@ public class CounterpartyBackfillSweepService {
                     if (updated > 0 && oldKey != null && !oldKey.isBlank() && typing.key() != null
                             && !typing.key().equals(oldKey)) {
                         senderInflowRuleRepository.carryToNewKey(row.getUserId(), oldKey, typing.key());
+                        // Same for a learned category (a user's correction or the AI resolution
+                        // cache): left behind, the sender's next import loses what the user taught.
+                        categoryResolutionRepository.carryToNewKey(row.getUserId(), oldKey, typing.key());
                     }
                 } catch (RuntimeException e) {
                     // Left unstamped on purpose -- see this class's own doc on why a false stamp is

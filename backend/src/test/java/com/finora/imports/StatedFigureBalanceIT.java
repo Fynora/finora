@@ -621,4 +621,149 @@ class StatedFigureBalanceIT extends AbstractIntegrationTest {
         assertThat(balanceOf(account)).as("without July's figure, the manual rent counts: 1000 - 100")
                 .isEqualByComparingTo("900.00");
     }
+
+    // ---- 5: a row of a replaced statement ----
+
+    @Test
+    @DisplayName("deleting or editing a row of a replaced statement moves nothing: replacing it already took it off")
+    void aRowOfAReplacedStatement_editedOrDeleted_movesNothing() throws Exception {
+        UUID user = user().getId();
+        UUID account = untypedAccount(user, "1000.00");
+        UUID original = importStatement(user, account, null, null, JUNE_START, JUNE_END,
+                row(LocalDate.of(2026, 6, 15), "GROCERIES", "100.00", "EXPENSE"),
+                row(LocalDate.of(2026, 6, 18), "PHARMACY", "40.00", "EXPENSE"));
+        UUID copy = importStatement(user, account, null, null, JUNE_START, JUNE_END,
+                row(LocalDate.of(2026, 6, 16), "GROCERY STORE", "130.00", "EXPENSE"));
+        statementImportService.supersede(user, original, copy);
+        assertThat(balanceOf(account)).isEqualByComparingTo("870.00");
+
+        List<Transaction> replaced = transactionRepository.findByStatementImportId(original);
+        Transaction groceries = replaced.stream().filter(t -> t.getDescription().equals("GROCERIES")).findFirst().orElseThrow();
+        Transaction pharmacy = replaced.stream().filter(t -> t.getDescription().equals("PHARMACY")).findFirst().orElseThrow();
+        transactionService.update(user, pharmacy.getId(),
+                new TransactionDto.UpdateRequest(null, null, null, new BigDecimal("45.00"), null, null, null, null));
+        assertThat(balanceOf(account)).isEqualByComparingTo("870.00");
+        transactionService.delete(user, groceries.getId(), user);
+        assertThat(balanceOf(account)).isEqualByComparingTo("870.00");
+
+        // The copy is deleted: the original is back without its deleted row, pharmacy at its edited 45.
+        statementImportService.delete(user, copy, user);
+        assertThat(balanceOf(account)).isEqualByComparingTo("955.00");
+    }
+
+    @Test
+    @DisplayName("deleting a replaced statement whose row is a transfer does not take the transfer off twice")
+    void deletingAReplacedStatement_withATransferRow_movesNothing() throws Exception {
+        UUID user = user().getId();
+        UUID current = untypedAccount(user, "1000.00");
+        UUID savings = untypedAccount(user, "0.00");
+        UUID original = importStatement(user, current, null, null, JUNE_START, JUNE_END,
+                row(LocalDate.of(2026, 6, 10), "NEFT PAYMENT TO OWN SAVINGS", "500.00", "EXPENSE"));
+        importStatement(user, savings, null, null, JUNE_START, JUNE_END,
+                row(LocalDate.of(2026, 6, 10), "NEFT PAYMENT FROM OWN CURRENT", "500.00", "INCOME"));
+        UUID copy = importStatement(user, current, null, null, JUNE_START, JUNE_END,
+                row(LocalDate.of(2026, 6, 16), "GROCERY STORE", "130.00", "EXPENSE"));
+        assertThat(only(original).getReconciliationStatus())
+                .as("precondition: the two sides are matched as a transfer")
+                .isEqualTo(Transaction.ReconciliationStatus.TRANSFER);
+        statementImportService.supersede(user, original, copy);
+        assertThat(balanceOf(current)).isEqualByComparingTo("870.00");
+
+        statementImportService.delete(user, original, user);
+        assertThat(balanceOf(current)).as("replacing it already took the transfer off").isEqualByComparingTo("870.00");
+    }
+    @Test
+    @DisplayName("replacing a statement with a corrected copy of the same rows counts the copy's rows")
+    void replacedByACopyOfTheSameRows_theCopyCounts() throws Exception {
+        UUID user = user().getId();
+        UUID account = untypedAccount(user, "1000.00");
+        UUID original = importStatement(user, account, null, null, JUNE_START, JUNE_END,
+                row(LocalDate.of(2026, 6, 15), "GROCERIES", "100.00", "EXPENSE"),
+                row(LocalDate.of(2026, 6, 18), "PHARMACY", "40.00", "EXPENSE"));
+        UUID copy = importStatement(user, account, null, null, JUNE_START, JUNE_END,
+                row(LocalDate.of(2026, 6, 15), "GROCERIES", "100.00", "EXPENSE"),
+                row(LocalDate.of(2026, 6, 18), "PHARMACY", "40.00", "EXPENSE"),
+                row(LocalDate.of(2026, 6, 20), "BOOKS", "25.00", "EXPENSE"));
+        assertThat(balanceOf(account)).as("the copy's two repeats are duplicates").isEqualByComparingTo("835.00");
+
+        statementImportService.supersede(user, original, copy);
+        assertThat(balanceOf(account)).as("the copy's rows are the ones that count now").isEqualByComparingTo("835.00");
+        assertThat(transactionRepository.findByStatementImportId(copy))
+                .allSatisfy(t -> {
+                    assertThat(t.getIsDuplicateOf()).isNull();
+                    assertThat(t.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+                });
+        assertThat(transactionRepository.findByStatementImportId(original))
+                .allSatisfy(t -> assertThat(t.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.SUPERSEDED));
+
+        statementImportService.delete(user, copy, user);
+        assertThat(balanceOf(account)).as("the original is back").isEqualByComparingTo("860.00");
+        assertThat(transactionRepository.findByStatementImportId(original))
+                .allSatisfy(t -> assertThat(t.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK));
+    }
+
+    @Test
+    @DisplayName("nothing is matched against a replaced statement's rows, and releasing its transfer keeps it replaced")
+    void aReplacedTransferRow_isNeverMatched_andStaysReplaced() throws Exception {
+        UUID user = user().getId();
+        UUID current = untypedAccount(user, "1000.00");
+        UUID savings = untypedAccount(user, "0.00");
+        UUID original = importStatement(user, current, null, null, JUNE_START, JUNE_END,
+                row(LocalDate.of(2026, 6, 10), "NEFT PAYMENT TO OWN SAVINGS", "500.00", "EXPENSE"));
+        UUID savingsStatement = importStatement(user, savings, null, null, JUNE_START, JUNE_END,
+                row(LocalDate.of(2026, 6, 10), "NEFT PAYMENT FROM OWN CURRENT", "500.00", "INCOME"));
+        UUID copy = importStatement(user, current, null, null, JUNE_START, JUNE_END,
+                row(LocalDate.of(2026, 6, 16), "GROCERY STORE", "130.00", "EXPENSE"));
+        assertThat(only(original).getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.TRANSFER);
+        statementImportService.supersede(user, original, copy);
+        assertThat(balanceOf(current)).isEqualByComparingTo("870.00");
+        assertThat(only(original).getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.SUPERSEDED);
+        assertThat(only(savingsStatement).getTransferPairId())
+                .as("the income is no longer matched to a row that does not count").isNull();
+
+        // The user enters the transfer by hand: it is the only live copy, so it counts.
+        TransactionDto manual = transactionService.create(user, new TransactionDto.CreateRequest(
+                current, "Other", LocalDate.of(2026, 6, 10), "NEFT PAYMENT TO OWN SAVINGS", new BigDecimal("500.00"), "EXPENSE", List.of()));
+        assertThat(transactionRepository.findById(manual.id()).orElseThrow().getIsDuplicateOf()).isNull();
+        assertThat(balanceOf(current)).isEqualByComparingTo("370.00");
+
+        statementImportService.delete(user, savingsStatement, user);
+        assertThat(only(original).getReconciliationStatus())
+                .as("still replaced, not back in the reports").isEqualTo(Transaction.ReconciliationStatus.SUPERSEDED);
+        assertThat(balanceOf(current)).isEqualByComparingTo("370.00");
+    }
+
+    @Test
+    @DisplayName("restoring a statement leaves a row marked a duplicate while it was replaced off the balance, "
+            + "recorded as off, so un-marking it counts it")
+    void restoringAStatement_keepsARowMarkedWhileReplacedOffTheBalance() throws Exception {
+        UUID user = user().getId();
+        UUID account = untypedAccount(user, "1000.00");
+        UUID original = importStatement(user, account, null, null, JUNE_START, JUNE_END,
+                row(LocalDate.of(2026, 6, 15), "GROCERIES", "100.00", "EXPENSE"));
+        UUID copy = importStatement(user, account, null, null, JUNE_START, JUNE_END,
+                row(LocalDate.of(2026, 6, 20), "BOOKS", "25.00", "EXPENSE"));
+        statementImportService.supersede(user, original, copy);
+        TransactionDto manual = transactionService.create(user, new TransactionDto.CreateRequest(
+                account, "Other", LocalDate.of(2026, 6, 15), "CORNER SHOP", new BigDecimal("100.00"), "EXPENSE", List.of()));
+        assertThat(balanceOf(account)).isEqualByComparingTo("875.00");
+
+        // Reconciliation no longer matches anything against a replaced row, so this state can only
+        // come from a mark written before it stopped: the replaced groceries row marked a copy of
+        // the manual entry. Replacing had already taken its effect off; the mark recorded nothing.
+        Transaction groceries = only(original);
+        groceries.setIsDuplicateOf(manual.id());
+        groceries.setReconciliationStatus(Transaction.ReconciliationStatus.DUPLICATE);
+        groceries.setDuplicateBalanceReversed(false);
+        transactionRepository.save(groceries);
+
+        statementImportService.delete(user, copy, user);
+        assertThat(balanceOf(account))
+                .as("the groceries row is still a copy of the manual entry: counted once, 1000 - 100")
+                .isEqualByComparingTo("900.00");
+        assertThat(only(original).isDuplicateBalanceReversed()).as("recorded as off").isTrue();
+
+        transactionService.confirmNotDuplicate(user, groceries.getId());
+        assertThat(balanceOf(account)).as("both were real after all").isEqualByComparingTo("800.00");
+    }
 }

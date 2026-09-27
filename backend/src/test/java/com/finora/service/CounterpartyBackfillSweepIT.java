@@ -51,6 +51,8 @@ class CounterpartyBackfillSweepIT extends AbstractIntegrationTest {
     @Autowired private UserRepository userRepository;
     @Autowired private com.finora.repository.InflowKindRepository inflowKindRepository;
     @Autowired private com.finora.repository.SenderInflowRuleRepository senderInflowRuleRepository;
+    @Autowired private com.finora.repository.UserMerchantCategoryResolutionRepository userMerchantCategoryResolutionRepository;
+    @Autowired private com.finora.repository.CategoryRepository categoryRepository;
 
     private UUID userId;
     private UUID accountId;
@@ -150,6 +152,41 @@ class CounterpartyBackfillSweepIT extends AbstractIntegrationTest {
         assertThat(reload(kept).getCounterpartyKey()).isEqualTo("vpa:ashauser");
         assertThat(senderInflowRuleRepository.findByUserIdAndCounterpartyKey(userId, "vpa:ashauser"))
                 .map(com.finora.entity.SenderInflowRule::getInflowKindId).contains(otherKindId);
+    }
+
+    /**
+     * The same move for a learned category. A user's correction ("this sender is Groceries") and the
+     * AI resolution cache are both keyed on counterparty_key: left on the old key, the sender's next
+     * import would lose the category the user taught.
+     */
+    @Test
+    void aLearnedCategoryFollowsItsRowsToTheirNewKey() {
+        UUID groceries = newCategory("Groceries");
+        UUID dining = newCategory("Dining");
+        UUID moved = seedTypedWithOldKey("UPI-SUNIL VERMA-sampleuser@ybl-REF92", "name:sunil verma");
+        userMerchantCategoryResolutionRepository.upsertPinned(userId, "name:sunil verma", "INCOME", groceries, java.time.Instant.now());
+        // The new key already has its own answer: that one is kept.
+        UUID kept = seedTypedWithOldKey("UPI-ASHA VERMA-ashauser@ybl-REF93", "name:asha verma");
+        userMerchantCategoryResolutionRepository.upsertPinned(userId, "name:asha verma", "INCOME", groceries, java.time.Instant.now());
+        userMerchantCategoryResolutionRepository.upsertPinned(userId, "vpa:ashauser", "INCOME", dining, java.time.Instant.now());
+
+        drain();
+
+        assertThat(reload(moved).getCounterpartyKey()).isEqualTo("vpa:sampleuser");
+        assertThat(userMerchantCategoryResolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(
+                userId, "vpa:sampleuser", Transaction.Type.INCOME))
+                .map(com.finora.entity.UserMerchantCategoryResolution::getCategoryId).contains(groceries);
+        assertThat(reload(kept).getCounterpartyKey()).isEqualTo("vpa:ashauser");
+        assertThat(userMerchantCategoryResolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(
+                userId, "vpa:ashauser", Transaction.Type.INCOME))
+                .map(com.finora.entity.UserMerchantCategoryResolution::getCategoryId).contains(dining);
+    }
+
+    private UUID newCategory(String name) {
+        com.finora.entity.Category c = new com.finora.entity.Category();
+        c.setUserId(userId);
+        c.setName(name);
+        return categoryRepository.save(c).getId();
     }
 
     private UUID newKind(String name) {

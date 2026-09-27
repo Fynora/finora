@@ -319,7 +319,16 @@ public class ReconciliationService {
         // converge on one bank row, and so both stay counted, depended on which row the database
         // returned first. One fixed order for every pass.
         Comparator<Transaction> order = candidateOrder(accountsById);
-        all = all.stream().sorted(order).toList();
+        // A replaced statement's rows count nowhere, so nothing may be matched against them: a
+        // corrected copy's row marked a duplicate of the replaced original's counted nowhere either
+        // (measured: replacing a statement with a copy holding the same two rows left both out of
+        // the balance and every report), and a manual entry matched to a replaced transfer row was
+        // taken off the balance for a copy of nothing.
+        Set<UUID> replacedStatementIds = new HashSet<>(statementImportRepository.findSupersededIdsByUserId(userId));
+        all = all.stream()
+                .filter(t -> t.getReconciliationStatus() != Transaction.ReconciliationStatus.SUPERSEDED
+                        && (t.getStatementImportId() == null || !replacedStatementIds.contains(t.getStatementImportId())))
+                .sorted(order).toList();
         List<UUID> deadAccountTransactionIds = transactionRepository.findByUserId(userId).stream()
                 .filter(t -> !liveAccountIds.contains(t.getAccountId()))
                 .map(Transaction::getId)
@@ -851,6 +860,12 @@ public class ReconciliationService {
             // Computed once per income row, same as refundKeyword above -- both are properties of
             // the income's own description, not of any particular candidate expense.
             boolean reversalKeyword = looksLikeReversal(income.getDescription());
+            // A name in common is evidence of a refund only when the sender is known to be an
+            // organisation. Money a person sends back after being paid is a repayment or their
+            // share of a bill, and stays income (product decision, 2026-09-27). UNKNOWN is not an
+            // organisation either: on the corpus, a friend paying through a wallet handle reads
+            // UNKNOWN, and so name-only matching counted it as a refund of the payment to them.
+            boolean nameCanShowARefund = isFromAnOrganisation(income);
             Transaction bestMatch = null;
             boolean bestMatchSameMerchant = false;
             String bestMatchSharedReference = null;
@@ -872,7 +887,8 @@ public class ReconciliationService {
 
                 // Need at least one real signal -- either the description says "refund"/
                 // "reversal"/etc, or the (already-resolved, see Transaction.merchant) merchant
-                // token matches the original purchase's. Neither alone is required everywhere;
+                // token matches the original purchase's and the credit is from an organisation
+                // (nameCanShowARefund above). Neither alone is required everywhere;
                 // all three being absent means there's no actual evidence this is a refund (or a
                 // reversal) at all. The matching mechanism itself doesn't care which of the two
                 // this turns out to be -- that's decided once, after a match is found, below.
@@ -882,7 +898,8 @@ public class ReconciliationService {
                 // debit returned as two "UPI <MERCHANT> <ref>" credits adding up to it, with no
                 // refund word and no merchant in common, so nothing else here could link them.
                 String sharedReference = firstShared(references.get(income.getId()), references.get(expense.getId()));
-                if (!refundKeyword && !reversalKeyword && !sameMerchant && sharedReference == null) continue;
+                boolean sameMerchantIsEvidence = sameMerchant && nameCanShowARefund;
+                if (!refundKeyword && !reversalKeyword && !sameMerchantIsEvidence && sharedReference == null) continue;
 
                 // BH-007: capacity is what's LEFT of the expense, not its original amount -- an
                 // expense already fully claimed by an earlier match (this pass or a prior one) has
@@ -1287,6 +1304,8 @@ public class ReconciliationService {
             // databases.
             ccStatements = ccStatements.stream()
                     .filter(s -> liveAccountIds.contains(s.getAccountId()))
+                    // A replaced bill settles nothing: its replacement is the one a payment pays.
+                    .filter(s -> s.getSupersededBy() == null)
                     .sorted(Comparator.comparing(StatementImport::getPaymentDueDate,
                                     Comparator.nullsLast(Comparator.naturalOrder()))
                             .thenComparing(StatementImport::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder()))
@@ -2218,14 +2237,17 @@ public class ReconciliationService {
                     // A manual entry dated inside the figure that held the balance when it was
                     // entered never moved it (Transaction.balanceCoveredThrough), like a covered
                     // statement row: nothing to take off, and no SET's snapshot holds it separately.
-                    boolean coveredEntry = com.finora.accounts.AccountBalanceConvention.manualRowInsideStatedFigure(t);
-                    boolean reversed = !coveredEntry && com.finora.accounts.AccountBalanceConvention
+                    boolean effectNotInBalance = com.finora.accounts.AccountBalanceConvention.manualRowInsideStatedFigure(t)
+                            // A replaced statement's row: replacing it already took its effect off
+                            // (RowBalanceEffect says the same for its edits and deletes).
+                            || (si != null && si.getSupersededBy() != null);
+                    boolean reversed = !effectNotInBalance && com.finora.accounts.AccountBalanceConvention
                             .netEffectIsInBalance(t.getSource(), mode, t.getCreatedAt(), anchoredAt);
                     // Recorded on the row, for the sites that later clear the mark or remove the
                     // row (see Transaction.duplicateBalanceReversed). A row kept out of the balance
                     // only by the live SET has its effect in that SET's pre-set snapshot: it is
                     // held by the SET, and reversed if the SET ever is.
-                    boolean heldByAnchor = !reversed && !coveredEntry && anchor != null
+                    boolean heldByAnchor = !reversed && !effectNotInBalance && anchor != null
                             && com.finora.accounts.AccountBalanceConvention
                                     .netEffectIsInBalance(t.getSource(), mode, t.getCreatedAt(), null)
                             // Inside the typed figure instead (older than the typing): no SET's
@@ -2322,8 +2344,14 @@ public class ReconciliationService {
      *  this pass matches on -- one word list, not two that can drift. */
     static boolean looksLikeRefund(String description) {
         String normalized = CategoryRules.normalize(description);
-        return REFUND_KEYWORDS.stream().anyMatch(normalized::contains);
+        return REFUND_KEYWORDS.stream().anyMatch(normalized::contains)
+                || WRAPPED_REFUND.matcher(normalized).find();
     }
+
+    /** "refund" split by a wrapped line ("R EFUND", "REFU ND"), starting at a word. Not the word with
+     *  every space removed: that also matched fund names ("INFRASTRUCTURE FUND" -> "...urefund"). */
+    private static final java.util.regex.Pattern WRAPPED_REFUND =
+            java.util.regex.Pattern.compile("(^| )r ?e ?f ?u ?n ?d");
 
     /** See {@link #looksLikeRefund}. */
     static boolean looksLikeReversal(String description) {
@@ -2368,6 +2396,16 @@ public class ReconciliationService {
         if (candidateCounted != currentCounted) return candidateCounted;
 
         return candidate.getAmount().compareTo(currentBest.getAmount()) < 0;
+    }
+
+    /** Null (a row never typed) reads as UNKNOWN, as the column's default does. */
+    private static boolean isFromAnOrganisation(Transaction t) {
+        com.finora.util.CounterpartyType type = t.getCounterpartyType();
+        if (type == null) return false;
+        return switch (type) {
+            case BUSINESS, FINANCIAL_INSTITUTION, GOVERNMENT -> true;
+            case PERSON, UNKNOWN -> false;
+        };
     }
 
     private static boolean isSameMerchant(Transaction expense, Transaction income) {

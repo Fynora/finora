@@ -139,6 +139,15 @@ public class RowBalanceEffect {
         }
         // A manual entry dated inside the stated figure that held the balance when it was entered.
         if (AccountBalanceConvention.manualRowInsideStatedFigure(row)) return Location.NOWHERE;
+        // A replaced statement's rows: replacing it took their effect off (StatementImportService
+        // .supersede), whatever their status -- a transfer or refund row keeps its own. Editing or
+        // deleting one, or deleting the whole statement, moved the balance a second time (measured:
+        // a replaced statement's 500 transfer, deleted with it, left the balance 500 too high).
+        // A legacy statement's replacement reversed nothing, so its rows still count as before.
+        if (statement != null && statement.getSupersededBy() != null
+                && statement.getBalanceApplicationMode() != StatementImport.BalanceApplicationMode.UNKNOWN_LEGACY) {
+            return Location.NOWHERE;
+        }
         if (statement != null) {
             StatementImport.BalanceApplicationMode mode = AccountBalanceConvention.effectiveMode(statement, row);
             if (mode == StatementImport.BalanceApplicationMode.UNKNOWN_LEGACY) return Location.BALANCE;

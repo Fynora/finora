@@ -77,9 +77,27 @@ public final class CounterpartyIdentity {
     private static final Pattern NOISE = Pattern.compile(
             "(?i)^(UPI|NEFT|IMPS|RTGS|TRF|TRANSFER|PAYMENT|PAY|PAID|TO|FROM|BY|REF|RRN|TXN|MB|IB|NB"
             + "|NET|MOB|ONLINE|SELF|OWN|COLLECT|INTENT|CR|DR|ACH|NACH|ECS"
-            + "|MANDATE|DEBIT|BALANCE|CMP)$");
+            + "|MANDATE|DEBIT|BALANCE|CMP"
+            // Statement furniture printed after the narration, and card-bill boilerplate.
+            + "|CHQ|RECEIVED|RECD|BBPS|PMT)$");
+
+    /**
+     * Never a payee on their own, but part of real names ("HDFC LIFE", "PAYTM MALL"), so a segment is
+     * skipped only when these are ALL it says. The app the money moved through ("Payment from
+     * PhonePe_<NAME>" keyed every short-named sender on PhonePe to one key), and the remitter's
+     * bank from the fixed bank slot of "UPI/<ref>/CR/<name>/<bank>/..." (the same on every row of
+     * that statement). As plain noise words they turned "HDFC LIFE" and "SBI LIFE" into one key.
+     */
+    private static final java.util.Set<String> NOT_A_PAYEE_ALONE = java.util.Set.of(
+            "phonepe", "paytm", "gpay", "bhim",
+            "sbi", "sbin", "hdfc", "icic", "icici", "utib", "axis", "punb", "barb", "yesb", "kkbk",
+            "cnrb", "ubin", "idib", "ibkl", "cbin", "scbl", "indb", "bank");
+
+    /** The value-date label some banks print after the narration ("Value Dt 01/01/2026"). */
+    private static final Pattern VALUE_DATE_LABEL = Pattern.compile("(?i)\\bvalue\\s+dt\\b");
 
     private static final Pattern SEGMENTS = Pattern.compile("[\\-/_|:]+");
+    private static final Pattern PSP_HANDLE = Pattern.compile("@[A-Za-z0-9.]*");
     private static final Pattern NON_LETTERS = Pattern.compile("[^A-Za-z]+");
 
     /**
@@ -108,7 +126,8 @@ public final class CounterpartyIdentity {
      *
      * <p>A reference-heavy segment is skipped rather than keyed on: a token carrying four or more
      * digits is an RRN or an account fragment, and keying on one would make every transaction its
-     * own counterparty -- the exact opposite of what this is for.
+     * own counterparty -- the exact opposite of what this is for. Only when that leaves nothing are
+     * the segments read again word by word, dropping just the reference words.
      */
     public static String keyOf(String description) {
         if (description == null || description.isBlank()) return "";
@@ -116,22 +135,52 @@ public final class CounterpartyIdentity {
         Matcher vpa = VPA.matcher(description);
         if (vpa.find()) {
             String local = vpa.group(1).toLowerCase();
+            // "**TAIL@HANDLE": the statement printed only the end of the VPA. The tail is shared by
+            // strangers, so it is kept with its handle and marked as the weak key it is.
+            if (vpa.start() > 0 && description.charAt(vpa.start() - 1) == '*') {
+                return local.replaceAll("[._-]", "").isEmpty()
+                        ? "" : cap("masked:" + local + "@" + vpa.group(2).toLowerCase());
+            }
             // A bare numeric local part is a phone number, which is a perfectly good identity; a
             // local part that is only punctuation is not.
             if (!local.replaceAll("[._-]", "").isEmpty()) return cap("vpa:" + local);
         }
 
+        String best = longestName(description, false);
+        // Nothing survived: every segment carried a reference. Try again word by word, so a card
+        // line like "UPI SHOPCO 111111111111" still names SHOPCO. Only as a fallback -- run on every
+        // row, it re-picked the longest segment on rows that already had a good key.
+        if (best.isEmpty()) best = longestName(description, true);
+        return best.isEmpty() ? "" : cap("name:" + best.toLowerCase());
+    }
+
+    /**
+     * @param byWord false: a segment carrying four or more digits is skipped whole (a reference or
+     *               account fragment). true: only the words carrying them are dropped.
+     */
+    private static String longestName(String description, boolean byWord) {
         String best = "";
-        for (String segment : SEGMENTS.split(description)) {
-            String trimmed = segment.trim();
+        for (String segment : SEGMENTS.split(VALUE_DATE_LABEL.matcher(description).replaceAll(" "))) {
+            // "@handle" of a VPA too broken for the VPA pattern: the handle names the PSP, and one
+            // PSP is shared by every payee on it.
+            String trimmed = PSP_HANDLE.matcher(segment).replaceAll(" ").trim();
             if (trimmed.isEmpty()) continue;
-            if (countDigits(trimmed) >= 4) continue;               // reference/account fragment
+            if (byWord) {
+                trimmed = String.join(" ", java.util.Arrays.stream(trimmed.split("\\s+"))
+                        .filter(w -> countDigits(w) < 4).toList());
+            } else if (countDigits(trimmed) >= 4) {
+                continue;
+            }
             String letters = String.join(" ", NON_LETTERS.split(trimmed)).trim();
             if (letters.isEmpty()) continue;
             String candidate = meaningfulPart(letters);
+            // Two letters is a scrap of a wrapped line ("/Pa"), not a name -- as a key it would join
+            // every row that happens to end the same way.
+            if (candidate.length() < 3) continue;
+            if (java.util.Arrays.stream(candidate.toLowerCase().split(" ")).allMatch(NOT_A_PAYEE_ALONE::contains)) continue;
             if (candidate.length() > best.length()) best = candidate;
         }
-        return best.isEmpty() ? "" : cap("name:" + best.toLowerCase());
+        return best;
     }
 
     /** Applies {@link #MAX_KEY_LENGTH}. Both key shapes go through here: a VPA local part is

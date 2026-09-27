@@ -901,6 +901,8 @@ export interface ReportData {
   /** Credits this month Fynora cannot yet call income (money from a person, an unexplained card
    *  credit) -- never part of `income`. Optional: an older server does not send it. */
   unresolvedInflow?: number;
+  /** Income split by kind, largest first; sums to income. Optional: an older server does not send it. */
+  incomeByKind?: { label: string; amount: number }[];
 }
 export const reportsApi = {
   availableMonths: () => api.get<string[]>('/reports/months').then((r) => r.data),
@@ -1499,4 +1501,75 @@ export const notificationPreferencesApi = {
   set: (channel: NotificationPreferenceDto['channel'], enabled: boolean) =>
     api.put<NotificationPreferenceDto[]>('/notification-preferences', { category: 'FINANCIAL', channel, enabled })
       .then((r) => r.data),
+};
+
+// ---- Inflow kinds (Plan 2): what money that came in actually was ----
+
+export type InflowBuiltIn = 'INCOME' | 'FAMILY_SUPPORT' | 'OWN_MONEY' | 'PAID_BACK' | 'REFUND';
+export type ChoiceScope = 'ROW' | 'SENDER';
+
+export interface InflowKind {
+  id: string;
+  name: string;
+  countsAsIncome: boolean;
+  builtIn: InflowBuiltIn | null;
+}
+
+/** What a credit counts as, for the "Counts as" section. See InflowDtos.CountsAsDto. */
+export interface CountsAs {
+  flowClass: string;
+  flowReason: string;
+  kind: InflowKind | null;
+  appliedBy: ChoiceScope | null;
+  choosable: boolean;
+  notChoosableReason: string | null;
+  senderAvailable: boolean;
+  senderLabel: string | null;
+  senderRowCount: number;
+  summary: string;
+}
+
+export interface SenderRule {
+  id: string;
+  label: string;
+  kind: InflowKind;
+  rowCount: number;
+}
+
+export interface UnresolvedRow {
+  id: string;
+  date: string;
+  amount: number;
+  description: string | null;
+  accountName: string | null;
+}
+
+export interface UnresolvedSender {
+  sampleTransactionId: string;
+  label: string;
+  senderKnown: boolean;
+  count: number;
+  total: number;
+  latestDate: string;
+  accountName: string | null;
+  rows: UnresolvedRow[];
+}
+
+export const inflowApi = {
+  kinds: () => api.get<InflowKind[]>('/inflow-kinds').then((r) => r.data),
+  createKind: (name: string, countsAsIncome: boolean) =>
+    api.post<InflowKind>('/inflow-kinds', { name, countsAsIncome }).then((r) => r.data),
+  updateKind: (id: string, body: { name?: string; countsAsIncome?: boolean }) =>
+    api.patch<InflowKind>(`/inflow-kinds/${id}`, body).then((r) => r.data),
+  deleteKind: (id: string) => api.delete(`/inflow-kinds/${id}`),
+  countsAs: (transactionId: string) =>
+    api.get<CountsAs>(`/transactions/${transactionId}/counts-as`).then((r) => r.data),
+  setChoice: (transactionId: string, kindId: string, scope: ChoiceScope) =>
+    api.put<CountsAs>(`/transactions/${transactionId}/inflow-kind`, { kindId, scope }).then((r) => r.data),
+  clearChoice: (transactionId: string, scope: ChoiceScope) =>
+    api.delete<CountsAs>(`/transactions/${transactionId}/inflow-kind`, { params: { scope } }).then((r) => r.data),
+  senderRules: () => api.get<SenderRule[]>('/sender-inflow-rules').then((r) => r.data),
+  forgetSender: (id: string) => api.delete(`/sender-inflow-rules/${id}`),
+  unresolved: (startDate: string, endDate: string) =>
+    api.get<UnresolvedSender[]>('/transactions/unresolved-inflows', { params: { startDate, endDate } }).then((r) => r.data),
 };

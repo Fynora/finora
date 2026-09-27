@@ -5,6 +5,7 @@ import { Skeleton } from '../../design-system/Skeleton';
 import { Button } from '../../design-system/Button';
 import { FinoraCard } from '../../design-system/FinoraCard';
 import { SectionHeader } from '../../design-system/SectionHeader';
+import { InflowKindsSection } from './InflowKindsSection';
 
 export function CategorizationPane() {
   const [confidenceThreshold, setConfidenceThreshold] = useState(90);
@@ -56,41 +57,44 @@ export function CategorizationPane() {
   }
 
   return (
-    <FinoraCard>
-      <SectionHeader title="Categorization" />
-      <p className="text-sm text-muted -mt-3 mb-5">Control how Fynora reviews and understands your financial documents</p>
-      {intelLoading ? (
-        <Skeleton.Region label="Loading your AI settings">
-          <AISkeletonFields />
-        </Skeleton.Region>
-      ) : intelLoadError ? (
-        <p className="text-muted text-sm">Couldn't load your settings — please try again later.</p>
-      ) : (
-        <>
-          <div className="max-w-md">
-            <label htmlFor="settings-confidence-threshold" className="block text-xs uppercase text-muted mb-1">
-              Confidence threshold — {confidenceThreshold}%
-            </label>
-            <input
-              id="settings-confidence-threshold"
-              type="range"
-              min={0}
-              max={100}
-              value={confidenceThreshold}
-              onChange={(e) => setConfidenceThreshold(Number(e.target.value))}
-              className="w-full"
-            />
-            <p className="text-xs text-muted mt-1">
-              How confident a categorization suggestion needs to be before it's applied automatically.
-            </p>
-          </div>
-          <div className="flex items-center gap-3 mt-4 pt-4 border-t border-border">
-            <Button onClick={saveIntelligencePreferences} disabled={!intelDirty} loading={intelSaving}>Save setting</Button>
-            <SaveStatus dirty={intelDirty} saving={intelSaving} justSaved={intelJustSaved} error={intelError} />
-          </div>
-        </>
-      )}
-    </FinoraCard>
+    <div className="space-y-4">
+      <FinoraCard>
+        <SectionHeader title="Categorization" />
+        <p className="text-sm text-muted -mt-3 mb-5">Control how Fynora reviews and understands your financial documents</p>
+        {intelLoading ? (
+          <Skeleton.Region label="Loading your AI settings">
+            <AISkeletonFields />
+          </Skeleton.Region>
+        ) : intelLoadError ? (
+          <p className="text-muted text-sm">Couldn't load your settings — please try again later.</p>
+        ) : (
+          <>
+            <div className="max-w-md">
+              <label htmlFor="settings-confidence-threshold" className="block text-xs uppercase text-muted mb-1">
+                Confidence threshold — {confidenceThreshold}%
+              </label>
+              <input
+                id="settings-confidence-threshold"
+                type="range"
+                min={0}
+                max={100}
+                value={confidenceThreshold}
+                onChange={(e) => setConfidenceThreshold(Number(e.target.value))}
+                className="w-full"
+              />
+              <p className="text-xs text-muted mt-1">
+                How confident a categorization suggestion needs to be before it's applied automatically.
+              </p>
+            </div>
+            <div className="flex items-center gap-3 mt-4 pt-4 border-t border-border">
+              <Button onClick={saveIntelligencePreferences} disabled={!intelDirty} loading={intelSaving}>Save setting</Button>
+              <SaveStatus dirty={intelDirty} saving={intelSaving} justSaved={intelJustSaved} error={intelError} />
+            </div>
+          </>
+        )}
+      </FinoraCard>
+      <InflowKindsSection />
+    </div>
   );
 }
 

@@ -8,6 +8,12 @@ import { downloadBlob, toCsv } from '../lib/download';
 import { Button, FinoraCard, MetricCard, EmptyState, SectionHeader, Skeleton } from '../design-system';
 import { trackNavigation } from '../lib/trackNavigation';
 
+/** YYYY-MM-DD of a YYYY-MM month's last day. */
+function lastDayOf(month: string): string {
+  const [y, m] = month.split('-').map(Number);
+  return `${month}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`;
+}
+
 function fmt(n: number) {
   // Negative amounts (e.g. a month where spend exceeded income) must render as "-₹500",
   // not "₹-500" -- string concatenation put the currency symbol before the sign.
@@ -224,6 +230,30 @@ export default function Reports() {
             <MetricCard label="Expense" value={fmt(report.expense)} icon={ArrowUpCircle} iconBg="bg-danger-bg" iconColor="text-danger" valueColor="text-danger" />
             <MetricCard label="Net" value={fmt(report.income - report.expense)} icon={PiggyBank} iconBg="bg-primary-light" iconColor="text-primary" />
           </div>
+
+          {/* Plan 2: income split by what it was -- Family support and the user's own kinds get
+              their own lines -- and a way to sort out what is not counted yet. */}
+          {report.incomeByKind && report.incomeByKind.length > 1 && (
+            <FinoraCard>
+              <SectionHeader title="Income by kind" size="sm" />
+              <ul className="divide-y divide-border">
+                {report.incomeByKind.map((line) => (
+                  <li key={line.label} className="flex justify-between py-2 text-sm">
+                    <span className="text-ink">{line.label}</span>
+                    <span className="text-ink">{fmt(line.amount)}</span>
+                  </li>
+                ))}
+              </ul>
+            </FinoraCard>
+          )}
+          {report.unresolvedInflow != null && report.unresolvedInflow > 0 && (
+            <Link
+              to={`/app/money-review?start=${report.month}-01&end=${lastDayOf(report.month)}`}
+              className="text-xs text-primary font-medium inline-block"
+            >
+              Review money not counted yet
+            </Link>
+          )}
 
           <FinoraCard>
             <SectionHeader title="Category Breakdown" />

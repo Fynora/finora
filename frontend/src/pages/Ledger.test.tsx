@@ -33,6 +33,15 @@ vi.mock('../api/endpoints', () => ({
     getChecklist: vi.fn().mockResolvedValue({ items: [], completedCount: 0, totalCount: 6 }),
     completeChecklistItem: vi.fn().mockResolvedValue(undefined),
   },
+  // Plan 2: the explanation panel shows "Counts as" for a credit.
+  inflowApi: {
+    countsAs: vi.fn().mockResolvedValue({
+      flowClass: 'UNRESOLVED', flowReason: 'PERSON_INFLOW', kind: null, appliedBy: null, choosable: true,
+      notChoosableReason: null, senderAvailable: true, senderLabel: 'ASHA VERMA', senderRowCount: 1,
+      summary: 'Not counted yet · from a person',
+    }),
+    kinds: vi.fn(), setChoice: vi.fn(), clearChoice: vi.fn(), createKind: vi.fn(),
+  },
 }));
 
 // Safe defaults for every test in this file -- most tests care about transactions/categories
@@ -120,6 +129,31 @@ describe('Ledger — Why this category?', () => {
     expect(await screen.findByText(/matched a rule you created/i)).toBeInTheDocument();
     expect(screen.getByText(/rule condition: description contains "amazon"/i)).toBeInTheDocument();
     expect(transactionsApi.explanation).toHaveBeenCalledWith('txn-1');
+  });
+
+  it('shows what a credit counts as in the explanation panel', async () => {
+    const user = userEvent.setup();
+    vi.mocked(transactionsApi.search).mockResolvedValue({
+      content: [txn({ type: 'INCOME', description: 'UPI-ASHA VERMA' })], page: 0, size: 10, totalElements: 1, totalPages: 1,
+    });
+    vi.mocked(transactionsApi.explanation).mockResolvedValue({ decisionSource: 'GLOBAL_RULE', summary: 'Matched a rule.', evidence: [] });
+    renderLedger();
+
+    await user.click(await screen.findByTitle('Why this category?'));
+
+    expect(await screen.findByText('Not counted yet · from a person')).toBeInTheDocument();
+    expect(screen.getByText('Counts as')).toBeInTheDocument();
+  });
+
+  it('does not show "Counts as" for a debit', async () => {
+    const user = userEvent.setup();
+    vi.mocked(transactionsApi.explanation).mockResolvedValue({ decisionSource: 'GLOBAL_RULE', summary: 'Matched a rule.', evidence: [] });
+    renderLedger();
+
+    await user.click(await screen.findByTitle('Why this category?'));
+
+    expect(await screen.findByText('Matched a rule.')).toBeInTheDocument();
+    expect(screen.queryByText('Counts as')).toBeNull();
   });
 
   it('shows the confidence percentage when the explanation includes one', async () => {

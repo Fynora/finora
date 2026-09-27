@@ -6,6 +6,8 @@ import { workspaceApi } from '../../api/endpoints';
 
 vi.mock('../../api/endpoints', () => ({
   workspaceApi: { getSettings: vi.fn(), updateSettings: vi.fn() },
+  // The money-kinds sections below the threshold (Plan 2) have their own tests.
+  inflowApi: { kinds: vi.fn().mockResolvedValue([]), senderRules: vi.fn().mockResolvedValue([]) },
 }));
 
 describe('CategorizationPane', () => {

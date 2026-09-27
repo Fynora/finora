@@ -13,9 +13,9 @@ export function fmtCurrency(n: number): string {
 }
 
 /**
- * The running balance a statement printed after a row, to the paisa -- unlike fmtCurrency, which
- * rounds. It is the figure a user checks against the statement, so it must read exactly as the
- * bank printed it. Mirrors fmtStatementBalance in frontend/src/pages/Ledger.tsx.
+ * The running balance the bank gave after a row (printed on its statement, or sent by a bank sync),
+ * to the paisa -- unlike fmtCurrency, which rounds. It is the figure a user checks against their
+ * statement, so it must read exactly as the bank gave it. Mirrors fmtStatementBalance in frontend/src/pages/Ledger.tsx.
  */
 export function fmtStatementBalance(n: number): string {
   return (n < 0 ? '-₹' : '₹')

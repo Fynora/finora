@@ -7424,6 +7424,8 @@ public class PdfTableLocator {
      *   <li>the rows directly above and below are both transactions;</li>
      *   <li>the row carries no date and no amount (a dated or priced line is something else, and an
      *       amount would also give the row above a second amount cell);</li>
+     *   <li>no cell ends in a CR/DR marker, which would change the direction read for the row
+     *       above;</li>
      *   <li>it is on the same page as the row above, and starts at that row's description column.</li>
      * </ul>
      * The last continuation before the closing summary has no transaction below it and is left as
@@ -7436,6 +7438,11 @@ public class PdfTableLocator {
             String text = cell.text().trim();
             if (text.isEmpty()) continue;
             if (CsvParser.parseDate(text) != null || CsvParser.parseNumeric(text) != null) return false;
+            // rowMarkerCredit reads every cell ending in CR or DR. Joined, such a line would give a
+            // CR row a second marker (direction unknown, defaulted to a purchase) or turn an
+            // unmarked purchase into a credit -- and the changed arithmetic would then fail the
+            // reconciliation and discard the whole section.
+            if (CsvParser.hasTrailingDrCrMarker(text)) return false;
         }
         PositionedText first = row.stream().filter(c -> !c.text().isBlank())
                 .min(Comparator.comparingDouble(PositionedText::x)).orElse(null);

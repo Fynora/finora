@@ -125,4 +125,23 @@ class HeaderlessInstalmentContinuationTest {
         Map<String, String> joined = locate(statement()).rows().get(1);
         assertThat(joined.keySet()).containsExactly("Date", "Description", "Debit", "Credit");
     }
+
+    @Test
+    void aLineEndingInACreditOrDebitMarkerIsNeverJoined() {
+        // rowMarkerCredit reads every cell ending in CR or DR. Joined onto the reversal row (which
+        // already prints CR), a second marker would make its direction unknown and default it to a
+        // purchase; joined onto an unmarked row, it would turn a purchase into a credit. Either way
+        // the reconciliation arithmetic changes, so the line stays out of the row.
+        List<PositionedText> runs = statement();
+        runs.removeIf(r -> r.y() == 150f || r.y() == 170f);
+        runs.add(run("2ND OF 3 INSTALMENTS CR", 77.3f, 260f, 150f));
+        runs.add(run("2ND OF 3 INSTALMENTS DR", 77.3f, 260f, 170f));
+
+        PdfTableLocator.LocatedSection section = locate(runs);
+
+        assertThat(section.rows()).extracting(r -> r.get("Description")).containsExactly(
+                "SAMPLE BILL PAYMENT", "SAMPLE LENDER LTD", "SAMPLE LENDER LTD", "SAMPLE FEE");
+        assertThat(section.rows()).extracting(r -> r.get("Debit") + "|" + r.get("Credit"))
+                .containsExactly("|1,000.00", "|1,000.00", "1,000.00|", "1,020.00|");
+    }
 }

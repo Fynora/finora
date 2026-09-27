@@ -338,6 +338,16 @@ public final class PersonToPersonTransferDetector {
 
         if (containsBusinessSignal(description, marker.start())) return false;
 
+        // HDFC's layout names the counterparty in exactly one place, so only that place is read.
+        // The segment scan below would also read the free-text remark at the end, and a remark is
+        // whatever the payer or the payee's app typed -- measured on the corpus, a brand's own
+        // "<BRAND> <PRODUCT> TRIP I" and a payer's birthday greeting both read as a person's name.
+        Matcher dashPayee = DASH_UPI_PAYEE_SLOT.matcher(description);
+        if (dashPayee.find()) {
+            return !isBrandNamedInItsOwnHandle(dashPayee.group(1), dashPayee.group(2))
+                    && looksLikeSlotName(dashPayee.group(1));
+        }
+
         // Scanned over the WHOLE description, not just the text after the marker: the counterparty
         // does not reliably follow the rail. This repo's own trace fixtures contain narrations
         // whose rail token is the LAST segment ("<name>/<ref>/IMPS"), and slicing them at the
@@ -364,6 +374,33 @@ public final class PersonToPersonTransferDetector {
      *  the underscore, sometimes truncated mid-word or repeated by the bank. */
     private static final Pattern UNDERSCORE_NAME_TAIL = Pattern.compile(
             "(?i)(?:\\bPHONEPE|\\bUPI)_([A-Za-z][A-Za-z .]{0,60})\\s*$");
+
+    /**
+     * HDFC's UPI narration: {@code UPI-<payee>-<handle>@<psp>-<IFSC>-<ref>-<remark>}. The payee slot
+     * is the bank's record of who was paid or who paid, so like {@link #SLASH_UPI_NAME_SLOT} it is
+     * judged by {@link #looksLikeSlotName}, which accepts a lone first name -- the slot's position is
+     * the evidence, as it is there. Measured on the corpus: 7 rows move from UNKNOWN to PERSON, every
+     * one a person paid through a phone-number or personal handle; no row leaves PERSON; and 30
+     * known-merchant rows the segment scan had been reading as a personal transfer no longer are.
+     * Group 2 is the handle's local part, for {@link #isBrandNamedInItsOwnHandle}.
+     */
+    private static final Pattern DASH_UPI_PAYEE_SLOT = Pattern.compile(
+            "(?i)^\\s*UPI-([^-@]{1,60})-([^-\\s@]*)@");
+
+    /**
+     * A one-word payee whose handle begins with that same word ({@code CREDCLUB} paid at
+     * {@code credclub@...}) is an entity that named its handle after itself -- the one-word slot
+     * rule above would otherwise call it a person. It is the only wrong answer that rule gave on the
+     * corpus (a card-bill app, twice). A person with a one-word name and a handle of the same word
+     * loses the PERSON answer here and reads UNKNOWN, which is the safe direction: a lone first name
+     * anywhere else in a narration is not counted as a person either.
+     */
+    private static boolean isBrandNamedInItsOwnHandle(String payee, String handleLocalPart) {
+        String[] words = payee.trim().split("\\s+");
+        if (words.length != 1 || words[0].length() < 2) return false;
+        String handleLetters = handleLocalPart.replaceAll("[^A-Za-z]", "").toLowerCase(Locale.ROOT);
+        return handleLetters.startsWith(words[0].toLowerCase(Locale.ROOT));
+    }
 
     private static final Pattern PARENTHESISED = Pattern.compile("\\([^)]*\\)");
 

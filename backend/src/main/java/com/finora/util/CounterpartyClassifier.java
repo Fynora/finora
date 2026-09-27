@@ -76,8 +76,10 @@ public final class CounterpartyClassifier {
     //    payment app's name is never the sender, and a reference no longer takes the payee's name
     //    with it. Bumped so the backfill sweep re-keys stored rows; sender rules move with them.
     // 5: PersonToPersonTransferDetector treats the DC0099 merchant branch code as a merchant-acquiring
-    //    rail -- measured on the corpus, 3 rows PERSON -> BUSINESS and 1 UNKNOWN -> BUSINESS, every
-    //    one a merchant; 5 more already-BUSINESS rows stop reading as a personal transfer. All read.
+    //    rail, and reads only the payee slot of HDFC's UPI layout, never its free-text remark --
+    //    measured on the corpus, 3 rows PERSON -> BUSINESS and 1 UNKNOWN -> BUSINESS (all merchants),
+    //    7 UNKNOWN -> PERSON (all people), and 35 already-BUSINESS rows stop reading as a personal
+    //    transfer. Every flip read.
     public static final short VERSION = 5;
 
     /**

@@ -7,6 +7,7 @@ import com.finora.util.CounterpartyType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.springframework.data.domain.Pageable;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.TransactionStatus;
@@ -21,8 +22,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyShort;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -39,12 +43,15 @@ import static org.mockito.Mockito.when;
 class CounterpartyBackfillSweepServiceTest {
 
     private TransactionRepository transactionRepository;
+    private TransactionTemplate transactionTemplate;
+    private ReconciliationService reconciliationService;
     private CounterpartyBackfillSweepService service;
 
     @BeforeEach
     void setUp() {
         transactionRepository = mock(TransactionRepository.class);
-        TransactionTemplate transactionTemplate = mock(TransactionTemplate.class);
+        transactionTemplate = mock(TransactionTemplate.class);
+        reconciliationService = mock(ReconciliationService.class);
 
         // executeWithoutResult is a default method TransactionTemplate inherits rather than
         // overrides, and a Mockito mock does not fall through to a default implementation -- the
@@ -57,7 +64,8 @@ class CounterpartyBackfillSweepServiceTest {
 
         service = new CounterpartyBackfillSweepService(transactionRepository, transactionTemplate,
                 mock(com.finora.repository.SenderInflowRuleRepository.class),
-                mock(com.finora.repository.UserMerchantCategoryResolutionRepository.class));
+                mock(com.finora.repository.UserMerchantCategoryResolutionRepository.class),
+                reconciliationService);
         ReflectionTestUtils.setField(service, "sweepEnabled", true);
         ReflectionTestUtils.setField(service, "batchSize", 3);
     }
@@ -209,6 +217,68 @@ class CounterpartyBackfillSweepServiceTest {
         assertThat(version.getValue()).isEqualTo(CounterpartyClassifier.VERSION);
     }
 
+    @Test
+    void aUserWhoseRowsChangedTypeIsReconciledOnce_afterTheTypingHasCommitted() {
+        // A merchant's credit re-typed from PERSON to BUSINESS becomes linkable to its payment by
+        // name, but only a reconciliation run can link it -- and without this, none runs until the
+        // user next imports or edits something.
+        UUID user = UUID.randomUUID();
+        given(List.of(
+                row(UUID.randomUUID(), "NEFT-ACME LTD-REF70", user, CounterpartyType.PERSON),
+                row(UUID.randomUUID(), "NEFT-ACME LTD-REF71", user, CounterpartyType.UNKNOWN)));
+        when(transactionRepository.applyCounterpartyTyping(any(), any(), any(), anyShort())).thenReturn(1);
+
+        service.sweep();
+
+        verify(reconciliationService, times(1)).reconcileForUser(user);
+        // Two transactions, not one: the typing batch, then the reconciliation in its own. Inside
+        // the typing transaction it would read rows the bulk update has not yet committed, and one
+        // failure would roll the whole batch's typing back with it.
+        InOrder order = inOrder(transactionRepository, reconciliationService);
+        order.verify(transactionRepository, times(2)).applyCounterpartyTyping(any(), any(), any(), anyShort());
+        order.verify(reconciliationService).reconcileForUser(user);
+        verify(transactionTemplate, times(2)).executeWithoutResult(any());
+    }
+
+    @Test
+    void aRowWhoseTypeDidNotChangeTriggersNoReconciliation() {
+        // A version bump re-types every row; most come out the same, and reconciling every user in
+        // the table for nothing would turn a cheap backfill into a full reconciliation of everyone.
+        given(List.of(row(UUID.randomUUID(), "NEFT-ACME LTD-REF72", UUID.randomUUID(), CounterpartyType.BUSINESS)));
+        when(transactionRepository.applyCounterpartyTyping(any(), any(), any(), anyShort())).thenReturn(1);
+
+        service.sweep();
+
+        verify(reconciliationService, never()).reconcileForUser(any());
+    }
+
+    @Test
+    void aRowThatVanishedTriggersNoReconciliation() {
+        given(List.of(row(UUID.randomUUID(), "NEFT-ACME LTD-REF73", UUID.randomUUID(), CounterpartyType.PERSON)));
+        when(transactionRepository.applyCounterpartyTyping(any(), any(), any(), anyShort())).thenReturn(0);
+
+        service.sweep();
+
+        verify(reconciliationService, never()).reconcileForUser(any());
+    }
+
+    @Test
+    void oneUsersFailedReconciliationNeitherUndoesTheTypingNorSkipsTheNextUser() {
+        UUID failing = UUID.randomUUID();
+        UUID next = UUID.randomUUID();
+        given(List.of(
+                row(UUID.randomUUID(), "NEFT-ACME LTD-REF74", failing, CounterpartyType.PERSON),
+                row(UUID.randomUUID(), "NEFT-ACME LTD-REF75", next, CounterpartyType.PERSON)));
+        when(transactionRepository.applyCounterpartyTyping(any(), any(), any(), anyShort())).thenReturn(1);
+        doThrow(new IllegalStateException("boom")).when(reconciliationService).reconcileForUser(failing);
+
+        var result = service.sweep();
+
+        assertThat(result.typed()).isEqualTo(2);
+        assertThat(result.failed()).isZero();
+        verify(reconciliationService).reconcileForUser(next);
+    }
+
     // --- helpers -----------------------------------------------------------------------------
 
     /** Stubs discovery. Takes an already-built list rather than building the projection mocks
@@ -223,6 +293,15 @@ class CounterpartyBackfillSweepServiceTest {
         CounterpartyBackfillRow row = mock(CounterpartyBackfillRow.class);
         when(row.getId()).thenReturn(id);
         when(row.getDescription()).thenReturn(description);
+        return row;
+    }
+
+    private static CounterpartyBackfillRow row(UUID id, String description, UUID userId, CounterpartyType storedType) {
+        CounterpartyBackfillRow row = mock(CounterpartyBackfillRow.class);
+        when(row.getId()).thenReturn(id);
+        when(row.getDescription()).thenReturn(description);
+        when(row.getUserId()).thenReturn(userId);
+        when(row.getCounterpartyType()).thenReturn(storedType);
         return row;
     }
 }

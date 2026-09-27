@@ -11,6 +11,7 @@ import type {
   DetectedAccountInfo, Goal, ImportSummary, MerchantGroup, ReimportResult, StagedAccountSection, StagedRow,
   StatementSummary, Transaction, TransactionExplanation, TransactionSource, VerificationReport,
   WorkspaceSettings, UnparseableRow, WorkspaceSummary, TimelineEvent, GoalMomentum, Wrapped,
+  ChoiceScope, CountsAs, InflowKind, SenderRule, UnresolvedSender,
 } from '../types';
 
 // Ported from frontend/src/api/endpoints.ts -- these are plain axios calls with TS types, no DOM
@@ -1006,6 +1007,8 @@ export interface ReportData {
   /** Credits this month Fynora cannot yet call income (money from a person, an unexplained card
    *  credit) -- never part of `income`. Optional: an older server does not send it. */
   unresolvedInflow?: number;
+  /** Income split by kind, largest first; sums to income. Optional: an older server does not send it. */
+  incomeByKind?: { label: string; amount: number }[];
 }
 export interface IncomeTrendPoint {
   month: string;
@@ -1505,4 +1508,25 @@ export const notificationPreferencesApi = {
   set: (channel: NotificationPreference['channel'], enabled: boolean) =>
     api.put<NotificationPreference[]>('/notification-preferences', { category: 'FINANCIAL', channel, enabled })
       .then((r) => r.data),
+};
+
+// ---- Inflow kinds (Plan 2). Mirrors frontend/src/api/endpoints.ts's inflowApi. ----
+
+export const inflowApi = {
+  kinds: () => api.get<InflowKind[]>('/inflow-kinds').then((r) => r.data),
+  createKind: (name: string, countsAsIncome: boolean) =>
+    api.post<InflowKind>('/inflow-kinds', { name, countsAsIncome }).then((r) => r.data),
+  updateKind: (id: string, body: { name?: string; countsAsIncome?: boolean }) =>
+    api.patch<InflowKind>(`/inflow-kinds/${id}`, body).then((r) => r.data),
+  deleteKind: (id: string) => api.delete(`/inflow-kinds/${id}`),
+  countsAs: (transactionId: string) =>
+    api.get<CountsAs>(`/transactions/${transactionId}/counts-as`).then((r) => r.data),
+  setChoice: (transactionId: string, kindId: string, scope: ChoiceScope) =>
+    api.put<CountsAs>(`/transactions/${transactionId}/inflow-kind`, { kindId, scope }).then((r) => r.data),
+  clearChoice: (transactionId: string, scope: ChoiceScope) =>
+    api.delete<CountsAs>(`/transactions/${transactionId}/inflow-kind`, { params: { scope } }).then((r) => r.data),
+  senderRules: () => api.get<SenderRule[]>('/sender-inflow-rules').then((r) => r.data),
+  forgetSender: (id: string) => api.delete(`/sender-inflow-rules/${id}`),
+  unresolved: (startDate: string, endDate: string) =>
+    api.get<UnresolvedSender[]>('/transactions/unresolved-inflows', { params: { startDate, endDate } }).then((r) => r.data),
 };

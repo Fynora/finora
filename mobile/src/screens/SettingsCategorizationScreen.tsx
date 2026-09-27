@@ -6,6 +6,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SaveStatus } from '../components/AccountUI';
 import { Button } from '../components/Button';
+import { InflowKindsSettings } from '../components/InflowKindsSettings';
 import { workspaceApi } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
@@ -149,6 +150,8 @@ export function SettingsCategorizationScreen() {
         loading={intelSaving}
         disabled={!intelDirty}
       />
+      {/* Plan 2: money kinds and remembered senders. */}
+      <InflowKindsSettings />
     </ScrollView>
   );
 }

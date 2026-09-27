@@ -4,6 +4,7 @@ import { AppModal } from './AppModal';
 import { useQuery } from '@tanstack/react-query';
 import { transactionsApi } from '../api/endpoints';
 import { Button } from './Button';
+import { CountsAsSection } from './CountsAsSection';
 import { Card, EmptyState, SectionHeading } from './Card';
 import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure } from '../lib/monitoring';
@@ -22,7 +23,7 @@ import { spacing, useTheme } from '../theme';
  * way to ask "why".
  */
 export function TransactionExplanationModal({
-  transactionId, category, onClose,
+  transactionId, category, onClose, showCountsAs = false,
 }: {
   transactionId: string | null;
   /** The row's own current category label, shown above the answer as context -- same reason
@@ -30,6 +31,9 @@ export function TransactionExplanationModal({
    *  back, while "why this category" is meaningless without saying which category it's explaining. */
   category: string | null;
   onClose: () => void;
+  /** Plan 2: show what the row counts as, and the way to change it. True for money coming in; a
+   *  debit has no kind. */
+  showCountsAs?: boolean;
 }) {
   const c = useTheme();
   const { data, isLoading, isError, error } = useQuery({
@@ -85,6 +89,12 @@ export function TransactionExplanationModal({
                       • {line}
                     </Text>
                   ))}
+                </View>
+              ) : null}
+
+              {showCountsAs ? (
+                <View style={[styles.section, styles.sectionDivider, { borderBottomColor: c.border }]}>
+                  <CountsAsSection transactionId={transactionId} />
                 </View>
               ) : null}
 

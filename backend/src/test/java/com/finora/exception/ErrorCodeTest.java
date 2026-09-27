@@ -84,7 +84,10 @@ class ErrorCodeTest {
                         // statement is simply still being reviewed. Opts in for the same reason as
                         // the two above it: keep this off the red/danger banner a genuine failure
                         // gets.
-                        ErrorCode.IMPORT_SESSION_HELD_FOR_REVIEW);
+                        ErrorCode.IMPORT_SESSION_HELD_FOR_REVIEW,
+                        // IMPORT_PAYMENT_APP_HISTORY (2026-09-27): the user uploaded a payment
+                        // app's history instead of a bank statement, and the fix is theirs.
+                        ErrorCode.IMPORT_PAYMENT_APP_HISTORY);
     }
 
     /** A malformed CSV is the CSV twin of a corrupt PDF: never retried, and plain failed for the same reason. */

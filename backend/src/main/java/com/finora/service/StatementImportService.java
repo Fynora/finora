@@ -578,6 +578,8 @@ public class StatementImportService {
         }
 
         transactionRepository.deleteAll(toRemove);
+        statementImportRepository.deleteExcludedRowsOfStatement(statementImport.getUserId(), statementImport.getId());
+        statementImportRepository.deleteRefreshPreviewsOfStatement(statementImport.getUserId(), statementImport.getId());
         statementImportRepository.delete(statementImport);
 
         // With this statement gone, a restored original's own closing balance -- undone when it was
@@ -1092,6 +1094,9 @@ public class StatementImportService {
         }
 
         original.setSupersededBy(replacementId);
+        // A replaced statement is never refreshed (its rows no longer count), so a preview of it
+        // would only ever be a stale offer -- and it quotes the statement.
+        statementImportRepository.deleteRefreshPreviewsOfStatement(userId, originalId);
         statementImportRepository.save(original);
 
         if (!toSupersede.isEmpty()) {

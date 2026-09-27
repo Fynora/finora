@@ -4,7 +4,11 @@ import { SettingsCategorizationScreen } from './SettingsCategorizationScreen';
 import { workspaceApi } from '../api/endpoints';
 import { ThemeProvider } from '../theme';
 
-jest.mock('../api/endpoints', () => ({ workspaceApi: { getSettings: jest.fn(), updateSettings: jest.fn() } }));
+jest.mock('../api/endpoints', () => ({
+  workspaceApi: { getSettings: jest.fn(), updateSettings: jest.fn() },
+  // The money-kinds sections (Plan 2) have their own tests in InflowKindsSettings.test.tsx.
+  inflowApi: { kinds: jest.fn().mockResolvedValue([]), senderRules: jest.fn().mockResolvedValue([]) },
+}));
 const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({ useNavigation: () => ({ navigate: mockNavigate }) }));
 

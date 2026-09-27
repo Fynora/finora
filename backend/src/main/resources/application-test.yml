@@ -41,6 +41,13 @@ app:
     sweep:
       enabled: false
 
+  # Same reasoning again: a background thread re-reading statements and writing previews mid-test
+  # is the cross-test pollution BH-058 was about. Tests call StatementRefreshDryRunService.runBatch()
+  # or check() directly, which do not consult this flag.
+  statement-refresh:
+    dry-run:
+      enabled: false
+
   # Bug 14. Same reasoning as import.session-cleanup above: a background thread deleting
   # refresh_tokens rows mid-run is exactly the cross-test pollution BH-058 was about. Tests that
   # exercise the sweep call RefreshTokenService.sweepExpiredTokens() directly, which deliberately

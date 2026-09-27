@@ -52,6 +52,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/transactions/{id}/inflow-kind": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["setInflowKindChoice"];
+        post?: never;
+        delete: operations["clearInflowKindChoice"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/notification-preferences": {
         parameters: {
             query?: never;
@@ -1054,6 +1070,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["connect"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inflow-kinds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listInflowKinds"];
+        put?: never;
+        post: operations["createInflowKind"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2516,6 +2548,22 @@ export interface paths {
         patch: operations["updateCategory"];
         trace?: never;
     };
+    "/api/v1/inflow-kinds/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["deleteInflowKind"];
+        options?: never;
+        head?: never;
+        patch: operations["updateInflowKind"];
+        trace?: never;
+    };
     "/api/v1/fyn/chat/messages/{messageId}/feedback": {
         parameters: {
             query?: never;
@@ -2692,6 +2740,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/transactions/{id}/counts-as": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getCountsAs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/transactions/{id}/correction-history": {
         parameters: {
             query?: never;
@@ -2700,6 +2764,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["correctionHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/transactions/unresolved-inflows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listUnresolvedInflows"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2908,6 +2988,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sender-inflow-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listSenderInflowRules"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3956,6 +4052,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/statement-refresh/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["summary_3"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/search": {
         parameters: {
             query?: never;
@@ -4059,7 +4171,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["summary_3"];
+        get: operations["summary_4"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4203,7 +4315,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["summary_4"];
+        get: operations["summary_5"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4283,7 +4395,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["summary_5"];
+        get: operations["summary_6"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4411,7 +4523,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["summary_6"];
+        get: operations["summary_7"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4507,7 +4619,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["summary_7"];
+        get: operations["summary_8"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4571,7 +4683,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["summary_8"];
+        get: operations["summary_9"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4804,6 +4916,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sender-inflow-rules/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["forgetSenderInflowRule"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integrations/google/gmail/connection": {
         parameters: {
             query?: never;
@@ -4961,6 +5089,46 @@ export interface components {
             foreignCurrency?: string;
             foreignAmount?: number;
             awaitingTransferPartner?: boolean;
+            referenceNumber?: string;
+            balanceAfter?: number;
+        };
+        SetChoiceRequest: {
+            /** Format: uuid */
+            kindId: string;
+            /** @enum {string} */
+            scope: "ROW" | "SENDER";
+        };
+        ApiResponseCountsAsDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["CountsAsDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        CountsAsDto: {
+            flowClass?: string;
+            flowReason?: string;
+            kind?: components["schemas"]["InflowKindDto"];
+            appliedBy?: string;
+            choosable?: boolean;
+            notChoosableReason?: string;
+            senderAvailable?: boolean;
+            senderLabel?: string;
+            /** Format: int64 */
+            senderRowCount?: number;
+            summary?: string;
+        };
+        InflowKindDto: {
+            /** Format: uuid */
+            id?: string;
+            name?: string;
+            countsAsIncome?: boolean;
+            builtIn?: string;
         };
         UpdatePreferenceRequest: {
             /** @enum {string} */
@@ -5961,6 +6129,22 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        CreateKindRequest: {
+            name: string;
+            countsAsIncome: boolean;
+        };
+        ApiResponseInflowKindDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["InflowKindDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
         ApiResponsePdfStagingSessionResponse: {
             success?: boolean;
             message?: string;
@@ -6930,6 +7114,10 @@ export interface components {
             appleIdToken?: string;
             code?: string;
         };
+        UpdateKindRequest: {
+            name?: string;
+            countsAsIncome?: boolean;
+        };
         FeedbackRequest: {
             feedback?: string;
         };
@@ -7191,6 +7379,42 @@ export interface components {
             /** Format: date-time */
             createdAt?: string;
         };
+        ApiResponseListUnresolvedSenderDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["UnresolvedSenderDto"][];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        UnresolvedRowDto: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: date */
+            date?: string;
+            amount?: number;
+            description?: string;
+            accountName?: string;
+        };
+        UnresolvedSenderDto: {
+            /** Format: uuid */
+            sampleTransactionId?: string;
+            label?: string;
+            senderKnown?: boolean;
+            /** Format: int32 */
+            count?: number;
+            /** Format: int64 */
+            senderPaymentCount?: number;
+            total?: number;
+            /** Format: date */
+            latestDate?: string;
+            accountName?: string;
+            rows?: components["schemas"]["UnresolvedRowDto"][];
+        };
         ApiResponseListTransactionDto: {
             success?: boolean;
             message?: string;
@@ -7377,6 +7601,26 @@ export interface components {
             setupRequired?: boolean;
             installationKeyAvailable?: boolean;
         };
+        ApiResponseListSenderRuleDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["SenderRuleDto"][];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        SenderRuleDto: {
+            /** Format: uuid */
+            id?: string;
+            label?: string;
+            kind?: components["schemas"]["InflowKindDto"];
+            /** Format: int64 */
+            rowCount?: number;
+        };
         ApiResponseReportDto: {
             success?: boolean;
             message?: string;
@@ -7393,12 +7637,17 @@ export interface components {
             category?: string;
             amount?: number;
         };
+        IncomeLine: {
+            label?: string;
+            amount?: number;
+        };
         ReportDto: {
             month?: string;
             income?: number;
             expense?: number;
             categories?: components["schemas"]["CategoryAmount"][];
             unresolvedInflow?: number;
+            incomeByKind?: components["schemas"]["IncomeLine"][];
         };
         ApiResponseListString: {
             success?: boolean;
@@ -7663,6 +7912,18 @@ export interface components {
         };
         FynInsightsNarrationDto: {
             narration?: string;
+        };
+        ApiResponseListInflowKindDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["InflowKindDto"][];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
         };
         ApiResponseCoverageMap: {
             success?: boolean;
@@ -8727,6 +8988,41 @@ export interface components {
             totalTransactions?: number;
             /** Format: int64 */
             totalStatementImports?: number;
+        };
+        ApiResponseRefreshSummary: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["RefreshSummary"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        RefreshStatusTotals: {
+            status?: string;
+            /** Format: int64 */
+            statements?: number;
+            /** Format: int64 */
+            users?: number;
+            /** Format: int64 */
+            rowsChanged?: number;
+            /** Format: int64 */
+            rowsAdded?: number;
+            /** Format: int64 */
+            rowsRemoved?: number;
+            /** Format: int64 */
+            rowsConflicting?: number;
+            /** Format: int64 */
+            factsChanged?: number;
+        };
+        RefreshSummary: {
+            parserVersion?: string;
+            /** Format: int64 */
+            statementsAwaitingCheck?: number;
+            byStatus?: components["schemas"]["RefreshStatusTotals"][];
         };
         ApiResponseListSearchResultDto: {
             success?: boolean;
@@ -9945,6 +10241,56 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
+    setInflowKindChoice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetChoiceRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseCountsAsDto"];
+                };
+            };
+        };
+    };
+    clearInflowKindChoice: {
+        parameters: {
+            query: {
+                scope: "ROW" | "SENDER";
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseCountsAsDto"];
                 };
             };
         };
@@ -11822,6 +12168,50 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseMapStringString"];
+                };
+            };
+        };
+    };
+    listInflowKinds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListInflowKindDto"];
+                };
+            };
+        };
+    };
+    createInflowKind: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateKindRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseInflowKindDto"];
                 };
             };
         };
@@ -14446,6 +14836,54 @@ export interface operations {
             };
         };
     };
+    deleteInflowKind: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
+    updateInflowKind: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateKindRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseInflowKindDto"];
+                };
+            };
+        };
+    };
     setFeedback: {
         parameters: {
             query?: never;
@@ -14744,6 +15182,28 @@ export interface operations {
             };
         };
     };
+    getCountsAs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseCountsAsDto"];
+                };
+            };
+        };
+    };
     correctionHistory: {
         parameters: {
             query?: never;
@@ -14762,6 +15222,29 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseListBankCorrectionHistoryEntry"];
+                };
+            };
+        };
+    };
+    listUnresolvedInflows: {
+        parameters: {
+            query: {
+                startDate: string;
+                endDate: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListUnresolvedSenderDto"];
                 };
             };
         };
@@ -15057,6 +15540,26 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseSetupStatusDto"];
+                };
+            };
+        };
+    };
+    listSenderInflowRules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListSenderRuleDto"];
                 };
             };
         };
@@ -16467,6 +16970,28 @@ export interface operations {
             };
         };
     };
+    summary_3: {
+        parameters: {
+            query?: {
+                parserVersion?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseRefreshSummary"];
+                };
+            };
+        };
+    };
     search_1: {
         parameters: {
             query?: {
@@ -16600,7 +17125,7 @@ export interface operations {
             };
         };
     };
-    summary_3: {
+    summary_4: {
         parameters: {
             query?: never;
             header?: never;
@@ -16796,7 +17321,7 @@ export interface operations {
             };
         };
     };
-    summary_4: {
+    summary_5: {
         parameters: {
             query?: never;
             header?: never;
@@ -16902,7 +17427,7 @@ export interface operations {
             };
         };
     };
-    summary_5: {
+    summary_6: {
         parameters: {
             query?: never;
             header?: never;
@@ -17068,7 +17593,7 @@ export interface operations {
             };
         };
     };
-    summary_6: {
+    summary_7: {
         parameters: {
             query?: never;
             header?: never;
@@ -17204,7 +17729,7 @@ export interface operations {
             };
         };
     };
-    summary_7: {
+    summary_8: {
         parameters: {
             query?: never;
             header?: never;
@@ -17291,7 +17816,7 @@ export interface operations {
             };
         };
     };
-    summary_8: {
+    summary_9: {
         parameters: {
             query?: never;
             header?: never;
@@ -17590,6 +18115,28 @@ export interface operations {
         };
     };
     revoke_1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
+    forgetSenderInflowRule: {
         parameters: {
             query?: never;
             header?: never;

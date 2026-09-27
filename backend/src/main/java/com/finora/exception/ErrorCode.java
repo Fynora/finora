@@ -33,6 +33,11 @@ public enum ErrorCode {
     // idempotency key must not permit.
     TXN_IDEMPOTENCY_KEY_REUSED("TXN_004", HttpStatus.CONFLICT,
             "This idempotency key was already used for a different request."),
+    // Inflow kinds (Plan 2, com.finora.inflow): a kind still used by payments or senders, and a
+    // name the user already gave another kind -- both carry a message the client shows as-is.
+    INFLOW_KIND_IN_USE("TXN_005", HttpStatus.CONFLICT,
+            "This kind is still used. Move those payments and senders to another kind first."),
+    INFLOW_KIND_NAME_TAKEN("TXN_006", HttpStatus.CONFLICT, "You already have a kind with this name."),
 
     // Statement import (com.finora.imports)
     IMPORT_NO_HEADER_DETECTED("IMPORT_001", HttpStatus.UNPROCESSABLE_ENTITY, "Could not find a transaction table in this file", true),
@@ -95,6 +100,15 @@ public enum ErrorCode {
     // retried, and (like CORRUPT_PDF) plain failed rather than ACTION_REQUIRED.
     IMPORT_MALFORMED_CSV("IMPORT_017", HttpStatus.UNPROCESSABLE_ENTITY,
             "This file could not be read as a CSV -- it appears to be damaged or cut short"),
+    // A payment app's own payment history (Paytm's "Passbook Payments History"), not a statement of
+    // any account. Audit F-08: it lists payments made from several of the user's bank accounts,
+    // each of which also appears in that bank's own statement, so importing it into one account
+    // would put other banks' payments there and duplicate them. It used to reach IMPORT_001, which
+    // told the user Finora could not read their statement. userActionRequired=true because the fix
+    // is theirs to make: import the bank statements instead. Never retried: the same bytes are the
+    // same kind of document every time.
+    IMPORT_PAYMENT_APP_HISTORY("IMPORT_018", HttpStatus.UNPROCESSABLE_ENTITY,
+            "This is a Paytm payment history, not a bank statement.", true),
     // Distinct from a genuinely expired/missing session (still a codeless ApiException, since
     // "upload again" really is the right instruction there) because the frontend has to TELL THEM
     // APART, not just print a message: reaching a completed job's "Review this import" action

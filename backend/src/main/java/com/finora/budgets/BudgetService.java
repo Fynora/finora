@@ -38,11 +38,16 @@ public class BudgetService {
     private final TransactionGraphService transactionGraphService;
     private final TimelineEventService timelineEventService;
 
+    /** Built into every FlowTotals.Context here -- the user's inflow kinds (Plan 2). */
+    private final com.finora.service.InflowChoiceService inflowChoices;
+
     public BudgetService(BudgetRepository budgetRepository, CategoryRepository categoryRepository,
                           TransactionRepository transactionRepository, AccountRepository accountRepository,
                           UserRepository userRepository,
                           AuditService auditService, TransactionGraphService transactionGraphService,
-                          TimelineEventService timelineEventService) {
+                          TimelineEventService timelineEventService,
+                         com.finora.service.InflowChoiceService inflowChoices) {
+        this.inflowChoices = inflowChoices;
         this.budgetRepository = budgetRepository;
         this.categoryRepository = categoryRepository;
         this.transactionRepository = transactionRepository;
@@ -197,7 +202,7 @@ public class BudgetService {
     /** An unlinked refund or card adjustment in this month gives spend back to its own category --
      *  the same rule the dashboard and reports use. See RefundNetting.withUnlinkedOffsets. */
     private RefundNetting withUnlinkedOffsets(UUID userId, RefundNetting refunds, List<Transaction> reportable) {
-        return refunds.withUnlinkedOffsets(reportable, com.finora.service.FlowTotals.context(
+        return refunds.withUnlinkedOffsets(reportable, inflowChoices.contextFor(userId, 
                 accountRepository.findByUserId(userId), categoryRepository.findByUserId(userId)));
     }
 

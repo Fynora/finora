@@ -1,8 +1,20 @@
 import {
-  currentYearMonth, fmtCurrency, fmtDate, fmtForeignAmount, fmtMonthYear, fmtRelativeFutureTime, fmtRelativeTime,
+  currentYearMonth, fmtCurrency, fmtDate, fmtForeignAmount, fmtStatementBalance, fmtMonthYear, fmtRelativeFutureTime, fmtRelativeTime,
   fromLocalDateString, initials, monthDateRange, monthDayRangeLabel, monthLabel, monthLabelLong,
   toLocalDateString,
 } from './format';
+
+describe('fmtStatementBalance', () => {
+  it('keeps the paisa the statement printed', () => {
+    expect(fmtStatementBalance(24361.97)).toBe('₹24,361.97');
+  });
+  it('puts the sign before the currency symbol', () => {
+    expect(fmtStatementBalance(-250)).toBe('-₹250.00');
+  });
+  it('uses Indian digit grouping', () => {
+    expect(fmtStatementBalance(1234567.5)).toBe('₹12,34,567.50');
+  });
+});
 
 describe('fmtForeignAmount', () => {
   it('renders the currency code and a two-decimal amount', () => {

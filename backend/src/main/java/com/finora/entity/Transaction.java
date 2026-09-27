@@ -188,6 +188,11 @@ public class Transaction extends BaseEntity {
     @Column(name = "transfer_rejected_at")
     private java.time.Instant transferRejectedAt;
 
+    /** The user's own answer to "what was this credit", for this row only -- see InflowChoices.
+     *  Null when the row follows its sender's rule or the automatic reading. */
+    @Column(name = "inflow_kind_id")
+    private UUID inflowKindId;
+
     @Column(name = "is_recurring", nullable = false)
     private boolean isRecurring = false;
 
@@ -424,6 +429,8 @@ public class Transaction extends BaseEntity {
     public void setTransferPairId(UUID transferPairId) { this.transferPairId = transferPairId; }
     public java.time.Instant getTransferRejectedAt() { return transferRejectedAt; }
     public void setTransferRejectedAt(java.time.Instant transferRejectedAt) { this.transferRejectedAt = transferRejectedAt; }
+    public UUID getInflowKindId() { return inflowKindId; }
+    public void setInflowKindId(UUID inflowKindId) { this.inflowKindId = inflowKindId; }
     public boolean isRecurring() { return isRecurring; }
     public void setRecurring(boolean recurring) { isRecurring = recurring; }
     public ReconciliationStatus getReconciliationStatus() { return reconciliationStatus; }

@@ -174,6 +174,27 @@ describe('Reports — money not counted as income', () => {
     expect(await screen.findByText('₹84,500 not counted as income')).toBeInTheDocument();
   });
 
+  it('lists income by kind and links to the review page for the month', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({
+      unresolvedInflow: 700,
+      incomeByKind: [{ label: 'Salary', amount: 90000 }, { label: 'Family support', amount: 10000 }],
+    }));
+    renderPage();
+
+    expect(await screen.findByText('Income by kind')).toBeInTheDocument();
+    expect(screen.getByText('Family support')).toBeInTheDocument();
+    expect(screen.getByText('₹10,000')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Review money not counted yet' }))
+      .toHaveAttribute('href', '/app/money-review?start=2026-08-01&end=2026-08-31');
+  });
+
+  it('shows no income-by-kind list for a single line', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ incomeByKind: [{ label: 'Salary', amount: 100000 }] }));
+    renderPage();
+    await screen.findByText('₹1,00,000');
+    expect(screen.queryByText('Income by kind')).not.toBeInTheDocument();
+  });
+
   it('says nothing when everything that came in is counted, or the server does not send the field', async () => {
     vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ unresolvedInflow: 0 }));
     const { unmount } = renderPage();

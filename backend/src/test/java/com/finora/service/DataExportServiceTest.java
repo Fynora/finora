@@ -108,6 +108,9 @@ import static org.mockito.Mockito.when;
  * {@link AccountPurgeSweepServiceIT}'s split from its own unit test, this class needed no IT.
  */
 class DataExportServiceTest {
+    private com.finora.repository.InflowKindRepository inflowKindRepository;
+    private com.finora.repository.SenderInflowRuleRepository senderInflowRuleRepository;
+
 
     private UserRepository userRepository;
     private PasswordEncoder passwordEncoder;
@@ -229,6 +232,8 @@ class DataExportServiceTest {
         when(recurringDismissalRepository.findByUserId(any())).thenReturn(java.util.Set.of());
         when(accountAggregatorLinkRepository.findByUserId(any())).thenReturn(List.of());
         when(userMerchantCategoryResolutionRepository.findAllByUserId(any())).thenReturn(List.of());
+        inflowKindRepository = mock(com.finora.repository.InflowKindRepository.class);
+        senderInflowRuleRepository = mock(com.finora.repository.SenderInflowRuleRepository.class);
 
         when(passwordEncoder.matches(any(), any())).thenReturn(true);
         when(userRepository.findById(userId)).thenReturn(Optional.of(user()));
@@ -243,7 +248,8 @@ class DataExportServiceTest {
                 supportTicketRepository, supportTicketAttachmentRepository, feedbackEntryRepository,
                 chatConversationRepository, chatMessageRepository, healthScoreSnapshotRepository,
                 userFinancialFocusRepository, userChecklistEventRepository, recurringDismissalRepository,
-                accountAggregatorLinkRepository, userMerchantCategoryResolutionRepository, objectMapper);
+                accountAggregatorLinkRepository, userMerchantCategoryResolutionRepository,
+                inflowKindRepository, senderInflowRuleRepository, objectMapper);
     }
 
     private User user() {
@@ -277,7 +283,8 @@ class DataExportServiceTest {
                 supportTicketRepository, supportTicketAttachmentRepository, feedbackEntryRepository,
                 chatConversationRepository, chatMessageRepository, healthScoreSnapshotRepository,
                 userFinancialFocusRepository, userChecklistEventRepository, recurringDismissalRepository,
-                accountAggregatorLinkRepository, userMerchantCategoryResolutionRepository);
+                accountAggregatorLinkRepository, userMerchantCategoryResolutionRepository,
+                inflowKindRepository, senderInflowRuleRepository);
     }
 
     @Test
@@ -977,6 +984,46 @@ class DataExportServiceTest {
         assertThat(dto.scope()).isEqualTo("USER");
         assertThat(dto.field()).isEqualTo("MERCHANT");
         assertThat(dto.comparisonValue()).isEqualTo("Amazon");
+    }
+
+    /** Plan 2: the user's own answers about their money -- their kinds, remembered senders and
+     *  per-payment choices -- are their data and must leave with the export. */
+    @Test
+    void buildBundle_includesInflowKindsRememberedSendersAndPaymentChoices() {
+        com.finora.entity.InflowKind kind = new com.finora.entity.InflowKind();
+        ReflectionTestUtils.setField(kind, "id", UUID.randomUUID());
+        kind.setUserId(userId);
+        kind.setName("Rent from tenant");
+        kind.setCountsAsIncome(true);
+        when(inflowKindRepository.findByUserId(userId)).thenReturn(List.of(kind));
+        com.finora.entity.SenderInflowRule rule = new com.finora.entity.SenderInflowRule();
+        ReflectionTestUtils.setField(rule, "id", UUID.randomUUID());
+        rule.setUserId(userId);
+        rule.setCounterpartyKey("vpa:tenant1");
+        rule.setInflowKindId(kind.getId());
+        when(senderInflowRuleRepository.findByUserId(userId)).thenReturn(List.of(rule));
+        Transaction chosen = new Transaction();
+        ReflectionTestUtils.setField(chosen, "id", UUID.randomUUID());
+        chosen.setUserId(userId);
+        chosen.setTxnType(Transaction.Type.INCOME);
+        chosen.setAmount(java.math.BigDecimal.TEN);
+        chosen.setInflowKindId(kind.getId());
+        when(transactionRepository.findByUserId(userId)).thenReturn(List.of(chosen));
+
+        DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
+
+        assertThat(bundle.inflowKinds()).singleElement().satisfies(k -> {
+            assertThat(k.name()).isEqualTo("Rent from tenant");
+            assertThat(k.countsAsIncome()).isTrue();
+        });
+        assertThat(bundle.senderInflowRules()).singleElement().satisfies(r -> {
+            assertThat(r.senderKey()).isEqualTo("vpa:tenant1");
+            assertThat(r.kindName()).isEqualTo("Rent from tenant");
+        });
+        assertThat(bundle.paymentInflowChoices()).singleElement().satisfies(c -> {
+            assertThat(c.transactionId()).isEqualTo(chosen.getId());
+            assertThat(c.kindName()).isEqualTo("Rent from tenant");
+        });
     }
 
     /** gmail_connection.json's scope-splitting logic -- grantedScopes is stored as one

@@ -106,12 +106,14 @@ class PdfImportEndToEndIT extends AbstractIntegrationTest {
         return accountRepository.save(account);
     }
 
-    /** Every row the caller chose to keep, mapped 1:1 from what the parser staged. */
+    /** Every row the caller chose to keep, mapped 1:1 from what the parser staged. The reference
+     *  number and running balance are carried back as both clients do (web importReview.ts,
+     *  mobile importPayload.ts); passing null here once hid whether they survived confirm. */
     private static List<ConfirmedRow> confirmAll(List<StagedRow> staged) {
         return staged.stream()
                 .map(r -> new ConfirmedRow(r.date(), r.description(), r.amount(), r.type(),
                         r.suggestedCategory() == null ? "Other" : r.suggestedCategory(), true,
-                        "rule", null, false, null, null, false))
+                        "rule", null, false, r.referenceNumber(), r.balanceAfter(), false))
                 .toList();
     }
 
@@ -157,6 +159,7 @@ class PdfImportEndToEndIT extends AbstractIntegrationTest {
         assertThat(withdrawal.date()).isEqualTo(LocalDate.of(2026, 7, 1));
         assertThat(withdrawal.amount()).isEqualByComparingTo("1000.00");
         assertThat(withdrawal.type()).isEqualTo("EXPENSE");
+        assertThat(withdrawal.balanceAfter()).isEqualByComparingTo("24361.97");
 
         assertThat(deposit.date()).isEqualTo(LocalDate.of(2026, 7, 1));
         assertThat(deposit.amount()).isEqualByComparingTo("10.00");
@@ -193,6 +196,13 @@ class PdfImportEndToEndIT extends AbstractIntegrationTest {
                 .as("direction survives the whole chain -- a deposit must not persist as an "
                         + "expense, and it shares its date with the withdrawal above it")
                 .isEqualTo(Transaction.Type.INCOME);
+
+        // The running balance the fixture prints beside each row reaches the database and then the
+        // DTO the apps read. Until TransactionDto carried it, the value was stored and never shown.
+        assertThat(persistedWithdrawal.getBalanceAfter()).isEqualByComparingTo("24361.97");
+        assertThat(persistedDeposit.getBalanceAfter()).isEqualByComparingTo("24351.97");
+        assertThat(com.finora.transactions.TransactionDto.from(persistedWithdrawal, "Other").balanceAfter())
+                .isEqualByComparingTo("24361.97");
     }
 
     @Test

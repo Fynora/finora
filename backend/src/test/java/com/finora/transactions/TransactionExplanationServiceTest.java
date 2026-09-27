@@ -302,6 +302,24 @@ class TransactionExplanationServiceTest {
     }
 
     @Test
+    void reconciliationExplainsARefundMatchedByASharedReference() {
+        Transaction t = transaction(Transaction.DecisionSource.MANUAL, null, Transaction.Source.CSV_IMPORT);
+        t.setReconciliationStatus(Transaction.ReconciliationStatus.REFUND);
+        t.setRefundOfTransactionId(UUID.randomUUID());
+        t.setReconciliationExplanation(java.util.Map.of("type", "REFUND", "reason", java.util.Map.of(
+                "sameAccount", true, "dateDifferenceDays", 0L, "refundKeyword", false, "sameMerchant", false,
+                "refundAmount", "12.00", "purchaseAmount", "1491.00", "partialRefund", true,
+                "sharedReference", "111111111111")));
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(t));
+
+        var reconciliation = service.explain(userId, txnId).reconciliation();
+
+        assertThat(reconciliation.summary()).isEqualTo(
+                "Matched as a refund of an earlier purchase, based on the same reference on both.");
+        assertThat(reconciliation.evidence()).anyMatch(line -> line.equals("Same reference on both sides, ending 1111"));
+    }
+
+    @Test
     void reconciliationExplainsAOneSidedOwnAccountTransfer() {
         Transaction t = transaction(Transaction.DecisionSource.MANUAL, null, Transaction.Source.CSV_IMPORT);
         t.setReconciliationStatus(Transaction.ReconciliationStatus.TRANSFER);

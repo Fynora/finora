@@ -1,5 +1,8 @@
 package com.finora.service;
 
+import com.finora.repository.InflowKindRepository;
+import com.finora.repository.SenderInflowRuleRepository;
+
 import com.finora.dto.ReportDto;
 import com.finora.entity.Account;
 import com.finora.entity.Transaction;
@@ -28,6 +31,9 @@ class ReportServiceTest {
 
     private TransactionRepository transactionRepository;
     private AccountRepository accountRepository;
+    private CategoryRepository categoryRepository;
+    private InflowKindRepository inflowKindRepository;
+    private SenderInflowRuleRepository senderInflowRuleRepository;
     private ReportService reportService;
     private final UUID userId = UUID.randomUUID();
     private Account liveAccount;
@@ -36,7 +42,7 @@ class ReportServiceTest {
     void setUp() {
         transactionRepository = mock(TransactionRepository.class);
         accountRepository = mock(AccountRepository.class);
-        CategoryRepository categoryRepository = mock(CategoryRepository.class);
+        categoryRepository = mock(CategoryRepository.class);
         when(categoryRepository.findByUserId(any())).thenReturn(List.of());
         TransactionGraphService transactionGraphService = mock(TransactionGraphService.class);
         when(transactionGraphService.ccPaymentFromTransactionIds(any())).thenReturn(Set.of());
@@ -46,7 +52,10 @@ class ReportServiceTest {
         liveAccount.setUserId(userId);
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(liveAccount));
 
-        reportService = new ReportService(transactionRepository, accountRepository, categoryRepository, transactionGraphService);
+        inflowKindRepository = mock(InflowKindRepository.class);
+        senderInflowRuleRepository = mock(SenderInflowRuleRepository.class);
+        reportService = new ReportService(transactionRepository, accountRepository, categoryRepository, transactionGraphService,
+                new InflowChoiceService(inflowKindRepository, senderInflowRuleRepository));
     }
 
     private Transaction txn(BigDecimal amount, Transaction.Type type, Transaction.ReconciliationStatus status) {
@@ -301,6 +310,86 @@ class ReportServiceTest {
         verify(transactionRepository, never()).findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any());
     }
 
+    // ---- the total is the sum of the category breakdown ----
+
+    /** Measured on prod: a refund filed under Dining (no Dining spend that month) lowered Expenses
+     *  to 1,285 while the breakdown -- which hides a negative category -- still summed to 2,776. */
+    @Test
+    void forMonth_expenseEqualsTheSumOfItsCategories() {
+        com.finora.entity.Category dining = new com.finora.entity.Category();
+        ReflectionTestUtils.setField(dining, "id", UUID.randomUUID());
+        dining.setName("Dining");
+        com.finora.entity.Category other = new com.finora.entity.Category();
+        ReflectionTestUtils.setField(other, "id", UUID.randomUUID());
+        other.setName("Other");
+        when(categoryRepository.findByUserId(any())).thenReturn(List.of(dining, other));
+        liveAccount.setAccountType(Account.Type.CREDIT_CARD);
+        Transaction purchase = txn(new BigDecimal("1491.00"), Transaction.Type.EXPENSE, Transaction.ReconciliationStatus.OK);
+        purchase.setAccountId(liveAccount.getId());
+        purchase.setCategoryId(other.getId());
+        purchase.setDescription("UPI PAYAPP 111111111111");
+        Transaction groceries = txn(new BigDecimal("1285.00"), Transaction.Type.EXPENSE, Transaction.ReconciliationStatus.OK);
+        groceries.setAccountId(liveAccount.getId());
+        groceries.setCategoryId(other.getId());
+        groceries.setDescription("GROCER 1");
+        Transaction refund = txn(new BigDecimal("1491.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
+        refund.setAccountId(liveAccount.getId());
+        refund.setCategoryId(dining.getId());
+        refund.setDescription("REFUND FROM MERCHANTCO ORDER 1");
+        refund.setSource(Transaction.Source.CSV_IMPORT);
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
+                .thenReturn(List.of(purchase, groceries, refund));
+
+        ReportDto report = reportService.forMonth(userId, "2026-07");
+
+        BigDecimal categorySum = report.categories().stream().map(ReportDto.CategoryAmount::amount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        assertThat(report.expense()).isEqualByComparingTo(categorySum);
+        assertThat(report.expense()).isEqualByComparingTo("2776.00");
+        // The web dashboard's Expenses card reads the range path -- the figure seen on prod.
+        assertThat(reportService.forRange(userId, LocalDate.of(2026, 7, 1), LocalDate.of(2026, 7, 31)).expense())
+                .isEqualByComparingTo("2776.00");
+    }
+
+    // ---- income by kind (Plan 2) ----
+
+    @Test
+    void incomeByKindListsFamilySupportOnItsOwnLine() {
+        liveAccount.setAccountType(Account.Type.SAVINGS);
+        Transaction salary = txn(new BigDecimal("50000.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
+        salary.setAccountId(liveAccount.getId());
+        salary.setDescription("NEFT ACME TECHNOLOGIES SALARY JUL");
+        salary.setSource(Transaction.Source.CSV_IMPORT);
+        Transaction fromParent = txn(new BigDecimal("5000.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
+        fromParent.setAccountId(liveAccount.getId());
+        fromParent.setDescription("UPI-ASHA VERMA-asha@okbank-HDFC0XXXXXX-111111111111-UPI");
+        fromParent.setCounterpartyType(com.finora.util.CounterpartyType.PERSON);
+        fromParent.setCounterpartyKey("vpa:asha");
+        fromParent.setSource(Transaction.Source.CSV_IMPORT);
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
+                .thenReturn(List.of(salary, fromParent));
+        com.finora.entity.InflowKind family = new com.finora.entity.InflowKind();
+        ReflectionTestUtils.setField(family, "id", UUID.randomUUID());
+        family.setUserId(userId);
+        family.setName("Family support");
+        family.setCountsAsIncome(true);
+        family.setBuiltIn(com.finora.entity.InflowKind.BuiltIn.FAMILY_SUPPORT);
+        com.finora.entity.SenderInflowRule rule = new com.finora.entity.SenderInflowRule();
+        rule.setUserId(userId);
+        rule.setCounterpartyKey("vpa:asha");
+        rule.setInflowKindId(family.getId());
+        when(inflowKindRepository.findByUserId(userId)).thenReturn(List.of(family));
+        when(senderInflowRuleRepository.findByUserId(userId)).thenReturn(List.of(rule));
+
+        ReportDto report = reportService.forMonth(userId, "2026-07");
+
+        assertThat(report.income()).isEqualByComparingTo("55000.00");
+        assertThat(report.unresolvedInflow()).isEqualByComparingTo("0");
+        assertThat(report.incomeByKind()).containsExactly(
+                new ReportDto.IncomeLine("Salary", new BigDecimal("50000.00")),
+                new ReportDto.IncomeLine("Family support", new BigDecimal("5000.00")));
+    }
+
     // ---- flow classification: only real income counts as income ----
 
     @Test
@@ -362,6 +451,39 @@ class ReportServiceTest {
         assertThat(totals.unresolvedInflow()).isEqualByComparingTo("0");
         assertThat(totals.unresolvedInflowCount()).isZero();
         assertThat(totals.unresolvedTopReason()).isNull();
+    }
+
+    @Test
+    void unresolvedInflowsMatchForRangeCount() {
+        liveAccount.setAccountType(Account.Type.SAVINGS);
+        Transaction fromPerson = txn(new BigDecimal("2500.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
+        fromPerson.setAccountId(liveAccount.getId());
+        fromPerson.setDescription("UPI-SUNIL VERMA-sampleuser@ybl-REF1");
+        fromPerson.setCounterpartyType(com.finora.util.CounterpartyType.PERSON);
+        fromPerson.setSource(Transaction.Source.CSV_IMPORT);
+        Transaction fromAnother = txn(new BigDecimal("700.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
+        fromAnother.setAccountId(liveAccount.getId());
+        fromAnother.setDescription("UPI-ASHA VERMA-asha@okbank-HDFC0XXXXXX-111111111111-UPI");
+        fromAnother.setCounterpartyType(com.finora.util.CounterpartyType.PERSON);
+        fromAnother.setSource(Transaction.Source.CSV_IMPORT);
+        Transaction salary = txn(new BigDecimal("50000.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
+        salary.setAccountId(liveAccount.getId());
+        salary.setDescription("NEFT ACME TECHNOLOGIES SALARY JUL");
+        Transaction rent = txn(new BigDecimal("15000.00"), Transaction.Type.EXPENSE, Transaction.ReconciliationStatus.OK);
+        rent.setAccountId(liveAccount.getId());
+        rent.setDescription("UPI-LANDLORD ONE-landlord@okbank-111111111111-UPI");
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
+                .thenReturn(List.of(fromPerson, fromAnother, salary, rent));
+        LocalDate from = LocalDate.of(2026, 7, 1), to = LocalDate.of(2026, 7, 31);
+
+        ReportService.RangeTotals totals = reportService.forRange(userId, from, to);
+        ReportService.UnresolvedRows rows = reportService.unresolvedInflows(userId, from, to);
+
+        assertThat(rows.rows()).containsExactlyInAnyOrder(fromPerson, fromAnother);
+        assertThat(rows.rows()).hasSize(totals.unresolvedInflowCount());
+        assertThat(rows.rows().stream().map(Transaction::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add))
+                .isEqualByComparingTo(totals.unresolvedInflow());
+        assertThat(rows.accounts()).containsExactly(liveAccount);
     }
 
     @Test

@@ -69,6 +69,9 @@ public class AnalyticsService {
     // Multi-Year Comparison (issue #1455): the one caller of gapsForUser -- see MultiYearCoverage.
     private final AccountCoverageService accountCoverageService;
 
+    /** Built into every FlowTotals.Context here -- the user's inflow kinds (Plan 2). */
+    private final InflowChoiceService inflowChoices;
+
     public AnalyticsService(TransactionRepository transactionRepository, AccountRepository accountRepository,
                              MerchantRepository merchantRepository,
                              MerchantCategoryLearningRepository learningRepository,
@@ -76,7 +79,9 @@ public class AnalyticsService {
                              CategoryRepository categoryRepository, StatementImportRepository statementImportRepository,
                              ConfidenceEngine confidenceEngine, UserRepository userRepository,
                              TransactionGraphService transactionGraphService,
-                             AccountCoverageService accountCoverageService) {
+                             AccountCoverageService accountCoverageService,
+                            InflowChoiceService inflowChoices) {
+        this.inflowChoices = inflowChoices;
         this.transactionRepository = transactionRepository;
         this.accountRepository = accountRepository;
         this.merchantRepository = merchantRepository;
@@ -261,9 +266,7 @@ public class AnalyticsService {
      */
     public BigDecimal totalExpense(UUID userId, YearMonth month) {
         SpendRows spend = activeSpend(userId, month);
-        return RefundNetting.floorAtZero(RefundNetting.excludingInvestmentTransfers(spend.rows()).stream()
-                .map(spend.netting()::spendAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add));
+        return spend.netting().spendTotal(RefundNetting.excludingInvestmentTransfers(spend.rows()));
     }
 
     /** See {@link AnalyticsDto.InternationalSpend}. {@code month} null means all time, same as
@@ -408,14 +411,21 @@ public class AnalyticsService {
     }
 
     private Map<YearMonth, BigDecimal> sumByMonth(List<Transaction> txns, RefundNetting refunds) {
-        Map<YearMonth, BigDecimal> byMonth = new HashMap<>();
+        // Month -> category -> amount, each category floored before the month is summed, so a
+        // month's spend equals its category breakdown (see RefundNetting.spendTotal). Not
+        // spendTotal itself: this also sums the income series, whose rows are not spend.
+        Map<YearMonth, Map<UUID, BigDecimal>> byMonthAndCategory = new HashMap<>();
+        UUID uncategorised = new UUID(0L, 0L);
         for (Transaction t : txns) {
             YearMonth m = YearMonth.from(t.getTxnDate());
+            UUID category = t.getCategoryId() == null ? uncategorised : t.getCategoryId();
             // spendAmount: an unlinked refund in a spend list counts negative; any other row, as
             // reportableAmount always priced it -- so this stays right for the income series too.
-            byMonth.merge(m, refunds.spendAmount(t), BigDecimal::add);
+            byMonthAndCategory.computeIfAbsent(m, k -> new HashMap<>()).merge(category, refunds.spendAmount(t), BigDecimal::add);
         }
-        byMonth.replaceAll((m, v) -> RefundNetting.floorAtZero(v));
+        Map<YearMonth, BigDecimal> byMonth = new HashMap<>();
+        byMonthAndCategory.forEach((m, cats) -> byMonth.put(m, cats.values().stream()
+                .map(RefundNetting::floorAtZero).reduce(BigDecimal.ZERO, BigDecimal::add)));
         return byMonth;
     }
 
@@ -440,7 +450,7 @@ public class AnalyticsService {
     private List<Transaction> activeIncomeTransactions(UUID userId, LocalDate from, LocalDate to) {
         List<com.finora.entity.Account> accounts = accountRepository.findByUserId(userId);
         List<UUID> liveAccountIds = accounts.stream().map(com.finora.entity.Account::getId).toList();
-        FlowTotals.Context flow = FlowTotals.context(accounts, categoryRepository.findByUserId(userId));
+        FlowTotals.Context flow = inflowChoices.contextFor(userId, accounts, categoryRepository.findByUserId(userId));
         List<Transaction> rangeTxns = liveAccountIds.isEmpty() ? List.of()
                 : transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(userId, from, to, liveAccountIds);
         // Flow-classified income, the same rule the dashboard and reports use -- see FlowTotals.
@@ -662,7 +672,7 @@ public class AnalyticsService {
     }
 
     private SpendRows spendRowsOf(UUID userId, List<Transaction> reportable) {
-        FlowTotals.Context flow = FlowTotals.context(accountRepository.findByUserId(userId), categoryRepository.findByUserId(userId));
+        FlowTotals.Context flow = inflowChoices.contextFor(userId, accountRepository.findByUserId(userId), categoryRepository.findByUserId(userId));
         RefundNetting netting = refundsFor(userId).withUnlinkedOffsets(reportable, flow);
         return new SpendRows(reportable.stream().filter(netting::countsAsSpend).toList(), netting);
     }

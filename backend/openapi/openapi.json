@@ -177,6 +177,88 @@
                 }
             }
         },
+        "/api/v1/transactions/{id}/inflow-kind": {
+            "put": {
+                "tags": [
+                    "inflow-controller"
+                ],
+                "operationId": "setInflowKindChoice",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SetChoiceRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseCountsAsDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "inflow-controller"
+                ],
+                "operationId": "clearInflowKindChoice",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "name": "scope",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "ROW",
+                                "SENDER"
+                            ]
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseCountsAsDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/notification-preferences": {
             "get": {
                 "tags": [
@@ -2850,6 +2932,54 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseMapStringString"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/inflow-kinds": {
+            "get": {
+                "tags": [
+                    "inflow-controller"
+                ],
+                "operationId": "listInflowKinds",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseListInflowKindDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "inflow-controller"
+                ],
+                "operationId": "createInflowKind",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CreateKindRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseInflowKindDto"
                                 }
                             }
                         }
@@ -6497,6 +6627,76 @@
                 }
             }
         },
+        "/api/v1/inflow-kinds/{id}": {
+            "delete": {
+                "tags": [
+                    "inflow-controller"
+                ],
+                "operationId": "deleteInflowKind",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "tags": [
+                    "inflow-controller"
+                ],
+                "operationId": "updateInflowKind",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdateKindRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseInflowKindDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/fyn/chat/messages/{messageId}/feedback": {
             "patch": {
                 "tags": [
@@ -6918,6 +7118,37 @@
                 }
             }
         },
+        "/api/v1/transactions/{id}/counts-as": {
+            "get": {
+                "tags": [
+                    "inflow-controller"
+                ],
+                "operationId": "getCountsAs",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseCountsAsDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/transactions/{id}/correction-history": {
             "get": {
                 "tags": [
@@ -6942,6 +7173,46 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseListBankCorrectionHistoryEntry"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/transactions/unresolved-inflows": {
+            "get": {
+                "tags": [
+                    "inflow-controller"
+                ],
+                "operationId": "listUnresolvedInflows",
+                "parameters": [
+                    {
+                        "name": "startDate",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    },
+                    {
+                        "name": "endDate",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseListUnresolvedSenderDto"
                                 }
                             }
                         }
@@ -7308,6 +7579,26 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseSetupStatusDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sender-inflow-rules": {
+            "get": {
+                "tags": [
+                    "inflow-controller"
+                ],
+                "operationId": "listSenderInflowRules",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseListSenderRuleDto"
                                 }
                             }
                         }
@@ -9144,6 +9435,36 @@
                 }
             }
         },
+        "/api/v1/admin/statement-refresh/summary": {
+            "get": {
+                "tags": [
+                    "admin-statement-refresh-controller"
+                ],
+                "operationId": "summary_3",
+                "parameters": [
+                    {
+                        "name": "parserVersion",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseRefreshSummary"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/search": {
             "get": {
                 "tags": [
@@ -9353,7 +9674,7 @@
                 "tags": [
                     "admin-notification-controller"
                 ],
-                "operationId": "summary_3",
+                "operationId": "summary_4",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -9645,7 +9966,7 @@
                 "tags": [
                     "admin-learning-queue-controller"
                 ],
-                "operationId": "summary_4",
+                "operationId": "summary_5",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -9777,7 +10098,7 @@
                 "tags": [
                     "admin-import-telemetry-controller"
                 ],
-                "operationId": "summary_5",
+                "operationId": "summary_6",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -9968,7 +10289,7 @@
                 "tags": [
                     "admin-statement-analysis-controller"
                 ],
-                "operationId": "summary_6",
+                "operationId": "summary_7",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -10204,7 +10525,7 @@
                 "tags": [
                     "admin-held-statement-telemetry-controller"
                 ],
-                "operationId": "summary_7",
+                "operationId": "summary_8",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -10329,7 +10650,7 @@
                 "tags": [
                     "admin-held-import-controller"
                 ],
-                "operationId": "summary_8",
+                "operationId": "summary_9",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -10780,6 +11101,37 @@
                 }
             }
         },
+        "/api/v1/sender-inflow-rules/{id}": {
+            "delete": {
+                "tags": [
+                    "inflow-controller"
+                ],
+                "operationId": "forgetSenderInflowRule",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/integrations/google/gmail/connection": {
             "delete": {
                 "tags": [
@@ -11144,6 +11496,114 @@
                     },
                     "awaitingTransferPartner": {
                         "type": "boolean"
+                    },
+                    "referenceNumber": {
+                        "type": "string"
+                    },
+                    "balanceAfter": {
+                        "type": "number"
+                    }
+                }
+            },
+            "SetChoiceRequest": {
+                "type": "object",
+                "properties": {
+                    "kindId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "scope": {
+                        "type": "string",
+                        "enum": [
+                            "ROW",
+                            "SENDER"
+                        ]
+                    }
+                },
+                "required": [
+                    "kindId",
+                    "scope"
+                ]
+            },
+            "ApiResponseCountsAsDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/CountsAsDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "CountsAsDto": {
+                "type": "object",
+                "properties": {
+                    "flowClass": {
+                        "type": "string"
+                    },
+                    "flowReason": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "$ref": "#/components/schemas/InflowKindDto"
+                    },
+                    "appliedBy": {
+                        "type": "string"
+                    },
+                    "choosable": {
+                        "type": "boolean"
+                    },
+                    "notChoosableReason": {
+                        "type": "string"
+                    },
+                    "senderAvailable": {
+                        "type": "boolean"
+                    },
+                    "senderLabel": {
+                        "type": "string"
+                    },
+                    "senderRowCount": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "summary": {
+                        "type": "string"
+                    }
+                }
+            },
+            "InflowKindDto": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "countsAsIncome": {
+                        "type": "boolean"
+                    },
+                    "builtIn": {
+                        "type": "string"
                     }
                 }
             },
@@ -13864,6 +14324,51 @@
                     }
                 }
             },
+            "CreateKindRequest": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "maxLength": 60,
+                        "minLength": 0
+                    },
+                    "countsAsIncome": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "countsAsIncome",
+                    "name"
+                ]
+            },
+            "ApiResponseInflowKindDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/InflowKindDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
             "ApiResponsePdfStagingSessionResponse": {
                 "type": "object",
                 "properties": {
@@ -16470,6 +16975,19 @@
                     }
                 }
             },
+            "UpdateKindRequest": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "maxLength": 60,
+                        "minLength": 1
+                    },
+                    "countsAsIncome": {
+                        "type": "boolean"
+                    }
+                }
+            },
             "FeedbackRequest": {
                 "type": "object",
                 "properties": {
@@ -17108,6 +17626,98 @@
                     }
                 }
             },
+            "ApiResponseListUnresolvedSenderDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/UnresolvedSenderDto"
+                        }
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "UnresolvedRowDto": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "amount": {
+                        "type": "number"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "accountName": {
+                        "type": "string"
+                    }
+                }
+            },
+            "UnresolvedSenderDto": {
+                "type": "object",
+                "properties": {
+                    "sampleTransactionId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "label": {
+                        "type": "string"
+                    },
+                    "senderKnown": {
+                        "type": "boolean"
+                    },
+                    "count": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "senderPaymentCount": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "total": {
+                        "type": "number"
+                    },
+                    "latestDate": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "accountName": {
+                        "type": "string"
+                    },
+                    "rows": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/UnresolvedRowDto"
+                        }
+                    }
+                }
+            },
             "ApiResponseListTransactionDto": {
                 "type": "object",
                 "properties": {
@@ -17597,6 +18207,56 @@
                     }
                 }
             },
+            "ApiResponseListSenderRuleDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SenderRuleDto"
+                        }
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "SenderRuleDto": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "label": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "$ref": "#/components/schemas/InflowKindDto"
+                    },
+                    "rowCount": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
             "ApiResponseReportDto": {
                 "type": "object",
                 "properties": {
@@ -17636,6 +18296,17 @@
                     }
                 }
             },
+            "IncomeLine": {
+                "type": "object",
+                "properties": {
+                    "label": {
+                        "type": "string"
+                    },
+                    "amount": {
+                        "type": "number"
+                    }
+                }
+            },
             "ReportDto": {
                 "type": "object",
                 "properties": {
@@ -17656,6 +18327,12 @@
                     },
                     "unresolvedInflow": {
                         "type": "number"
+                    },
+                    "incomeByKind": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/IncomeLine"
+                        }
                     }
                 }
             },
@@ -18334,6 +19011,37 @@
                 "properties": {
                     "narration": {
                         "type": "string"
+                    }
+                }
+            },
+            "ApiResponseListInflowKindDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/InflowKindDto"
+                        }
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
                     }
                 }
             },
@@ -20994,6 +21702,88 @@
                     "totalStatementImports": {
                         "type": "integer",
                         "format": "int64"
+                    }
+                }
+            },
+            "ApiResponseRefreshSummary": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/RefreshSummary"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "RefreshStatusTotals": {
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string"
+                    },
+                    "statements": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "users": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "rowsChanged": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "rowsAdded": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "rowsRemoved": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "rowsConflicting": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "factsChanged": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "RefreshSummary": {
+                "type": "object",
+                "properties": {
+                    "parserVersion": {
+                        "type": "string"
+                    },
+                    "statementsAwaitingCheck": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "byStatus": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/RefreshStatusTotals"
+                        }
                     }
                 }
             },

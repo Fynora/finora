@@ -1652,6 +1652,66 @@ class ReconciliationServiceTest {
         assertThat(unrelatedIncome.getRefundOfTransactionId()).isNull();
     }
 
+    // A purchase refunded in parts, where nothing names a refund and the merchant words differ --
+    // measured on prod: a card's "UPI <PSP> <ref>" debit came back as two "UPI <MERCHANT> <ref>"
+    // credits carrying the very same 12-digit reference, adding up to the debit exactly.
+    @Test
+    void reconcileForUser_linksASplitRefundThatSharesThePurchasesReference() {
+        UUID accountId = UUID.randomUUID();
+        Transaction purchase = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 8, 18),
+                new BigDecimal("1491.00"), Transaction.Type.EXPENSE, "UPI PAYAPP 111111111111", Instant.now());
+        Transaction partOne = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 8, 18),
+                new BigDecimal("1479.00"), Transaction.Type.INCOME, "UPI MERCHANTCO 111111111111", Instant.now());
+        Transaction partTwo = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 8, 18),
+                new BigDecimal("12.00"), Transaction.Type.INCOME, "UPI MERCHANTCO 111111111111", Instant.now());
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(purchase, partOne, partTwo));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(partOne.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.REFUND);
+        assertThat(partOne.getRefundOfTransactionId()).isEqualTo(purchase.getId());
+        assertThat(partTwo.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.REFUND);
+        assertThat(partTwo.getRefundOfTransactionId()).isEqualTo(purchase.getId());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> reason = (Map<String, Object>) partOne.getReconciliationExplanation().get("reason");
+        assertThat(reason).containsEntry("sharedReference", "111111111111");
+    }
+
+    @Test
+    void reconcileForUser_doesNotLinkACreditWhoseReferenceDiffers() {
+        UUID accountId = UUID.randomUUID();
+        Transaction purchase = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 8, 18),
+                new BigDecimal("1491.00"), Transaction.Type.EXPENSE, "UPI PAYAPP 111111111111", Instant.now());
+        Transaction credit = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 8, 18),
+                new BigDecimal("1491.00"), Transaction.Type.INCOME, "UPI MERCHANTCO 222222222222", Instant.now());
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(purchase, credit));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(credit.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+        assertThat(credit.getRefundOfTransactionId()).isNull();
+    }
+
+    @Test
+    void reconcileForUser_prefersThePurchaseThatSharesTheReference() {
+        UUID accountId = UUID.randomUUID();
+        // Exact amount, same merchant, closer in time -- would win on every other tiebreak.
+        Transaction sameMerchant = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 8, 17),
+                new BigDecimal("500.00"), Transaction.Type.EXPENSE, "MERCHANTCO STORE", Instant.now());
+        sameMerchant.setMerchant("merchantco");
+        Transaction sharedReference = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 8, 10),
+                new BigDecimal("800.00"), Transaction.Type.EXPENSE, "UPI PAYAPP 111111111111", Instant.now());
+        Transaction credit = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 8, 18),
+                new BigDecimal("500.00"), Transaction.Type.INCOME, "UPI MERCHANTCO 111111111111", Instant.now());
+        credit.setMerchant("merchantco");
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                .thenReturn(List.of(sameMerchant, sharedReference, credit));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(credit.getRefundOfTransactionId()).isEqualTo(sharedReference.getId());
+    }
+
     // BH-007. Reproduces the finding exactly: one EXPENSE, two INCOME rows at the same merchant
     // within the window, each individually no larger than the expense. Before the fix, both passed
     // the per-pair "not more than the expense's amount" guard independently and both got marked

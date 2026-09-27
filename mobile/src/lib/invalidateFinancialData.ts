@@ -103,6 +103,13 @@ export const FINANCIAL_QUERY_KEYS = [
   'timeline',
   // Year in review: its landmark titles come from the same events as 'timeline' above.
   'wrapped',
+  // Plan 2 inflow kinds. A choice or a kind change moves income, the review list and every row's
+  // "counts as" reading -- and another device's choice arrives through the transactions section of
+  // the change stamp, which now includes kinds and remembered senders.
+  'inflow-kinds',
+  'sender-inflow-rules',
+  'unresolved-inflows',
+  'counts-as',
 ] as const;
 
 /** Refreshes the financial queries and nothing else. */

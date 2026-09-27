@@ -250,6 +250,8 @@ public class AccountPurgeSweepService {
     private final ChatConversationRepository chatConversationRepository;
     private final ChatMessageRepository chatMessageRepository;
     private final CounterpartyCategoryObservationRepository counterpartyCategoryObservationRepository;
+    private final com.finora.repository.InflowKindRepository inflowKindRepository;
+    private final com.finora.repository.SenderInflowRuleRepository senderInflowRuleRepository;
     private final AuditService auditService;
     private final PasswordEncoder passwordEncoder;
     private final TransactionTemplate transactionTemplate;
@@ -317,6 +319,8 @@ public class AccountPurgeSweepService {
                                      ChatConversationRepository chatConversationRepository,
                                      ChatMessageRepository chatMessageRepository,
                                      CounterpartyCategoryObservationRepository counterpartyCategoryObservationRepository,
+                                     com.finora.repository.InflowKindRepository inflowKindRepository,
+                                     com.finora.repository.SenderInflowRuleRepository senderInflowRuleRepository,
                                      AuditService auditService,
                                      PasswordEncoder passwordEncoder,
                                      TransactionTemplate transactionTemplate,
@@ -383,6 +387,8 @@ public class AccountPurgeSweepService {
         this.chatConversationRepository = chatConversationRepository;
         this.chatMessageRepository = chatMessageRepository;
         this.counterpartyCategoryObservationRepository = counterpartyCategoryObservationRepository;
+        this.inflowKindRepository = inflowKindRepository;
+        this.senderInflowRuleRepository = senderInflowRuleRepository;
         this.auditService = auditService;
         this.passwordEncoder = passwordEncoder;
         this.transactionTemplate = transactionTemplate;
@@ -658,11 +664,21 @@ public class AccountPurgeSweepService {
 
         transactionTemplate.executeWithoutResult(tx -> {
             transactionRepository.hardDeleteByUserId(userId);
+            // Plan 2 (V233). The purge never deletes the users row, so no ON DELETE CASCADE could
+            // fire; same explicit-delete pattern as every table below. Rules first (they reference a
+            // kind), kinds after the transactions that referenced them are gone.
+            senderInflowRuleRepository.hardDeleteByUserId(userId);
+            inflowKindRepository.hardDeleteByUserId(userId);
             // Bugs-and-gaps pass: from_transaction_id/to_transaction_id are deliberately not FKs
             // (see this table's own migration comment) and user_id carries no FK either, so the
             // transaction hard-delete above has no cascade path into this table at all -- see
             // TransactionRelationshipRepository.deleteByUserId's own doc comment.
             transactionRelationshipRepository.deleteByUserId(userId);
+            // The rows the user left out of each statement: its narrations, the same financial
+            // data as the transactions deleted just above. statement_imports rows themselves are
+            // anonymised below, never deleted, so nothing cascades to these.
+            statementImportRepository.deleteExcludedRowsOfUser(userId);
+            statementImportRepository.deleteRefreshPreviewsOfUser(userId);
 
             merchantLearningEventRepository.deleteByUserId(userId);
             merchantLearningAuditRepository.deleteByUserId(userId);

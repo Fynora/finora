@@ -13,6 +13,16 @@ export function fmtCurrency(n: number): string {
 }
 
 /**
+ * The running balance a statement printed after a row, to the paisa -- unlike fmtCurrency, which
+ * rounds. It is the figure a user checks against the statement, so it must read exactly as the
+ * bank printed it. Mirrors fmtStatementBalance in frontend/src/pages/Ledger.tsx.
+ */
+export function fmtStatementBalance(n: number): string {
+  return (n < 0 ? '-₹' : '₹')
+    + Math.abs(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/**
  * The original-currency amount a statement printed beside an international transaction's rupee
  * amount ("USD 12.50"), or null when it printed none -- which includes the GST and FX-markup rows
  * of an international table. Both halves must be present: the backend stores them together or not

@@ -14,6 +14,7 @@ import { StatementHistoryScreen } from '../screens/StatementHistoryScreen';
 import { ImportScreen } from '../screens/import/ImportScreen';
 import { MoreScreen } from '../screens/MoreScreen';
 import { CategoryReviewScreen } from '../screens/CategoryReviewScreen';
+import { MoneyReviewScreen } from '../screens/MoneyReviewScreen';
 import { GmailReviewScreen } from '../screens/GmailReviewScreen';
 import { AdvancedReportsScreen } from '../screens/AdvancedReportsScreen';
 import { FynScreen } from '../screens/FynScreen';
@@ -63,6 +64,7 @@ function MoreNavigator() {
       <MoreStack.Screen name="Accounts" component={AccountsScreen} options={{ headerShown: false }} />
       {/* Header hidden: the screen renders its own title, same as MoreHome/Accounts above. */}
       <MoreStack.Screen name="CategoryReview" component={CategoryReviewScreen} options={{ headerShown: false }} />
+      <MoreStack.Screen name="MoneyReview" component={MoneyReviewScreen} options={{ headerShown: false }} />
       <MoreStack.Screen name="GmailReview" component={GmailReviewScreen} options={{ headerShown: false }} />
       <MoreStack.Screen name="Statements" component={StatementHistoryScreen} options={{ headerShown: false }} />
       {/* Header shown, unlike Accounts/Statements above: these five render no title of their own

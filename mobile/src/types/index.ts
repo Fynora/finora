@@ -129,6 +129,12 @@ export interface Transaction {
   foreignAmount: number | null;
   /** A transfer between the user's own accounts whose other leg is not linked yet (Plan 3) -- can be picked as a transfer partner. */
   awaitingTransferPartner?: boolean;
+  // The reference/cheque number and the running balance the statement printed beside this row,
+  // exactly as printed. Null when it printed none (manual entries, most card statements). The
+  // balance is the bank's figure for that moment and does not follow an edit to `amount`.
+  // Mirrors frontend/src/types/index.ts.
+  referenceNumber?: string | null;
+  balanceAfter?: number | null;
 }
 
 // One AuditLog row behind a pendingBankCorrection badge -- see
@@ -692,4 +698,59 @@ export interface Wrapped {
   landmarksReached: number;
   goalContributions: number;
   landmarkTitles: string[];
+}
+
+// ---- Inflow kinds (Plan 2): what money that came in actually was. Mirrors frontend/src/api/endpoints.ts. ----
+
+export type InflowBuiltIn = 'INCOME' | 'FAMILY_SUPPORT' | 'OWN_MONEY' | 'PAID_BACK' | 'REFUND';
+export type ChoiceScope = 'ROW' | 'SENDER';
+
+export interface InflowKind {
+  id: string;
+  name: string;
+  countsAsIncome: boolean;
+  builtIn: InflowBuiltIn | null;
+}
+
+/** What a credit counts as, for the "Counts as" section. See InflowDtos.CountsAsDto. */
+export interface CountsAs {
+  flowClass: string;
+  flowReason: string;
+  kind: InflowKind | null;
+  appliedBy: ChoiceScope | null;
+  choosable: boolean;
+  notChoosableReason: string | null;
+  senderAvailable: boolean;
+  senderLabel: string | null;
+  senderRowCount: number;
+  summary: string;
+}
+
+export interface SenderRule {
+  id: string;
+  label: string;
+  kind: InflowKind;
+  rowCount: number;
+}
+
+export interface UnresolvedRow {
+  id: string;
+  date: string;
+  amount: number;
+  description: string | null;
+  accountName: string | null;
+}
+
+export interface UnresolvedSender {
+  sampleTransactionId: string;
+  label: string;
+  senderKnown: boolean;
+  /** The not-counted-yet payments listed in this group. */
+  count: number;
+  /** Every payment from this sender -- what "Every payment from ..." changes. Can exceed `count`. */
+  senderPaymentCount: number;
+  total: number;
+  latestDate: string;
+  accountName: string | null;
+  rows: UnresolvedRow[];
 }

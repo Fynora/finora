@@ -853,6 +853,7 @@ public class ReconciliationService {
             boolean reversalKeyword = looksLikeReversal(income.getDescription());
             Transaction bestMatch = null;
             boolean bestMatchSameMerchant = false;
+            String bestMatchSharedReference = null;
             long bestMatchDaysBetween = 0;
             // A refund lands at or after its purchase and within REFUND_WINDOW_DAYS of it, so the
             // only expenses worth looking at sit in [income.date - 180, income.date]. Both of
@@ -876,7 +877,12 @@ public class ReconciliationService {
                 // reversal) at all. The matching mechanism itself doesn't care which of the two
                 // this turns out to be -- that's decided once, after a match is found, below.
                 boolean sameMerchant = isSameMerchant(expense, income);
-                if (!refundKeyword && !reversalKeyword && !sameMerchant) continue;
+                // The same 12-digit UPI/IMPS reference on the purchase and the credit, on the same
+                // account: the payment coming back. Measured on prod -- a card's "UPI <PSP> <ref>"
+                // debit returned as two "UPI <MERCHANT> <ref>" credits adding up to it, with no
+                // refund word and no merchant in common, so nothing else here could link them.
+                String sharedReference = firstShared(references.get(income.getId()), references.get(expense.getId()));
+                if (!refundKeyword && !reversalKeyword && !sameMerchant && sharedReference == null) continue;
 
                 // BH-007: capacity is what's LEFT of the expense, not its original amount -- an
                 // expense already fully claimed by an earlier match (this pass or a prior one) has
@@ -885,8 +891,14 @@ public class ReconciliationService {
                         .subtract(refundedSoFarByExpenseId.getOrDefault(expense.getId(), BigDecimal.ZERO));
                 if (remaining.signum() <= 0 || income.getAmount().compareTo(remaining) > 0) continue;
 
-                if (bestMatch == null || isCloserRefundMatch(expense, bestMatch, income)) {
+                // A shared reference names the exact payment, so it outranks every closeness tiebreak.
+                boolean better = bestMatch == null
+                        || ((sharedReference != null) != (bestMatchSharedReference != null)
+                                ? sharedReference != null
+                                : isCloserRefundMatch(expense, bestMatch, income));
+                if (better) {
                     bestMatch = expense;
+                    bestMatchSharedReference = sharedReference;
                     // Carried out of the loop with the match it belongs to. sameMerchant is
                     // computed per candidate, so recomputing it after the loop would mean
                     // re-deriving a signal the pass had already established -- exactly the
@@ -908,13 +920,14 @@ public class ReconciliationService {
                 Map<String, Object> explanation;
                 if (reversalKeyword) {
                     income.setReconciliationStatus(Transaction.ReconciliationStatus.REVERSAL);
-                    explanation = ReconciliationExplanation.reversal(income, bestMatch, bestMatchSameMerchant);
+                    explanation = ReconciliationExplanation.reversal(income, bestMatch, bestMatchSameMerchant, bestMatchSharedReference);
                     income.setReconciliationExplanation(explanation);
                     newReversals++;
                     edgeType = TransactionRelationship.RelationshipType.REVERSAL;
                 } else {
                     income.setReconciliationStatus(Transaction.ReconciliationStatus.REFUND);
-                    explanation = ReconciliationExplanation.refund(income, bestMatch, refundKeyword, bestMatchSameMerchant);
+                    explanation = ReconciliationExplanation.refund(income, bestMatch, refundKeyword, bestMatchSameMerchant,
+                            bestMatchSharedReference);
                     income.setReconciliationExplanation(explanation);
                     newRefunds++;
                     edgeType = TransactionRelationship.RelationshipType.REFUND;

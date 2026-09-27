@@ -153,6 +153,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
 
     @Autowired private UserRepository userRepository;
+    @Autowired private com.finora.repository.StatementImportExcludedRowRepository excludedRowRepository;
+    @Autowired private com.finora.repository.StatementRefreshPreviewRepository refreshPreviewRepository;
     @Autowired private GmailConnectionService gmailConnectionService;
     @Autowired private GmailConnectionRepository gmailConnectionRepository;
     @Autowired private RazorpaySubscriptionGateway gateway;
@@ -214,6 +216,8 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     @Autowired private ChatMessageRepository chatMessageRepository;
     @Autowired private CounterpartyCategoryObservationRepository counterpartyCategoryObservationRepository;
     @Autowired private TimelineEventRepository timelineEventRepository;
+    @Autowired private com.finora.repository.InflowKindRepository inflowKindRepository;
+    @Autowired private com.finora.repository.SenderInflowRuleRepository senderInflowRuleRepository;
     // Not passed to the service constructor -- fixture setup and assertions only, the same role
     // roleRepository already plays below.
     @Autowired private SupportTicketAttachmentRepository supportTicketAttachmentRepository;
@@ -254,6 +258,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 userChecklistEventRepository, healthScoreSnapshotRepository, featureViewCountRepository,
                 recurringDismissalRepository, accountAggregatorLinkRepository, aiAuditLogRepository,
                 chatConversationRepository, chatMessageRepository, counterpartyCategoryObservationRepository,
+                inflowKindRepository, senderInflowRuleRepository,
                 auditService,
                 passwordEncoder, transactionTemplate,
                 auditLogRepository, emailProvider);
@@ -312,6 +317,39 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         assertThat(result.failed()).isZero();
         entityManager.clear();
         assertThat(transactionRepository.findByUserId(userId)).isEmpty();
+    }
+
+    /**
+     * Plan 2 (V233): a user's inflow kinds, a sender rule on one of them and a transaction whose own
+     * choice is that kind. The purge never deletes the users row, so no cascade removes these; they
+     * need explicit deletes, rules before kinds and kinds after the transactions pointing at them.
+     */
+    @Test
+    @Transactional
+    void purgeDeletesInflowKindsAndRules() {
+        com.finora.entity.InflowKind kind = new com.finora.entity.InflowKind();
+        kind.setUserId(userId);
+        kind.setName("Rent from tenant");
+        kind.setCountsAsIncome(true);
+        kind = inflowKindRepository.save(kind);
+        com.finora.entity.SenderInflowRule rule = new com.finora.entity.SenderInflowRule();
+        rule.setUserId(userId);
+        rule.setCounterpartyKey("vpa:tenant1");
+        rule.setInflowKindId(kind.getId());
+        senderInflowRuleRepository.save(rule);
+        Transaction txn = saveTransaction(BigDecimal.valueOf(500));
+        txn.setTxnType(Transaction.Type.INCOME);
+        txn.setInflowKindId(kind.getId());
+        transactionRepository.save(txn);
+        entityManager.flush();
+
+        AccountPurgeSweepService.Result result = service.sweep();
+
+        assertThat(result.purged()).isEqualTo(1);
+        assertThat(result.failed()).isZero();
+        entityManager.clear();
+        assertThat(inflowKindRepository.findByUserId(userId)).isEmpty();
+        assertThat(senderInflowRuleRepository.findByUserId(userId)).isEmpty();
     }
 
     /**
@@ -505,6 +543,14 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         statement.setFileContent(new byte[]{1});
         statement.setContentHash("purge-it-hash-" + UUID.randomUUID());
         UUID statementId = statementImportRepository.save(statement).getId();
+        // A row the user left out of this statement: its narration is the user's financial data.
+        excludedRowRepository.save(new com.finora.entity.StatementImportExcludedRow(statementId, userId, 4,
+                java.time.LocalDate.of(2026, 7, 1), "SAMPLE LEFT OUT ROW", new java.math.BigDecimal("99.00"), "EXPENSE", true));
+        // ...and a refresh preview of it, whose detail quotes the statement too.
+        com.finora.entity.StatementRefreshPreview preview = new com.finora.entity.StatementRefreshPreview(
+                statementId, userId, "somebuild", com.finora.entity.StatementRefreshPreview.Status.CHANGES);
+        preview.setDetail(java.util.Map.of("added", java.util.List.of(java.util.Map.of("description", "SAMPLE ROW"))));
+        refreshPreviewRepository.save(preview);
         entityManager.flush();
 
         AccountPurgeSweepService.Result result = service.sweep();
@@ -526,6 +572,16 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 .createNativeQuery("SELECT deleted_at FROM statement_imports WHERE id = :id")
                 .setParameter("id", statementId).getSingleResult();
         assertThat(deletedAt).isNotNull();
+        // ...but the rows the user left out of it are gone, not anonymised: nothing cascades from
+        // a statement row that is never deleted, so the purge removes them itself.
+        Number excludedLeft = (Number) entityManager
+                .createNativeQuery("SELECT count(*) FROM statement_import_excluded_rows WHERE user_id = :userId")
+                .setParameter("userId", userId).getSingleResult();
+        assertThat(excludedLeft.intValue()).isZero();
+        Number previewsLeft = (Number) entityManager
+                .createNativeQuery("SELECT count(*) FROM statement_refresh_previews WHERE user_id = :userId")
+                .setParameter("userId", userId).getSingleResult();
+        assertThat(previewsLeft.intValue()).isZero();
 
         User purgedUser = userRepository.findById(userId).orElseThrow();
         assertThat(purgedUser.getStatus()).isEqualTo(User.STATUS_DELETED);

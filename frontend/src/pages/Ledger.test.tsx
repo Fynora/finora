@@ -33,6 +33,15 @@ vi.mock('../api/endpoints', () => ({
     getChecklist: vi.fn().mockResolvedValue({ items: [], completedCount: 0, totalCount: 6 }),
     completeChecklistItem: vi.fn().mockResolvedValue(undefined),
   },
+  // Plan 2: the explanation panel shows "Counts as" for a credit.
+  inflowApi: {
+    countsAs: vi.fn().mockResolvedValue({
+      flowClass: 'UNRESOLVED', flowReason: 'PERSON_INFLOW', kind: null, appliedBy: null, choosable: true,
+      notChoosableReason: null, senderAvailable: true, senderLabel: 'ASHA VERMA', senderRowCount: 1,
+      summary: 'Not counted yet · from a person',
+    }),
+    kinds: vi.fn(), setChoice: vi.fn(), clearChoice: vi.fn(), createKind: vi.fn(),
+  },
 }));
 
 // Safe defaults for every test in this file -- most tests care about transactions/categories
@@ -120,6 +129,31 @@ describe('Ledger — Why this category?', () => {
     expect(await screen.findByText(/matched a rule you created/i)).toBeInTheDocument();
     expect(screen.getByText(/rule condition: description contains "amazon"/i)).toBeInTheDocument();
     expect(transactionsApi.explanation).toHaveBeenCalledWith('txn-1');
+  });
+
+  it('shows what a credit counts as in the explanation panel', async () => {
+    const user = userEvent.setup();
+    vi.mocked(transactionsApi.search).mockResolvedValue({
+      content: [txn({ type: 'INCOME', description: 'UPI-ASHA VERMA' })], page: 0, size: 10, totalElements: 1, totalPages: 1,
+    });
+    vi.mocked(transactionsApi.explanation).mockResolvedValue({ decisionSource: 'GLOBAL_RULE', summary: 'Matched a rule.', evidence: [] });
+    renderLedger();
+
+    await user.click(await screen.findByTitle('Why this category?'));
+
+    expect(await screen.findByText('Not counted yet · from a person')).toBeInTheDocument();
+    expect(screen.getByText('Counts as')).toBeInTheDocument();
+  });
+
+  it('does not show "Counts as" for a debit', async () => {
+    const user = userEvent.setup();
+    vi.mocked(transactionsApi.explanation).mockResolvedValue({ decisionSource: 'GLOBAL_RULE', summary: 'Matched a rule.', evidence: [] });
+    renderLedger();
+
+    await user.click(await screen.findByTitle('Why this category?'));
+
+    expect(await screen.findByText('Matched a rule.')).toBeInTheDocument();
+    expect(screen.queryByText('Counts as')).toBeNull();
   });
 
   it('shows the confidence percentage when the explanation includes one', async () => {
@@ -291,6 +325,49 @@ describe('Ledger — Status column', () => {
  * listed. The actual matching happens server-side (TransactionRepositoryIT); this only locks in
  * that the UI's own promise mentions it.
  */
+describe('Ledger — what the statement printed beside a row', () => {
+  beforeEach(() => {
+    vi.mocked(transactionsApi.needsReview).mockReset().mockResolvedValue([]);
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+  });
+
+  function showing(t: Transaction) {
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [t], page: 0, size: 10, totalElements: 1, totalPages: 1,
+    });
+    renderLedger();
+  }
+
+  it('shows the reference number and the running balance to the paisa, as printed', async () => {
+    showing(txn({ referenceNumber: 'REF000000001', balanceAfter: 24361.97 }));
+
+    expect(await screen.findByText('Ref REF000000001')).toBeInTheDocument();
+    // Exact, not rounded like the amount column: this is the figure a user checks against the
+    // statement, and "₹24,362" would not match what the bank printed.
+    expect(screen.getByText('Bal ₹24,361.97')).toBeInTheDocument();
+  });
+
+  it('keeps the sign of an overdrawn balance', async () => {
+    showing(txn({ balanceAfter: -250 }));
+
+    expect(await screen.findByText('Bal -₹250.00')).toBeInTheDocument();
+  });
+
+  it('shows a zero balance rather than hiding it', async () => {
+    showing(txn({ balanceAfter: 0 }));
+
+    expect(await screen.findByText('Bal ₹0.00')).toBeInTheDocument();
+  });
+
+  it('shows neither when the statement printed neither', async () => {
+    showing(txn({ referenceNumber: null, balanceAfter: null }));
+
+    expect(await screen.findByText('Amazon')).toBeInTheDocument();
+    expect(screen.queryByText(/^Ref /)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Bal /)).not.toBeInTheDocument();
+  });
+});
+
 describe('Ledger — search bar', () => {
   it('tells the user category is one of the things it searches', async () => {
     vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({

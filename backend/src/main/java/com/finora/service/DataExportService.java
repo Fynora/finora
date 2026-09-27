@@ -7,6 +7,9 @@ import com.finora.budgets.BudgetService;
 import com.finora.dto.CategoryDto;
 import com.finora.dto.DataExportDto.AccountAggregatorLinkExportDto;
 import com.finora.dto.DataExportDto.AccountExportEntry;
+import com.finora.dto.DataExportDto.InflowKindExportDto;
+import com.finora.dto.DataExportDto.PaymentInflowChoiceExportDto;
+import com.finora.dto.DataExportDto.SenderInflowRuleExportDto;
 import com.finora.dto.DataExportDto.ChatConversationExportDto;
 import com.finora.dto.DataExportDto.ChatMessageExportDto;
 import com.finora.dto.DataExportDto.GmailConnectionExportDto;
@@ -31,6 +34,7 @@ import com.finora.dto.UserSettingsDto;
 import com.finora.dto.WorkspaceSettingsDto;
 import com.finora.entity.Account;
 import com.finora.entity.Category;
+import com.finora.entity.Transaction;
 import com.finora.entity.ChatConversation;
 import com.finora.entity.FeedbackEntry;
 import com.finora.entity.ImportSession;
@@ -198,6 +202,8 @@ public class DataExportService {
     private final RecurringDismissalRepository recurringDismissalRepository;
     private final AccountAggregatorLinkRepository accountAggregatorLinkRepository;
     private final UserMerchantCategoryResolutionRepository userMerchantCategoryResolutionRepository;
+    private final com.finora.repository.InflowKindRepository inflowKindRepository;
+    private final com.finora.repository.SenderInflowRuleRepository senderInflowRuleRepository;
     private final ObjectMapper objectMapper;
 
     public DataExportService(UserRepository userRepository, GoogleReauthVerifier googleReauthVerifier,
@@ -224,6 +230,8 @@ public class DataExportService {
                               RecurringDismissalRepository recurringDismissalRepository,
                               AccountAggregatorLinkRepository accountAggregatorLinkRepository,
                               UserMerchantCategoryResolutionRepository userMerchantCategoryResolutionRepository,
+                              com.finora.repository.InflowKindRepository inflowKindRepository,
+                              com.finora.repository.SenderInflowRuleRepository senderInflowRuleRepository,
                               ObjectMapper objectMapper) {
         this.userRepository = userRepository;
         this.googleReauthVerifier = googleReauthVerifier;
@@ -261,6 +269,8 @@ public class DataExportService {
         this.recurringDismissalRepository = recurringDismissalRepository;
         this.accountAggregatorLinkRepository = accountAggregatorLinkRepository;
         this.userMerchantCategoryResolutionRepository = userMerchantCategoryResolutionRepository;
+        this.inflowKindRepository = inflowKindRepository;
+        this.senderInflowRuleRepository = senderInflowRuleRepository;
         this.objectMapper = objectMapper;
     }
 
@@ -324,8 +334,25 @@ public class DataExportService {
         List<Category> userCategories = categoryRepository.findByUserId(userId);
         Map<UUID, String> categoryNames = userCategories.stream()
                 .collect(Collectors.toMap(Category::getId, Category::getName));
-        List<TransactionDto> transactions = transactionRepository.findByUserId(userId).stream()
+        List<Transaction> userTransactions = transactionRepository.findByUserId(userId);
+        List<TransactionDto> transactions = userTransactions.stream()
                 .map(t -> TransactionDto.from(t, categoryNames.getOrDefault(t.getCategoryId(), "Uncategorized")))
+                .toList();
+
+        // Plan 2: the user's own answers about money coming in. TransactionDto carries no kind, so a
+        // per-payment choice is exported beside it, keyed by transaction id.
+        List<com.finora.entity.InflowKind> kinds = inflowKindRepository.findByUserId(userId);
+        Map<UUID, String> kindNames = kinds.stream()
+                .collect(Collectors.toMap(com.finora.entity.InflowKind::getId, com.finora.entity.InflowKind::getName));
+        List<InflowKindExportDto> inflowKinds = kinds.stream().map(InflowKindExportDto::from).toList();
+        List<SenderInflowRuleExportDto> senderInflowRules = senderInflowRuleRepository.findByUserId(userId).stream()
+                .map(r -> new SenderInflowRuleExportDto(r.getId(), r.getCounterpartyKey(), r.getInflowKindId(),
+                        kindNames.get(r.getInflowKindId()), r.getUpdatedAt()))
+                .toList();
+        List<PaymentInflowChoiceExportDto> paymentInflowChoices = userTransactions.stream()
+                .filter(t -> t.getInflowKindId() != null)
+                .map(t -> new PaymentInflowChoiceExportDto(t.getId(), t.getInflowKindId(),
+                        kindNames.get(t.getInflowKindId())))
                 .toList();
 
         List<BudgetDto> budgets = budgetService.listForUser(userId);
@@ -503,7 +530,8 @@ public class DataExportService {
                 categories, categoryRules, relationships, netWorthSnapshots, merchants, importJobs, importSessions,
                 statementSummaries, gmailConnections, userSettings, workspaceSettings, subscriptionExports, planChangeExports,
                 supportTicketExports, feedbackExports, chatConversations, chatMessages, healthScoreHistory,
-                financialFocus, checklistEvents, recurringDismissals, accountAggregatorLinks, merchantCategoryResolutions);
+                financialFocus, checklistEvents, recurringDismissals, accountAggregatorLinks, merchantCategoryResolutions,
+                inflowKinds, senderInflowRules, paymentInflowChoices);
     }
 
     /**
@@ -551,6 +579,9 @@ public class DataExportService {
             writeJsonEntry(zos, "recurring_dismissals.json", bundle.recurringDismissals());
             writeJsonEntry(zos, "account_aggregator_links.json", bundle.accountAggregatorLinks());
             writeJsonEntry(zos, "merchant_category_corrections.json", bundle.merchantCategoryResolutions());
+            writeJsonEntry(zos, "money_kinds.json", bundle.inflowKinds());
+            writeJsonEntry(zos, "remembered_senders.json", bundle.senderInflowRules());
+            writeJsonEntry(zos, "payment_kind_choices.json", bundle.paymentInflowChoices());
 
             for (Summary statement : bundle.statementSummaries()) {
                 String entryName = "statements/" + statement.id() + "-" + sanitize(statement.fileName());
@@ -652,7 +683,10 @@ public class DataExportService {
                 new ManifestEntry("onboarding_checklist.json", "Onboarding checklist items you've completed.", bundle.checklistEvents().size()),
                 new ManifestEntry("recurring_dismissals.json", "Recurring transaction groups you've dismissed.", bundle.recurringDismissals().size()),
                 new ManifestEntry("account_aggregator_links.json", "Your Account Aggregator (Setu) bank-linking consents, past and present (no credentials).", bundle.accountAggregatorLinks().size()),
-                new ManifestEntry("merchant_category_corrections.json", "Merchant-to-category mappings Fyn learned or you corrected.", bundle.merchantCategoryResolutions().size())
+                new ManifestEntry("merchant_category_corrections.json", "Merchant-to-category mappings Fyn learned or you corrected.", bundle.merchantCategoryResolutions().size()),
+                new ManifestEntry("money_kinds.json", "The kinds you give money coming in (built-in and your own), and whether each counts as income.", bundle.inflowKinds().size()),
+                new ManifestEntry("remembered_senders.json", "Senders you told Finora how to treat every payment from.", bundle.senderInflowRules().size()),
+                new ManifestEntry("payment_kind_choices.json", "Kinds you chose for a single payment.", bundle.paymentInflowChoices().size())
         );
         List<ManifestEntry> excluded = List.of(
                 new ManifestEntry("audit_logs", "Your own actions are logged for security, not collected as your data.", null),
@@ -728,6 +762,9 @@ public class DataExportService {
             List<HealthScoreSnapshotExportDto> healthScoreHistory, List<UserFinancialFocusExportDto> financialFocus,
             List<UserChecklistEventExportDto> checklistEvents, List<RecurringDismissalExportDto> recurringDismissals,
             List<AccountAggregatorLinkExportDto> accountAggregatorLinks,
-            List<UserMerchantCategoryResolutionExportDto> merchantCategoryResolutions
+            List<UserMerchantCategoryResolutionExportDto> merchantCategoryResolutions,
+            List<InflowKindExportDto> inflowKinds,
+            List<SenderInflowRuleExportDto> senderInflowRules,
+            List<PaymentInflowChoiceExportDto> paymentInflowChoices
     ) {}
 }

@@ -2318,7 +2318,9 @@ public class ReconciliationService {
      *  this pass matches on -- one word list, not two that can drift. */
     static boolean looksLikeRefund(String description) {
         String normalized = CategoryRules.normalize(description);
-        return REFUND_KEYWORDS.stream().anyMatch(normalized::contains);
+        // The compact form catches the word split by a wrapped line ("R EFUND").
+        return REFUND_KEYWORDS.stream().anyMatch(normalized::contains)
+                || normalized.replace(" ", "").contains("refund");
     }
 
     /** See {@link #looksLikeRefund}. */

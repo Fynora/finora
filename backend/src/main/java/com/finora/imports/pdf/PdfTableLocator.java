@@ -7362,6 +7362,22 @@ public class PdfTableLocator {
         // surrounding rows, not in the transaction row itself) -- PdfMetadataExtractor and
         // ProductDiscovery both need this text to do their own jobs on this section.
         List<String> auxiliaryText = new ArrayList<>();
+        // Decided up front for every ledger row, so a row that is not a candidate can be judged by
+        // its neighbours in the single in-order pass below (see isInstalmentContinuation), which
+        // keeps auxiliaryText in document order.
+        Map<Integer, List<PositionedText>> candidateAt = new HashMap<>();
+        for (int i = 0; i < rows.size(); i++) {
+            boolean withinLedger = bracketed && i > opening.index() && i < closing.index();
+            if (!withinLedger) continue;
+            List<PositionedText> row = rows.get(i);
+            PageDateEvidence rowYears = row.isEmpty() ? PageDateEvidence.NONE
+                    : yearsByPage.getOrDefault(row.get(0).pageIndex(), PageDateEvidence.NONE);
+            List<PositionedText> resolved = substituteYearlessDates(row, rowYears);
+            if (isTransactionShapedRow(resolved, rowYears) && signedTransactionAmount(resolved) != null) {
+                // A fresh list, so appending a continuation below never writes into `rows`.
+                candidateAt.put(i, new ArrayList<>(resolved));
+            }
+        }
         for (int i = 0; i < rows.size(); i++) {
             List<PositionedText> row = rows.get(i);
             boolean withinLedger = bracketed && i > opening.index() && i < closing.index();
@@ -7370,11 +7386,14 @@ public class PdfTableLocator {
                 if (!line.isBlank()) auxiliaryText.add(line);
                 continue;
             }
-            PageDateEvidence rowYears = row.isEmpty() ? PageDateEvidence.NONE
-                    : yearsByPage.getOrDefault(row.get(0).pageIndex(), PageDateEvidence.NONE);
-            List<PositionedText> resolved = substituteYearlessDates(row, rowYears);
-            if (isTransactionShapedRow(resolved, rowYears) && signedTransactionAmount(resolved) != null) {
-                signedCandidates.add(resolved);
+            if (candidateAt.containsKey(i)) {
+                signedCandidates.add(candidateAt.get(i));
+            } else if (isInstalmentContinuation(row, candidateAt.get(i - 1), candidateAt.get(i + 1))) {
+                // Audit F-28: an instalment's own second line ("2ND OF 3 INSTALLMENTS PRINCIPAL") is
+                // part of the row above it. Appended as ordinary non-amount cells, so
+                // buildSectionFromSignedCandidates joins it into the narration with a space, and the
+                // amount, sign and reconciliation arithmetic read exactly what they read before.
+                candidateAt.get(i - 1).addAll(row);
             } else {
                 String line = lineOf(row);
                 if (!line.isBlank()) auxiliaryText.add(line);
@@ -7384,6 +7403,67 @@ public class PdfTableLocator {
         if (signedCandidates.isEmpty()) return null;
         if (!corroboratedByPrintedBalanceReconciliation(signedCandidates, rows, ctx)) return null;
         return buildSectionFromSignedCandidates(signedCandidates, auxiliaryText, ctx);
+    }
+
+    /** How far a continuation's left edge may sit from the description it continues, in points.
+     *  Measured on the real document: both start at the same x to two decimal places. */
+    private static final float CONTINUATION_ALIGNMENT_TOLERANCE = 3f;
+
+    /**
+     * True when a ledger row that is not a transaction is the second line of the transaction above
+     * it -- audit F-28. On a real HSBC card statement each instalment row prints which instalment it
+     * is ("2ND OF 3 INSTALLMENTS PRINCIPAL") one line below its merchant, at the same left edge.
+     *
+     * <p>Position alone cannot tell such a line from a section heading: on the same document "PURCHASES
+     * & INSTALLMENTS" also sits one line below a transaction at the same left edge (10.3pt below it,
+     * against 9.6pt for a continuation). What separates them is what follows. Every continuation on
+     * the document is followed by the next transaction, while the heading is followed by two more
+     * lines that are not transactions (an interest-rate note and the card line). So all of these
+     * must hold:
+     * <ul>
+     *   <li>the rows directly above and below are both transactions;</li>
+     *   <li>the row carries no date and no amount (a dated or priced line is something else, and an
+     *       amount would also give the row above a second amount cell);</li>
+     *   <li>no cell ends in a CR/DR marker, which would change the direction read for the row
+     *       above;</li>
+     *   <li>it is on the same page as the row above, and starts at that row's description column.</li>
+     * </ul>
+     * The last continuation before the closing summary has no transaction below it and is left as
+     * auxiliary text: not observed on either document using this path, and not guessed at.
+     */
+    private static boolean isInstalmentContinuation(
+            List<PositionedText> row, List<PositionedText> above, List<PositionedText> below) {
+        if (above == null || below == null || row == null || row.isEmpty()) return false;
+        for (PositionedText cell : row) {
+            String text = cell.text().trim();
+            if (text.isEmpty()) continue;
+            if (CsvParser.parseDate(text) != null || CsvParser.parseNumeric(text) != null) return false;
+            // rowMarkerCredit reads every cell ending in CR or DR. Joined, such a line would give a
+            // CR row a second marker (direction unknown, defaulted to a purchase) or turn an
+            // unmarked purchase into a credit -- and the changed arithmetic would then fail the
+            // reconciliation and discard the whole section.
+            if (CsvParser.hasTrailingDrCrMarker(text)) return false;
+        }
+        PositionedText first = row.stream().filter(c -> !c.text().isBlank())
+                .min(Comparator.comparingDouble(PositionedText::x)).orElse(null);
+        PositionedText description = descriptionStart(above);
+        if (first == null || description == null) return false;
+        if (first.pageIndex() != description.pageIndex()) return false;
+        return Math.abs(first.x() - description.x()) <= CONTINUATION_ALIGNMENT_TOLERANCE;
+    }
+
+    /** The leftmost cell of a candidate that is its narration: not its date, not an amount, not a
+     *  standalone CR/DR marker. Null when the candidate has none. */
+    private static PositionedText descriptionStart(List<PositionedText> candidate) {
+        PositionedText leftmost = null;
+        for (PositionedText cell : candidate) {
+            String text = cell.text().trim();
+            if (text.isEmpty()) continue;
+            if (CsvParser.parseDate(text) != null || CsvParser.parseNumeric(text) != null
+                    || CsvParser.hasTrailingDrCrMarker(text)) continue;
+            if (leftmost == null || cell.x() < leftmost.x()) leftmost = cell;
+        }
+        return leftmost;
     }
 
     /** Builds a section directly from candidates a printed balance reconciliation has already

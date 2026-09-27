@@ -776,7 +776,8 @@ public class ImportService {
                 // A multi-section import is CSV/PDF only -- a Gmail receipt is never
                 // multi-account -- so source is always null on this path, not session.getSource().
                 session.getUnparseableSummaryJson(), null, importSessionService.readCreditCardSummary(session),
-                stagedSection.detectedAccount() == null ? null : stagedSection.detectedAccount().accountHolderName()));
+                stagedSection.detectedAccount() == null ? null : stagedSection.detectedAccount().accountHolderName(),
+                session.getParserVersion()));
         }
 
         reconcileAcross(userId, persisted);
@@ -831,7 +832,7 @@ public class ImportService {
         return confirm(userId, session.getFileName(), statementContentService.read(session), request, null,
                 session.getLayoutMetadataJson(), session.getLayoutFingerprint(), session.getActivatedCapabilitiesJson(),
                 session.getUnparseableSummaryJson(), session.getSource(), importSessionService.readCreditCardSummary(session),
-                detectedAccount == null ? null : detectedAccount.accountHolderName());
+                detectedAccount == null ? null : detectedAccount.accountHolderName(), session.getParserVersion());
     }
 
     /**
@@ -885,7 +886,7 @@ public class ImportService {
      */
     @Transactional
     public ConfirmResponse confirm(UUID userId, String fileName, byte[] fileContent, ConfirmRequest request) {
-        return confirm(userId, fileName, fileContent, request, null, null, null, null, null, null, null, null);
+        return confirm(userId, fileName, fileContent, request, null, null, null, null, null, null, null, null, null);
     }
 
     /**
@@ -897,7 +898,7 @@ public class ImportService {
      */
     @Transactional
     public ConfirmResponse confirm(UUID userId, String fileName, byte[] fileContent, ConfirmRequest request, Integer sourceSectionIndex) {
-        return confirm(userId, fileName, fileContent, request, sourceSectionIndex, null, null, null, null, null, null, null);
+        return confirm(userId, fileName, fileContent, request, sourceSectionIndex, null, null, null, null, null, null, null, null);
     }
 
     /**
@@ -925,10 +926,10 @@ public class ImportService {
                                     String layoutMetadataJson, String layoutFingerprint, String activatedCapabilitiesJson,
                                     String unparseableSummaryJson, String source,
                                     com.finora.imports.pdf.CreditCardSummaryExtractor.CreditCardSummaryEvidence creditCardSummary,
-                                    String extractedHolderName) {
+                                    String extractedHolderName, String stagedByVersion) {
         PersistedSection section = persistSection(userId, fileName, fileContent, request, sourceSectionIndex,
                 layoutMetadataJson, layoutFingerprint, activatedCapabilitiesJson, unparseableSummaryJson, source,
-                creditCardSummary, extractedHolderName);
+                creditCardSummary, extractedHolderName, stagedByVersion);
         reconcileAcross(userId, List.of(section));
         return summarise(userId, section);
     }
@@ -996,7 +997,10 @@ public class ImportService {
                                     // verbatim from the session's DetectedAccountInfo, same "never recomputed"
                                     // discipline as layoutMetadataJson/layoutFingerprint above -- null on the
                                     // byte-array reimport path, which has no session to read it from.
-                                    String extractedHolderName) {
+                                    String extractedHolderName,
+                                    // The build that parsed these rows -- the session's own stamp. Null on the
+                                    // byte-array paths, which parse in the same request that confirms.
+                                    String stagedByVersion) {
         long startedAtMs = System.currentTimeMillis();
         List<String> accountsCreated = new ArrayList<>();
         // What was created, by PRODUCT rather than by account. The summary says "1 Savings, 1 Fixed
@@ -1347,7 +1351,7 @@ public class ImportService {
         // (below), not the save itself. Slightly under-counts the true end-to-end time by exactly
         // one insert -- consistent across every row, which is what matters for comparing layouts.
         statementImport.setImportDurationMs(System.currentTimeMillis() - startedAtMs);
-        statementImport.setParserVersion(provenanceRecorder.currentParserVersion());
+        statementImport.setParserVersion(provenanceRecorder.parserVersion(stagedByVersion));
         StatementImport savedImport = statementImportRepository.save(statementImport);
         provenanceRecorder.recordExcludedRows(userId, savedImport.getId(), excludedRows);
 

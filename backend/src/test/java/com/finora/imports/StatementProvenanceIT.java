@@ -11,6 +11,7 @@ import com.finora.entity.StatementImport;
 import com.finora.entity.StatementImportExcludedRow;
 import com.finora.entity.User;
 import com.finora.repository.AccountRepository;
+import com.finora.repository.ImportSessionRepository;
 import com.finora.repository.MerchantLearningEventRepository;
 import com.finora.repository.StatementImportExcludedRowRepository;
 import com.finora.repository.StatementImportRepository;
@@ -47,6 +48,7 @@ class StatementProvenanceIT extends AbstractIntegrationTest {
     @Autowired private UserRepository userRepository;
     @Autowired private MerchantLearningEventRepository learningEventRepository;
     @Autowired private BuildVersionResolver buildVersionResolver;
+    @Autowired private ImportSessionRepository importSessionRepository;
 
     private static final byte[] FILE =
             "Date,Description,Amount,Type\n2026-07-01,SAMPLE ROW,1.00,DEBIT\n".getBytes(StandardCharsets.UTF_8);
@@ -72,8 +74,7 @@ class StatementProvenanceIT extends AbstractIntegrationTest {
                 r.categorySource(), r.ruleId(), likelyDuplicate, null, null, false, null, r.rowPosition());
     }
 
-    @Test
-    void confirmRecordsTheParserVersionAndEveryLeftOutRow_andDeletingTheStatementRemovesThem() {
+    private Account newUserWithAccount() {
         User user = new User();
         user.setEmail("provenance-it-" + UUID.randomUUID() + "@example.com");
         user.setPasswordHash("irrelevant-for-this-test");
@@ -86,7 +87,13 @@ class StatementProvenanceIT extends AbstractIntegrationTest {
         account.setName("Savings");
         account.setAccountType(Account.Type.SAVINGS);
         account.setBalance(BigDecimal.ZERO);
-        account = accountRepository.save(account);
+        return accountRepository.save(account);
+    }
+
+    @Test
+    void confirmRecordsTheParserVersionAndEveryLeftOutRow_andDeletingTheStatementRemovesThem() {
+        Account account = newUserWithAccount();
+        User user = userRepository.findById(account.getUserId()).orElseThrow();
 
         StagedRow kept = staged("SAMPLE KEPT", "120.00", 0);
         StagedRow untickedByUser = staged("SAMPLE UNTICKED", "75.50", 1);
@@ -123,5 +130,23 @@ class StatementProvenanceIT extends AbstractIntegrationTest {
         statementImportService.delete(user.getId(), statement.getId(), user.getId());
 
         assertThat(excludedRowRepository.findByStatementImportIdOrderByRowPositionAsc(statement.getId())).isEmpty();
+    }
+
+    @Test
+    void aStatementStagedBeforeADeployAndConfirmedAfter_isCreditedToTheBuildThatParsedIt() {
+        Account account = newUserWithAccount();
+        StagedRow row = staged("SAMPLE KEPT", "120.00", 0);
+        ImportSession session = importSessionService.createSession(
+                account.getUserId(), "statement.csv", FILE, List.of(row), null);
+        // The rows were parsed by an earlier build; a deploy has landed since.
+        session.setParserVersion("previousbuild");
+        importSessionRepository.save(session);
+
+        importService.confirmSession(account.getUserId(), new ConfirmRequest(session.getId(),
+                List.of(confirmed(row, true, false)), account.getId(), null, null, null, null));
+
+        StatementImport statement = statementImportRepository.findAll().stream()
+                .filter(s -> s.getUserId().equals(account.getUserId())).findFirst().orElseThrow();
+        assertThat(statement.getParserVersion()).isEqualTo("previousbuild");
     }
 }

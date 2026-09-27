@@ -26,12 +26,14 @@ public class StatementProvenanceRecorder {
     }
 
     /**
-     * The build confirming the import -- the short commit id, as import sessions record it. The rows
-     * were parsed at staging, usually seconds to minutes earlier; a deploy landing in between would
-     * attribute them to the newer build, which a refresh dry run then simply finds unchanged.
+     * The build that parsed the rows being confirmed -- the short commit id, as import sessions
+     * record it. A session-backed confirm passes the session's own stamp: the rows were parsed at
+     * staging, and a deploy landing between staging and confirm must not credit them to the newer
+     * build, or the refresh dry run would skip a statement the old parser read. Without a stamp (a
+     * path that parses in the same request that confirms), the running build is the one that parsed.
      */
-    public String currentParserVersion() {
-        return buildVersionResolver.currentCommit();
+    public String parserVersion(String stagedByVersion) {
+        return stagedByVersion != null ? stagedByVersion : buildVersionResolver.currentCommit();
     }
 
     /** Records the rows the user left out of this statement, with the statement's own facts for each. */

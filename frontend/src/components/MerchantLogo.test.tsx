@@ -78,4 +78,25 @@ describe('MerchantLogo fallback', () => {
     expect(screen.getByTitle('Uber')).toBeTruthy();
     vi.unstubAllEnvs();
   });
+
+  it('never looks a person up on Logo.dev, even with a token configured', async () => {
+    // A payment to a friend is named after the friend. A name search for "Sample Person" returns
+    // whatever company matches best, so a person gets initials and no request at all.
+    vi.stubEnv('VITE_LOGODEV_TOKEN', 'test-token');
+    vi.resetModules();
+    const { MerchantLogo: WithToken } = await import('./MerchantLogo');
+    const { container } = render(<WithToken merchant="Sample Person" person />);
+    expect(container.querySelector('img')).toBeNull();
+    expect(screen.getByText('SP')).toBeTruthy();
+    vi.unstubAllEnvs();
+  });
+
+  it('still looks a business up when it is not a person', async () => {
+    vi.stubEnv('VITE_LOGODEV_TOKEN', 'test-token');
+    vi.resetModules();
+    const { MerchantLogo: WithToken } = await import('./MerchantLogo');
+    const { container } = render(<WithToken merchant="Swiggy" />);
+    expect(container.querySelector('img')).not.toBeNull();
+    vi.unstubAllEnvs();
+  });
 });

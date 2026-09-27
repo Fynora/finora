@@ -252,7 +252,7 @@ public class CategorizationService {
             return new Suggestion(corpusMatch.get(), SHARED_CORPUS_SOURCE, merchant.getId(),
                     Transaction.DecisionSource.SHARED_CORPUS, null, ConfidenceEngine.INITIAL_SHARED_CORPUS_CONFIDENCE);
         }
-        Optional<String> aiMatch = direction == null || !hasCounterpartyKey(typing) ? Optional.empty()
+        Optional<String> aiMatch = direction == null || !hasCounterpartyKey(typing.key()) ? Optional.empty()
                 : fynCategorizationFallbackService.suggest(userId, typing.key(), direction, description);
         if (aiMatch.isPresent()) {
             return new Suggestion(aiMatch.get(), AI_FALLBACK_SOURCE, merchant.getId(),
@@ -415,7 +415,7 @@ public class CategorizationService {
         // TransactionNormalizer's "staging is a preview the user may abandon... same matching,
         // same order, no writes" -- Bug 36) -- suggest() would create a category and pin a
         // resolution for a transaction that may never be confirmed.
-        Optional<String> aiMatch = direction == null || !hasCounterpartyKey(typing) ? Optional.empty()
+        Optional<String> aiMatch = direction == null || !hasCounterpartyKey(typing.key()) ? Optional.empty()
                 : fynCategorizationFallbackService.suggestReadOnly(userId, typing.key(), direction, resolutionIndex);
         if (aiMatch.isPresent()) {
             return new Suggestion(aiMatch.get(), AI_FALLBACK_SOURCE, merchantId,
@@ -516,9 +516,10 @@ public class CategorizationService {
      *  would pay for an LLM call and then fail the caller's transaction on the cache write.
      *  Such a row also has nothing for an answer to be cached against, so every repeat would
      *  pay again. Blank is checked too, though {@code CounterpartyTyping.of} already maps it to
-     *  null, so the guard does not depend on that. */
-    private static boolean hasCounterpartyKey(com.finora.util.CounterpartyTyping typing) {
-        return typing.key() != null && !typing.key().isBlank();
+     *  null, so the guard does not depend on that. Package-private for that blank case's own
+     *  test, which no narration can reach through {@code CounterpartyTyping.of}. */
+    static boolean hasCounterpartyKey(String counterpartyKey) {
+        return counterpartyKey != null && !counterpartyKey.isBlank();
     }
 
     /** The canonical name only if a person has confirmed this merchant's identity -- see

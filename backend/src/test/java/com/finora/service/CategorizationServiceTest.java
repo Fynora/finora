@@ -396,6 +396,15 @@ class CategorizationServiceTest {
     }
 
     @Test
+    void hasCounterpartyKey_rejectsNullAndBlank_acceptsAnyRealKey() {
+        assertThat(CategorizationService.hasCounterpartyKey(null)).isFalse();
+        assertThat(CategorizationService.hasCounterpartyKey("")).isFalse();
+        assertThat(CategorizationService.hasCounterpartyKey("   ")).isFalse();
+        assertThat(CategorizationService.hasCounterpartyKey("vpa:brandnewvendor")).isTrue();
+        assertThat(CategorizationService.hasCounterpartyKey("name:brand new")).isTrue();
+    }
+
+    @Test
     void suggest_prefersLearnedDistribution_overRuleEngine() {
         // Even though "SWIGGY" would normally match the Dining rule, a merchant with real
         // confirmed history should win — this is the entire point of the self-learning system.

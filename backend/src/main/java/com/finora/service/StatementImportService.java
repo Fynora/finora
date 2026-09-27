@@ -462,58 +462,7 @@ public class StatementImportService {
         List<Transaction> toRemove = transactionRepository.findByStatementImportId(statementImportId);
         List<UUID> removedIds = toRemove.stream().map(Transaction::getId).toList();
 
-        if (!removedIds.isEmpty()) {
-            for (Transaction t : transactionRepository.findByIsDuplicateOfIn(removedIds)) {
-                if (removedIds.contains(t.getId())) continue;
-                // Un-marking makes this survivor counted again. BH-003 (ReconciliationService
-                // .reverseBalanceContribution) took its contribution off when it was marked, if the
-                // contribution was in the balance at all, and recorded that on the row
-                // (Transaction.duplicateBalanceReversed), so it goes back on now -- the same re-add
-                // TransactionService.confirmNotDuplicate and .clearReconciliationPointersTo perform.
-                boolean reversedAtMark = t.isDuplicateBalanceReversed();
-                t.setIsDuplicateOf(null);
-                t.setDuplicateBalanceReversed(false);
-                // A survivor whose own statement has since been superseded is not resurrected: it
-                // stays out of every total as SUPERSEDED, and nothing goes back on the balance --
-                // the same refusal TransactionService.confirmNotDuplicate makes for that row. Its
-                // held-anchor record, if any, is kept: the effect is still in that SET's snapshot.
-                if (isSuperseded(t.getStatementImportId())) {
-                    t.setReconciliationStatus(Transaction.ReconciliationStatus.SUPERSEDED);
-                    transactionRepository.save(t);
-                    continue;
-                }
-                t.setDuplicateBalanceAnchorId(null);
-                t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
-                transactionRepository.save(t);
-                if (!reversedAtMark) continue;
-                // Put back where its effect belongs now (RowBalanceEffect): the balance, or -- when
-                // a statement's closing balance set the account after the mark -- that statement's
-                // pre-SET snapshot, since the bank's figure already holds this real row. When that
-                // statement is the one being deleted here, its snapshot is corrected before the
-                // reversal below restores it, so the restored balance counts the row.
-                accountRepository.findById(t.getAccountId()).ifPresent(account -> {
-                    StatementImport survivorImport = t.getStatementImportId() == null ? null
-                            : statementImportRepository.findById(t.getStatementImportId()).orElse(null);
-                    BigDecimal before = account.getBalance();
-                    rowBalanceEffect.apply(account, rowBalanceEffect.locate(account, t, survivorImport),
-                            AccountBalanceConvention.balanceDelta(account.getAccountType(), t.getTxnType(), t.getAmount()));
-                    if (account.getBalance().compareTo(before) != 0) accountRepository.save(account);
-                });
-            }
-            for (Transaction t : transactionRepository.findByTransferPairIdIn(removedIds)) {
-                if (removedIds.contains(t.getId())) continue;
-                t.setTransfer(false);
-                t.setTransferPairId(null);
-                t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
-                transactionRepository.save(t);
-            }
-            for (Transaction t : transactionRepository.findByRefundOfTransactionIdIn(removedIds)) {
-                if (removedIds.contains(t.getId())) continue;
-                t.setRefundOfTransactionId(null);
-                t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
-                transactionRepository.save(t);
-            }
-        }
+        releaseRowsPairedWith(removedIds);
 
         // Bug 17, the half that stops the fix drifting. Once confirm() moves the account balance by
         // the net effect of the rows it inserts, deleting those rows has to move it back by exactly
@@ -623,6 +572,75 @@ public class StatementImportService {
     }
 
     private enum ReversalOutcome { REVERSED, MOOT, NO_SNAPSHOT }
+
+    /**
+     * Every surviving row that was paired with one of {@code ids} -- marked a duplicate of it, or
+     * matched to it as a transfer or refund -- is released, so reconciliation re-evaluates it fresh
+     * rather than leaving it pointing at a row that no longer counts. Used when those rows are
+     * deleted ({@link #delete}) and when their statement is replaced ({@link #supersede}): either
+     * way they count nowhere any more, and a duplicate of one is now the only copy.
+     */
+    private void releaseRowsPairedWith(List<UUID> ids) {
+        if (ids.isEmpty()) return;
+        for (Transaction t : transactionRepository.findByIsDuplicateOfIn(ids)) {
+            if (ids.contains(t.getId())) continue;
+            // Un-marking makes this survivor counted again. BH-003 (ReconciliationService
+            // .reverseBalanceContribution) took its contribution off when it was marked, if the
+            // contribution was in the balance at all, and recorded that on the row
+            // (Transaction.duplicateBalanceReversed), so it goes back on now -- the same re-add
+            // TransactionService.confirmNotDuplicate and .clearReconciliationPointersTo perform.
+            boolean reversedAtMark = t.isDuplicateBalanceReversed();
+            t.setIsDuplicateOf(null);
+            t.setDuplicateBalanceReversed(false);
+            // A survivor whose own statement has since been superseded is not resurrected: it
+            // stays out of every total as SUPERSEDED, and nothing goes back on the balance --
+            // the same refusal TransactionService.confirmNotDuplicate makes for that row. Its
+            // held-anchor record, if any, is kept: the effect is still in that SET's snapshot.
+            if (isSuperseded(t.getStatementImportId())) {
+                t.setReconciliationStatus(Transaction.ReconciliationStatus.SUPERSEDED);
+                transactionRepository.save(t);
+                continue;
+            }
+            t.setDuplicateBalanceAnchorId(null);
+            t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
+            transactionRepository.save(t);
+            if (!reversedAtMark) continue;
+            // Put back where its effect belongs now (RowBalanceEffect): the balance, or -- when
+            // a statement's closing balance set the account after the mark -- that statement's
+            // pre-SET snapshot, since the bank's figure already holds this real row. When that
+            // statement is the one being deleted, its snapshot is corrected before the reversal
+            // restores it, so the restored balance counts the row.
+            accountRepository.findById(t.getAccountId()).ifPresent(account -> {
+                StatementImport survivorImport = t.getStatementImportId() == null ? null
+                        : statementImportRepository.findById(t.getStatementImportId()).orElse(null);
+                BigDecimal before = account.getBalance();
+                rowBalanceEffect.apply(account, rowBalanceEffect.locate(account, t, survivorImport),
+                        AccountBalanceConvention.balanceDelta(account.getAccountType(), t.getTxnType(), t.getAmount()));
+                if (account.getBalance().compareTo(before) != 0) accountRepository.save(account);
+            });
+        }
+        // A released transfer or refund row of a replaced statement goes back to SUPERSEDED, not
+        // OK: OK put a replaced row back into every report (measured: deleting the other side of a
+        // replaced statement's transfer left that row counted as spending).
+        for (Transaction t : transactionRepository.findByTransferPairIdIn(ids)) {
+            if (ids.contains(t.getId())) continue;
+            t.setTransfer(false);
+            t.setTransferPairId(null);
+            t.setReconciliationStatus(releasedStatus(t));
+            transactionRepository.save(t);
+        }
+        for (Transaction t : transactionRepository.findByRefundOfTransactionIdIn(ids)) {
+            if (ids.contains(t.getId())) continue;
+            t.setRefundOfTransactionId(null);
+            t.setReconciliationStatus(releasedStatus(t));
+            transactionRepository.save(t);
+        }
+    }
+
+    private Transaction.ReconciliationStatus releasedStatus(Transaction t) {
+        return isSuperseded(t.getStatementImportId())
+                ? Transaction.ReconciliationStatus.SUPERSEDED : Transaction.ReconciliationStatus.OK;
+    }
 
     /** Whether a row's own statement import has been replaced by a later re-upload. */
     private boolean isSuperseded(UUID statementImportId) {
@@ -1014,25 +1032,30 @@ public class StatementImportService {
             throw new ApiException(HttpStatus.BAD_REQUEST,
                     "The replacement statement has itself already been superseded.");
         }
-        // OK-status rows, plus INVESTMENT_TRANSFER ones. Every other classification (DUPLICATE/TRANSFER/
-        // REFUND/REVERSAL) is already invisible to RefundNetting.reportable(), and overwriting its
-        // status here would lose the true reason it was excluded, same "preserve the specific
-        // classification" principle StatementImportService.delete's own pointer cleanup follows.
+        // Every row but a DUPLICATE one becomes SUPERSEDED: it no longer counts anywhere. A duplicate
+        // keeps its mark (and the balance record the mark wrote), since it counted nowhere already.
         //
-        // INVESTMENT_TRANSFER is the exception, because reportable() deliberately keeps it (an
+        // This used to spare TRANSFER/REFUND/REVERSAL rows, to keep the reason each was excluded. But
+        // the other side of each pair then stayed matched to a row that no longer counts: a transfer
+        // whose own leg was replaced kept the income on the other account excluded as a transfer of
+        // nothing, and deleting that other side reset the replaced row to OK, putting it back into
+        // every report (measured). The pairs are released instead (releaseRowsPairedWith, below), and
+        // restoring the statement resets these rows to OK for reconciliation to match again.
+        //
+        // INVESTMENT_TRANSFER was already here, because reportable() deliberately keeps it (an
         // investment outflow is still real spend for a per-category chart or budget -- see
         // RefundNetting.reportable). Left as it was, a replaced statement's SIP rows kept counting
-        // beside the replacement's own: doubled in the Investments category and in the Investments
-        // page's "invested" total. It also skewed the balance: this method reverses every
-        // non-duplicate row below, but delete() skips only SUPERSEDED ones, so deleting the
-        // superseded statement afterwards reversed its investment rows a second time.
+        // beside the replacement's own.
         List<Transaction> originalTransactions = transactionRepository.findByStatementImportId(originalId);
         List<Transaction> toSupersede = originalTransactions.stream()
-                .filter(t -> t.getReconciliationStatus() == Transaction.ReconciliationStatus.OK
-                        || t.getReconciliationStatus() == Transaction.ReconciliationStatus.INVESTMENT_TRANSFER)
+                .filter(t -> t.getReconciliationStatus() != Transaction.ReconciliationStatus.DUPLICATE
+                        && t.getReconciliationStatus() != Transaction.ReconciliationStatus.SUPERSEDED)
                 .toList();
         for (Transaction t : toSupersede) {
             t.setReconciliationStatus(Transaction.ReconciliationStatus.SUPERSEDED);
+            t.setTransfer(false);
+            t.setTransferPairId(null);
+            t.setRefundOfTransactionId(null);
             transactionRepository.save(t);
         }
 
@@ -1114,8 +1137,14 @@ public class StatementImportService {
         // would only ever be a stale offer -- and it quotes the statement.
         statementImportRepository.deleteRefreshPreviewsOfStatement(userId, originalId);
         statementImportRepository.save(original);
+        // Anything matched to the replaced rows is released: a copy of one marked a duplicate is now
+        // the only copy and counts (measured before: replacing a statement with a corrected copy of
+        // the same rows left both out of the balance and every report), and a transfer or refund
+        // partner is re-matched. After the mark above, so a partner in the replaced statement
+        // itself stays SUPERSEDED.
+        releaseRowsPairedWith(originalTransactions.stream().map(Transaction::getId).toList());
 
-        if (!toSupersede.isEmpty()) {
+        if (!originalTransactions.isEmpty()) {
             reconciliationService.reconcileForUser(userId);
             recurringService.detectForUser(userId);
         }

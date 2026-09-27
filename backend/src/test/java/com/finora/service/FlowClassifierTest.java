@@ -398,7 +398,7 @@ class FlowClassifierTest {
     }
 
     @Test void refundWordSplitByAWrap_isARefund() {
-        assertThat(savings(credit("UPI/CR/111111111111/SHOPCO/HDFC/**.PAYU@HDFCBANK/R EFUND//")))
+        assertThat(savings(credit("UPI/CR/111111111111/SHOPCO/HDFC/**.PAYU@SHOPCOBK/R EFUND//")))
                 .isEqualTo(new FlowDecision(FlowClass.REFUND, FlowReason.UNLINKED_REFUND));
     }
 }

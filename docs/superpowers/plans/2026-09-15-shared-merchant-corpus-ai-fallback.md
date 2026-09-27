@@ -429,16 +429,16 @@ class SharedCorpusRepositoriesIT extends AbstractIntegrationTest {
     @Test
     void savesAndFindsAnObservationByKeyAndDirection() {
         CounterpartyCategoryObservation obs = new CounterpartyCategoryObservation();
-        obs.setCounterpartyKey("vpa:zeptoonline");
+        obs.setCounterpartyKey("vpa:zeptosample");
         obs.setDirection(Transaction.Type.EXPENSE);
         obs.setCategory("Shopping");
         obs.setUserId(UUID.randomUUID());
         obs.setCounterpartyTypeAtVote(CounterpartyType.BUSINESS);
         observations.save(obs);
 
-        assertThat(observations.findByCounterpartyKeyAndDirection("vpa:zeptoonline", Transaction.Type.EXPENSE))
+        assertThat(observations.findByCounterpartyKeyAndDirection("vpa:zeptosample", Transaction.Type.EXPENSE))
                 .hasSize(1);
-        assertThat(observations.findByCounterpartyKeyAndDirection("vpa:zeptoonline", Transaction.Type.INCOME))
+        assertThat(observations.findByCounterpartyKeyAndDirection("vpa:zeptosample", Transaction.Type.INCOME))
                 .isEmpty();
     }
 
@@ -1084,14 +1084,14 @@ Add these two tests, mirroring the file's own existing `create_withExplicitCateg
         when(categorizationService.resolveMerchantId(eq(userId), anyString())).thenReturn(UUID.randomUUID());
         when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Shopping"))).thenReturn(dummyCategory);
 
-        // Confirmed BUSINESS-typed, vpa:zeptoonline-keyed by this codebase's own real classifier
+        // Confirmed BUSINESS-typed, vpa:zeptosample-keyed by this codebase's own real classifier
         // pipeline -- same narration this session's own shared-corpus audit measured directly.
         var req = new TransactionDto.CreateRequest(UUID.randomUUID(), "Shopping", LocalDate.now(),
-                "UPI/ZEPTO/ZEPTOONLINE@YBL/0000000000@PTAXIS", BigDecimal.valueOf(486), "EXPENSE", List.of());
+                "UPI/ZEPTO/ZEPTOSAMPLE@YBL/0000000000@PTAXIS", BigDecimal.valueOf(486), "EXPENSE", List.of());
 
         transactionService.create(userId, req);
 
-        verify(sharedCorpusService).recordObservation(eq(userId), eq("vpa:zeptoonline"),
+        verify(sharedCorpusService).recordObservation(eq(userId), eq("vpa:zeptosample"),
                 eq(com.finora.util.CounterpartyType.BUSINESS), eq(Transaction.Type.EXPENSE), eq("Shopping"));
     }
 
@@ -1170,19 +1170,19 @@ In `ImportServiceAskOnceTest.java`: add a field `private SharedCorpusService sha
     @Test
     void confirm_learnsFromAnEligibleBusinessCounterparty_recordsSharedCorpusObservation() throws Exception {
         // Same narration this session's own shared-corpus audit and Task 4's test both use,
-        // confirmed BUSINESS-typed, vpa:zeptoonline-keyed by the real classifier pipeline.
-        var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOONLINE@YBL/0000000000@PTAXIS",
+        // confirmed BUSINESS-typed, vpa:zeptosample-keyed by the real classifier pipeline.
+        var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOSAMPLE@YBL/0000000000@PTAXIS",
                 BigDecimal.valueOf(486), "EXPENSE", "Dining", true, "rule", null, false, null, null);
 
         importService.confirm(userId, dummyFile(), requestWith(row));
 
-        verify(sharedCorpusService).recordObservation(eq(userId), eq("vpa:zeptoonline"),
+        verify(sharedCorpusService).recordObservation(eq(userId), eq("vpa:zeptosample"),
                 eq(com.finora.util.CounterpartyType.BUSINESS), eq(Transaction.Type.EXPENSE), eq("Dining"));
     }
 
     @Test
     void confirm_unresolvedGuessLeftAsOther_recordsNoSharedCorpusObservation() throws Exception {
-        var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOONLINE@YBL/0000000000@PTAXIS",
+        var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOSAMPLE@YBL/0000000000@PTAXIS",
                 BigDecimal.valueOf(500), "EXPENSE", "Other", true, "default", null, false, null, null);
 
         importService.confirm(userId, dummyFile(), requestWith(row));

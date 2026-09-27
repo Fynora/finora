@@ -22,16 +22,16 @@ class SharedCorpusRepositoriesIT extends AbstractIntegrationTest {
     @Test
     void savesAndFindsAnObservationByKeyAndDirection() {
         CounterpartyCategoryObservation obs = new CounterpartyCategoryObservation();
-        obs.setCounterpartyKey("vpa:zeptoonline");
+        obs.setCounterpartyKey("vpa:zeptosample");
         obs.setDirection(Transaction.Type.EXPENSE);
         obs.setCategory("Shopping");
         obs.setUserId(UUID.randomUUID());
         obs.setCounterpartyTypeAtVote(CounterpartyType.BUSINESS);
         observations.save(obs);
 
-        assertThat(observations.findByCounterpartyKeyAndDirection("vpa:zeptoonline", Transaction.Type.EXPENSE))
+        assertThat(observations.findByCounterpartyKeyAndDirection("vpa:zeptosample", Transaction.Type.EXPENSE))
                 .hasSize(1);
-        assertThat(observations.findByCounterpartyKeyAndDirection("vpa:zeptoonline", Transaction.Type.INCOME))
+        assertThat(observations.findByCounterpartyKeyAndDirection("vpa:zeptosample", Transaction.Type.INCOME))
                 .isEmpty();
     }
 

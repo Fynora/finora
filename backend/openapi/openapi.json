@@ -2472,6 +2472,36 @@
                 }
             }
         },
+        "/api/v1/referrals/apply-code": {
+            "post": {
+                "tags": [
+                    "referral-controller"
+                ],
+                "operationId": "applyCode",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ApplyReferralCodeRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/recurring/dismiss": {
             "post": {
                 "tags": [
@@ -14239,6 +14269,18 @@
                     "tier"
                 ]
             },
+            "ApplyReferralCodeRequest": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                },
+                "required": [
+                    "code"
+                ]
+            },
             "DismissRecurringRequest": {
                 "type": "object",
                 "properties": {
@@ -15642,6 +15684,9 @@
                     },
                     "onboardingCompleted": {
                         "type": "boolean"
+                    },
+                    "accountCreated": {
+                        "type": "boolean"
                     }
                 }
             },
@@ -15934,6 +15979,9 @@
                     "idToken": {
                         "type": "string",
                         "minLength": 1
+                    },
+                    "referralCode": {
+                        "type": "string"
                     }
                 },
                 "required": [
@@ -16003,6 +16051,9 @@
                         "minLength": 1
                     },
                     "fullName": {
+                        "type": "string"
+                    },
+                    "referralCode": {
                         "type": "string"
                     }
                 },
@@ -18874,6 +18925,9 @@
                     "referralsOwed": {
                         "type": "integer",
                         "format": "int32"
+                    },
+                    "canApplyCode": {
+                        "type": "boolean"
                     }
                 }
             },

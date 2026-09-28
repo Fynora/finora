@@ -5,10 +5,12 @@ import com.finora.dto.ReferralDtos.AdminReferralSummaryDto;
 import com.finora.dto.ReferralDtos.MyReferralDto;
 import com.finora.dto.ReferralDtos.MyReferralsDto;
 import com.finora.dto.ReferralDtos.ReferralGrantDto;
+import com.finora.entity.Plan;
 import com.finora.entity.Referral;
 import com.finora.entity.ReferralCharge;
 import com.finora.entity.ReferralCode;
 import com.finora.entity.ReferralGrant;
+import com.finora.entity.Subscription;
 import com.finora.entity.User;
 import com.finora.exception.ApiException;
 import com.finora.notification.api.NotificationRequest;
@@ -17,11 +19,13 @@ import com.finora.notification.domain.NotificationCategory;
 import com.finora.notification.domain.NotificationChannel;
 import com.finora.notification.domain.NotificationPriority;
 import com.finora.notification.domain.NotificationType;
+import com.finora.repository.PlanRepository;
 import com.finora.repository.ReferralChargeRepository;
 import com.finora.repository.ReferralCodeRepository;
 import com.finora.repository.ReferralGrantRepository;
 import com.finora.repository.ReferralRepository;
 import com.finora.repository.RefreshTokenRepository;
+import com.finora.repository.SubscriptionRepository;
 import com.finora.repository.UserRepository;
 import com.finora.repository.WalletLedgerRepository;
 import com.finora.util.PageBounds;
@@ -69,6 +73,8 @@ public class ReferralService {
     private final AuditService auditService;
     private final ReferralGrantRepository referralGrantRepository;
     private final NotificationService notificationService;
+    private final SubscriptionRepository subscriptionRepository;
+    private final PlanRepository planRepository;
     private final ReferralChargeRepository referralChargeRepository;
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -76,6 +82,7 @@ public class ReferralService {
                             WalletLedgerRepository walletLedgerRepository, RefreshTokenRepository refreshTokenRepository,
                             UserRepository userRepository, AuditService auditService,
                             ReferralGrantRepository referralGrantRepository, NotificationService notificationService,
+                            SubscriptionRepository subscriptionRepository, PlanRepository planRepository,
                             ReferralChargeRepository referralChargeRepository) {
         this.referralCodeRepository = referralCodeRepository;
         this.referralRepository = referralRepository;
@@ -85,6 +92,8 @@ public class ReferralService {
         this.auditService = auditService;
         this.referralGrantRepository = referralGrantRepository;
         this.notificationService = notificationService;
+        this.subscriptionRepository = subscriptionRepository;
+        this.planRepository = planRepository;
         this.referralChargeRepository = referralChargeRepository;
     }
 
@@ -153,6 +162,72 @@ public class ReferralService {
 
         auditService.record(referredUserId, "REFERRAL_REGISTERED", "Referral", referral.getId(),
                 Map.of("referrerUserId", code.get().getUserId().toString()));
+    }
+
+    /**
+     * "Enter a friend's code" after signing up -- for someone who skipped the one-time prompt after
+     * a Google/Apple sign-up (those screens never had a code field), or signed up without one.
+     * Unlike {@link #redeemCode}, which must never block a signup and so fails silently, this is an
+     * explicit user action, so every refusal is a clear 4xx the app shows as-is.
+     *
+     * <p>Allowed only while {@link #canApplyCode} holds. The "hasn't subscribed" half is what keeps
+     * this honest: a referral only counts when the referred user's first charge moves it to
+     * SUBSCRIBED ({@link #onPlanChanged}), and the Razorpay dispatcher calls that on renewals too --
+     * so an already-paying user adding a code now would credit a friend on their next renewal for a
+     * subscription the friend never brought in.
+     *
+     * <p>A double submit is safe: {@code referrals.referred_user_id} is UNIQUE (V101), so a second
+     * concurrent insert fails at the database, surfaced as the same "already have one" refusal.
+     */
+    @Transactional
+    public void applyCode(UUID userId, String rawCode) {
+        String normalized = rawCode == null ? "" : rawCode.trim().toUpperCase();
+        if (normalized.isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Enter a referral code.");
+        }
+        if (referralRepository.findByReferredUserId(userId).isPresent()) {
+            throw new ApiException(HttpStatus.CONFLICT, "You've already used a referral code.");
+        }
+        if (hasEverSubscribed(userId)) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "Referral codes can only be added before you subscribe.");
+        }
+        ReferralCode code = referralCodeRepository.findByCode(normalized)
+                .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "That referral code isn't valid."));
+        if (code.getUserId().equals(userId)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "You can't use your own referral code.");
+        }
+
+        Referral referral = new Referral();
+        referral.setReferrerUserId(code.getUserId());
+        referral.setReferredUserId(userId);
+        referral.setStatus(Referral.STATUS_REGISTERED);
+        try {
+            referral = referralRepository.saveAndFlush(referral);
+        } catch (org.springframework.dao.DataIntegrityViolationException raced) {
+            throw new ApiException(HttpStatus.CONFLICT, "You've already used a referral code.");
+        }
+
+        auditService.record(userId, "REFERRAL_REGISTERED", "Referral", referral.getId(),
+                Map.of("referrerUserId", code.getUserId().toString(), "source", "applied_after_signup"));
+    }
+
+    /** Whether "Enter a friend's code" should be offered: not already referred, never subscribed. */
+    @Transactional(readOnly = true)
+    public boolean canApplyCode(UUID userId) {
+        return referralRepository.findByReferredUserId(userId).isEmpty() && !hasEverSubscribed(userId);
+    }
+
+    /** Any subscription, current or past (soft-deleted included), on a paid plan in any state but a
+     *  free trial. A trial alone has charged nothing, so a code added during one still counts on the
+     *  first real charge, exactly as a code given at signup would. */
+    private boolean hasEverSubscribed(UUID userId) {
+        for (Subscription sub : subscriptionRepository.findByUserIdIncludingDeletedOrderByCreatedAtDesc(userId)) {
+            if (Subscription.STATUS_TRIAL.equals(sub.getStatus())) continue;
+            String planCode = planRepository.findById(sub.getPlanId()).map(Plan::getCode).orElse(null);
+            if (planCode != null && !"FREE".equals(planCode)) return true;
+        }
+        return false;
     }
 
     /**
@@ -469,7 +544,7 @@ public class ReferralService {
                 .map(g -> new ReferralGrantDto(g.getId(), g.getTier(), g.getStatus(), g.getActivatedAt(), g.getExpiresAt()))
                 .toList();
         return new MyReferralsDto(code, dtos, balance, dtos.size(), plusMilestoneCounter, premiumMilestoneCounter, grants,
-                referralsOwed);
+                referralsOwed, canApplyCode(userId));
     }
 
     /** Admin Portal, Referral dashboard. An unconditional {@code findAll()} across the whole table

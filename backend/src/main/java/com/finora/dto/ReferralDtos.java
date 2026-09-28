@@ -45,7 +45,13 @@ public class ReferralDtos {
      *  referrals that must be made up before the counter climbs again (0 normally). */
     public record MyReferralsDto(String code, List<MyReferralDto> referrals, BigDecimal walletBalance,
             int referralCount, int plusMilestoneCounter, int premiumMilestoneCounter, List<ReferralGrantDto> grants,
-            int referralsOwed) {}
+            int referralsOwed,
+            // Whether to offer "Enter a friend's code" (ReferralService.canApplyCode): not already
+            // referred, and never subscribed.
+            boolean canApplyCode) {}
+
+    /** POST /api/v1/referrals/apply-code -- a friend's code, entered after signing up. */
+    public record ApplyReferralCodeRequest(@NotBlank String code) {}
 
     /** POST /api/v1/referrals/redeem. {@code tier}: ReferralGrant.TIER_PLUS or TIER_PREMIUM -- both
      *  redeem the one 7-referral milestone and grant Plus (PREMIUM is still accepted from older

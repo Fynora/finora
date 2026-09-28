@@ -17,6 +17,12 @@ vi.mock('../onboarding/OnboardingUIContext', () => ({
   useOnboardingUI: vi.fn(),
 }));
 
+// A marker: this file checks WHERE the one-time referral prompt mounts, not the prompt itself
+// (ReferralCodePrompt.test.tsx covers that).
+vi.mock('./ReferralCodePrompt', () => ({
+  ReferralCodePrompt: () => <div data-testid="referral-code-prompt" />,
+}));
+
 function renderProtected(allowUnverified?: boolean) {
   return render(
     <MemoryRouter initialEntries={['/dashboard']}>
@@ -87,6 +93,7 @@ describe('ProtectedRoute', () => {
     renderProtected();
 
     expect(screen.getByText('Protected content')).toBeInTheDocument();
+    expect(screen.getByTestId('referral-code-prompt')).toBeInTheDocument();
   });
 
   it('allows an unverified user through when allowUnverified is set (e.g. the verify-phone screen itself)', () => {
@@ -95,6 +102,8 @@ describe('ProtectedRoute', () => {
     renderProtected(true);
 
     expect(screen.getByText('Protected content')).toBeInTheDocument();
+    // Never over VerifyPhone.
+    expect(screen.queryByTestId('referral-code-prompt')).not.toBeInTheDocument();
   });
 
   it('renders the onboarding flow instead of children when onboarding is not complete and step is not tour', () => {
@@ -118,6 +127,8 @@ describe('ProtectedRoute', () => {
 
     expect(screen.getByText('Protected content')).toBeInTheDocument();
     expect(screen.queryByTestId('onboarding-flow')).not.toBeInTheDocument();
+    // Never on top of the tour.
+    expect(screen.queryByTestId('referral-code-prompt')).not.toBeInTheDocument();
   });
 
   it('allowUnverified routes skip the onboarding gate too', () => {

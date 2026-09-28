@@ -42,13 +42,28 @@ interface AuthState {
   // Same shape as login()/reactivate(): persists the session and reports whether the phone is
   // already verified -- true for an auto-linked existing account, always false for a newly
   // created one (Google sign-in never carries a phone number; see D-23).
-  loginWithGoogle: (idToken: string) => Promise<boolean>;
+  // referralCode: optional, same as register()'s -- from a friend's ?ref= link. The backend uses it
+  // only if this sign-in creates the account.
+  loginWithGoogle: (idToken: string, referralCode?: string) => Promise<boolean>;
   // Same shape as loginWithGoogle -- fullName is only present on Apple's first authorization for
   // a given account/client id pair, so callers pass whatever the popup handed back (often null).
-  loginWithApple: (idToken: string, fullName: string | null) => Promise<boolean>;
+  loginWithApple: (idToken: string, fullName: string | null, referralCode?: string) => Promise<boolean>;
   setPhoneVerified: (verified: boolean) => void;
   setOnboardingCompleted: (completed: boolean) => void;
   logout: () => void;
+  // True once, right after a Google/Apple sign-in created this account without a referral code --
+  // those screens had no code field, so ReferralCodePrompt offers one. dismissReferralPrompt()
+  // clears it for good (the code was added, or the user skipped).
+  referralPromptPending: boolean;
+  dismissReferralPrompt: () => void;
+}
+
+// Holds the email of the account the prompt is pending FOR, not just "true", so a flag left behind
+// by a session that ended without logout() is never shown to someone else signing in here. (The
+// web profile carries no user id; the email is on both the sign-in response and /users/me.)
+const REFERRAL_PROMPT_KEY = 'finora_referral_prompt_for';
+function referralPromptPendingFor(accountEmail: string): boolean {
+  return safeStorage.getItem(REFERRAL_PROMPT_KEY) === accountEmail.toLowerCase();
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -63,6 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [bootstrapping, setBootstrapping] = useState(true);
   const [email, setEmail] = useState<string | null>(safeStorage.getItem('finora_email'));
   const [fullName, setFullName] = useState<string | null>(safeStorage.getItem('finora_name'));
+  const [referralPromptPending, setReferralPromptPending] = useState(false);
   // Defaults to true when there's no stored value, matching AdminAuthContext -- which already
   // carries the reasoning this one was missing: a real `false` is only ever written by
   // login()/persist() once the backend has actually said so, so a MISSING key means "we don't
@@ -113,6 +129,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setFullName(data.fullName);
     setPhoneVerifiedState(data.phoneVerified);
     setOnboardingCompletedState(data.onboardingCompleted);
+    // Pending only if it was left pending for THIS account; a fresh Google/Apple sign-up sets it after.
+    setReferralPromptPending(referralPromptPendingFor(data.email));
     // Lets ThemeProvider (mounted above AuthProvider, so it can't consume this state directly)
     // re-pull the account's saved theme now that a token exists, instead of only ever checking
     // for one once on its own initial mount.
@@ -170,16 +188,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { phoneVerified: res.data.phoneVerified };
   }
 
-  async function loginWithGoogle(idToken: string): Promise<boolean> {
-    const res = await authApi.google(idToken);
+  async function loginWithGoogle(idToken: string, referralCode?: string): Promise<boolean> {
+    const code = referralCode?.trim() || undefined;
+    const res = await authApi.google(idToken, code);
     persist(res.data);
+    offerReferralPromptIfNew(res.data, code);
     return res.data.phoneVerified;
   }
 
-  async function loginWithApple(idToken: string, fullName: string | null): Promise<boolean> {
-    const res = await authApi.apple(idToken, fullName);
+  async function loginWithApple(idToken: string, fullName: string | null, referralCode?: string): Promise<boolean> {
+    const code = referralCode?.trim() || undefined;
+    const res = await authApi.apple(idToken, fullName, code);
     persist(res.data);
+    offerReferralPromptIfNew(res.data, code);
     return res.data.phoneVerified;
+  }
+
+  // Only a sign-in that CREATED the account, and only when no code went with it -- a returning
+  // user is never asked, and someone who already gave a code has nothing to add.
+  function offerReferralPromptIfNew(data: { email: string; accountCreated: boolean }, sentCode?: string) {
+    if (!data.accountCreated || sentCode) return;
+    safeStorage.setItem(REFERRAL_PROMPT_KEY, data.email.toLowerCase());
+    setReferralPromptPending(true);
+  }
+
+  function dismissReferralPrompt() {
+    safeStorage.removeItem(REFERRAL_PROMPT_KEY);
+    setReferralPromptPending(false);
   }
 
   function setPhoneVerified(verified: boolean) {
@@ -209,6 +244,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     safeStorage.removeItem('finora_name');
     safeStorage.removeItem('finora_phone_verified');
     safeStorage.removeItem('finora_onboarding_completed');
+    safeStorage.removeItem(REFERRAL_PROMPT_KEY);
+    setReferralPromptPending(false);
     setToken(null);
     setEmail(null);
     setFullName(null);
@@ -253,6 +290,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setFullName(profile.fullName);
         setPhoneVerifiedState(profile.phoneVerified);
         setOnboardingCompletedState(profile.onboardingCompleted);
+        // Survives a reload between sign-up and reaching the app (phone verification comes first).
+        setReferralPromptPending(referralPromptPendingFor(profile.email));
         safeStorage.setItem('finora_email', profile.email);
         safeStorage.setItem('finora_name', profile.fullName);
         safeStorage.setItem('finora_phone_verified', String(profile.phoneVerified));
@@ -270,7 +309,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ token, bootstrapping, email, fullName, phoneVerified, onboardingCompleted, login, loginWithEmailOtpRequest, loginWithEmailOtpVerify, loginWithPhoneOtp, reactivate, register, loginWithGoogle, loginWithApple, setPhoneVerified, setOnboardingCompleted, logout }}>
+    <AuthContext.Provider value={{ token, bootstrapping, email, fullName, phoneVerified, onboardingCompleted, login, loginWithEmailOtpRequest, loginWithEmailOtpVerify, loginWithPhoneOtp, reactivate, register, loginWithGoogle, loginWithApple, setPhoneVerified, setOnboardingCompleted, logout, referralPromptPending, dismissReferralPrompt }}>
       {children}
     </AuthContext.Provider>
   );

@@ -107,7 +107,7 @@ public class AuthDtos {
      * {@code GoogleIdTokenVerifierService} before trusting anything it says, same discipline as
      * {@code ResetPasswordRequest.firebaseIdToken}.
      */
-    public record GoogleAuthRequest(@NotBlank String idToken) {}
+    public record GoogleAuthRequest(@NotBlank String idToken, String referralCode) {}
 
     /**
      * D-23 Phase 2: {@code idToken} is the raw Apple identity token from native
@@ -133,7 +133,11 @@ public class AuthDtos {
      */
     public record AppleAuthRequest(
             @NotBlank String idToken,
-            String fullName
+            String fullName,
+            // Optional, same semantics as RegisterRequest.referralCode: used only when this sign-in
+            // CREATES the account (a friend's link, or a code typed on the sign-up screen before
+            // tapping Apple/Google), ignored for a returning user. See AuthService.loginWithOAuthIdentity.
+            String referralCode
     ) {}
 
     /** token = short-lived access token (15 min default); refreshToken = long-lived (30 days),
@@ -159,7 +163,12 @@ public class AuthDtos {
             // Rides the same channel phoneVerified already does -- see docs/superpowers/specs/
             // 2026-09-06-first-login-onboarding-tour-design.md §7. Appended last so every existing
             // positional constructor call needs exactly one new trailing argument.
-            boolean onboardingCompleted
+            boolean onboardingCompleted,
+            // True only on the response that created the account (register(), or a Google/Apple
+            // sign-in that made a new one). The apps use it to offer "Have a referral code?" once,
+            // right after a Google/Apple sign-up -- those screens never had a code field. Appended
+            // last for the same reason as onboardingCompleted.
+            boolean accountCreated
     ) {}
 
     /** @param scope see {@link LoginRequest#scope()} -- a reset link must be issued for the

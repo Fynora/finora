@@ -51,6 +51,8 @@ export interface AuthResponseDto {
   phoneVerified: boolean;
   maskedPhone: string | null;
   onboardingCompleted: boolean;
+  /** True only on the response that created the account -- see AuthContext.offerReferralPromptIfNew. */
+  accountCreated: boolean;
 }
 
 export const authApi = {
@@ -116,14 +118,15 @@ export const authApi = {
   // account -- verified server-side (GoogleIdTokenVerifierService), never trusted as-is. Serves
   // both registration and login: the backend auto-links to an existing account sharing the same
   // Google-verified email, or creates one, and returns the same AuthResponseDto shape either way.
-  google: (idToken: string) =>
-    api.post<AuthResponseDto>('/auth/google', { idToken }),
+  // referralCode: optional -- the backend redeems it only if this sign-in creates the account.
+  google: (idToken: string, referralCode?: string) =>
+    api.post<AuthResponseDto>('/auth/google', { idToken, referralCode }),
   // D-26 (web). Same shape as google() -- idToken is what AppleSignInButton's signIn() promise
   // resolves with, verified server-side (AppleIdTokenVerifierService), never trusted as-is.
   // fullName is only ever present on the FIRST authorization for a given Apple ID/client id pair
   // (Apple's own constraint, not this client's) -- forwarded through unvalidated, same as native.
-  apple: (idToken: string, fullName: string | null) =>
-    api.post<AuthResponseDto>('/auth/apple', { idToken, fullName }),
+  apple: (idToken: string, fullName: string | null, referralCode?: string) =>
+    api.post<AuthResponseDto>('/auth/apple', { idToken, fullName, referralCode }),
   // token is the raw verification token from a /verify-email?token=... link (register(), or a
   // fresh one loginWithGoogle sends when it finds a matching but not-yet-verified account -- see
   // VerifyEmail.tsx). Not authenticated: the token itself is the proof.
@@ -638,13 +641,25 @@ export interface ImportJobTimeline {
 }
 
 export const importJobsApi = {
+  // savePasswordAvailable (statement refresh, step 4): whether a protected PDF's password may be
+  // offered for saving. Optional because an older backend does not send it -- absent means no.
   availability: () =>
-    api.get<{ asyncImportAvailable: boolean }>('/import/jobs/availability').then((r) => r.data),
-  submit: (file: File, onProgress?: ProgressCallback) => {
+    api.get<{ asyncImportAvailable: boolean; savePasswordAvailable?: boolean }>('/import/jobs/availability')
+      .then((r) => r.data),
+  // `saved` only with the user's explicit consent: the server keeps the password encrypted so the
+  // queue can open a locked file (and a later refresh can reopen it). Both fields travel in the
+  // multipart body, never the URL. Without it a locked PDF is refused with IMPORT_008, as before.
+  submit: (file: File, onProgress?: ProgressCallback, saved?: { password: string }) => {
     const form = new FormData();
     form.append('file', file);
+    if (saved) {
+      form.append('password', saved.password);
+      form.append('savePassword', 'true');
+    }
     return api
-      .post<{ jobId: string; statusUrl: string }>('/import/jobs', form, {
+      // passwordSaved: whether a password sent with consent was kept -- false when the file turned
+      // out not to be locked. Optional because an older backend does not send it.
+      .post<{ jobId: string; statusUrl: string; passwordSaved?: boolean }>('/import/jobs', form, {
         headers: { 'Content-Type': 'multipart/form-data' },
         ...toUploadProgressConfig(onProgress),
       })
@@ -1362,6 +1377,8 @@ export interface MyReferralsDto {
    *  the retired 7-referral Premium reward it used to track. */
   premiumMilestoneCounter: number;
   grants: ReferralGrantEntry[];
+  /** Whether to offer "Enter a friend's code": not already referred, and never subscribed. */
+  canApplyCode: boolean;
   /** Referrals owed back: friends refunded after the reward they helped earn was redeemed. 0
    *  normally; premiumMilestoneCounter itself never goes below 0. Optional so a response from a
    *  backend without this field still parses. */
@@ -1372,6 +1389,8 @@ export const referralsApi = {
   myCode: () => api.get<{ code: string }>('/referrals/my-code').then((r) => r.data),
   mine: () => api.get<MyReferralsDto>('/referrals/mine').then((r) => r.data),
   redeem: (tier: 'PLUS' | 'PREMIUM') => api.post<void>('/referrals/redeem', { tier }).then(() => undefined),
+  // A friend's code entered after signing up. One per person: the server refuses a second one.
+  applyCode: (code: string) => api.post<void>('/referrals/apply-code', { code }).then(() => undefined),
 };
 
 // Real per-user, per-feature view counts -- backs Billing.tsx's "Smart Insights" usage tile,
@@ -1579,4 +1598,22 @@ export const inflowApi = {
   forgetSender: (id: string) => api.delete(`/sender-inflow-rules/${id}`),
   unresolved: (startDate: string, endDate: string) =>
     api.get<UnresolvedSender[]>('/transactions/unresolved-inflows', { params: { startDate, endDate } }).then((r) => r.data),
+};
+
+/** Settings -> Saved statement passwords (statement refresh, step 4). Names the statements that have
+ *  a saved password; the password itself is never sent back. */
+export interface SavedStatementPassword {
+  statementImportId: string;
+  fileName: string;
+  accountName: string | null;
+  periodStart: string | null;
+  periodEnd: string | null;
+  savedAt: string;
+}
+
+export const statementPasswordsApi = {
+  list: () =>
+    api.get<{ saveAvailable: boolean; items: SavedStatementPassword[] }>('/statement-passwords').then((r) => r.data),
+  remove: (statementImportId: string) => api.delete(`/statement-passwords/${statementImportId}`),
+  removeAll: () => api.delete<{ removed: number }>('/statement-passwords').then((r) => r.data),
 };

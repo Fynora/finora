@@ -59,6 +59,8 @@ export interface AuthResponseDto {
   // Same channel phoneVerified already rides -- see docs/superpowers/specs/
   // 2026-09-06-first-login-onboarding-tour-design.md §7.
   onboardingCompleted: boolean;
+  /** True only on the response that created the account -- see AuthContext.offerReferralPromptIfNew. */
+  accountCreated: boolean;
 }
 
 export const authApi = {
@@ -78,13 +80,15 @@ export const authApi = {
   // D-23 Phase 2. idToken is the raw credential from @react-native-google-signin/google-signin --
   // verified server-side (GoogleIdTokenVerifierService), never trusted client-side. Same endpoint
   // web's GoogleSignInButton already calls; see frontend/src/api/endpoints.ts's own copy.
-  google: (idToken: string) => api.post<AuthResponseDto>('/auth/google', { idToken }),
+  // referralCode: optional -- the backend redeems it only if this sign-in creates the account.
+  google: (idToken: string, referralCode?: string) =>
+    api.post<AuthResponseDto>('/auth/google', { idToken, referralCode }),
   // D-23 Phase 2 / D-26 (iOS only). idToken is the raw credential from
   // expo-apple-authentication's signInAsync(). fullName is optional and NOT part of the token --
   // Apple hands it to the CLIENT, not the backend, and only on the user's very first
   // authorization for this app -- see AppleAuthRequest's own doc comment on the backend.
-  apple: (idToken: string, fullName?: string) =>
-    api.post<AuthResponseDto>('/auth/apple', { idToken, fullName }),
+  apple: (idToken: string, fullName?: string, referralCode?: string) =>
+    api.post<AuthResponseDto>('/auth/apple', { idToken, fullName, referralCode }),
   // Completes the "Welcome back — reactivate your account?" prompt LoginScreen shows after a
   // deactivated account's password checks out -- see AuthContext.reactivate. Returns the same
   // shape as login.
@@ -627,13 +631,24 @@ export interface ImportJobTimeline {
 }
 
 export const importJobsApi = {
+  // savePasswordAvailable (statement refresh, step 4): whether a protected PDF's password may be
+  // offered for saving. Optional because an older backend does not send it -- absent means no.
   availability: () =>
-    api.get<{ asyncImportAvailable: boolean }>('/import/jobs/availability').then((r) => r.data),
-  submit: (file: RNFile, onProgress?: ProgressCallback, signal?: AbortSignal) => {
+    api.get<{ asyncImportAvailable: boolean; savePasswordAvailable?: boolean }>('/import/jobs/availability')
+      .then((r) => r.data),
+  // `saved` only with the user's explicit consent: the server keeps the password encrypted so the
+  // queue can open a locked file (and a later refresh can reopen it). Multipart body, never the URL.
+  submit: (file: RNFile, onProgress?: ProgressCallback, signal?: AbortSignal, saved?: { password: string }) => {
     const form = new FormData();
     form.append('file', file as unknown as Blob);
+    if (saved) {
+      form.append('password', saved.password);
+      form.append('savePassword', 'true');
+    }
     return api
-      .post<{ jobId: string; statusUrl: string }>('/import/jobs', form, toUploadProgressConfig(onProgress, signal))
+      // passwordSaved: whether a password sent with consent was kept -- false when the file turned
+      // out not to be locked. Optional because an older backend does not send it.
+      .post<{ jobId: string; statusUrl: string; passwordSaved?: boolean }>('/import/jobs', form, toUploadProgressConfig(onProgress, signal))
       .then((r) => r.data);
   },
   progress: (jobId: string) =>
@@ -1411,6 +1426,8 @@ export interface MyReferralsDto {
    *  the retired 7-referral Premium reward it used to track. */
   premiumMilestoneCounter: number;
   grants: ReferralGrantEntry[];
+  /** Whether to offer "Enter a friend's code": not already referred, and never subscribed. */
+  canApplyCode: boolean;
   /** Referrals owed back: friends refunded after the reward they helped earn was redeemed. 0
    *  normally; premiumMilestoneCounter itself never goes below 0. Optional so a response from a
    *  backend without this field still parses. */
@@ -1421,6 +1438,8 @@ export const referralsApi = {
   myCode: () => api.get<{ code: string }>('/referrals/my-code').then((r) => r.data),
   mine: () => api.get<MyReferralsDto>('/referrals/mine').then((r) => r.data),
   redeem: (tier: 'PLUS' | 'PREMIUM') => api.post<void>('/referrals/redeem', { tier }).then(() => undefined),
+  // A friend's code entered after signing up. One per person: the server refuses a second one.
+  applyCode: (code: string) => api.post<void>('/referrals/apply-code', { code }).then(() => undefined),
 };
 
 /** Subscription billing V4. Mirrors frontend's EntitlementsDto exactly -- backend endpoint
@@ -1533,4 +1552,22 @@ export const inflowApi = {
   forgetSender: (id: string) => api.delete(`/sender-inflow-rules/${id}`),
   unresolved: (startDate: string, endDate: string) =>
     api.get<UnresolvedSender[]>('/transactions/unresolved-inflows', { params: { startDate, endDate } }).then((r) => r.data),
+};
+
+/** Settings -> Saved statement passwords (statement refresh, step 4). Names the statements that have
+ *  a saved password; the password itself is never sent back. */
+export interface SavedStatementPassword {
+  statementImportId: string;
+  fileName: string;
+  accountName: string | null;
+  periodStart: string | null;
+  periodEnd: string | null;
+  savedAt: string;
+}
+
+export const statementPasswordsApi = {
+  list: () =>
+    api.get<{ saveAvailable: boolean; items: SavedStatementPassword[] }>('/statement-passwords').then((r) => r.data),
+  remove: (statementImportId: string) => api.delete(`/statement-passwords/${statementImportId}`),
+  removeAll: () => api.delete<{ removed: number }>('/statement-passwords').then((r) => r.data),
 };

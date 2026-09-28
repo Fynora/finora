@@ -157,6 +157,26 @@ describe('IdentifyStep', () => {
     expect(onContinue).not.toHaveBeenCalled();
   });
 
+  // A ?ref= link lands on THIS step; its Google button creates the account, so the code must go
+  // with it -- before, it was dropped and the friend's referral never counted.
+  it("sends a friend's link code along with a Google sign-in", async () => {
+    vi.stubEnv('VITE_GOOGLE_LOGIN_CLIENT_ID', 'test-client-id.apps.googleusercontent.com');
+    vi.mocked(isGoogleLoginConfigured).mockReturnValue(true);
+    const initialize = vi.fn();
+    vi.mocked(loadGoogleIdentityServices).mockResolvedValue({ initialize, renderButton: vi.fn() } as any);
+    vi.mocked(authApi.google).mockResolvedValue({
+      data: { token: 't', refreshToken: 'r', email: 'jane@example.com', fullName: 'Jane', phoneVerified: true, accountCreated: true },
+    } as any);
+    const { onSuccess } = renderStep({ referralCode: 'ABCD1234' });
+
+    await waitFor(() => expect(initialize).toHaveBeenCalled());
+    const { callback } = initialize.mock.calls[initialize.mock.calls.length - 1][0];
+    callback({ credential: 'a-real-looking-jwt' });
+
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledWith(true));
+    expect(authApi.google).toHaveBeenLastCalledWith('a-real-looking-jwt', 'ABCD1234');
+  });
+
   it('shows the backend error message and does not call onSuccess when Google sign-in fails', async () => {
     vi.stubEnv('VITE_GOOGLE_LOGIN_CLIENT_ID', 'test-client-id.apps.googleusercontent.com');
     vi.mocked(isGoogleLoginConfigured).mockReturnValue(true);

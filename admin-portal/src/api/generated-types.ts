@@ -804,6 +804,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/referrals/apply-code": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["applyCode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/recurring/dismiss": {
         parameters: {
             query?: never;
@@ -6100,6 +6116,9 @@ export interface components {
         RedeemMilestoneRequest: {
             tier: string;
         };
+        ApplyReferralCodeRequest: {
+            code: string;
+        };
         DismissRecurringRequest: {
             merchant: string;
         };
@@ -6620,6 +6639,7 @@ export interface components {
             /** Format: uuid */
             id?: string;
             onboardingCompleted?: boolean;
+            accountCreated?: boolean;
         };
         RefreshRequest: {
             refreshToken?: string;
@@ -6721,6 +6741,7 @@ export interface components {
         };
         GoogleAuthRequest: {
             idToken: string;
+            referralCode?: string;
         };
         ForgotPasswordRequest: {
             /** Format: email */
@@ -6746,6 +6767,7 @@ export interface components {
         AppleAuthRequest: {
             idToken: string;
             fullName?: string;
+            referralCode?: string;
         };
         MergeRequest: {
             /** Format: uuid */
@@ -7856,6 +7878,7 @@ export interface components {
             grants?: components["schemas"]["ReferralGrantDto"][];
             /** Format: int32 */
             referralsOwed?: number;
+            canApplyCode?: boolean;
         };
         ReferralGrantDto: {
             /** Format: uuid */
@@ -11938,6 +11961,30 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["RedeemMilestoneRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
+    applyCode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyReferralCodeRequest"];
             };
         };
         responses: {

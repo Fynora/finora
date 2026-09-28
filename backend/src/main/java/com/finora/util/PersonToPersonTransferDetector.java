@@ -371,6 +371,11 @@ public final class PersonToPersonTransferDetector {
         Matcher repeatedRef = REPEATED_REF_UPI_LAYOUT.matcher(description);
         if (repeatedRef.find()) return repeatedRefPayeeIsAPerson(repeatedRef.group(2));
 
+        // Kotak's IMPS debit glues its payee to the reference ("SentIMPS<ref><payee>/<IFSC>/<note>"):
+        // the payee slot is read, like HDFC's, and the free-text note never is.
+        Matcher gluedImps = OwnAccountEvidence.GLUED_IMPS_PAYEE.matcher(description);
+        if (gluedImps.find()) return looksLikeSlotName(withoutCareOf(gluedImps.group(1)).trim());
+
         // Scanned over the WHOLE description, not just the text after the marker: the counterparty
         // does not reliably follow the rail. This repo's own trace fixtures contain narrations
         // whose rail token is the LAST segment ("<name>/<ref>/IMPS"), and slicing them at the
@@ -420,8 +425,9 @@ public final class PersonToPersonTransferDetector {
 
     /**
      * The part of a narration that is about the counterparty, for the layouts whose other parts are
-     * known: HDFC's without its trailing remark, and the repeated-reference layout without its
-     * remark and the bank branch after it. Any other narration is returned whole.
+     * known: HDFC's without its trailing remark, Kotak's glued IMPS debit as its rail and payee only,
+     * and the repeated-reference layout without its remark and the bank branch after it. Any other
+     * narration is returned whole.
      *
      * <p>A remark is free text whoever typed it, and a branch names the bank, not the payee. Read as
      * evidence they typed people as businesses and banks: a payer's "... BILL AND ..." remark vetoed
@@ -432,6 +438,9 @@ public final class PersonToPersonTransferDetector {
         if (description == null) return null;
         Matcher dash = DASH_UPI_WITHOUT_REMARK.matcher(description);
         if (dash.matches()) return withoutCareOf(dash.group(1));
+        // Kotak's IMPS debit: its payee, behind the rail word its narration glued to the reference.
+        Matcher gluedImps = OwnAccountEvidence.GLUED_IMPS_PAYEE.matcher(description);
+        if (gluedImps.find()) return withoutCareOf("IMPS/" + gluedImps.group(1).trim());
         Matcher repeated = REPEATED_REF_UPI_LAYOUT.matcher(description);
         if (repeated.find()) {
             String between = repeated.group(2);

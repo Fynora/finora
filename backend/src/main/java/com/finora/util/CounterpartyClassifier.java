@@ -93,7 +93,13 @@ public final class CounterpartyClassifier {
     // 6: a remark's strong signals (bank mechanism, government body, merchant rail) count when the
     //    payee's own words say nothing, never over a person; a web-domain handle's ".co." is not
     //    "& Co". No corpus row changes; both are pinned by constructed tests.
-    public static final short VERSION = 6;
+    // 7: the counterparty KEY changed again (CounterpartyIdentity): Kotak's "SentIMPS<ref><payee>/"
+    //    is keyed on the payee instead of the free-text note, a VPA local part split by a line wrap
+    //    is rejoined, and "Pay for Intent" is no key. The same Kotak layout is typed from its payee
+    //    slot, never its free-text note. Measured on the corpus: 37 keys change and 13 rows move
+    //    UNKNOWN -> PERSON (one payee, whose 14th row a name-like note had already typed PERSON);
+    //    every one read.
+    public static final short VERSION = 7;
 
     /**
      * Bank-generated activity, where the counterparty is the institution itself. These words are

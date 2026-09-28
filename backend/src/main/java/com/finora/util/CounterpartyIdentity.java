@@ -141,9 +141,26 @@ public final class CounterpartyIdentity {
                 return local.replaceAll("[._-]", "").isEmpty()
                         ? "" : cap("masked:" + local + "@" + vpa.group(2).toLowerCase());
             }
+            // F-22, measured on the corpus: a line wrap left a space inside the local part
+            // ("...ELEMEN TS@HDFCBANK"), so only the scrap after it matched, and a scrap of three
+            // characters or fewer keyed strangers together. The run of local-part characters right
+            // before that space is the rest of it.
+            if (local.length() <= 3 && vpa.start() >= 2 && description.charAt(vpa.start() - 1) == ' ') {
+                int from = vpa.start() - 1;
+                while (from > 0 && isLocalPartChar(description.charAt(from - 1))) from--;
+                if (from < vpa.start() - 1) local = description.substring(from, vpa.start() - 1).toLowerCase() + local;
+            }
             // A bare numeric local part is a phone number, which is a perfectly good identity; a
             // local part that is only punctuation is not.
             if (!local.replaceAll("[._-]", "").isEmpty()) return cap("vpa:" + local);
+        }
+
+        // Kotak's IMPS debit glues its payee to the reference, so every segment naming the payee
+        // carries digits and is skipped, and the key fell to the free-text note ("name:rent").
+        Matcher glued = OwnAccountEvidence.GLUED_IMPS_PAYEE.matcher(description);
+        if (glued.find()) {
+            String payee = meaningfulPart(String.join(" ", NON_LETTERS.split(glued.group(1))).trim());
+            if (payee.length() >= 3) return cap("name:" + payee.toLowerCase());
         }
 
         String best = longestName(description, false);
@@ -165,6 +182,9 @@ public final class CounterpartyIdentity {
             // PSP is shared by every payee on it.
             String trimmed = PSP_HANDLE.matcher(segment).replaceAll(" ").trim();
             if (trimmed.isEmpty()) continue;
+            // A UPI intent payment's note in place of a payee ("Pay for Intent"): keyed on, it was
+            // "name:for" and joined every such payment.
+            if (CategoryRules.INTENT_BOILERPLATE.matcher(trimmed).matches()) continue;
             if (byWord) {
                 trimmed = String.join(" ", java.util.Arrays.stream(trimmed.split("\\s+"))
                         .filter(w -> countDigits(w) < 4).toList());
@@ -202,6 +222,11 @@ public final class CounterpartyIdentity {
             sb.append(word);
         }
         return sb.toString().trim();
+    }
+
+    /** The characters of a VPA's local part, as {@link #VPA} reads it. */
+    private static boolean isLocalPartChar(char c) {
+        return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_';
     }
 
     private static int countDigits(String s) {

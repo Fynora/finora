@@ -26,6 +26,11 @@ public final class OwnAccountEvidence {
 
     private static final Pattern REFERENCE = Pattern.compile("(?<!\\d)\\d{12}(?!\\d)");
 
+    /** Kotak's IMPS debit, "SentIMPS<12-digit reference><payee>/<IFSC>/<note>": the payee is glued to
+     *  the reference, so nothing that splits on separators finds it. Group 1 is the payee. Shared by
+     *  the payee name (CategoryRules) and the grouping key (CounterpartyIdentity). */
+    public static final Pattern GLUED_IMPS_PAYEE = Pattern.compile("(?i)\\bSentIMPS\\d{12}([^/]{2,60})/");
+
     /** Sender/payee slots, one pattern per observed bank shape; group 1 is the slot. Order matters
      *  only where two could match the same text, and none of these overlap. */
     private static final List<Pattern> SLOTS = List.of(
@@ -38,7 +43,7 @@ public final class OwnAccountEvidence {
             // IMPS: "IMPS-CR/<name>/"
             Pattern.compile("(?i)\\bIMPS-CR/([^/]{2,60})/"),
             // IMPS glued: "SentIMPS<12 digits><name>/"
-            Pattern.compile("(?i)\\bSentIMPS\\d{12}([^/]{2,60})/"),
+            GLUED_IMPS_PAYEE,
             // NEFT credit: "NEFT CR-<ifsc>-<remitter>-<beneficiary>-<ref>" -- remitter only
             Pattern.compile("(?i)\\bNEFT CR-[A-Z0-9]{11}-([^-]{2,80})-"),
             // NEFT credit, star: "NEFT*<ifsc>*<ref>*<remitter> ..."

@@ -83,7 +83,11 @@ describe('StatementRefreshBanner', () => {
 
     await user.click(await screen.findByRole('button', { name: /update 1 statement/i }));
 
-    await waitFor(() => expect(api.applyAll).toHaveBeenCalledTimes(1));
+    // Wait for the update to finish (the button's label comes back), then count: a waitFor on the
+    // count alone passes at the first call, before any extra ones.
+    await waitFor(() => expect(api.applyAll).toHaveBeenCalled());
+    expect(await screen.findByRole('button', { name: /update 1 statement/i })).toBeEnabled();
+    expect(api.applyAll).toHaveBeenCalledTimes(1);
   });
 
   it('flags a removed row the user had edited', async () => {

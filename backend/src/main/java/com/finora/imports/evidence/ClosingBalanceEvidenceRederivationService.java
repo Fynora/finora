@@ -51,10 +51,13 @@ public class ClosingBalanceEvidenceRederivationService {
     private final StatementContentService statementContentService;
     private final PdfPreviewGenerator pdfPreviewGenerator;
     private final StatementTotalsValidator statementTotalsValidator;
+    private final com.finora.imports.passwords.StatementPasswordService statementPasswordService;
 
     public ClosingBalanceEvidenceRederivationService(ImportSessionService importSessionService,
             StatementContentService statementContentService, PdfPreviewGenerator pdfPreviewGenerator,
-            StatementTotalsValidator statementTotalsValidator) {
+            StatementTotalsValidator statementTotalsValidator,
+            com.finora.imports.passwords.StatementPasswordService statementPasswordService) {
+        this.statementPasswordService = statementPasswordService;
         this.importSessionService = importSessionService;
         this.statementContentService = statementContentService;
         this.pdfPreviewGenerator = pdfPreviewGenerator;
@@ -119,7 +122,10 @@ public class ClosingBalanceEvidenceRederivationService {
 
         int sectionIndex = sourceSectionIndex != null ? sourceSectionIndex : DEFAULT_SECTION_INDEX;
         PdfPreviewGenerator.PdfGenerationResult result =
-                pdfPreviewGenerator.generateSectionsWithContext(userId, session.getFileName(), bytes);
+                pdfPreviewGenerator.generateSectionsWithContext(userId, session.getFileName(), bytes,
+                        // A locked upload queued with a password the user saved (statement refresh,
+                        // step 4) still holds it here: this runs before the confirm moves it on.
+                        statementPasswordService.forSession(sessionId).orElse(null));
 
         // THE SECTION INDEX IS IN FILTERED SPACE. It comes from confirmMultiSection's per-section
         // loop (an index into the persisted sectionsJson) or from confirmSession's whole-document

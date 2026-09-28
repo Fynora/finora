@@ -638,13 +638,25 @@ export interface ImportJobTimeline {
 }
 
 export const importJobsApi = {
+  // savePasswordAvailable (statement refresh, step 4): whether a protected PDF's password may be
+  // offered for saving. Optional because an older backend does not send it -- absent means no.
   availability: () =>
-    api.get<{ asyncImportAvailable: boolean }>('/import/jobs/availability').then((r) => r.data),
-  submit: (file: File, onProgress?: ProgressCallback) => {
+    api.get<{ asyncImportAvailable: boolean; savePasswordAvailable?: boolean }>('/import/jobs/availability')
+      .then((r) => r.data),
+  // `saved` only with the user's explicit consent: the server keeps the password encrypted so the
+  // queue can open a locked file (and a later refresh can reopen it). Both fields travel in the
+  // multipart body, never the URL. Without it a locked PDF is refused with IMPORT_008, as before.
+  submit: (file: File, onProgress?: ProgressCallback, saved?: { password: string }) => {
     const form = new FormData();
     form.append('file', file);
+    if (saved) {
+      form.append('password', saved.password);
+      form.append('savePassword', 'true');
+    }
     return api
-      .post<{ jobId: string; statusUrl: string }>('/import/jobs', form, {
+      // passwordSaved: whether a password sent with consent was kept -- false when the file turned
+      // out not to be locked. Optional because an older backend does not send it.
+      .post<{ jobId: string; statusUrl: string; passwordSaved?: boolean }>('/import/jobs', form, {
         headers: { 'Content-Type': 'multipart/form-data' },
         ...toUploadProgressConfig(onProgress),
       })
@@ -1575,4 +1587,22 @@ export const inflowApi = {
   forgetSender: (id: string) => api.delete(`/sender-inflow-rules/${id}`),
   unresolved: (startDate: string, endDate: string) =>
     api.get<UnresolvedSender[]>('/transactions/unresolved-inflows', { params: { startDate, endDate } }).then((r) => r.data),
+};
+
+/** Settings -> Saved statement passwords (statement refresh, step 4). Names the statements that have
+ *  a saved password; the password itself is never sent back. */
+export interface SavedStatementPassword {
+  statementImportId: string;
+  fileName: string;
+  accountName: string | null;
+  periodStart: string | null;
+  periodEnd: string | null;
+  savedAt: string;
+}
+
+export const statementPasswordsApi = {
+  list: () =>
+    api.get<{ saveAvailable: boolean; items: SavedStatementPassword[] }>('/statement-passwords').then((r) => r.data),
+  remove: (statementImportId: string) => api.delete(`/statement-passwords/${statementImportId}`),
+  removeAll: () => api.delete<{ removed: number }>('/statement-passwords').then((r) => r.data),
 };

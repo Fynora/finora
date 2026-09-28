@@ -13,6 +13,7 @@ vi.mock('../api/endpoints', () => ({
   }) },
   workspaceApi: { getSettings: vi.fn().mockResolvedValue({ autoApplyConfidenceThreshold: 90 }) },
   analyticsApi: { importStatistics: vi.fn().mockResolvedValue(null) },
+  statementPasswordsApi: { list: vi.fn().mockResolvedValue({ saveAvailable: false, items: [] }) },
   deviceApi: { list: vi.fn().mockResolvedValue([]) },
   gmailApi: { status: vi.fn().mockResolvedValue({ available: false }) },
   entitlementsApi: { mine: vi.fn().mockResolvedValue({ planCode: 'FREE', planName: 'Free', features: {} }) },

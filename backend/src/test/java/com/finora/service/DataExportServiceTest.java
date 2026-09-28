@@ -249,7 +249,8 @@ class DataExportServiceTest {
                 chatConversationRepository, chatMessageRepository, healthScoreSnapshotRepository,
                 userFinancialFocusRepository, userChecklistEventRepository, recurringDismissalRepository,
                 accountAggregatorLinkRepository, userMerchantCategoryResolutionRepository,
-                inflowKindRepository, senderInflowRuleRepository, objectMapper);
+                inflowKindRepository, senderInflowRuleRepository, objectMapper,
+                mock(com.finora.repository.StatementPasswordRepository.class));
     }
 
     private User user() {

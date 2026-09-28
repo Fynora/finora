@@ -34,11 +34,23 @@ import java.util.regex.Pattern;
  *       only a break where a line is exactly full is a wrap. A line one short of the width ended at a
  *       space. A full line glues when the joined segment carries a digit or either side is a separator;
  *       two plain words keep the space, since nothing says which it was.</li>
+ *   <li><b>Printed line ends</b> -- a text layer that ends its narration lines with a line separator
+ *       (the real Standard Chartered export ends each field's line with {@code \r}). There a line
+ *       that ends in neither that separator nor a blank was wrapped inside a word, and a line ending
+ *       in a blank was wrapped between words. Measured on that export: all 69 breaks of the first
+ *       kind fell inside a word or an identifier (a UPI id, an IFSC), all 51 of the second between
+ *       words. A document with no such separator anywhere gives no such evidence and is unchanged.</li>
  * </ul>
  */
 final class NarrationLineBreaks {
 
     static final char MARK = '\n';
+
+    /** Where a control line separator was, after {@link #withControlBreaksAsMarks}: a line end the
+     *  text layer printed itself, as opposed to a {@link #MARK} a join wrote. Internal only; every
+     *  resolved cell has it replaced. */
+    private static final char PRINTED_END = '\u001E';
+    private static final Pattern ANY_BREAK = Pattern.compile("[\n\u001E]");
 
     /** Evaluated widths, and the bar a width must clear before it is trusted. */
     private static final int MIN_WIDTH = 20;
@@ -56,7 +68,7 @@ final class NarrationLineBreaks {
     private static final Pattern ENDS_WITH_DATE = Pattern.compile(".*\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4}$");
     private static final Pattern STARTS_WITH_TIME = Pattern.compile("^\\d{1,2}:\\d{2}.*");
 
-    enum Rule { HANDLE, SEPARATOR, CHARACTER_WIDTH }
+    enum Rule { HANDLE, SEPARATOR, CHARACTER_WIDTH, WITHOUT_PRINTED_SPACE }
 
     private enum Boundary { FULL_LINE, SHORT_LINE, INSIDE_LINE }
 
@@ -73,7 +85,7 @@ final class NarrationLineBreaks {
             for (Map<String, String> row : section.rows()) {
                 for (String v : row.values()) {
                     String n = withControlBreaksAsMarks(v);
-                    if (n != null && n.indexOf(MARK) >= 0) cells.add(piecesOf(n));
+                    if (hasBreak(n)) cells.add(piecesOf(n));
                 }
             }
         }
@@ -92,7 +104,7 @@ final class NarrationLineBreaks {
         for (PdfTableLocator.LocatedSection section : doc.sections()) {
             List<Map<String, String>> rows = new ArrayList<>(section.rows().size());
             for (Map<String, String> row : section.rows()) {
-                rows.add(resolveRow(row, width, fired));
+                rows.add(resolveRow(row, width, controlBreaks, fired));
             }
             sections.add(new PdfTableLocator.LocatedSection(section.auxiliaryText(), rows, section.evidence()));
         }
@@ -102,49 +114,89 @@ final class NarrationLineBreaks {
             if (fired.contains(Rule.HANDLE)) ctx.record("NARRATION_WRAP_JOINED_AT_HANDLE");
             if (fired.contains(Rule.SEPARATOR)) ctx.record("NARRATION_WRAP_JOINED_AT_SEPARATOR");
             if (fired.contains(Rule.CHARACTER_WIDTH)) ctx.record("NARRATION_WRAP_JOINED_AT_CHARACTER_WIDTH");
+            if (fired.contains(Rule.WITHOUT_PRINTED_SPACE)) ctx.record("NARRATION_WRAP_JOINED_WITHOUT_PRINTED_SPACE");
         }
         return new PdfTableLocator.LocatedDocument(sections, doc.physicalRowFormationEvidence());
     }
 
-    private static Map<String, String> resolveRow(Map<String, String> row, Integer width, Set<Rule> fired) {
+    private static Map<String, String> resolveRow(Map<String, String> row, Integer width,
+                                                  boolean lineEndsPrinted, Set<Rule> fired) {
         boolean anyBreak = false;
         for (String v : row.values()) {
-            String n = withControlBreaksAsMarks(v);
-            if (n != null && n.indexOf(MARK) >= 0) { anyBreak = true; break; }
+            if (hasBreak(withControlBreaksAsMarks(v))) { anyBreak = true; break; }
         }
         if (!anyBreak) return row;
         Map<String, String> resolved = new LinkedHashMap<>();
         for (Map.Entry<String, String> cell : row.entrySet()) {
             String n = withControlBreaksAsMarks(cell.getValue());
-            resolved.put(cell.getKey(), n == null || n.indexOf(MARK) < 0 ? n : resolveCell(piecesOf(n), width, fired));
+            resolved.put(cell.getKey(), !hasBreak(n) ? n
+                    : resolveCell(piecesOf(n), printedEndsOf(n), width, lineEndsPrinted, fired));
         }
         return resolved;
     }
 
     /** A control line break that ends a text run is often followed by a join's own break: that is
      *  one printed line end, so a run of breaks with only blanks between them collapses to one. */
-    private static final Pattern REPEATED_BREAKS = Pattern.compile("\n(?:[ \t]*\n)+[ \t]*");
+    private static final Pattern REPEATED_BREAKS = Pattern.compile("[\n\u001E](?:[ \t]*[\n\u001E])+[ \t]*");
 
     private static String withControlBreaksAsMarks(String v) {
         if (v == null || !CONTROL_LINE_BREAK.matcher(v).find()) return v;
-        String marked = CONTROL_LINE_BREAK.matcher(v).replaceAll(String.valueOf(MARK));
-        return REPEATED_BREAKS.matcher(marked).replaceAll(String.valueOf(MARK));
+        String marked = CONTROL_LINE_BREAK.matcher(v).replaceAll(String.valueOf(PRINTED_END));
+        return REPEATED_BREAKS.matcher(marked).replaceAll(m ->
+                m.group().indexOf(PRINTED_END) >= 0 ? String.valueOf(PRINTED_END) : String.valueOf(MARK));
+    }
+
+    private static boolean hasBreak(String v) {
+        return v != null && ANY_BREAK.matcher(v).find();
     }
 
     private static List<String> piecesOf(String v) {
-        return Arrays.asList(v.split(String.valueOf(MARK), -1));
+        return Arrays.asList(ANY_BREAK.split(v, -1));
+    }
+
+    /** For each break of {@code v}, in order: whether the text layer printed that line end itself. */
+    private static List<Boolean> printedEndsOf(String v) {
+        List<Boolean> out = new ArrayList<>();
+        for (int i = 0; i < v.length(); i++) {
+            char c = v.charAt(i);
+            if (c == PRINTED_END) out.add(true);
+            else if (c == MARK) out.add(false);
+        }
+        return out;
     }
 
     static String resolveCell(List<String> pieces, Integer width) {
-        return resolveCell(pieces, width, EnumSet.noneOf(Rule.class));
+        return resolveCell(pieces, null, width, false, EnumSet.noneOf(Rule.class));
     }
 
-    private static String resolveCell(List<String> pieces, Integer width, Set<Rule> fired) {
+    private static String resolveCell(List<String> pieces, List<Boolean> printedEnds, Integer width,
+                                      boolean lineEndsPrinted, Set<Rule> fired) {
         List<Boundary> boundaries = width == null ? null : boundaries(trimmedLengths(pieces), width);
         StringBuilder out = new StringBuilder(pieces.get(0));
         for (int i = 1; i < pieces.size(); i++) {
             String line = pieces.get(i - 1).strip();
             String next = pieces.get(i).strip();
+            if (lineEndsPrinted && printedEnds != null && !printedEnds.get(i - 1)) {
+                // A text layer that prints its own line ends, at a line end it did not print: the
+                // line was wrapped, and its last character says where (see the class comment).
+                // A blank on either side of the break was printed. Measured: a piece joined from
+                // another column arrives with its leading blank, and gluing it built a new token.
+                String earlier = pieces.get(i - 1);
+                String later = pieces.get(i);
+                boolean printedBlank = (!earlier.isEmpty() && Character.isWhitespace(earlier.charAt(earlier.length() - 1)))
+                        || (!later.isEmpty() && Character.isWhitespace(later.charAt(0)));
+                int end = out.length();
+                while (end > 0 && Character.isWhitespace(out.charAt(end - 1))) end--;
+                out.setLength(end);
+                if (!printedBlank && !line.isEmpty() && !next.isEmpty()) {
+                    Rule rule = evidenceRule(line, next);
+                    fired.add(rule != null ? rule : Rule.WITHOUT_PRINTED_SPACE);
+                } else {
+                    out.append(' ');
+                }
+                out.append(pieces.get(i).stripLeading());
+                continue;
+            }
             Rule rule = null;
             if (boundaries == null) {
                 rule = evidenceRule(line, next);

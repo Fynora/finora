@@ -89,10 +89,14 @@ public class ImportSessionService {
     private final ObjectMapper objectMapper;
     private final BuildVersionResolver buildVersionResolver;
 
+    private final com.finora.repository.StatementPasswordRepository statementPasswordRepository;
+
     public ImportSessionService(ImportSessionRepository importSessionRepository,
                                  ImportJobRepository importJobRepository,
                                  HeldStatementRepository heldStatementRepository, ObjectMapper objectMapper,
-                                 BuildVersionResolver buildVersionResolver) {
+                                 BuildVersionResolver buildVersionResolver,
+                                 com.finora.repository.StatementPasswordRepository statementPasswordRepository) {
+        this.statementPasswordRepository = statementPasswordRepository;
         this.importSessionRepository = importSessionRepository;
         this.importJobRepository = importJobRepository;
         this.heldStatementRepository = heldStatementRepository;
@@ -655,6 +659,9 @@ public class ImportSessionService {
     @Transactional
     public void deleteSession(UUID userId, UUID sessionId) {
         ImportSession session = getOwnedSession(userId, sessionId);
+        // A password the user let Fynora keep for this upload (statement refresh, step 4) goes with
+        // it now, rather than waiting for the hourly sweep: nothing is left for it to open.
+        statementPasswordRepository.deleteHeldByJobsOfSession(sessionId);
         importSessionRepository.delete(session);
     }
 

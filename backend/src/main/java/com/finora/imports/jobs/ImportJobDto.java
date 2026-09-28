@@ -18,9 +18,19 @@ public final class ImportJobDto {
      * <p>{@code statusUrl} is returned rather than left for the client to construct, so the polling
      * route can move without every client needing to be updated in step.
      */
-    public record Accepted(UUID jobId, String statusUrl) {
+    /**
+     * @param passwordSaved whether a password sent with the user's consent was kept (statement
+     *        refresh, step 4). False when none was sent, and when the file turned out not to be
+     *        locked -- it needs none, so none is kept, and the client says so rather than letting
+     *        the user believe it was saved.
+     */
+    public record Accepted(UUID jobId, String statusUrl, boolean passwordSaved) {
         public static Accepted of(ImportJob job) {
-            return new Accepted(job.getId(), "/api/v1/import/jobs/" + job.getId());
+            return of(job, false);
+        }
+
+        public static Accepted of(ImportJob job, boolean passwordSaved) {
+            return new Accepted(job.getId(), "/api/v1/import/jobs/" + job.getId(), passwordSaved);
         }
     }
 
@@ -31,7 +41,13 @@ public final class ImportJobDto {
      * the response type out from under every client — the same reason {@code Accepted} carries a
      * {@code statusUrl} rather than leaving the client to build one.
      */
-    public record Availability(boolean asyncImportAvailable) {}
+    /**
+     * @param savePasswordAvailable whether the client may offer to keep a protected PDF's password
+     *        (statement refresh, step 4). Only meaningful with {@code asyncImportAvailable}: a kept
+     *        password is what lets a locked file use the queue, so without the queue there is
+     *        nothing to offer.
+     */
+    public record Availability(boolean asyncImportAvailable, boolean savePasswordAvailable) {}
 
     /**
      * Progress, for polling at 1-2s.

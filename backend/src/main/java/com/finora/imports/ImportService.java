@@ -127,6 +127,8 @@ public class ImportService {
      * always injects the real one. See {@link #observeClosingBalanceEvidence}.
      */
     private final com.finora.imports.evidence.ClosingBalanceEvidenceShadowObserver evidenceShadowObserver;
+    /** Null only in hand-built unit tests that never confirm a queued upload. */
+    private final com.finora.imports.passwords.StatementPasswordService statementPasswordService;
     private final EntitlementService entitlementService;
     private final AccountAggregatorGuard accountAggregatorGuard;
     private final com.finora.service.SharedCorpusService sharedCorpusService;
@@ -156,8 +158,10 @@ public class ImportService {
                           AccountAggregatorGuard accountAggregatorGuard,
                           com.finora.service.SharedCorpusService sharedCorpusService,
                           com.finora.service.UserMerchantCategoryResolutionService userMerchantCategoryResolutionService,
-                          StatementProvenanceRecorder provenanceRecorder) {
+                          StatementProvenanceRecorder provenanceRecorder,
+                          com.finora.imports.passwords.StatementPasswordService statementPasswordService) {
         this.provenanceRecorder = provenanceRecorder;
+        this.statementPasswordService = statementPasswordService;
         this.evidenceShadowObserver = evidenceShadowObserver;
         this.entitlementService = entitlementService;
         this.accountAggregatorGuard = accountAggregatorGuard;
@@ -436,8 +440,14 @@ public class ImportService {
      */
     public DryRunResult dryRunParse(UUID userId, String fileName, byte[] fileContent, String sourceFormat)
             throws IOException {
+        return dryRunParse(userId, fileName, fileContent, sourceFormat, null);
+    }
+
+    /** As above; {@code password} opens a protected PDF whose password the user saved (step 4), else null. */
+    public DryRunResult dryRunParse(UUID userId, String fileName, byte[] fileContent, String sourceFormat,
+                                    String password) throws IOException {
         if (StatementUpload.Format.PDF.name().equals(sourceFormat)) {
-            var result = pdfPreviewGenerator.generateSectionsWithContext(userId, fileName, fileContent, null);
+            var result = pdfPreviewGenerator.generateSectionsWithContext(userId, fileName, fileContent, password);
             List<StagedAccountSection> sections = onlySectionsThatAreActuallyAccounts(result.sections());
             ExtractionCheck.rejectIfNothingWasExtracted(sections, result.documentContext());
             if (sections.size() <= 1) {
@@ -784,6 +794,7 @@ public class ImportService {
         }
 
         reconcileAcross(userId, persisted);
+        carrySavedPassword(session.getId(), persisted.stream().map(p -> p.savedImport().getId()).toList());
 
         List<ConfirmResponse> responses = new ArrayList<>();
         for (PersistedSection section : persisted) {
@@ -832,10 +843,22 @@ public class ImportService {
         // /End() -- see requireStatementPeriodWithinFreeLimit's own doc comment.
         LocalDate[] period = periodOf(detectedAccount);
         requireStatementPeriodWithinFreeLimit(userId, period[0], period[1]);
-        return confirm(userId, session.getFileName(), statementContentService.read(session), request, null,
+        ConfirmResponse response = confirm(userId, session.getFileName(), statementContentService.read(session), request, null,
                 session.getLayoutMetadataJson(), session.getLayoutFingerprint(), session.getActivatedCapabilitiesJson(),
                 session.getUnparseableSummaryJson(), session.getSource(), importSessionService.readCreditCardSummary(session),
                 detectedAccount == null ? null : detectedAccount.accountHolderName(), session.getParserVersion());
+        carrySavedPassword(session.getId(), List.of(response.statementImportId()));
+        return response;
+    }
+
+    /**
+     * A queued upload's saved password (statement refresh, step 4) moves onto the statements it
+     * produced, in this confirm's transaction. A no-op for every upload saved without one.
+     */
+    private void carrySavedPassword(UUID importSessionId, List<UUID> statementImportIds) {
+        if (statementPasswordService == null) return;
+        statementPasswordService.carryToStatements(importSessionId,
+                statementImportIds.stream().filter(java.util.Objects::nonNull).toList());
     }
 
     /**

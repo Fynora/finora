@@ -778,6 +778,14 @@ app:
       # from a re-read. Off until the user-facing button and summary (step 5) ship; while off,
       # POST /statement-imports/{id}/refresh answers 404.
       enabled: ${STATEMENT_REFRESH_APPLY_ENABLED:false}
+  statement-passwords:
+    save:
+      # Statement refresh, step 4 (StatementPasswordService): with the user's consent, keep a
+      # protected PDF's password encrypted so a locked upload can use the import queue (trust check,
+      # admin Held Imports) and a refresh can reopen the file. Off until the privacy policy that
+      # describes it (PR #1790) ships with the feature. Saved passwords can be listed and removed
+      # either way.
+      enabled: ${STATEMENT_PASSWORDS_SAVE_ENABLED:false}
   audit:
     redaction:
       # BH-044. AuditService.redactExpiredMetadata replaces audit_logs.metadata with a small

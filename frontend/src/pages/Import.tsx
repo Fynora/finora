@@ -214,6 +214,14 @@ export default function Import() {
   // across the network before finding out, then push it again on the synchronous path.
   const [jobId, setJobId] = useState<string | null>(null);
   const [asyncAvailable, setAsyncAvailable] = useState(false);
+  // Statement refresh, step 4: whether this deployment may keep a protected PDF's password, and
+  // whether the user ticked the box to let it. Never ticked by default -- keeping a password is
+  // something the user chooses, per upload.
+  const [savePasswordOffered, setSavePasswordOffered] = useState(false);
+  const [savePassword, setSavePassword] = useState(false);
+  // Set when the user asked to keep the password but the file turned out not to be locked, so
+  // nothing was kept -- said out loud rather than letting them believe it was saved.
+  const [passwordNotKept, setPasswordNotKept] = useState(false);
 
   // Staged rows. `review` holds the include flags and the duplicate decisions as one value --
   // see lib/importReview.ts for why they are not two pieces of state.
@@ -365,7 +373,10 @@ export default function Import() {
     // Failing closed on purpose: if this call fails we simply use the synchronous path, which is
     // what every deployment supports. An import that works slowly beats one that does not start.
     importJobsApi.availability()
-      .then((a) => setAsyncAvailable(a.asyncImportAvailable))
+      .then((a) => {
+        setAsyncAvailable(a.asyncImportAvailable);
+        setSavePasswordOffered(a.asyncImportAvailable && a.savePasswordAvailable === true);
+      })
       .catch(() => setAsyncAvailable(false));
 
     if (reimportState) {
@@ -602,29 +613,36 @@ export default function Import() {
       setPendingPdf(null);
       setPdfPassword('');
       setPasswordState(null);
+      setSavePassword(false);
       advance();
     }, UPLOAD_COMPLETE_DWELL_MS);
   }
 
-  async function upload(file: File, isPdf: boolean, password: string | undefined) {
+  // `mayKeep` is false only on the one retry below, after the server refused to keep a password.
+  async function upload(file: File, isPdf: boolean, password: string | undefined, mayKeep = true) {
     clearError();
     setUploadProgress(0);
     // Set once a synchronous stage call succeeds, so the finally block below skips its usual
     // reset and leaves uploadProgress/uploadCompleted for celebrateThenAdvance to clear itself.
     let holdForCompletion = false;
+    const keepPassword = mayKeep && !!password && savePassword && savePasswordOffered;
+    let retryWithoutKeeping = false;
     try {
-      // The queue, when this deployment has one and the file does not need a password.
+      // The queue, when this deployment has one and the file does not need a password -- or when
+      // the user chose to let Fynora keep the password (statement refresh, step 4), which is what
+      // lets the worker open the file minutes later and a refresh reopen it later still.
       //
-      // A protected PDF is deliberately excluded rather than made to work: the job carries a
-      // content address and no password, and the worker opens the document minutes later with
-      // nobody to ask. Sending it synchronously keeps the one flow where the person who knows the
-      // password is still on the screen.
-      if (asyncAvailable && !password) {
-        const accepted = await importJobsApi.submit(file, setUploadProgress);
+      // Otherwise a password goes to the synchronous path, which uses it once and keeps nothing:
+      // the job would carry no password, and the worker would open the document with nobody to ask.
+      if (asyncAvailable && (!password || keepPassword)) {
+        const accepted = await importJobsApi.submit(file, setUploadProgress,
+          keepPassword ? { password: password! } : undefined);
+        setSavePassword(false);
         setFileFormat(isPdf ? 'PDF' : 'CSV');
         setPendingPdf(null);
         setPdfPassword('');
         setPasswordState(null);
+        setPasswordNotKept(keepPassword && accepted.passwordSaved === false);
         setJobId(accepted.jobId);
         // StatementHistory's "Recent Imports" section (Premium Import Reliability v1, §3.2) reads
         // this same key with a 30s staleTime -- without this, a person who was on that page inside
@@ -671,6 +689,13 @@ export default function Import() {
       const contractMessage = importFailureMessage(code);
       if (!e.response) {
         showError('Unable to reach the import service. The upload request could not be completed — check your connection and try again.');
+      } else if (keepPassword && code === PDF_PASSWORD_REQUIRED) {
+        // The queue would not keep the password -- saving was switched off after this page asked.
+        // Retrying the same way would be refused forever, so stop offering it and send the file
+        // once on the path that keeps nothing: the user already gave the password for this upload.
+        setSavePasswordOffered(false);
+        setSavePassword(false);
+        retryWithoutKeeping = true;
       } else if (code === PDF_PASSWORD_REQUIRED || code === PDF_PASSWORD_INVALID) {
         // Not a parse failure and not shown as one -- the file is fine, it just hasn't been
         // opened yet. The panel stays put with this same file so the retry is one field and one
@@ -696,6 +721,8 @@ export default function Import() {
     } finally {
       if (!holdForCompletion) setUploadProgress(null);
     }
+    // After the finally, so this attempt's own reset has run and cannot land in the middle of the retry.
+    if (retryWithoutKeeping) await upload(file, isPdf, password, false);
   }
 
   // The single-account path's three review actions. Each is the same one-line delegation the
@@ -1014,6 +1041,11 @@ export default function Import() {
               the user did not ask for. */}
           {jobId && (
             <>
+              {passwordNotKept && (
+                <p className="text-xs text-muted" role="status" data-testid="password-not-kept">
+                  This statement isn't password protected, so there was no password to keep.
+                </p>
+              )}
               <ImportProgress
                 jobId={jobId}
                 onReady={(sessionId) => void openReviewedJob(sessionId)}
@@ -1093,6 +1125,30 @@ export default function Import() {
                 </p>
               </div>
 
+              {savePasswordOffered && (
+                <div className="flex items-start gap-2">
+                  <input
+                    id="pdf-save-password"
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={savePassword}
+                    onChange={(e) => setSavePassword(e.target.checked)}
+                    disabled={uploading}
+                    aria-describedby="pdf-save-password-help"
+                  />
+                  <div>
+                    <label htmlFor="pdf-save-password" className="text-sm text-ink">
+                      Keep this password so Fynora can read this statement again later
+                    </label>
+                    <p id="pdf-save-password-help" className="text-xs text-muted">
+                      Stored encrypted, only for this statement. It lets us re-read the statement when we
+                      improve how statements are read, and lets our team check it if the import has a
+                      problem on our side. Remove it any time in Settings → Data.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <UploadProgressPanel
                 state={uploadPanelState}
                 progress={uploadProgress ?? 0}
@@ -1106,6 +1162,7 @@ export default function Import() {
                         setPendingPdf(null);
                         setPdfPassword('');
                         setPasswordState(null);
+                        setSavePassword(false);
                         clearError();
                       }}
                     >

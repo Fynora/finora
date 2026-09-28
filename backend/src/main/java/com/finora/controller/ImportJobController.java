@@ -62,11 +62,15 @@ public class ImportJobController {
     private final ImportJobService importJobService;
     private final CurrentUser currentUser;
 
+    private final com.finora.imports.passwords.StatementPasswordService statementPasswordService;
+
     public ImportJobController(ImportJobService importJobService, CurrentUser currentUser,
-                               com.finora.uploads.UploadScanGate uploadScanGate) {
+                               com.finora.uploads.UploadScanGate uploadScanGate,
+                               com.finora.imports.passwords.StatementPasswordService statementPasswordService) {
         this.importJobService = importJobService;
         this.currentUser = currentUser;
         this.uploadScanGate = uploadScanGate;
+        this.statementPasswordService = statementPasswordService;
     }
 
     private final com.finora.uploads.UploadScanGate uploadScanGate;
@@ -83,10 +87,20 @@ public class ImportJobController {
      * password ({@link PdfTextExtractor#needsPassword}). It reads no page content, is bounded by
      * the 10MB upload cap and the per-IP import rate limit, and exists because the alternative --
      * queueing a locked file -- ends in a failure nobody is present to answer.
+     *
+     * <p>Statement refresh, step 4: a locked PDF IS queued when the user agreed to let Fynora keep
+     * its password ({@code savePassword=true} with the {@code password}). The password is checked
+     * against the file here and saved encrypted against the job, so the worker can open it, the
+     * trust check runs on it like any other upload, and a failure on our side reaches admin Held
+     * Imports. Without that consent a locked file is refused exactly as before, and the client
+     * falls back to the synchronous path, which uses the password once and keeps nothing. Both
+     * fields travel in the multipart body, never the URL, like {@code /imports/pdf/stage}'s.
      */
     @PostMapping(consumes = "multipart/form-data")
     public ResponseEntity<ApiResponse<ImportJobDto.Accepted>> submit(
-            @RequestParam("file") MultipartFile file) throws Exception {
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "password", required = false) String password,
+            @RequestParam(value = "savePassword", required = false) Boolean savePassword) throws Exception {
         // Validated here rather than in the worker: a file the parser will certainly reject should
         // fail while the user is still looking at the upload dialog, not minutes later in a job
         // status they have to go and check.
@@ -106,16 +120,30 @@ public class ImportJobController {
         // finish". Refused HERE with the same IMPORT_008 the synchronous endpoints return, which
         // both clients already answer by opening the password field on the same file. Production,
         // 2026-09-19: a blank password field on a locked statement reached the queue and died there.
+        String passwordToSave = null;
         if (format == StatementUpload.Format.PDF) {
+            boolean locked;
             try (java.io.InputStream in = file.getInputStream()) {
-                if (PdfTextExtractor.needsPassword(in)) {
+                locked = PdfTextExtractor.needsPassword(in);
+            }
+            if (locked) {
+                boolean consented = Boolean.TRUE.equals(savePassword) && password != null && !password.isEmpty()
+                        && statementPasswordService.enabled();
+                if (!consented) {
                     throw new ApiException(ErrorCode.IMPORT_PDF_PASSWORD_REQUIRED);
                 }
+                try (java.io.InputStream in = file.getInputStream()) {
+                    if (!PdfTextExtractor.opensWith(in, password)) {
+                        throw new ApiException(ErrorCode.IMPORT_PDF_PASSWORD_INVALID);
+                    }
+                }
+                passwordToSave = password;
             }
+            // An unlocked file needs no password, so one sent with it is never kept.
         }
 
         var accepted = ImportJobDto.Accepted.of(
-                importJobService.accept(currentUser.id(), file, format));
+                importJobService.accept(currentUser.id(), file, format, passwordToSave), passwordToSave != null);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(ApiResponse.ok(accepted));
     }
 

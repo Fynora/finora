@@ -122,6 +122,11 @@ public class CapabilityCoverageService {
             // letterhead line) kept out of the rows as page furniture -- the real HDFC bank-name
             // footer and Standard Chartered's footer date. See PdfTableLocator.repeatedPageFurniture.
             "LEADING_BUFFER_REPEATED_PAGE_FURNITURE_DIVERTED",
+            // A dateless line whose only text is a totals label ("Total") beside figures in the
+            // amount columns -- the real Standard Chartered export's closing column-total line --
+            // kept as auxiliary text instead of merged into the last transaction. See
+            // PdfTableLocator.isBareTotalsRow.
+            "TABLE_TOTALS_ROW_DIVERTED",
             // A reference-shaped token printed in the reference column on a transaction's amount
             // line, kept there although the narration's measured span reached its position (the
             // real Indian Overseas Bank statement). See PdfTableLocator.bucketRow.

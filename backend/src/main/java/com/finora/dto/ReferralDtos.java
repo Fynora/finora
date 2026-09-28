@@ -40,7 +40,13 @@ public class ReferralDtos {
      *  value would make older app builds offer a Redeem the server now rejects. {@code grants} is this user's own referral-grant history, newest first;
      *  the UI reads it to show an ACTIVE grant's expiry or a queued PENDING one. */
     public record MyReferralsDto(String code, List<MyReferralDto> referrals, BigDecimal walletBalance,
-            int referralCount, int plusMilestoneCounter, int premiumMilestoneCounter, List<ReferralGrantDto> grants) {}
+            int referralCount, int plusMilestoneCounter, int premiumMilestoneCounter, List<ReferralGrantDto> grants,
+            // Whether to offer "Enter a friend's code" (ReferralService.canApplyCode): not already
+            // referred, and never subscribed.
+            boolean canApplyCode) {}
+
+    /** POST /api/v1/referrals/apply-code -- a friend's code, entered after signing up. */
+    public record ApplyReferralCodeRequest(@NotBlank String code) {}
 
     /** POST /api/v1/referrals/redeem. {@code tier}: ReferralGrant.TIER_PLUS or TIER_PREMIUM -- both
      *  redeem the one 7-referral milestone and grant Plus (PREMIUM is still accepted from older

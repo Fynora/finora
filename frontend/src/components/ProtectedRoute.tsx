@@ -1,4 +1,5 @@
 import { Navigate, useLocation } from 'react-router-dom';
+import { ReferralCodePrompt } from './ReferralCodePrompt';
 import { useAuth } from '../context/AuthContext';
 import { useOnboardingUI } from '../onboarding/OnboardingUIContext';
 import { OnboardingFlow } from '../onboarding/OnboardingFlow';
@@ -60,5 +61,12 @@ export function ProtectedRoute({ children, allowUnverified = false }: ProtectedR
     }
     return <OnboardingFlow />;
   }
-  return <>{children}</>;
+  // The one-time "Have a referral code?" after a Google/Apple sign-up: only here, once verified and
+  // onboarded, so it never covers VerifyPhone, onboarding, or the tour. Renders nothing otherwise.
+  return (
+    <>
+      {children}
+      {!allowUnverified && <ReferralCodePrompt />}
+    </>
+  );
 }

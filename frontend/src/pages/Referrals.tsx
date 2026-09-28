@@ -29,6 +29,60 @@ function statusLabel(status: string) {
   }
 }
 
+/**
+ * "Enter a friend's code" -- for someone who signed up without one (Google/Apple sign-up has no code
+ * field, and the one-time ReferralCodePrompt can be skipped). Shown only while the server says
+ * canApplyCode: not already referred, never subscribed. After a code is added the refetched
+ * canApplyCode is false and this card is gone -- one code per person, ever. Mirrors mobile.
+ */
+function FriendCodeCard() {
+  const queryClient = useQueryClient();
+  const [code, setCode] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const apply = useMutation({
+    mutationFn: (value: string) => referralsApi.applyCode(value),
+    onMutate: () => setError(null),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['referrals-mine'] }),
+    onError: (e: any) => setError(e?.response?.data?.message ?? 'Could not add this code. Try again.'),
+  });
+  const trimmed = code.trim();
+  const canSubmit = trimmed.length > 0 && !apply.isPending;
+
+  return (
+    <section data-testid="friend-code-card">
+    <FinoraCard padding="lg">
+      <p className="text-sm font-semibold text-ink">Were you invited by a friend?</p>
+      <p className="text-xs text-muted mb-3">Enter their code so it counts for them. You can only use one code, before you subscribe.</p>
+      <form
+        className="flex items-center gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (canSubmit) apply.mutate(trimmed);
+        }}
+      >
+        <label htmlFor="friend-code-input" className="sr-only">Friend&apos;s referral code</label>
+        <input
+          id="friend-code-input"
+          value={code}
+          onChange={(e) => setCode(e.target.value.toUpperCase())}
+          autoComplete="off"
+          placeholder="Friend's code"
+          className="flex-1 min-w-0 border border-border rounded-lg px-3 py-2 text-sm bg-bg text-ink tracking-wider"
+        />
+        <button
+          type="submit"
+          disabled={!canSubmit}
+          className="bg-primary text-white text-xs font-semibold rounded-lg px-3 py-2 flex-shrink-0 disabled:opacity-50"
+        >
+          {apply.isPending ? 'Adding…' : 'Add code'}
+        </button>
+      </form>
+      {error && <p className="text-xs text-danger mt-2" role="alert">{error}</p>}
+    </FinoraCard>
+    </section>
+  );
+}
+
 /** Mirrors ReferralService.MILESTONE_REFERRALS on the backend. */
 const REFERRAL_MILESTONE = 7;
 
@@ -170,6 +224,8 @@ export default function Referrals() {
           </div>
         )}
       </FinoraCard>
+
+      {mine?.canApplyCode && <FriendCodeCard />}
 
       <FinoraCard padding="lg">
         <p className="text-xs uppercase text-muted mb-1">Wallet balance</p>

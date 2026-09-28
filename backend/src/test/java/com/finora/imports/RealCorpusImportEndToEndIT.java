@@ -17,6 +17,7 @@ import com.finora.repository.MerchantLearningEventRepository;
 import com.finora.repository.StatementImportRepository;
 import com.finora.repository.TransactionRepository;
 import com.finora.repository.UserRepository;
+import com.finora.service.SubscriptionService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -96,6 +97,7 @@ class RealCorpusImportEndToEndIT extends AbstractIntegrationTest {
     @Autowired private UserRepository userRepository;
     @Autowired private MerchantLearningEventRepository learningEventRepository;
     @Autowired private StatementImportRepository statementImportRepository;
+    @Autowired private SubscriptionService subscriptionService;
 
     private final List<UUID> createdUserIds = new ArrayList<>();
 
@@ -165,6 +167,13 @@ class RealCorpusImportEndToEndIT extends AbstractIntegrationTest {
         user.setPhoneVerified(true);
         User saved = userRepository.save(user);
         createdUserIds.add(saved.getId());
+        // On the Plus plan, because this instrument measures whether a statement imports, not what
+        // a plan allows. A plain user is on the Free plan, whose 31-day statement-period cap
+        // (ImportService.requireStatementPeriodWithinFreeLimit) refused every multi-month statement
+        // in the corpus at confirm -- eight of them -- before the import path under test ran.
+        // ImportEntitlementGateIT owns that gate; this test only needs to get past it.
+        subscriptionService.provisionFreeSubscription(saved.getId());
+        subscriptionService.changePlan(saved.getId(), "PLUS", "real-corpus import instrument", saved.getId());
         return saved;
     }
 

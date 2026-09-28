@@ -139,4 +139,37 @@ class UploadScanGateTest {
         verify(auditService).record(any(), any(), any(), any(), metadata.capture());
         assertThat(metadata.getValue().get("fileName")).isEqualTo("evilforged log line.pdf");
     }
+
+    /** The scanner's reply text is not something the uploader controls, but it is external text
+     *  reaching a log line, so a line break in it must not be able to forge a second entry.
+     *  Code-scanning #204-#207 (java/log-injection). */
+    @Test
+    void aLineBreakInTheScannersReplyCannotForgeASecondLogLine() {
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(UploadScanGate.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            String forged = "Eicar\r\n[ERROR] forged entry";
+            UploadScanGate infected = new UploadScanGate(
+                    providing(answering(ScanResult.infected(forged))), auditService, "reject");
+            UploadScanGate down = new UploadScanGate(
+                    providing(answering(ScanResult.unavailable(forged))), auditService, "reject");
+            UploadScanGate allowed = new UploadScanGate(
+                    providing(answering(ScanResult.unavailable(forged))), auditService, "allow");
+
+            assertThatThrownBy(() -> infected.requireClean(file, userId, "x")).isInstanceOf(ApiException.class);
+            assertThatThrownBy(() -> down.requireClean(file, userId, "x")).isInstanceOf(ApiException.class);
+            allowed.requireClean(file, userId, "x");
+
+            assertThat(appender.list).hasSize(3);
+            for (var event : appender.list) {
+                String line = event.getFormattedMessage();
+                assertThat(line).doesNotContain("\r").doesNotContain("\n");
+                assertThat(line).contains("Eicar??[ERROR] forged entry");
+            }
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
 }

@@ -31,18 +31,31 @@ import java.util.Map;
  * @param unanchoredReasons rows that failed to become transaction anchors, by reason. Never the
  *                          rows themselves — this table holds structure and outcome, never
  *                          statement content.
+ * @param identity          which bank and statement type the engine read the document as; never
+ *                          null ({@link DocumentIdentity#NONE} when nothing was identified).
  */
-public record ParseDiagnostics(Integer rowCount, Map<String, Integer> unanchoredReasons) {
+public record ParseDiagnostics(Integer rowCount, Map<String, Integer> unanchoredReasons,
+                               DocumentIdentity identity) {
 
     /** Nothing measured. Distinct from "measured, and the answer was zero". */
     public static final ParseDiagnostics NONE = new ParseDiagnostics(null, Map.of());
 
     public ParseDiagnostics {
         unanchoredReasons = byCountDescending(unanchoredReasons);
+        if (identity == null) identity = DocumentIdentity.NONE;
+    }
+
+    public ParseDiagnostics(Integer rowCount, Map<String, Integer> unanchoredReasons) {
+        this(rowCount, unanchoredReasons, DocumentIdentity.NONE);
     }
 
     public static ParseDiagnostics of(int rowCount, Map<String, Integer> unanchoredReasons) {
         return new ParseDiagnostics(rowCount, unanchoredReasons);
+    }
+
+    /** The same measurements, with what the engine identified the document as. */
+    public ParseDiagnostics withIdentity(DocumentIdentity documentIdentity) {
+        return new ParseDiagnostics(rowCount, unanchoredReasons, documentIdentity);
     }
 
     /** Total rows that could not be anchored, however they failed. */

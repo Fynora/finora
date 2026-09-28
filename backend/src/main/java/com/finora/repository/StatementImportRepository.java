@@ -511,6 +511,23 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
     @Query("DELETE FROM StatementRefreshPreview p WHERE p.userId = :userId")
     int deleteRefreshPreviewsOfUser(@Param("userId") UUID userId);
 
+    /** A statement's refresh results (StatementRefreshRun), which quote its narrations -- deleted
+     *  with it, the same as its previews above. */
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
+    @Query("DELETE FROM StatementRefreshRun r WHERE r.userId = :userId AND r.statementImportId = :statementImportId")
+    int deleteRefreshRunsOfStatement(@Param("userId") UUID userId, @Param("statementImportId") UUID statementImportId);
+
+    /** Every refresh result a user has, deleted by the account purge. */
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
+    @Query("DELETE FROM StatementRefreshRun r WHERE r.userId = :userId")
+    int deleteRefreshRunsOfUser(@Param("userId") UUID userId);
+
+    /** The statement, locked for the rest of the transaction: a refresh re-reads its rows and patches
+     *  them under this lock, so two refreshes (or a refresh and a delete) never interleave. */
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT s FROM StatementImport s WHERE s.id = :id")
+    java.util.Optional<StatementImport> findByIdForUpdate(@Param("id") UUID id);
+
     /**
      * The statements a refresh dry run has not yet checked under {@code parserVersion}: live, on a
      * live account, not replaced by a re-upload (a superseded statement's rows no longer count, so a
@@ -525,10 +542,23 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
                AND (s.parser_version IS NULL OR s.parser_version <> :parserVersion)
                AND NOT EXISTS (SELECT 1 FROM statement_refresh_previews p
                                 WHERE p.statement_import_id = s.id AND p.parser_version = :parserVersion)
+               AND NOT EXISTS (SELECT 1 FROM transactions g
+                                WHERE g.statement_import_id = s.id AND g.source = 'GMAIL_IMPORT' AND g.deleted_at IS NULL)
              ORDER BY s.created_at, s.id
              LIMIT :limit
             """, nativeQuery = true)
     List<UUID> findIdsAwaitingRefreshCheck(@Param("parserVersion") String parserVersion, @Param("limit") int limit);
+
+    /**
+     * Whether this "statement" is a Gmail receipt: its stored file is a short provenance marker, not
+     * a document, so there is nothing to re-read. Statements don't record their origin; their rows do.
+     * Live rows only, like the dry run's candidate query: that is what idx_transactions_statement_import
+     * (partial, deleted_at IS NULL) serves, and the dry run runs every minute. A receipt whose one row
+     * the user deleted is missed -- re-reading its marker then simply fails, harmlessly, once.
+     */
+    @Query(value = "SELECT EXISTS (SELECT 1 FROM transactions WHERE statement_import_id = :statementImportId "
+            + "AND source = 'GMAIL_IMPORT' AND deleted_at IS NULL)", nativeQuery = true)
+    boolean isGmailReceipt(@Param("statementImportId") UUID statementImportId);
 
     /** How many statements findIdsAwaitingRefreshCheck still has for this build -- the backlog. */
     @Query(value = """
@@ -538,6 +568,8 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
                AND (s.parser_version IS NULL OR s.parser_version <> :parserVersion)
                AND NOT EXISTS (SELECT 1 FROM statement_refresh_previews p
                                 WHERE p.statement_import_id = s.id AND p.parser_version = :parserVersion)
+               AND NOT EXISTS (SELECT 1 FROM transactions g
+                                WHERE g.statement_import_id = s.id AND g.source = 'GMAIL_IMPORT' AND g.deleted_at IS NULL)
             """, nativeQuery = true)
     long countAwaitingRefreshCheck(@Param("parserVersion") String parserVersion);
 }

@@ -3,6 +3,7 @@ package com.finora.imports;
 import com.finora.dto.ImportDto.StagedAccountSection;
 import com.finora.exception.ApiException;
 import com.finora.exception.ErrorCode;
+import com.finora.imports.analysis.DocumentIdentity;
 import com.finora.imports.analysis.ParseDiagnostics;
 import com.finora.imports.analysis.StatementAnalysisSession;
 import com.finora.imports.analysis.StatementAnalysisRecorder;
@@ -121,7 +122,8 @@ public class AdminAnalysisService {
                         StagedAccountSectionFilter.onlySectionsThatAreActuallyAccounts(result.sections());
                 diagnostics = ParseDiagnostics.of(
                         sections.stream().mapToInt(section -> section.rows().size()).sum(),
-                        result.documentContext().unanchoredReasons());
+                        result.documentContext().unanchoredReasons())
+                        .withIdentity(DocumentIdentity.ofSections(sections));
                 // Mirrors ImportService exactly, now including the filter above: since P-002 Fix 1,
                 // this also means asking the zero-extraction question of the WHOLE document rather
                 // than only of documents that located a single section. The old gate here carried
@@ -140,7 +142,8 @@ public class AdminAnalysisService {
                     new ByteArrayInputStream(content));
             fingerprint = result.documentContext().buildFingerprint();
             diagnostics = ParseDiagnostics.of(result.response().rows().size(),
-                    result.documentContext().unanchoredReasons());
+                    result.documentContext().unanchoredReasons())
+                    .withIdentity(DocumentIdentity.of(result.response().detectedAccount()));
             ExtractionCheck.rejectIfNothingWasExtracted(result.response(), result.documentContext());
             return required(analysisRecorder.recordParsed(adminUserId,
                     StatementAnalysisSession.Source.ADMIN_ANALYSIS, fileName, format, content.length,

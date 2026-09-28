@@ -71,11 +71,15 @@ class AdminStatementAnalysisControllerIT extends AbstractIntegrationTest {
     }
 
     private HttpEntity<MultiValueMap<String, Object>> uploadRequest(User user) {
+        return uploadRequest(user, "synthetic-statement.csv");
+    }
+
+    private HttpEntity<MultiValueMap<String, Object>> uploadRequest(User user, String fileName) {
         HttpHeaders headers = bearerFor(user);
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
         body.add("file", new ByteArrayResource(CSV.getBytes(StandardCharsets.UTF_8)) {
-            @Override public String getFilename() { return "synthetic-statement.csv"; }
+            @Override public String getFilename() { return fileName; }
         });
         return new HttpEntity<>(body, headers);
     }
@@ -116,6 +120,172 @@ class AdminStatementAnalysisControllerIT extends AbstractIntegrationTest {
                 "/api/v1/admin/imports/analyses", HttpMethod.GET, new HttpEntity<>(bearerFor(admin)), String.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    void plainUser_isForbiddenFromThePagedAnalyses() {
+        User user = createUser("USER");
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/admin/imports/analyses/paged", HttpMethod.GET, new HttpEntity<>(bearerFor(user)), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    void admin_pagesThroughAnalysesWithoutOverlap() throws Exception {
+        // The table is shared across every IT, so this asserts on shape and on the rows it wrote
+        // itself, never on an exact total.
+        User admin = createUser("ADMIN");
+        for (int i = 0; i < 3; i++) {
+            analysisRepository.save(StatementAnalysisSession.parsed(
+                    "SA-" + UUID.randomUUID().toString().replace("-", "").substring(0, 20),
+                    admin.getId(), StatementAnalysisSession.Source.ADMIN_ANALYSIS,
+                    "statement.pdf", "PDF", 1L, "FP-PAGED", 1, 1L, 1, null));
+        }
+
+        JsonNode first = pagedAs(admin, 0, 2);
+        JsonNode second = pagedAs(admin, 1, 2);
+
+        assertThat(first.path("content")).hasSize(2);
+        assertThat(first.path("page").asInt()).isZero();
+        assertThat(first.path("size").asInt()).isEqualTo(2);
+        assertThat(first.path("totalElements").asLong()).isGreaterThanOrEqualTo(3);
+        assertThat(first.path("totalPages").asInt()).isGreaterThanOrEqualTo(2);
+        assertThat(second.path("page").asInt()).isEqualTo(1);
+
+        var firstRefs = new java.util.HashSet<String>();
+        first.path("content").forEach(n -> firstRefs.add(n.path("reference").asText()));
+        second.path("content").forEach(n ->
+                assertThat(firstRefs).doesNotContain(n.path("reference").asText()));
+        // No file name or user id on this endpoint either -- same boundary as the rest of the page.
+        assertThat(first.toString()).doesNotContain("statement.pdf").doesNotContain(admin.getId().toString());
+    }
+
+    @Test
+    void admin_analysingARecognisedBanksStatement_recordsTheBankItWasReadAs() throws Exception {
+        // BankRegistry's last signal is the file name, so a synthetic CSV named for a bank is
+        // recognised end to end without any real statement content.
+        User admin = createUser("ADMIN");
+        JsonNode analysis = analyse(admin, "hdfc-statement.csv");
+
+        assertThat(analysis.path("outcome").asText()).isEqualTo("PARSED");
+        assertThat(analysis.path("identityChecked").asBoolean()).isTrue();
+        assertThat(analysis.path("bankName").asText()).isEqualTo("HDFC Bank");
+        // The bank's name, never the file name it was recognised from.
+        assertThat(analysis.toString()).doesNotContain("hdfc-statement.csv");
+
+        // And it survives the round trip through the table the page actually lists.
+        String reference = analysis.path("reference").asText();
+        JsonNode listed = null;
+        for (JsonNode row : pagedAs(admin, 0, 100).path("content")) {
+            if (reference.equals(row.path("reference").asText())) listed = row;
+        }
+        assertThat(listed).as("the analysis just made is on the first page").isNotNull();
+        assertThat(listed.path("bankName").asText()).isEqualTo("HDFC Bank");
+    }
+
+    @Test
+    void admin_analysingAnUnrecognisedStatement_recordsThatDetectionRanAndFoundNoBank() throws Exception {
+        User admin = createUser("ADMIN");
+        JsonNode analysis = analyse(admin, "synthetic-statement.csv");
+
+        assertThat(analysis.path("identityChecked").asBoolean()).isTrue();
+        assertThat(analysis.path("bankName").isNull()).isTrue();
+    }
+
+    @Test
+    void aRowWhoseDetectionNeverRan_saysSoRatherThanLookingUnrecognised() throws Exception {
+        User admin = createUser("ADMIN");
+        String reference = "SA-" + UUID.randomUUID().toString().replace("-", "").substring(0, 20);
+        analysisRepository.save(StatementAnalysisSession.failed(reference, admin.getId(),
+                StatementAnalysisSession.Source.ADMIN_ANALYSIS, "locked.pdf", "PDF", 1L, null,
+                com.finora.exception.ErrorCode.IMPORT_PDF_PASSWORD_REQUIRED.name(), "x", 1L, null, null));
+
+        JsonNode analysis = mapper.readTree(restTemplate.exchange("/api/v1/admin/imports/analyses/" + reference,
+                HttpMethod.GET, new HttpEntity<>(bearerFor(admin)), String.class).getBody())
+                .path("data").path("analysis");
+
+        assertThat(analysis.path("identityChecked").asBoolean()).isFalse();
+        assertThat(analysis.path("bankName").isNull()).isTrue();
+    }
+
+    private JsonNode analyse(User admin, String fileName) throws Exception {
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/admin/imports/analyses", HttpMethod.POST, uploadRequest(admin, fileName), String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        return mapper.readTree(response.getBody()).path("data").path("analysis");
+    }
+
+    @Test
+    void admin_askingForAHugePage_getsTheCappedSize() throws Exception {
+        User admin = createUser("ADMIN");
+        assertThat(pagedAs(admin, 0, 100_000).path("size").asInt()).isEqualTo(100);
+    }
+
+    @Test
+    void admin_askingForAPageFarPastTheEnd_getsAnEmptyPageNotAnError() throws Exception {
+        // page * size past Integer.MAX_VALUE is an offset JPA cannot express.
+        User admin = createUser("ADMIN");
+        JsonNode page = pagedAs(admin, Integer.MAX_VALUE, 100);
+        assertThat(page.path("content")).isEmpty();
+    }
+
+    @Test
+    void admin_negativeOrZeroPagingValues_areClampedNotRejected() throws Exception {
+        User admin = createUser("ADMIN");
+        JsonNode page = pagedAs(admin, -5, 0);
+        assertThat(page.path("page").asInt()).isZero();
+        assertThat(page.path("size").asInt()).isEqualTo(1);
+    }
+
+    @Test
+    void admin_pagingFromASnapshot_isNotShiftedByAnUploadThatArrivesMidBrowse() throws Exception {
+        User admin = createUser("ADMIN");
+        for (int i = 0; i < 4; i++) saveParsed(admin);
+
+        String snapshot = pagedAs(admin, 0, 2, null).path("content").get(0).path("createdAt").asText();
+        JsonNode secondBefore = pagedAs(admin, 1, 2, snapshot);
+
+        String arrived = saveParsed(admin);
+
+        JsonNode secondAfter = pagedAs(admin, 1, 2, snapshot);
+        assertThat(refs(secondAfter)).containsExactlyElementsOf(refs(secondBefore));
+        assertThat(secondAfter.path("totalElements").asLong()).isEqualTo(secondBefore.path("totalElements").asLong());
+        assertThat(refs(pagedAs(admin, 0, 2, snapshot))).doesNotContain(arrived);
+        // The snapshot row itself is on its own first page -- no precision was lost on the way.
+        assertThat(pagedAs(admin, 0, 2, snapshot).path("content").get(0).path("createdAt").asText())
+                .isEqualTo(snapshot);
+        // Without a snapshot the new upload is the newest row.
+        assertThat(refs(pagedAs(admin, 0, 2, null)).get(0)).isEqualTo(arrived);
+    }
+
+    private String saveParsed(User owner) {
+        String reference = "SA-" + UUID.randomUUID().toString().replace("-", "").substring(0, 20);
+        analysisRepository.save(StatementAnalysisSession.parsed(reference, owner.getId(),
+                StatementAnalysisSession.Source.ADMIN_ANALYSIS, "statement.pdf", "PDF", 1L,
+                "FP-SNAPSHOT", 1, 1L, 1, null));
+        return reference;
+    }
+
+    private static java.util.List<String> refs(JsonNode page) {
+        var out = new java.util.ArrayList<String>();
+        page.path("content").forEach(n -> out.add(n.path("reference").asText()));
+        return out;
+    }
+
+    private JsonNode pagedAs(User user, int page, int size) throws Exception {
+        return pagedAs(user, page, size, null);
+    }
+
+    private JsonNode pagedAs(User user, int page, int size, String before) throws Exception {
+        var builder = UriComponentsBuilder.fromPath("/api/v1/admin/imports/analyses/paged")
+                .queryParam("page", page).queryParam("size", size);
+        if (before != null) builder.queryParam("before", before);
+        URI uri = builder.encode().build().toUri();
+        ResponseEntity<String> response = restTemplate.exchange(
+                uri, HttpMethod.GET, new HttpEntity<>(bearerFor(user)), String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        return mapper.readTree(response.getBody()).path("data");
     }
 
     @Test

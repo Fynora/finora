@@ -30,6 +30,16 @@ public interface StatementPasswordRepository extends JpaRepository<StatementPass
 
     Optional<StatementPassword> findByStatementImportId(UUID statementImportId);
 
+    /** The user discarded the staged upload: the password it was queued with has nothing left to open. */
+    @Modifying(flushAutomatically = true)
+    @Query(value = """
+           DELETE FROM statement_passwords p
+            USING import_jobs j
+            WHERE p.import_job_id = j.id
+              AND j.import_session_id = :importSessionId
+           """, nativeQuery = true)
+    int deleteHeldByJobsOfSession(@Param("importSessionId") UUID importSessionId);
+
     @Modifying(flushAutomatically = true)
     @Query("DELETE FROM StatementPassword p WHERE p.statementImportId = :statementImportId")
     int deleteByStatementImportId(@Param("statementImportId") UUID statementImportId);

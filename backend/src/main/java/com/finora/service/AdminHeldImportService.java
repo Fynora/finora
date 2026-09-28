@@ -146,21 +146,19 @@ public class AdminHeldImportService {
     public DownloadedStatement download(UUID actingAdminId, UUID jobId) {
         ImportJob job = require(jobId);
         requireHeld(job, "downloaded");
-        // Whether the copy will be unlocked is known before the read (a saved password exists), so
-        // the audit entry -- written before the bytes, see above -- can say so.
-        boolean unlocking = "PDF".equalsIgnoreCase(job.getSourceFormat())
-                && statementPasswordService.forJob(job.getId()).isPresent();
+        // Recorded before the bytes are read (see above), so it can only say a saved password exists
+        // and an unlocked copy will be attempted -- reviewCopy falls back to the stored file.
+        boolean savedPassword = "PDF".equalsIgnoreCase(job.getSourceFormat())
+                && statementPasswordService.hasJobPassword(job.getId());
         auditService.record(actingAdminId, "HELD_IMPORT_DOWNLOADED", "ImportJob", jobId,
                 Map.of("actorId", actingAdminId.toString(),
                         "subjectUserId", job.getUserId().toString(),
-                        "unlockedWithSavedPassword", unlocking));
+                        "savedPasswordOnFile", savedPassword));
         byte[] content = statementContentService.read(job);
-        if (unlocking) {
-            try {
-                content = statementPasswordService.reviewCopy(job, content).content();
-            } catch (java.io.IOException e) {
-                throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "Could not unlock this statement for review.");
-            }
+        if (savedPassword) {
+            // A protected PDF whose password the user saved is unlocked in memory for this download
+            // only, so the reviewer can read it; no unlocked copy is stored.
+            content = statementPasswordService.reviewCopy(job, content).content();
         }
         return new DownloadedStatement(job.getFileName(), content, contentTypeFor(job.getSourceFormat()));
     }

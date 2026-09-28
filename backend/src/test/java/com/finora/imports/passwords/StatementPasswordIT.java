@@ -312,6 +312,22 @@ class StatementPasswordIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void discardingTheStagedUpload_deletesItsPasswordAtOnce() throws Exception {
+        User user = user();
+        ResponseEntity<String> accepted = upload(user, lockedPdf(), PASSWORD, true);
+        UUID jobId = UUID.fromString(read(accepted).get("data").get("jobId").asText());
+        worker.drainOnce();
+        ImportJob job = jobRepository.findById(jobId).orElseThrow();
+        assertThat(passwordRepository.findByImportJobId(jobId)).isPresent();
+
+        ResponseEntity<String> discarded = restTemplate.exchange("/api/v1/import/sessions/" + job.getImportSessionId(),
+                HttpMethod.DELETE, new HttpEntity<>(bearerFor(user)), String.class);
+
+        assertThat(discarded.getStatusCode().is2xxSuccessful()).as(discarded.getBody()).isTrue();
+        assertThat(passwordRepository.findByImportJobId(jobId)).isEmpty();
+    }
+
+    @Test
     void aRefreshWithConsent_savesAPasswordThatOpenedTheFile_butNeverAWrongOne() throws Exception {
         User user = user();
         UUID statementId = importWithSavedPassword(user, account(user));
@@ -386,6 +402,20 @@ class StatementPasswordIT extends AbstractIntegrationTest {
 
         assertThat(passwordRepository.findByStatementImportId(statementId))
                 .as("the file never needed it, so there is nothing to keep").isEmpty();
+    }
+
+    @Test
+    void aHeldFileThatCannotBeUnlocked_isStillHandedToTheReviewerAsStored() throws Exception {
+        User user = user();
+        byte[] notReallyAPdf = "%PDF-1.4\nthis is not a real document\n".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        ResponseEntity<String> accepted = upload(user, notReallyAPdf, null, null);
+        ImportJob job = jobRepository.findById(UUID.fromString(read(accepted).get("data").get("jobId").asText())).orElseThrow();
+        passwordService.saveForJob(user.getId(), job.getId(), PASSWORD);
+
+        StatementPasswordService.ReviewCopy copy = passwordService.reviewCopy(job, notReallyAPdf);
+
+        assertThat(copy.unlocked()).isFalse();
+        assertThat(copy.content()).isEqualTo(notReallyAPdf);
     }
 
     @Test

@@ -590,23 +590,21 @@ public class HeldStatementService {
         HeldStatement held = require(heldId);
         ImportJob job = requireJob(held);
 
-        boolean unlocking = "PDF".equalsIgnoreCase(job.getSourceFormat())
-                && statementPasswordService.forJob(job.getId()).isPresent();
+        // Recorded before the bytes are read (see above), so it can only say a saved password exists
+        // and an unlocked copy will be attempted -- reviewCopy falls back to the stored file.
+        boolean savedPassword = "PDF".equalsIgnoreCase(job.getSourceFormat())
+                && statementPasswordService.hasJobPassword(job.getId());
         auditService.record(actingAdminId, "TRUST_REVIEW_DOCUMENT_DOWNLOADED", "HeldStatement",
                 held.getId(), Map.of("actorId", actingAdminId.toString(),
                         "subjectUserId", held.getUserId().toString(),
                         "heldId", held.getHeldId(),
-                        "unlockedWithSavedPassword", unlocking));
+                        "savedPasswordOnFile", savedPassword));
 
         byte[] content = statementContentService.read(job);
-        if (unlocking) {
-            try {
-                // A protected PDF whose password the user saved is unlocked in memory for this download
-                // only, so the reviewer can read it; no unlocked copy is stored.
-                content = statementPasswordService.reviewCopy(job, content).content();
-            } catch (java.io.IOException e) {
-                throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "Could not unlock this statement for review.");
-            }
+        if (savedPassword) {
+            // A protected PDF whose password the user saved is unlocked in memory for this download
+            // only, so the reviewer can read it; no unlocked copy is stored.
+            content = statementPasswordService.reviewCopy(job, content).content();
         }
         return new DownloadedStatement(job.getFileName(), content, contentTypeFor(job.getSourceFormat()));
     }

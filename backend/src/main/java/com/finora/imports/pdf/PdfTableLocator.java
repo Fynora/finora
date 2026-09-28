@@ -2020,6 +2020,27 @@ public class PdfTableLocator {
                     continue;
                 }
 
+                // TABLE_TOTALS_ROW_DIVERTED. A real Standard Chartered savings statement closes its
+                // table with a column-total line -- the bare word "Total" in the cheque column's
+                // x-range, then the deposit and withdrawal totals under their own columns -- a
+                // line pitch below the last transaction. It has no date, and it carries figures, so
+                // it is not narration-only; with the trailing count at zero it passed the trailing
+                // branch's count-cap test and was merged into the last transaction. There
+                // mergeInto kept the anchor's own deposit, redirected the incoming deposit total
+                // into the description (so an interest credit read "<narration> <total>"), put
+                // "Total" into the blank cheque cell and the withdrawal total into the blank
+                // withdrawal cell, where neither reached the staged row. A line whose only text is
+                // a totals label describes the table, not one transaction in it, so it is kept as
+                // auxiliary text and never merged either direction. Narrow on purpose: the label
+                // must be the WHOLE of every text cell (a narration that merely starts with
+                // "Total" is untouched) and at least one amount column must hold a number.
+                if (isBareTotalsRow(bucketed)
+                        && !hasDateValue(bucketed, yearsByPage.getOrDefault(rowPageIndex, PageDateEvidence.NONE))) {
+                    pendingAuxiliary.add(rowLine);
+                    if (ctx != null) ctx.record("TABLE_TOTALS_ROW_DIVERTED");
+                    continue;
+                }
+
                 // Bug fix: a description that wraps onto a second visual row (HDFC's layout --
                 // see this method's own doc comment) used to be handled by a y-distance heuristic
                 // ("fold anything within N points of the previous row that has no date/amount
@@ -6070,6 +6091,30 @@ public class PdfTableLocator {
             if (value != null && TOTALS_WORD_AT_START.matcher(value).find()) return true;
         }
         return false;
+    }
+
+    private static final Pattern BARE_TOTALS_LABEL =
+            Pattern.compile("(?i)^\\s*(grand\\s+total|sub\\s*-?\\s*total|total)\\s*:?\\s*$");
+
+    /** True when every non-blank cell is either a bare totals label ("Total", "Sub total",
+     *  "Grand total") in a text column or a number in an amount column, with at least one of
+     *  each -- see TABLE_TOTALS_ROW_DIVERTED at this method's only call site. */
+    private boolean isBareTotalsRow(Map<String, String> bucketed) {
+        boolean label = false;
+        boolean figure = false;
+        for (Map.Entry<String, String> e : bucketed.entrySet()) {
+            String value = e.getValue();
+            if (value == null || value.isBlank()) continue;
+            if (isAmountColumn(e.getKey())) {
+                if (CsvParser.parseNumeric(value.trim()) == null) return false;
+                figure = true;
+            } else if (!isDateColumn(e.getKey()) && BARE_TOTALS_LABEL.matcher(value).matches()) {
+                label = true;
+            } else {
+                return false;
+            }
+        }
+        return label && figure;
     }
 
     private static final List<String> VALUE_DATE_HINTS = List.of("value date", "value dt", "val date", "val dt");

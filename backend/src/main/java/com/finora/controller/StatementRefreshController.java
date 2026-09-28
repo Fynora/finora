@@ -43,6 +43,7 @@ public class StatementRefreshController {
             throws Exception {
         UUID userId = currentUser.id();
         String password = request == null ? null : request.password();
-        return ApiResponse.ok(concurrencyLimiter.runGated(() -> refreshService.refresh(userId, id, password)));
+        boolean savePassword = request != null && Boolean.TRUE.equals(request.savePassword());
+        return ApiResponse.ok(concurrencyLimiter.runGated(() -> refreshService.refresh(userId, id, password, savePassword)));
     }
 }

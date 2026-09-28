@@ -51,7 +51,7 @@ class StatementRefreshDryRunServiceTest {
         when(txManager.getTransaction(any())).thenReturn(mock(TransactionStatus.class));
         StatementRefreshDryRunService s = new StatementRefreshDryRunService(statements,
                 new StatementRefreshInputs(transactions, excluded, mock(com.finora.repository.AccountRepository.class)), previews,
-                content, importService, build, txManager, handedOff::add);
+                content, importService, build, txManager, handedOff::add, org.mockito.Mockito.mock(com.finora.imports.passwords.StatementPasswordService.class));
         ReflectionTestUtils.setField(s, "enabled", true);
         ReflectionTestUtils.setField(s, "batchSize", 20);
         return s;

@@ -322,6 +322,42 @@ public class PdfTextExtractor {
         }
     }
 
+    /**
+     * Whether {@code password} opens the document -- the queue's check before it saves a password
+     * the user asked it to keep, so a wrong one is refused at the upload rather than minutes later
+     * in the worker. Same structural open as {@link #needsPassword}; a document that fails to open
+     * for any other reason is not this method's to report, so it answers true and leaves it to the
+     * worker. The password is never logged.
+     */
+    public static boolean opensWith(java.io.InputStream content, String password) {
+        try (PDDocument ignored = Loader.loadPDF(new org.apache.pdfbox.io.RandomAccessReadBuffer(content), password)) {
+            return true;
+        } catch (InvalidPasswordException e) {
+            return false;
+        } catch (IOException | RuntimeException e) {
+            log.debug("Password check could not open the document; leaving it to the worker: {}",
+                    e.getClass().getSimpleName());
+            return true;
+        }
+    }
+
+    /**
+     * The document with its protection removed, in memory, for a member of staff reviewing a held
+     * upload whose password the user saved (statement refresh, step 4). Never stored: the caller
+     * hands it straight to the download response. A wrong password surfaces as
+     * {@code IMPORT_PDF_PASSWORD_INVALID}, and the password is never logged.
+     */
+    public static byte[] unlockedCopy(byte[] fileBytes, String password) throws IOException {
+        try (PDDocument document = Loader.loadPDF(fileBytes, password);
+             java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream(fileBytes.length)) {
+            document.setAllSecurityToBeRemoved(true);
+            document.save(out);
+            return out.toByteArray();
+        } catch (InvalidPasswordException e) {
+            throw new ApiException(ErrorCode.IMPORT_PDF_PASSWORD_INVALID);
+        }
+    }
+
     private PDDocument loadOrExplain(byte[] fileBytes, String password, boolean passwordSupplied) throws IOException {
         try {
             return Loader.loadPDF(fileBytes, password);

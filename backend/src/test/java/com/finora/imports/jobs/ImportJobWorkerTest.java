@@ -79,7 +79,7 @@ class ImportJobWorkerTest {
 
         worker = new ImportJobWorker(jobStore, importService, statementContentService, observability,
                 stageRecorder, new ExceptionClassifier(), statementStatusNotifier, verificationRecorder,
-                heldStatementService, new ParserVersionProvider(), heldItemAdminAlertService);
+                heldStatementService, new ParserVersionProvider(), heldItemAdminAlertService, org.mockito.Mockito.mock(com.finora.imports.passwords.StatementPasswordService.class));
 
         job = new ImportJob(UUID.randomUUID(), "statement.csv", "hash", "objects/key", "CSV");
         job.markClaimed("worker", Instant.now());

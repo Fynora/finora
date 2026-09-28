@@ -31,7 +31,13 @@ public final class ImportJobDto {
      * the response type out from under every client — the same reason {@code Accepted} carries a
      * {@code statusUrl} rather than leaving the client to build one.
      */
-    public record Availability(boolean asyncImportAvailable) {}
+    /**
+     * @param savePasswordAvailable whether the client may offer to keep a protected PDF's password
+     *        (statement refresh, step 4). Only meaningful with {@code asyncImportAvailable}: a kept
+     *        password is what lets a locked file use the queue, so without the queue there is
+     *        nothing to offer.
+     */
+    public record Availability(boolean asyncImportAvailable, boolean savePasswordAvailable) {}
 
     /**
      * Progress, for polling at 1-2s.

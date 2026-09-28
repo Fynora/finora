@@ -56,7 +56,7 @@ class StatementImportServiceDeleteTest {
                 statementImportRepository, accountRepository, mock(CategoryRepository.class),
                 transactionRepository, reconciliationService, recurringService,
                 mock(ImportService.class), mock(AuditService.class), mock(BankManagementService.class), new com.finora.imports.storage.StatementContentService(java.util.Optional.empty(), mock(com.finora.security.crypto.EncryptionService.class), "", ""),
-                mock(com.finora.repository.ReimportConfirmationClaimRepository.class));
+                mock(com.finora.repository.ReimportConfirmationClaimRepository.class), org.mockito.Mockito.mock(com.finora.imports.passwords.StatementPasswordService.class));
 
         StatementImport statementImport = new StatementImport();
         ReflectionTestUtils.setField(statementImport, "id", statementImportId);

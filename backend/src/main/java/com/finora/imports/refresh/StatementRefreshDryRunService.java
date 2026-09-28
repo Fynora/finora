@@ -51,6 +51,7 @@ public class StatementRefreshDryRunService {
     private final StatementRefreshPreviewRepository previewRepository;
     private final StatementContentService statementContentService;
     private final ImportService importService;
+    private final com.finora.imports.passwords.StatementPasswordService statementPasswordService;
     private final BuildVersionResolver buildVersionResolver;
     private final TransactionTemplate readTransaction;
     private final TransactionTemplate writeTransaction;
@@ -70,8 +71,10 @@ public class StatementRefreshDryRunService {
                                          BuildVersionResolver buildVersionResolver,
                                          PlatformTransactionManager transactionManager,
                                          @org.springframework.beans.factory.annotation.Qualifier("statementRefreshDryRunExecutor")
-                                         java.util.concurrent.Executor executor) {
+                                         java.util.concurrent.Executor executor,
+                                         com.finora.imports.passwords.StatementPasswordService statementPasswordService) {
         this.executor = executor;
+        this.statementPasswordService = statementPasswordService;
         this.statementImportRepository = statementImportRepository;
         this.inputs = inputs;
         this.previewRepository = previewRepository;
@@ -158,7 +161,9 @@ public class StatementRefreshDryRunService {
         StagingResponse staging;
         try {
             staging = importService.parseAndStageAnyFormat(statement.getUserId(), statement.getSourceFormat(),
-                    statement.getFileName(), content, statement.getSourceSectionIndex(), null);
+                    statement.getFileName(), content, statement.getSourceSectionIndex(),
+                    // A password the user agreed to save (step 4) lets the check run unattended.
+                    statementPasswordService.forStatement(statement.getUserId(), statementId).orElse(null));
         } catch (ApiException e) {
             if (e.getCode() == ErrorCode.IMPORT_PDF_PASSWORD_REQUIRED || e.getCode() == ErrorCode.IMPORT_PDF_PASSWORD_INVALID) {
                 save(new StatementRefreshPreview(statementId, statement.getUserId(), parserVersion,

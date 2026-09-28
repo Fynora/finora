@@ -57,6 +57,7 @@ public class AdminHeldImportService {
     private final AuditService auditService;
     private final StatementContentService statementContentService;
     private final StatementStatusNotifier statusNotifier;
+    private final com.finora.imports.passwords.StatementPasswordService statementPasswordService;
 
     /**
      * The longest message an admin may send a user. Bounded well inside the notification columns
@@ -69,8 +70,10 @@ public class AdminHeldImportService {
                                   ImportJobWorker worker,
                                   AuditService auditService,
                                   StatementContentService statementContentService,
-                                  StatementStatusNotifier statusNotifier) {
+                                  StatementStatusNotifier statusNotifier,
+                                  com.finora.imports.passwords.StatementPasswordService statementPasswordService) {
         this.statusNotifier = statusNotifier;
+        this.statementPasswordService = statementPasswordService;
         this.repository = repository;
         this.worker = worker;
         this.auditService = auditService;
@@ -143,10 +146,22 @@ public class AdminHeldImportService {
     public DownloadedStatement download(UUID actingAdminId, UUID jobId) {
         ImportJob job = require(jobId);
         requireHeld(job, "downloaded");
+        // Whether the copy will be unlocked is known before the read (a saved password exists), so
+        // the audit entry -- written before the bytes, see above -- can say so.
+        boolean unlocking = "PDF".equalsIgnoreCase(job.getSourceFormat())
+                && statementPasswordService.forJob(job.getId()).isPresent();
         auditService.record(actingAdminId, "HELD_IMPORT_DOWNLOADED", "ImportJob", jobId,
                 Map.of("actorId", actingAdminId.toString(),
-                        "subjectUserId", job.getUserId().toString()));
+                        "subjectUserId", job.getUserId().toString(),
+                        "unlockedWithSavedPassword", unlocking));
         byte[] content = statementContentService.read(job);
+        if (unlocking) {
+            try {
+                content = statementPasswordService.reviewCopy(job, content).content();
+            } catch (java.io.IOException e) {
+                throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "Could not unlock this statement for review.");
+            }
+        }
         return new DownloadedStatement(job.getFileName(), content, contentTypeFor(job.getSourceFormat()));
     }
 

@@ -97,6 +97,29 @@ class RateLimiterIT extends AbstractIntegrationTest {
         return time;
     }
 
+    /** Keys written before the microsecond change hold epoch-second scores. Trimming those as
+     *  ancient would reset every limiter on deploy -- a fresh login window for anyone mid-attack. */
+    @Test
+    void allow_countsARequestRecordedByTheWholeSecondScriptThatIsStillInsideTheWindow() {
+        String name = "test-legacy-" + System.nanoTime();
+        RateLimiter limiter = new RateLimiter(1, 60, name, redisTemplate);
+        redisTemplate.opsForZSet().add("ratelimit:" + name + ":client-a", "legacy-member", redisTime()[0] - 5);
+
+        assertThat(limiter.allow("client-a"))
+                .as("a request 5s before the deploy still fills a 60s window of 1")
+                .isFalse();
+    }
+
+    @Test
+    void allow_dropsARequestRecordedByTheWholeSecondScriptOnceItIsOutsideTheWindow() {
+        String name = "test-legacy-expired-" + System.nanoTime();
+        RateLimiter limiter = new RateLimiter(1, 60, name, redisTemplate);
+        redisTemplate.opsForZSet().add("ratelimit:" + name + ":client-a", "legacy-member", redisTime()[0] - 61);
+
+        assertThat(limiter.allow("client-a")).isTrue();
+        assertThat(limiter.allow("client-a")).isFalse();
+    }
+
     @Test
     void allow_underConcurrentLoad_permitsExactlyMaxRequests() throws InterruptedException {
         int maxRequests = 10;

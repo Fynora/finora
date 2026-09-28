@@ -199,8 +199,10 @@ public class StatementRefreshService {
         }
 
         // The file opened, so the password is right. Saved whatever the refresh then decides: the
-        // user agreed to keep it for this statement, not for this outcome. Only a PDF has one to keep.
-        if (savePassword && givenPassword && "PDF".equalsIgnoreCase(statement.getSourceFormat())) {
+        // user agreed to keep it for this statement, not for this outcome. Only a locked PDF has one
+        // to keep -- PDFBox ignores a password given for an unlocked file, so it would open anyway.
+        if (savePassword && givenPassword && "PDF".equalsIgnoreCase(statement.getSourceFormat())
+                && com.finora.imports.pdf.PdfTextExtractor.needsPassword(new java.io.ByteArrayInputStream(content))) {
             statementPasswordService.saveForStatement(userId, statementId, password);
         }
 

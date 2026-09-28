@@ -151,7 +151,11 @@ class StatementPasswordIT extends AbstractIntegrationTest {
 
     /** Queues the locked file with consent, runs the worker and confirms what it staged. */
     private UUID importWithSavedPassword(User user, Account account) throws Exception {
-        ResponseEntity<String> accepted = upload(user, lockedPdf(), PASSWORD, true);
+        return importQueued(user, account, lockedPdf(), PASSWORD, true);
+    }
+
+    private UUID importQueued(User user, Account account, byte[] pdf, String password, Boolean save) throws Exception {
+        ResponseEntity<String> accepted = upload(user, pdf, password, save);
         assertThat(accepted.getStatusCode()).as(accepted.getBody()).isEqualTo(HttpStatus.ACCEPTED);
         UUID jobId = UUID.fromString(read(accepted).get("data").get("jobId").asText());
 
@@ -370,6 +374,18 @@ class StatementPasswordIT extends AbstractIntegrationTest {
                 .as("the reviewer's copy opens without the password").isFalse();
         assertThat(PdfTextExtractor.needsPassword(new ByteArrayInputStream(statementContentService.read(job))))
                 .as("and the stored file is still the locked original").isTrue();
+    }
+
+    @Test
+    void aPasswordGivenToRefreshAnUnlockedStatement_isNeverKept() throws Exception {
+        User user = user();
+        UUID statementId = importQueued(user, account(user),
+                PdfFixtureBuilder.buildReverseChronologicalRunningBalanceSample(), null, null);
+
+        assertOpenedWithNoRowChanges(refreshService.refresh(user.getId(), statementId, PASSWORD, true));
+
+        assertThat(passwordRepository.findByStatementImportId(statementId))
+                .as("the file never needed it, so there is nothing to keep").isEmpty();
     }
 
     @Test

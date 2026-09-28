@@ -19,6 +19,15 @@ public interface StatementPasswordRepository extends JpaRepository<StatementPass
 
     List<StatementPassword> findByImportJobIdIn(Collection<UUID> importJobIds);
 
+    /** Passwords held by the upload(s) that staged this session. Driven from this small table, so
+     *  it needs no index on import_jobs.import_session_id. */
+    @Query(value = """
+           SELECT p.* FROM statement_passwords p
+             JOIN import_jobs j ON j.id = p.import_job_id
+            WHERE j.import_session_id = :importSessionId
+           """, nativeQuery = true)
+    List<StatementPassword> findHeldByJobsOfSession(@Param("importSessionId") UUID importSessionId);
+
     Optional<StatementPassword> findByStatementImportId(UUID statementImportId);
 
     @Modifying(flushAutomatically = true)

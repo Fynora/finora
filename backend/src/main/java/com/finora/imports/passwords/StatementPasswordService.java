@@ -3,7 +3,6 @@ package com.finora.imports.passwords;
 import com.finora.entity.ImportJob;
 import com.finora.entity.StatementPassword;
 import com.finora.exception.ApiException;
-import com.finora.repository.ImportJobRepository;
 import com.finora.repository.StatementPasswordRepository;
 import com.finora.security.crypto.EncryptionException;
 import com.finora.security.crypto.EncryptionService;
@@ -48,18 +47,15 @@ public class StatementPasswordService {
     public static final String CONSENT_VERSION = "2026-09-statement-password-v1";
 
     private final StatementPasswordRepository repository;
-    private final ImportJobRepository importJobRepository;
     private final EncryptionService encryptionService;
     private final AuditService auditService;
     private final boolean enabled;
 
     public StatementPasswordService(StatementPasswordRepository repository,
-                                    ImportJobRepository importJobRepository,
                                     EncryptionService encryptionService,
                                     AuditService auditService,
                                     @Value("${app.statement-passwords.save.enabled:false}") boolean enabled) {
         this.repository = repository;
-        this.importJobRepository = importJobRepository;
         this.encryptionService = encryptionService;
         this.auditService = auditService;
         this.enabled = enabled;
@@ -99,10 +95,7 @@ public class StatementPasswordService {
     @Transactional
     public void carryToStatements(UUID importSessionId, Collection<UUID> statementImportIds) {
         if (importSessionId == null || statementImportIds.isEmpty()) return;
-        List<UUID> jobIds = importJobRepository.findByImportSessionId(importSessionId).stream()
-                .map(ImportJob::getId).toList();
-        if (jobIds.isEmpty()) return;
-        List<StatementPassword> jobRows = repository.findByImportJobIdIn(jobIds);
+        List<StatementPassword> jobRows = repository.findHeldByJobsOfSession(importSessionId);
         if (jobRows.isEmpty()) return;
         StatementPassword source = jobRows.get(0);
         for (UUID statementId : statementImportIds) {

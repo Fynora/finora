@@ -1068,6 +1068,79 @@ describe('ImportScreen — async import job (Phase 4)', () => {
     expect(screen.queryByText('Could not read that statement.')).toBeNull();
   });
 
+  /**
+   * Statement refresh, step 4. Keeping a protected PDF's password is the user's choice, per
+   * upload: the switch starts off, and only a switched-on upload sends the password to the queue
+   * (which keeps it). Left off, the password goes to the synchronous path, which keeps nothing.
+   */
+  describe('keeping a statement password', () => {
+    function treeSaveOffered(offered = true) {
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+      queryClient.setQueryData(['import-jobs-availability'],
+        { asyncImportAvailable: true, savePasswordAvailable: offered });
+      return (
+        <QueryClientProvider client={queryClient}>
+          <ImportScreen />
+        </QueryClientProvider>
+      );
+    }
+
+    beforeEach(() => {
+      jest.mocked(DocumentPicker.getDocumentAsync).mockResolvedValue({
+        canceled: false,
+        assets: [{ uri: 'file:///locked.pdf', name: 'locked.pdf' } as never],
+      } as never);
+      api.importJobs.availability.mockResolvedValue({ asyncImportAvailable: true, savePasswordAvailable: true });
+      api.importJobs.progress.mockResolvedValue(jobProgress());
+      api.import.stagePdf.mockReset().mockResolvedValue({
+        sessionId: 'session-1',
+        staging: { rows: [stagedRow('Coffee')], totalParsed: 1, flaggedDuplicates: 0, detectedAccount: detectedWithBank, unparseableRows: [] },
+      } as never);
+    });
+
+    it('queues the file with the password only when the user switches it on', async () => {
+      render(treeSaveOffered());
+      fireEvent.press(await screen.findByText('Choose a file'));
+      await settle();
+
+      const keep = screen.getByTestId('pdf-save-password');
+      expect(keep.props.value).toBe(false);
+      fireEvent.changeText(screen.getByLabelText('Statement password'), 'SYNTH1234');
+      fireEvent(keep, 'valueChange', true);
+      fireEvent.press(screen.getByText('Upload statement'));
+      await settle();
+
+      await waitFor(() => expect(api.importJobs.submit).toHaveBeenCalledTimes(1));
+      expect(api.importJobs.submit.mock.calls[0][3]).toEqual({ password: 'SYNTH1234' });
+      expect(api.import.stagePdf).not.toHaveBeenCalled();
+    });
+
+    it('uses the password once, on the path that keeps nothing, when left off', async () => {
+      render(treeSaveOffered());
+      fireEvent.press(await screen.findByText('Choose a file'));
+      await settle();
+
+      fireEvent.changeText(screen.getByLabelText('Statement password'), 'SYNTH1234');
+      fireEvent.press(screen.getByText('Upload statement'));
+      await settle();
+
+      await waitFor(() => expect(api.import.stagePdf).toHaveBeenCalledTimes(1));
+      expect(api.import.stagePdf.mock.calls[0][2]).toBe('SYNTH1234');
+      expect(api.importJobs.submit).not.toHaveBeenCalled();
+    });
+
+    it('does not offer to keep it where the server cannot', async () => {
+      // The mount refetches availability, so the mock must agree with the seeded cache.
+      api.importJobs.availability.mockResolvedValue({ asyncImportAvailable: true });
+      render(treeSaveOffered(false));
+      fireEvent.press(await screen.findByText('Choose a file'));
+      await settle();
+
+      expect(screen.getByTestId('pdf-password-panel')).toBeTruthy();
+      expect(screen.queryByTestId('pdf-save-password')).toBeNull();
+    });
+  });
+
   it('blocks a multi-account result the same way the synchronous path does', async () => {
     api.importJobs.progress.mockResolvedValueOnce(
       jobProgress({ status: 'COMPLETED', userStatus: 'COMPLETED', rowsTotal: 3, rowsProcessed: 3, importSessionId: 'session-1' })

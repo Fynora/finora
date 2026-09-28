@@ -117,7 +117,8 @@ class RevenueCatWebhookControllerIT extends AbstractIntegrationTest {
         long expirationEpochMs = Instant.now().plusSeconds(2_592_000).toEpochMilli();
         String body = """
                 {"event":{"type":"INITIAL_PURCHASE","app_user_id":"%s","product_id":"%s",
-                 "store":"APP_STORE","original_transaction_id":"txn_referral_it_1",
+                 "store":"APP_STORE","transaction_id":"txn_referral_it_1",
+                 "original_transaction_id":"txn_referral_it_1","period_type":"NORMAL","price":4.99,
                  "expiration_at_ms":%d}}
                 """.formatted(referred.getId(), product.getProviderProductId(), expirationEpochMs);
 

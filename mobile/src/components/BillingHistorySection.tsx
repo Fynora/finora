@@ -107,9 +107,10 @@ export function BillingHistorySection({ paymentProvider, hideWhenEmpty = false }
               </View>
               <View style={styles.rowEnd}>
                 <Text style={[styles.status, { color: status.color }]}>{status.text}</Text>
-                {/* Only a completed charge has anything to invoice -- InvoiceService answers 409
-                    for PENDING/FAILED/REFUNDED, same rule as the web table. */}
-                {p.status === 'SUCCESS' ? (
+                {/* Only a charge that happened has an invoice -- InvoiceService answers 409 for
+                    PENDING/FAILED. A REFUNDED payment was charged; its invoice stays the record
+                    of that sale. Same rule as the web table. */}
+                {p.status === 'SUCCESS' || p.status === 'REFUNDED' ? (
                   <Pressable
                     onPress={() => void openInvoice(p)}
                     disabled={busyId !== null}

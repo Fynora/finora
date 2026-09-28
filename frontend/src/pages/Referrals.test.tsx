@@ -173,6 +173,28 @@ describe('Referrals', () => {
       expect(screen.queryByRole('button', { name: /redeem/i })).not.toBeInTheDocument();
     });
 
+    it('says how many refunded referrals must be made up when some are owed', async () => {
+      vi.mocked(referralsApi.mine).mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [], canApplyCode: false, referralsOwed: 2,
+      });
+      renderPage();
+
+      expect(await screen.findByText('0 / 7 referrals — 1 month of Plus free')).toBeInTheDocument();
+      expect(screen.getByText('2 refunded referrals to make up before your count grows again.')).toBeInTheDocument();
+    });
+
+    it('shows no owed line when nothing is owed, or when an older backend omits the field', async () => {
+      vi.mocked(referralsApi.mine).mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 3, grants: [], canApplyCode: false,
+      });
+      renderPage();
+
+      expect(await screen.findByText('3 / 7 referrals — 1 month of Plus free')).toBeInTheDocument();
+      expect(screen.queryByText(/to make up/)).not.toBeInTheDocument();
+    });
+
     it('ignores a stale non-zero plusMilestoneCounter -- there is no 3-referral reward', async () => {
       vi.mocked(referralsApi.mine).mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,

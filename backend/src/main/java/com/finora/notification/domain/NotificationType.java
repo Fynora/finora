@@ -32,5 +32,7 @@ public enum NotificationType {
     REFERRAL_GRANT_ACTIVATED,
     // A friend's counted payment was refunded or charged back, so that referral no longer counts
     // (ReferralService.onChargeReversed). Templates seeded in V241 alongside this addition.
-    REFERRAL_REVERSED
+    REFERRAL_REVERSED,
+    /** Statement refresh, step 5: an improved parser would change some of the user's statements. */
+    STATEMENT_REFRESH_AVAILABLE
 }

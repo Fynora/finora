@@ -708,6 +708,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/statement-refresh/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["refreshAllStatements"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/statement-imports/{id}/supersede": {
         parameters: {
             query?: never;
@@ -2940,6 +2956,38 @@ export interface paths {
             cookie?: never;
         };
         get: operations["downloadAttachment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/statement-refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["statementRefreshOverview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/statement-refresh/runs/{runId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["statementRefreshRun"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5799,6 +5847,84 @@ export interface components {
             updatedAt?: string;
             attachments?: components["schemas"]["AttachmentSummary"][];
         };
+        ApiResponseRefreshAllResult: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["RefreshAllResult"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        RefreshAllResult: {
+            results?: components["schemas"]["RefreshRunDetail"][];
+            /** Format: int32 */
+            remaining?: number;
+        };
+        RefreshChangedRow: {
+            /** Format: uuid */
+            transactionId?: string;
+            date?: string;
+            description?: string;
+            amount?: string;
+            type?: string;
+            changes?: components["schemas"]["RefreshFieldChange"][];
+        };
+        RefreshFieldChange: {
+            field?: string;
+            before?: string;
+            after?: string;
+        };
+        RefreshRemovedRow: {
+            /** Format: uuid */
+            transactionId?: string;
+            date?: string;
+            description?: string;
+            amount?: string;
+            type?: string;
+            userEdited?: boolean;
+        };
+        RefreshRowView: {
+            /** Format: uuid */
+            transactionId?: string;
+            date?: string;
+            description?: string;
+            amount?: string;
+            type?: string;
+        };
+        RefreshRunDetail: {
+            /** Format: uuid */
+            runId?: string;
+            /** Format: uuid */
+            statementImportId?: string;
+            fileName?: string;
+            accountName?: string;
+            /** Format: date */
+            periodStart?: string;
+            /** Format: date */
+            periodEnd?: string;
+            status?: string;
+            /** Format: date-time */
+            createdAt?: string;
+            /** Format: int32 */
+            rowsChanged?: number;
+            /** Format: int32 */
+            rowsAdded?: number;
+            /** Format: int32 */
+            rowsRemoved?: number;
+            /** Format: int32 */
+            factsChanged?: number;
+            balanceChange?: number;
+            reason?: string;
+            changed?: components["schemas"]["RefreshChangedRow"][];
+            added?: components["schemas"]["RefreshRowView"][];
+            removed?: components["schemas"]["RefreshRemovedRow"][];
+            skippedAsDuplicate?: components["schemas"]["RefreshRowView"][];
+            facts?: components["schemas"]["RefreshFieldChange"][];
+        };
         SupersedeRequest: {
             /** Format: uuid */
             supersededByStatementId: string;
@@ -7684,6 +7810,56 @@ export interface components {
             totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
+        };
+        ApiResponseRefreshOverview: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["RefreshOverview"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        RefreshOverview: {
+            enabled?: boolean;
+            savePasswordAvailable?: boolean;
+            updatable?: components["schemas"]["RefreshPendingStatement"][];
+            needsPassword?: components["schemas"]["RefreshPendingStatement"][];
+        };
+        RefreshPendingStatement: {
+            /** Format: uuid */
+            statementImportId?: string;
+            status?: string;
+            fileName?: string;
+            accountName?: string;
+            /** Format: date */
+            periodStart?: string;
+            /** Format: date */
+            periodEnd?: string;
+            /** Format: int32 */
+            rowsChanged?: number;
+            /** Format: int32 */
+            rowsAdded?: number;
+            /** Format: int32 */
+            rowsRemoved?: number;
+            /** Format: int32 */
+            factsChanged?: number;
+            passwordSaved?: boolean;
+        };
+        ApiResponseRefreshRunDetail: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["RefreshRunDetail"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
         };
         ApiResponseSavedStatementPasswordList: {
             success?: boolean;
@@ -11823,6 +11999,26 @@ export interface operations {
             };
         };
     };
+    refreshAllStatements: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseRefreshAllResult"];
+                };
+            };
+        };
+    };
     supersede: {
         parameters: {
             query?: never;
@@ -15660,6 +15856,48 @@ export interface operations {
                 };
                 content: {
                     "*/*": string;
+                };
+            };
+        };
+    };
+    statementRefreshOverview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseRefreshOverview"];
+                };
+            };
+        };
+    };
+    statementRefreshRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseRefreshRunDetail"];
                 };
             };
         };

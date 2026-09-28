@@ -309,6 +309,8 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
                 "/api/v1/device-tokens/revoke",
                 "/api/v1/integrations/setu/links",
                 "/api/v1/fyn/chat/screenshot",
+                "/api/v1/statement-imports/" + java.util.UUID.randomUUID() + "/refresh",
+                "/api/v1/statement-refresh/apply",
         };
 
         for (String path : mustBeLimited) {
@@ -537,6 +539,8 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
                 Map.entry("app.rate-limit.identify.window-seconds", DEFAULT_IDENTIFY_WINDOW),
                 Map.entry("app.rate-limit.import-stage.max", DEFAULT_IMPORT_STAGE_MAX),
                 Map.entry("app.rate-limit.import-stage.window-seconds", DEFAULT_IMPORT_STAGE_WINDOW),
+                Map.entry("app.rate-limit.statement-refresh.max", DEFAULT_STATEMENT_REFRESH_MAX),
+                Map.entry("app.rate-limit.statement-refresh.window-seconds", DEFAULT_STATEMENT_REFRESH_WINDOW),
                 Map.entry("app.rate-limit.password-change.max", DEFAULT_PASSWORD_CHANGE_MAX),
                 Map.entry("app.rate-limit.password-change.window-seconds", DEFAULT_PASSWORD_CHANGE_WINDOW),
                 Map.entry("app.rate-limit.phone-change.max", DEFAULT_PHONE_CHANGE_MAX),
@@ -705,7 +709,7 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
         return new RateLimitFilter(objectMapper, clientIpResolver, testCorsConfigurationSource(), redisTemplate,
                 high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60,
                 high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60,
-                high, 60, high, 60, high, 60, high, 60,
+                high, 60, high, 60, high, 60, high, 60, high, 60,
                 globalMax, 60);
     }
 

@@ -25,6 +25,7 @@ import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList } from '../navigation/types';
 import type { AccountStatementGroup, StatementSummary } from '../types';
 import { trackNavigation } from '../lib/trackNavigation';
+import { StatementRefreshBanner } from '../components/StatementRefreshBanner';
 
 /** Mirrors the backend's 7-day retention window for a deleted account's history. */
 function daysUntilRemoved(deletedAt: string): string {
@@ -180,6 +181,8 @@ export function StatementHistoryScreen() {
         <Text style={[styles.body, { color: c.muted, marginBottom: spacing.md }]}>
           Every imported statement, organized by account — not by which file you uploaded.
         </Text>
+
+        <StatementRefreshBanner />
 
         {error ? (
           <Card style={{ ...styles.section, borderColor: c.danger }}>
@@ -366,7 +369,7 @@ function ReimportPasswordModal({
             <SectionHeading title="Unlock this statement" />
             <Text style={[styles.body, { color: c.muted }]}>
               <Text style={{ color: c.ink }}>{prompt.statement.fileName}</Text> is password protected.
-              Fynora doesn&apos;t store statement passwords, so re-importing needs it again.
+              Re-importing it needs its password.
             </Text>
 
             <Text style={[styles.fieldLabel, { color: c.ink }]}>Statement password</Text>

@@ -9,6 +9,10 @@ interface MerchantLogoProps {
    *  this component's own self-contained colored-initials badge instead. */
   fallback?: ReactNode;
   style?: StyleProp<ViewStyle>;
+  /** The counterparty is a person (a payment to or from a friend). A person has no brand logo, and
+   *  a Logo.dev name search for a person's name returns whichever company matches best -- so no
+   *  lookup is made. Mirrors web's MerchantLogo. */
+  person?: boolean;
 }
 
 const LOGODEV_TOKEN = process.env.EXPO_PUBLIC_LOGODEV_TOKEN;
@@ -51,12 +55,20 @@ function colorFor(name: string): string {
  * have -- a miss there is the ordinary, expected outcome for THAT merchant, not evidence the whole
  * integration is broken. Each row's Image loads independently and falls back on its own.
  */
-export function MerchantLogo({ merchant, size = 32, fallback, style }: MerchantLogoProps) {
+/** The Logo.dev URL to try for this row, or null when none should be requested: no token, no
+ *  name, or a person (see MerchantLogoProps.person). */
+export function logoSourceFor(merchant: string, sizePx: number, token: string | undefined,
+                              person: boolean): string | null {
+  return person ? null : logoDevUrl(merchant, sizePx, token);
+}
+
+export function MerchantLogo({ merchant, size = 32, fallback, style, person = false }: MerchantLogoProps) {
   const sizePx = Math.max(64, Math.round(size * 2));
-  const src = logoDevUrl(merchant, sizePx, LOGODEV_TOKEN);
+  const src = logoSourceFor(merchant, sizePx, LOGODEV_TOKEN, person);
 
   const [stage, setStage] = useState<Stage>(() => (src ? 'logodev' : 'fallback'));
-  const [trackedMerchant, setTrackedMerchant] = useState(merchant);
+  const trackedKey = `${person ? 'person' : 'business'}|${merchant}`;
+  const [trackedMerchant, setTrackedMerchant] = useState(trackedKey);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Reset whenever the merchant itself changes -- e.g. scrolling a transaction list, each row a
@@ -64,8 +76,8 @@ export function MerchantLogo({ merchant, size = 32, fallback, style }: MerchantL
   // incorrectly start there for the next. Adjusted during render (React's documented pattern for
   // resetting state in response to a prop change) rather than in an effect, so there's no extra
   // render and no synchronous setState-in-effect.
-  if (merchant !== trackedMerchant) {
-    setTrackedMerchant(merchant);
+  if (trackedKey !== trackedMerchant) {
+    setTrackedMerchant(trackedKey);
     setStage(src ? 'logodev' : 'fallback');
   }
 

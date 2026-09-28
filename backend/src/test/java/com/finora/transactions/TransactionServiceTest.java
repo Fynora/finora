@@ -2240,16 +2240,16 @@ class TransactionServiceTest {
         when(categorizationService.resolveMerchantId(eq(userId), anyString())).thenReturn(UUID.randomUUID());
         when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Dining"))).thenReturn(dummyCategory);
 
-        // Confirmed BUSINESS-typed, vpa:zeptoonline-keyed by this codebase's own real classifier
-        // pipeline -- same narration this session's own shared-corpus audit measured directly.
+        // Synthetic merchant narration, BUSINESS-typed and vpa:zeptosample-keyed by this codebase's
+        // own real classifier pipeline.
         // Category is "Dining" (not literally Zepto's real category) purely to reuse this file's
         // existing dummyCategory fixture, same as every other explicit-category test in this file.
         var req = new TransactionDto.CreateRequest(UUID.randomUUID(), "Dining", LocalDate.now(),
-                "UPI/ZEPTO/ZEPTOONLINE@YBL/0000000000@PTAXIS", BigDecimal.valueOf(486), "EXPENSE", List.of());
+                "UPI/ZEPTO/ZEPTOSAMPLE@YBL/0000000000@PTAXIS", BigDecimal.valueOf(486), "EXPENSE", List.of());
 
         transactionService.create(userId, req);
 
-        verify(sharedCorpusService).recordObservation(eq(userId), eq("vpa:zeptoonline"),
+        verify(sharedCorpusService).recordObservation(eq(userId), eq("vpa:zeptosample"),
                 eq(com.finora.util.CounterpartyType.BUSINESS), eq(Transaction.Type.EXPENSE), eq("Dining"));
     }
 

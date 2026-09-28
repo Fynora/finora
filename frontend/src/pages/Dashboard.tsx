@@ -45,6 +45,9 @@ const MotionLink = motion.create(Link);
 const UNRESOLVED_REASON_LINE: Record<string, string> = {
   PERSON_INFLOW: 'Mostly money received from people',
   CARD_UNEXPLAINED_CREDIT: 'Mostly credits on your cards',
+  CASH_DEPOSIT: 'Mostly cash paid in',
+  MERCHANT_CREDIT: 'Mostly money back from shops and apps',
+  UNKNOWN_SENDER: 'Mostly from senders Fynora could not name',
 };
 
 function fmt(n: number) {
@@ -1265,6 +1268,7 @@ export default function Dashboard() {
                   <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: color + '20' }}>
                     <MerchantLogo
                       merchant={t.merchant}
+                      person={t.counterpartyType === 'PERSON'}
                       size={36}
                       className="rounded-full"
                       fallback={<Icon size={16} style={{ color }} />}

@@ -116,9 +116,22 @@ public class RowBalanceEffect {
     /** {@link #locate(Account, Transaction, StatementImport)} against a chain already being read --
      *  use one {@link #chainOf} for every row of one operation on one account. */
     public Location locate(Account account, Transaction row, StatementImport statement, Chain chain) {
+        return locate(account, row, statement, chain, row.getCreatedAt());
+    }
+
+    /**
+     * {@link #locate(Account, Transaction, StatementImport, Chain)} for a row judged as if it had
+     * been on the account since {@code existedSince} rather than since its own creation. A statement
+     * refresh adds a row its statement always contained but an older parser missed: its effect
+     * belongs where that statement's other rows' effects are, so it is placed as of the statement's
+     * import. Placed by its own creation it would look newer than every later closing balance that
+     * already includes it, and count twice.
+     */
+    public Location locate(Account account, Transaction row, StatementImport statement, Chain chain,
+                           Instant existedSince) {
         if (row.getIsDuplicateOf() != null && row.isDuplicateBalanceReversed()) return Location.NOWHERE;
         if (row.getSource() == Transaction.Source.ACCOUNT_AGGREGATOR) return Location.NOWHERE;
-        Instant createdAt = row.getCreatedAt();
+        Instant createdAt = existedSince;
         // Checked before the statement's mode: whatever a row once did to the balance -- including a
         // legacy statement's, which was never recorded -- a balance typed since holds it whole.
         if (createdAt != null && account.getBalanceTypedAt() != null && createdAt.isBefore(account.getBalanceTypedAt())) {
@@ -126,6 +139,15 @@ public class RowBalanceEffect {
         }
         // A manual entry dated inside the stated figure that held the balance when it was entered.
         if (AccountBalanceConvention.manualRowInsideStatedFigure(row)) return Location.NOWHERE;
+        // A replaced statement's rows: replacing it took their effect off (StatementImportService
+        // .supersede), whatever their status -- a transfer or refund row keeps its own. Editing or
+        // deleting one, or deleting the whole statement, moved the balance a second time (measured:
+        // a replaced statement's 500 transfer, deleted with it, left the balance 500 too high).
+        // A legacy statement's replacement reversed nothing, so its rows still count as before.
+        if (statement != null && statement.getSupersededBy() != null
+                && statement.getBalanceApplicationMode() != StatementImport.BalanceApplicationMode.UNKNOWN_LEGACY) {
+            return Location.NOWHERE;
+        }
         if (statement != null) {
             StatementImport.BalanceApplicationMode mode = AccountBalanceConvention.effectiveMode(statement, row);
             if (mode == StatementImport.BalanceApplicationMode.UNKNOWN_LEGACY) return Location.BALANCE;

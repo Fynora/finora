@@ -129,4 +129,72 @@ class CounterpartyIdentityTest {
 
         assertThat(key).isEqualTo("name:sample enterprises surname firstname middlename");
     }
+
+    // ---- over-merges measured on the real corpus: one key shared by different people ----
+
+    @Test
+    void aPaymentAppNameIsNotTheSender_twoPeopleOnPhonePeGetTwoKeys() {
+        // "Payment from PhonePe_<NAME>": the app name outlasted a short payee name and every sender
+        // on that app shared one key -- a choice for one of them reached all of them.
+        String alpha = CounterpartyIdentity.keyOf("UPI/RRN 111111111111/Payment from PhonePe_ALPHA");
+        String bravo = CounterpartyIdentity.keyOf("UPI/RRN 222222222222/Payment from PhonePe_BRAVO");
+        assertThat(alpha).isEqualTo("name:alpha");
+        assertThat(bravo).isEqualTo("name:bravo");
+    }
+
+    @Test
+    void aNameSegmentCarryingAReferenceKeepsItsWords_notTheBankCodeBesideIt() {
+        // A reference glued into the payee's segment used to drop the whole segment, leaving the
+        // remitting bank's short code as the "sender" -- one key for everyone paying from that bank.
+        String key = CounterpartyIdentity.keyOf("UPI/111111111111/CR/ALPHA BRAVO S11111111 CHO/SBI/UPI");
+        assertThat(key).isEqualTo("name:alpha bravo cho");
+    }
+
+    @Test
+    void aMaskedVpaIsNotAStrongIdentity_andKeepsItsHandle() {
+        // Some statements print only the last characters of the payer's VPA ("**TAILX@OKICICI").
+        // The tail alone is shared by strangers; with its handle it at least splits by PSP, and it
+        // must never pass as a strong key.
+        String one = CounterpartyIdentity.keyOf("UPI/CR/111111111111/ALPHA B/SBIN/**TAILX@OKICICI/UPI");
+        String two = CounterpartyIdentity.keyOf("UPI/CR/222222222222/CHARLIE D/PUNB/**TAILX@OKAXIS/UPI");
+        assertThat(one).isEqualTo("masked:tailx@okicici");
+        assertThat(two).isEqualTo("masked:tailx@okaxis");
+        assertThat(CounterpartyIdentity.isStrong(one)).isFalse();
+    }
+
+    @Test
+    void aCardMerchantCreditWithItsReferenceStillGetsAKey() {
+        // Space-only narration with the reference inside the one segment: it used to key to "" and
+        // the user could not say "every payment from" this merchant.
+        assertThat(CounterpartyIdentity.keyOf("UPI SHOPCO INSTAMART 111111111111"))
+                .isEqualTo("name:shopco instamart");
+    }
+
+    @Test
+    void theWordLevelFallbackNeverKeysOnStatementFurnitureOrABrokenVpaHandle() {
+        // Guards for the fallback: "Value Dt ... Ref ..." and a wrapped VPA's PSP handle are on
+        // every row of their statement, so keying on them would merge unrelated payees.
+        assertThat(CounterpartyIdentity.keyOf("111111111-UPI-111111111111 Value Dt 10/07/2026 Ref 1111111111111111"))
+                .isEmpty();
+        assertThat(CounterpartyIdentity.keyOf("UPI/111111111111/02:44:32/UPI/paytm.s11a11 p@pty/U"))
+                .isEmpty();
+        assertThat(CounterpartyIdentity.keyOf("UPI/111111111111/ALPHABRAVO1111-1@OKAXIS/UPI/111111111111/HDFC BANK/"))
+                .isEmpty();
+        assertThat(CounterpartyIdentity.keyOf("UPI/111111111111/17:29:53/UPI/9111111111-3@ybl/Pa")).isEmpty();
+    }
+
+    @Test
+    void aRowThatAlreadyHadAKeyKeepsIt_theFallbackOnlyFillsBlanks() {
+        // Word-level keying on every row re-picked the longest segment here ("EXCL TAX").
+        assertThat(CounterpartyIdentity.keyOf("FP EMI 06/12(EXCL TAX   49.40)")).isEqualTo("name:fp emi");
+    }
+
+    @Test
+    void aBankOrAppNameIsSkippedOnlyWhenItIsTheWholeSegment_soTwoInsurersStayApart() {
+        // As noise words, "HDFC" and "SBI" left both insurers keyed "life".
+        assertThat(CounterpartyIdentity.keyOf("NACH/HDFC LIFE INSURANCE/11111"))
+                .isNotEqualTo(CounterpartyIdentity.keyOf("NACH/SBI LIFE INSURANCE/22222"));
+        // "VALUE" is a word in real payee names; only the "Value Dt" date label is furniture.
+        assertThat(CounterpartyIdentity.keyOf("UPI/VALUE MART/REF")).isEqualTo("name:value mart");
+    }
 }

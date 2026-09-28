@@ -308,23 +308,29 @@ class StatementImportServiceSupersedeTest {
     }
 
     // INVESTMENT_TRANSFER is the one classification RefundNetting.reportable() keeps visible, so a
-    // replaced statement's investment rows must be superseded too or they count beside the
-    // replacement's own (and delete() would later reverse their balance a second time, since it only
-    // skips SUPERSEDED rows).
+    // replaced statement's investment rows must be superseded or they count beside the replacement's
+    // own. Transfer and refund rows are superseded too, their pairing cleared: left matched, the
+    // other side stayed paired with a row that no longer counts (StatedFigureBalanceIT
+    // .aReplacedTransferRow_isNeverMatched_andStaysReplaced).
     @Test
-    void supersedesAnInvestmentTransferRow_butStillLeavesTheOtherExcludedClassificationsAlone() {
+    void supersedesInvestmentTransferAndRefundRows_andClearsTheirPairing() {
         StatementImport old = statement(oldId, StatementImport.BalanceApplicationMode.NONE);
         stub(old, statement(newId, StatementImport.BalanceApplicationMode.ABSOLUTE));
         Transaction sip = transaction(oldId, "3000.00", Transaction.ReconciliationStatus.INVESTMENT_TRANSFER);
         Transaction transfer = transaction(oldId, "700.00", Transaction.ReconciliationStatus.TRANSFER);
+        transfer.setTransfer(true);
+        transfer.setTransferPairId(UUID.randomUUID());
         Transaction refund = transaction(oldId, "80.00", Transaction.ReconciliationStatus.REFUND);
+        refund.setRefundOfTransactionId(UUID.randomUUID());
         when(transactionRepository.findByStatementImportId(oldId)).thenReturn(List.of(sip, transfer, refund));
 
         service.supersede(userId, oldId, newId);
 
-        assertThat(sip.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.SUPERSEDED);
-        assertThat(transfer.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.TRANSFER);
-        assertThat(refund.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.REFUND);
+        assertThat(List.of(sip, transfer, refund))
+                .allSatisfy(t -> assertThat(t.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.SUPERSEDED));
+        assertThat(transfer.isTransfer()).isFalse();
+        assertThat(transfer.getTransferPairId()).isNull();
+        assertThat(refund.getRefundOfTransactionId()).isNull();
         verify(reconciliationService).reconcileForUser(userId);
     }
 

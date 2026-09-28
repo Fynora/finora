@@ -1611,6 +1611,9 @@ describe('unresolved inflow banner', () => {
   it.each([
     ['PERSON_INFLOW', 'Mostly money received from people'],
     ['CARD_UNEXPLAINED_CREDIT', 'Mostly credits on your cards'],
+    ['CASH_DEPOSIT', 'Mostly cash paid in'],
+    ['MERCHANT_CREDIT', 'Mostly money back from shops and apps'],
+    ['UNKNOWN_SENDER', 'Mostly from senders Fynora could not name'],
   ])('explains a %s top reason', async (reason, line) => {
     dashboard.summary.mockResolvedValue(emptySummary({
       unresolvedInflow: 5000, unresolvedInflowCount: 2, unresolvedTopReason: reason,

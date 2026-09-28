@@ -359,6 +359,51 @@ class CategorizationServiceTest {
         verify(fynCategorizationFallbackService, never()).suggest(any(), any(), any(), any());
     }
 
+    /**
+     * Regression: a narration with no identifiable counterparty (only a reference fragment) has a
+     * null key, and the AI fallback's caches are keyed on it with NOT NULL columns. Reaching the
+     * fallback with a null key paid for an LLM call and then failed the caller's transaction on
+     * the cache write -- see KeylessNarrationAiFallbackIT for the real-Postgres reproduction.
+     */
+    @Test
+    void suggest_keylessNarration_skipsTheAiFallback() {
+        UUID merchantId = UUID.randomUUID();
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
+        when(sharedCorpusService.findTrustedSuggestion(any(), any(), any())).thenReturn(Optional.empty());
+        when(fynCategorizationFallbackService.suggest(any(), any(), any(), any())).thenReturn(Optional.of("Dining"));
+
+        var suggestion = categorizationService.suggest(userId, "UPI/REF37/UPI", null, null, Transaction.Type.EXPENSE);
+
+        assertThat(suggestion.source()).isNotEqualTo("ai_fallback");
+        verify(fynCategorizationFallbackService, never()).suggest(any(), any(), any(), any());
+    }
+
+    @Test
+    void suggestReadOnly_keylessNarration_skipsTheAiFallback() {
+        UUID merchantId = UUID.randomUUID();
+        when(merchantNormalizationEngine.resolveReadOnly(eq(userId), anyString()))
+                .thenReturn(Optional.of(merchantWithId(merchantId)));
+        when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
+        when(sharedCorpusService.findTrustedSuggestion(any(), any(), any())).thenReturn(Optional.empty());
+        when(fynCategorizationFallbackService.suggestReadOnly(any(), any(), any(), any())).thenReturn(Optional.of("Dining"));
+
+        var suggestion = categorizationService.suggestReadOnly(List.of(), userId, "UPI/REF37/UPI",
+                null, null, null, Transaction.Type.EXPENSE);
+
+        assertThat(suggestion.source()).isNotEqualTo("ai_fallback");
+        verify(fynCategorizationFallbackService, never()).suggestReadOnly(any(), any(), any(), any());
+    }
+
+    @Test
+    void hasCounterpartyKey_rejectsNullAndBlank_acceptsAnyRealKey() {
+        assertThat(CategorizationService.hasCounterpartyKey(null)).isFalse();
+        assertThat(CategorizationService.hasCounterpartyKey("")).isFalse();
+        assertThat(CategorizationService.hasCounterpartyKey("   ")).isFalse();
+        assertThat(CategorizationService.hasCounterpartyKey("vpa:brandnewvendor")).isTrue();
+        assertThat(CategorizationService.hasCounterpartyKey("name:brand new")).isTrue();
+    }
+
     @Test
     void suggest_prefersLearnedDistribution_overRuleEngine() {
         // Even though "SWIGGY" would normally match the Dining rule, a merchant with real

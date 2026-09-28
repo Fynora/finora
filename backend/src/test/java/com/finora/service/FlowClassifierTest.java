@@ -310,7 +310,95 @@ class FlowClassifierTest {
         assertThat(chosen(t, null)).isEqualTo(new FlowDecision(FlowClass.UNRESOLVED, FlowReason.PERSON_INFLOW));
     }
 
-    @Test void versionIsFive() {
-        assertThat(FlowClassifier.VERSION).isEqualTo((short) 5);
+    @Test void versionIsSix() {
+        assertThat(FlowClassifier.VERSION).isEqualTo((short) 6);
+    }
+
+    // ---- coverage (classifier v6): shapes the corpus showed landing in the wrong class ----
+
+    @Test void cashDeposit_isUnresolved_theUserSaysWhatItWas() {
+        Transaction t = credit("BY CASH");
+        t.setCounterpartyType(CounterpartyType.UNKNOWN);
+        assertThat(savings(t)).isEqualTo(new FlowDecision(FlowClass.UNRESOLVED, FlowReason.CASH_DEPOSIT));
+    }
+
+    @Test void aPaymentGatewayNamedCashSomething_isNotACashDeposit() {
+        Transaction t = credit("NEFT CR-HDFC0XXXXXX-BY CASHFREE PAYMENTS-A PERSON-REF1");
+        t.setCounterpartyType(CounterpartyType.BUSINESS);
+        assertThat(savings(t).reason()).isEqualTo(FlowReason.OTHER_INCOME);
+    }
+
+    @Test void cashDepositAtABranch_isUnresolved() {
+        assertThat(savings(credit("CASH DEP BRANCHNAME")).reason()).isEqualTo(FlowReason.CASH_DEPOSIT);
+    }
+
+    @Test void cashbackIsStillAReward_notACashDeposit() {
+        assertThat(savings(credit("BY CASHBACK CREDIT")).reason()).isEqualTo(FlowReason.REWARD);
+    }
+
+    @Test void merchantCreditOverUpi_isUnresolved() {
+        // No refund word and no purchase to link it to: a refund, a seller's payout or a cashback --
+        // the user says which.
+        Transaction t = credit("UPI-SHOPCO-shopco.pay@okbank-111111111111");
+        t.setCounterpartyType(CounterpartyType.BUSINESS);
+        assertThat(savings(t)).isEqualTo(new FlowDecision(FlowClass.UNRESOLVED, FlowReason.MERCHANT_CREDIT));
+    }
+
+    @Test void unrecognisedSenderOverUpi_isUnresolved() {
+        // A one-word name on a phone-number VPA: too little to call it a person or a shop, and not
+        // evidence of income either.
+        Transaction t = credit("UPI-ALPHA-9111111111@okbank-111111111111-NA");
+        t.setCounterpartyType(CounterpartyType.UNKNOWN);
+        assertThat(savings(t)).isEqualTo(new FlowDecision(FlowClass.UNRESOLVED, FlowReason.UNKNOWN_SENDER));
+    }
+
+    @Test void companyPayingOverNeft_isStillIncome() {
+        Transaction t = credit("NEFT CR-HDFC0XXXXXX-CLIENTCO PVT LTD-A PERSON-REF1");
+        t.setCounterpartyType(CounterpartyType.BUSINESS);
+        assertThat(savings(t)).isEqualTo(new FlowDecision(FlowClass.INCOME, FlowReason.OTHER_INCOME));
+    }
+
+    @Test void cardCcPayment_isTransfer() {
+        assertThat(card(credit("BPPY CC PAYMENT DP111111111111ABC")))
+                .isEqualTo(new FlowDecision(FlowClass.TRANSFER, FlowReason.CARD_PAYMENT_RECEIVED));
+    }
+
+    @Test void clearingCorporationPayout_isInvestmentWithdrawal_evenWrappedMidWord() {
+        Transaction t = credit("FT- 1111111111-11111111111111 - INDIAN C LEARING CORPORATION LIMITED -");
+        t.setCounterpartyType(CounterpartyType.BUSINESS);
+        assertThat(savings(t)).isEqualTo(new FlowDecision(FlowClass.INVESTMENT, FlowReason.INVESTMENT_WITHDRAWAL));
+    }
+
+    @Test void aUpiCreditFromACcSomething_isNotAClearingCorporationPayout() {
+        // With the spaces taken out, "UPI CCLUB" reads "upicclub" -- which contains "iccl".
+        Transaction t = credit("UPI-CCLUB FOODS-cclub@okbank-111111111111");
+        t.setCounterpartyType(CounterpartyType.BUSINESS);
+        assertThat(savings(t).flowClass()).isNotEqualTo(FlowClass.INVESTMENT);
+    }
+
+    @Test void truncatedReversalWord_isAReversal() {
+        assertThat(savings(credit("UPI-SHOPCO-shopco@okbank-111111111111-R02 SHOPCO REVERS")))
+                .isEqualTo(new FlowDecision(FlowClass.ADJUSTMENT, FlowReason.REVERSAL));
+    }
+
+    @Test void aReverseSweepFromADeposit_isNotAReversal() {
+        // Only the cut-off word itself: an automatic sweep back from a linked deposit is not a
+        // payment coming back, and a REVERSAL reason takes the amount off spend.
+        assertThat(savings(credit("REVERSE SWEEP FROM FD 111111111111")).reason())
+                .isNotEqualTo(FlowReason.REVERSAL);
+    }
+
+    @Test void aFundNameEndingInRe_isNotARefund() {
+        // With the spaces taken out, "INFRASTRUCTURE FUND" reads "...urefund". A refund reading
+        // would also let the reconciliation pass link it to an unrelated purchase.
+        assertThat(ReconciliationService.looksLikeRefund("MF INFRASTRUCTURE FUND PAYOUT 111111111111")).isFalse();
+        assertThat(ReconciliationService.looksLikeRefund("SAMPLE AMC CARE FUND IDCW")).isFalse();
+        assertThat(ReconciliationService.looksLikeRefund("UPI/CR/111111111111/SHOPCO/R EFUND//")).isTrue();
+        assertThat(ReconciliationService.looksLikeRefund("SHOPCO REFU ND 111111111111")).isTrue();
+    }
+
+    @Test void refundWordSplitByAWrap_isARefund() {
+        assertThat(savings(credit("UPI/CR/111111111111/SHOPCO/HDFC/**.PAYU@SHOPCOBK/R EFUND//")))
+                .isEqualTo(new FlowDecision(FlowClass.REFUND, FlowReason.UNLINKED_REFUND));
     }
 }

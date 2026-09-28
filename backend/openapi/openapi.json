@@ -2372,6 +2372,46 @@
                 }
             }
         },
+        "/api/v1/statement-imports/{id}/refresh": {
+            "post": {
+                "tags": [
+                    "statement-refresh-controller"
+                ],
+                "operationId": "refreshStatement",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StatementRefreshRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseStatementRefreshOutcome"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/setup/complete": {
             "post": {
                 "tags": [
@@ -13977,6 +14017,87 @@
                         "format": "uuid"
                     },
                     "duplicateOfStatementId": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                }
+            },
+            "StatementRefreshRequest": {
+                "type": "object",
+                "properties": {
+                    "password": {
+                        "type": "string"
+                    }
+                }
+            },
+            "ApiResponseStatementRefreshOutcome": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/StatementRefreshOutcome"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "StatementRefreshOutcome": {
+                "type": "object",
+                "properties": {
+                    "statementId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "APPLIED",
+                            "NO_CHANGES",
+                            "NEEDS_PASSWORD",
+                            "NEEDS_REVIEW",
+                            "FAILED"
+                        ]
+                    },
+                    "rowsChanged": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "rowsAdded": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "rowsRemoved": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "factsChanged": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "balanceChange": {
+                        "type": "number"
+                    },
+                    "reason": {
+                        "type": "string"
+                    },
+                    "runId": {
                         "type": "string",
                         "format": "uuid"
                     }

@@ -1470,12 +1470,12 @@ void updateCategory_manualCorrection_pinsResolution() {
 // in ImportServiceAskOnceTest.java, mirroring confirm_learnsFromAnEligibleBusinessCounterparty_recordsSharedCorpusObservation:
 @Test
 void confirm_learnsFromAnEligibleBusinessCounterparty_pinsResolution() throws Exception {
-    var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOONLINE@YBL/0000000000@PTAXIS",
+    var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOSAMPLE@YBL/0000000000@PTAXIS",
             BigDecimal.valueOf(486), "EXPENSE", "Dining", true, "rule", null, false, null, null);
 
     importService.confirm(userId, dummyFile(), requestWith(row));
 
-    verify(resolutionService).pin(eq(userId), eq("vpa:zeptoonline"), eq(Transaction.Type.EXPENSE), any());
+    verify(resolutionService).pin(eq(userId), eq("vpa:zeptosample"), eq(Transaction.Type.EXPENSE), any());
 }
 ```
 

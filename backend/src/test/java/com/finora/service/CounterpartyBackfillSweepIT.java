@@ -220,6 +220,40 @@ class CounterpartyBackfillSweepIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void aStoredRefundThatReTypesAsABusinessIsLinkedByTheSweep_withoutWaitingForTheUsersNextEdit() {
+        // Rows typed by an older classifier that called a brand's credit PERSON: a name match could
+        // not link the refund then. Re-typed BUSINESS, it can -- but only if reconciliation runs,
+        // and this proves the sweep runs it against real rows, after its own bulk update committed.
+        String paid = "UPI-ACMETRIP-ACMETRIP.RAIL@ICICI-XXXX0DC0099-REF91-ACMETRIP RAIL TRIP I"; // synthetic-ok
+        String back = "UPI-ACMETRIP-ACMETRIP.RAIL@ICICI-XXXX0DC0099-REF92-ACMETRIP RAIL TRIP I"; // synthetic-ok
+        UUID expenseId = seedTypedAtAnOldVersion(paid, Transaction.Type.EXPENSE, LocalDate.now().minusDays(6));
+        UUID incomeId = seedTypedAtAnOldVersion(back, Transaction.Type.INCOME, LocalDate.now());
+        assertThat(reload(incomeId).getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+
+        drain();
+
+        Transaction income = reload(incomeId);
+        assertThat(income.getCounterpartyType()).isEqualTo(CounterpartyType.BUSINESS);
+        assertThat(income.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.REFUND);
+        assertThat(income.getRefundOfTransactionId()).isEqualTo(expenseId);
+    }
+
+    /** A row an older classifier revision typed PERSON, with the merchant label import writes. */
+    private UUID seedTypedAtAnOldVersion(String description, Transaction.Type type, LocalDate date) {
+        Transaction t = new Transaction();
+        t.setUserId(userId);
+        t.setAccountId(accountId);
+        t.setTxnDate(date);
+        t.setAmount(BigDecimal.valueOf(1200));
+        t.setTxnType(type);
+        t.setDescription(description);
+        t.setMerchant(com.finora.util.CategoryRules.extractMerchantLabel(description));
+        t.setCounterpartyType(CounterpartyType.PERSON);
+        t.setCounterpartyClassifierVersion((short) 1);
+        return transactionRepository.save(t).getId();
+    }
+
+    @Test
     void aTypedRowIsNotPickedUpAgain_soTheSweepTerminates() {
         UUID id = seedUntyped("UPI-SUNIL VERMA-sampleuser@ybl-REF87");
         drain();

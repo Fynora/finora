@@ -73,6 +73,7 @@ public class ImportJobService {
     private final ImportJobWorker worker;
     private final org.springframework.transaction.support.TransactionTemplate transactionTemplate;
     private final EncryptionService encryptionService;
+    private final com.finora.imports.passwords.StatementPasswordService statementPasswordService;
 
     @org.springframework.beans.factory.annotation.Value("${app.import.queue.enabled:false}")
     private boolean queueEnabled;
@@ -83,7 +84,8 @@ public class ImportJobService {
                              Optional<StatementStorage> storage,
                              ImportJobWorker worker,
                              org.springframework.transaction.support.TransactionTemplate transactionTemplate,
-                             EncryptionService encryptionService) {
+                             EncryptionService encryptionService,
+                             com.finora.imports.passwords.StatementPasswordService statementPasswordService) {
         this.jobStore = jobStore;
         this.repository = repository;
         this.stageRepository = stageRepository;
@@ -91,6 +93,7 @@ public class ImportJobService {
         this.worker = worker;
         this.transactionTemplate = transactionTemplate;
         this.encryptionService = encryptionService;
+        this.statementPasswordService = statementPasswordService;
     }
 
     /**
@@ -129,6 +132,19 @@ public class ImportJobService {
      */
     public ImportJob accept(UUID userId, MultipartFile file, StatementUpload.Format sourceFormat)
             throws IOException {
+        return accept(userId, file, sourceFormat, null);
+    }
+
+    /**
+     * As above, for a protected PDF whose password the user agreed to let Fynora keep (statement
+     * refresh, step 4). The password is saved encrypted against the job in the same transaction
+     * that queues it, so the worker can open the file -- and an admin can reprocess it -- with
+     * nobody to ask. The caller has already checked the password opens the file.
+     *
+     * @param savedPassword null for an ordinary upload
+     */
+    public ImportJob accept(UUID userId, MultipartFile file, StatementUpload.Format sourceFormat,
+                            String savedPassword) throws IOException {
         // Storage is a hard gate; the queue flag deliberately is not.
         //
         // Without storage the job could never run anywhere: it holds a content address and there is
@@ -221,8 +237,13 @@ public class ImportJobService {
         // Default propagation, so this still joins a caller's transaction if one ever exists --
         // which is the guarantee ImportJobStore.enqueue's own comment depends on, and it is
         // unchanged.
-        return transactionTemplate.execute(status ->
-                enqueueStoredUpload(userId, file.getOriginalFilename(), address, sourceFormat, encrypting.keyId()));
+        return transactionTemplate.execute(status -> {
+            ImportJob job = enqueueStoredUpload(userId, file.getOriginalFilename(), address, sourceFormat, encrypting.keyId());
+            // Also when the same file was already queued: the job returned is that one, and its
+            // worker needs the password just the same.
+            if (savedPassword != null) statementPasswordService.saveForJob(userId, job.getId(), savedPassword);
+            return job;
+        });
     }
 
     private ImportJob enqueueStoredUpload(UUID userId, String fileName, ContentAddress address,
@@ -281,7 +302,8 @@ public class ImportJobService {
      * signal then, not a reason to let a single-instance deployment silently swallow uploads now.
      */
     public ImportJobDto.Availability availability() {
-        return new ImportJobDto.Availability(queueEnabled && storage.isPresent());
+        boolean async = queueEnabled && storage.isPresent();
+        return new ImportJobDto.Availability(async, async && statementPasswordService.enabled());
     }
 
     /**

@@ -54,7 +54,7 @@ class StatementImportServiceReimportTest {
                 mock(CategoryRepository.class), mock(TransactionRepository.class),
                 mock(ReconciliationService.class), mock(RecurringService.class),
                 importService, mock(AuditService.class), mock(BankManagementService.class), new com.finora.imports.storage.StatementContentService(java.util.Optional.empty(), mock(com.finora.security.crypto.EncryptionService.class), "", ""),
-                mock(com.finora.repository.ReimportConfirmationClaimRepository.class));
+                mock(com.finora.repository.ReimportConfirmationClaimRepository.class), org.mockito.Mockito.mock(com.finora.imports.passwords.StatementPasswordService.class));
 
         Account account = new Account();
         ReflectionTestUtils.setField(account, "id", accountId);

@@ -50,13 +50,17 @@ public class AccountService {
     private final com.finora.integrations.setu.AccountAggregatorLinkStalenessService aaStaleness;
     private final UserRepository userRepository;
 
+    private final com.finora.repository.StatementPasswordRepository statementPasswordRepository;
+
     public AccountService(AccountRepository accountRepository, StatementImportRepository statementImportRepository,
                            TransactionRepository transactionRepository, AuditService auditService,
                            BankManagementService bankManagementService, TransactionGraphService transactionGraphService,
                            EntitlementService entitlementService,
                            com.finora.integrations.setu.AccountAggregatorLinkRepository aaLinks,
                            com.finora.integrations.setu.AccountAggregatorLinkStalenessService aaStaleness,
-                           UserRepository userRepository) {
+                           UserRepository userRepository,
+                           com.finora.repository.StatementPasswordRepository statementPasswordRepository) {
+        this.statementPasswordRepository = statementPasswordRepository;
         this.accountRepository = accountRepository;
         this.statementImportRepository = statementImportRepository;
         this.transactionRepository = transactionRepository;
@@ -346,6 +350,9 @@ public class AccountService {
         List<UUID> ownTransactionIds = transactionRepository.findByUserIdAndAccountIdIn(userId, List.of(accountId))
                 .stream().map(Transaction::getId).toList();
         int edgesRejected = transactionGraphService.rejectEdgesTouchingTransactions(ownTransactionIds);
+        // Its statements are never opened again (a refresh refuses a deleted account's), so any
+        // password the user saved for them goes now rather than outliving the account.
+        statementPasswordRepository.deleteByAccount(userId, accountId);
         accountRepository.delete(a); // soft delete via @SQLDelete on the entity
         auditService.record(userId, "ACCOUNT_DELETED", "Account", accountId,
                 Map.of("name", a.getName(), "type", a.getAccountType().name(),

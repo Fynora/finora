@@ -22,6 +22,30 @@ class CounterpartyClassifierTest {
     }
 
     @Test
+    void aBrandCollectingThroughAMerchantPseudoBranchIsABusiness_notAPersonReadOffItsRemark() {
+        // A real corpus shape, with the brand and product words invented: HDFC writes UPI rows as
+        // UPI-<payee>-<handle>-<IFSC>-<ref>-<remark>. The payee here is one brand word, which the
+        // person check rightly declines, but the remark the brand's own app writes is three words
+        // and an initial, and the person check reads every segment -- so the remark alone typed the
+        // row PERSON, and a refund on the same narration was never linked to its payment. The IFSC
+        // is what settles it: DC0099 is a merchant pseudo-branch, and every corpus row routed
+        // through it is a business or an institution.
+        String brand = "UPI-ACMETRIP-ACMETRIP.RAIL@ICICI-XXXX0DC0099-REF31-ACMETRIP RAIL TRIP I"; // synthetic-ok
+        assertThat(PersonToPersonTransferDetector.hasMerchantAcquirerMarker(brand)).isTrue();
+        assertThat(CounterpartyClassifier.classify(brand)).isEqualTo(CounterpartyType.BUSINESS);
+    }
+
+    @Test
+    void aPersonsDottedHandleOnAnOrdinaryBranchIsStillAPerson() {
+        // The counterweight to the test above: <first>.<last>@<bank> is also how people name their
+        // own handles, so the handle's shape is not what makes that row a business. Only the
+        // pseudo-branch does, and an ordinary branch code must leave a person a person.
+        String person = "UPI-SUNIL VERMA-sunil.verma@icici-XXXX0001234-REF32-UPI"; // synthetic-ok
+        assertThat(PersonToPersonTransferDetector.hasMerchantAcquirerMarker(person)).isFalse();
+        assertThat(CounterpartyClassifier.classify(person)).isEqualTo(CounterpartyType.PERSON);
+    }
+
+    @Test
     void aCorporateSuffixMakesItABusinessWithoutAnyRailMarker() {
         assertThat(CounterpartyClassifier.classify("NEFT ACME TECHNOLOGIES PVT LTD REF23"))
                 .isEqualTo(CounterpartyType.BUSINESS);
@@ -59,6 +83,68 @@ class CounterpartyClassifierTest {
     void aTaxBodyIsGovernment_notABusiness() {
         assertThat(CounterpartyClassifier.classify("GST PAYMENT CHALLAN REF27"))
                 .isEqualTo(CounterpartyType.GOVERNMENT);
+    }
+
+    @Test
+    void aFeePaidToThePassportPortalOrTheExamBodyIsGovernment_notAPersonsTransfer() {
+        // The portal's payee line is three name-shaped words, so the HDFC slot rule read it as a
+        // person and the refund pass would never have linked a returned fee.
+        String passport = "UPI-PASSPORT SEVA PROJEC-passportseva.sample@sbi-XXXX0001234-REF61-FEE"; // synthetic-ok
+        assertThat(CounterpartyClassifier.classify(passport)).isEqualTo(CounterpartyType.GOVERNMENT);
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(passport)).isFalse();
+        assertThat(CounterpartyClassifier.classify("UPIAR/REF62/DR/Passport/SBIN/passportseva.sample"))
+                .isEqualTo(CounterpartyType.GOVERNMENT);
+        assertThat(CounterpartyClassifier.classify("UPI/REF63/UPI/upsc.sample@sbi"))
+                .isEqualTo(CounterpartyType.GOVERNMENT);
+    }
+
+    @Test
+    void aRemarkOrABankBranchIsNotEvidenceAboutTheCounterparty() {
+        // A payer's remark with "AND" in it typed a person BUSINESS; a branch called "... BANK"
+        // printed after the payee typed a person FINANCIAL_INSTITUTION.
+        assertThat(CounterpartyClassifier.classify(
+                "UPI-SUNITA RAO-sampleuser-4@okaxis-XXXX0001234-100000000001-MAY LIGHT BILL AND WATER")) // synthetic-ok
+                .isEqualTo(CounterpartyType.PERSON);
+        assertThat(CounterpartyClassifier.classify(
+                "UPI/100000000001/ SUNITA RAO/sampleuser@okhdfcbank/1000/UPI/100000000001/SAMPLE BANK/")) // synthetic-ok
+                .isEqualTo(CounterpartyType.PERSON);
+        // And a business stays one on its own words once the branch stops speaking for it.
+        assertThat(CounterpartyClassifier.classify(
+                "UPI/100000000001/ ACME HILL HOTEL/sampleuser@ybl/XXXX0001234 1000/UPI/100000000001/SAMPLE BANK/")) // synthetic-ok
+                .isEqualTo(CounterpartyType.BUSINESS);
+        // A resort is never a person, but "resort" is not a business veto (a payer can write it in a
+        // remark), so with nothing else to go on it reads UNKNOWN -- not the bank the branch said.
+        assertThat(CounterpartyClassifier.classify(
+                "UPI/100000000001/ ACME HILL RESORT/sampleuser@ybl/XXXX0001234 1000/UPI/100000000001/SAMPLE BANK/")) // synthetic-ok
+                .isEqualTo(CounterpartyType.UNKNOWN);
+    }
+
+    @Test
+    void aTradeWordInAPayersRemarkDoesNotMakeAFriendABusiness() {
+        assertThat(CounterpartyClassifier.classify("UPI/SUNITA RAO/REF5/RESORT SHARE")).isEqualTo(CounterpartyType.PERSON);
+        assertThat(CounterpartyClassifier.classify("UPI/SUNITA RAO/REF6/SHOPEE ORDER")).isEqualTo(CounterpartyType.PERSON);
+    }
+
+    @Test
+    void aPersonPaidUnderACareOfNameIsAPerson_andACompanyEndingInCoIsStillABusiness() {
+        assertThat(CounterpartyClassifier.classify(
+                "UPI-SUNITA KHAN CO RAO-sampleuser-1@oksbi-XXXX0001234-100000000001-UPI")) // synthetic-ok
+                .isEqualTo(CounterpartyType.PERSON);
+        assertThat(CounterpartyClassifier.classify("NEFT-RAMESH CO-REF71"))
+                .isEqualTo(CounterpartyType.BUSINESS);
+        // One word before CO is a company with its town after it, not care of.
+        assertThat(CounterpartyClassifier.classify("NEFT-SHARMA CO PUNE-REF72"))
+                .isEqualTo(CounterpartyType.BUSINESS);
+    }
+
+    @Test
+    void aTwoWordCafeChainIsABusiness_onceItIsAKnownMerchant() {
+        // Structurally a two-word brand is indistinguishable from a person's name (the detector's
+        // documented limitation); the merchant vocabulary is what separates them.
+        String cafe = "UPI-TEA POST-sampleoutlet@ybl-XXXX0YBLUPI-REF64-PAYMENT FOR ORDER"; // synthetic-ok
+        assertThat(CounterpartyClassifier.classify(cafe)).isEqualTo(CounterpartyType.BUSINESS);
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(cafe)).isFalse();
+        assertThat(CategoryRules.suggestCategory(cafe)).isEqualTo("Dining");
     }
 
     @Test

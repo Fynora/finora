@@ -78,6 +78,7 @@ public class HeldStatementService {
     private final ImportService importService;
     private final ParserVersionProvider parserVersionProvider;
     private final HeldItemAdminAlertService heldItemAdminAlertService;
+    private final com.finora.imports.passwords.StatementPasswordService statementPasswordService;
 
     public HeldStatementService(HeldStatementRepository repository,
                                 HeldStatementEventRepository eventRepository,
@@ -91,7 +92,9 @@ public class HeldStatementService {
                                 StatementContentService statementContentService,
                                 ImportService importService,
                                 ParserVersionProvider parserVersionProvider,
-                                HeldItemAdminAlertService heldItemAdminAlertService) {
+                                HeldItemAdminAlertService heldItemAdminAlertService,
+                                com.finora.imports.passwords.StatementPasswordService statementPasswordService) {
+        this.statementPasswordService = statementPasswordService;
         this.repository = repository;
         this.eventRepository = eventRepository;
         this.idGenerator = idGenerator;
@@ -423,7 +426,9 @@ public class HeldStatementService {
         ImportService.DryRunResult dryRun;
         String extractionError = null;
         try {
-            dryRun = importService.dryRunParse(job.getUserId(), job.getFileName(), content, job.getSourceFormat());
+            // A locked upload reached this queue only with a password the user saved (step 4).
+            dryRun = importService.dryRunParse(job.getUserId(), job.getFileName(), content, job.getSourceFormat(),
+                    statementPasswordService.forJob(job.getId()).orElse(null));
         } catch (ApiException e) {
             dryRun = new ImportService.DryRunResult(List.of(), List.of());
             String code = e.getCode() != null ? e.getCode().name() : "UNKNOWN";
@@ -585,12 +590,22 @@ public class HeldStatementService {
         HeldStatement held = require(heldId);
         ImportJob job = requireJob(held);
 
+        // Recorded before the bytes are read (see above), so it can only say a saved password exists
+        // and an unlocked copy will be attempted -- reviewCopy falls back to the stored file.
+        boolean savedPassword = "PDF".equalsIgnoreCase(job.getSourceFormat())
+                && statementPasswordService.hasJobPassword(job.getId());
         auditService.record(actingAdminId, "TRUST_REVIEW_DOCUMENT_DOWNLOADED", "HeldStatement",
                 held.getId(), Map.of("actorId", actingAdminId.toString(),
                         "subjectUserId", held.getUserId().toString(),
-                        "heldId", held.getHeldId()));
+                        "heldId", held.getHeldId(),
+                        "savedPasswordOnFile", savedPassword));
 
         byte[] content = statementContentService.read(job);
+        if (savedPassword) {
+            // A protected PDF whose password the user saved is unlocked in memory for this download
+            // only, so the reviewer can read it; no unlocked copy is stored.
+            content = statementPasswordService.reviewCopy(job, content).content();
+        }
         return new DownloadedStatement(job.getFileName(), content, contentTypeFor(job.getSourceFormat()));
     }
 

@@ -93,7 +93,7 @@ class AccountServiceTest {
         accountService = new AccountService(accountRepository, statementImportRepository,
                 transactionRepository, auditService, bankManagementService, transactionGraphService,
                 entitlementService, aaLinks, new com.finora.integrations.setu.AccountAggregatorLinkStalenessService(24),
-                userRepository);
+                userRepository, org.mockito.Mockito.mock(com.finora.repository.StatementPasswordRepository.class));
     }
 
     private AccountDto.CreateRequest newAccountRequest(String name) {

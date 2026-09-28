@@ -93,6 +93,9 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
          *  sender (sender_inflow_rules, Plan 2) over to the new key. */
         UUID getUserId();
         String getCounterpartyKey();
+        /** The type it carries now -- a changed type can change what reconciliation decides (a
+         *  refund is linked by name only for an organisation), so the sweep re-reconciles that user. */
+        com.finora.util.CounterpartyType getCounterpartyType();
     }
 
     /**
@@ -117,7 +120,8 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
      * version comparison alone will happily overwrite a human's answer.
      */
     @Query("""
-            SELECT t.id AS id, t.description AS description, t.userId AS userId, t.counterpartyKey AS counterpartyKey
+            SELECT t.id AS id, t.description AS description, t.userId AS userId, t.counterpartyKey AS counterpartyKey,
+                   t.counterpartyType AS counterpartyType
             FROM Transaction t
             WHERE t.counterpartyClassifierVersion IS NULL
                OR t.counterpartyClassifierVersion < :version

@@ -57,6 +57,7 @@ public class AdminHeldImportService {
     private final AuditService auditService;
     private final StatementContentService statementContentService;
     private final StatementStatusNotifier statusNotifier;
+    private final com.finora.imports.passwords.StatementPasswordService statementPasswordService;
 
     /**
      * The longest message an admin may send a user. Bounded well inside the notification columns
@@ -69,8 +70,10 @@ public class AdminHeldImportService {
                                   ImportJobWorker worker,
                                   AuditService auditService,
                                   StatementContentService statementContentService,
-                                  StatementStatusNotifier statusNotifier) {
+                                  StatementStatusNotifier statusNotifier,
+                                  com.finora.imports.passwords.StatementPasswordService statementPasswordService) {
         this.statusNotifier = statusNotifier;
+        this.statementPasswordService = statementPasswordService;
         this.repository = repository;
         this.worker = worker;
         this.auditService = auditService;
@@ -143,10 +146,20 @@ public class AdminHeldImportService {
     public DownloadedStatement download(UUID actingAdminId, UUID jobId) {
         ImportJob job = require(jobId);
         requireHeld(job, "downloaded");
+        // Recorded before the bytes are read (see above), so it can only say a saved password exists
+        // and an unlocked copy will be attempted -- reviewCopy falls back to the stored file.
+        boolean savedPassword = "PDF".equalsIgnoreCase(job.getSourceFormat())
+                && statementPasswordService.hasJobPassword(job.getId());
         auditService.record(actingAdminId, "HELD_IMPORT_DOWNLOADED", "ImportJob", jobId,
                 Map.of("actorId", actingAdminId.toString(),
-                        "subjectUserId", job.getUserId().toString()));
+                        "subjectUserId", job.getUserId().toString(),
+                        "savedPasswordOnFile", savedPassword));
         byte[] content = statementContentService.read(job);
+        if (savedPassword) {
+            // A protected PDF whose password the user saved is unlocked in memory for this download
+            // only, so the reviewer can read it; no unlocked copy is stored.
+            content = statementPasswordService.reviewCopy(job, content).content();
+        }
         return new DownloadedStatement(job.getFileName(), content, contentTypeFor(job.getSourceFormat()));
     }
 

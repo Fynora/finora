@@ -13,6 +13,7 @@ import com.finora.entity.Transaction;
 import com.finora.exception.ApiException;
 import com.finora.exception.ErrorCode;
 import com.finora.imports.ImportService;
+import com.finora.imports.passwords.StatementPasswordService;
 import com.finora.imports.refresh.StatementRefreshDiff.FieldChange;
 import com.finora.imports.refresh.StatementRefreshDiff.FreshRow;
 import com.finora.imports.refresh.StatementRefreshDiff.KnownRow;
@@ -92,6 +93,7 @@ public class StatementRefreshService {
     private final RecurringService recurringService;
     private final AuditService auditService;
     private final BuildVersionResolver buildVersionResolver;
+    private final StatementPasswordService statementPasswordService;
     private final TransactionTemplate readTransaction;
     private final TransactionTemplate writeTransaction;
 
@@ -112,7 +114,9 @@ public class StatementRefreshService {
                                    RecurringService recurringService,
                                    AuditService auditService,
                                    BuildVersionResolver buildVersionResolver,
-                                   PlatformTransactionManager transactionManager) {
+                                   PlatformTransactionManager transactionManager,
+                                   StatementPasswordService statementPasswordService) {
+        this.statementPasswordService = statementPasswordService;
         this.statementImportRepository = statementImportRepository;
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
@@ -132,12 +136,22 @@ public class StatementRefreshService {
         this.writeTransaction = new TransactionTemplate(transactionManager);
     }
 
-    /**
-     * Refreshes one of the user's statements. {@code password} opens a protected PDF and is used
-     * for this re-read only -- never stored, never logged.
-     */
+    /** Refreshes one of the user's statements without saving a password -- see the four-argument form. */
     public StatementRefreshOutcome refresh(UUID userId, UUID statementId, String password) {
+        return refresh(userId, statementId, password, false);
+    }
+
+    /**
+     * Refreshes one of the user's statements. A protected PDF is opened with {@code password} when
+     * one is given, otherwise with the password saved for it (step 4), if any. With
+     * {@code savePassword} -- the user's consent -- a given password that opened the file is saved
+     * encrypted for next time; without it the password is used for this re-read only. Never logged.
+     */
+    public StatementRefreshOutcome refresh(UUID userId, UUID statementId, String password, boolean savePassword) {
         requireEnabled();
+        if (savePassword && !statementPasswordService.enabled()) {
+            throw new ApiException(HttpStatus.CONFLICT, "Saving statement passwords is not available yet.");
+        }
         StatementImport statement = statementImportRepository.findById(statementId)
                 .filter(s -> s.getUserId().equals(userId))
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Statement not found"));
@@ -163,10 +177,12 @@ public class StatementRefreshService {
             return StatementRefreshOutcome.of(record(statement, version, StatementRefreshRun.Status.FAILED, "STORED_FILE_UNREADABLE"));
         }
 
+        boolean givenPassword = password != null && !password.isEmpty();
+        String opener = givenPassword ? password : statementPasswordService.forStatement(userId, statementId).orElse(null);
         StagingResponse staging;
         try {
             staging = importService.parseAndStageAnyFormat(userId, statement.getSourceFormat(),
-                    statement.getFileName(), content, statement.getSourceSectionIndex(), password);
+                    statement.getFileName(), content, statement.getSourceSectionIndex(), opener);
         } catch (ApiException e) {
             if (e.getCode() == ErrorCode.IMPORT_PDF_PASSWORD_REQUIRED || e.getCode() == ErrorCode.IMPORT_PDF_PASSWORD_INVALID) {
                 // Not recorded as a run: nothing was attempted yet, and the user is about to be
@@ -180,6 +196,14 @@ public class StatementRefreshService {
             // The class name only: a parser's message can quote the statement's own text.
             log.warn("Statement refresh could not re-read statement {}: {}", statementId, e.getClass().getSimpleName());
             return StatementRefreshOutcome.of(record(statement, version, StatementRefreshRun.Status.FAILED, e.getClass().getSimpleName()));
+        }
+
+        // The file opened, so the password is right. Saved whatever the refresh then decides: the
+        // user agreed to keep it for this statement, not for this outcome. Only a locked PDF has one
+        // to keep -- PDFBox ignores a password given for an unlocked file, so it would open anyway.
+        if (savePassword && givenPassword && "PDF".equalsIgnoreCase(statement.getSourceFormat())
+                && com.finora.imports.pdf.PdfTextExtractor.needsPassword(new java.io.ByteArrayInputStream(content))) {
+            statementPasswordService.saveForStatement(userId, statementId, password);
         }
 
         StatementRefreshRun run = writeTransaction.execute(tx -> apply(userId, statementId, version, staging));

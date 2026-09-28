@@ -141,7 +141,7 @@ export default function AuthEntry() {
           </div>
 
           {step === 'identify' && (
-            <IdentifyStep onExists={handleExists} onContinue={handleContinue} onSuccess={afterAuthSuccess} />
+            <IdentifyStep onExists={handleExists} onContinue={handleContinue} onSuccess={afterAuthSuccess} referralCode={referralCode} />
           )}
           {step === 'password' && (
             <PasswordStep identifier={identifier} banner={banner} onSuccess={afterAuthSuccess} onNotYou={handleNotYou} />

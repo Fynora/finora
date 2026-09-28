@@ -59,6 +59,8 @@ export interface AuthResponseDto {
   // Same channel phoneVerified already rides -- see docs/superpowers/specs/
   // 2026-09-06-first-login-onboarding-tour-design.md §7.
   onboardingCompleted: boolean;
+  /** True only on the response that created the account -- see AuthContext.offerReferralPromptIfNew. */
+  accountCreated: boolean;
 }
 
 export const authApi = {
@@ -78,13 +80,15 @@ export const authApi = {
   // D-23 Phase 2. idToken is the raw credential from @react-native-google-signin/google-signin --
   // verified server-side (GoogleIdTokenVerifierService), never trusted client-side. Same endpoint
   // web's GoogleSignInButton already calls; see frontend/src/api/endpoints.ts's own copy.
-  google: (idToken: string) => api.post<AuthResponseDto>('/auth/google', { idToken }),
+  // referralCode: optional -- the backend redeems it only if this sign-in creates the account.
+  google: (idToken: string, referralCode?: string) =>
+    api.post<AuthResponseDto>('/auth/google', { idToken, referralCode }),
   // D-23 Phase 2 / D-26 (iOS only). idToken is the raw credential from
   // expo-apple-authentication's signInAsync(). fullName is optional and NOT part of the token --
   // Apple hands it to the CLIENT, not the backend, and only on the user's very first
   // authorization for this app -- see AppleAuthRequest's own doc comment on the backend.
-  apple: (idToken: string, fullName?: string) =>
-    api.post<AuthResponseDto>('/auth/apple', { idToken, fullName }),
+  apple: (idToken: string, fullName?: string, referralCode?: string) =>
+    api.post<AuthResponseDto>('/auth/apple', { idToken, fullName, referralCode }),
   // Completes the "Welcome back — reactivate your account?" prompt LoginScreen shows after a
   // deactivated account's password checks out -- see AuthContext.reactivate. Returns the same
   // shape as login.
@@ -1411,12 +1415,16 @@ export interface MyReferralsDto {
    *  the retired 7-referral Premium reward it used to track. */
   premiumMilestoneCounter: number;
   grants: ReferralGrantEntry[];
+  /** Whether to offer "Enter a friend's code": not already referred, and never subscribed. */
+  canApplyCode: boolean;
 }
 
 export const referralsApi = {
   myCode: () => api.get<{ code: string }>('/referrals/my-code').then((r) => r.data),
   mine: () => api.get<MyReferralsDto>('/referrals/mine').then((r) => r.data),
   redeem: (tier: 'PLUS' | 'PREMIUM') => api.post<void>('/referrals/redeem', { tier }).then(() => undefined),
+  // A friend's code entered after signing up. One per person: the server refuses a second one.
+  applyCode: (code: string) => api.post<void>('/referrals/apply-code', { code }).then(() => undefined),
 };
 
 /** Subscription billing V4. Mirrors frontend's EntitlementsDto exactly -- backend endpoint

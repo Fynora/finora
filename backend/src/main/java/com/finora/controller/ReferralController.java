@@ -1,6 +1,7 @@
 package com.finora.controller;
 
 import com.finora.dto.ApiResponse;
+import com.finora.dto.ReferralDtos.ApplyReferralCodeRequest;
 import com.finora.dto.ReferralDtos.MyReferralCodeDto;
 import com.finora.dto.ReferralDtos.MyReferralsDto;
 import com.finora.dto.ReferralDtos.RedeemMilestoneRequest;
@@ -34,6 +35,13 @@ public class ReferralController {
     @GetMapping("/mine")
     public ApiResponse<MyReferralsDto> mine() {
         return ApiResponse.ok(referralService.myReferrals(currentUser.id()));
+    }
+
+    /** A friend's code, entered after signing up -- see ReferralService.applyCode for the rules. */
+    @PostMapping("/apply-code")
+    public ApiResponse<Void> applyCode(@Valid @RequestBody ApplyReferralCodeRequest request) {
+        referralService.applyCode(currentUser.id(), request.code());
+        return ApiResponse.ok(null, "Referral code added");
     }
 
     @PostMapping("/redeem")

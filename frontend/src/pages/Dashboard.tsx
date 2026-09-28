@@ -579,11 +579,12 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Statement refresh, step 5: renders nothing unless an improved parser would change some of
+          this user's statements, and nothing while refreshing is switched off. Above the
+          onboarding widgets, which can fill the first screen. */}
+      <div className="mb-8 empty:hidden"><StatementRefreshBanner /></div>
       <ChecklistWidget />
       <JourneyWidget />
-      {/* Statement refresh, step 5: renders nothing unless an improved parser would change some of
-          this user's statements, and nothing while refreshing is switched off. */}
-      <div className="mb-8 empty:hidden"><StatementRefreshBanner /></div>
 
       {/* Limited-history banner. The KPI deltas and health score below are real, computed numbers
           -- neither is hidden here -- but both are prone to thin-data artifacts this far below

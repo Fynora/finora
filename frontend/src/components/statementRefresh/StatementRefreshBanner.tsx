@@ -77,7 +77,7 @@ export function StatementRefreshBanner() {
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-ink">
                 {updatable.length > 0
-                  ? `We now read ${updatable.length} of your ${updatable.length === 1 ? 'statement' : 'statements'} more accurately`
+                  ? `We now read ${updatable.length === 1 ? 'one' : updatable.length} of your statements more accurately`
                   : 'Some of your statements need their password to be checked'}
               </p>
               <p className="text-xs text-muted mt-0.5">

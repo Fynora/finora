@@ -63,6 +63,7 @@ describe('StatementRefreshBanner', () => {
     const user = userEvent.setup();
     renderBanner();
 
+    expect(await screen.findByText('We now read 2 of your statements more accurately')).toBeInTheDocument();
     await user.click(await screen.findByRole('button', { name: /update 2 statements/i }));
 
     const summary = await screen.findByTestId('refresh-summary');
@@ -78,6 +79,7 @@ describe('StatementRefreshBanner', () => {
     api.applyAll.mockResolvedValue({ results: [], remaining: 1 });
     const user = userEvent.setup();
     renderBanner();
+    expect(await screen.findByText('We now read one of your statements more accurately')).toBeInTheDocument();
 
     await user.click(await screen.findByRole('button', { name: /update 1 statement/i }));
 

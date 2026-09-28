@@ -158,6 +158,7 @@ class StatementPasswordIT extends AbstractIntegrationTest {
     private UUID importQueued(User user, Account account, byte[] pdf, String password, Boolean save) throws Exception {
         ResponseEntity<String> accepted = upload(user, pdf, password, save);
         assertThat(accepted.getStatusCode()).as(accepted.getBody()).isEqualTo(HttpStatus.ACCEPTED);
+        assertThat(read(accepted).get("data").get("passwordSaved").asBoolean()).isEqualTo(Boolean.TRUE.equals(save));
         UUID jobId = UUID.fromString(read(accepted).get("data").get("jobId").asText());
 
         worker.drainOnce();
@@ -280,6 +281,8 @@ class StatementPasswordIT extends AbstractIntegrationTest {
                 PdfFixtureBuilder.buildReverseChronologicalRunningBalanceSample(), PASSWORD, true);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        assertThat(read(response).get("data").get("passwordSaved").asBoolean())
+                .as("the client is told, so the user does not believe it was kept").isFalse();
         assertThat(passwordRepository.findAll().stream().filter(p -> p.getUserId().equals(user.getId()))).isEmpty();
     }
 

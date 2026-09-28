@@ -6324,6 +6324,7 @@ export interface components {
             /** Format: uuid */
             jobId?: string;
             statusUrl?: string;
+            passwordSaved?: boolean;
         };
         ApiResponseAccepted: {
             success?: boolean;

@@ -18,9 +18,19 @@ public final class ImportJobDto {
      * <p>{@code statusUrl} is returned rather than left for the client to construct, so the polling
      * route can move without every client needing to be updated in step.
      */
-    public record Accepted(UUID jobId, String statusUrl) {
+    /**
+     * @param passwordSaved whether a password sent with the user's consent was kept (statement
+     *        refresh, step 4). False when none was sent, and when the file turned out not to be
+     *        locked -- it needs none, so none is kept, and the client says so rather than letting
+     *        the user believe it was saved.
+     */
+    public record Accepted(UUID jobId, String statusUrl, boolean passwordSaved) {
         public static Accepted of(ImportJob job) {
-            return new Accepted(job.getId(), "/api/v1/import/jobs/" + job.getId());
+            return of(job, false);
+        }
+
+        public static Accepted of(ImportJob job, boolean passwordSaved) {
+            return new Accepted(job.getId(), "/api/v1/import/jobs/" + job.getId(), passwordSaved);
         }
     }
 

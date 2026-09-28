@@ -87,7 +87,9 @@ public final class CounterpartyClassifier {
     //    layout reads only its payee slot -- 12 rows to PERSON from BUSINESS, FINANCIAL_INSTITUTION or
     //    UNKNOWN (all people), 4 FINANCIAL_INSTITUTION -> BUSINESS (all businesses), no row leaves
     //    PERSON. Last, a "CO" inside a person's name reads as "care of", not "& Co" (1 row BUSINESS
-    //    -> PERSON; the three companies ending in CO are unchanged). Every flip read.
+    //    -> PERSON; the three companies ending in CO are unchanged), and "resort"/"shopee" stop a
+    //    name without vetoing a person (a resort and a shop, typed BUSINESS a step earlier, read
+    //    UNKNOWN). Every flip read.
     public static final short VERSION = 5;
 
     /**

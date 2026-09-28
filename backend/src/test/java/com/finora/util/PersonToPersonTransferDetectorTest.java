@@ -488,6 +488,8 @@ class PersonToPersonTransferDetectorTest {
         assertThat(PersonToPersonTransferDetector.withoutCareOf("ACME WINE CENTRE CO/sample@ybl")).isEqualTo("ACME WINE CENTRE CO/sample@ybl");
         assertThat(PersonToPersonTransferDetector.withoutCareOf("SHARMA AND CO TRADERS")).isEqualTo("SHARMA AND CO TRADERS");
         assertThat(PersonToPersonTransferDetector.withoutCareOf("SHARMA & CO TRADERS")).isEqualTo("SHARMA & CO TRADERS");
+        // Care of follows a full name; one word before CO is a company and its town.
+        assertThat(PersonToPersonTransferDetector.withoutCareOf("NEFT-SHARMA CO PUNE-REF")).isEqualTo("NEFT-SHARMA CO PUNE-REF");
         // An initial followed by a surname starting with O is not care of.
         assertThat(PersonToPersonTransferDetector.withoutCareOf("RAHUL C OBEROI")).isEqualTo("RAHUL C OBEROI");
     }

@@ -110,8 +110,19 @@ class CounterpartyClassifierTest {
                 .isEqualTo(CounterpartyType.PERSON);
         // And a business stays one on its own words once the branch stops speaking for it.
         assertThat(CounterpartyClassifier.classify(
-                "UPI/100000000001/ ACME HILL RESORT/sampleuser@ybl/XXXX0001234 1000/UPI/100000000001/SAMPLE BANK/")) // synthetic-ok
+                "UPI/100000000001/ ACME HILL HOTEL/sampleuser@ybl/XXXX0001234 1000/UPI/100000000001/SAMPLE BANK/")) // synthetic-ok
                 .isEqualTo(CounterpartyType.BUSINESS);
+        // A resort is never a person, but "resort" is not a business veto (a payer can write it in a
+        // remark), so with nothing else to go on it reads UNKNOWN -- not the bank the branch said.
+        assertThat(CounterpartyClassifier.classify(
+                "UPI/100000000001/ ACME HILL RESORT/sampleuser@ybl/XXXX0001234 1000/UPI/100000000001/SAMPLE BANK/")) // synthetic-ok
+                .isEqualTo(CounterpartyType.UNKNOWN);
+    }
+
+    @Test
+    void aTradeWordInAPayersRemarkDoesNotMakeAFriendABusiness() {
+        assertThat(CounterpartyClassifier.classify("UPI/SUNITA RAO/REF5/RESORT SHARE")).isEqualTo(CounterpartyType.PERSON);
+        assertThat(CounterpartyClassifier.classify("UPI/SUNITA RAO/REF6/SHOPEE ORDER")).isEqualTo(CounterpartyType.PERSON);
     }
 
     @Test
@@ -120,6 +131,9 @@ class CounterpartyClassifierTest {
                 "UPI-SUNITA KHAN CO RAO-sampleuser-1@oksbi-XXXX0001234-100000000001-UPI")) // synthetic-ok
                 .isEqualTo(CounterpartyType.PERSON);
         assertThat(CounterpartyClassifier.classify("NEFT-RAMESH CO-REF71"))
+                .isEqualTo(CounterpartyType.BUSINESS);
+        // One word before CO is a company with its town after it, not care of.
+        assertThat(CounterpartyClassifier.classify("NEFT-SHARMA CO PUNE-REF72"))
                 .isEqualTo(CounterpartyType.BUSINESS);
     }
 

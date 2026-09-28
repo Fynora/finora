@@ -157,12 +157,17 @@ public final class PersonToPersonTransferDetector {
             // a payer's remark (nobody annotates a transfer "xerox" or "tyres"), so they carry the
             // upside without FURNITURE's downside.
             "XEROX", "TAILORS", "TYRES", "SPARES", "NURSERY", "PHOTOGRAPHY",
-            "PARLOUR", "PARLOR",
-            // Third tier, 2026-09-28: a resort and a "shopee" whose type had come from the bank
-            // branch printed after them; once only the payee's own words count, nothing but these
-            // separates them from a two-word name. Neither is a word anyone is named.
-            "RESORT", "RESORTS", "SHOPEE"
+            "PARLOUR", "PARLOR"
     );
+
+    /**
+     * Trade words that are never part of a person's name but are NOT a business veto: a payer can
+     * write them in a remark ("resort share") on a transfer to a friend, and as a veto they would
+     * type that friend BUSINESS. Added 2026-09-28 for a resort and a "shopee" whose type had come
+     * from the bank branch printed after them: they now stop the payee reading as a person, and
+     * with nothing else to say what they are, read UNKNOWN.
+     */
+    private static final Set<String> NEVER_A_NAME_TRADE_TOKENS = Set.of("RESORT", "RESORTS", "SHOPEE");
 
     /**
      * The subset of {@link #BUSINESS_SUFFIX_TOKENS} that also appears in a STATEMENT ISSUER's own
@@ -210,6 +215,7 @@ public final class PersonToPersonTransferDetector {
         NON_NAME_TOKENS.addAll(BUSINESS_SUFFIX_TOKENS);
         NON_NAME_TOKENS.addAll(PROTOCOL_AND_BOILERPLATE_TOKENS);
         NON_NAME_TOKENS.addAll(PSP_BRAND_TOKENS);
+        NON_NAME_TOKENS.addAll(NEVER_A_NAME_TRADE_TOKENS);
     }
 
     // A VPA-shaped handle whose local part contains "qr" -- a merchant-QR handle (e.g.
@@ -440,14 +446,29 @@ public final class PersonToPersonTransferDetector {
      * "& Co", a company, so it sits in {@link #BUSINESS_SUFFIX_TOKENS}, and a person paid under
      * "... KHAN CO SHAH" was typed BUSINESS. On the corpus the two uses separate by position: every
      * company has CO ending its name ("... CENTRE CO/", "... CLEARING CO", "ONE97 CO/") and the one
-     * person has a name word after it. So a CO followed by another word, and not after "&"/"AND", is
-     * care of and is dropped; a CO that ends its segment is still a company.
+     * person has a name word after it. So a CO between a full name (two or more words) and another
+     * word, not after "&"/"AND", is care of and is dropped; a CO that ends its segment, or follows a
+     * single word ("SHARMA CO PUNE", a company and its town), is still a company.
      */
     private static final Pattern CARE_OF = Pattern.compile(
             "(?i)(?<!&)(?<!&\\s)(?<!\\bAND\\s)\\bC\\s?/?\\s?O\\s+(?=[A-Za-z]{2,})");
 
     static String withoutCareOf(String text) {
-        return text == null ? null : CARE_OF.matcher(text).replaceAll("");
+        if (text == null) return null;
+        Matcher m = CARE_OF.matcher(text);
+        StringBuilder out = new StringBuilder();
+        int kept = 0;
+        while (m.find()) {
+            // Care of follows a person's full name. A single word before CO is a company with a
+            // place after it ("SHARMA CO PUNE"), and that CO stays.
+            int segmentStart = Math.max(Math.max(text.lastIndexOf('-', m.start()), text.lastIndexOf('/', m.start())),
+                    text.lastIndexOf('_', m.start())) + 1;
+            String before = text.substring(segmentStart, m.start()).trim();
+            if (before.split("\\s+").length < 2 || before.isEmpty()) continue;
+            out.append(text, kept, m.start());
+            kept = m.end();
+        }
+        return out.append(text.substring(kept)).toString();
     }
 
     /** Google Pay's consumer handles; its business handles are {@code @okbiz...} instead. */

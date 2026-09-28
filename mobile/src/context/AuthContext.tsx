@@ -57,14 +57,21 @@ interface AuthState {
   ) => Promise<{ phoneVerified: boolean }>;
   // D-23 Phase 2. Mirrors frontend/src/context/AuthContext.tsx's own loginWithGoogle exactly --
   // same contract, same persist() reuse.
-  loginWithGoogle: (idToken: string) => Promise<boolean>;
+  // referralCode: optional, same as register()'s -- a friend's link or a code typed on the sign-up
+  // screen before tapping the button. The backend uses it only if this sign-in creates the account.
+  loginWithGoogle: (idToken: string, referralCode?: string) => Promise<boolean>;
   // D-26 (iOS only). fullName is optional because expo-apple-authentication only hands it to the
   // CALLER on the user's very first authorization for this app -- see GoogleSignInButton's sibling
   // AppleSignInButton for where it's actually captured.
-  loginWithApple: (idToken: string, fullName?: string) => Promise<boolean>;
+  loginWithApple: (idToken: string, fullName?: string, referralCode?: string) => Promise<boolean>;
   setPhoneVerified: (verified: boolean) => void;
   setOnboardingCompleted: (completed: boolean) => void;
   logout: () => void;
+  // True once, right after a Google/Apple sign-in created this account without a referral code:
+  // those sign-up screens had no code field, so ReferralCodePrompt offers one. Cleared for good by
+  // dismissReferralPrompt() (the code was added, or the user skipped).
+  referralPromptPending: boolean;
+  dismissReferralPrompt: () => void;
 }
 
 const TOKEN_KEY = 'finora_token';
@@ -74,6 +81,10 @@ const NAME_KEY = 'finora_name';
 const PHONE_VERIFIED_KEY = 'finora_phone_verified';
 const USER_ID_KEY = 'finora_user_id';
 const ONBOARDING_COMPLETED_KEY = 'finora_onboarding_completed';
+// Holds the user id the referral prompt is pending FOR, not just "true": a session that expires
+// (rather than logout()) leaves keys behind, and a flag without an owner would then be shown to
+// whoever signs in next on this phone.
+const REFERRAL_PROMPT_KEY = 'finora_referral_prompt_for_user';
 
 const AuthContext = createContext<AuthState | null>(null);
 
@@ -90,6 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // fallback gate (the way PhoneVerificationFilter is for phone verification) to self-heal a wrong
   // "true" guess. See frontend/src/context/AuthContext.tsx's own onboardingCompleted comment.
   const [onboardingCompleted, setOnboardingCompletedState] = useState(false);
+  const [referralPromptPending, setReferralPromptPending] = useState(false);
 
   // Restore a persisted session on cold start. Reads run in parallel -- they're independent keys,
   // and on Android each SecureStore read is a separate bridge round-trip.
@@ -108,15 +120,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [storedToken, storedEmail, storedName, storedVerified, storedUserId, storedOnboarded] = await Promise.all([
+      const [storedToken, storedEmail, storedName, storedVerified, storedUserId, storedOnboarded, storedPromptFor] = await Promise.all([
         safeStorage.getItem(TOKEN_KEY),
         safeStorage.getItem(EMAIL_KEY),
         safeStorage.getItem(NAME_KEY),
         safeStorage.getItem(PHONE_VERIFIED_KEY),
         safeStorage.getItem(USER_ID_KEY),
         safeStorage.getItem(ONBOARDING_COMPLETED_KEY),
+        safeStorage.getItem(REFERRAL_PROMPT_KEY),
       ]);
       if (cancelled) return;
+      // Survives the app being closed between sign-up and reaching the app (phone verification
+      // comes first) -- but only for the account it was set for.
+      setReferralPromptPending(storedToken !== null && storedUserId !== null && storedPromptFor === storedUserId);
       setToken(storedToken);
       setEmail(storedEmail);
       setFullName(storedName);
@@ -183,6 +199,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setFullName(null);
     setPhoneVerifiedState(false);
     setOnboardingCompletedState(false);
+    // In-memory only: the stored flag is keyed to its account (REFERRAL_PROMPT_KEY), so an expired
+    // session may leave it on disk for that same person to see after signing back in.
+    setReferralPromptPending(false);
     // Must run BEFORE queryClient.clear() below -- see pauseQueryPersistence's own comment. It
     // stops the persister reacting to clear()'s own cache-removal events, which would otherwise
     // race clearPersistedQueryCache's disk delete and could resurrect the departing session's data.
@@ -378,6 +397,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setFullName(data.fullName);
     setPhoneVerifiedState(data.phoneVerified);
     setOnboardingCompletedState(data.onboardingCompleted);
+    // Whoever just signed in: pending only if it was left pending for THIS account (e.g. their
+    // session expired before they answered). A fresh Google/Apple sign-up sets it after this.
+    setReferralPromptPending((await safeStorage.getItem(REFERRAL_PROMPT_KEY)) === data.id);
     // Subscription billing V4 (design spec §2/§6.1 step 1) -- see the bootstrap effect's own
     // comment above for why this same call also has to happen there, not only here.
     //
@@ -455,16 +477,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { phoneVerified: res.data.phoneVerified };
   }
 
-  async function loginWithGoogle(idToken: string): Promise<boolean> {
-    const res = await authApi.google(idToken);
+  async function loginWithGoogle(idToken: string, referralCode?: string): Promise<boolean> {
+    const code = referralCode?.trim() || undefined;
+    const res = await authApi.google(idToken, code);
     await persist(res.data);
+    await offerReferralPromptIfNew(res.data, code);
     return res.data.phoneVerified;
   }
 
-  async function loginWithApple(idToken: string, fullName?: string): Promise<boolean> {
-    const res = await authApi.apple(idToken, fullName);
+  async function loginWithApple(idToken: string, fullName?: string, referralCode?: string): Promise<boolean> {
+    const code = referralCode?.trim() || undefined;
+    const res = await authApi.apple(idToken, fullName, code);
     await persist(res.data);
+    await offerReferralPromptIfNew(res.data, code);
     return res.data.phoneVerified;
+  }
+
+  // Only a sign-in that CREATED the account, and only when no code went with it -- a returning
+  // user is never asked, and someone who already gave a code has nothing to add.
+  async function offerReferralPromptIfNew(data: { id: string; accountCreated: boolean }, sentCode?: string) {
+    if (!data.accountCreated || sentCode) return;
+    await safeStorage.setItem(REFERRAL_PROMPT_KEY, data.id);
+    setReferralPromptPending(true);
+  }
+
+  function dismissReferralPrompt() {
+    void safeStorage.removeItem(REFERRAL_PROMPT_KEY);
+    setReferralPromptPending(false);
   }
 
   function setPhoneVerified(verified: boolean) {
@@ -518,6 +557,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         safeStorage.removeItem(PHONE_VERIFIED_KEY),
         safeStorage.removeItem(USER_ID_KEY),
         safeStorage.removeItem(ONBOARDING_COMPLETED_KEY),
+        safeStorage.removeItem(REFERRAL_PROMPT_KEY),
       ]);
     })();
   }
@@ -528,6 +568,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         bootstrapping, token, email, fullName, phoneVerified, onboardingCompleted,
         login, loginWithEmailOtpRequest, loginWithEmailOtpVerify, loginWithPhoneOtp,
         reactivate, register, loginWithGoogle, loginWithApple, setPhoneVerified, setOnboardingCompleted, logout,
+        referralPromptPending, dismissReferralPrompt,
       }}
     >
       {children}

@@ -21,6 +21,25 @@ jest.mock('../context/AuthContext', () => ({
   }),
 }));
 
+// Stand-ins that hand back a credential on press, so the tests drive the screen's own handlers.
+jest.mock('../components/GoogleSignInButton', () => {
+  const { Text } = jest.requireActual('react-native');
+  return {
+    isGoogleSignInConfigured: () => true,
+    GoogleSignInButton: ({ onCredential }: { onCredential: (t: string) => void }) => (
+      <Text onPress={() => onCredential('google-id-token')}>Continue with Google</Text>
+    ),
+  };
+});
+jest.mock('../components/AppleSignInButton', () => {
+  const { Text } = jest.requireActual('react-native');
+  return {
+    AppleSignInButton: ({ onCredential }: { onCredential: (t: string, n?: string) => void }) => (
+      <Text onPress={() => onCredential('apple-id-token', 'Amy')}>Sign up with Apple</Text>
+    ),
+  };
+});
+
 type Props = NativeStackScreenProps<AuthStackParamList, 'Register'>;
 
 const mockNavigate = jest.fn();
@@ -144,3 +163,37 @@ function fillValidForm() {
 async function settle() {
   await act(async () => {});
 }
+
+// Before this, tapping Google/Apple here dropped the code from a friend's link: only the email
+// form sent it, so a Google/Apple sign-up never counted for the friend.
+describe('RegisterScreen Google/Apple sign-up keeps the referral code', () => {
+  beforeEach(() => {
+    mockLoginWithGoogle.mockReset().mockResolvedValue(true);
+    mockLoginWithApple.mockReset().mockResolvedValue(true);
+  });
+
+  it("sends the friend's link code with a Google sign-up", async () => {
+    renderScreen({ referralCode: 'ABCD1234' });
+
+    await act(async () => { fireEvent.press(screen.getByText('Continue with Google')); });
+
+    expect(mockLoginWithGoogle).toHaveBeenCalledWith('google-id-token', 'ABCD1234');
+  });
+
+  it('sends a typed code with an Apple sign-up', async () => {
+    renderScreen();
+    fireEvent.changeText(screen.getByLabelText('Referral code (optional)'), 'wxyz9876');
+
+    await act(async () => { fireEvent.press(screen.getByText('Sign up with Apple')); });
+
+    expect(mockLoginWithApple).toHaveBeenCalledWith('apple-id-token', 'Amy', 'WXYZ9876');
+  });
+
+  it('sends an empty code when none was given (the context then offers the prompt)', async () => {
+    renderScreen();
+
+    await act(async () => { fireEvent.press(screen.getByText('Continue with Google')); });
+
+    expect(mockLoginWithGoogle).toHaveBeenCalledWith('google-id-token', '');
+  });
+});

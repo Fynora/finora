@@ -377,7 +377,7 @@ describe('AuthContext loginWithGoogle', () => {
       verified = await auth.loginWithGoogle('a-google-id-token');
     });
 
-    expect(mockedAuthApi.google).toHaveBeenCalledWith('a-google-id-token');
+    expect(mockedAuthApi.google).toHaveBeenCalledWith('a-google-id-token', undefined);
     expect(verified).toBe(true);
     expect(view.getByTestId('token')).toHaveTextContent('access-token');
     expect(await SecureStore.getItemAsync('finora_token')).toBe('access-token');
@@ -396,6 +396,89 @@ describe('AuthContext loginWithGoogle', () => {
   });
 });
 
+describe('AuthContext referral prompt after a Google/Apple sign-up', () => {
+  it('is pending after a Google sign-in that created the account with no code', async () => {
+    mockedAuthApi.google.mockResolvedValue({ data: { ...SESSION, accountCreated: true } } as never);
+    const view = renderAuth();
+    await settle(view);
+
+    await act(async () => { await auth.loginWithGoogle('a-google-id-token'); });
+
+    expect(auth.referralPromptPending).toBe(true);
+    // Stored against the account, so it survives the app closing before the user reaches it.
+    expect(await SecureStore.getItemAsync('finora_referral_prompt_for_user')).toBe('user-abc-123');
+  });
+
+  it('sends a code along and does NOT ask again when one was given', async () => {
+    mockedAuthApi.google.mockResolvedValue({ data: { ...SESSION, accountCreated: true } } as never);
+    const view = renderAuth();
+    await settle(view);
+
+    await act(async () => { await auth.loginWithGoogle('a-google-id-token', '  abcd1234 '); });
+
+    expect(mockedAuthApi.google).toHaveBeenCalledWith('a-google-id-token', 'abcd1234');
+    expect(auth.referralPromptPending).toBe(false);
+  });
+
+  it('is never pending for a returning user', async () => {
+    mockedAuthApi.apple.mockResolvedValue({ data: { ...SESSION, accountCreated: false } } as never);
+    const view = renderAuth();
+    await settle(view);
+
+    await act(async () => { await auth.loginWithApple('an-apple-id-token', undefined); });
+
+    expect(auth.referralPromptPending).toBe(false);
+    expect(await SecureStore.getItemAsync('finora_referral_prompt_for_user')).toBeNull();
+  });
+
+  it('is pending after an Apple sign-up too, and dismissing clears it for good', async () => {
+    mockedAuthApi.apple.mockResolvedValue({ data: { ...SESSION, accountCreated: true } } as never);
+    const view = renderAuth();
+    await settle(view);
+
+    await act(async () => { await auth.loginWithApple('an-apple-id-token', 'Amy'); });
+    expect(auth.referralPromptPending).toBe(true);
+
+    await act(async () => { auth.dismissReferralPrompt(); });
+    expect(auth.referralPromptPending).toBe(false);
+    await waitFor(async () => expect(await SecureStore.getItemAsync('finora_referral_prompt_for_user')).toBeNull());
+  });
+
+  // A session that EXPIRES leaves keys behind; the flag must not follow into someone else's sign-in.
+  it('is not pending for a different account signing in on the same phone', async () => {
+    await SecureStore.setItemAsync('finora_referral_prompt_for_user', 'someone-else');
+    mockedAuthApi.google.mockResolvedValue({ data: { ...SESSION, accountCreated: false } } as never);
+    const view = renderAuth();
+    await settle(view);
+
+    await act(async () => { await auth.loginWithGoogle('a-google-id-token'); });
+
+    expect(auth.referralPromptPending).toBe(false);
+  });
+
+  it('is restored on a cold start for the same account', async () => {
+    await SecureStore.setItemAsync('finora_token', 'access-token');
+    await SecureStore.setItemAsync('finora_user_id', 'user-abc-123');
+    await SecureStore.setItemAsync('finora_referral_prompt_for_user', 'user-abc-123');
+    const view = renderAuth();
+    await settle(view);
+
+    expect(auth.referralPromptPending).toBe(true);
+  });
+
+  it('logout clears it', async () => {
+    mockedAuthApi.google.mockResolvedValue({ data: { ...SESSION, accountCreated: true } } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => { await auth.loginWithGoogle('a-google-id-token'); });
+
+    await act(async () => { auth.logout(); });
+
+    await waitFor(async () => expect(await SecureStore.getItemAsync('finora_referral_prompt_for_user')).toBeNull());
+    expect(auth.referralPromptPending).toBe(false);
+  });
+});
+
 describe('AuthContext loginWithApple', () => {
   it('forwards the client-captured fullName straight through to authApi.apple', async () => {
     mockedAuthApi.apple.mockResolvedValue({ data: SESSION } as never);
@@ -406,7 +489,7 @@ describe('AuthContext loginWithApple', () => {
       await auth.loginWithApple('an-apple-id-token', 'Amy Santiago');
     });
 
-    expect(mockedAuthApi.apple).toHaveBeenCalledWith('an-apple-id-token', 'Amy Santiago');
+    expect(mockedAuthApi.apple).toHaveBeenCalledWith('an-apple-id-token', 'Amy Santiago', undefined);
     expect(view.getByTestId('token')).toHaveTextContent('access-token');
   });
 
@@ -419,7 +502,7 @@ describe('AuthContext loginWithApple', () => {
       await auth.loginWithApple('an-apple-id-token', undefined);
     });
 
-    expect(mockedAuthApi.apple).toHaveBeenCalledWith('an-apple-id-token', undefined);
+    expect(mockedAuthApi.apple).toHaveBeenCalledWith('an-apple-id-token', undefined, undefined);
     expect(view.getByTestId('token')).toHaveTextContent('access-token');
   });
 });

@@ -125,7 +125,8 @@ export function RegisterStep({ prefill, referralCode, onSuccess, onAccountExists
     setError(null);
     setLoading(true);
     try {
-      onSuccess(await loginWithGoogle(idToken));
+      // Same code the email form sends -- a Google/Apple sign-up here used to drop it.
+      onSuccess(await loginWithGoogle(idToken, referralCode));
     } catch (err: any) {
       handleOAuthError(err, 'Google sign-in failed.');
     } finally {
@@ -137,7 +138,7 @@ export function RegisterStep({ prefill, referralCode, onSuccess, onAccountExists
     setError(null);
     setLoading(true);
     try {
-      onSuccess(await loginWithApple(idToken, fullNameFromApple));
+      onSuccess(await loginWithApple(idToken, fullNameFromApple, referralCode));
     } catch (err: any) {
       handleOAuthError(err, 'Apple sign-in failed.');
     } finally {

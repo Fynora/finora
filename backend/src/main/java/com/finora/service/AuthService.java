@@ -281,7 +281,7 @@ public class AuthService {
         String refreshToken = issued.rawToken();
         return new AuthResponse(accessToken, refreshToken, user.getEmail(), user.getFullName(),
                 user.isPhoneVerified(), PhoneMasking.mask(user.getPhoneNumber()), user.getId(),
-                user.getOnboardingCompletedAt() != null);
+                user.getOnboardingCompletedAt() != null, true);
     }
 
     /**
@@ -709,7 +709,7 @@ public class AuthService {
                 user.getAccountScope());
         String refreshToken = issued.rawToken();
         return new AuthResponse(accessToken, refreshToken, user.getEmail(), user.getFullName(), user.isPhoneVerified(),
-                PhoneMasking.mask(user.getPhoneNumber()), user.getId(), user.getOnboardingCompletedAt() != null);
+                PhoneMasking.mask(user.getPhoneNumber()), user.getId(), user.getOnboardingCompletedAt() != null, false);
     }
 
     /**
@@ -817,7 +817,15 @@ public class AuthService {
      */
     @Transactional(noRollbackFor = ApiException.class)
     public AuthResponse loginWithGoogle(com.finora.integrations.google.login.GoogleIdentity identity) {
-        return loginWithOAuthIdentity(identity.email(), identity.name(), OAuthProvider.GOOGLE);
+        return loginWithGoogle(identity, null);
+    }
+
+    /** @param referralCode optional -- redeemed only if this sign-in creates the account; see
+     *        {@link #loginWithOAuthIdentity}. */
+    @Transactional(noRollbackFor = ApiException.class)
+    public AuthResponse loginWithGoogle(com.finora.integrations.google.login.GoogleIdentity identity,
+                                         String referralCode) {
+        return loginWithOAuthIdentity(identity.email(), identity.name(), OAuthProvider.GOOGLE, referralCode);
     }
 
     /**
@@ -838,7 +846,15 @@ public class AuthService {
     @Transactional(noRollbackFor = ApiException.class)
     public AuthResponse loginWithApple(com.finora.integrations.apple.login.AppleIdentity identity,
                                         String clientProvidedFullName) {
-        return loginWithOAuthIdentity(identity.email(), clientProvidedFullName, OAuthProvider.APPLE);
+        return loginWithApple(identity, clientProvidedFullName, null);
+    }
+
+    /** @param referralCode optional -- redeemed only if this sign-in creates the account; see
+     *        {@link #loginWithOAuthIdentity}. */
+    @Transactional(noRollbackFor = ApiException.class)
+    public AuthResponse loginWithApple(com.finora.integrations.apple.login.AppleIdentity identity,
+                                        String clientProvidedFullName, String referralCode) {
+        return loginWithOAuthIdentity(identity.email(), clientProvidedFullName, OAuthProvider.APPLE, referralCode);
     }
 
     /**
@@ -882,7 +898,8 @@ public class AuthService {
      * it joins whichever of the two callers' transactions is already open, and the rollback rule
      * has to live on that boundary, not here.
      */
-    private AuthResponse loginWithOAuthIdentity(String rawEmail, String displayName, OAuthProvider provider) {
+    private AuthResponse loginWithOAuthIdentity(String rawEmail, String displayName, OAuthProvider provider,
+                                                 String referralCode) {
         String email = rawEmail.trim().toLowerCase();
         Optional<User> existing = findUserByEmailIgnoreCaseSafely(email, User.SCOPE_USER);
         boolean isNewAccount = existing.isEmpty();
@@ -919,13 +936,22 @@ public class AuthService {
         auditService.record(user.getId(), isNewAccount ? provider.registeredAuditAction : provider.loginAuditAction,
                 "User", user.getId(), requestMetadata.addTo(new java.util.HashMap<>()));
 
+        // A Google/Apple sign-up is a registration like register(), so it takes a referral code the
+        // same way: a friend's link, or one typed on the sign-up screen before tapping the button.
+        // Only when THIS call created the account -- a returning user's sign-in must never attach a
+        // referral after the fact (that is ReferralService.applyCode's job, with its own guards).
+        // Same silent-on-invalid redeemCode as register(), so a bad code never blocks signing in.
+        if (isNewAccount) {
+            referralService.redeemCode(user.getId(), referralCode);
+        }
+
         var issued = refreshTokenService.issue(user.getId());
         String accessToken = jwtService.generateToken(user.getId(), user.getEmail(), issued.sessionId(),
                 user.getAccountScope());
         String refreshToken = issued.rawToken();
         return new AuthResponse(accessToken, refreshToken, user.getEmail(), user.getFullName(),
                 user.isPhoneVerified(), PhoneMasking.mask(user.getPhoneNumber()), user.getId(),
-                user.getOnboardingCompletedAt() != null);
+                user.getOnboardingCompletedAt() != null, isNewAccount);
     }
 
     /** Provider-specific labels/audit-action names/signInMethod {@link #loginWithOAuthIdentity}
@@ -1193,7 +1219,7 @@ public class AuthService {
                 user.getAccountScope());
         return new AuthResponse(accessToken, issued.rawToken(), user.getEmail(), user.getFullName(),
                 user.isPhoneVerified(), PhoneMasking.mask(user.getPhoneNumber()), user.getId(),
-                user.getOnboardingCompletedAt() != null);
+                user.getOnboardingCompletedAt() != null, false);
     }
 
     /**

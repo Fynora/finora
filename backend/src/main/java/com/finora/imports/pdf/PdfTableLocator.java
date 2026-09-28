@@ -1278,6 +1278,19 @@ public class PdfTableLocator {
         // TRANSACTION_REGION_HEADING -- see that pattern's own doc comment.
         TransactionRegionTracker regionTracker = new TransactionRegionTracker();
 
+        // The row index of the second half of a totals line split across two physical rows, once
+        // the first half has been diverted -- see TABLE_TOTALS_ROW_DIVERTED.
+        int totalsPairRowIndex = -1;
+        // Every x at which text other than a date, an amount or a CR/DR marker has begun on a row
+        // this document admitted or merged -- where narration starts, on this layout. Document-wide
+        // and never cleared: more positions only ever make a lone totals label less likely to be
+        // diverted. See aLoneTotalsLabelStandsApartFromNarration.
+        List<Float> narrationStarts = new ArrayList<>();
+        // Where text starts on every line printed between two transactions on one page, over the
+        // WHOLE document, computed up front -- so a label is also checked against narration that
+        // wraps further down, not only above it. See ledgerLineStarts.
+        LedgerLineStarts ledgerLineStarts = new LedgerLineStarts(rows, yearsByPage);
+
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             List<PositionedText> row = rows.get(rowIndex);
             // Scoped to the table once a header is active -- see tableRunsOf. Every whole-line
@@ -2020,6 +2033,59 @@ public class PdfTableLocator {
                     continue;
                 }
 
+                // TABLE_TOTALS_ROW_DIVERTED. A real Standard Chartered savings statement closes its
+                // table with a column-total line -- the bare word "Total" in the cheque column's
+                // x-range, then the deposit and withdrawal totals under their own columns -- a
+                // line pitch below the last transaction. It has no date, and it carries figures, so
+                // it is not narration-only; with the trailing count at zero it passed the trailing
+                // branch's count-cap test and was merged into the last transaction. There
+                // mergeInto kept the anchor's own deposit, redirected the incoming deposit total
+                // into the description (so an interest credit read "<narration> <total>"), put
+                // "Total" into the blank cheque cell and the withdrawal total into the blank
+                // withdrawal cell, where neither reached the staged row. A line whose only text is
+                // a totals label describes the table, not one transaction in it, so it is kept as
+                // auxiliary text and never merged either direction. Narrow on purpose: the label
+                // must be the WHOLE of the row's text (a narration that merely starts with "Total"
+                // is untouched) -- see totalsLinePart for every shape it accepts. A label and its
+                // figures printed on baselines far enough apart to form two physical rows are
+                // diverted together, and nothing is diverted while the transaction above still
+                // awaits its own amount (see awaitsItsAmount).
+                if (!hasDateValue(bucketed, yearsByPage.getOrDefault(rowPageIndex, PageDateEvidence.NONE))) {
+                    boolean divertAsTotals = rowIndex == totalsPairRowIndex;
+                    if (!divertAsTotals) {
+                        TotalsLinePart part = totalsLinePart(bucketed, headerNames);
+                        Map<String, String> openTransaction = currentRows == null || currentRows.isEmpty()
+                                ? null : currentRows.get(currentRows.size() - 1);
+                        if (part != TotalsLinePart.NONE && !awaitsItsAmount(openTransaction)) {
+                            if (part == TotalsLinePart.WHOLE) {
+                                divertAsTotals = true;
+                            } else if (rowIndex + 1 < rows.size()) {
+                                List<PositionedText> adjacent = rows.get(rowIndex + 1);
+                                PageDateEvidence adjacentYears = adjacent.isEmpty() ? PageDateEvidence.NONE
+                                        : yearsByPage.getOrDefault(adjacent.get(0).pageIndex(), PageDateEvidence.NONE);
+                                Map<String, String> adjacentBucketed = bucketRow(
+                                        substituteYearlessDates(adjacent, adjacentYears), headerNames, headerAnchors,
+                                        headerEnds, null, adjacentYears, textColumnSpans, marginPanelBand);
+                                if (!hasDateValue(adjacentBucketed, adjacentYears) && pairsAsOneTotalsLine(
+                                        part, row, bucketed, totalsLinePart(adjacentBucketed, headerNames), adjacent,
+                                        adjacentBucketed, gapToNextRow, narrationStarts, ledgerLineStarts, rowIndex)) {
+                                    divertAsTotals = true;
+                                    totalsPairRowIndex = rowIndex + 1;
+                                }
+                            }
+                            if (!divertAsTotals && part == TotalsLinePart.LABEL_ONLY
+                                    && aLoneTotalsLabelStandsApartFromNarration(row, bucketed, narrationStarts, ledgerLineStarts, rowIndex)) {
+                                divertAsTotals = true;
+                            }
+                        }
+                    }
+                    if (divertAsTotals) {
+                        pendingAuxiliary.add(rowLine);
+                        if (ctx != null) ctx.record("TABLE_TOTALS_ROW_DIVERTED");
+                        continue;
+                    }
+                }
+
                 // Bug fix: a description that wraps onto a second visual row (HDFC's layout --
                 // see this method's own doc comment) used to be handled by a y-distance heuristic
                 // ("fold anything within N points of the previous row that has no date/amount
@@ -2211,6 +2277,7 @@ public class PdfTableLocator {
                     }
                     mergeInto(sameDayRow, bucketed, headerNames);
                     currentRows.add(sameDayRow);
+                    noteTextStarts(narrationStarts, resolvedRow);
                     if (ctx != null) ctx.record(closesOnBalance ? "SAME_DAY_CONTINUATION_TRANSACTION" : "DATELESS_AMOUNT_ROW_SPLIT");
                     anchorCarriedItsOwnNarration = hasNarrationOfItsOwn(bucketed, headerNames);
                     if (gapFromPreviousRow != null) blockSeparation = gapFromPreviousRow;
@@ -2256,6 +2323,7 @@ public class PdfTableLocator {
                         pageRepeatSinceLastAnchor = false;
                     }
                     currentRows.add(bucketed);
+                    noteTextStarts(narrationStarts, resolvedRow);
                     // How far this anchor sits below whatever preceded it -- the document's own
                     // evidence of how it separates one transaction's block from the next, and the
                     // precondition for trusting line pitch at all (see continuesTheBlock).
@@ -2376,6 +2444,7 @@ public class PdfTableLocator {
                         blockNarrationLeftX = leftmostRunX(row);
                     }
                     mergeInto(currentRows.get(currentRows.size() - 1), bucketed, headerNames);
+                    noteTextStarts(narrationStarts, resolvedRow);
                     if (ctx != null) {
                         ctx.record("WRAPPED_DESCRIPTION");
                         if (isChequeReferenceTrailer(rowLine)) ctx.record("CHEQUE_REFERENCE_TRAILER_RECOVERED");
@@ -2504,6 +2573,7 @@ public class PdfTableLocator {
                                 && belongsToTheRowAbove(gapFromPreviousRow, gapToNextRow);
                     }
                     mergeInto(pendingLeading, bucketed, headerNames);
+                    noteTextStarts(narrationStarts, resolvedRow);
                     leadingCount++;
                     if (ctx != null) ctx.record("LEADING_NARRATION_CONTINUATION");
                     // CodeQL (java/dereferenced-value-may-be-null), 2026-09-04 -- same fix, same
@@ -6072,6 +6142,280 @@ public class PdfTableLocator {
         return false;
     }
 
+    // A totals label, whole: "Total", "Totals", "Sub total"/"Subtotal"/"Sub-total", "Grand total",
+    // "Page total", optionally followed by a currency ("TOTAL (INR)" is a real Bank of Baroda label)
+    // and a colon. Never "Total Amount Due" or any other qualified field name.
+    //
+    // (?U): real text runs end in U+00A0 and nothing on the extraction path replaces it; without
+    // the flag, \s does not match it and "Total<NBSP>" fell through to the merge.
+    private static final String TOTALS_LABEL = "(?:grand\\s+|sub\\s*-?\\s*|page\\s+)?totals?"
+            + "(?:\\s*(?:\\(\\s*(?:inr|rs\\.?|\u20B9)\\s*\\)|inr|rs\\.?|\u20B9))?\\s*:?";
+    private static final Pattern BARE_TOTALS_LABEL =
+            Pattern.compile("(?iU)^\\s*" + TOTALS_LABEL + "\\s*$");
+    /** A label and a figure bucketed into the same amount cell ("Total 2,500.00"). */
+    private static final Pattern TOTALS_LABEL_THEN_FIGURE =
+            Pattern.compile("(?iU)^\\s*(" + TOTALS_LABEL + ")\\s+(\\S.*)$");
+    /** One printed amount: grouped digits with decimals, optional sign, brackets, currency and CR/DR. */
+    private static final String PRINTED_AMOUNT =
+            "[-+]?\\(?(?:rs\\.?\\s*|inr\\s*|₹\\s*)?\\d[\\d,]*\\.\\d{1,2}\\)?(?:\\s*(?:cr|dr)\\.?)?";
+    /** A whole totals line printed as one run and bucketed into a single text cell: the label, then
+     *  nothing but amounts ("Total 2,500.00 1,488.00"). Decimals are required, so a narration word
+     *  followed by a reference number or a count ("TOTAL 3") is never read as one. */
+    private static final Pattern TOTALS_LABEL_THEN_AMOUNTS =
+            Pattern.compile("(?iU)^\\s*(" + TOTALS_LABEL + ")\\s+(" + PRINTED_AMOUNT + "(?:\\s+" + PRINTED_AMOUNT + ")*)\\s*$");
+    /** A cell a totals line may carry beside its label and figures without being anything else:
+     *  an empty-side placeholder ("-", "NIL", "NA", "N/A") or a CR/DR marker printed as its own
+     *  run -- every one printed in real corpus statements. */
+    private static final Pattern TOTALS_LINE_FILLER =
+            Pattern.compile("(?iU)^\\s*(?:[-–—]+|nil|n\\.?\\s*a\\.?|n/a|cr\\.?|dr\\.?)\\s*$");
+    /** A bare integer in a non-amount column -- a card statement's reward-points total, printed on
+     *  the same line as the amount total (real IndusInd statements). */
+    private static final Pattern TOTALS_LINE_COUNT = Pattern.compile("^\\s*\\d{1,7}\\s*$");
+
+    /** How far apart a totals label and its figures may be printed and still be one line. Two runs
+     *  of one printed line land on separate physical rows only when their baselines differ by more
+     *  than ROW_Y_TOLERANCE (a bold label beside regular-weight figures); twice that tolerance stays
+     *  below every line pitch this class has measured on a real statement. */
+    private static final float TOTALS_SPLIT_LINE_MAX_GAP = 2 * ROW_Y_TOLERANCE;
+
+    /** What a dateless row is with respect to a table's totals line. */
+    private enum TotalsLinePart {
+        /** Not part of a totals line. */
+        NONE,
+        /** A whole totals line: the label, plus at least one figure or placeholder in an amount column. */
+        WHOLE,
+        /** The label and nothing else -- a totals line when its figures sit on an adjacent row, or when
+     *  it stands apart from every position narration starts at. */
+        LABEL_ONLY,
+        /** Figures in amount columns and nothing else -- a totals line only beside an adjacent label. */
+        FIGURES_ONLY
+    }
+
+    /** Classifies a dateless row for TABLE_TOTALS_ROW_DIVERTED: its text, read left to right across
+     *  every cell that is not a figure, must be exactly one totals label. Beyond the label and its
+     *  figures, only placeholders, CR/DR markers and (outside amount columns) bare integer counts are
+     *  allowed; anything else -- a date, a word of narration, a figure without decimals printed in a
+     *  text column -- makes the row NONE.
+     *
+     *  <p>The label may sit in any column. Statements that print it at the left margin (real
+     *  IndusInd and Kotak credit-card statements) bucket it into the date column, and a layout with
+     *  nothing between the narration and the amounts buckets it into the first amount column,
+     *  sometimes in the same cell as that column's figure. Cells are read in header order so a label
+     *  split across two columns ("Grand" | "Total") joins the way it is printed.
+     *
+     *  <p>A label with no figure and no placeholder is LABEL_ONLY, never WHOLE on its own: this
+     *  class documents wrapped narration landing in the date column and in amount columns, so a
+     *  lone word "Total" cannot be told apart from a narration line that is that word (a merchant
+     *  name, for one) by its content. It is diverted when the figures it labels are found on the
+     *  adjacent row, or when its position rules narration out -- see
+     *  aLoneTotalsLabelStandsApartFromNarration. */
+    private TotalsLinePart totalsLinePart(Map<String, String> bucketed, List<String> headerNames) {
+        List<String> columns = new ArrayList<>();
+        if (headerNames != null) {
+            for (String column : headerNames) if (bucketed.containsKey(column)) columns.add(column);
+        }
+        for (String column : bucketed.keySet()) if (!columns.contains(column)) columns.add(column);
+
+        List<String> labelParts = new ArrayList<>();
+        boolean figure = false;
+        boolean amountFiller = false;
+        boolean count = false;
+        for (String column : columns) {
+            String value = bucketed.get(column);
+            if (value == null || value.isBlank()) continue;
+            boolean amountColumn = isAmountColumn(column);
+            if (TOTALS_LINE_FILLER.matcher(value).matches()) {
+                if (amountColumn) amountFiller = true;
+                continue;
+            }
+            if (!amountColumn) {
+                Matcher labelThenAmounts = TOTALS_LABEL_THEN_AMOUNTS.matcher(value);
+                if (labelThenAmounts.matches()) {
+                    labelParts.add(labelThenAmounts.group(1).trim());
+                    figure = true;
+                } else if (TOTALS_LINE_COUNT.matcher(value).matches()) {
+                    count = true;
+                } else {
+                    labelParts.add(value.trim());
+                }
+                continue;
+            }
+            if (BARE_TOTALS_LABEL.matcher(value).matches()) {
+                labelParts.add(value.trim());
+                continue;
+            }
+            String figureText = value;
+            Matcher labelThenFigure = TOTALS_LABEL_THEN_FIGURE.matcher(value);
+            if (labelThenFigure.matches()) {
+                labelParts.add(labelThenFigure.group(1).trim());
+                figureText = labelThenFigure.group(2);
+            }
+            if (TOTALS_LINE_FILLER.matcher(figureText).matches()) {
+                amountFiller = true;
+                continue;
+            }
+            if (CsvParser.parseNumeric(figureText.trim()) == null) return TotalsLinePart.NONE;
+            figure = true;
+        }
+        if (labelParts.isEmpty()) {
+            return figure && !count ? TotalsLinePart.FIGURES_ONLY : TotalsLinePart.NONE;
+        }
+        if (!BARE_TOTALS_LABEL.matcher(String.join(" ", labelParts)).matches()) return TotalsLinePart.NONE;
+        if (figure || amountFiller) return TotalsLinePart.WHOLE;
+        return count ? TotalsLinePart.NONE : TotalsLinePart.LABEL_ONLY;
+    }
+
+    /** True when the transaction a dateless row would continue has no amount yet -- its amount has
+     *  not been printed, so the dateless row may be the line that carries it. Some layouts print a
+     *  transaction's amounts on their own dateless line under the narration; on those, a totals-
+     *  shaped line (a merchant named "TOTAL" beside its own amount) must stay with its
+     *  transaction. A totals line is only ever read as one once the transaction above it is whole. */
+    private boolean awaitsItsAmount(Map<String, String> openTransaction) {
+        if (openTransaction == null) return false;
+        for (Map.Entry<String, String> e : openTransaction.entrySet()) {
+            if (!isAmountColumn(e.getKey()) || matchesAnyHint(e.getKey(), BALANCE_COLUMN_HINT)) continue;
+            String value = e.getValue();
+            if (value != null && !value.isBlank() && CsvParser.parseNumeric(value.trim()) != null) return false;
+        }
+        return true;
+    }
+
+    /** Records where each text run of {@code row} begins, other than a date, an amount or a CR/DR
+     *  marker -- the same cells {@link #descriptionStart} skips. */
+    private static void noteTextStarts(List<Float> narrationStarts, List<PositionedText> row) {
+        for (PositionedText cell : row) {
+            String text = cell.text().trim();
+            if (text.isEmpty()) continue;
+            if (CsvParser.parseDate(text) != null || CsvParser.parseNumeric(text) != null
+                    || CsvParser.hasTrailingDrCrMarker(text)) continue;
+            narrationStarts.add(cell.x());
+        }
+    }
+
+    /** Whether a lone totals label -- no figure, no placeholder, no figures on an adjacent row --
+     *  can be read as the table's totals label rather than a line of narration that happens to be
+     *  that word (a merchant named "TOTAL" wrapped onto its own line).
+     *
+     *  <p>Narration is left-aligned: every continuation line of it starts where some narration
+     *  line of this layout already starts. That is true of the documented cases where wrapped
+     *  narration leaves its column -- a real Bank of Baroda statement's wrapped lines start at the
+     *  left margin and bucket into the date column, and they start there on every transaction. So
+     *  the label is read as a totals label only when it sits outside the description column AND its
+     *  left edge lines up with no position at which text has begun on any row this document has
+     *  admitted or merged so far, nor on any line printed between two transactions anywhere in the
+     *  document ({@code ledgerLineStarts}, the label's own row excluded). The second set is what
+     *  covers a label that is the document's FIRST wrapped line: the wraps printed further down
+     *  still show where this layout's narration starts. With no position known at all, nothing can
+     *  be ruled out, and the label is left to the ordinary merge. */
+    private boolean aLoneTotalsLabelStandsApartFromNarration(List<PositionedText> row, Map<String, String> bucketed,
+                                                             List<Float> narrationStarts,
+                                                             LedgerLineStarts ledgerLineStarts, int rowIndex) {
+        Map<Integer, List<Float>> ledgerStarts = ledgerLineStarts.get();
+        boolean anyLedgerStart = ledgerStarts.keySet().stream().anyMatch(i -> i != rowIndex);
+        if (narrationStarts.isEmpty() && !anyLedgerStart) return false;
+        for (Map.Entry<String, String> e : bucketed.entrySet()) {
+            if (e.getValue() == null || e.getValue().isBlank()) continue;
+            if (matchesAnyHint(e.getKey(), DESCRIPTION_COLUMN_HINTS)) return false;
+        }
+        Float labelX = leftmostRunX(row);
+        if (labelX == null) return false;
+        for (Float start : narrationStarts) {
+            if (Math.abs(start - labelX) <= CONTINUATION_ALIGNMENT_TOLERANCE) return false;
+        }
+        for (Map.Entry<Integer, List<Float>> line : ledgerStarts.entrySet()) {
+            if (line.getKey() == rowIndex) continue;
+            for (Float start : line.getValue()) {
+                if (Math.abs(start - labelX) <= CONTINUATION_ALIGNMENT_TOLERANCE) return false;
+            }
+        }
+        return true;
+    }
+
+    /** Where text begins (as {@link #noteTextStarts} records it) on every transaction-shaped row of
+     *  the document and on every physical row printed between two transaction-shaped rows of the
+     *  same page, keyed by row index. Both are ledger text by position alone -- a transaction's own
+     *  narration, a wrapped narration line, a reference line, a leading narration line -- whatever
+     *  the row loop later decides about them, and they are known before the loop starts, so a lone
+     *  totals label is checked against narration printed after it (or before any transaction was
+     *  admitted) as well. A line after a page's last transaction is not included: that is where
+     *  page footers, and the totals line itself, are printed. */
+    private final class LedgerLineStarts {
+        private final List<List<PositionedText>> rows;
+        private final Map<Integer, PageDateEvidence> yearsByPage;
+        private Map<Integer, List<Float>> computed;
+
+        LedgerLineStarts(List<List<PositionedText>> rows, Map<Integer, PageDateEvidence> yearsByPage) {
+            this.rows = rows;
+            this.yearsByPage = yearsByPage;
+        }
+
+        /** Computed on first use only: a document with no lone totals label never pays for it. */
+        Map<Integer, List<Float>> get() {
+            if (computed == null) computed = ledgerLineStarts(rows, yearsByPage);
+            return computed;
+        }
+    }
+
+    private Map<Integer, List<Float>> ledgerLineStarts(List<List<PositionedText>> rows,
+                                                       Map<Integer, PageDateEvidence> yearsByPage) {
+        int count = rows.size();
+        boolean[] transactionShaped = new boolean[count];
+        for (int i = 0; i < count; i++) {
+            List<PositionedText> row = rows.get(i);
+            if (row.isEmpty()) continue;
+            PageDateEvidence years = yearsByPage.getOrDefault(row.get(0).pageIndex(), PageDateEvidence.NONE);
+            transactionShaped[i] = isTransactionShapedRow(substituteYearlessDates(row, years), years);
+        }
+        int[] nextShaped = new int[count];
+        int next = -1;
+        for (int i = count - 1; i >= 0; i--) {
+            nextShaped[i] = next;
+            if (transactionShaped[i]) next = i;
+        }
+        Map<Integer, List<Float>> starts = new HashMap<>();
+        int lastShaped = -1;
+        for (int i = 0; i < count; i++) {
+            List<PositionedText> row = rows.get(i);
+            if (row.isEmpty()) continue;
+            if (transactionShaped[i]) {
+                lastShaped = i;
+                List<Float> ownNarration = new ArrayList<>();
+                noteTextStarts(ownNarration, row);
+                if (!ownNarration.isEmpty()) starts.put(i, ownNarration);
+                continue;
+            }
+            int page = row.get(0).pageIndex();
+            int after = nextShaped[i];
+            if (lastShaped < 0 || after < 0) continue;
+            if (rows.get(lastShaped).get(0).pageIndex() != page || rows.get(after).get(0).pageIndex() != page) continue;
+            List<Float> lineStarts = new ArrayList<>();
+            noteTextStarts(lineStarts, row);
+            if (!lineStarts.isEmpty()) starts.put(i, lineStarts);
+        }
+        return starts;
+    }
+
+    /** Whether this row and the next physical row are the two halves of one totals line: one is a
+     *  label and nothing else, the other figures and nothing else, on the same page. Within
+     *  TOTALS_SPLIT_LINE_MAX_GAP they are one printed line split by its baselines. Further apart --
+     *  the figures printed on the line under the label, or over it -- they pair only when the label
+     *  half stands apart from every position narration starts at, which already establishes it as
+     *  the table's totals label; the figures directly beside it are then its figures. */
+    private boolean pairsAsOneTotalsLine(TotalsLinePart part, List<PositionedText> row, Map<String, String> bucketed,
+                                         TotalsLinePart adjacentPart, List<PositionedText> adjacent,
+                                         Map<String, String> adjacentBucketed, Float gap, List<Float> narrationStarts,
+                                         LedgerLineStarts ledgerLineStarts, int rowIndex) {
+        boolean labelHere = part == TotalsLinePart.LABEL_ONLY && adjacentPart == TotalsLinePart.FIGURES_ONLY;
+        boolean labelAdjacent = part == TotalsLinePart.FIGURES_ONLY && adjacentPart == TotalsLinePart.LABEL_ONLY;
+        if (!labelHere && !labelAdjacent) return false;
+        if (gap == null || gap < 0) return false;
+        if (gap <= TOTALS_SPLIT_LINE_MAX_GAP) return true;
+        return labelHere
+                ? aLoneTotalsLabelStandsApartFromNarration(row, bucketed, narrationStarts, ledgerLineStarts, rowIndex)
+                : aLoneTotalsLabelStandsApartFromNarration(adjacent, adjacentBucketed, narrationStarts,
+                        ledgerLineStarts, rowIndex + 1);
+    }
+
     private static final List<String> VALUE_DATE_HINTS = List.of("value date", "value dt", "val date", "val dt");
 
     /** The header literally names the value date ("Value Date", "Val Dt"). A combined
@@ -7216,7 +7560,11 @@ public class PdfTableLocator {
         Map<String, String> currentAnchor = null;
         int continuationCount = 0;
         String previousTransactionLine = null;
-        for (List<PositionedText> row : allRows) {
+        int totalsPairRowIndex = -1;
+        List<Float> narrationStarts = new ArrayList<>();
+        LedgerLineStarts ledgerLineStarts = new LedgerLineStarts(allRows, yearsByPage);
+        for (int rowIndex = 0; rowIndex < allRows.size(); rowIndex++) {
+            List<PositionedText> row = allRows.get(rowIndex);
             String rowLine = lineOf(row);
             if (PAGE_FOOTER.matcher(rowLine).find()) continue;
             // Every TRAILING_CONTENT_TRIGGERS marker, not just STATEMENT_CLOSING_MARKER alone --
@@ -7253,6 +7601,7 @@ public class PdfTableLocator {
                         rowYears);
                 if (bucketed.isEmpty()) continue;
                 result.add(bucketed);
+                noteTextStarts(narrationStarts, resolvedRow);
                 currentAnchor = bucketed;
                 continuationCount = 0;
                 previousTransactionLine = rowLine;
@@ -7260,7 +7609,40 @@ public class PdfTableLocator {
                 Map<String, String> bucketed = bucketRow(resolvedRow, headerNames, headerAnchors, headerEnds, ctx,
                         rowYears);
                 if (bucketed.isEmpty()) continue;
+                // TABLE_TOTALS_ROW_DIVERTED, same rule as the header-based path: a closing "Total"
+                // line -- whole, or split over two physical rows -- is not the last transaction's
+                // continuation.
+                boolean divertAsTotals = rowIndex == totalsPairRowIndex;
+                if (!divertAsTotals && !awaitsItsAmount(currentAnchor)) {
+                    TotalsLinePart part = totalsLinePart(bucketed, headerNames);
+                    if (part == TotalsLinePart.WHOLE) {
+                        divertAsTotals = true;
+                    } else if (part != TotalsLinePart.NONE && rowIndex + 1 < allRows.size()) {
+                        List<PositionedText> adjacent = allRows.get(rowIndex + 1);
+                        PageDateEvidence adjacentYears = adjacent.isEmpty() ? PageDateEvidence.NONE
+                                : yearsByPage.getOrDefault(adjacent.get(0).pageIndex(), PageDateEvidence.NONE);
+                        List<PositionedText> resolvedAdjacent = substituteYearlessDates(adjacent, adjacentYears);
+                        Map<String, String> adjacentBucketed = bucketRow(resolvedAdjacent, headerNames, headerAnchors,
+                                headerEnds, null, adjacentYears);
+                        if (!isTransactionShapedRow(resolvedAdjacent, adjacentYears) && pairsAsOneTotalsLine(
+                                part, row, bucketed, totalsLinePart(adjacentBucketed, headerNames), adjacent,
+                                adjacentBucketed, gapBetween(row, adjacent), narrationStarts, ledgerLineStarts, rowIndex)) {
+                            divertAsTotals = true;
+                            totalsPairRowIndex = rowIndex + 1;
+                        }
+                    }
+                    if (!divertAsTotals && part == TotalsLinePart.LABEL_ONLY
+                            && aLoneTotalsLabelStandsApartFromNarration(row, bucketed, narrationStarts, ledgerLineStarts, rowIndex)) {
+                        divertAsTotals = true;
+                    }
+                }
+                if (divertAsTotals) {
+                    auxiliaryText.add(rowLine);
+                    if (ctx != null) ctx.record("TABLE_TOTALS_ROW_DIVERTED");
+                    continue;
+                }
                 mergeInto(currentAnchor, bucketed, headerNames);
+                noteTextStarts(narrationStarts, resolvedRow);
                 continuationCount++;
             } else if (!rowLine.isBlank()) {
                 // Pre-first-transaction page furniture (the exact case this capability was blind to:

@@ -3,17 +3,21 @@ package com.finora.service;
 import com.finora.dto.PagedResponse;
 import com.finora.dto.ReferralDtos.AdminReferralSummaryDto;
 import com.finora.dto.ReferralDtos.MyReferralsDto;
+import com.finora.entity.Plan;
 import com.finora.entity.Referral;
 import com.finora.entity.ReferralCode;
 import com.finora.entity.ReferralGrant;
+import com.finora.entity.Subscription;
 import com.finora.entity.User;
 import com.finora.exception.ApiException;
 import com.finora.notification.api.NotificationService;
 import com.finora.notification.domain.NotificationType;
+import com.finora.repository.PlanRepository;
 import com.finora.repository.ReferralCodeRepository;
 import com.finora.repository.ReferralGrantRepository;
 import com.finora.repository.ReferralRepository;
 import com.finora.repository.RefreshTokenRepository;
+import com.finora.repository.SubscriptionRepository;
 import com.finora.repository.UserRepository;
 import com.finora.repository.WalletLedgerRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -44,6 +48,8 @@ class ReferralServiceTest {
     private AuditService auditService;
     private ReferralGrantRepository referralGrantRepository;
     private NotificationService notificationService;
+    private SubscriptionRepository subscriptionRepository;
+    private PlanRepository planRepository;
     private ReferralService service;
 
     private final UUID referrerId = UUID.randomUUID();
@@ -60,8 +66,11 @@ class ReferralServiceTest {
         auditService = mock(AuditService.class);
         referralGrantRepository = mock(ReferralGrantRepository.class);
         notificationService = mock(NotificationService.class);
+        subscriptionRepository = mock(SubscriptionRepository.class);
+        planRepository = mock(PlanRepository.class);
         service = new ReferralService(referralCodeRepository, referralRepository, walletLedgerRepository,
-                refreshTokenRepository, userRepository, auditService, referralGrantRepository, notificationService);
+                refreshTokenRepository, userRepository, auditService, referralGrantRepository, notificationService,
+                subscriptionRepository, planRepository);
         when(referralRepository.save(any(Referral.class))).thenAnswer(inv -> {
             Referral r = inv.getArgument(0);
             if (r.getId() == null) ReflectionTestUtils.setField(r, "id", UUID.randomUUID());
@@ -560,5 +569,140 @@ class ReferralServiceTest {
         assertThat(referral.getReward()).isNull();
         verify(referralRepository, never()).save(any());
         verifyNoInteractions(auditService);
+    }
+
+    // ---- applyCode: a friend's code entered after signing up ----
+
+    private ReferralCode friendsCode() {
+        ReferralCode code = new ReferralCode();
+        code.setUserId(referrerId);
+        code.setCode("ABCD1234");
+        return code;
+    }
+
+    private void givenSubscription(String planCode, String status) {
+        UUID planId = UUID.randomUUID();
+        Plan plan = new Plan();
+        ReflectionTestUtils.setField(plan, "id", planId);
+        plan.setCode(planCode);
+        Subscription sub = new Subscription();
+        sub.setUserId(referredId);
+        sub.setPlanId(planId);
+        sub.setStatus(status);
+        when(subscriptionRepository.findByUserIdIncludingDeletedOrderByCreatedAtDesc(referredId)).thenReturn(List.of(sub));
+        when(planRepository.findById(planId)).thenReturn(Optional.of(plan));
+    }
+
+    @Test
+    void applyCode_linksTheUserToTheFriendWhoseCodeItIs() {
+        when(referralCodeRepository.findByCode("ABCD1234")).thenReturn(Optional.of(friendsCode()));
+        when(referralRepository.saveAndFlush(any(Referral.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.applyCode(referredId, "  abcd1234 ");
+
+        verify(referralRepository).saveAndFlush(argThat(r -> r.getReferrerUserId().equals(referrerId)
+                && r.getReferredUserId().equals(referredId) && Referral.STATUS_REGISTERED.equals(r.getStatus())));
+    }
+
+    // One referral per person: referred by 10 friends, only the first code used counts.
+    @Test
+    void applyCode_refusesASecondCodeOnceTheUserAlreadyHasAReferral() {
+        when(referralRepository.findByReferredUserId(referredId)).thenReturn(Optional.of(new Referral()));
+
+        assertThatThrownBy(() -> service.applyCode(referredId, "ABCD1234"))
+                .isInstanceOf(ApiException.class).hasMessageContaining("already used a referral code");
+        verify(referralRepository, never()).saveAndFlush(any());
+    }
+
+    // The database is the real one-per-person guard (referred_user_id UNIQUE): a concurrent second
+    // submit that slips past the check above fails at the insert, surfaced the same way.
+    @Test
+    void applyCode_aConcurrentDuplicateInsertIsTheSameRefusal() {
+        when(referralCodeRepository.findByCode("ABCD1234")).thenReturn(Optional.of(friendsCode()));
+        when(referralRepository.saveAndFlush(any(Referral.class)))
+                .thenThrow(new org.springframework.dao.DataIntegrityViolationException("uq_referred_user"));
+
+        assertThatThrownBy(() -> service.applyCode(referredId, "ABCD1234"))
+                .isInstanceOf(ApiException.class).hasMessageContaining("already used a referral code");
+        verifyNoInteractions(auditService);
+    }
+
+    @Test
+    void applyCode_refusedWhilePayingForAPlan() {
+        givenSubscription("PLUS", Subscription.STATUS_ACTIVE);
+
+        assertThatThrownBy(() -> service.applyCode(referredId, "ABCD1234"))
+                .isInstanceOf(ApiException.class).hasMessageContaining("before you subscribe");
+        verify(referralRepository, never()).saveAndFlush(any());
+    }
+
+    // A cancelled paid plan still means they subscribed; otherwise cancel, add a code, resubscribe
+    // would credit a friend for a subscription the friend never brought in.
+    @Test
+    void applyCode_refusedAfterAPaidPlanWasCancelled() {
+        givenSubscription("PLUS", Subscription.STATUS_CANCELLED);
+
+        assertThatThrownBy(() -> service.applyCode(referredId, "ABCD1234"))
+                .isInstanceOf(ApiException.class).hasMessageContaining("before you subscribe");
+    }
+
+    @Test
+    void applyCode_allowedDuringAFreeTrial() {
+        givenSubscription("PLUS", Subscription.STATUS_TRIAL);
+        when(referralCodeRepository.findByCode("ABCD1234")).thenReturn(Optional.of(friendsCode()));
+        when(referralRepository.saveAndFlush(any(Referral.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.applyCode(referredId, "ABCD1234");
+
+        verify(referralRepository).saveAndFlush(any(Referral.class));
+    }
+
+    @Test
+    void applyCode_allowedOnTheFreePlan() {
+        givenSubscription("FREE", Subscription.STATUS_ACTIVE);
+        when(referralCodeRepository.findByCode("ABCD1234")).thenReturn(Optional.of(friendsCode()));
+        when(referralRepository.saveAndFlush(any(Referral.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.applyCode(referredId, "ABCD1234");
+
+        verify(referralRepository).saveAndFlush(any(Referral.class));
+    }
+
+    @Test
+    void applyCode_refusesTheUsersOwnCode() {
+        ReferralCode own = new ReferralCode();
+        own.setUserId(referredId);
+        own.setCode("OWN00001");
+        when(referralCodeRepository.findByCode("OWN00001")).thenReturn(Optional.of(own));
+
+        assertThatThrownBy(() -> service.applyCode(referredId, "own00001"))
+                .isInstanceOf(ApiException.class).hasMessageContaining("your own referral code");
+        verify(referralRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void applyCode_refusesAnUnknownCode() {
+        when(referralCodeRepository.findByCode("NOPE0000")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.applyCode(referredId, "NOPE0000"))
+                .isInstanceOf(ApiException.class).hasMessageContaining("isn't valid");
+    }
+
+    @Test
+    void applyCode_refusesABlankCode() {
+        assertThatThrownBy(() -> service.applyCode(referredId, "   "))
+                .isInstanceOf(ApiException.class).hasMessageContaining("Enter a referral code");
+    }
+
+    @Test
+    void canApplyCode_onlyWhileNotReferredAndNeverSubscribed() {
+        assertThat(service.canApplyCode(referredId)).isTrue();
+
+        when(referralRepository.findByReferredUserId(referredId)).thenReturn(Optional.of(new Referral()));
+        assertThat(service.canApplyCode(referredId)).isFalse();
+
+        when(referralRepository.findByReferredUserId(referredId)).thenReturn(Optional.empty());
+        givenSubscription("PLUS", Subscription.STATUS_PAST_DUE);
+        assertThat(service.canApplyCode(referredId)).isFalse();
     }
 }

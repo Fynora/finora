@@ -90,13 +90,16 @@ public final class CounterpartyClassifier {
     //    -> PERSON; the three companies ending in CO are unchanged), and "resort"/"shopee" stop a
     //    name without vetoing a person (a resort and a shop, typed BUSINESS a step earlier, read
     //    UNKNOWN). Every flip read.
-    // 6: the counterparty KEY changed again (CounterpartyIdentity): Kotak's "SentIMPS<ref><payee>/"
+    // 6: a remark's strong signals (bank mechanism, government body, merchant rail) count when the
+    //    payee's own words say nothing, never over a person; a web-domain handle's ".co." is not
+    //    "& Co". No corpus row changes; both are pinned by constructed tests.
+    // 7: the counterparty KEY changed again (CounterpartyIdentity): Kotak's "SentIMPS<ref><payee>/"
     //    is keyed on the payee instead of the free-text note, a VPA local part split by a line wrap
     //    is rejoined, and "Pay for Intent" is no key. The same Kotak layout is typed from its payee
     //    slot, never its free-text note. Measured on the corpus: 37 keys change and 13 rows move
     //    UNKNOWN -> PERSON (one payee, whose 14th row a name-like note had already typed PERSON);
     //    every one read.
-    public static final short VERSION = 6;
+    public static final short VERSION = 7;
 
     /**
      * Bank-generated activity, where the counterparty is the institution itself. These words are
@@ -198,6 +201,17 @@ public final class CounterpartyClassifier {
         // these same tokens, so any row reaching this line carrying one is a row the person check
         // has itself just declined to claim.
         if (PersonToPersonTransferDetector.hasBusinessToken(text)) return CounterpartyType.BUSINESS;
+
+        // The payee's own words said nothing. Only now may the remark speak, and only in its strong
+        // forms -- never a trade word or a bank name, which a payer can write about anything. It is
+        // never reached for a payee that reads as a person (that returned PERSON above), so a friend
+        // cannot be made a bank or a business by what was typed in the remark.
+        String remark = PersonToPersonTransferDetector.remarkText(description);
+        if (!remark.isBlank()) {
+            if (FINANCIAL_MECHANISM.matcher(remark).find()) return CounterpartyType.FINANCIAL_INSTITUTION;
+            if (namesGovernmentBody(remark)) return CounterpartyType.GOVERNMENT;
+            if (PersonToPersonTransferDetector.hasMerchantAcquirerMarker(remark)) return CounterpartyType.BUSINESS;
+        }
 
         return CounterpartyType.UNKNOWN;
     }

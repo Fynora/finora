@@ -454,6 +454,36 @@ public final class PersonToPersonTransferDetector {
     }
 
     /**
+     * The free-text remark {@link #counterpartyText} set aside -- HDFC's trailing remark, or the
+     * repeated-reference layout's remark before its second reference; never that layout's bank
+     * branch, which names the bank and not anyone in the transaction. Empty when there is none.
+     *
+     * <p>A remark is not evidence about who the counterparty is when the payee's own words say
+     * something -- a payer's "interest" must never make a friend a bank. But when the payee's words
+     * say nothing, a bank-mechanism word ("CASHBACK"), a government body or a merchant-payment rail
+     * in the remark is the only evidence there is, and {@link CounterpartyClassifier} uses it then.
+     */
+    public static String remarkText(String description) {
+        if (description == null) return "";
+        Matcher dash = DASH_UPI_WITHOUT_REMARK.matcher(description);
+        if (dash.matches()) return description.substring(dash.end(1) + 1);
+        Matcher repeated = REPEATED_REF_UPI_LAYOUT.matcher(description);
+        if (repeated.find()) {
+            String between = repeated.group(2);
+            int remark = between.lastIndexOf('/');
+            if (remark >= 0 && !between.substring(remark + 1).contains("@")) return between.substring(remark + 1);
+        }
+        return "";
+    }
+
+    /**
+     * A handle spelled like a web domain ("name.co.in@...") carries ".co." as part of the domain,
+     * not "& Co"; left in, the business-word check read it as a company and typed its owner BUSINESS.
+     * Only a "co" between two dots, followed by a two-letter country code, is dropped.
+     */
+    private static final Pattern DOMAIN_CO = Pattern.compile("(?i)\\.co(?=\\.[a-z]{2}(?![a-z]))");
+
+    /**
      * "C/O" -- care of -- inside a person's name: {@code <NAME> CO <NAME>}. As a word it is also
      * "& Co", a company, so it sits in {@link #BUSINESS_SUFFIX_TOKENS}, and a person paid under
      * "... KHAN CO SHAH" was typed BUSINESS. On the corpus the two uses separate by position: every
@@ -467,6 +497,7 @@ public final class PersonToPersonTransferDetector {
 
     static String withoutCareOf(String text) {
         if (text == null) return null;
+        text = DOMAIN_CO.matcher(text).replaceAll("");
         Matcher m = CARE_OF.matcher(text);
         StringBuilder out = new StringBuilder();
         int kept = 0;

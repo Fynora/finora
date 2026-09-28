@@ -82,7 +82,11 @@ public final class CounterpartyClassifier {
     //    transfer. Then, in the same unreleased revision: the passport portal and the exam body join
     //    GOVERNMENT (6 rows), a two-word cafe chain joins the merchant vocabulary (7 rows PERSON ->
     //    BUSINESS), and a known merchant in any segment is no longer read as a name (16 more
-    //    already-BUSINESS rows). Every flip read.
+    //    already-BUSINESS rows). Then: every check reads only the counterparty's part of the
+    //    narration (a remark and a printed bank branch are not evidence), and the repeated-reference
+    //    layout reads only its payee slot -- 12 rows to PERSON from BUSINESS, FINANCIAL_INSTITUTION or
+    //    UNKNOWN (all people), 4 FINANCIAL_INSTITUTION -> BUSINESS (all businesses), no row leaves
+    //    PERSON. Every flip read.
     public static final short VERSION = 5;
 
     /**
@@ -154,15 +158,18 @@ public final class CounterpartyClassifier {
     public static CounterpartyType classify(String description) {
         if (description == null || description.isBlank()) return CounterpartyType.UNKNOWN;
 
-        int markerStart = PersonToPersonTransferDetector.transferMarkerStart(description);
+        // Only the counterparty's part of the narration is evidence -- a free-text remark or the bank
+        // branch printed after it is not. See PersonToPersonTransferDetector.counterpartyText.
+        String text = PersonToPersonTransferDetector.counterpartyText(description);
+        int markerStart = PersonToPersonTransferDetector.transferMarkerStart(text);
 
-        if (FINANCIAL_MECHANISM.matcher(description).find()) return CounterpartyType.FINANCIAL_INSTITUTION;
-        if (namesGovernmentBody(description)) return CounterpartyType.GOVERNMENT;
-        if (matchesOutsideIssuerPrefix(FINANCIAL_ENTITY, description, markerStart)) return CounterpartyType.FINANCIAL_INSTITUTION;
+        if (FINANCIAL_MECHANISM.matcher(text).find()) return CounterpartyType.FINANCIAL_INSTITUTION;
+        if (namesGovernmentBody(text)) return CounterpartyType.GOVERNMENT;
+        if (matchesOutsideIssuerPrefix(FINANCIAL_ENTITY, text, markerStart)) return CounterpartyType.FINANCIAL_INSTITUTION;
 
         // Reuses the detector's own marker pattern rather than a second copy -- see
         // PersonToPersonTransferDetector.hasMerchantAcquirerMarker for why that matters.
-        if (PersonToPersonTransferDetector.hasMerchantAcquirerMarker(description)) return CounterpartyType.BUSINESS;
+        if (PersonToPersonTransferDetector.hasMerchantAcquirerMarker(text)) return CounterpartyType.BUSINESS;
 
         // A named merchant entity is business identity, full stop. Reached through
         // MerchantIdentityLookup rather than CategoryRules so this layer never depends on the
@@ -170,9 +177,9 @@ public final class CounterpartyClassifier {
         // means Shopping" is emphatically not. 130 corpus rows were recognised as a brand by the
         // category layer while this classifier still answered UNKNOWN -- an incoherent pair of
         // answers about the same row.
-        if (MerchantIdentityLookup.namesKnownMerchant(description)) return CounterpartyType.BUSINESS;
+        if (MerchantIdentityLookup.namesKnownMerchant(text)) return CounterpartyType.BUSINESS;
 
-        if (matchesOutsideIssuerPrefix(CORPORATE_SUFFIX, description, markerStart)) return CounterpartyType.BUSINESS;
+        if (matchesOutsideIssuerPrefix(CORPORATE_SUFFIX, text, markerStart)) return CounterpartyType.BUSINESS;
 
         if (PersonToPersonTransferDetector.isNamedIndividualTransfer(description)) return CounterpartyType.PERSON;
 
@@ -181,7 +188,7 @@ public final class CounterpartyClassifier {
         // check rather than above it. That placement costs nothing: the detector already vetoes on
         // these same tokens, so any row reaching this line carrying one is a row the person check
         // has itself just declined to claim.
-        if (PersonToPersonTransferDetector.hasBusinessToken(description)) return CounterpartyType.BUSINESS;
+        if (PersonToPersonTransferDetector.hasBusinessToken(text)) return CounterpartyType.BUSINESS;
 
         return CounterpartyType.UNKNOWN;
     }

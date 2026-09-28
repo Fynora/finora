@@ -99,6 +99,22 @@ class CounterpartyClassifierTest {
     }
 
     @Test
+    void aRemarkOrABankBranchIsNotEvidenceAboutTheCounterparty() {
+        // A payer's remark with "AND" in it typed a person BUSINESS; a branch called "... BANK"
+        // printed after the payee typed a person FINANCIAL_INSTITUTION.
+        assertThat(CounterpartyClassifier.classify(
+                "UPI-SUNITA RAO-sampleuser-4@okaxis-XXXX0001234-100000000001-MAY LIGHT BILL AND WATER")) // synthetic-ok
+                .isEqualTo(CounterpartyType.PERSON);
+        assertThat(CounterpartyClassifier.classify(
+                "UPI/100000000001/ SUNITA RAO/sampleuser@okhdfcbank/1000/UPI/100000000001/SAMPLE BANK/")) // synthetic-ok
+                .isEqualTo(CounterpartyType.PERSON);
+        // And a business stays one on its own words once the branch stops speaking for it.
+        assertThat(CounterpartyClassifier.classify(
+                "UPI/100000000001/ ACME HILL RESORT/sampleuser@ybl/XXXX0001234 1000/UPI/100000000001/SAMPLE BANK/")) // synthetic-ok
+                .isEqualTo(CounterpartyType.BUSINESS);
+    }
+
+    @Test
     void aTwoWordCafeChainIsABusiness_onceItIsAKnownMerchant() {
         // Structurally a two-word brand is indistinguishable from a person's name (the detector's
         // documented limitation); the merchant vocabulary is what separates them.

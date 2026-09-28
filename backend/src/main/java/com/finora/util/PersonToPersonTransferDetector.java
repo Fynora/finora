@@ -157,7 +157,11 @@ public final class PersonToPersonTransferDetector {
             // a payer's remark (nobody annotates a transfer "xerox" or "tyres"), so they carry the
             // upside without FURNITURE's downside.
             "XEROX", "TAILORS", "TYRES", "SPARES", "NURSERY", "PHOTOGRAPHY",
-            "PARLOUR", "PARLOR"
+            "PARLOUR", "PARLOR",
+            // Third tier, 2026-09-28: a resort and a "shopee" whose type had come from the bank
+            // branch printed after them; once only the payee's own words count, nothing but these
+            // separates them from a two-word name. Neither is a word anyone is named.
+            "RESORT", "RESORTS", "SHOPEE"
     );
 
     /**
@@ -253,7 +257,10 @@ public final class PersonToPersonTransferDetector {
             // observed; it is a wildcard to match the family above, not because others were seen.
             + "|[a-z]{4}0DC0099"
             + "|@okbiz"                           // Google Pay for Business
-            + "|\\bbharatpe\\b"
+            // A prefix, not a whole word: BharatPe merchant handles run straight into digits
+            // ("bharatpe9..."), and the old whole-word form only matched them when the narration's
+            // remark happened to repeat the brand -- evidence that no longer counts.
+            + "|\\bbharatpe"
             + "|\\bvyapar\\."
             // Second wave, mined from the 1,098 rows still landing in "Other" after the first.
             // Two acquirer QR/soundbox families and two payment gateways. A gateway in the
@@ -330,15 +337,18 @@ public final class PersonToPersonTransferDetector {
      */
     public static boolean isNamedIndividualTransfer(String description) {
         if (description == null || description.isBlank()) return false;
-        if (VPA_BUSINESS_QR.matcher(description).find()) return false;
-        if (MERCHANT_ACQUIRER_MARKER.matcher(description).find()) return false;
+        // Every veto and the segment scan read only the counterparty's part of the narration; the
+        // slot rules below read the original, since they need its structure.
+        String text = counterpartyText(description);
+        if (VPA_BUSINESS_QR.matcher(text).find()) return false;
+        if (MERCHANT_ACQUIRER_MARKER.matcher(text).find()) return false;
         // A fee paid to the state, however person-shaped its payee line (a portal's own 3-word name).
-        if (CounterpartyClassifier.namesGovernmentBody(description)) return false;
+        if (CounterpartyClassifier.namesGovernmentBody(text)) return false;
 
-        Matcher marker = TRANSFER_MARKER.matcher(description);
+        Matcher marker = TRANSFER_MARKER.matcher(text);
         if (!marker.find()) return false;
 
-        if (containsBusinessSignal(description, marker.start())) return false;
+        if (containsBusinessSignal(text, marker.start())) return false;
 
         // HDFC's layout names the counterparty in exactly one place, so only that place is read.
         // The segment scan below would also read the free-text remark at the end, and a remark is
@@ -350,11 +360,16 @@ public final class PersonToPersonTransferDetector {
                     && looksLikeSlotName(dashPayee.group(1));
         }
 
+        // The same for the layout that repeats its reference: only the payee slot is read, never
+        // the remark before the second reference or the bank branch name after it.
+        Matcher repeatedRef = REPEATED_REF_UPI_LAYOUT.matcher(description);
+        if (repeatedRef.find()) return repeatedRefPayeeIsAPerson(repeatedRef.group(2));
+
         // Scanned over the WHOLE description, not just the text after the marker: the counterparty
         // does not reliably follow the rail. This repo's own trace fixtures contain narrations
         // whose rail token is the LAST segment ("<name>/<ref>/IMPS"), and slicing them at the
         // marker left nothing but the rail itself for this loop to read.
-        for (String segment : SEGMENT_DELIMITERS.split(description)) {
+        for (String segment : SEGMENT_DELIMITERS.split(text)) {
             String candidate = segment.trim();
             if (looksLikePersonName(candidate) && !MerchantIdentityLookup.namesKnownMerchant(candidate)) return true;
         }
@@ -388,7 +403,90 @@ public final class PersonToPersonTransferDetector {
      * Group 2 is the handle's local part, for {@link #isBrandNamedInItsOwnHandle}.
      */
     private static final Pattern DASH_UPI_PAYEE_SLOT = Pattern.compile(
-            "(?i)^\\s*UPI-([^-@]{1,60})-([^-\\s@]*)@");
+            "(?i)^\\s*UPI-([^-@]{1,60})-([^\\s@]*)@");
+
+    /**
+     * HDFC's UPI layout up to and including its reference -- everything but the free-text remark
+     * after it. The handle may carry a hyphen (Google Pay's "-1"), the IFSC a stray space.
+     */
+    private static final Pattern DASH_UPI_WITHOUT_REMARK = Pattern.compile(
+            "(?is)^(\\s*UPI-[^-@]{1,60}-[^\\s@]*@[^-]*-[^-]*-\\s*\\d[\\d ]{5,20})-.*$");
+
+    /**
+     * The part of a narration that is about the counterparty, for the layouts whose other parts are
+     * known: HDFC's without its trailing remark, and the repeated-reference layout without its
+     * remark and the bank branch after it. Any other narration is returned whole.
+     *
+     * <p>A remark is free text whoever typed it, and a branch names the bank, not the payee. Read as
+     * evidence they typed people as businesses and banks: a payer's "... BILL AND ..." remark vetoed
+     * a person and typed her a BUSINESS, and a branch called "... BANK" typed two people
+     * FINANCIAL_INSTITUTION. {@link CounterpartyClassifier} reads this text for every check.
+     */
+    public static String counterpartyText(String description) {
+        if (description == null) return null;
+        Matcher dash = DASH_UPI_WITHOUT_REMARK.matcher(description);
+        if (dash.matches()) return dash.group(1);
+        Matcher repeated = REPEATED_REF_UPI_LAYOUT.matcher(description);
+        if (repeated.find()) {
+            String between = repeated.group(2);
+            int remark = between.lastIndexOf('/');
+            return "UPI/" + repeated.group(1) + "/" + (remark < 0 ? between : between.substring(0, remark));
+        }
+        return description;
+    }
+
+    /** Google Pay's consumer handles; its business handles are {@code @okbiz...} instead. */
+    private static final Pattern GPAY_CONSUMER_HANDLE = Pattern.compile(
+            "(?i)@ok(?:axis|sbi|icici|hdfcbank)\\b");
+
+    /**
+     * The layout that states its reference twice:
+     * {@code UPI/<ref>/<payee>/<handle>/<IFSC account>/<remark>/<ref>/<branch>/}, a credit putting
+     * the payer's account and handle before the name. Group 2 is everything between the two
+     * references. The segment scan read all of it plus the branch name after it, so a branch
+     * ("<BANK> <TOWN>"), a head-office code or a payer's remark read as a person's name -- on the
+     * corpus, the only thing that made 5 bare-handle payments PERSON (now read from the handle, see
+     * {@link #repeatedRefPayeeIsAPerson}), and the reason a known cafe chain still read as a
+     * personal transfer.
+     */
+    private static final Pattern REPEATED_REF_UPI_LAYOUT = Pattern.compile(
+            "(?i)^\\s*UPI/(\\d{12})/(.*?)/\\1(?:/|$)");
+
+    /**
+     * The payee slot of {@link #REPEATED_REF_UPI_LAYOUT}. The bank pads the payee's name with a
+     * leading space, which is how it is told apart from the handle and the account number around
+     * it; without one, the slot straight after the reference is the payee when it is a plain word
+     * rather than a handle or a number. When the bank printed only a handle there is no name at
+     * all; then only a Google Pay consumer handle counts as a person, see the comment inside.
+     */
+    private static boolean repeatedRefPayeeIsAPerson(String between) {
+        String[] segments = between.split("/");
+        String handle = "";
+        String handleFull = "";
+        for (String segment : segments) {
+            if (segment.contains("@")) {
+                handleFull = segment.trim();
+                handle = segment.substring(0, segment.indexOf('@'));
+                break;
+            }
+        }
+        String payee = null;
+        for (String segment : segments) {
+            if (segment.startsWith(" ") && !segment.contains("@")) { payee = segment; break; }
+        }
+        if (payee == null && segments.length > 0) {
+            String first = segments[0].trim();
+            if (!first.isEmpty() && !first.contains("@") && !first.chars().allMatch(Character::isDigit)) payee = first;
+        }
+        // No name printed, only the payee's handle. A Google Pay consumer handle is a person's own:
+        // Google Pay gives businesses @okbiz... handles instead, and on the corpus every one of 149
+        // rows paid to a consumer handle whose name could be read is a person.
+        if (payee == null) return GPAY_CONSUMER_HANDLE.matcher(handleFull).find();
+        // At most 4 words, not the slot rule's usual 6: this bank prints the name whole rather than
+        // cut and repeated, and on the corpus every person here has 1-4 words while a 6-word slot was
+        // a cafe with its locality appended.
+        return !isBrandNamedInItsOwnHandle(payee, handle) && looksLikeSlotName(payee, 4);
+    }
 
     /**
      * A one-word payee whose handle begins with that same word ({@code CREDCLUB} paid at
@@ -447,6 +545,10 @@ public final class PersonToPersonTransferDetector {
      * brand token, and the slot does not name a known merchant.
      */
     private static boolean looksLikeSlotName(String slotContent) {
+        return looksLikeSlotName(slotContent, 6);
+    }
+
+    private static boolean looksLikeSlotName(String slotContent, int maxWords) {
         if (slotContent == null) return false;
         if (MerchantIdentityLookup.namesKnownMerchant(slotContent)) return false;
         if (isTruncatedKnownMerchant(slotContent)) return false;
@@ -459,7 +561,7 @@ public final class PersonToPersonTransferDetector {
             if (NON_NAME_TOKENS.contains(w.toUpperCase(Locale.ROOT))) return false;
             realWordCount++;
         }
-        return realWordCount >= 1 && realWordCount <= 6;
+        return realWordCount >= 1 && realWordCount <= maxWords;
     }
 
     /**

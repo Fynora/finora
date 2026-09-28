@@ -434,4 +434,49 @@ class PersonToPersonTransferDetectorTest {
         assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
                 "UPI/Sunita Rao/REF66/UPI")).isTrue();
     }
+
+    // The layout that repeats its reference: UPI/<ref>/<payee>/<handle>/<IFSC account>/<remark>/<ref>/<branch>/.
+    // Only the payee slot is read -- never the remark before the second reference, never the bank
+    // branch after it (100000000001 is a placeholder reference, not a real one).
+    @Test
+    void readsOnlyThePayeeSlotOfTheRepeatedReferenceLayout() {
+        // A person named in the padded payee slot.
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/100000000001/ SUNITA RAO/sampleuser@ybl/XXXX0001234 1000/UPI/100000000001/SAMPLE BRANCH/")).isTrue(); // synthetic-ok
+        // No name printed, only a PhonePe handle: the branch "SAMPLE BRANCH" used to read as a name.
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/100000000001/sampleuser@ybl/sampleuser@ybl/XXXX0001234 1000/UPI/100000000001/SAMPLE BRANCH/")).isFalse(); // synthetic-ok
+        // No name printed, but a Google Pay consumer handle -- a person's own (businesses get @okbiz...).
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/100000000001/sampleuser@okaxis/sampleuser@okaxis/XXXX0001234 1000/FIRST TRANSFER/100000000001/SAMPLE BRANCH/")).isTrue(); // synthetic-ok
+        // A 6-word payee here is a business with its locality, not a person: this bank prints names whole.
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/100000000001/ ACME COFFEE ROASTERS NORTH SIDE PUNE/sampleuser@ybl/XXXX0001234 1000/UPI/100000000001/")).isFalse(); // synthetic-ok
+    }
+
+    @Test
+    void theCounterpartyTextDropsTheRemarkAndTheBranch_andLeavesOtherLayoutsWhole() {
+        assertThat(PersonToPersonTransferDetector.counterpartyText(
+                "UPI-SUNITA RAO-sampleuser-1@okaxis-XXXX0001234-100000000001-MAY LIGHT BILL AND WATER")) // synthetic-ok
+                .isEqualTo("UPI-SUNITA RAO-sampleuser-1@okaxis-XXXX0001234-100000000001"); // synthetic-ok
+        assertThat(PersonToPersonTransferDetector.counterpartyText(
+                "UPI/100000000001/ SUNITA RAO/sampleuser@ybl/XXXX0001234 1000/MOVIE/100000000001/SAMPLE BANK BRANCH/")) // synthetic-ok
+                .isEqualTo("UPI/100000000001/ SUNITA RAO/sampleuser@ybl/XXXX0001234 1000"); // synthetic-ok
+        String other = "UPI/CR/REF901/SUNITA/SBIN/sampleuser/";
+        assertThat(PersonToPersonTransferDetector.counterpartyText(other)).isEqualTo(other);
+    }
+
+    @Test
+    void aHyphenatedHandleStillUsesTheDashPayeeSlot_andAnAndInTheRemarkNoLongerVetoesTheName() {
+        // Google Pay suffixes handles with "-1", "-4"; the payee-slot pattern used to miss them and
+        // fall back to scanning the whole narration, remark included -- where "AND" is a business word.
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI-SUNITA RAO-sampleuser-4@okaxis-XXXX0001234-100000000001-MAY LIGHT BILL AND WATER")).isTrue(); // synthetic-ok
+    }
+
+    @Test
+    void aBharatPeMerchantHandleIsARailMarker_evenRunIntoDigits() {
+        assertThat(PersonToPersonTransferDetector.hasMerchantAcquirerMarker(
+                "UPI-SUNITA RAO-BHARATPE90000000001@yesbankltd-XXXX0YESUPI-100000000001-UPI")).isTrue(); // synthetic-ok
+    }
 }

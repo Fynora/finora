@@ -2250,6 +2250,26 @@
                 }
             }
         },
+        "/api/v1/statement-refresh/apply": {
+            "post": {
+                "tags": [
+                    "statement-refresh-overview-controller"
+                ],
+                "operationId": "refreshAllStatements",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseRefreshAllResult"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/statement-imports/{id}/supersede": {
             "post": {
                 "tags": [
@@ -7474,6 +7494,57 @@
                                 "schema": {
                                     "type": "string",
                                     "format": "byte"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/statement-refresh": {
+            "get": {
+                "tags": [
+                    "statement-refresh-overview-controller"
+                ],
+                "operationId": "statementRefreshOverview",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseRefreshOverview"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/statement-refresh/runs/{runId}": {
+            "get": {
+                "tags": [
+                    "statement-refresh-overview-controller"
+                ],
+                "operationId": "statementRefreshRun",
+                "parameters": [
+                    {
+                        "name": "runId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseRefreshRunDetail"
                                 }
                             }
                         }
@@ -13389,6 +13460,221 @@
                     }
                 }
             },
+            "ApiResponseRefreshAllResult": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/RefreshAllResult"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "RefreshAllResult": {
+                "type": "object",
+                "properties": {
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/RefreshRunDetail"
+                        }
+                    },
+                    "remaining": {
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                }
+            },
+            "RefreshChangedRow": {
+                "type": "object",
+                "properties": {
+                    "transactionId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "date": {
+                        "type": "string"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "amount": {
+                        "type": "string"
+                    },
+                    "type": {
+                        "type": "string"
+                    },
+                    "changes": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/RefreshFieldChange"
+                        }
+                    }
+                }
+            },
+            "RefreshFieldChange": {
+                "type": "object",
+                "properties": {
+                    "field": {
+                        "type": "string"
+                    },
+                    "before": {
+                        "type": "string"
+                    },
+                    "after": {
+                        "type": "string"
+                    }
+                }
+            },
+            "RefreshRemovedRow": {
+                "type": "object",
+                "properties": {
+                    "transactionId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "date": {
+                        "type": "string"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "amount": {
+                        "type": "string"
+                    },
+                    "type": {
+                        "type": "string"
+                    },
+                    "userEdited": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "RefreshRowView": {
+                "type": "object",
+                "properties": {
+                    "transactionId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "date": {
+                        "type": "string"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "amount": {
+                        "type": "string"
+                    },
+                    "type": {
+                        "type": "string"
+                    }
+                }
+            },
+            "RefreshRunDetail": {
+                "type": "object",
+                "properties": {
+                    "runId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "statementImportId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "fileName": {
+                        "type": "string"
+                    },
+                    "accountName": {
+                        "type": "string"
+                    },
+                    "periodStart": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "periodEnd": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "createdAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "rowsChanged": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "rowsAdded": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "rowsRemoved": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "factsChanged": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "balanceChange": {
+                        "type": "number"
+                    },
+                    "reason": {
+                        "type": "string"
+                    },
+                    "changed": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/RefreshChangedRow"
+                        }
+                    },
+                    "added": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/RefreshRowView"
+                        }
+                    },
+                    "removed": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/RefreshRemovedRow"
+                        }
+                    },
+                    "skippedAsDuplicate": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/RefreshRowView"
+                        }
+                    },
+                    "facts": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/RefreshFieldChange"
+                        }
+                    }
+                }
+            },
             "SupersedeRequest": {
                 "type": "object",
                 "properties": {
@@ -18374,6 +18660,130 @@
                     "totalPages": {
                         "type": "integer",
                         "format": "int32"
+                    }
+                }
+            },
+            "ApiResponseRefreshOverview": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/RefreshOverview"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "RefreshOverview": {
+                "type": "object",
+                "properties": {
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "savePasswordAvailable": {
+                        "type": "boolean"
+                    },
+                    "updatable": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/RefreshPendingStatement"
+                        }
+                    },
+                    "needsPassword": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/RefreshPendingStatement"
+                        }
+                    }
+                }
+            },
+            "RefreshPendingStatement": {
+                "type": "object",
+                "properties": {
+                    "statementImportId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "fileName": {
+                        "type": "string"
+                    },
+                    "accountName": {
+                        "type": "string"
+                    },
+                    "periodStart": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "periodEnd": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "rowsChanged": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "rowsAdded": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "rowsRemoved": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "factsChanged": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "passwordSaved": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "ApiResponseRefreshRunDetail": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/RefreshRunDetail"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
                     }
                 }
             },

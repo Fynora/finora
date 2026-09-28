@@ -125,4 +125,23 @@ describe('RegisterStep', () => {
     expect(onSuccess).not.toHaveBeenCalled();
     expect(onAccountExists).not.toHaveBeenCalled();
   });
+
+  // A Google/Apple sign-up here used to drop the ?ref= code the email form sends.
+  it("sends the friend's link code along with a Google sign-up", async () => {
+    vi.stubEnv('VITE_GOOGLE_LOGIN_CLIENT_ID', 'test-client-id.apps.googleusercontent.com');
+    vi.mocked(isGoogleLoginConfigured).mockReturnValue(true);
+    const initialize = vi.fn();
+    vi.mocked(loadGoogleIdentityServices).mockResolvedValue({ initialize, renderButton: vi.fn() } as any);
+    vi.mocked(authApi.google).mockResolvedValue({
+      data: { token: 't', refreshToken: 'r', email: 'jane@example.com', fullName: 'Jane', phoneVerified: false, accountCreated: true },
+    } as any);
+    const { onSuccess } = renderStep({ referralCode: 'ABCD1234' });
+
+    await waitFor(() => expect(initialize).toHaveBeenCalled());
+    const { callback } = initialize.mock.calls[initialize.mock.calls.length - 1][0];
+    callback({ credential: 'a-real-looking-jwt' });
+
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledWith(false));
+    expect(authApi.google).toHaveBeenLastCalledWith('a-real-looking-jwt', 'ABCD1234');
+  });
 });

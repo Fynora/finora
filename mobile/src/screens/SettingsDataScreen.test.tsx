@@ -7,6 +7,7 @@ import { ThemeProvider } from '../theme';
 jest.mock('../api/endpoints', () => ({
   analyticsApi: { importStatistics: jest.fn() },
   userApi: { get: jest.fn().mockResolvedValue({ signInMethod: 'PASSWORD' }) },
+  statementPasswordsApi: { list: jest.fn().mockResolvedValue({ saveAvailable: false, items: [] }) },
 }));
 jest.mock('@react-navigation/native', () => ({ useNavigation: () => ({ navigate: jest.fn() }) }));
 

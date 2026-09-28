@@ -7,6 +7,7 @@ import { useQuery } from '@tanstack/react-query';
 import { MetricTile } from '../components/AccountUI';
 import { Button } from '../components/Button';
 import { ExportDataSheet } from './settings/ExportDataSheet';
+import { SavedStatementPasswordsSection } from './settings/SavedStatementPasswordsSection';
 import { analyticsApi, userApi } from '../api/endpoints';
 import { fmtDate } from '../lib/format';
 import { spacing, useTheme } from '../theme';
@@ -57,6 +58,8 @@ export function SettingsDataScreen() {
         </View>
         <Button label="Export" onPress={() => setExportOpen(true)} variant="link" />
       </View>
+
+      <SavedStatementPasswordsSection />
 
       {exportOpen ? (
         <ExportDataSheet

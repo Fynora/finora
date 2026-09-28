@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View
+  ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View
 } from 'react-native';
 import { AppAlert } from '../../lib/appAlert';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -111,6 +111,16 @@ export function ImportScreen() {
     retry: false,
   });
   const asyncAvailable = asyncAvailableQ.data?.asyncImportAvailable ?? false;
+  // Statement refresh, step 4: whether this deployment may keep a protected PDF's password. The
+  // user's own yes is `savePassword`, off by default and reset after every upload.
+  // `keepRefused`: the queue refused to keep a password this page was told it could keep (saving
+  // was switched off after the page asked), so stop offering it rather than failing the same way again.
+  const [keepRefused, setKeepRefused] = useState(false);
+  const savePasswordOffered = asyncAvailable && asyncAvailableQ.data?.savePasswordAvailable === true && !keepRefused;
+  const [savePassword, setSavePassword] = useState(false);
+  // Set when the user asked to keep the password but the file turned out not to be locked, so
+  // nothing was kept -- said out loud rather than letting them believe it was saved.
+  const [passwordNotKept, setPasswordNotKept] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);
 
   // Phase 4 (Medium-Tier Parity). "Your recent failed imports" -- a document that never got far
@@ -539,23 +549,30 @@ export function ImportScreen() {
     }
   }
 
-  async function upload(file: RNFile, isPdf: boolean, password: string | undefined) {
+  // `mayKeep` is false only on the one retry below, after the server refused to keep a password.
+  async function upload(file: RNFile, isPdf: boolean, password: string | undefined, mayKeep = true) {
     setError(null);
     setUploadProgress(0);
 
-    // The queue, when this deployment has one and the file does not need a password. A protected
-    // PDF is deliberately excluded rather than made to work: the job carries a content address
-    // and no password, and the worker opens the document minutes later with nobody to ask.
-    if (asyncAvailable && !password) {
+    // The queue, when this deployment has one and the file does not need a password -- or when the
+    // user chose to let Fynora keep the password (statement refresh, step 4), which lets the worker
+    // open the file later. Otherwise a password goes to the synchronous path, which uses it once and
+    // keeps nothing: the job would carry no password, and the worker would have nobody to ask.
+    const keepPassword = mayKeep && !!password && savePassword && savePasswordOffered;
+    if (asyncAvailable && (!password || keepPassword)) {
+      let retryWithoutKeeping = false;
       const startedAt = requestStartedAt();
       try {
         const controller = new AbortController();
         uploadAbort.current = controller;
-        const accepted = await importJobsApi.submit(file, setUploadProgress, controller.signal);
+        const accepted = await importJobsApi.submit(file, setUploadProgress, controller.signal,
+          keepPassword ? { password: password! } : undefined);
+        setSavePassword(false);
         setPendingPdf(null);
         setPdfPassword('');
     setPasswordRevealed(false);
         setPasswordState(null);
+        setPasswordNotKept(keepPassword && accepted.passwordSaved === false);
         setJobId(accepted.jobId);
       } catch (e) {
         // Cancel checked first, same reasoning as the synchronous branch below: a cancelled
@@ -563,7 +580,13 @@ export function ImportScreen() {
         if (!isCanceled(e)) {
           reportTransportFailure(e, 'import:upload-async', startedAt);
           const code = apiErrorCode(e);
-          if (code === PDF_PASSWORD_REQUIRED || code === PDF_PASSWORD_INVALID) {
+          if (keepPassword && code === PDF_PASSWORD_REQUIRED) {
+            // The queue would not keep the password -- saving was switched off after this screen
+            // asked. Send the file once on the path that keeps nothing: the user already gave it.
+            setKeepRefused(true);
+            setSavePassword(false);
+            retryWithoutKeeping = true;
+          } else if (code === PDF_PASSWORD_REQUIRED || code === PDF_PASSWORD_INVALID) {
             // The queue refuses a protected PDF at upload (it has no password to try later), with
             // the same code the synchronous path returns. Answered the same way: not an error, the
             // file is fine, so the password field opens on this same file.
@@ -581,6 +604,8 @@ export function ImportScreen() {
         // so the progress bar never freezes showing a stale percentage.
         setUploadProgress(null);
       }
+      // After the finally, so this attempt's own reset has run and cannot land in the middle of the retry.
+      if (retryWithoutKeeping) await upload(file, isPdf, password, false);
       return;
     }
 
@@ -602,6 +627,7 @@ export function ImportScreen() {
       setPdfPassword('');
     setPasswordRevealed(false);
       setPasswordState(null);
+      setSavePassword(false);
 
       // A single PDF can describe more than one account (a composite statement bundling savings
       // and a credit card). Reviewing those means assigning each section to a different account,
@@ -787,12 +813,19 @@ export function ImportScreen() {
               on this screen until it lands, and offering a second upload alongside it would start
               a race the user did not ask for. */}
           {jobId ? (
-            <ImportProgressCard
-              jobId={jobId}
-              onReady={(sid) => void onJobReady(sid)}
-              onGaveUp={onJobGaveUp}
-              onDismiss={() => { setJobId(null); setError(null); }}
-            />
+            <>
+              {passwordNotKept ? (
+                <Text style={[styles.helpText, { color: c.muted }]} testID="password-not-kept">
+                  This statement isn't password protected, so there was no password to keep.
+                </Text>
+              ) : null}
+              <ImportProgressCard
+                jobId={jobId}
+                onReady={(sid) => void onJobReady(sid)}
+                onGaveUp={onJobGaveUp}
+                onDismiss={() => { setJobId(null); setError(null); }}
+              />
+            </>
           ) : (
           <Card>
             <SectionHeading title="Import a statement" />
@@ -869,6 +902,28 @@ export function ImportScreen() {
                       ? 'This statement is password protected. Enter the password your bank uses for it.'
                       : 'Many banks protect statements with a password — often a mix of your name, PAN, date of birth or account number. Check the email it came in.'}
                 </Text>
+                {savePasswordOffered ? (
+                  <View style={styles.savePasswordRow}>
+                    <View style={styles.savePasswordText}>
+                      <Text style={[styles.fieldLabel, { color: c.ink }]}>
+                        Keep this password so Fynora can read this statement again later
+                      </Text>
+                      <Text style={[styles.helpText, { color: c.muted }]}>
+                        Stored encrypted, only for this statement. It lets us re-read the statement when we
+                        improve how statements are read, and lets our team check it if the import has a problem
+                        on our side. Remove it any time in Settings → Data.
+                      </Text>
+                    </View>
+                    <Switch
+                      value={savePassword}
+                      onValueChange={setSavePassword}
+                      trackColor={{ true: c.primary, false: c.border }}
+                      thumbColor={savePassword ? c.onPrimary : undefined}
+                      accessibilityLabel="Keep this password"
+                      testID="pdf-save-password"
+                    />
+                  </View>
+                ) : null}
                 <Button
                   label="Upload statement"
                   onPress={() => void upload(pendingPdf, true, pdfPassword || undefined)}
@@ -881,6 +936,7 @@ export function ImportScreen() {
                     setPdfPassword('');
     setPasswordRevealed(false);
                     setPasswordState(null);
+                    setSavePassword(false);
                     setError(null);
                   }}
                 />
@@ -1405,6 +1461,8 @@ const styles = StyleSheet.create({
   // gap is smaller than the field label's own marginBottom, so the label stays visually attached
   // to its input rather than floating midway between it and the filename above.
   passwordWrap: { marginTop: spacing.sm, gap: spacing.sm },
+  savePasswordRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  savePasswordText: { flex: 1, gap: 2 },
   helpText: { fontSize: 12, lineHeight: 17 },
   formatBadge: {
     fontSize: 10,

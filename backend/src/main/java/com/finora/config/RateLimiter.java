@@ -53,10 +53,16 @@ public class RateLimiter {
             local maxRequests = tonumber(ARGV[2])
             local member = ARGV[3]
 
+            -- Microseconds, not whole seconds: a whole-second clock let a call early in second
+            -- S+1 trim an entry recorded late in second S, loosening every window by up to 1s
+            -- (a 1s window by up to all of it). Epoch microseconds (~1.8e15) sit well inside a
+            -- double's exact-integer range (2^53); ZADD stores them without rounding.
             local time = redis.call('TIME')
-            local now = tonumber(time[1])
+            local now = tonumber(time[1]) * 1000000 + tonumber(time[2])
+            local windowMicros = windowSeconds * 1000000
 
-            redis.call('ZREMRANGEBYSCORE', key, '-inf', now - windowSeconds)
+            -- Inclusive bound: an entry exactly one window old has expired; anything younger counts.
+            redis.call('ZREMRANGEBYSCORE', key, '-inf', now - windowMicros)
             local count = redis.call('ZCARD', key)
             if count >= maxRequests then
               return 0

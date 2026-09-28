@@ -1617,3 +1617,83 @@ export const statementPasswordsApi = {
   remove: (statementImportId: string) => api.delete(`/statement-passwords/${statementImportId}`),
   removeAll: () => api.delete<{ removed: number }>('/statement-passwords').then((r) => r.data),
 };
+
+/** Statement refresh, step 5: statements an improved parser would change, and what refreshing changed. */
+export interface RefreshPendingStatement {
+  statementImportId: string;
+  /** CHANGES: a refresh would change it. NEEDS_PASSWORD: a protected PDF that could not be checked. */
+  status: 'CHANGES' | 'NEEDS_PASSWORD';
+  fileName: string;
+  accountName: string | null;
+  periodStart: string | null;
+  periodEnd: string | null;
+  rowsChanged: number;
+  rowsAdded: number;
+  rowsRemoved: number;
+  factsChanged: number;
+  passwordSaved: boolean;
+}
+
+export interface RefreshOverview {
+  /** False while refreshing is switched off on this deployment: show nothing. */
+  enabled: boolean;
+  savePasswordAvailable: boolean;
+  updatable: RefreshPendingStatement[];
+  needsPassword: RefreshPendingStatement[];
+}
+
+export interface RefreshRowView {
+  transactionId: string | null;
+  date: string | null;
+  description: string | null;
+  amount: string | null;
+  type: string | null;
+}
+
+export interface RefreshFieldChange {
+  field: string;
+  before: string | null;
+  after: string | null;
+}
+
+export interface RefreshRunDetail {
+  runId: string | null;
+  statementImportId: string;
+  fileName: string | null;
+  accountName: string | null;
+  periodStart: string | null;
+  periodEnd: string | null;
+  /** APPLIED, NO_CHANGES, NEEDS_REVIEW, FAILED, or NEEDS_PASSWORD (not attempted). */
+  status: 'APPLIED' | 'NO_CHANGES' | 'NEEDS_REVIEW' | 'FAILED' | 'NEEDS_PASSWORD';
+  createdAt: string | null;
+  rowsChanged: number;
+  rowsAdded: number;
+  rowsRemoved: number;
+  factsChanged: number;
+  balanceChange: number | null;
+  reason: string | null;
+  changed: (RefreshRowView & { changes: RefreshFieldChange[] })[];
+  added: RefreshRowView[];
+  removed: (RefreshRowView & { userEdited: boolean })[];
+  skippedAsDuplicate: RefreshRowView[];
+  facts: RefreshFieldChange[];
+}
+
+export interface StatementRefreshOutcome {
+  statementId: string;
+  status: RefreshRunDetail['status'];
+  reason: string | null;
+  runId: string | null;
+}
+
+export const statementRefreshApi = {
+  overview: () => api.get<RefreshOverview>('/statement-refresh').then((r) => r.data),
+  /** Updates up to ten statements; call again while `remaining > 0`. */
+  applyAll: () =>
+    api.post<{ results: RefreshRunDetail[]; remaining: number }>('/statement-refresh/apply').then((r) => r.data),
+  run: (runId: string) => api.get<RefreshRunDetail>(`/statement-refresh/runs/${runId}`).then((r) => r.data),
+  /** One statement. `savePassword` is the user's consent to keep `password`; the body, never the URL. */
+  refreshOne: (statementImportId: string, password?: string, savePassword?: boolean) =>
+    api.post<StatementRefreshOutcome>(`/statement-imports/${statementImportId}/refresh`,
+      password ? { password, savePassword: !!savePassword } : {}).then((r) => r.data),
+};

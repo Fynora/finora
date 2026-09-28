@@ -31,6 +31,7 @@ import {
 } from '../api/endpoints';
 import type { DashboardRangeType } from '../types';
 import { trackNavigation } from '../lib/trackNavigation';
+import { StatementRefreshBanner } from '../components/statementRefresh/StatementRefreshBanner';
 
 ChartJS.register(ArcElement, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, Filler);
 
@@ -578,6 +579,10 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Statement refresh, step 5: renders nothing unless an improved parser would change some of
+          this user's statements, and nothing while refreshing is switched off. Above the
+          onboarding widgets, which can fill the first screen. */}
+      <div className="mb-8 empty:hidden"><StatementRefreshBanner /></div>
       <ChecklistWidget />
       <JourneyWidget />
 

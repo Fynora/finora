@@ -196,3 +196,36 @@ Validated live in the browser during design (mocked against the real sidebar dar
 - A prestige/status layer (the badge signals the user's own plan to themselves, not to others) —
   explicitly a different product from this one; see the parked Identity Engine proposal for that
   discussion.
+
+## 8. Addendum (2026-09-28): what counts, and refunds
+
+Decided with Sid on 2026-09-28; implemented in the PR that adds V241.
+
+- **Only a paid charge counts.** Razorpay `subscription.charged` with amount > 0; RevenueCat
+  `INITIAL_PURCHASE` or `RENEWAL` unless `period_type=TRIAL` or price ≤ 0 (a trial counts when it
+  converts, on that first paid `RENEWAL`). A RevenueCat `environment=SANDBOX` purchase never
+  counts in production (`REVENUECAT_COUNT_SANDBOX_REFERRALS`, default false), but still unlocks
+  the plan: Apple's App Review buys in the sandbox against the production server.
+- **Refunds and lost chargebacks take the referral back.** Razorpay `refund.processed` (any
+  refund, full or partial) and `payment.dispute.lost`; RevenueCat `CANCELLATION` with
+  `cancel_reason=CUSTOMER_SUPPORT` or a negative price. Matched to the exact charge that counted
+  (`referral_charges`), so a refund of a later renewal changes nothing. The referral goes back to
+  REGISTERED and counts again on the friend's next paid charge. `REFUND_REVERSED` is logged only.
+- **A redeemed month is kept, but the referral is owed.** The counter may go below 0; the next
+  referrals repay it before counting toward a new month. `GET /referrals/mine` never shows a
+  negative `premiumMilestoneCounter` (installed apps would draw "-1 / 7"); the debt is reported
+  as `referralsOwed`.
+- **The referrer is told** (`REFERRAL_REVERSED`, push + email), with progress shown clamped at 0.
+- **Refunds and billing state** (same PR):
+  - A RevenueCat refund of the subscription's latest paid transaction (the `transaction_id`
+    of its last `INITIAL_PURCHASE`/`RENEWAL`, stored as `revenuecat_latest_transaction_id`)
+    drops the plan to FREE at once. A refund of an older transaction leaves access alone. Expiry
+    dates cannot decide this: RevenueCat moves a refunded period's `expiration_at_ms` back to the
+    refund time. The store mandate stays recorded, since a refund does not cancel the
+    subscription: a later `RENEWAL` restores the plan from its `product_id`, and a later
+    `EXPIRATION` still finds the row.
+  - Razorpay payments are marked `REFUNDED` on a full refund (`refund_status=full`) or a lost
+    chargeback that deducted the whole amount. Partial ones stay `SUCCESS`.
+  - A `REFUNDED` payment's invoice stays downloadable (web, mobile, `InvoiceService`): it is the
+    record of a sale that happened. A GST credit note for the refund is not produced yet -- its
+    format needs the CA (see the compliance audit).

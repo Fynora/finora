@@ -396,6 +396,28 @@ describe('ReferralsScreen', () => {
       expect(screen.queryByText(/redeem plus/i)).toBeNull();
     });
 
+    it('says how many refunded referrals must be made up when some are owed', async () => {
+      api.mine.mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [], canApplyCode: false, referralsOwed: 1,
+      });
+      renderScreen();
+
+      expect(await screen.findByText('0 / 7 referrals — 1 month of Plus free')).toBeTruthy();
+      expect(screen.getByText('1 refunded referral to make up before your count grows again.')).toBeTruthy();
+    });
+
+    it('shows no owed line when nothing is owed, or when an older backend omits the field', async () => {
+      api.mine.mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 3, grants: [], canApplyCode: false,
+      });
+      renderScreen();
+
+      expect(await screen.findByText('3 / 7 referrals — 1 month of Plus free')).toBeTruthy();
+      expect(screen.queryByText(/to make up/)).toBeNull();
+    });
+
     it('ignores a stale non-zero plusMilestoneCounter -- there is no 3-referral reward', async () => {
       api.mine.mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,

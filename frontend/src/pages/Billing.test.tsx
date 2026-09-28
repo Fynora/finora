@@ -634,6 +634,16 @@ describe('Billing', () => {
     expect(billingApi.invoicePdf).not.toHaveBeenCalled();
   });
 
+  it('keeps View/Download enabled for a refunded payment -- its invoice is still the record of the sale', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    vi.mocked(billingApi.history).mockResolvedValue([entry({ status: 'REFUNDED' })]);
+    renderPage();
+
+    await screen.findByText('₹499');
+    expect(screen.getByRole('button', { name: 'View' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Download' })).toBeEnabled();
+  });
+
   it('shows the card on file with an Update Payment Method button for a Razorpay subscriber', async () => {
     vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
       planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,

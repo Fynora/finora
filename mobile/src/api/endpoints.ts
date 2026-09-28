@@ -1428,6 +1428,10 @@ export interface MyReferralsDto {
   grants: ReferralGrantEntry[];
   /** Whether to offer "Enter a friend's code": not already referred, and never subscribed. */
   canApplyCode: boolean;
+  /** Referrals owed back: friends refunded after the reward they helped earn was redeemed. 0
+   *  normally; premiumMilestoneCounter itself never goes below 0. Optional so a response from a
+   *  backend without this field still parses. */
+  referralsOwed?: number;
 }
 
 export const referralsApi = {

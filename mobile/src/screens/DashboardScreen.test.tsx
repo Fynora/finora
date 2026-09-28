@@ -80,6 +80,10 @@ jest.mock('../api/endpoints', () => ({
     momentum: jest.fn().mockResolvedValue({ activeMonths: 0, windowMonths: 6 }),
   },
   accountsApi: { list: jest.fn() },
+  // The statement-refresh banner (step 5): switched off, so it renders nothing.
+  statementRefreshApi: {
+    overview: jest.fn().mockResolvedValue({ enabled: false, savePasswordAvailable: false, updatable: [], needsPassword: [] }),
+  },
   transactionsApi: {
     search: jest.fn(), needsReview: jest.fn(), needsReviewGroups: jest.fn(), confirmNotDuplicate: jest.fn(),
   },

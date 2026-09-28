@@ -30,6 +30,8 @@ export const FINANCIAL_QUERY_KEYS = [
   // Settings' Data section: statements imported, transactions imported/skipped, last import.
   // Every one of those is a direct count of the thing an import or a statement deletion changes.
   'import-statistics',
+  // The statement-refresh banner (step 5): a new or refreshed statement changes what it offers.
+  'statement-refresh-overview',
   // The categorization review backlog and its merchant-grouped half. Both shrink when a category
   // is set anywhere -- including from the Ledger, which is a different screen than the one showing
   // the queue, and exactly the "key whose screen isn't visible from where the edit happens" case

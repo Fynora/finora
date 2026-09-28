@@ -45,6 +45,7 @@ import { visiblePlanCode } from '../lib/planDisplay';
 import { radius, spacing, useTheme } from '../theme';
 import { trackNavSearch, trackNavigation } from '../lib/trackNavigation';
 import type { AppTabParamList } from '../navigation/types';
+import { StatementRefreshBanner } from '../components/StatementRefreshBanner';
 
 type CashFlowRange = '3M' | '6M' | '12M';
 const RANGE_MONTHS: Record<CashFlowRange, number> = { '3M': 3, '6M': 6, '12M': 12 };
@@ -433,6 +434,10 @@ export function DashboardScreen() {
           <Ionicons name="search-outline" size={22} color={c.muted} />
         </Pressable>
       </View>
+
+      {/* Statement refresh, step 5: nothing unless an improved parser would change some of this
+          user's statements, and nothing while refreshing is switched off. */}
+      <StatementRefreshBanner />
 
       {/* Track C/C2. InsightsService has always computed this (aggregated across every live
           account, so it needs no per-account plumbing) and said so as one bullet buried in the

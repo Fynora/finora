@@ -8,6 +8,10 @@ import type { AccountStatementGroup } from '../types';
 // Scoped to re-importing a password-protected statement -- the one flow here where the server's
 // answer changes what the screen DOES rather than only what it says.
 jest.mock('../api/endpoints', () => ({
+  // The statement-refresh banner (step 5): switched off, so it renders nothing.
+  statementRefreshApi: {
+    overview: jest.fn().mockResolvedValue({ enabled: false, savePasswordAvailable: false, updatable: [], needsPassword: [] }),
+  },
   statementImportsApi: {
     listGroupedByAccount: jest.fn(),
     reimport: jest.fn(),

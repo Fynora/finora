@@ -294,6 +294,8 @@ public final class CategoryRules {
      * payee, so no name at all rather than a guess.
      */
     private static java.util.Optional<String> payeeOfStructuredNarration(String desc) {
+        java.util.regex.Matcher glued = OwnAccountEvidence.GLUED_IMPS_PAYEE.matcher(desc);
+        if (glued.find()) return java.util.Optional.ofNullable(nameOf(glued.group(1)));
         String cleaned = RRN_LABEL.matcher(CLOCK_TIME.matcher(desc).replaceAll(" ")).replaceAll(" ").trim();
         String[] fields = fieldsOf(cleaned);
         if (fields == null) {
@@ -353,8 +355,13 @@ public final class CategoryRules {
     private static boolean isNotAName(String field) {
         return IFSC_FIELD.matcher(field.replace(" ", "")).lookingAt()
                 || CODE_FIELD.matcher(field).matches()
-                || isBankCode(field);
+                || isBankCode(field)
+                || INTENT_BOILERPLATE.matcher(field.trim()).matches();
     }
+
+    /** The note a UPI intent payment carries in place of a payee ("Pay for Intent", measured on a
+     *  real CBI statement). */
+    static final Pattern INTENT_BOILERPLATE = Pattern.compile("(?i)pay\\s+for\\s+intent");
 
     /** A real bank's four-letter IFSC code printed as a field of its own ("YESB", "UTIB"). Only the
      *  registry's codes count: a short all-capitals payee ("JIO", "LIC") is a name. */

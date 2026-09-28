@@ -197,4 +197,37 @@ class CounterpartyIdentityTest {
         // "VALUE" is a word in real payee names; only the "Value Dt" date label is furniture.
         assertThat(CounterpartyIdentity.keyOf("UPI/VALUE MART/REF")).isEqualTo("name:value mart");
     }
+
+    // Measured on a real Kotak statement: the payee is glued to the reference, so every reference-
+    // bearing segment was skipped and the key fell to the free-text note ("name:rent",
+    // "name:savings"), splitting one payee into several groups.
+    @Test
+    void aKotakImpsDebitIsKeyedOnThePayeeGluedAfterItsReference() {
+        assertThat(CounterpartyIdentity.keyOf("SentIMPS100000000001Asha Verma/HDFC0XXXXXX/IMPS"))
+                .isEqualTo("name:asha verma");
+        assertThat(CounterpartyIdentity.keyOf("SentIMPS100000000002Asha Verma/HDFC0XXXXXX/RENT"))
+                .isEqualTo("name:asha verma");
+    }
+
+    // F-22, measured on the corpus: a line wrap left a space inside a VPA's local part
+    // ("SAMPLEPAY EE@HDFCBANK"), and the key kept only the scrap after it, which joined strangers.
+    @Test
+    void aVpaWhoseLocalPartAWrapSplit_isKeyedOnTheWholeLocalPart() {
+        assertThat(CounterpartyIdentity.keyOf("UPI-SAMPLE PAYEE-SAMPLEPAY EE@HDFCBANK-HDFC0XXXXXX-100000000001"))
+                .isEqualTo("vpa:samplepayee");
+        assertThat(CounterpartyIdentity.keyOf("UPI/100000000001/UPI/paytmqr6ab ur@ptys/"))
+                .isEqualTo("vpa:paytmqr6abur");
+    }
+
+    @Test
+    void aShortVpaLocalPartWithNothingBeforeItIsKeptAsItIs() {
+        assertThat(CounterpartyIdentity.keyOf("UPI/SAMPLE STORE/1111-01@JIOPAY/222")).isEqualTo("vpa:01");
+        assertThat(CounterpartyIdentity.keyOf("ab@ybl")).isEqualTo("vpa:ab");
+    }
+
+    // Measured on a real CBI statement: "UPI/RRN <ref>/Pay for Intent" keyed as "name:for".
+    @Test
+    void aUpiIntentBoilerplateNarrationHasNoKey() {
+        assertThat(CounterpartyIdentity.keyOf("UPI/RRN 100000000001/Pay for Intent")).isEmpty();
+    }
 }

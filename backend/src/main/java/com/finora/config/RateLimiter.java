@@ -61,6 +61,17 @@ public class RateLimiter {
             local now = tonumber(time[1]) * 1000000 + tonumber(time[2])
             local windowMicros = windowSeconds * 1000000
 
+            -- Entries written by the whole-second version of this script (epoch seconds, under
+            -- 1e12) would all fall below the trim bound and vanish, handing every client a fresh
+            -- window on each deploy and ignoring requests the outgoing instance served during
+            -- the overlap. Rescale them instead, to the last microsecond of their second so none
+            -- counts as older than it could have been. Once the longest configured window has
+            -- passed since the old script last ran, nothing matches here.
+            local legacy = redis.call('ZRANGEBYSCORE', key, '-inf', '(1000000000000', 'WITHSCORES')
+            for i = 1, #legacy, 2 do
+              redis.call('ZADD', key, (tonumber(legacy[i + 1]) + 1) * 1000000 - 1, legacy[i])
+            end
+
             -- Inclusive bound: an entry exactly one window old has expired; anything younger counts.
             redis.call('ZREMRANGEBYSCORE', key, '-inf', now - windowMicros)
             local count = redis.call('ZCARD', key)

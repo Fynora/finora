@@ -171,4 +171,144 @@ class TableTotalsRowPdfTableLocatorTest {
 
         assertThat(ctx.capabilities().stream().map(c -> c.capability())).doesNotContain("TABLE_TOTALS_ROW_DIVERTED");
     }
+
+    /** The standard SC-shaped assertion: two transactions staged, the last one untouched, the
+     *  capability recorded. */
+    private static void assertDiverted(List<PositionedText> runs) {
+        DocumentContext ctx = new DocumentContext("PDF", "test");
+        PdfTableLocator.LocatedSection section = only(runs, ctx);
+
+        assertThat(section.rows()).hasSize(2);
+        Map<String, String> last = section.rows().get(1);
+        assertThat(last.get("Description")).isEqualTo("SAMPLE INTEREST CREDIT");
+        assertThat(last).containsEntry("Deposit", "12.00").containsEntry("Balance", "1,012.00")
+                .doesNotContainKey("Withdrawal");
+        assertThat(ctx.capabilities().stream().map(c -> c.capability())).contains("TABLE_TOTALS_ROW_DIVERTED");
+    }
+
+    @Test
+    void aPlaceholderInAnAmountColumn_doesNotStopATotalsRow() {
+        // "-", "NIL" and "NA" are all printed in amount cells by real statements in the corpus.
+        for (String placeholder : List.of("-", "NIL", "NA", "N/A")) {
+            List<PositionedText> runs = table();
+            runs.add(run("Total", 307.2f, 292.1f));
+            runs.add(run(" 2,500.00", 399.8f, 292.8f));
+            runs.add(run(placeholder, 480.0f, 292.8f));
+            assertDiverted(runs);
+        }
+    }
+
+    @Test
+    void aTotalLabelBucketedIntoAnAmountColumn_isStillATotalsRow() {
+        // A layout with no column between the narration and the amounts buckets the label into
+        // the first amount column.
+        List<PositionedText> runs = table();
+        runs.add(run("Total", DEPOSIT_X, 292.1f));
+        runs.add(run(" 1,488.00", 465.8f, 292.8f));
+        assertDiverted(runs);
+    }
+
+    @Test
+    void aTotalLabelAndItsFigureInOneAmountCell_isStillATotalsRow() {
+        List<PositionedText> runs = table();
+        runs.add(run("Total 2,500.00", DEPOSIT_X, 292.1f));
+        runs.add(run(" 1,488.00", 465.8f, 292.8f));
+        assertDiverted(runs);
+    }
+
+    @Test
+    void aTotalsLabelSplitAcrossTwoColumns_isStillATotalsRow() {
+        List<PositionedText> runs = table();
+        runs.add(run("Grand", 118.8f, 292.1f));
+        runs.add(run("Total", 307.2f, 292.1f));
+        runs.add(run(" 2,500.00", 399.8f, 292.8f));
+        assertDiverted(runs);
+    }
+
+    @Test
+    void labelVariants_areTotalsRows() {
+        // "TOTAL (INR)" is a real Bank of Baroda label; the others are the same word's spellings.
+        for (String label : List.of("TOTAL (INR)", "Total (Rs.)", "Totals", "Sub-total", "Subtotal",
+                "Page Total", "Grand Total:", "TOTAL:")) {
+            List<PositionedText> runs = table();
+            runs.add(run(label, 307.2f, 292.1f));
+            runs.add(run(" 2,500.00", 399.8f, 292.8f));
+            assertDiverted(runs);
+        }
+    }
+
+    @Test
+    void aStandaloneDrCrMarkerOrPointsCountOnTheTotalsLine_doesNotStopIt() {
+        // Real statements print CR/DR as a run of its own, and card statements print an integer
+        // points total on the same line as the amount total.
+        List<PositionedText> runs = new ArrayList<>(List.of(
+                run("Date", DATE_X, HEADER_Y),
+                run("Description", NARRATION_X, HEADER_Y),
+                run("Points", 300.0f, HEADER_Y),
+                run("Amount", DEPOSIT_X, HEADER_Y),
+                run("Type", 460.0f, HEADER_Y)));
+        runs.add(run("29 Jun 2026", DATE_X, 256.7f));
+        runs.add(run("SAMPLE STORE", NARRATION_X, 256.7f));
+        runs.add(run("4", 300.0f, 256.7f));
+        runs.add(run("400.00", 405.0f, 256.7f));
+        runs.add(run("DR", 460.0f, 256.7f));
+        runs.add(run("30 Jun 2026", DATE_X, 274.8f));
+        runs.add(run("SAMPLE PAYMENT RECEIVED", NARRATION_X, 274.8f));
+        runs.add(run("0", 300.0f, 274.8f));
+        runs.add(run("1,000.00", 400.0f, 274.8f));
+        runs.add(run("CR", 460.0f, 274.8f));
+        runs.add(run("Total", 26.0f, 292.1f));
+        runs.add(run("4", 300.0f, 292.1f));
+        runs.add(run("1,400.00", 400.0f, 292.1f));
+        runs.add(run("DR", 460.0f, 292.1f));
+
+        DocumentContext ctx = new DocumentContext("PDF", "test");
+        PdfTableLocator.LocatedSection section = only(runs, ctx);
+
+        assertThat(section.rows()).hasSize(2);
+        assertThat(section.rows().get(1).get("Description")).isEqualTo("SAMPLE PAYMENT RECEIVED");
+        assertThat(section.rows().get(1)).containsEntry("Amount", "1,000.00").containsEntry("Type", "CR");
+        assertThat(ctx.capabilities().stream().map(c -> c.capability())).contains("TABLE_TOTALS_ROW_DIVERTED");
+    }
+
+    @Test
+    void aFigurePrintedOnlyInATextColumn_isNotATotalsRow() {
+        // The figure must sit in an amount column: a narration fragment such as "TOTAL 1,234.00"
+        // under the description is not evidence of a totals line.
+        List<PositionedText> runs = table();
+        runs.add(run("TOTAL 2,500.00", 118.8f, 284.5f));
+
+        DocumentContext ctx = new DocumentContext("PDF", "test");
+        only(runs, ctx);
+
+        assertThat(ctx.capabilities().stream().map(c -> c.capability())).doesNotContain("TABLE_TOTALS_ROW_DIVERTED");
+    }
+
+    @Test
+    void onlyPlaceholdersBesideTheLabel_isNotATotalsRow() {
+        List<PositionedText> runs = table();
+        runs.add(run("Total", 307.2f, 292.1f));
+        runs.add(run("-", 410.0f, 292.8f));
+        runs.add(run("-", 480.0f, 292.8f));
+
+        DocumentContext ctx = new DocumentContext("PDF", "test");
+        only(runs, ctx);
+
+        assertThat(ctx.capabilities().stream().map(c -> c.capability())).doesNotContain("TABLE_TOTALS_ROW_DIVERTED");
+    }
+
+    @Test
+    void aLabelThatIsNotATotalsWord_isNotATotalsRow() {
+        for (String label : List.of("Total Amount Due", "TOTALENERGIES", "Totalled", "Page 2")) {
+            List<PositionedText> runs = table();
+            runs.add(run(label, 307.2f, 292.1f));
+            runs.add(run(" 2,500.00", 399.8f, 292.8f));
+
+            DocumentContext ctx = new DocumentContext("PDF", "test");
+            only(runs, ctx);
+
+            assertThat(ctx.capabilities().stream().map(c -> c.capability()))
+                    .as(label).doesNotContain("TABLE_TOTALS_ROW_DIVERTED");
+        }
+    }
 }

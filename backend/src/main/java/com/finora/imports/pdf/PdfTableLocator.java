@@ -2034,7 +2034,7 @@ public class PdfTableLocator {
                 // auxiliary text and never merged either direction. Narrow on purpose: the label
                 // must be the WHOLE of every text cell (a narration that merely starts with
                 // "Total" is untouched) and at least one amount column must hold a number.
-                if (isBareTotalsRow(bucketed)
+                if (isBareTotalsRow(bucketed, headerNames)
                         && !hasDateValue(bucketed, yearsByPage.getOrDefault(rowPageIndex, PageDateEvidence.NONE))) {
                     pendingAuxiliary.add(rowLine);
                     if (ctx != null) ctx.record("TABLE_TOTALS_ROW_DIVERTED");
@@ -6093,32 +6093,72 @@ public class PdfTableLocator {
         return false;
     }
 
+    // A totals label, whole: "Total", "Totals", "Sub total"/"Subtotal"/"Sub-total", "Grand total",
+    // "Page total", optionally followed by a currency ("TOTAL (INR)" is a real Bank of Baroda label)
+    // and a colon. Never "Total Amount Due" or any other qualified field name.
+    //
     // (?U): real text runs end in U+00A0 and nothing on the extraction path replaces it; without
     // the flag, \s does not match it and "Total<NBSP>" fell through to the merge.
+    private static final String TOTALS_LABEL = "(?:grand\\s+|sub\\s*-?\\s*|page\\s+)?totals?"
+            + "(?:\\s*(?:\\(\\s*(?:inr|rs\\.?|\u20B9)\\s*\\)|inr|rs\\.?|\u20B9))?\\s*:?";
     private static final Pattern BARE_TOTALS_LABEL =
-            Pattern.compile("(?iU)^\\s*(grand\\s+total|sub\\s*-?\\s*total|total)\\s*:?\\s*$");
+            Pattern.compile("(?iU)^\\s*" + TOTALS_LABEL + "\\s*$");
+    /** A label and a figure bucketed into the same amount cell ("Total 2,500.00"). */
+    private static final Pattern TOTALS_LABEL_THEN_FIGURE =
+            Pattern.compile("(?iU)^\\s*(" + TOTALS_LABEL + ")\\s+(\\S.*)$");
+    /** A cell a totals line may carry beside its label and figures without being anything else:
+     *  an empty-side placeholder ("-", "NIL", "NA", "N/A") or a CR/DR marker printed as its own
+     *  run -- every one printed in real corpus statements. */
+    private static final Pattern TOTALS_LINE_FILLER =
+            Pattern.compile("(?iU)^\\s*(?:[-\u2013\u2014]+|nil|n\\.?\\s*a\\.?|n/a|cr\\.?|dr\\.?)\\s*$");
+    /** A bare integer in a non-amount column -- a card statement's reward-points total, printed on
+     *  the same line as the amount total (real IndusInd statements). */
+    private static final Pattern TOTALS_LINE_COUNT = Pattern.compile("^\\s*\\d{1,7}\\s*$");
 
-    /** True when every non-blank cell is either a bare totals label ("Total", "Sub total",
-     *  "Grand total") in a non-amount column or a number in an amount column, with at least one of
-     *  each -- see TABLE_TOTALS_ROW_DIVERTED at its call sites. The label may sit in the date
-     *  column: statements that print it at the left margin (real IndusInd and Kotak credit-card
-     *  statements do) bucket it there, and a cell holding only "Total" is never a date. */
-    private boolean isBareTotalsRow(Map<String, String> bucketed) {
-        boolean label = false;
-        boolean figure = false;
-        for (Map.Entry<String, String> e : bucketed.entrySet()) {
-            String value = e.getValue();
-            if (value == null || value.isBlank()) continue;
-            if (isAmountColumn(e.getKey())) {
-                if (CsvParser.parseNumeric(value.trim()) == null) return false;
-                figure = true;
-            } else if (BARE_TOTALS_LABEL.matcher(value).matches()) {
-                label = true;
-            } else {
-                return false;
-            }
+    /** True when the row is a table's totals line: its text, read left to right across every
+     *  non-amount cell, is exactly one totals label, and at least one amount column holds a number.
+     *  Beyond those, only placeholders, CR/DR markers and (outside amount columns) bare integer
+     *  counts are allowed. Anything else -- a date, a word of narration, a figure printed only in a
+     *  text column -- means the row is not a totals line. See TABLE_TOTALS_ROW_DIVERTED at its
+     *  call sites.
+     *
+     *  <p>The label may sit in any column. Statements that print it at the left margin (real
+     *  IndusInd and Kotak credit-card statements) bucket it into the date column, and a layout with
+     *  nothing between the narration and the amounts buckets it into the first amount column,
+     *  sometimes in the same cell as that column's figure. Cells are read in header order so a label
+     *  split across two columns ("Grand" | "Total") joins the way it is printed. */
+    private boolean isBareTotalsRow(Map<String, String> bucketed, List<String> headerNames) {
+        List<String> columns = new ArrayList<>();
+        if (headerNames != null) {
+            for (String column : headerNames) if (bucketed.containsKey(column)) columns.add(column);
         }
-        return label && figure;
+        for (String column : bucketed.keySet()) if (!columns.contains(column)) columns.add(column);
+
+        List<String> labelParts = new ArrayList<>();
+        boolean figure = false;
+        for (String column : columns) {
+            String value = bucketed.get(column);
+            if (value == null || value.isBlank() || TOTALS_LINE_FILLER.matcher(value).matches()) continue;
+            if (!isAmountColumn(column)) {
+                if (!TOTALS_LINE_COUNT.matcher(value).matches()) labelParts.add(value.trim());
+                continue;
+            }
+            if (BARE_TOTALS_LABEL.matcher(value).matches()) {
+                labelParts.add(value.trim());
+                continue;
+            }
+            String figureText = value;
+            Matcher labelThenFigure = TOTALS_LABEL_THEN_FIGURE.matcher(value);
+            if (labelThenFigure.matches()) {
+                labelParts.add(labelThenFigure.group(1).trim());
+                figureText = labelThenFigure.group(2);
+            }
+            if (TOTALS_LINE_FILLER.matcher(figureText).matches()) continue;
+            if (CsvParser.parseNumeric(figureText.trim()) == null) return false;
+            figure = true;
+        }
+        return figure && !labelParts.isEmpty()
+                && BARE_TOTALS_LABEL.matcher(String.join(" ", labelParts)).matches();
     }
 
     private static final List<String> VALUE_DATE_HINTS = List.of("value date", "value dt", "val date", "val dt");
@@ -7311,7 +7351,7 @@ public class PdfTableLocator {
                 if (bucketed.isEmpty()) continue;
                 // TABLE_TOTALS_ROW_DIVERTED, same rule as the header-based path: a closing "Total"
                 // line is not the last transaction's continuation.
-                if (isBareTotalsRow(bucketed)) {
+                if (isBareTotalsRow(bucketed, headerNames)) {
                     auxiliaryText.add(rowLine);
                     if (ctx != null) ctx.record("TABLE_TOTALS_ROW_DIVERTED");
                     continue;

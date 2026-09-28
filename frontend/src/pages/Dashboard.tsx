@@ -31,6 +31,7 @@ import {
 } from '../api/endpoints';
 import type { DashboardRangeType } from '../types';
 import { trackNavigation } from '../lib/trackNavigation';
+import { StatementRefreshBanner } from '../components/statementRefresh/StatementRefreshBanner';
 
 ChartJS.register(ArcElement, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, Filler);
 
@@ -580,6 +581,9 @@ export default function Dashboard() {
 
       <ChecklistWidget />
       <JourneyWidget />
+      {/* Statement refresh, step 5: renders nothing unless an improved parser would change some of
+          this user's statements, and nothing while refreshing is switched off. */}
+      <div className="mb-8 empty:hidden"><StatementRefreshBanner /></div>
 
       {/* Limited-history banner. The KPI deltas and health score below are real, computed numbers
           -- neither is hidden here -- but both are prone to thin-data artifacts this far below

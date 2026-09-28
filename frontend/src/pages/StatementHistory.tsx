@@ -9,6 +9,7 @@ import {
 import { importJobsApi, statementImportsApi, type ImportJobProgress } from '../api/endpoints';
 import { PDF_PASSWORD_INVALID, PDF_PASSWORD_REQUIRED } from '../api/errorCodes';
 import { BankLogo } from '../components/BankLogo';
+import { StatementRefreshBanner } from '../components/statementRefresh/StatementRefreshBanner';
 import { PasswordInput } from '../components/PasswordInput';
 import { recentImportsRefetchIntervalMs, label as jobLabel } from '../lib/importJob';
 import { navigateToReimport } from '../lib/importNavState';
@@ -248,6 +249,8 @@ export default function StatementHistory() {
   return (
     <div className="space-y-6">
       <Hero />
+
+      <StatementRefreshBanner />
 
       {error && <p className="text-danger text-sm">{error}</p>}
 
@@ -695,7 +698,7 @@ function ReimportPasswordModal({
 
           <p className="text-xs text-muted">
             <span className="text-ink font-medium break-all">{prompt.statement.fileName}</span> is
-            password protected. Fynora doesn't store statement passwords, so re-importing needs it again.
+            password protected, so re-importing needs its password.
           </p>
 
           <div>

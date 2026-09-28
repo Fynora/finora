@@ -23,6 +23,10 @@ vi.mock('../api/endpoints', () => ({
   importJobsApi: {
     recent: vi.fn(),
   },
+  // The refresh banner on this page (statement refresh, step 5): switched off, so it renders nothing.
+  statementRefreshApi: {
+    overview: vi.fn().mockResolvedValue({ enabled: false, savePasswordAvailable: false, updatable: [], needsPassword: [] }),
+  },
 }));
 
 const navigate = vi.fn();

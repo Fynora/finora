@@ -52,6 +52,9 @@ vi.mock('react-chartjs-2', () => ({
 // changes.
 vi.mock('../api/endpoints', () => ({
   dashboardApi: { summary: vi.fn(), rangeSummary: vi.fn(), journey: vi.fn() },
+  statementRefreshApi: {
+    overview: vi.fn().mockResolvedValue({ enabled: false, savePasswordAvailable: false, updatable: [], needsPassword: [] }),
+  },
   accountsApi: { list: vi.fn() },
   transactionsApi: { search: vi.fn(), create: vi.fn(), confirmNotDuplicate: vi.fn() },
   categoriesApi: { list: vi.fn() },

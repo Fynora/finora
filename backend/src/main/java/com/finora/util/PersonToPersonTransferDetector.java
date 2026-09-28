@@ -436,7 +436,10 @@ public final class PersonToPersonTransferDetector {
         if (repeated.find()) {
             String between = repeated.group(2);
             int remark = between.lastIndexOf('/');
-            return withoutCareOf("UPI/" + repeated.group(1) + "/" + (remark < 0 ? between : between.substring(0, remark)));
+            // The last segment is the remark -- unless it is the handle, which is the payee's own
+            // and where merchant markers live, so it is never dropped.
+            boolean lastIsRemark = remark >= 0 && !between.substring(remark + 1).contains("@");
+            return withoutCareOf("UPI/" + repeated.group(1) + "/" + (lastIsRemark ? between.substring(0, remark) : between));
         }
         return withoutCareOf(description);
     }

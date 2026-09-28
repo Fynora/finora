@@ -462,6 +462,10 @@ class PersonToPersonTransferDetectorTest {
         assertThat(PersonToPersonTransferDetector.counterpartyText(
                 "UPI/100000000001/ SUNITA RAO/sampleuser@ybl/XXXX0001234 1000/MOVIE/100000000001/SAMPLE BANK BRANCH/")) // synthetic-ok
                 .isEqualTo("UPI/100000000001/ SUNITA RAO/sampleuser@ybl/XXXX0001234 1000"); // synthetic-ok
+        // A handle in the last slot is the payee's own, never a remark: a merchant marker there must survive.
+        assertThat(PersonToPersonTransferDetector.counterpartyText(
+                "UPI/100000000001/ SUNITA RAO/Q000000001@ybl/100000000001/SAMPLE BRANCH/")) // synthetic-ok
+                .isEqualTo("UPI/100000000001/ SUNITA RAO/Q000000001@ybl"); // synthetic-ok
         String other = "UPI/CR/REF901/SUNITA/SBIN/sampleuser/";
         assertThat(PersonToPersonTransferDetector.counterpartyText(other)).isEqualTo(other);
     }

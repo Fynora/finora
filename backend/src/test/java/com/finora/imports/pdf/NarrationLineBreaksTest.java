@@ -201,4 +201,56 @@ class NarrationLineBreaksTest {
         assertThat(narrationOf(NarrationLineBreaks.resolveAll(docWith("UPI/100000000001/\r \n SAMPLE STORE"), null)))
                 .isEqualTo("UPI/100000000001/ SAMPLE STORE");
     }
+
+    // ---- A text layer that prints its own line ends (the real Standard Chartered export) ----
+    // Measured on that export: every narration line ends in "\r" (a field boundary), in a blank (a
+    // word wrap), or in neither. All 69 breaks with neither fell inside a word or an identifier, and
+    // all 51 ending in a blank fell between words.
+
+    @Test
+    void whereTheTextLayerPrintsLineEnds_aLineEndingInNeitherABreakNorABlank_wrappedInsideAWord() {
+        var ctx = new com.finora.imports.DocumentContext("PDF", "test");
+        var out = NarrationLineBreaks.resolveAll(
+                docWith("UPI/100000000001/\r\nSAMPLE@OKAXIS/SAMPLE@OKAXIS/IOB\nA0XXXXXX\r\n100000000002/UPI/"), ctx);
+        assertThat(narrationOf(out)).isEqualTo("UPI/100000000001/SAMPLE@OKAXIS/SAMPLE@OKAXIS/IOBA0XXXXXX 100000000002/UPI/");
+        assertThat(ctx.capabilities()).extracting(c -> c.capability())
+                .contains("NARRATION_WRAP_JOINED_WITHOUT_PRINTED_SPACE");
+    }
+
+    @Test
+    void whereTheTextLayerPrintsLineEnds_aLineEndingInABlank_isOneSpace() {
+        assertThat(narrationOf(NarrationLineBreaks.resolveAll(
+                docWith("UPI/100000000001/\r\nSAMPLE \nSTORE/SAMPLE@PAY\r\n100000000002/UPI/"), null)))
+                .isEqualTo("UPI/100000000001/ SAMPLE STORE/SAMPLE@PAY 100000000002/UPI/");
+    }
+
+    @Test
+    void whereTheTextLayerPrintsLineEnds_aNextLineStartingWithABlank_isOneSpace() {
+        // Measured on that export: a piece joined from another column arrives with its leading
+        // blank ("SAMPLE INTEREST" then " 1,000.00"); the blank is printed, so it is no wrap.
+        assertThat(narrationOf(NarrationLineBreaks.resolveAll(
+                docWith("UPI/100000000001/\r\nSAMPLE INTEREST\n 1,000.00"), null)))
+                .isEqualTo("UPI/100000000001/ SAMPLE INTEREST 1,000.00");
+    }
+
+    @Test
+    void whereTheTextLayerPrintsLineEnds_everyOtherCellOfTheDocumentReadsItToo() {
+        // The evidence is the document's: a cell with no "\r" of its own still sits in a text layer
+        // that prints line ends, so its unmarked break is a wrap inside a word as well.
+        Map<String, String> first = new LinkedHashMap<>();
+        first.put("Narration", "UPI/100000000001/\r\nSAMPLE STORE");
+        Map<String, String> second = new LinkedHashMap<>();
+        second.put("Narration", "SAMPLE@OKAXIS/U\nTIB0XXXXXX");
+        var doc = new PdfTableLocator.LocatedDocument(
+                List.of(new PdfTableLocator.LocatedSection(List.of(), List.of(first, second), null)), null);
+        var out = NarrationLineBreaks.resolveAll(doc, null);
+        assertThat(out.sections().get(0).rows().get(1).get("Narration")).isEqualTo("SAMPLE@OKAXIS/UTIB0XXXXXX");
+    }
+
+    @Test
+    void whereTheTextLayerDoesNotPrintLineEnds_anUnmarkedBreakKeepsItsSpace() {
+        // No "\r" anywhere: a missing blank at a line end says nothing, so nothing changes.
+        assertThat(narrationOf(NarrationLineBreaks.resolveAll(docWith("SAMPLE@OKAXIS/IOB\nA0XXXXXX"), null)))
+                .isEqualTo("SAMPLE@OKAXIS/IOB A0XXXXXX");
+    }
 }

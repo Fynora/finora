@@ -108,11 +108,13 @@ public class CapabilityCoverageService {
             // read from an unlabelled "NNxx xxxx xxxx NNNN" token (the same two HSBC cards). See
             // PdfMetadataExtractor.STATEMENT_DATE_RANGE / UNLABELLED_DATE_RANGE / UNLABELLED_MASKED_CARD_NUMBER.
             // A wrapped narration rejoined without a space: at a UPI handle's '@', at a field
-            // separator before an identifier, or at a full line of a document that prints its
-            // narration in fixed-width lines (the width itself is recorded when detected). See
-            // NarrationLineBreaks.
+            // separator before an identifier, at a full line of a document that prints its
+            // narration in fixed-width lines (the width itself is recorded when detected), or at a
+            // line a text layer that prints its own line ends shows ending in neither that line end
+            // nor a blank. See NarrationLineBreaks.
             "NARRATION_WRAP_JOINED_AT_HANDLE", "NARRATION_WRAP_JOINED_AT_SEPARATOR",
             "NARRATION_WRAP_JOINED_AT_CHARACTER_WIDTH", "NARRATION_CHARACTER_WRAP_WIDTH_DETECTED",
+            "NARRATION_WRAP_JOINED_WITHOUT_PRINTED_SPACE",
             // A line separator inside a PDF text run (a real Standard Chartered export prints its
             // narration lines with a carriage return) read as a line break instead of being stored.
             "NARRATION_CONTROL_CHARACTER_AS_LINE_BREAK",

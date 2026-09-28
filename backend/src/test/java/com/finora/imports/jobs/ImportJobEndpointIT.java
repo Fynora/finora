@@ -64,6 +64,7 @@ class ImportJobEndpointIT extends AbstractIntegrationTest {
     @Autowired private TestRestTemplate restTemplate;
     @Autowired private UserRepository userRepository;
     @Autowired private ImportJobRepository jobRepository;
+    @Autowired private com.finora.repository.StatementPasswordRepository passwordRepository;
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
     private final ObjectMapper mapper = new ObjectMapper();
@@ -136,6 +137,30 @@ class ImportJobEndpointIT extends AbstractIntegrationTest {
         assertThat(jobRepository.findAll().stream().filter(j -> j.getUserId().equals(user.getId())))
                 .as("nothing was queued, so nothing can fail minutes later with no one to ask")
                 .isEmpty();
+    }
+
+    /**
+     * Statement refresh, step 4: a locked PDF is queued only with a password the user agreed to
+     * save. While saving is switched off (the default, and this context), consent sent anyway is
+     * not honoured: refused exactly as before, and nothing is kept.
+     */
+    @Test
+    void whileSavingIsSwitchedOff_aLockedPdfIsRefusedEvenWithItsPasswordAndConsent() throws Exception {
+        User user = user();
+        byte[] protectedPdf = com.finora.imports.pdf.fixtures.PdfFixtureBuilder.encrypt(
+                com.finora.imports.pdf.fixtures.PdfFixtureBuilder.buildReverseChronologicalRunningBalanceSample(),
+                "AAAA1234");
+        HttpEntity<MultiValueMap<String, Object>> request = uploadBytes(user, "statement.pdf", protectedPdf);
+        request.getBody().add("password", "AAAA1234");
+        request.getBody().add("savePassword", "true");
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/import/jobs", HttpMethod.POST, request, String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(read(response).get("errorCode").asText()).isEqualTo("IMPORT_008");
+        assertThat(jobRepository.findAll().stream().filter(j -> j.getUserId().equals(user.getId()))).isEmpty();
+        assertThat(passwordRepository.findAll().stream().filter(p -> p.getUserId().equals(user.getId()))).isEmpty();
     }
 
     @Test

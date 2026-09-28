@@ -63,7 +63,8 @@ class ImportSessionServiceTest {
         // rather than silently starting to exercise the new version-comparison path instead.
         when(buildVersionResolver.currentCommit()).thenReturn(null);
         service = new ImportSessionService(importSessionRepository, importJobRepository,
-                heldStatementRepository, objectMapper, buildVersionResolver);
+                heldStatementRepository, objectMapper, buildVersionResolver,
+                org.mockito.Mockito.mock(com.finora.repository.StatementPasswordRepository.class));
         when(importSessionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         // No test in this class is about a trust hold unless it says so -- default to "nothing is
         // held" so every existing claimForConfirmation/listResumableSessions test keeps exercising

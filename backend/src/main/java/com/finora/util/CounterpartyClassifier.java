@@ -75,8 +75,21 @@ public final class CounterpartyClassifier {
     // 4: the counterparty KEY changed (CounterpartyIdentity): a masked VPA is a weak "masked:" key, a
     //    payment app's name is never the sender, and a reference no longer takes the payee's name
     //    with it. Bumped so the backfill sweep re-keys stored rows; sender rules move with them.
-    // 5: reserved by PR #1827 (a merchant collecting through a bank's DC0099 branch code), which
-    //    must merge first.
+    // 5: PersonToPersonTransferDetector treats the DC0099 merchant branch code as a merchant-acquiring
+    //    rail, and reads only the payee slot of HDFC's UPI layout, never its free-text remark --
+    //    measured on the corpus, 3 rows PERSON -> BUSINESS and 1 UNKNOWN -> BUSINESS (all merchants),
+    //    7 UNKNOWN -> PERSON (all people), and 35 already-BUSINESS rows stop reading as a personal
+    //    transfer. Then, in the same unreleased revision: the passport portal and the exam body join
+    //    GOVERNMENT (6 rows), a two-word cafe chain joins the merchant vocabulary (7 rows PERSON ->
+    //    BUSINESS), and a known merchant in any segment is no longer read as a name (16 more
+    //    already-BUSINESS rows). Then: every check reads only the counterparty's part of the
+    //    narration (a remark and a printed bank branch are not evidence), and the repeated-reference
+    //    layout reads only its payee slot -- 12 rows to PERSON from BUSINESS, FINANCIAL_INSTITUTION or
+    //    UNKNOWN (all people), 4 FINANCIAL_INSTITUTION -> BUSINESS (all businesses), no row leaves
+    //    PERSON. Last, a "CO" inside a person's name reads as "care of", not "& Co" (1 row BUSINESS
+    //    -> PERSON; the three companies ending in CO are unchanged), and "resort"/"shopee" stop a
+    //    name without vetoing a person (a resort and a shop, typed BUSINESS a step earlier, read
+    //    UNKNOWN). Every flip read.
     // 6: the counterparty KEY changed again (CounterpartyIdentity): Kotak's "SentIMPS<ref><payee>/"
     //    is keyed on the payee instead of the free-text note, a VPA local part split by a line wrap
     //    is rejoined, and "Pay for Intent" is no key. Measured on the corpus: 35 keys change, every
@@ -119,7 +132,20 @@ public final class CounterpartyClassifier {
      */
     private static final Pattern GOVERNMENT = Pattern.compile(
             "(?i)\\b(gst|gstn|incometax|income\\s+tax|itd|tds|tcs\\s+challan|challan|epfo|epf"
-            + "|uidai|cbdt|treasury|municipal|nagar\\s*nigam|panchayat|rto)\\b");
+            + "|uidai|cbdt|treasury|municipal|nagar\\s*nigam|panchayat|rto"
+            // The passport portal and the civil-services exam body, both paid through a
+            // government handle: 4 passport rows (typed PERSON from a 3-word payee name, or
+            // UNKNOWN) and 2 exam-fee rows (UNKNOWN) on the corpus.
+            + "|passport\\s*seva|passportseva|upsc)\\b");
+
+    /**
+     * Whether a government or tax body is named -- exposed so the person check can decline these
+     * rows, as it declines a merchant rail, rather than suggesting "Personal Transfer" for a fee
+     * paid to the state.
+     */
+    static boolean namesGovernmentBody(String description) {
+        return description != null && GOVERNMENT.matcher(description).find();
+    }
 
     /**
      * Corporate suffixes proper -- narrower than the detector's full trade vocabulary.
@@ -139,15 +165,18 @@ public final class CounterpartyClassifier {
     public static CounterpartyType classify(String description) {
         if (description == null || description.isBlank()) return CounterpartyType.UNKNOWN;
 
-        int markerStart = PersonToPersonTransferDetector.transferMarkerStart(description);
+        // Only the counterparty's part of the narration is evidence -- a free-text remark or the bank
+        // branch printed after it is not. See PersonToPersonTransferDetector.counterpartyText.
+        String text = PersonToPersonTransferDetector.counterpartyText(description);
+        int markerStart = PersonToPersonTransferDetector.transferMarkerStart(text);
 
-        if (FINANCIAL_MECHANISM.matcher(description).find()) return CounterpartyType.FINANCIAL_INSTITUTION;
-        if (GOVERNMENT.matcher(description).find()) return CounterpartyType.GOVERNMENT;
-        if (matchesOutsideIssuerPrefix(FINANCIAL_ENTITY, description, markerStart)) return CounterpartyType.FINANCIAL_INSTITUTION;
+        if (FINANCIAL_MECHANISM.matcher(text).find()) return CounterpartyType.FINANCIAL_INSTITUTION;
+        if (namesGovernmentBody(text)) return CounterpartyType.GOVERNMENT;
+        if (matchesOutsideIssuerPrefix(FINANCIAL_ENTITY, text, markerStart)) return CounterpartyType.FINANCIAL_INSTITUTION;
 
         // Reuses the detector's own marker pattern rather than a second copy -- see
         // PersonToPersonTransferDetector.hasMerchantAcquirerMarker for why that matters.
-        if (PersonToPersonTransferDetector.hasMerchantAcquirerMarker(description)) return CounterpartyType.BUSINESS;
+        if (PersonToPersonTransferDetector.hasMerchantAcquirerMarker(text)) return CounterpartyType.BUSINESS;
 
         // A named merchant entity is business identity, full stop. Reached through
         // MerchantIdentityLookup rather than CategoryRules so this layer never depends on the
@@ -155,9 +184,9 @@ public final class CounterpartyClassifier {
         // means Shopping" is emphatically not. 130 corpus rows were recognised as a brand by the
         // category layer while this classifier still answered UNKNOWN -- an incoherent pair of
         // answers about the same row.
-        if (MerchantIdentityLookup.namesKnownMerchant(description)) return CounterpartyType.BUSINESS;
+        if (MerchantIdentityLookup.namesKnownMerchant(text)) return CounterpartyType.BUSINESS;
 
-        if (matchesOutsideIssuerPrefix(CORPORATE_SUFFIX, description, markerStart)) return CounterpartyType.BUSINESS;
+        if (matchesOutsideIssuerPrefix(CORPORATE_SUFFIX, text, markerStart)) return CounterpartyType.BUSINESS;
 
         if (PersonToPersonTransferDetector.isNamedIndividualTransfer(description)) return CounterpartyType.PERSON;
 
@@ -166,7 +195,7 @@ public final class CounterpartyClassifier {
         // check rather than above it. That placement costs nothing: the detector already vetoes on
         // these same tokens, so any row reaching this line carrying one is a row the person check
         // has itself just declined to claim.
-        if (PersonToPersonTransferDetector.hasBusinessToken(description)) return CounterpartyType.BUSINESS;
+        if (PersonToPersonTransferDetector.hasBusinessToken(text)) return CounterpartyType.BUSINESS;
 
         return CounterpartyType.UNKNOWN;
     }

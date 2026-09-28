@@ -91,7 +91,7 @@ class ImportServiceOpeningBalanceCarryForwardTest {
                 mock(com.finora.imports.evidence.ClosingBalanceEvidenceShadowObserver.class),
                 entitlementService,
                 mock(AccountAggregatorGuard.class), mock(com.finora.service.SharedCorpusService.class),
-                mock(com.finora.service.UserMerchantCategoryResolutionService.class), org.mockito.Mockito.mock(com.finora.imports.StatementProvenanceRecorder.class));
+                mock(com.finora.service.UserMerchantCategoryResolutionService.class), org.mockito.Mockito.mock(com.finora.imports.StatementProvenanceRecorder.class), null);
 
         Account account = new Account();
         ReflectionTestUtils.setField(account, "id", accountId);

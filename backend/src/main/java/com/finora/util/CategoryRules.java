@@ -69,7 +69,11 @@ public final class CategoryRules {
         // vocabulary-mining-pass-2.md) -- each appears across 3 distinct documents, the same
         // multi-payer bar "gokhana" was held to. Safe as bare phrases: none is a substring of, or
         // contains, any other keyword in this table.
-        RULES.put("Dining", List.of("swiggy", "zomato", "restaurant", "cafe", "starbucks", "dominos", "mcdonald", "kfc", "cinnabon", "gokhana", "tobox", "chinese factory", "cream house", "lassi wassi"));
+        // "tea post" (a tea-cafe chain) added 2026-09-28: a two-word brand the person check reads as
+        // a name, so it typed PERSON and fell to "Personal Transfer" on 7 corpus rows across 4
+        // documents and 2 accounts, in both the HDFC and the slash UPI layout. The whole phrase, as
+        // with the other brands here -- a bare "tea" names a drink, not a business.
+        RULES.put("Dining", List.of("swiggy", "zomato", "restaurant", "cafe", "starbucks", "dominos", "mcdonald", "kfc", "cinnabon", "gokhana", "tobox", "chinese factory", "cream house", "lassi wassi", "tea post"));
         // "indian railways" (the national railway institution, named directly rather than
         // through its "irctc" booking portal already above) added after re-checking this
         // project's own real bank-statement corpus for additional vocabulary beyond the

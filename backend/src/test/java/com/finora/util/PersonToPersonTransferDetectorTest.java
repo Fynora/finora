@@ -129,6 +129,9 @@ class PersonToPersonTransferDetectorTest {
                 "UPI-RAJESH KUMAR-rajesh@OKBIZAXIS-REF4")).isFalse();                // GPay business
         assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
                 "UPI-RAJESH KUMAR-VYAPAR.1234@HDFCBANK-XXXX0MERUPI-REF5")).isFalse(); // synthetic-ok
+        // A bank's own merchant pseudo-branch: every corpus row routed through DC0099 is a business.
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI-RAJESH KUMAR-rajesh.kumar@icici-XXXX0DC0099-REF5A")).isFalse(); // synthetic-ok
     }
 
     @Test
@@ -372,5 +375,126 @@ class PersonToPersonTransferDetectorTest {
                 "UPI/DR/REF924/Siddhart/BDBL/sampleuser11/")).isTrue();
         assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
                 "UPI/CR/REF925/VAISHNAV/BARB/sampleuser12/")).isTrue();
+    }
+
+    // HDFC's UPI layout, UPI-<payee>-<handle>@<psp>-<IFSC>-<ref>-<remark>: only the payee slot says
+    // who the counterparty is. The remark is free text, and the corpus showed a brand's own remark
+    // and a payer's greeting both reading as a person's name.
+    @Test
+    void readsOnlyThePayeeSlotOfTheDashLayout_neverItsFreeTextRemark() {
+        // A brand paid through an ordinary branch code: its remark reads like a name, its payee does
+        // not, and the brand named its handle after itself.
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI-ACMETRIP-ACMETRIP.RAIL@ICICI-XXXX0001234-REF51-ACMETRIP RAIL TRIP I")).isFalse(); // synthetic-ok
+        // A person whose payer typed a greeting: PERSON, and for the payee slot's sake -- the same
+        // row with a boilerplate remark gives the same answer.
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI-SUNITA -sampleuser@okaxis-XXXX0001234-REF52-HAPPY BIRTHDAY")).isTrue(); // synthetic-ok
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI-SUNITA -sampleuser@okaxis-XXXX0001234-REF53-UPI")).isTrue(); // synthetic-ok
+    }
+
+    @Test
+    void acceptsALoneFirstNameInTheDashPayeeSlot_asTheSlashSlotAlreadyDoes() {
+        // The slot's position is the evidence, as it is for UPI/CR/<ref>/<name>/<bank>/. Measured on
+        // the corpus: every row this moved to PERSON is a person paying or paid on a phone-number or
+        // personal handle.
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI-SUNITA-sampleuser1@ybl-XXXX0001234-REF54-PAYMENT FROM PHONE")).isTrue(); // synthetic-ok
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI-SUNITA RAO-sampleuser2@okaxis-XXXX0001234-REF55-NA")).isTrue(); // synthetic-ok
+    }
+
+    @Test
+    void aOneWordPayeeThatNamedItsHandleAfterItselfIsNotAPerson() {
+        // The one wrong answer the slot rule gave on the corpus: a card-bill app paid at a handle
+        // spelled like its own name. Not a person -- and, with no business evidence either, not
+        // claimed as a business: it falls back to UNKNOWN.
+        String app = "UPI-ACMECLUB-ACMECLUB@ICICI-XXXX0001234-REF56-UPI"; // synthetic-ok
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(app)).isFalse();
+        assertThat(CounterpartyClassifier.classify(app)).isEqualTo(CounterpartyType.UNKNOWN);
+    }
+
+    @Test
+    void aKnownMerchantInTheDashPayeeSlotIsNotAPersonsTransfer() {
+        // The segment scan read a two-word known merchant as a name (30 corpus rows). Their type was
+        // already BUSINESS from the merchant lookup, but the detector's own answer feeds the
+        // "Personal Transfer" category fallback, so it has to be right on its own.
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI-SWIGGY INSTAMART-sampleuser3@ybl-XXXX0001234-REF57-UPI")).isFalse(); // synthetic-ok
+    }
+
+    @Test
+    void aKnownMerchantInAnySegmentIsNotReadAsAPersonsName() {
+        // The segment scan read "Dominos Pizza" as two name words. The type was already BUSINESS from
+        // the merchant lookup, but this answer alone decides the "Personal Transfer" fallback.
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/Dominos Pizza/REF65/UPI")).isFalse();
+        // A person's name in the same position still is one.
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/Sunita Rao/REF66/UPI")).isTrue();
+    }
+
+    // The layout that repeats its reference: UPI/<ref>/<payee>/<handle>/<IFSC account>/<remark>/<ref>/<branch>/.
+    // Only the payee slot is read -- never the remark before the second reference, never the bank
+    // branch after it (100000000001 is a placeholder reference, not a real one).
+    @Test
+    void readsOnlyThePayeeSlotOfTheRepeatedReferenceLayout() {
+        // A person named in the padded payee slot.
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/100000000001/ SUNITA RAO/sampleuser@ybl/XXXX0001234 1000/UPI/100000000001/SAMPLE BRANCH/")).isTrue(); // synthetic-ok
+        // No name printed, only a PhonePe handle: the branch "SAMPLE BRANCH" used to read as a name.
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/100000000001/sampleuser@ybl/sampleuser@ybl/XXXX0001234 1000/UPI/100000000001/SAMPLE BRANCH/")).isFalse(); // synthetic-ok
+        // No name printed, but a Google Pay consumer handle -- a person's own (businesses get @okbiz...).
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/100000000001/sampleuser@okaxis/sampleuser@okaxis/XXXX0001234 1000/FIRST TRANSFER/100000000001/SAMPLE BRANCH/")).isTrue(); // synthetic-ok
+        // A 6-word payee here is a business with its locality, not a person: this bank prints names whole.
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/100000000001/ ACME COFFEE ROASTERS NORTH SIDE PUNE/sampleuser@ybl/XXXX0001234 1000/UPI/100000000001/")).isFalse(); // synthetic-ok
+    }
+
+    @Test
+    void theCounterpartyTextDropsTheRemarkAndTheBranch_andLeavesOtherLayoutsWhole() {
+        assertThat(PersonToPersonTransferDetector.counterpartyText(
+                "UPI-SUNITA RAO-sampleuser-1@okaxis-XXXX0001234-100000000001-MAY LIGHT BILL AND WATER")) // synthetic-ok
+                .isEqualTo("UPI-SUNITA RAO-sampleuser-1@okaxis-XXXX0001234-100000000001"); // synthetic-ok
+        assertThat(PersonToPersonTransferDetector.counterpartyText(
+                "UPI/100000000001/ SUNITA RAO/sampleuser@ybl/XXXX0001234 1000/MOVIE/100000000001/SAMPLE BANK BRANCH/")) // synthetic-ok
+                .isEqualTo("UPI/100000000001/ SUNITA RAO/sampleuser@ybl/XXXX0001234 1000"); // synthetic-ok
+        // A handle in the last slot is the payee's own, never a remark: a merchant marker there must survive.
+        assertThat(PersonToPersonTransferDetector.counterpartyText(
+                "UPI/100000000001/ SUNITA RAO/Q000000001@ybl/100000000001/SAMPLE BRANCH/")) // synthetic-ok
+                .isEqualTo("UPI/100000000001/ SUNITA RAO/Q000000001@ybl"); // synthetic-ok
+        String other = "UPI/CR/REF901/SUNITA/SBIN/sampleuser/";
+        assertThat(PersonToPersonTransferDetector.counterpartyText(other)).isEqualTo(other);
+    }
+
+    @Test
+    void aHyphenatedHandleStillUsesTheDashPayeeSlot_andAnAndInTheRemarkNoLongerVetoesTheName() {
+        // Google Pay suffixes handles with "-1", "-4"; the payee-slot pattern used to miss them and
+        // fall back to scanning the whole narration, remark included -- where "AND" is a business word.
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI-SUNITA RAO-sampleuser-4@okaxis-XXXX0001234-100000000001-MAY LIGHT BILL AND WATER")).isTrue(); // synthetic-ok
+    }
+
+    @Test
+    void aBharatPeMerchantHandleIsARailMarker_evenRunIntoDigits() {
+        assertThat(PersonToPersonTransferDetector.hasMerchantAcquirerMarker(
+                "UPI-SUNITA RAO-BHARATPE90000000001@yesbankltd-XXXX0YESUPI-100000000001-UPI")).isTrue(); // synthetic-ok
+    }
+
+    // "CO" is both "care of" inside a person's name and "& Co" ending a company's.
+    @Test
+    void careOfInsideANameIsDropped_butACompanysClosingCoIsKept() {
+        assertThat(PersonToPersonTransferDetector.withoutCareOf("SUNITA KHAN CO RAO")).isEqualTo("SUNITA KHAN RAO");
+        assertThat(PersonToPersonTransferDetector.withoutCareOf("SUNITA KHAN C/O RAO")).isEqualTo("SUNITA KHAN RAO");
+        assertThat(PersonToPersonTransferDetector.withoutCareOf("ACME WINE CENTRE CO/sample@ybl")).isEqualTo("ACME WINE CENTRE CO/sample@ybl");
+        assertThat(PersonToPersonTransferDetector.withoutCareOf("SHARMA AND CO TRADERS")).isEqualTo("SHARMA AND CO TRADERS");
+        assertThat(PersonToPersonTransferDetector.withoutCareOf("SHARMA & CO TRADERS")).isEqualTo("SHARMA & CO TRADERS");
+        // Care of follows a full name; one word before CO is a company and its town.
+        assertThat(PersonToPersonTransferDetector.withoutCareOf("NEFT-SHARMA CO PUNE-REF")).isEqualTo("NEFT-SHARMA CO PUNE-REF");
+        // An initial followed by a surname starting with O is not care of.
+        assertThat(PersonToPersonTransferDetector.withoutCareOf("RAHUL C OBEROI")).isEqualTo("RAHUL C OBEROI");
     }
 }

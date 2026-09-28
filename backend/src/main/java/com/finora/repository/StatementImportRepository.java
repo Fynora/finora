@@ -522,6 +522,12 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
     @Query("DELETE FROM StatementRefreshRun r WHERE r.userId = :userId")
     int deleteRefreshRunsOfUser(@Param("userId") UUID userId);
 
+    /** Every saved statement password a user has (V240), deleted by the account purge. Job-owned
+     *  ones would also go with the purge's import_jobs delete; statement-owned ones would not. */
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
+    @Query("DELETE FROM StatementPassword p WHERE p.userId = :userId")
+    int deleteStatementPasswordsOfUser(@Param("userId") UUID userId);
+
     /** The statement, locked for the rest of the transaction: a refresh re-reads its rows and patches
      *  them under this lock, so two refreshes (or a refresh and a delete) never interleave. */
     @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)

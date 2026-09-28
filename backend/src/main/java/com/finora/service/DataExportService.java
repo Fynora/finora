@@ -204,6 +204,7 @@ public class DataExportService {
     private final UserMerchantCategoryResolutionRepository userMerchantCategoryResolutionRepository;
     private final com.finora.repository.InflowKindRepository inflowKindRepository;
     private final com.finora.repository.SenderInflowRuleRepository senderInflowRuleRepository;
+    private final com.finora.repository.StatementPasswordRepository statementPasswordRepository;
     private final ObjectMapper objectMapper;
 
     public DataExportService(UserRepository userRepository, GoogleReauthVerifier googleReauthVerifier,
@@ -232,7 +233,9 @@ public class DataExportService {
                               UserMerchantCategoryResolutionRepository userMerchantCategoryResolutionRepository,
                               com.finora.repository.InflowKindRepository inflowKindRepository,
                               com.finora.repository.SenderInflowRuleRepository senderInflowRuleRepository,
-                              ObjectMapper objectMapper) {
+                              ObjectMapper objectMapper,
+                              com.finora.repository.StatementPasswordRepository statementPasswordRepository) {
+        this.statementPasswordRepository = statementPasswordRepository;
         this.userRepository = userRepository;
         this.googleReauthVerifier = googleReauthVerifier;
         this.accountRepository = accountRepository;
@@ -354,6 +357,15 @@ public class DataExportService {
                 .map(t -> new PaymentInflowChoiceExportDto(t.getId(), t.getInflowKindId(),
                         kindNames.get(t.getInflowKindId())))
                 .toList();
+
+        // Statement refresh, step 4: which statements the user let Finora keep a password for, and
+        // when they agreed. The consent record, never the password.
+        List<com.finora.dto.SavedStatementPasswordDtos.SavedStatementPassword> savedStatementPasswords =
+                statementPasswordRepository.listForUser(userId).stream()
+                        .map(r -> new com.finora.dto.SavedStatementPasswordDtos.SavedStatementPassword(
+                                r.getStatementImportId(), r.getFileName(), r.getAccountName(),
+                                r.getPeriodStart(), r.getPeriodEnd(), r.getConsentedAt()))
+                        .toList();
 
         List<BudgetDto> budgets = budgetService.listForUser(userId);
 
@@ -531,7 +543,7 @@ public class DataExportService {
                 statementSummaries, gmailConnections, userSettings, workspaceSettings, subscriptionExports, planChangeExports,
                 supportTicketExports, feedbackExports, chatConversations, chatMessages, healthScoreHistory,
                 financialFocus, checklistEvents, recurringDismissals, accountAggregatorLinks, merchantCategoryResolutions,
-                inflowKinds, senderInflowRules, paymentInflowChoices);
+                inflowKinds, senderInflowRules, paymentInflowChoices, savedStatementPasswords);
     }
 
     /**
@@ -582,6 +594,7 @@ public class DataExportService {
             writeJsonEntry(zos, "money_kinds.json", bundle.inflowKinds());
             writeJsonEntry(zos, "remembered_senders.json", bundle.senderInflowRules());
             writeJsonEntry(zos, "payment_kind_choices.json", bundle.paymentInflowChoices());
+            writeJsonEntry(zos, "saved_statement_passwords.json", bundle.savedStatementPasswords());
 
             for (Summary statement : bundle.statementSummaries()) {
                 String entryName = "statements/" + statement.id() + "-" + sanitize(statement.fileName());
@@ -686,7 +699,8 @@ public class DataExportService {
                 new ManifestEntry("merchant_category_corrections.json", "Merchant-to-category mappings Fyn learned or you corrected.", bundle.merchantCategoryResolutions().size()),
                 new ManifestEntry("money_kinds.json", "The kinds you give money coming in (built-in and your own), and whether each counts as income.", bundle.inflowKinds().size()),
                 new ManifestEntry("remembered_senders.json", "Senders you told Finora how to treat every payment from.", bundle.senderInflowRules().size()),
-                new ManifestEntry("payment_kind_choices.json", "Kinds you chose for a single payment.", bundle.paymentInflowChoices().size())
+                new ManifestEntry("payment_kind_choices.json", "Kinds you chose for a single payment.", bundle.paymentInflowChoices().size()),
+                new ManifestEntry("saved_statement_passwords.json", "Statements you let Finora keep the password for, and when you agreed -- never the password itself.", bundle.savedStatementPasswords().size())
         );
         List<ManifestEntry> excluded = List.of(
                 new ManifestEntry("audit_logs", "Your own actions are logged for security, not collected as your data.", null),
@@ -765,6 +779,7 @@ public class DataExportService {
             List<UserMerchantCategoryResolutionExportDto> merchantCategoryResolutions,
             List<InflowKindExportDto> inflowKinds,
             List<SenderInflowRuleExportDto> senderInflowRules,
-            List<PaymentInflowChoiceExportDto> paymentInflowChoices
+            List<PaymentInflowChoiceExportDto> paymentInflowChoices,
+            List<com.finora.dto.SavedStatementPasswordDtos.SavedStatementPassword> savedStatementPasswords
     ) {}
 }

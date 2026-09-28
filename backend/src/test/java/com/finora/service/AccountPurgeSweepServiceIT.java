@@ -560,7 +560,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         refreshRunRepository.save(run);
         // ...and a statement password the user agreed to save for it (V240).
         statementPasswordRepository.save(com.finora.entity.StatementPassword.forStatement(userId, statementId,
-                new com.finora.security.crypto.EncryptedValue("test-key", "c2FtcGxlLWNpcGhlcnRleHQ="),
+                new com.finora.security.crypto.EncryptedValue("test-key", "not-real-ciphertext"),
                 "test-consent", java.time.Instant.now()));
         entityManager.flush();
 

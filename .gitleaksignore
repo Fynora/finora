@@ -19,3 +19,9 @@ abca670e8a953ceb99c5d1c52ccb56c3a462290a:backend/src/test/java/com/finora/securi
 e370f7b65397fb4d0155b71f6959d537f8f52370:backend/src/test/java/com/finora/security/crypto/EncryptionServiceTest.java:generic-api-key:71
 f9b579fe41c0e4458545b7915bf3964927d8705a:backend/src/test/java/com/finora/controller/PasswordChangeFlowIT.java:generic-api-key:153
 cb6ba7b6685745691a75d73c43904df0d19d7e15:backend/src/test/java/com/finora/controller/AuthFlowIT.java:generic-api-key:94
+
+# PR #1838 (statement refresh step 4): a fabricated ciphertext in the account-purge test's saved-
+# password fixture, flagged in the commit that introduced it. The value was replaced with a plain
+# placeholder in a later commit on the same branch, so it never reaches main; pinned here only
+# because CI scans every commit of the PR and the branch history is not rewritten.
+01b47575194fee38dfbf85bb5f49bfe06b302398:backend/src/test/java/com/finora/service/AccountPurgeSweepServiceIT.java:generic-api-key:563

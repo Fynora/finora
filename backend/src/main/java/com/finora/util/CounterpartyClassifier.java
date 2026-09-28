@@ -92,8 +92,10 @@ public final class CounterpartyClassifier {
     //    UNKNOWN). Every flip read.
     // 6: the counterparty KEY changed again (CounterpartyIdentity): Kotak's "SentIMPS<ref><payee>/"
     //    is keyed on the payee instead of the free-text note, a VPA local part split by a line wrap
-    //    is rejoined, and "Pay for Intent" is no key. Measured on the corpus: 35 keys change, every
-    //    one read.
+    //    is rejoined, and "Pay for Intent" is no key. The same Kotak layout is typed from its payee
+    //    slot, never its free-text note. Measured on the corpus: 37 keys change and 13 rows move
+    //    UNKNOWN -> PERSON (one payee, whose 14th row a name-like note had already typed PERSON);
+    //    every one read.
     public static final short VERSION = 6;
 
     /**

@@ -235,4 +235,18 @@ class CounterpartyClassifierTest {
         assertThat(CounterpartyClassifier.classify("REWARD POINTS CREDIT"))
                 .isEqualTo(CounterpartyType.FINANCIAL_INSTITUTION);
     }
+
+    // Measured on a real Kotak statement: an IMPS debit prints its payee glued to the reference,
+    // "SentIMPS<ref><payee>/<IFSC>/<note>". The same payee was typed UNKNOWN on 13 rows (the name
+    // hidden behind the digits) and PERSON on one, read off a note that looked like a name.
+    @Test
+    void aKotakImpsDebitIsTypedFromItsPayee_neverFromItsNote() {
+        assertThat(CounterpartyClassifier.classify("SentIMPS100000000001Asha Verma/HDFC0XXXXXX/IMPS"))
+                .isEqualTo(CounterpartyType.PERSON);
+        assertThat(CounterpartyClassifier.classify("SentIMPS100000000001Asha Verma/HDFC0XXXXXX/RENT"))
+                .isEqualTo(CounterpartyType.PERSON);
+        // A note that reads like a name decides nothing about the payee.
+        assertThat(CounterpartyClassifier.classify("SentIMPS100000000001SAMPLE TRADERS PVT LTD/HDFC0XXXXXX/Last Thin"))
+                .isEqualTo(CounterpartyType.BUSINESS);
+    }
 }

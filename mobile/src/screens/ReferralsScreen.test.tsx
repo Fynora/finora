@@ -35,7 +35,7 @@ jest.mock('../lib/useLargeFontScale', () => ({
 }));
 
 jest.mock('../api/endpoints', () => ({
-  referralsApi: { myCode: jest.fn(), mine: jest.fn(), redeem: jest.fn() },
+  referralsApi: { myCode: jest.fn(), mine: jest.fn(), redeem: jest.fn(), applyCode: jest.fn() },
 }));
 
 jest.mock('expo-clipboard', () => ({
@@ -82,7 +82,7 @@ describe('ReferralsScreen', () => {
     try {
       api.mine.mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false, grants: [],
       });
       renderScreen();
       await screen.findByText('ABCD1234');
@@ -99,7 +99,7 @@ describe('ReferralsScreen', () => {
     // a screen-tall crop. The ratio must sit on the wrapping View, with the Image filling it.
     api.mine.mockResolvedValue({
       code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false, grants: [],
     });
     renderScreen();
     await screen.findByText('ABCD1234');
@@ -119,7 +119,7 @@ describe('ReferralsScreen', () => {
     // non-wrapping row overflowed to 135% of the width.
     api.mine.mockResolvedValue({
       code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false, grants: [],
     });
     renderScreen();
     await screen.findByText('ABCD1234');
@@ -138,7 +138,7 @@ describe('ReferralsScreen', () => {
     try {
       api.mine.mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false, grants: [],
       });
       renderScreen();
       await screen.findByText('ABCD1234');
@@ -158,7 +158,7 @@ describe('ReferralsScreen', () => {
   it('shows the code, a zero count, and a zero earned amount for a user with no referrals yet', async () => {
     api.mine.mockResolvedValue({
       code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false, grants: [],
     });
     renderScreen();
 
@@ -179,7 +179,7 @@ describe('ReferralsScreen', () => {
       walletBalance: 250,
       referralCount: 2,
       plusMilestoneCounter: 0,
-      premiumMilestoneCounter: 0,
+      premiumMilestoneCounter: 0, canApplyCode: false,
       grants: [],
     });
     renderScreen();
@@ -197,7 +197,7 @@ describe('ReferralsScreen', () => {
   it('copies the code to the clipboard and shows a transient "Copied" confirmation', async () => {
     api.mine.mockResolvedValue({
       code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false, grants: [],
     });
     renderScreen();
     await screen.findByText('ABCD1234');
@@ -223,7 +223,7 @@ describe('ReferralsScreen', () => {
   it('opens WhatsApp with the code pre-filled when it resolves', async () => {
     api.mine.mockResolvedValue({
       code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false, grants: [],
     });
     renderScreen();
     await screen.findByText('ABCD1234');
@@ -239,7 +239,7 @@ describe('ReferralsScreen', () => {
   it('falls back to the OS share sheet when opening WhatsApp rejects (not installed)', async () => {
     api.mine.mockResolvedValue({
       code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false, grants: [],
     });
     openURL.mockRejectedValueOnce(new Error('No app handles whatsapp://'));
     renderScreen();
@@ -254,7 +254,7 @@ describe('ReferralsScreen', () => {
   it('opens the iOS-style SMS composer URL on iOS', async () => {
     api.mine.mockResolvedValue({
       code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false, grants: [],
     });
     renderScreen();
     await screen.findByText('ABCD1234');
@@ -280,7 +280,7 @@ describe('ReferralsScreen', () => {
     try {
       api.mine.mockResolvedValue({
       code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false, grants: [],
     });
       renderScreen();
       await screen.findByText('ABCD1234');
@@ -297,7 +297,7 @@ describe('ReferralsScreen', () => {
   it('opens the OS share sheet from "More"', async () => {
     api.mine.mockResolvedValue({
       code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false, grants: [],
     });
     renderScreen();
     await screen.findByText('ABCD1234');
@@ -314,7 +314,7 @@ describe('ReferralsScreen', () => {
   it('includes both the bare code and the finora:// deep link in the share message', async () => {
     api.mine.mockResolvedValue({
       code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false, grants: [],
     });
     renderScreen();
     await screen.findByText('ABCD1234');
@@ -327,11 +327,55 @@ describe('ReferralsScreen', () => {
     }));
   });
 
+  describe("enter a friend's code", () => {
+    it('offers the box while the account can still take a code, and adds it', async () => {
+      api.mine.mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [], canApplyCode: true,
+      });
+      api.applyCode.mockResolvedValue(undefined);
+      renderScreen();
+
+      expect(await screen.findByText('Were you invited by a friend?')).toBeTruthy();
+      fireEvent.changeText(screen.getByLabelText("Friend's referral code"), 'wxyz9876');
+      fireEvent.press(screen.getByText('Add code'));
+      await settle();
+
+      expect(api.applyCode).toHaveBeenCalledWith('WXYZ9876');
+    });
+
+    // Once a code is used (or the user subscribed) the server says canApplyCode false: no box.
+    it('shows no box once a code has been used', async () => {
+      api.mine.mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [], canApplyCode: false,
+      });
+      renderScreen();
+
+      await screen.findByText('ABCD1234');
+      expect(screen.queryByTestId('friend-code-card')).toBeNull();
+    });
+
+    it("shows the server's reason when the code is refused", async () => {
+      api.mine.mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [], canApplyCode: true,
+      });
+      api.applyCode.mockRejectedValue(axiosErrorWithResponse(400, { message: "You can't use your own referral code." }));
+      renderScreen();
+
+      fireEvent.changeText(await screen.findByLabelText("Friend's referral code"), 'ABCD1234');
+      fireEvent.press(screen.getByText('Add code'));
+
+      expect(await screen.findByText("You can't use your own referral code.")).toBeTruthy();
+    });
+  });
+
   describe('milestone redemption', () => {
     it('shows one progress row toward a free month of Plus at 7, and nothing about 3', async () => {
       api.mine.mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 0, premiumMilestoneCounter: 2, grants: [],
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 2, canApplyCode: false, grants: [],
       });
       renderScreen();
 
@@ -344,7 +388,7 @@ describe('ReferralsScreen', () => {
     it('stays a progress row at 6, one short of the milestone', async () => {
       api.mine.mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 0, premiumMilestoneCounter: 6, grants: [],
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 6, canApplyCode: false, grants: [],
       });
       renderScreen();
 
@@ -352,10 +396,32 @@ describe('ReferralsScreen', () => {
       expect(screen.queryByText(/redeem plus/i)).toBeNull();
     });
 
+    it('says how many refunded referrals must be made up when some are owed', async () => {
+      api.mine.mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [], canApplyCode: false, referralsOwed: 1,
+      });
+      renderScreen();
+
+      expect(await screen.findByText('0 / 7 referrals — 1 month of Plus free')).toBeTruthy();
+      expect(screen.getByText('1 refunded referral to make up before your count grows again.')).toBeTruthy();
+    });
+
+    it('shows no owed line when nothing is owed, or when an older backend omits the field', async () => {
+      api.mine.mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 3, grants: [], canApplyCode: false,
+      });
+      renderScreen();
+
+      expect(await screen.findByText('3 / 7 referrals — 1 month of Plus free')).toBeTruthy();
+      expect(screen.queryByText(/to make up/)).toBeNull();
+    });
+
     it('ignores a stale non-zero plusMilestoneCounter -- there is no 3-referral reward', async () => {
       api.mine.mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 3, premiumMilestoneCounter: 3, grants: [],
+        plusMilestoneCounter: 3, premiumMilestoneCounter: 3, canApplyCode: false, grants: [],
       });
       renderScreen();
 
@@ -366,7 +432,7 @@ describe('ReferralsScreen', () => {
     it('offers Redeem Plus at 7 and redeems PLUS on press', async () => {
       api.mine.mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 0, premiumMilestoneCounter: 7, grants: [],
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 7, canApplyCode: false, grants: [],
       });
       api.redeem.mockResolvedValue(undefined);
       renderScreen();
@@ -382,7 +448,7 @@ describe('ReferralsScreen', () => {
     it('shows the server error message under the reward row when redemption fails', async () => {
       api.mine.mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 0, premiumMilestoneCounter: 7, grants: [],
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 7, canApplyCode: false, grants: [],
       });
       api.redeem.mockRejectedValue(
         axiosErrorWithResponse(409, { message: 'This reward was just redeemed by another request.' })
@@ -401,7 +467,7 @@ describe('ReferralsScreen', () => {
     it('shows an ACTIVE grant with its expiry date', async () => {
       api.mine.mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 0, premiumMilestoneCounter: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false,
         grants: [{ id: 'grant-1', tier: 'PREMIUM', status: 'ACTIVE', activatedAt: '2026-09-14T00:00:00Z', expiresAt: '2026-10-14T00:00:00Z' }],
       });
       renderScreen();
@@ -416,7 +482,7 @@ describe('ReferralsScreen', () => {
       try {
         api.mine.mockResolvedValue({
           code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-          plusMilestoneCounter: 2, premiumMilestoneCounter: 5,
+          plusMilestoneCounter: 2, premiumMilestoneCounter: 5, canApplyCode: false,
           grants: [{ id: 'grant-1', tier: 'PREMIUM', status: 'ACTIVE', activatedAt: '2026-09-14T00:00:00Z', expiresAt: '2026-10-14T00:00:00Z' }],
         });
         renderScreen();
@@ -438,7 +504,7 @@ describe('ReferralsScreen', () => {
       try {
         api.mine.mockResolvedValue({
           code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-          plusMilestoneCounter: 0, premiumMilestoneCounter: 7, grants: [],
+          plusMilestoneCounter: 0, premiumMilestoneCounter: 7, canApplyCode: false, grants: [],
         });
         api.redeem.mockResolvedValue(undefined);
         renderScreen();
@@ -458,7 +524,7 @@ describe('ReferralsScreen', () => {
     it('shows a PENDING grant as queued', async () => {
       api.mine.mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 0, premiumMilestoneCounter: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false,
         grants: [{ id: 'grant-1', tier: 'PLUS', status: 'PENDING', activatedAt: null, expiresAt: null }],
       });
       renderScreen();
@@ -474,7 +540,7 @@ describe('ReferralsScreen', () => {
     it('shows the celebration once for a newly-active grant it has not shown before', async () => {
       api.mine.mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 0, premiumMilestoneCounter: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false,
         grants: [{ id: 'grant-1', tier: 'PREMIUM', status: 'ACTIVE', activatedAt: '2026-09-14T00:00:00Z', expiresAt: '2026-10-14T00:00:00Z' }],
       });
       renderScreen();
@@ -488,7 +554,7 @@ describe('ReferralsScreen', () => {
       await SecureStore.setItemAsync('finora_seen_active_referral_grants', JSON.stringify(['grant-1']));
       api.mine.mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 0, premiumMilestoneCounter: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false,
         grants: [{ id: 'grant-1', tier: 'PREMIUM', status: 'ACTIVE', activatedAt: '2026-09-14T00:00:00Z', expiresAt: '2026-10-14T00:00:00Z' }],
       });
       renderScreen();
@@ -505,7 +571,7 @@ describe('ReferralsScreen', () => {
       const parallelSpy = jest.spyOn(Animated, 'parallel');
       api.mine.mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 0, premiumMilestoneCounter: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false,
         grants: [{ id: 'grant-2', tier: 'PREMIUM', status: 'ACTIVE', activatedAt: '2026-09-14T00:00:00Z', expiresAt: '2026-10-14T00:00:00Z' }],
       });
       renderScreen();

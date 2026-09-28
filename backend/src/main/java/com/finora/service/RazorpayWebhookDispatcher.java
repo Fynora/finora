@@ -3,6 +3,7 @@ package com.finora.service;
 import com.finora.entity.BillingPrice;
 import com.finora.entity.Payment;
 import com.finora.entity.Plan;
+import com.finora.entity.ReferralCharge;
 import com.finora.entity.Subscription;
 import com.finora.entity.SubscriptionEvent;
 import com.finora.entity.SubscriptionOrder;
@@ -92,6 +93,8 @@ public class RazorpayWebhookDispatcher {
             case "subscription.cancelled" -> handleCancelled(payload);
             case "subscription.paused" -> handlePaused(payload);
             case "subscription.resumed" -> handleResumed(payload);
+            case "refund.processed" -> handleRefundProcessed(payload);
+            case "payment.dispute.lost" -> handleDisputeLost(payload);
             default -> log.info("Razorpay webhook event '{}' received but not handled in V1.",
                     LogSanitizer.sanitize(eventType));
         }
@@ -107,6 +110,15 @@ public class RazorpayWebhookDispatcher {
     private Map<String, Object> paymentEntity(Map<String, Object> payload) {
         Map<String, Object> payment = (Map<String, Object>) payload.get("payment");
         return payment == null ? Map.of() : (Map<String, Object>) payment.get("entity");
+    }
+
+    /** {@code payload.<key>.entity}, or an empty map when either level is missing or not an object
+     *  -- the refund/dispute handlers only read ids out of it and treat a missing one as nothing
+     *  to do, never as a reason to fail the webhook. */
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> entityOf(Map<String, Object> payload, String key) {
+        if (!(payload.get(key) instanceof Map<?, ?> wrapper)) return Map.of();
+        return wrapper.get("entity") instanceof Map<?, ?> entity ? (Map<String, Object>) entity : Map.of();
     }
 
     /** Payment Method card (Billing page). Razorpay's own {@code subscription.activated}/
@@ -478,15 +490,71 @@ public class RazorpayWebhookDispatcher {
 
         // design spec §5 (referral reward ledger): subscription.charged is the real-charge signal
         // this is keyed off (not subscription.activated, which can fire with zero funds movement).
-        // Fires on every charge including renewals -- onPlanChanged's own REGISTERED-only guard
+        // Razorpay documents it as "sent every time a successful charge is made", so it is never a
+        // trial -- a trial on Razorpay would be a future start_at with no charge at all. The
+        // amount > 0 check is only a guard against a zero-value charge being counted. Fires on
+        // every charge including renewals -- onReferredUserCharged's own REGISTERED-only guard
         // makes repeat calls a no-op, so this needs no idempotency handling of its own.
         Plan chargedPlan = planRepository.findById(subscription.getPlanId()).orElse(null);
-        if (chargedPlan != null) {
-            referralService.onPlanChanged(subscription.getUserId(), chargedPlan.getCode());
+        if (chargedPlan != null && amountPaise instanceof Number n && n.longValue() > 0) {
+            referralService.onReferredUserCharged(subscription.getUserId(), chargedPlan.getCode(),
+                    ReferralCharge.PROVIDER_RAZORPAY, chargePaymentId);
         }
 
         String planName = chargedPlan != null ? chargedPlan.getName() : "Fynora";
         sendInvoiceEmail(subscription.getUserId(), payment.getId(), planName);
+    }
+
+    /** A refund of one payment. Refunds are issued by us from the Razorpay dashboard, so any
+     *  processed refund -- full or partial -- counts as the charge being taken back (Sid's decision,
+     *  2026-09-28). Only the referral side is handled here: if the refunded payment is the one that
+     *  moved a referral to SUBSCRIBED, ReferralService takes it back; any other payment is a no-op
+     *  there. The payment id is in {@code refund.entity.payment_id} (Razorpay's refund webhook
+     *  docs). Needs refund.processed enabled on the Razorpay dashboard's webhook. */
+    void handleRefundProcessed(Map<String, Object> payload) {
+        Map<String, Object> paymentEntity = entityOf(payload, "payment");
+        String paymentId = asString(entityOf(payload, "refund").get("payment_id"));
+        if (paymentId == null) paymentId = asString(paymentEntity.get("id"));
+        referralService.onChargeReversed(ReferralCharge.PROVIDER_RAZORPAY, paymentId, "REFUND");
+
+        // Billing history: a fully refunded payment shows as Refunded. Razorpay's payment entity:
+        // refund_status is "null, partial, full". A partial refund leaves the payment SUCCESS --
+        // part of it was still paid, and its invoice stays downloadable (InvoiceService only
+        // issues one for SUCCESS).
+        if (paymentId != null && "full".equals(asString(paymentEntity.get("refund_status")))) {
+            markRefunded(paymentId);
+        }
+    }
+
+    /** A chargeback we lost: the money went back to the customer, same as a refund. Only the lost
+     *  outcome acts -- payment.dispute.created is a dispute still open and may yet be won. Payment
+     *  id per Razorpay's dispute webhook docs: {@code payment.entity.id}, with
+     *  {@code dispute.entity.payment_id} as the fallback. Needs payment.dispute.lost enabled on the
+     *  Razorpay dashboard's webhook. */
+    void handleDisputeLost(Map<String, Object> payload) {
+        Map<String, Object> paymentEntity = entityOf(payload, "payment");
+        Map<String, Object> disputeEntity = entityOf(payload, "dispute");
+        String paymentId = asString(paymentEntity.get("id"));
+        if (paymentId == null) paymentId = asString(disputeEntity.get("payment_id"));
+        referralService.onChargeReversed(ReferralCharge.PROVIDER_RAZORPAY, paymentId, "CHARGEBACK_LOST");
+
+        // Billing history, same rule as a refund: Refunded only when the whole payment went back.
+        // Razorpay's lost-dispute payload carries dispute.entity.amount_deducted next to
+        // payment.entity.amount (both in paise); a partial chargeback leaves the payment SUCCESS.
+        if (paymentId != null && disputeEntity.get("amount_deducted") instanceof Number deducted
+                && paymentEntity.get("amount") instanceof Number amount
+                && amount.longValue() > 0 && deducted.longValue() >= amount.longValue()) {
+            markRefunded(paymentId);
+        }
+    }
+
+    private void markRefunded(String paymentId) {
+        paymentRepository.findAllByProviderTransactionId(paymentId).stream()
+                .filter(p -> Payment.STATUS_SUCCESS.equals(p.getStatus()))
+                .forEach(p -> {
+                    p.setStatus(Payment.STATUS_REFUNDED);
+                    paymentRepository.save(p);
+                });
     }
 
     /** Fires for every successful charge this method creates a Payment row for -- first purchase,

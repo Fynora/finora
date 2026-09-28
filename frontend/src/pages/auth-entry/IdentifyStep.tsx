@@ -18,9 +18,12 @@ interface IdentifyStepProps {
   // both server-side, same call PasswordStep and RegisterStep already make). So this step can
   // complete auth directly rather than only ever handing off to password/register.
   onSuccess: (phoneVerified: boolean) => void;
+  // A friend's ?ref= code. This first step is where a referral link lands, and its Google/Apple
+  // buttons can create the account -- before this was passed, tapping one dropped the code.
+  referralCode?: string;
 }
 
-export function IdentifyStep({ onExists, onContinue, onSuccess }: IdentifyStepProps) {
+export function IdentifyStep({ onExists, onContinue, onSuccess, referralCode }: IdentifyStepProps) {
   const { loginWithGoogle, loginWithApple } = useAuth();
   const [identifier, setIdentifier] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -79,7 +82,7 @@ export function IdentifyStep({ onExists, onContinue, onSuccess }: IdentifyStepPr
     setError(null);
     setLoading(true);
     try {
-      onSuccess(await loginWithGoogle(idToken));
+      onSuccess(await loginWithGoogle(idToken, referralCode));
     } catch (err: any) {
       handleOAuthError(err, 'Google sign-in failed.');
     } finally {
@@ -91,7 +94,7 @@ export function IdentifyStep({ onExists, onContinue, onSuccess }: IdentifyStepPr
     setError(null);
     setLoading(true);
     try {
-      onSuccess(await loginWithApple(idToken, fullName));
+      onSuccess(await loginWithApple(idToken, fullName, referralCode));
     } catch (err: any) {
       handleOAuthError(err, 'Apple sign-in failed.');
     } finally {

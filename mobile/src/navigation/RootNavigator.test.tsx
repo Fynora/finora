@@ -94,6 +94,15 @@ jest.mock('../onboarding/OnboardingNavigator', () => ({
   },
 }));
 
+// A marker, like AppTabs above: this file checks WHERE the one-time referral prompt is mounted,
+// not the prompt itself (ReferralCodePrompt.test.tsx covers that).
+jest.mock('../components/ReferralCodePrompt', () => ({
+  ReferralCodePrompt: () => {
+    const { Text } = require('react-native');
+    return <Text testID="referral-code-prompt">ReferralCodePrompt</Text>;
+  },
+}));
+
 jest.mock('../onboarding/OnboardingStepContext', () => ({
   useOnboardingStep: jest.fn(),
 }));
@@ -162,6 +171,7 @@ describe('RootNavigator', () => {
 
     expect(screen.getByTestId('app-tabs')).toBeTruthy();
     expect(screen.queryByTestId('tour-overlay')).toBeNull();
+    expect(screen.getByTestId('referral-code-prompt')).toBeTruthy();
   });
 
   it('mounts OnboardingNavigator when signed in, verified, but onboarding is not complete and step is not tour', () => {
@@ -171,6 +181,7 @@ describe('RootNavigator', () => {
 
     expect(screen.getByTestId('onboarding-navigator')).toBeTruthy();
     expect(screen.queryByTestId('app-tabs')).toBeNull();
+    expect(screen.queryByTestId('referral-code-prompt')).toBeNull();
   });
 
   it('mounts the REAL AppTabs plus TourOverlay when the onboarding step is tour', () => {
@@ -182,6 +193,8 @@ describe('RootNavigator', () => {
     expect(screen.getByTestId('app-tabs')).toBeTruthy();
     expect(screen.getByTestId('tour-overlay')).toBeTruthy();
     expect(screen.queryByTestId('onboarding-navigator')).toBeNull();
+    // Never on top of the tour.
+    expect(screen.queryByTestId('referral-code-prompt')).toBeNull();
   });
 
   it('offers the reset-password screen in the signed-out stack, and only there', () => {
@@ -233,6 +246,7 @@ describe('RootNavigator', () => {
 
     expect(screen.queryByTestId('onboarding-navigator')).toBeNull();
     expect(screen.queryByTestId('app-tabs')).toBeNull();
+    expect(screen.queryByTestId('referral-code-prompt')).toBeNull();
   });
 
   describe('change polling', () => {

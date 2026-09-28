@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -16,7 +17,7 @@ vi.mock('../lib/premiumVisibility', () => ({
 }));
 
 vi.mock('../api/endpoints', () => ({
-  referralsApi: { myCode: vi.fn(), mine: vi.fn(), redeem: vi.fn() },
+  referralsApi: { myCode: vi.fn(), mine: vi.fn(), redeem: vi.fn(), applyCode: vi.fn() },
 }));
 
 function renderPage() {
@@ -49,7 +50,7 @@ describe('Referrals', () => {
   it('shows the empty state and a zero balance when nothing has happened yet', async () => {
     vi.mocked(referralsApi.mine).mockResolvedValue({
       code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false, grants: [],
     });
     renderPage();
 
@@ -60,7 +61,7 @@ describe('Referrals', () => {
   it("renders the user's own referral link once the code loads", async () => {
     vi.mocked(referralsApi.mine).mockResolvedValue({
       code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false, grants: [],
     });
     renderPage();
 
@@ -75,7 +76,7 @@ describe('Referrals', () => {
       walletBalance: 250,
       referralCount: 1,
       plusMilestoneCounter: 0,
-      premiumMilestoneCounter: 0,
+      premiumMilestoneCounter: 0, canApplyCode: false,
       grants: [],
     });
     renderPage();
@@ -94,7 +95,7 @@ describe('Referrals', () => {
       walletBalance: 0,
       referralCount: 1,
       plusMilestoneCounter: 0,
-      premiumMilestoneCounter: 0,
+      premiumMilestoneCounter: 0, canApplyCode: false,
       grants: [],
     });
     renderPage();
@@ -102,11 +103,56 @@ describe('Referrals', () => {
     expect(await screen.findByText('Subscribed')).toBeInTheDocument();
   });
 
+  describe("enter a friend's code", () => {
+    it('offers the box while the account can still take a code, and adds it', async () => {
+      vi.mocked(referralsApi.mine).mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [], canApplyCode: true,
+      });
+      vi.mocked(referralsApi.applyCode).mockResolvedValue(undefined);
+      renderPage();
+
+      expect(await screen.findByText('Were you invited by a friend?')).toBeInTheDocument();
+      await userEvent.type(screen.getByLabelText("Friend's referral code"), 'wxyz9876');
+      await userEvent.click(screen.getByRole('button', { name: 'Add code' }));
+
+      await waitFor(() => expect(referralsApi.applyCode).toHaveBeenCalledWith('WXYZ9876'));
+    });
+
+    // Once a code is used (or the user subscribed) the server says canApplyCode false: no box.
+    it('shows no box once a code has been used', async () => {
+      vi.mocked(referralsApi.mine).mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [], canApplyCode: false,
+      });
+      renderPage();
+
+      await screen.findByText(/referrals — 1 month of Plus free/);
+      expect(screen.queryByTestId('friend-code-card')).not.toBeInTheDocument();
+    });
+
+    it("shows the server's reason when the code is refused", async () => {
+      vi.mocked(referralsApi.mine).mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [], canApplyCode: true,
+      });
+      vi.mocked(referralsApi.applyCode).mockRejectedValue({
+        response: { data: { message: "You can't use your own referral code." } },
+      });
+      renderPage();
+
+      await userEvent.type(await screen.findByLabelText("Friend's referral code"), 'ABCD1234');
+      await userEvent.click(screen.getByRole('button', { name: 'Add code' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent("You can't use your own referral code.");
+    });
+  });
+
   describe('milestone redemption', () => {
     it('shows one progress row toward a free month of Plus at 7, and nothing about 3', async () => {
       vi.mocked(referralsApi.mine).mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 0, premiumMilestoneCounter: 2, grants: [],
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 2, canApplyCode: false, grants: [],
       });
       renderPage();
 
@@ -119,7 +165,7 @@ describe('Referrals', () => {
     it('stays a progress row at 6, one short of the milestone', async () => {
       vi.mocked(referralsApi.mine).mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 0, premiumMilestoneCounter: 6, grants: [],
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 6, canApplyCode: false, grants: [],
       });
       renderPage();
 
@@ -127,10 +173,32 @@ describe('Referrals', () => {
       expect(screen.queryByRole('button', { name: /redeem/i })).not.toBeInTheDocument();
     });
 
+    it('says how many refunded referrals must be made up when some are owed', async () => {
+      vi.mocked(referralsApi.mine).mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [], canApplyCode: false, referralsOwed: 2,
+      });
+      renderPage();
+
+      expect(await screen.findByText('0 / 7 referrals — 1 month of Plus free')).toBeInTheDocument();
+      expect(screen.getByText('2 refunded referrals to make up before your count grows again.')).toBeInTheDocument();
+    });
+
+    it('shows no owed line when nothing is owed, or when an older backend omits the field', async () => {
+      vi.mocked(referralsApi.mine).mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 3, grants: [], canApplyCode: false,
+      });
+      renderPage();
+
+      expect(await screen.findByText('3 / 7 referrals — 1 month of Plus free')).toBeInTheDocument();
+      expect(screen.queryByText(/to make up/)).not.toBeInTheDocument();
+    });
+
     it('ignores a stale non-zero plusMilestoneCounter -- there is no 3-referral reward', async () => {
       vi.mocked(referralsApi.mine).mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 3, premiumMilestoneCounter: 3, grants: [],
+        plusMilestoneCounter: 3, premiumMilestoneCounter: 3, canApplyCode: false, grants: [],
       });
       renderPage();
 
@@ -141,7 +209,7 @@ describe('Referrals', () => {
     it('offers Redeem Plus at 7 and redeems PLUS on click', async () => {
       vi.mocked(referralsApi.mine).mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 0, premiumMilestoneCounter: 7, grants: [],
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 7, canApplyCode: false, grants: [],
       });
       vi.mocked(referralsApi.redeem).mockResolvedValue(undefined);
       renderPage();
@@ -155,7 +223,7 @@ describe('Referrals', () => {
     it('shows the server error message under the reward row when redemption fails', async () => {
       vi.mocked(referralsApi.mine).mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 0, premiumMilestoneCounter: 7, grants: [],
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 7, canApplyCode: false, grants: [],
       });
       vi.mocked(referralsApi.redeem).mockRejectedValue({
         response: { data: { message: 'This reward was just redeemed by another request.' } },
@@ -177,7 +245,7 @@ describe('Referrals', () => {
     it('shows the celebration once for a newly-active grant it has not shown before', async () => {
       vi.mocked(referralsApi.mine).mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 0, premiumMilestoneCounter: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false,
         grants: [{ id: 'grant-1', tier: 'PREMIUM', status: 'ACTIVE', activatedAt: '2026-09-14T00:00:00Z', expiresAt: '2026-10-14T00:00:00Z' }],
       });
       renderPage();
@@ -189,7 +257,7 @@ describe('Referrals', () => {
       localStorage.setItem('finora_seen_active_referral_grants', JSON.stringify(['grant-1']));
       vi.mocked(referralsApi.mine).mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 0, premiumMilestoneCounter: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false,
         grants: [{ id: 'grant-1', tier: 'PREMIUM', status: 'ACTIVE', activatedAt: '2026-09-14T00:00:00Z', expiresAt: '2026-10-14T00:00:00Z' }],
       });
       renderPage();
@@ -201,7 +269,7 @@ describe('Referrals', () => {
     it('does not show the celebration for a PENDING (not yet activated) grant', async () => {
       vi.mocked(referralsApi.mine).mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 0, premiumMilestoneCounter: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false,
         grants: [{ id: 'grant-1', tier: 'PLUS', status: 'PENDING', activatedAt: null, expiresAt: null }],
       });
       renderPage();
@@ -215,7 +283,7 @@ describe('Referrals', () => {
     it('shows an ACTIVE grant with its expiry date', async () => {
       vi.mocked(referralsApi.mine).mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 0, premiumMilestoneCounter: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false,
         grants: [{ id: 'grant-1', tier: 'PREMIUM', status: 'ACTIVE', activatedAt: '2026-09-14T00:00:00Z', expiresAt: '2026-10-14T00:00:00Z' }],
       });
       renderPage();
@@ -226,7 +294,7 @@ describe('Referrals', () => {
     it('shows a PENDING grant as queued', async () => {
       vi.mocked(referralsApi.mine).mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 0, premiumMilestoneCounter: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false,
         grants: [{ id: 'grant-1', tier: 'PLUS', status: 'PENDING', activatedAt: null, expiresAt: null }],
       });
       renderPage();
@@ -240,7 +308,7 @@ describe('Referrals', () => {
     it('shows nothing for an EXPIRED grant with no other active/pending ones', async () => {
       vi.mocked(referralsApi.mine).mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 0, premiumMilestoneCounter: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false,
         grants: [{ id: 'grant-1', tier: 'PLUS', status: 'EXPIRED', activatedAt: '2026-08-01T00:00:00Z', expiresAt: '2026-08-31T00:00:00Z' }],
       });
       renderPage();
@@ -263,7 +331,7 @@ describe('Referrals', () => {
       // only way to redeem it too -- see the "keeps the Redeem action reachable" test below.
       vi.mocked(referralsApi.mine).mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 2, premiumMilestoneCounter: 5, grants: [],
+        plusMilestoneCounter: 2, premiumMilestoneCounter: 5, canApplyCode: false, grants: [],
       });
       renderPage();
 
@@ -278,7 +346,7 @@ describe('Referrals', () => {
       // dead end: a real reward (a free month, worth Plus's entitlements today) earned and lost.
       vi.mocked(referralsApi.mine).mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 0, premiumMilestoneCounter: 7, grants: [],
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 7, canApplyCode: false, grants: [],
       });
       vi.mocked(referralsApi.redeem).mockResolvedValue(undefined);
       renderPage();
@@ -293,7 +361,7 @@ describe('Referrals', () => {
     it('shows an active Premium grant as Plus', async () => {
       vi.mocked(referralsApi.mine).mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 0, premiumMilestoneCounter: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false,
         grants: [{ id: 'grant-1', tier: 'PREMIUM', status: 'ACTIVE', activatedAt: '2026-09-14T00:00:00Z', expiresAt: '2026-10-14T00:00:00Z' }],
       });
       renderPage();
@@ -305,7 +373,7 @@ describe('Referrals', () => {
     it('shows a queued Premium grant as Plus', async () => {
       vi.mocked(referralsApi.mine).mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 0, premiumMilestoneCounter: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false,
         grants: [{ id: 'grant-1', tier: 'PREMIUM', status: 'PENDING', activatedAt: null, expiresAt: null }],
       });
       renderPage();

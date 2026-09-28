@@ -98,7 +98,7 @@ describe('Billing', () => {
     });
     vi.mocked(referralsApi.mine).mockReset().mockResolvedValue({
       code: 'ADA123', referrals: [], walletBalance: 0, referralCount: 0,
-      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false, grants: [],
     });
     vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
     vi.mocked(goalsApi.list).mockReset().mockResolvedValue([]);
@@ -634,6 +634,16 @@ describe('Billing', () => {
     expect(billingApi.invoicePdf).not.toHaveBeenCalled();
   });
 
+  it('keeps View/Download enabled for a refunded payment -- its invoice is still the record of the sale', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    vi.mocked(billingApi.history).mockResolvedValue([entry({ status: 'REFUNDED' })]);
+    renderPage();
+
+    await screen.findByText('₹499');
+    expect(screen.getByRole('button', { name: 'View' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Download' })).toBeEnabled();
+  });
+
   it('shows the card on file with an Update Payment Method button for a Razorpay subscriber', async () => {
     vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
       planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
@@ -939,7 +949,7 @@ describe('Billing', () => {
     vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
     vi.mocked(referralsApi.mine).mockResolvedValue({
       code: 'ADA123', walletBalance: 500, referralCount: 3,
-      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false, grants: [],
       referrals: [
         { referralId: 'r1', referredUserFullName: 'A', status: 'REWARDED', reward: 300, createdAt: '2026-09-01T00:00:00Z' },
         { referralId: 'r2', referredUserFullName: 'B', status: 'REWARDED', reward: 1200, createdAt: '2026-09-02T00:00:00Z' },

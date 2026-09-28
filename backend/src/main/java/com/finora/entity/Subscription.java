@@ -71,6 +71,11 @@ public class Subscription extends BaseEntity {
     @Column(name = "revenuecat_original_transaction_id", length = 100)
     private String revenuecatOriginalTransactionId;
 
+    // V241: the latest paid period's store transaction -- see RevenueCatWebhookDispatcher's
+    // refund handling for why a refund is matched against it.
+    @Column(name = "revenuecat_latest_transaction_id")
+    private String revenuecatLatestTransactionId;
+
     @Column(name = "auto_renew", nullable = false)
     private boolean autoRenew = true;
 
@@ -117,6 +122,8 @@ public class Subscription extends BaseEntity {
     public void setStorePlatform(String storePlatform) { this.storePlatform = storePlatform; }
     public String getRevenuecatOriginalTransactionId() { return revenuecatOriginalTransactionId; }
     public void setRevenuecatOriginalTransactionId(String revenuecatOriginalTransactionId) { this.revenuecatOriginalTransactionId = revenuecatOriginalTransactionId; }
+    public String getRevenuecatLatestTransactionId() { return revenuecatLatestTransactionId; }
+    public void setRevenuecatLatestTransactionId(String revenuecatLatestTransactionId) { this.revenuecatLatestTransactionId = revenuecatLatestTransactionId; }
     public boolean isAutoRenew() { return autoRenew; }
     public void setAutoRenew(boolean autoRenew) { this.autoRenew = autoRenew; }
     public Instant getCancellationDispatchedAt() { return cancellationDispatchedAt; }

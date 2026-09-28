@@ -96,7 +96,9 @@ export function RegisterScreen({ navigation, route }: Props) {
     setError(null);
     const startedAt = requestStartedAt();
     try {
-      await loginWithGoogle(idToken);
+      // The code from a friend's link (prefilled above) or typed below goes along -- before this,
+      // tapping Google here silently dropped it and the referral never counted.
+      await loginWithGoogle(idToken, referralCode);
     } catch (err) {
       reportTransportFailure(err, 'register:google', startedAt);
       setError(toUserMessage(err, 'Sign up with Google failed.'));
@@ -107,7 +109,7 @@ export function RegisterScreen({ navigation, route }: Props) {
     setError(null);
     const startedAt = requestStartedAt();
     try {
-      await loginWithApple(idToken, fullName);
+      await loginWithApple(idToken, fullName, referralCode);
     } catch (err) {
       reportTransportFailure(err, 'register:apple', startedAt);
       setError(toUserMessage(err, 'Sign up with Apple failed.'));

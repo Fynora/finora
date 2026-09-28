@@ -111,6 +111,27 @@ class InvoiceServiceTest {
     }
 
     @Test
+    void generate_throwsConflict_whenThePaymentFailed() {
+        Payment p = payment(userId, Payment.STATUS_FAILED, BigDecimal.valueOf(826));
+        when(paymentRepository.findById(paymentId)).thenReturn(Optional.of(p));
+
+        assertThatThrownBy(() -> service.generate(userId, paymentId))
+                .isInstanceOf(ApiException.class)
+                .satisfies(e -> assertThat(((ApiException) e).getStatus()).isEqualTo(HttpStatus.CONFLICT));
+    }
+
+    /** A refunded payment was charged; its invoice is still the record of that sale. */
+    @Test
+    void generate_stillIssuesTheInvoice_forARefundedPayment() {
+        Payment p = payment(userId, Payment.STATUS_REFUNDED, BigDecimal.valueOf(826));
+        when(paymentRepository.findById(paymentId)).thenReturn(Optional.of(p));
+
+        InvoiceService.GeneratedInvoice invoice = service.generate(userId, paymentId);
+
+        assertThat(new String(invoice.pdfBytes(), 0, 4)).isEqualTo("%PDF");
+    }
+
+    @Test
     void generate_producesAWellFormedPdf_withTheEntityAndGstBreakupOnIt() throws IOException {
         Payment p = payment(userId, Payment.STATUS_SUCCESS, BigDecimal.valueOf(826));
         p.setSubscriptionId(UUID.randomUUID());

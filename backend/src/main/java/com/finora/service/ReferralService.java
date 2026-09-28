@@ -28,6 +28,7 @@ import com.finora.repository.RefreshTokenRepository;
 import com.finora.repository.SubscriptionRepository;
 import com.finora.repository.UserRepository;
 import com.finora.repository.WalletLedgerRepository;
+import com.finora.util.LogSanitizer;
 import com.finora.util.PageBounds;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -268,7 +269,8 @@ public class ReferralService {
                 .orElse(null);
         if (referral == null) return;
         if (referralChargeRepository.existsByProviderAndChargeRef(provider, chargeRef)) {
-            log.info("{} charge {} already moved a referral once -- not counted again.", provider, chargeRef);
+            log.info("{} charge {} already moved a referral once -- not counted again.", provider,
+                    LogSanitizer.sanitize(chargeRef));
             return;
         }
 
@@ -333,7 +335,7 @@ public class ReferralService {
             // reversed so the second case can never count later.
             if (referralChargeRepository.insertReversedIfAbsent(provider, chargeRef, reason) == 1) {
                 log.info("{} charge {} reversed ({}) before any referral recorded it -- marked so it never counts.",
-                        provider, chargeRef, reason);
+                        provider, LogSanitizer.sanitize(chargeRef), reason);
                 return;
             }
             // A concurrent transaction committed this charge's row meanwhile: act on it.

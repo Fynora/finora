@@ -86,6 +86,56 @@ class TableTotalsRowPdfTableLocatorTest {
     }
 
     @Test
+    void aTotalLabelPrintedAtTheLeftMarginInTheDateColumn_isAlsoATotalsRow() {
+        // Real credit-card statements in the corpus print their "Total" line at the left margin,
+        // in the date column's x-range, rather than beside the amounts.
+        List<PositionedText> runs = table();
+        runs.add(run("Total", 26.0f, 292.1f));
+        runs.add(run(" 2,500.00", 399.8f, 292.8f));
+        runs.add(run(" 1,488.00", 465.8f, 292.8f));
+
+        DocumentContext ctx = new DocumentContext("PDF", "test");
+        PdfTableLocator.LocatedSection section = only(runs, ctx);
+
+        assertThat(section.rows()).hasSize(2);
+        Map<String, String> last = section.rows().get(1);
+        assertThat(last.get("Description")).isEqualTo("SAMPLE INTEREST CREDIT");
+        assertThat(last).containsEntry("Date", "30 Jun 2026").containsEntry("Deposit", "12.00")
+                .doesNotContainKey("Withdrawal");
+        assertThat(ctx.capabilities().stream().map(c -> c.capability())).contains("TABLE_TOTALS_ROW_DIVERTED");
+    }
+
+    @Test
+    void aTotalLabelEndingInANonBreakingSpace_isStillATotalsRow() {
+        // Real statements in the corpus carry a trailing U+00A0 on text runs, and nothing on the
+        // extraction path replaces it.
+        List<PositionedText> runs = table();
+        runs.add(run("Total ", 307.2f, 292.1f));
+        runs.add(run(" 2,500.00", 399.8f, 292.8f));
+        runs.add(run(" 1,488.00", 465.8f, 292.8f));
+
+        DocumentContext ctx = new DocumentContext("PDF", "test");
+        PdfTableLocator.LocatedSection section = only(runs, ctx);
+
+        assertThat(section.rows().get(1).get("Description")).isEqualTo("SAMPLE INTEREST CREDIT");
+        assertThat(ctx.capabilities().stream().map(c -> c.capability())).contains("TABLE_TOTALS_ROW_DIVERTED");
+    }
+
+    @Test
+    void aDateColumnHoldingARealDate_isNeverATotalsRow() {
+        List<PositionedText> runs = table();
+        runs.add(run("01 Jul 2026", DATE_X, 292.1f));
+        runs.add(run("Total", 118.8f, 292.1f));
+        runs.add(run(" 2,500.00", 399.8f, 292.8f));
+
+        DocumentContext ctx = new DocumentContext("PDF", "test");
+        PdfTableLocator.LocatedSection section = only(runs, ctx);
+
+        assertThat(section.rows()).hasSize(3);
+        assertThat(ctx.capabilities().stream().map(c -> c.capability())).doesNotContain("TABLE_TOTALS_ROW_DIVERTED");
+    }
+
+    @Test
     void aNarrationLineThatOnlyBeginsWithTotal_isStillTheTransactionsContinuation() {
         List<PositionedText> runs = table();
         runs.add(run("TOTAL SAMPLE CHARGES", 118.8f, 284.5f));

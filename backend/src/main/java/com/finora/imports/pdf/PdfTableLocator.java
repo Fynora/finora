@@ -6093,12 +6093,16 @@ public class PdfTableLocator {
         return false;
     }
 
+    // (?U): real text runs end in U+00A0 and nothing on the extraction path replaces it; without
+    // the flag, \s does not match it and "Total<NBSP>" fell through to the merge.
     private static final Pattern BARE_TOTALS_LABEL =
-            Pattern.compile("(?i)^\\s*(grand\\s+total|sub\\s*-?\\s*total|total)\\s*:?\\s*$");
+            Pattern.compile("(?iU)^\\s*(grand\\s+total|sub\\s*-?\\s*total|total)\\s*:?\\s*$");
 
     /** True when every non-blank cell is either a bare totals label ("Total", "Sub total",
-     *  "Grand total") in a text column or a number in an amount column, with at least one of
-     *  each -- see TABLE_TOTALS_ROW_DIVERTED at this method's only call site. */
+     *  "Grand total") in a non-amount column or a number in an amount column, with at least one of
+     *  each -- see TABLE_TOTALS_ROW_DIVERTED at its call sites. The label may sit in the date
+     *  column: statements that print it at the left margin (real IndusInd and Kotak credit-card
+     *  statements do) bucket it there, and a cell holding only "Total" is never a date. */
     private boolean isBareTotalsRow(Map<String, String> bucketed) {
         boolean label = false;
         boolean figure = false;
@@ -6108,7 +6112,7 @@ public class PdfTableLocator {
             if (isAmountColumn(e.getKey())) {
                 if (CsvParser.parseNumeric(value.trim()) == null) return false;
                 figure = true;
-            } else if (!isDateColumn(e.getKey()) && BARE_TOTALS_LABEL.matcher(value).matches()) {
+            } else if (BARE_TOTALS_LABEL.matcher(value).matches()) {
                 label = true;
             } else {
                 return false;
@@ -7305,6 +7309,13 @@ public class PdfTableLocator {
                 Map<String, String> bucketed = bucketRow(resolvedRow, headerNames, headerAnchors, headerEnds, ctx,
                         rowYears);
                 if (bucketed.isEmpty()) continue;
+                // TABLE_TOTALS_ROW_DIVERTED, same rule as the header-based path: a closing "Total"
+                // line is not the last transaction's continuation.
+                if (isBareTotalsRow(bucketed)) {
+                    auxiliaryText.add(rowLine);
+                    if (ctx != null) ctx.record("TABLE_TOTALS_ROW_DIVERTED");
+                    continue;
+                }
                 mergeInto(currentAnchor, bucketed, headerNames);
                 continuationCount++;
             } else if (!rowLine.isBlank()) {

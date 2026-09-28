@@ -99,4 +99,29 @@ class HeaderlessTableTotalsRowTest {
                 .containsEntry("Credit", "200.00");
         assertThat(ctx.capabilities().stream().map(c -> c.capability())).contains("TABLE_TOTALS_ROW_DIVERTED");
     }
+
+    @Test
+    void aLoneTotalLabelAtTheLeftMargin_isAuxiliaryText() {
+        List<PositionedText> runs = statement();
+        runs.add(run("Total", 30f, 25f, 400f));
+
+        DocumentContext ctx = new DocumentContext("PDF", "test");
+        PdfTableLocator.LocatedDocument doc = new PdfTableLocator().locateAll(runs, ctx);
+
+        assertThat(doc.sections().get(0).rows().get(4))
+                .containsEntry("Description", "REFUND FROM ONLINE MERCHANT STORE");
+        assertThat(ctx.capabilities().stream().map(c -> c.capability())).contains("TABLE_TOTALS_ROW_DIVERTED");
+    }
+
+    @Test
+    void aLoneTotalsWordWhereTheNarrationStarts_isNarration() {
+        List<PositionedText> runs = statement();
+        runs.add(run("TOTAL", 165f, 30f, 390f));
+
+        DocumentContext ctx = new DocumentContext("PDF", "test");
+        PdfTableLocator.LocatedDocument doc = new PdfTableLocator().locateAll(runs, ctx);
+
+        assertThat(doc.sections().get(0).rows().get(4).get("Description")).contains("TOTAL");
+        assertThat(ctx.capabilities().stream().map(c -> c.capability())).doesNotContain("TABLE_TOTALS_ROW_DIVERTED");
+    }
 }

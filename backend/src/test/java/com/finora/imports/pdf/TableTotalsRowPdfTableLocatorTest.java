@@ -149,12 +149,78 @@ class TableTotalsRowPdfTableLocatorTest {
     }
 
     @Test
-    void aTotalLabelWithoutAnyFigure_isNotATotalsRow() {
+    void aLoneTotalLabelOutsideTheNarration_isATotalsRow() {
+        // No figure, no placeholder, nothing on an adjacent row: the label alone, in the cheque
+        // column, where no narration of this table starts.
         List<PositionedText> runs = table();
         runs.add(run("Total", 307.2f, 292.1f));
+        assertDiverted(runs);
+    }
+
+    @Test
+    void aLoneTotalLabelAtTheLeftMargin_whereNoNarrationStarts_isATotalsRow() {
+        List<PositionedText> runs = table();
+        runs.add(run("Total", 26.0f, 292.1f));
+        assertDiverted(runs);
+    }
+
+    @Test
+    void aLoneTotalsWordWhereTheNarrationStarts_isNarration() {
+        // A merchant named "TOTAL" wrapped onto its own line starts where the narration starts.
+        List<PositionedText> runs = table();
+        runs.add(run("TOTAL", 118.8f, 284.5f));
 
         DocumentContext ctx = new DocumentContext("PDF", "test");
-        only(runs, ctx);
+        PdfTableLocator.LocatedSection section = only(runs, ctx);
+
+        assertThat(section.rows().get(1).get("Description")).isEqualTo("SAMPLE INTEREST CREDIT TOTAL");
+        assertThat(ctx.capabilities().stream().map(c -> c.capability())).doesNotContain("TABLE_TOTALS_ROW_DIVERTED");
+    }
+
+    @Test
+    void aLoneTotalsWordAtALeftEdgeThisLayoutsNarrationAlreadyWrapsTo_isNarration() {
+        // Bank of Baroda-style: wrapped narration starts at the left margin and buckets into the
+        // date column. Once the document has shown a line starting there, a lone "TOTAL" there
+        // is not ruled out as narration.
+        List<PositionedText> runs = new ArrayList<>(List.of(
+                run("Date", DATE_X, HEADER_Y),
+                run("Value Date", VALUE_DATE_X, HEADER_Y),
+                run("Description", NARRATION_X, HEADER_Y),
+                run("Cheque", CHEQUE_X, HEADER_Y),
+                run("Deposit", DEPOSIT_X, HEADER_Y),
+                run("Withdrawal", WITHDRAWAL_X, HEADER_Y),
+                run("Balance", BALANCE_X, HEADER_Y)));
+        runs.add(run("29 Jun 2026", DATE_X, 256.7f));
+        runs.add(run("29 Jun 2026", VALUE_DATE_X, 256.7f));
+        runs.add(run("UPI/000000000001/", 118.8f, 256.7f));
+        runs.add(run("40.00", 470.0f, 256.7f));
+        runs.add(run("1,000.00", 531.7f, 256.7f));
+        runs.add(run("SAMPLE PAYEE/REF", 26.0f, 266.0f));
+        runs.add(run("30 Jun 2026", DATE_X, 280.8f));
+        runs.add(run("30 Jun 2026", VALUE_DATE_X, 280.8f));
+        runs.add(run("UPI/000000000002/", 118.8f, 280.8f));
+        runs.add(run("12.00", 413.3f, 280.8f));
+        runs.add(run("1,012.00", 531.7f, 280.8f));
+        runs.add(run("TOTAL", 26.0f, 290.1f));
+
+        DocumentContext ctx = new DocumentContext("PDF", "test");
+        PdfTableLocator.LocatedSection section = only(runs, ctx);
+
+        assertThat(section.rows()).hasSize(2);
+        assertThat(section.rows().get(1).get("Description")).contains("TOTAL");
+        assertThat(ctx.capabilities().stream().map(c -> c.capability())).doesNotContain("TABLE_TOTALS_ROW_DIVERTED");
+    }
+
+    @Test
+    void aLoneTotalLabelUnderATransactionWithNoAmountYet_isNotDiverted() {
+        List<PositionedText> runs = new ArrayList<>(table());
+        runs.add(run("01 Jul 2026", DATE_X, 288.0f));
+        runs.add(run("01 Jul 2026", VALUE_DATE_X, 288.0f));
+        runs.add(run("POS 000000000009", 118.8f, 288.0f));
+        runs.add(run("Total", 307.2f, 298.0f));
+
+        DocumentContext ctx = new DocumentContext("PDF", "test");
+        only3(runs, ctx);
 
         assertThat(ctx.capabilities().stream().map(c -> c.capability())).doesNotContain("TABLE_TOTALS_ROW_DIVERTED");
     }
@@ -344,10 +410,20 @@ class TableTotalsRowPdfTableLocatorTest {
     }
 
     @Test
-    void aLabelAndFiguresALinePitchApart_areNotPairedAsOneTotalsLine() {
+    void figuresALinePitchUnderALabelThatStandsApart_areDivertedWithIt() {
         List<PositionedText> runs = table();
         runs.add(run("Total", 307.2f, 292.1f));
         runs.add(run(" 2,500.00", 399.8f, 302.5f));
+        assertDiverted(runs);
+    }
+
+    @Test
+    void figuresALinePitchUnderANarrationAlignedTotalsWord_areNotPairedWithIt() {
+        // "TOTAL" where the narration starts may be narration, so it establishes nothing; beyond
+        // the split-line gap its figures are not claimed as a totals line.
+        List<PositionedText> runs = table();
+        runs.add(run("TOTAL", 118.8f, 284.5f));
+        runs.add(run(" 2,500.00", 399.8f, 295.0f));
 
         DocumentContext ctx = new DocumentContext("PDF", "test");
         only(runs, ctx);

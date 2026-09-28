@@ -64,7 +64,7 @@ class DatelessAmountRowPdfTableLocatorTest {
         runs.add(run("49.40", AMOUNT_X, y));
         runs.add(run("D", INDICATOR_X, y));
         y += PITCH;                                             // a narration-only line under it
-        runs.add(run("TRANSACTIONS FOR A B CDE", NARRATION_X, y));
+        runs.add(run("SAMPLE FEE NOTE", NARRATION_X, y));
         y += PITCH;
         runs.add(run("09 Aug 26", DATE_X, y));
         runs.add(run("SHOP", NARRATION_X, y));
@@ -82,7 +82,7 @@ class DatelessAmountRowPdfTableLocatorTest {
         assertThat(rows.get(1).get("Transaction Details")).startsWith("IGST DB @ 18.00%");
         assertThat(rows.get(1).get("Transaction Details"))
                 .as("the narration-only line still trails the row it is printed under")
-                .contains("TRANSACTIONS FOR A B CDE");
+                .contains("SAMPLE FEE NOTE");
         assertThat(rows.get(2)).containsEntry("Date", "09 Aug 26").containsEntry("Amount", "100.00");
         assertThat(ctx.capabilities().stream().map(c -> c.capability()))
                 .contains("DATELESS_AMOUNT_ROW_SPLIT");

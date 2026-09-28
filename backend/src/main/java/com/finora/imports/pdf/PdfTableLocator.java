@@ -534,6 +534,21 @@ public class PdfTableLocator {
     // any row of the section exists -- a note between two transactions is not a header annotation.
     private static final Pattern HEADER_ANNOTATION = Pattern.compile("^\\s*\\([^()]{1,40}\\)\\s*$");
 
+    // Same role, without brackets: a real SBI credit-card statement prints its header as "Transaction
+    // Details" with "for Statement Period: <date> to <date>" on the line under it, and that line
+    // began the first transaction's description. Whole line, a date range and nothing else, and only
+    // before any row of the section exists, exactly as HEADER_ANNOTATION.
+    private static final Pattern HEADER_PERIOD_ANNOTATION = Pattern.compile(
+            "(?i)^\\s*for\\s+statement\\s+period\\s*:?\\s*\\d{1,2}\\s+[a-z]{3}\\s+\\d{2,4}\\s+to\\s+"
+                    + "\\d{1,2}\\s+[a-z]{3}\\s+\\d{2,4}\\s*$");
+
+    // CARDHOLDER_SUBTABLE_BANNER, SBI's shape: the same real SBI credit-card statement opens its
+    // add-on cardholder's transactions with a line of its own, "TRANSACTIONS FOR <name>", which was
+    // appended to the row above it. Whole line, letters only after "FOR": a narration continuation
+    // carrying a reference or an amount is never one.
+    private static final Pattern ADD_ON_CARDHOLDER_BANNER = Pattern.compile(
+            "(?i)^\\s*transactions\\s+for\\s+[a-z][a-z .']{0,60}$");
+
     private static final Pattern TRANSACTION_REGION_HEADING = Pattern.compile(
             "(?i)^\\s*(domestic|international)\\s+transactions\\s*$");
 
@@ -1964,12 +1979,14 @@ public class PdfTableLocator {
                 recordIfTransactionShaped(row, "PAGE_FOOTER_OR_CLOSING_MARKER", pendingDroppedCandidates);
                 continue; // a page-number line or closing marker is never a transaction or a continuation of one
             } else if (currentRows.isEmpty() && pendingLeading == null
-                    && HEADER_ANNOTATION.matcher(rowLine).matches()) {
+                    && (HEADER_ANNOTATION.matcher(rowLine).matches()
+                        || HEADER_PERIOD_ANNOTATION.matcher(rowLine).matches())) {
                 // See HEADER_ANNOTATION's own doc comment.
                 if (ctx != null) ctx.record("HEADER_ANNOTATION_SUPPRESSED");
                 recordIfTransactionShaped(row, "HEADER_ANNOTATION_SUPPRESSED", pendingDroppedCandidates);
                 continue;
-            } else if (CARDHOLDER_SUBTABLE_BANNER.matcher(rowLine).matches()) {
+            } else if (CARDHOLDER_SUBTABLE_BANNER.matcher(rowLine).matches()
+                    || ADD_ON_CARDHOLDER_BANNER.matcher(rowLine).matches()) {
                 // See CARDHOLDER_SUBTABLE_BANNER's own doc comment. Neither a row nor narration for
                 // one; kept as this section's own auxiliary text so the holder name and card number
                 // it carries reach PdfMetadataExtractor, which nothing else in this document gives.

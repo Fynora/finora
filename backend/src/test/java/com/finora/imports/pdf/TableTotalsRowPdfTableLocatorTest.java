@@ -212,6 +212,45 @@ class TableTotalsRowPdfTableLocatorTest {
     }
 
     @Test
+    void aLoneTotalsWordThatIsTheDocumentsFirstLeftMarginWrap_isNarration_whenLaterWrapsStartThere() {
+        // Bank of Baroda-style, but the FIRST wrapped line in the document is the word "TOTAL":
+        // nothing before it starts at the left margin. A later transaction's wrap -- printed
+        // between two transactions, so certainly ledger text -- starts there, and that is enough.
+        List<PositionedText> runs = new ArrayList<>(List.of(
+                run("Date", DATE_X, HEADER_Y),
+                run("Value Date", VALUE_DATE_X, HEADER_Y),
+                run("Description", NARRATION_X, HEADER_Y),
+                run("Cheque", CHEQUE_X, HEADER_Y),
+                run("Deposit", DEPOSIT_X, HEADER_Y),
+                run("Withdrawal", WITHDRAWAL_X, HEADER_Y),
+                run("Balance", BALANCE_X, HEADER_Y)));
+        runs.add(run("28 Jun 2026", DATE_X, 256.7f));
+        runs.add(run("28 Jun 2026", VALUE_DATE_X, 256.7f));
+        runs.add(run("POS 000000000007", 118.8f, 256.7f));
+        runs.add(run("40.00", 470.0f, 256.7f));
+        runs.add(run("1,000.00", 531.7f, 256.7f));
+        runs.add(run("TOTAL", 26.0f, 266.0f));
+        runs.add(run("29 Jun 2026", DATE_X, 280.8f));
+        runs.add(run("29 Jun 2026", VALUE_DATE_X, 280.8f));
+        runs.add(run("UPI/000000000002/", 118.8f, 280.8f));
+        runs.add(run("12.00", 413.3f, 280.8f));
+        runs.add(run("1,012.00", 531.7f, 280.8f));
+        runs.add(run("SAMPLE PAYEE/REF", 26.0f, 290.1f));
+        runs.add(run("30 Jun 2026", DATE_X, 304.8f));
+        runs.add(run("30 Jun 2026", VALUE_DATE_X, 304.8f));
+        runs.add(run("UPI/000000000003/", 118.8f, 304.8f));
+        runs.add(run("8.00", 470.0f, 304.8f));
+        runs.add(run("1,004.00", 531.7f, 304.8f));
+
+        DocumentContext ctx = new DocumentContext("PDF", "test");
+        PdfTableLocator.LocatedSection section = only(runs, ctx);
+
+        assertThat(section.rows()).hasSize(3);
+        assertThat(section.rows().get(0).get("Description")).contains("TOTAL");
+        assertThat(ctx.capabilities().stream().map(c -> c.capability())).doesNotContain("TABLE_TOTALS_ROW_DIVERTED");
+    }
+
+    @Test
     void aLoneTotalLabelUnderATransactionWithNoAmountYet_isNotDiverted() {
         List<PositionedText> runs = new ArrayList<>(table());
         runs.add(run("01 Jul 2026", DATE_X, 288.0f));

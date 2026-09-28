@@ -124,4 +124,22 @@ class HeaderlessTableTotalsRowTest {
         assertThat(doc.sections().get(0).rows().get(4).get("Description")).contains("TOTAL");
         assertThat(ctx.capabilities().stream().map(c -> c.capability())).doesNotContain("TABLE_TOTALS_ROW_DIVERTED");
     }
+
+    @Test
+    void aLoneTotalsWordThatIsTheFirstLeftMarginWrap_isNarration_whenLaterWrapsStartThere() {
+        List<PositionedText> runs = new ArrayList<>();
+        runs.addAll(transaction("01/01/2026", "GROCERY STORE PURCHASE MONTHLY", "500.00", "-", "9500.00", 300f));
+        runs.add(run("TOTAL", 30f, 30f, 310f));
+        runs.addAll(transaction("02/01/2026", "SALARY CREDIT FROM EMPLOYER LTD", "-", "20000.00", "29500.00", 320f));
+        runs.add(run("SAMPLE REF LINE", 30f, 80f, 330f));
+        runs.addAll(transaction("03/01/2026", "ELECTRICITY BILL PAYMENT ONLINE", "1500.00", "-", "28000.00", 340f));
+        runs.addAll(transaction("04/01/2026", "MOBILE RECHARGE PREPAID PLAN", "300.00", "-", "27700.00", 360f));
+        runs.addAll(transaction("05/01/2026", "REFUND FROM ONLINE MERCHANT STORE", "-", "200.00", "27900.00", 380f));
+
+        DocumentContext ctx = new DocumentContext("PDF", "test");
+        PdfTableLocator.LocatedDocument doc = new PdfTableLocator().locateAll(runs, ctx);
+
+        assertThat(doc.sections().get(0).rows().get(0).get("Description")).contains("TOTAL");
+        assertThat(ctx.capabilities().stream().map(c -> c.capability())).doesNotContain("TABLE_TOTALS_ROW_DIVERTED");
+    }
 }

@@ -1286,6 +1286,10 @@ public class PdfTableLocator {
         // and never cleared: more positions only ever make a lone totals label less likely to be
         // diverted. See aLoneTotalsLabelStandsApartFromNarration.
         List<Float> narrationStarts = new ArrayList<>();
+        // Where text starts on every line printed between two transactions on one page, over the
+        // WHOLE document, computed up front -- so a label is also checked against narration that
+        // wraps further down, not only above it. See ledgerLineStarts.
+        LedgerLineStarts ledgerLineStarts = new LedgerLineStarts(rows, yearsByPage);
 
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             List<PositionedText> row = rows.get(rowIndex);
@@ -2064,13 +2068,13 @@ public class PdfTableLocator {
                                         headerEnds, null, adjacentYears, textColumnSpans, marginPanelBand);
                                 if (!hasDateValue(adjacentBucketed, adjacentYears) && pairsAsOneTotalsLine(
                                         part, row, bucketed, totalsLinePart(adjacentBucketed, headerNames), adjacent,
-                                        adjacentBucketed, gapToNextRow, narrationStarts)) {
+                                        adjacentBucketed, gapToNextRow, narrationStarts, ledgerLineStarts, rowIndex)) {
                                     divertAsTotals = true;
                                     totalsPairRowIndex = rowIndex + 1;
                                 }
                             }
                             if (!divertAsTotals && part == TotalsLinePart.LABEL_ONLY
-                                    && aLoneTotalsLabelStandsApartFromNarration(row, bucketed, narrationStarts)) {
+                                    && aLoneTotalsLabelStandsApartFromNarration(row, bucketed, narrationStarts, ledgerLineStarts, rowIndex)) {
                                 divertAsTotals = true;
                             }
                         }
@@ -6298,11 +6302,17 @@ public class PdfTableLocator {
      *  left margin and bucket into the date column, and they start there on every transaction. So
      *  the label is read as a totals label only when it sits outside the description column AND its
      *  left edge lines up with no position at which text has begun on any row this document has
-     *  admitted or merged so far. With no such position known yet, nothing can be ruled out, and
-     *  the label is left to the ordinary merge. */
+     *  admitted or merged so far, nor on any line printed between two transactions anywhere in the
+     *  document ({@code ledgerLineStarts}, the label's own row excluded). The second set is what
+     *  covers a label that is the document's FIRST wrapped line: the wraps printed further down
+     *  still show where this layout's narration starts. With no position known at all, nothing can
+     *  be ruled out, and the label is left to the ordinary merge. */
     private boolean aLoneTotalsLabelStandsApartFromNarration(List<PositionedText> row, Map<String, String> bucketed,
-                                                             List<Float> narrationStarts) {
-        if (narrationStarts.isEmpty()) return false;
+                                                             List<Float> narrationStarts,
+                                                             LedgerLineStarts ledgerLineStarts, int rowIndex) {
+        Map<Integer, List<Float>> ledgerStarts = ledgerLineStarts.get();
+        boolean anyLedgerStart = ledgerStarts.keySet().stream().anyMatch(i -> i != rowIndex);
+        if (narrationStarts.isEmpty() && !anyLedgerStart) return false;
         for (Map.Entry<String, String> e : bucketed.entrySet()) {
             if (e.getValue() == null || e.getValue().isBlank()) continue;
             if (matchesAnyHint(e.getKey(), DESCRIPTION_COLUMN_HINTS)) return false;
@@ -6312,7 +6322,77 @@ public class PdfTableLocator {
         for (Float start : narrationStarts) {
             if (Math.abs(start - labelX) <= CONTINUATION_ALIGNMENT_TOLERANCE) return false;
         }
+        for (Map.Entry<Integer, List<Float>> line : ledgerStarts.entrySet()) {
+            if (line.getKey() == rowIndex) continue;
+            for (Float start : line.getValue()) {
+                if (Math.abs(start - labelX) <= CONTINUATION_ALIGNMENT_TOLERANCE) return false;
+            }
+        }
         return true;
+    }
+
+    /** Where text begins (as {@link #noteTextStarts} records it) on every transaction-shaped row of
+     *  the document and on every physical row printed between two transaction-shaped rows of the
+     *  same page, keyed by row index. Both are ledger text by position alone -- a transaction's own
+     *  narration, a wrapped narration line, a reference line, a leading narration line -- whatever
+     *  the row loop later decides about them, and they are known before the loop starts, so a lone
+     *  totals label is checked against narration printed after it (or before any transaction was
+     *  admitted) as well. A line after a page's last transaction is not included: that is where
+     *  page footers, and the totals line itself, are printed. */
+    private final class LedgerLineStarts {
+        private final List<List<PositionedText>> rows;
+        private final Map<Integer, PageDateEvidence> yearsByPage;
+        private Map<Integer, List<Float>> computed;
+
+        LedgerLineStarts(List<List<PositionedText>> rows, Map<Integer, PageDateEvidence> yearsByPage) {
+            this.rows = rows;
+            this.yearsByPage = yearsByPage;
+        }
+
+        /** Computed on first use only: a document with no lone totals label never pays for it. */
+        Map<Integer, List<Float>> get() {
+            if (computed == null) computed = ledgerLineStarts(rows, yearsByPage);
+            return computed;
+        }
+    }
+
+    private Map<Integer, List<Float>> ledgerLineStarts(List<List<PositionedText>> rows,
+                                                       Map<Integer, PageDateEvidence> yearsByPage) {
+        int count = rows.size();
+        boolean[] transactionShaped = new boolean[count];
+        for (int i = 0; i < count; i++) {
+            List<PositionedText> row = rows.get(i);
+            if (row.isEmpty()) continue;
+            PageDateEvidence years = yearsByPage.getOrDefault(row.get(0).pageIndex(), PageDateEvidence.NONE);
+            transactionShaped[i] = isTransactionShapedRow(substituteYearlessDates(row, years), years);
+        }
+        int[] nextShaped = new int[count];
+        int next = -1;
+        for (int i = count - 1; i >= 0; i--) {
+            nextShaped[i] = next;
+            if (transactionShaped[i]) next = i;
+        }
+        Map<Integer, List<Float>> starts = new HashMap<>();
+        int lastShaped = -1;
+        for (int i = 0; i < count; i++) {
+            List<PositionedText> row = rows.get(i);
+            if (row.isEmpty()) continue;
+            if (transactionShaped[i]) {
+                lastShaped = i;
+                List<Float> ownNarration = new ArrayList<>();
+                noteTextStarts(ownNarration, row);
+                if (!ownNarration.isEmpty()) starts.put(i, ownNarration);
+                continue;
+            }
+            int page = row.get(0).pageIndex();
+            int after = nextShaped[i];
+            if (lastShaped < 0 || after < 0) continue;
+            if (rows.get(lastShaped).get(0).pageIndex() != page || rows.get(after).get(0).pageIndex() != page) continue;
+            List<Float> lineStarts = new ArrayList<>();
+            noteTextStarts(lineStarts, row);
+            if (!lineStarts.isEmpty()) starts.put(i, lineStarts);
+        }
+        return starts;
     }
 
     /** Whether this row and the next physical row are the two halves of one totals line: one is a
@@ -6323,15 +6403,17 @@ public class PdfTableLocator {
      *  the table's totals label; the figures directly beside it are then its figures. */
     private boolean pairsAsOneTotalsLine(TotalsLinePart part, List<PositionedText> row, Map<String, String> bucketed,
                                          TotalsLinePart adjacentPart, List<PositionedText> adjacent,
-                                         Map<String, String> adjacentBucketed, Float gap, List<Float> narrationStarts) {
+                                         Map<String, String> adjacentBucketed, Float gap, List<Float> narrationStarts,
+                                         LedgerLineStarts ledgerLineStarts, int rowIndex) {
         boolean labelHere = part == TotalsLinePart.LABEL_ONLY && adjacentPart == TotalsLinePart.FIGURES_ONLY;
         boolean labelAdjacent = part == TotalsLinePart.FIGURES_ONLY && adjacentPart == TotalsLinePart.LABEL_ONLY;
         if (!labelHere && !labelAdjacent) return false;
         if (gap == null || gap < 0) return false;
         if (gap <= TOTALS_SPLIT_LINE_MAX_GAP) return true;
         return labelHere
-                ? aLoneTotalsLabelStandsApartFromNarration(row, bucketed, narrationStarts)
-                : aLoneTotalsLabelStandsApartFromNarration(adjacent, adjacentBucketed, narrationStarts);
+                ? aLoneTotalsLabelStandsApartFromNarration(row, bucketed, narrationStarts, ledgerLineStarts, rowIndex)
+                : aLoneTotalsLabelStandsApartFromNarration(adjacent, adjacentBucketed, narrationStarts,
+                        ledgerLineStarts, rowIndex + 1);
     }
 
     private static final List<String> VALUE_DATE_HINTS = List.of("value date", "value dt", "val date", "val dt");
@@ -7480,6 +7562,7 @@ public class PdfTableLocator {
         String previousTransactionLine = null;
         int totalsPairRowIndex = -1;
         List<Float> narrationStarts = new ArrayList<>();
+        LedgerLineStarts ledgerLineStarts = new LedgerLineStarts(allRows, yearsByPage);
         for (int rowIndex = 0; rowIndex < allRows.size(); rowIndex++) {
             List<PositionedText> row = allRows.get(rowIndex);
             String rowLine = lineOf(row);
@@ -7543,13 +7626,13 @@ public class PdfTableLocator {
                                 headerEnds, null, adjacentYears);
                         if (!isTransactionShapedRow(resolvedAdjacent, adjacentYears) && pairsAsOneTotalsLine(
                                 part, row, bucketed, totalsLinePart(adjacentBucketed, headerNames), adjacent,
-                                adjacentBucketed, gapBetween(row, adjacent), narrationStarts)) {
+                                adjacentBucketed, gapBetween(row, adjacent), narrationStarts, ledgerLineStarts, rowIndex)) {
                             divertAsTotals = true;
                             totalsPairRowIndex = rowIndex + 1;
                         }
                     }
                     if (!divertAsTotals && part == TotalsLinePart.LABEL_ONLY
-                            && aLoneTotalsLabelStandsApartFromNarration(row, bucketed, narrationStarts)) {
+                            && aLoneTotalsLabelStandsApartFromNarration(row, bucketed, narrationStarts, ledgerLineStarts, rowIndex)) {
                         divertAsTotals = true;
                     }
                 }

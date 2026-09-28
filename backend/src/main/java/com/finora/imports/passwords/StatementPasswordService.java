@@ -88,6 +88,12 @@ public class StatementPasswordService {
         return repository.findByImportJobId(importJobId).flatMap(this::decrypt);
     }
 
+    /** The password the upload that staged this session was queued with, if the user saved one. */
+    @Transactional(readOnly = true)
+    public Optional<String> forSession(UUID importSessionId) {
+        return repository.findHeldByJobsOfSession(importSessionId).stream().findFirst().flatMap(this::decrypt);
+    }
+
     /**
      * Moves a confirmed upload's password onto the statements it produced. Called inside the
      * confirm's transaction, so the statements and their password commit together.

@@ -143,7 +143,7 @@ public class ImportJobController {
         }
 
         var accepted = ImportJobDto.Accepted.of(
-                importJobService.accept(currentUser.id(), file, format, passwordToSave));
+                importJobService.accept(currentUser.id(), file, format, passwordToSave), passwordToSave != null);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(ApiResponse.ok(accepted));
     }
 

@@ -89,6 +89,7 @@ class StatementPasswordIT extends AbstractIntegrationTest {
     @Autowired private RefreshTokenRepository refreshTokens;
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private StatementContentService statementContentService;
+    @Autowired private com.finora.imports.evidence.ClosingBalanceEvidenceRederivationService rederivationService;
     private final ObjectMapper mapper = new ObjectMapper();
 
     @BeforeEach
@@ -157,6 +158,7 @@ class StatementPasswordIT extends AbstractIntegrationTest {
     private UUID importQueued(User user, Account account, byte[] pdf, String password, Boolean save) throws Exception {
         ResponseEntity<String> accepted = upload(user, pdf, password, save);
         assertThat(accepted.getStatusCode()).as(accepted.getBody()).isEqualTo(HttpStatus.ACCEPTED);
+        assertThat(read(accepted).get("data").get("passwordSaved").asBoolean()).isEqualTo(Boolean.TRUE.equals(save));
         UUID jobId = UUID.fromString(read(accepted).get("data").get("jobId").asText());
 
         worker.drainOnce();
@@ -279,6 +281,8 @@ class StatementPasswordIT extends AbstractIntegrationTest {
                 PdfFixtureBuilder.buildReverseChronologicalRunningBalanceSample(), PASSWORD, true);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        assertThat(read(response).get("data").get("passwordSaved").asBoolean())
+                .as("the client is told, so the user does not believe it was kept").isFalse();
         assertThat(passwordRepository.findAll().stream().filter(p -> p.getUserId().equals(user.getId()))).isEmpty();
     }
 
@@ -416,6 +420,22 @@ class StatementPasswordIT extends AbstractIntegrationTest {
 
         assertThat(copy.unlocked()).isFalse();
         assertThat(copy.content()).isEqualTo(notReallyAPdf);
+    }
+
+    @Test
+    void theClosingBalanceEvidenceCheck_opensAQueuedLockedUploadWithItsSavedPassword() throws Exception {
+        User user = user();
+        ResponseEntity<String> accepted = upload(user, lockedPdf(), PASSWORD, true);
+        UUID jobId = UUID.fromString(read(accepted).get("data").get("jobId").asText());
+        worker.drainOnce();
+        UUID sessionId = jobRepository.findById(jobId).orElseThrow().getImportSessionId();
+
+        // Before the confirm, which is when ImportService runs this check. Without the saved
+        // password the re-read fails with IMPORT_PDF_PASSWORD_REQUIRED and nothing is recorded.
+        var evidence = rederivationService.rederiveClosingBalanceEvidenceDetailed(
+                user.getId(), sessionId, null, new BigDecimal("1000.00"));
+
+        assertThat(evidence.assessment()).isNotNull();
     }
 
     @Test

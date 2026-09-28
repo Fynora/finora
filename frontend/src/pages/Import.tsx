@@ -214,6 +214,11 @@ export default function Import() {
   // across the network before finding out, then push it again on the synchronous path.
   const [jobId, setJobId] = useState<string | null>(null);
   const [asyncAvailable, setAsyncAvailable] = useState(false);
+  // Statement refresh, step 4: whether this deployment may keep a protected PDF's password, and
+  // whether the user ticked the box to let it. Never ticked by default -- keeping a password is
+  // something the user chooses, per upload.
+  const [savePasswordOffered, setSavePasswordOffered] = useState(false);
+  const [savePassword, setSavePassword] = useState(false);
 
   // Staged rows. `review` holds the include flags and the duplicate decisions as one value --
   // see lib/importReview.ts for why they are not two pieces of state.
@@ -365,7 +370,10 @@ export default function Import() {
     // Failing closed on purpose: if this call fails we simply use the synchronous path, which is
     // what every deployment supports. An import that works slowly beats one that does not start.
     importJobsApi.availability()
-      .then((a) => setAsyncAvailable(a.asyncImportAvailable))
+      .then((a) => {
+        setAsyncAvailable(a.asyncImportAvailable);
+        setSavePasswordOffered(a.asyncImportAvailable && a.savePasswordAvailable === true);
+      })
       .catch(() => setAsyncAvailable(false));
 
     if (reimportState) {
@@ -602,6 +610,7 @@ export default function Import() {
       setPendingPdf(null);
       setPdfPassword('');
       setPasswordState(null);
+      setSavePassword(false);
       advance();
     }, UPLOAD_COMPLETE_DWELL_MS);
   }
@@ -613,14 +622,17 @@ export default function Import() {
     // reset and leaves uploadProgress/uploadCompleted for celebrateThenAdvance to clear itself.
     let holdForCompletion = false;
     try {
-      // The queue, when this deployment has one and the file does not need a password.
+      // The queue, when this deployment has one and the file does not need a password -- or when
+      // the user chose to let Fynora keep the password (statement refresh, step 4), which is what
+      // lets the worker open the file minutes later and a refresh reopen it later still.
       //
-      // A protected PDF is deliberately excluded rather than made to work: the job carries a
-      // content address and no password, and the worker opens the document minutes later with
-      // nobody to ask. Sending it synchronously keeps the one flow where the person who knows the
-      // password is still on the screen.
-      if (asyncAvailable && !password) {
-        const accepted = await importJobsApi.submit(file, setUploadProgress);
+      // Otherwise a password goes to the synchronous path, which uses it once and keeps nothing:
+      // the job would carry no password, and the worker would open the document with nobody to ask.
+      const keepPassword = !!password && savePassword && savePasswordOffered;
+      if (asyncAvailable && (!password || keepPassword)) {
+        const accepted = await importJobsApi.submit(file, setUploadProgress,
+          keepPassword ? { password: password! } : undefined);
+        setSavePassword(false);
         setFileFormat(isPdf ? 'PDF' : 'CSV');
         setPendingPdf(null);
         setPdfPassword('');
@@ -1093,6 +1105,30 @@ export default function Import() {
                 </p>
               </div>
 
+              {savePasswordOffered && (
+                <div className="flex items-start gap-2">
+                  <input
+                    id="pdf-save-password"
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={savePassword}
+                    onChange={(e) => setSavePassword(e.target.checked)}
+                    disabled={uploading}
+                    aria-describedby="pdf-save-password-help"
+                  />
+                  <div>
+                    <label htmlFor="pdf-save-password" className="text-sm text-ink">
+                      Keep this password so Fynora can read this statement again later
+                    </label>
+                    <p id="pdf-save-password-help" className="text-xs text-muted">
+                      Stored encrypted, only for this statement. It lets us re-read the statement when we
+                      improve how statements are read, and lets our team check it if the import has a
+                      problem on our side. Remove it any time in Settings → Data.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <UploadProgressPanel
                 state={uploadPanelState}
                 progress={uploadProgress ?? 0}
@@ -1106,6 +1142,7 @@ export default function Import() {
                         setPendingPdf(null);
                         setPdfPassword('');
                         setPasswordState(null);
+                        setSavePassword(false);
                         clearError();
                       }}
                     >

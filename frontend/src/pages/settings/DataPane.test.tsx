@@ -5,6 +5,7 @@ import { analyticsApi } from '../../api/endpoints';
 
 vi.mock('../../api/endpoints', () => ({
   analyticsApi: { importStatistics: vi.fn() },
+  statementPasswordsApi: { list: vi.fn().mockResolvedValue({ saveAvailable: false, items: [] }) },
 }));
 
 describe('DataPane', () => {

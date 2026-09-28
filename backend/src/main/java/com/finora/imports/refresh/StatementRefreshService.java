@@ -500,6 +500,11 @@ public class StatementRefreshService {
         return runRepository.save(builder.build());
     }
 
+    /** Whether applying a refresh is switched on ({@code app.statement-refresh.apply.enabled}). */
+    public boolean enabled() {
+        return enabled;
+    }
+
     private void requireEnabled() {
         if (!enabled) throw new ApiException(HttpStatus.NOT_FOUND, "Not found");
     }

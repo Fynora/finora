@@ -9,4 +9,6 @@ import java.util.UUID;
 public interface StatementRefreshRunRepository extends JpaRepository<StatementRefreshRun, UUID> {
 
     List<StatementRefreshRun> findByStatementImportIdOrderByCreatedAtDesc(UUID statementImportId);
+
+    java.util.Optional<StatementRefreshRun> findFirstByStatementImportIdOrderByCreatedAtDesc(UUID statementImportId);
 }

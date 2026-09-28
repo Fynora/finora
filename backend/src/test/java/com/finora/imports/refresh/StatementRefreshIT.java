@@ -70,6 +70,9 @@ class StatementRefreshIT extends AbstractIntegrationTest {
     @Autowired private MerchantLearningEventRepository learningEventRepository;
     @Autowired private BuildVersionResolver buildVersionResolver;
     @Autowired private JdbcTemplate jdbcTemplate;
+    @Autowired private StatementRefreshDryRunService dryRunService;
+    @Autowired private StatementRefreshUserService userService;
+    @Autowired private StatementRefreshNotifier notifier;
 
     /** Four purchases, 950.00 in all. */
     private static final byte[] FILE = ("Date,Description,Amount,Type\n"
@@ -525,5 +528,132 @@ class StatementRefreshIT extends AbstractIntegrationTest {
                 .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.getStatus().value()).isEqualTo(409));
         assertThat(statementImportRepository.findIdsAwaitingRefreshCheck(buildVersionResolver.currentCommit(), 100_000))
                 .doesNotContain(i.id());
+    }
+
+    // ---- step 5: the banner, "update all" and the summary --------------------------------------
+
+    /** Leaves {@code i} as an older parser would have: one amount misread. */
+    private void misreadGrocer(Imported i) {
+        jdbcTemplate.update("UPDATE transactions SET amount = 45.00 WHERE id = ?", row(i, "SAMPLE GROCER").getId());
+        moveBalance(i, "405.00");
+    }
+
+    private int refreshNotifications(Imported i) {
+        return jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM notifications WHERE user_id = ? AND type = 'STATEMENT_REFRESH_AVAILABLE'",
+                Integer.class, i.userId());
+    }
+
+    @Test
+    void theBannerOffersAStatementTheCheckFoundChangesFor_andUpdateAllAppliesItAndSaysWhatChanged() throws Exception {
+        Imported i = importStatement();
+        misreadGrocer(i);
+        dryRunService.check(i.id(), buildVersionResolver.currentCommit());
+
+        var overview = userService.overview(i.userId());
+        assertThat(overview.enabled()).isTrue();
+        assertThat(overview.updatable()).singleElement().satisfies(p -> {
+            assertThat(p.statementImportId()).isEqualTo(i.id());
+            assertThat(p.status()).isEqualTo("CHANGES");
+            assertThat(p.rowsChanged()).isEqualTo(1);
+        });
+        assertThat(overview.needsPassword()).isEmpty();
+
+        var result = userService.refreshAll(i.userId());
+
+        assertThat(result.remaining()).isZero();
+        assertThat(result.results()).singleElement().satisfies(r -> {
+            assertThat(r.status()).isEqualTo("APPLIED");
+            assertThat(r.fileName()).isEqualTo("statement.csv");
+            assertThat(r.changed()).singleElement().satisfies(c -> {
+                assertThat(c.description()).isEqualTo("SAMPLE GROCER");
+                assertThat(c.changes()).extracting(f -> f.field(), f -> f.before(), f -> f.after())
+                        .contains(tuple("AMOUNT", "45", "450"));
+            });
+            assertThat(r.balanceChange()).isEqualByComparingTo("-405.00");
+        });
+        assertThat(balance(i)).isEqualByComparingTo("-950.00");
+        assertThat(userService.overview(i.userId()).updatable()).as("refreshed, so no longer offered").isEmpty();
+
+        UUID runId = result.results().get(0).runId();
+        assertThat(userService.run(i.userId(), runId).changed()).hasSize(1);
+        User other = userRepository.save(otherUser());
+        createdUserIds.add(other.getId());
+        assertThatThrownBy(() -> userService.run(other.getId(), runId))
+                .as("another user's run is not found").isInstanceOf(ApiException.class);
+    }
+
+    @Test
+    void aStatementWhoseUpdateCouldNotBeApplied_isNotOfferedAgainUntilTheNextCheck() throws Exception {
+        Imported i = importStatement();
+        misreadGrocer(i);
+        dryRunService.check(i.id(), buildVersionResolver.currentCommit());
+        // The refresh records FAILED: the stored file no longer reads as a statement.
+        jdbcTemplate.update("UPDATE statement_imports SET object_key = NULL, file_content = ? WHERE id = ?",
+                "not a statement".getBytes(StandardCharsets.UTF_8), i.id());
+
+        var first = userService.refreshAll(i.userId());
+
+        assertThat(first.results()).singleElement().satisfies(r -> assertThat(r.status()).isEqualTo("FAILED"));
+        assertThat(first.remaining()).as("otherwise the client would call again forever").isZero();
+        assertThat(userService.overview(i.userId()).updatable()).isEmpty();
+        assertThat(userService.refreshAll(i.userId()).results()).as("and a second tap tries nothing").isEmpty();
+    }
+
+    @Test
+    void whileRefreshingIsSwitchedOff_theBannerIsEmptyAndUpdateAllIsNotFound() throws Exception {
+        Imported i = importStatement();
+        misreadGrocer(i);
+        dryRunService.check(i.id(), buildVersionResolver.currentCommit());
+        ReflectionTestUtils.setField(refreshService, "enabled", false);
+
+        var overview = userService.overview(i.userId());
+
+        assertThat(overview.enabled()).isFalse();
+        assertThat(overview.updatable()).isEmpty();
+        assertThatThrownBy(() -> userService.refreshAll(i.userId())).isInstanceOf(ApiException.class);
+    }
+
+    @Test
+    void theUserIsToldOnce_whenTheCheckFindsChanges_andNotAgainWithinAWeek() throws Exception {
+        ReflectionTestUtils.setField(notifier, "enabled", true);
+        try {
+            Imported i = importStatement();
+            misreadGrocer(i);
+
+            dryRunService.check(i.id(), buildVersionResolver.currentCommit());
+            assertThat(refreshNotifications(i)).as("push and email").isEqualTo(2);
+
+            dryRunService.check(i.id(), "a-later-build");
+            assertThat(refreshNotifications(i)).as("a later build inside the quiet week tells nobody again").isEqualTo(2);
+        } finally {
+            ReflectionTestUtils.setField(notifier, "enabled", false);
+        }
+    }
+
+    @Test
+    void nobodyIsToldWhenTheCheckFindsNothing_orWhileRefreshingIsOff() throws Exception {
+        Imported i = importStatement();
+        misreadGrocer(i);
+        dryRunService.check(i.id(), buildVersionResolver.currentCommit());
+        assertThat(refreshNotifications(i)).as("switched off").isZero();
+
+        ReflectionTestUtils.setField(notifier, "enabled", true);
+        try {
+            Imported clean = importStatement();
+            dryRunService.check(clean.id(), buildVersionResolver.currentCommit());
+            assertThat(refreshNotifications(clean)).as("nothing would change").isZero();
+        } finally {
+            ReflectionTestUtils.setField(notifier, "enabled", false);
+        }
+    }
+
+    private static User otherUser() {
+        User user = new User();
+        user.setEmail("refresh-it-other-" + UUID.randomUUID() + "@example.com");
+        user.setPasswordHash("irrelevant-for-this-test");
+        user.setFullName("Refresh IT Other");
+        user.setPhoneVerified(true);
+        return user;
     }
 }

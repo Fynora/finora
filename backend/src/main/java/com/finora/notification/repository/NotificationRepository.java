@@ -17,6 +17,10 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
 
     boolean existsByNotificationKey(String notificationKey);
 
+    /** Whether this user was sent this kind of notification since {@code since} -- a throttle. */
+    boolean existsByUserIdAndTypeAndCreatedAtAfter(UUID userId, com.finora.notification.domain.NotificationType type,
+                                                   java.time.Instant since);
+
     Optional<Notification> findByNotificationKey(String notificationKey);
 
     /** AccountPurgeSweepService.purgeOne's own cleanup -- notifications belong to the user they

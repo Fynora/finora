@@ -113,7 +113,10 @@ export function ImportScreen() {
   const asyncAvailable = asyncAvailableQ.data?.asyncImportAvailable ?? false;
   // Statement refresh, step 4: whether this deployment may keep a protected PDF's password. The
   // user's own yes is `savePassword`, off by default and reset after every upload.
-  const savePasswordOffered = asyncAvailable && asyncAvailableQ.data?.savePasswordAvailable === true;
+  // `keepRefused`: the queue refused to keep a password this page was told it could keep (saving
+  // was switched off after the page asked), so stop offering it rather than failing the same way again.
+  const [keepRefused, setKeepRefused] = useState(false);
+  const savePasswordOffered = asyncAvailable && asyncAvailableQ.data?.savePasswordAvailable === true && !keepRefused;
   const [savePassword, setSavePassword] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);
 
@@ -543,7 +546,8 @@ export function ImportScreen() {
     }
   }
 
-  async function upload(file: RNFile, isPdf: boolean, password: string | undefined) {
+  // `mayKeep` is false only on the one retry below, after the server refused to keep a password.
+  async function upload(file: RNFile, isPdf: boolean, password: string | undefined, mayKeep = true) {
     setError(null);
     setUploadProgress(0);
 
@@ -551,8 +555,9 @@ export function ImportScreen() {
     // user chose to let Fynora keep the password (statement refresh, step 4), which lets the worker
     // open the file later. Otherwise a password goes to the synchronous path, which uses it once and
     // keeps nothing: the job would carry no password, and the worker would have nobody to ask.
-    const keepPassword = !!password && savePassword && savePasswordOffered;
+    const keepPassword = mayKeep && !!password && savePassword && savePasswordOffered;
     if (asyncAvailable && (!password || keepPassword)) {
+      let retryWithoutKeeping = false;
       const startedAt = requestStartedAt();
       try {
         const controller = new AbortController();
@@ -571,7 +576,13 @@ export function ImportScreen() {
         if (!isCanceled(e)) {
           reportTransportFailure(e, 'import:upload-async', startedAt);
           const code = apiErrorCode(e);
-          if (code === PDF_PASSWORD_REQUIRED || code === PDF_PASSWORD_INVALID) {
+          if (keepPassword && code === PDF_PASSWORD_REQUIRED) {
+            // The queue would not keep the password -- saving was switched off after this screen
+            // asked. Send the file once on the path that keeps nothing: the user already gave it.
+            setKeepRefused(true);
+            setSavePassword(false);
+            retryWithoutKeeping = true;
+          } else if (code === PDF_PASSWORD_REQUIRED || code === PDF_PASSWORD_INVALID) {
             // The queue refuses a protected PDF at upload (it has no password to try later), with
             // the same code the synchronous path returns. Answered the same way: not an error, the
             // file is fine, so the password field opens on this same file.
@@ -589,6 +600,8 @@ export function ImportScreen() {
         // so the progress bar never freezes showing a stale percentage.
         setUploadProgress(null);
       }
+      // After the finally, so this attempt's own reset has run and cannot land in the middle of the retry.
+      if (retryWithoutKeeping) await upload(file, isPdf, password, false);
       return;
     }
 

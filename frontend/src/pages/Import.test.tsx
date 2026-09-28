@@ -2031,6 +2031,26 @@ describe('Import — queued imports', () => {
       expect(importJobsApi.submit).not.toHaveBeenCalled();
     });
 
+    it('falls back to the path that keeps nothing when the server will not keep it after all', async () => {
+      // Saving switched off after the page asked: the queue refuses the ticked upload with IMPORT_008.
+      vi.mocked(importJobsApi.submit).mockReset().mockRejectedValue({
+        response: { data: { errorCode: PDF_PASSWORD_REQUIRED, message: 'server copy' } },
+      });
+      const user = userEvent.setup();
+      renderImport();
+      await waitFor(() => expect(importJobsApi.availability).toHaveBeenCalled());
+
+      await user.upload(screen.getByTestId('statement-file-input'), pdfFile());
+      await user.type(screen.getByLabelText(/statement password/i), 'SYNTH1234');
+      await user.click(await screen.findByLabelText(/keep this password/i));
+      await user.click(screen.getByRole('button', { name: /upload statement/i }));
+
+      await waitFor(() => expect(importApi.stagePdf).toHaveBeenCalledTimes(1));
+      expect(vi.mocked(importApi.stagePdf).mock.calls[0][2]).toBe('SYNTH1234');
+      expect(importJobsApi.submit).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(screen.queryByLabelText(/keep this password/i)).not.toBeInTheDocument());
+    });
+
     it('does not offer to keep it where the server cannot', async () => {
       vi.mocked(importJobsApi.availability).mockReset().mockResolvedValue({ asyncImportAvailable: true });
       const user = userEvent.setup();

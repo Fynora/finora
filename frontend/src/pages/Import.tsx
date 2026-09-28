@@ -615,12 +615,15 @@ export default function Import() {
     }, UPLOAD_COMPLETE_DWELL_MS);
   }
 
-  async function upload(file: File, isPdf: boolean, password: string | undefined) {
+  // `mayKeep` is false only on the one retry below, after the server refused to keep a password.
+  async function upload(file: File, isPdf: boolean, password: string | undefined, mayKeep = true) {
     clearError();
     setUploadProgress(0);
     // Set once a synchronous stage call succeeds, so the finally block below skips its usual
     // reset and leaves uploadProgress/uploadCompleted for celebrateThenAdvance to clear itself.
     let holdForCompletion = false;
+    const keepPassword = mayKeep && !!password && savePassword && savePasswordOffered;
+    let retryWithoutKeeping = false;
     try {
       // The queue, when this deployment has one and the file does not need a password -- or when
       // the user chose to let Fynora keep the password (statement refresh, step 4), which is what
@@ -628,7 +631,6 @@ export default function Import() {
       //
       // Otherwise a password goes to the synchronous path, which uses it once and keeps nothing:
       // the job would carry no password, and the worker would open the document with nobody to ask.
-      const keepPassword = !!password && savePassword && savePasswordOffered;
       if (asyncAvailable && (!password || keepPassword)) {
         const accepted = await importJobsApi.submit(file, setUploadProgress,
           keepPassword ? { password: password! } : undefined);
@@ -683,6 +685,13 @@ export default function Import() {
       const contractMessage = importFailureMessage(code);
       if (!e.response) {
         showError('Unable to reach the import service. The upload request could not be completed — check your connection and try again.');
+      } else if (keepPassword && code === PDF_PASSWORD_REQUIRED) {
+        // The queue would not keep the password -- saving was switched off after this page asked.
+        // Retrying the same way would be refused forever, so stop offering it and send the file
+        // once on the path that keeps nothing: the user already gave the password for this upload.
+        setSavePasswordOffered(false);
+        setSavePassword(false);
+        retryWithoutKeeping = true;
       } else if (code === PDF_PASSWORD_REQUIRED || code === PDF_PASSWORD_INVALID) {
         // Not a parse failure and not shown as one -- the file is fine, it just hasn't been
         // opened yet. The panel stays put with this same file so the retry is one field and one
@@ -708,6 +717,8 @@ export default function Import() {
     } finally {
       if (!holdForCompletion) setUploadProgress(null);
     }
+    // After the finally, so this attempt's own reset has run and cannot land in the middle of the retry.
+    if (retryWithoutKeeping) await upload(file, isPdf, password, false);
   }
 
   // The single-account path's three review actions. Each is the same one-line delegation the

@@ -1129,6 +1129,27 @@ describe('ImportScreen — async import job (Phase 4)', () => {
       expect(api.importJobs.submit).not.toHaveBeenCalled();
     });
 
+    it('falls back to the path that keeps nothing when the server will not keep it after all', async () => {
+      api.importJobs.submit.mockRejectedValue(
+        Object.assign(new Error('Request failed with status code 422'), {
+          isAxiosError: true,
+          response: { status: 422, data: { success: false, errorCode: 'IMPORT_008', message: 'server copy' } },
+        })
+      );
+      render(treeSaveOffered());
+      fireEvent.press(await screen.findByText('Choose a file'));
+      await settle();
+
+      fireEvent.changeText(screen.getByLabelText('Statement password'), 'SYNTH1234');
+      fireEvent(screen.getByTestId('pdf-save-password'), 'valueChange', true);
+      fireEvent.press(screen.getByText('Upload statement'));
+      await settle();
+
+      await waitFor(() => expect(api.import.stagePdf).toHaveBeenCalledTimes(1));
+      expect(api.import.stagePdf.mock.calls[0][2]).toBe('SYNTH1234');
+      expect(api.importJobs.submit).toHaveBeenCalledTimes(1);
+    });
+
     it('does not offer to keep it where the server cannot', async () => {
       // The mount refetches availability, so the mock must agree with the seeded cache.
       api.importJobs.availability.mockResolvedValue({ asyncImportAvailable: true });

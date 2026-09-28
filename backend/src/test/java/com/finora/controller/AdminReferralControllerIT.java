@@ -115,7 +115,7 @@ class AdminReferralControllerIT extends AbstractIntegrationTest {
 
         // The real automatic trigger (Task 3), not a direct service call -- proves the actual
         // webhook wiring, not just ReferralService in isolation.
-        referralService.onPlanChanged(referred.getId(), "PLUS");
+        referralService.onReferredUserCharged(referred.getId(), "PLUS", "RAZORPAY", "pay_test_" + UUID.randomUUID());
 
         ResponseEntity<String> afterSubscribe = restTemplate.exchange(
                 "/api/v1/admin/referrals", HttpMethod.GET, new HttpEntity<>(bearerFor(admin)), String.class);

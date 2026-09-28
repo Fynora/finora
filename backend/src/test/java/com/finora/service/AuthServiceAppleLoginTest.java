@@ -51,6 +51,7 @@ class AuthServiceAppleLoginTest {
     private AuditService auditService;
     private PlatformSettingsService platformSettingsService;
     private AuthService authService;
+    private com.finora.service.ReferralService referralService;
     private final UUID userId = UUID.randomUUID();
 
     @BeforeEach
@@ -74,6 +75,7 @@ class AuthServiceAppleLoginTest {
         reactivationTokenRepository = mock(com.finora.repository.AccountReactivationTokenRepository.class);
         emailVerificationTokenRepository = mock(com.finora.repository.EmailVerificationTokenRepository.class);
         auditService = mock(AuditService.class);
+        referralService = mock(com.finora.service.ReferralService.class);
         emailProvider = mock(EmailProvider.class);
         when(emailProvider.sendEmailVerificationEmail(any(), any()))
                 .thenReturn(EmailResult.success(ProviderType.RESEND, "test-message-id"));
@@ -90,7 +92,7 @@ class AuthServiceAppleLoginTest {
                 passwordHistoryService, new IdentityLookup(userRepository),
                 mock(com.finora.config.RequestMetadata.class),
                 mock(com.finora.service.SubscriptionService.class),
-                mock(com.finora.service.ReferralService.class),
+                referralService,
                 mock(com.finora.service.MerchantSeedService.class),
                 // SEC-07: same-thread executor -- runs the dispatched email/audit work
                 // synchronously so assertions against it don't race a real background thread.
@@ -224,5 +226,42 @@ class AuthServiceAppleLoginTest {
 
         verify(userRepository).findByEmailIgnoreCaseAndAccountScope("admin@example.test", User.SCOPE_USER);
         verify(userRepository, never()).findByEmailIgnoreCaseAndAccountScope(anyString(), eq(User.SCOPE_ADMIN));
+    }
+
+    // A Google/Apple sign-up is a registration: a code from a friend's link, or typed on the sign-up
+    // screen before tapping the button, counts exactly as it does for register().
+    @Test
+    void newAccount_redeemsTheReferralCodeAndSaysTheAccountWasCreated() {
+        when(userRepository.findByEmailIgnoreCaseAndAccountScope("amy@example.test", "USER"))
+                .thenReturn(Optional.empty());
+
+        var response = authService.loginWithApple(new AppleIdentity("amy@example.test", "sub-123"), "Amy Santiago", "abcd1234");
+
+        verify(referralService).redeemCode(userId, "abcd1234");
+        assertThat(response.accountCreated()).isTrue();
+    }
+
+    @Test
+    void newAccount_withNoCode_stillCallsTheSilentRedeemWithNull() {
+        when(userRepository.findByEmailIgnoreCaseAndAccountScope("amy@example.test", "USER"))
+                .thenReturn(Optional.empty());
+
+        var response = authService.loginWithApple(new AppleIdentity("amy@example.test", "sub-123"), "Amy Santiago", null);
+
+        verify(referralService).redeemCode(userId, null);
+        assertThat(response.accountCreated()).isTrue();
+    }
+
+    // One referral per person, ever: a returning user's sign-in must never attach one after the fact.
+    @Test
+    void existingAccount_neverRedeemsAReferralCodeAndIsNotACreatedAccount() {
+        User existing = existingUser("jane@example.com", User.STATUS_ACTIVE);
+        when(userRepository.findByEmailIgnoreCaseAndAccountScope("jane@example.com", "USER"))
+                .thenReturn(Optional.of(existing));
+
+        var response = authService.loginWithApple(new AppleIdentity("jane@example.com", "sub-456"), null, "ABCD1234");
+
+        verify(referralService, never()).redeemCode(any(), any());
+        assertThat(response.accountCreated()).isFalse();
     }
 }

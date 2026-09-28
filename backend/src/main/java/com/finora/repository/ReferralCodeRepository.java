@@ -21,7 +21,7 @@ public interface ReferralCodeRepository extends JpaRepository<ReferralCode, UUID
      * pre-redemption count and write it back (+1) after {@link #consumeMilestoneIfAtLeast}, so the
      * redeemed referrals would count again; and two friends subscribing at once would both read
      * the same count and lose one. {@link #consumeMilestoneIfAtLeast}'s UPDATE takes the same row
-     * lock, so the two serialize. Requires an active transaction (onPlanChanged is @Transactional).
+     * lock, so the two serialize. Requires an active transaction (onReferredUserCharged is @Transactional).
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT c FROM ReferralCode c WHERE c.userId = :userId")

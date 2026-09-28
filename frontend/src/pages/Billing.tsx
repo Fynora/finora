@@ -1050,10 +1050,11 @@ export default function Billing() {
                       </td>
                       <td className="px-4 py-3.5 text-muted capitalize whitespace-nowrap">{p.provider ?? '—'}</td>
                       <td className="px-5 py-3.5 whitespace-nowrap">
-                        {/* Only a completed charge has anything to invoice -- InvoiceService
-                            answers 409 for PENDING/FAILED/REFUNDED rows (no credit-note concept
-                            in V1), so those states keep the disabled placeholder instead. */}
-                        {p.status === 'SUCCESS' ? (
+                        {/* Only a charge that happened has an invoice -- InvoiceService answers
+                            409 for PENDING/FAILED rows, so those keep the disabled placeholder. A
+                            REFUNDED payment was charged, and its invoice stays the record of that
+                            sale. */}
+                        {p.status === 'SUCCESS' || p.status === 'REFUNDED' ? (
                           <>
                             <button
                               type="button"

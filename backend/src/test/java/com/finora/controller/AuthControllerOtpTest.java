@@ -27,7 +27,7 @@ class AuthControllerOtpTest {
 
     private AuthResponse sampleAuthResponse() {
         return new AuthResponse("access-token", "refresh-token", "jane@example.com", "Jane",
-                true, null, UUID.randomUUID(), true);
+                true, null, UUID.randomUUID(), true, false);
     }
 
     @Test

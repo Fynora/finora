@@ -38,9 +38,20 @@ public class ReferralDtos {
      *  reward) and is kept so app builds already on phones keep parsing this response.
      *  {@code plusMilestoneCounter} is always 0 -- the 3-referral Plus reward was removed, and a real
      *  value would make older app builds offer a Redeem the server now rejects. {@code grants} is this user's own referral-grant history, newest first;
-     *  the UI reads it to show an ACTIVE grant's expiry or a queued PENDING one. */
+     *  the UI reads it to show an ACTIVE grant's expiry or a queued PENDING one.
+     *  {@code premiumMilestoneCounter} is never negative here, although the stored counter can be:
+     *  a friend refunded after the referrer already redeemed leaves the stored count below 0, and
+     *  app builds already on phones would draw "-1 / 7". {@code referralsOwed} carries that part --
+     *  referrals that must be made up before the counter climbs again (0 normally). */
     public record MyReferralsDto(String code, List<MyReferralDto> referrals, BigDecimal walletBalance,
-            int referralCount, int plusMilestoneCounter, int premiumMilestoneCounter, List<ReferralGrantDto> grants) {}
+            int referralCount, int plusMilestoneCounter, int premiumMilestoneCounter, List<ReferralGrantDto> grants,
+            int referralsOwed,
+            // Whether to offer "Enter a friend's code" (ReferralService.canApplyCode): not already
+            // referred, and never subscribed.
+            boolean canApplyCode) {}
+
+    /** POST /api/v1/referrals/apply-code -- a friend's code, entered after signing up. */
+    public record ApplyReferralCodeRequest(@NotBlank String code) {}
 
     /** POST /api/v1/referrals/redeem. {@code tier}: ReferralGrant.TIER_PLUS or TIER_PREMIUM -- both
      *  redeem the one 7-referral milestone and grant Plus (PREMIUM is still accepted from older

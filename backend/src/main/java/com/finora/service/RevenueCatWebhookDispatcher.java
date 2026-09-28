@@ -2,7 +2,9 @@ package com.finora.service;
 
 import com.finora.entity.IapProduct;
 import com.finora.entity.Plan;
+import com.finora.entity.ReferralCharge;
 import com.finora.entity.Subscription;
+import com.finora.integrations.revenuecat.RevenueCatProperties;
 import com.finora.repository.IapProductRepository;
 import com.finora.repository.PlanRepository;
 import com.finora.repository.SubscriptionRepository;
@@ -34,13 +36,16 @@ public class RevenueCatWebhookDispatcher {
     private final PlanRepository planRepository;
     private final IapProductRepository iapProductRepository;
     private final ReferralService referralService;
+    private final RevenueCatProperties properties;
 
     public RevenueCatWebhookDispatcher(SubscriptionRepository subscriptionRepository, PlanRepository planRepository,
-                                        IapProductRepository iapProductRepository, ReferralService referralService) {
+                                        IapProductRepository iapProductRepository, ReferralService referralService,
+                                        RevenueCatProperties properties) {
         this.subscriptionRepository = subscriptionRepository;
         this.planRepository = planRepository;
         this.iapProductRepository = iapProductRepository;
         this.referralService = referralService;
+        this.properties = properties;
     }
 
     @Transactional
@@ -53,6 +58,12 @@ public class RevenueCatWebhookDispatcher {
             case "EXPIRATION" -> handleExpiration(eventPayload);
             case "BILLING_ISSUE" -> handleBillingIssue(eventPayload);
             case "PRODUCT_CHANGE" -> handleProductChange(eventPayload);
+            // The store took a refund back. Deliberately not acted on (Sid's decision, 2026-09-28):
+            // it is rare, and a referral taken back by the refund stays REGISTERED and counts
+            // again on the friend's next paid charge anyway.
+            case "REFUND_REVERSED" -> log.info("RevenueCat REFUND_REVERSED for transaction {} -- logged only, "
+                    + "the referral it may have taken back is not restored.",
+                    LogSanitizer.sanitize(String.valueOf(eventPayload.get("transaction_id"))));
             default -> log.info("RevenueCat webhook event '{}' received but not handled in V4 yet.",
                     LogSanitizer.sanitize(eventType));
         }
@@ -147,16 +158,38 @@ public class RevenueCatWebhookDispatcher {
         subscription.setPaymentProvider("REVENUECAT");
         subscription.setStorePlatform(platform);
         subscription.setRevenuecatOriginalTransactionId((String) eventPayload.get("original_transaction_id"));
+        subscription.setRevenuecatLatestTransactionId((String) eventPayload.get("transaction_id"));
         subscription.setStatus(Subscription.STATUS_ACTIVE);
         subscription.setAutoRenew(true);
         applyExpiration(subscription, eventPayload);
         subscriptionRepository.save(subscription);
 
-        // design spec §5 (referral reward ledger): the store has already charged the user by the
-        // time this webhook arrives, so INITIAL_PURCHASE is a real-charge signal, same as
-        // Razorpay's subscription.charged. onPlanChanged's own REGISTERED-only guard keeps this
-        // safe even though this handler doesn't run on renewals (see handleRenewal above).
-        referralService.onPlanChanged(subscription.getUserId(), plan.getCode());
+        // design spec §5 (referral reward ledger): a paid INITIAL_PURCHASE means the store has
+        // already charged the user, same as Razorpay's subscription.charged. A free-trial start
+        // also arrives as INITIAL_PURCHASE, which is why this goes through countIfPaid.
+        countIfPaid(subscription.getUserId(), plan.getCode(), eventPayload);
+    }
+
+    /**
+     * Counts the referral (if any) of a user whose charge this event reports -- but only a paid
+     * one. RevenueCat's webhook docs: {@code period_type} is TRIAL for a free trial, and
+     * {@code price} is "0 for free trials, or negative for refunds". A null price ("unknown") is
+     * not held against the event; the period_type check still applies. When a trial converts,
+     * RevenueCat sends a RENEWAL for the first paid period, which lands here through
+     * handleRenewal and counts then.
+     *
+     * <p>The charge is identified by {@code transaction_id}: that is the id a refund's
+     * CANCELLATION carries (see handleCancellation).
+     */
+    private void countIfPaid(UUID userId, String planCode, Map<String, Object> eventPayload) {
+        if ("TRIAL".equals(eventPayload.get("period_type"))) return;
+        // RevenueCat's environment field: "Store environment: SANDBOX or PRODUCTION". A sandbox
+        // purchase costs nothing -- see RevenueCatProperties.countSandboxReferrals for why it
+        // still unlocks the plan but does not count here.
+        if ("SANDBOX".equals(eventPayload.get("environment")) && !properties.isCountSandboxReferrals()) return;
+        if (eventPayload.get("price") instanceof Number price && price.doubleValue() <= 0) return;
+        referralService.onReferredUserCharged(userId, planCode, ReferralCharge.PROVIDER_REVENUECAT,
+                (String) eventPayload.get("transaction_id"));
     }
 
     /** spec §5. Renewal is passive -- just refresh the expiration date. Looked up by
@@ -167,7 +200,17 @@ public class RevenueCatWebhookDispatcher {
         if (subscription == null) return;
         subscription.setStatus(Subscription.STATUS_ACTIVE);
         applyExpiration(subscription, eventPayload);
+        restorePlanAfterRefund(subscription, eventPayload);
+        if (eventPayload.get("transaction_id") instanceof String transactionId) {
+            subscription.setRevenuecatLatestTransactionId(transactionId);
+        }
         subscriptionRepository.save(subscription);
+
+        // A referred user whose first paid period is a renewal -- a trial converting, or a
+        // referral taken back by a refund and then paid for again. For everyone else
+        // onReferredUserCharged's REGISTERED-only guard makes this a no-op.
+        planRepository.findById(subscription.getPlanId())
+                .ifPresent(plan -> countIfPaid(subscription.getUserId(), plan.getCode(), eventPayload));
     }
 
     /** spec §5/§3. Turns off auto-renew only -- status/plan/renewal_date untouched, exactly
@@ -185,10 +228,89 @@ public class RevenueCatWebhookDispatcher {
      *  healthy and actively renewing. */
     void handleCancellation(Map<String, Object> eventPayload) {
         if ("BILLING_ERROR".equals(eventPayload.get("cancel_reason"))) return;
+        // A refund, by either documented marker: cancel_reason CUSTOMER_SUPPORT ("Customer received
+        // a refund"), or a negative price ("negative for refunds") -- the latter also catches a
+        // refund Apple reports with cancel_reason UNKNOWN ("Apple did not provide the reason").
+        boolean refund = "CUSTOMER_SUPPORT".equals(eventPayload.get("cancel_reason"))
+                || (eventPayload.get("price") instanceof Number price && price.doubleValue() < 0);
+        if (refund) {
+            handleRefund(eventPayload);
+            return;
+        }
         subscriptionForOriginalTransactionId(eventPayload, "CANCELLATION").ifPresent(subscription -> {
             subscription.setAutoRenew(false);
             subscriptionRepository.save(subscription);
         });
+    }
+
+    /**
+     * A refund CANCELLATION (see handleCancellation for how one is recognized). Takes back the
+     * referral this exact transaction counted, if any (ReferralService.onChargeReversed matches on
+     * {@code transaction_id}, so a refund of a later renewal leaves it alone).
+     *
+     * <p>Deliberately leaves the subscription alone, auto-renew included. RevenueCat's docs on
+     * CUSTOMER_SUPPORT: "this doesn't mean that a subscription's autorenewal preference has been
+     * deactivated since refunds can be given without canceling a subscription". Turning auto-renew
+     * off here (the old behavior) mislabeled a still-renewing subscription as ending. A user who
+     * also turns renewal off sends their own UNSUBSCRIBE cancellation.
+     *
+     * <p>Never looks the subscription up, so never throws on a missing one: Apple and Google refund
+     * after a subscription has expired, when handleExpiration has already cleared its
+     * original_transaction_id. A throw would roll the referral reversal back with it and fail the
+     * webhook on every retry.
+     */
+    private void handleRefund(Map<String, Object> eventPayload) {
+        referralService.onChargeReversed(ReferralCharge.PROVIDER_REVENUECAT,
+                (String) eventPayload.get("transaction_id"), "REFUND");
+        endAccessIfCurrentPeriodRefunded(eventPayload);
+    }
+
+    /**
+     * Ends paid access at once when the refund took the current period away -- that is, when the
+     * refunded {@code transaction_id} is the subscription's latest paid period (recorded by
+     * INITIAL_PURCHASE/RENEWAL, V241). The refunded purchase no longer pays for anything, and
+     * RevenueCat's docs do not promise an EXPIRATION after a refund, so the plan drops to FREE here
+     * rather than waiting for one. A refund of any older transaction leaves the current period
+     * alone. Expiry dates cannot make this call: RevenueCat moves a refunded period's
+     * expiration_at_ms back to the refund time (its own sample refund event shows that), so it
+     * looks "past" for older and current periods alike.
+     *
+     * <p>Only the plan goes. The store mandate is left recorded -- payment provider, store
+     * platform, original_transaction_id -- because a refund "doesn't mean that a subscription's
+     * autorenewal preference has been deactivated": the store may still renew it (handleRenewal
+     * then restores the plan, see restorePlanAfterRefund), and a later EXPIRATION must still find
+     * this row to finish the downgrade instead of throwing on an unknown id.
+     */
+    private void endAccessIfCurrentPeriodRefunded(Map<String, Object> eventPayload) {
+        String originalTransactionId = (String) eventPayload.get("original_transaction_id");
+        String transactionId = (String) eventPayload.get("transaction_id");
+        if (originalTransactionId == null || transactionId == null) return;
+        subscriptionRepository.findByRevenuecatOriginalTransactionId(originalTransactionId)
+                .filter(subscription -> transactionId.equals(subscription.getRevenuecatLatestTransactionId()))
+                .ifPresent(subscription -> {
+                    Plan free = planRepository.findByCode("FREE")
+                            .orElseThrow(() -> new IllegalStateException("FREE plan missing -- V99 seed data not applied"));
+                    if (free.getId().equals(subscription.getPlanId())) return;
+                    subscription.setPlanId(free.getId());
+                    subscription.setBillingCycle(null);
+                    subscription.setStatus(Subscription.STATUS_ACTIVE);
+                    applyExpiration(subscription, eventPayload);
+                    subscriptionRepository.save(subscription);
+                });
+    }
+
+    /** A RENEWAL for a subscription a refund dropped to FREE (endAccessIfCurrentPeriodRefunded): the
+     *  store charged for a new period, so the plan comes back from the renewed {@code product_id}.
+     *  Limited to that case -- every other renewal leaves the plan as it is, as before. */
+    private void restorePlanAfterRefund(Subscription subscription, Map<String, Object> eventPayload) {
+        Plan free = planRepository.findByCode("FREE").orElse(null);
+        if (free == null || !free.getId().equals(subscription.getPlanId())) return;
+        String platform = "PLAY_STORE".equals(eventPayload.get("store")) ? "ANDROID" : "IOS";
+        iapProductRepository.findByProviderProductIdAndPlatformAndActiveTrue((String) eventPayload.get("product_id"), platform)
+                .ifPresent(product -> {
+                    subscription.setPlanId(product.getPlanId());
+                    subscription.setBillingCycle(product.getBillingCycle());
+                });
     }
 
     void handleUncancellation(Map<String, Object> eventPayload) {
@@ -212,6 +334,7 @@ public class RevenueCatWebhookDispatcher {
             subscription.setPaymentProvider(null);
             subscription.setStorePlatform(null);
             subscription.setRevenuecatOriginalTransactionId(null);
+            subscription.setRevenuecatLatestTransactionId(null);
             subscription.setStatus(Subscription.STATUS_ACTIVE);
             subscription.setAutoRenew(true);
             subscriptionRepository.save(subscription);

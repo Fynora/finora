@@ -3,17 +3,23 @@ package com.finora.service;
 import com.finora.dto.PagedResponse;
 import com.finora.dto.ReferralDtos.AdminReferralSummaryDto;
 import com.finora.dto.ReferralDtos.MyReferralsDto;
+import com.finora.entity.Plan;
 import com.finora.entity.Referral;
+import com.finora.entity.ReferralCharge;
 import com.finora.entity.ReferralCode;
 import com.finora.entity.ReferralGrant;
+import com.finora.entity.Subscription;
 import com.finora.entity.User;
 import com.finora.exception.ApiException;
 import com.finora.notification.api.NotificationService;
 import com.finora.notification.domain.NotificationType;
+import com.finora.repository.PlanRepository;
+import com.finora.repository.ReferralChargeRepository;
 import com.finora.repository.ReferralCodeRepository;
 import com.finora.repository.ReferralGrantRepository;
 import com.finora.repository.ReferralRepository;
 import com.finora.repository.RefreshTokenRepository;
+import com.finora.repository.SubscriptionRepository;
 import com.finora.repository.UserRepository;
 import com.finora.repository.WalletLedgerRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -44,6 +50,9 @@ class ReferralServiceTest {
     private AuditService auditService;
     private ReferralGrantRepository referralGrantRepository;
     private NotificationService notificationService;
+    private SubscriptionRepository subscriptionRepository;
+    private PlanRepository planRepository;
+    private ReferralChargeRepository referralChargeRepository;
     private ReferralService service;
 
     private final UUID referrerId = UUID.randomUUID();
@@ -60,8 +69,12 @@ class ReferralServiceTest {
         auditService = mock(AuditService.class);
         referralGrantRepository = mock(ReferralGrantRepository.class);
         notificationService = mock(NotificationService.class);
+        subscriptionRepository = mock(SubscriptionRepository.class);
+        planRepository = mock(PlanRepository.class);
+        referralChargeRepository = mock(ReferralChargeRepository.class);
         service = new ReferralService(referralCodeRepository, referralRepository, walletLedgerRepository,
-                refreshTokenRepository, userRepository, auditService, referralGrantRepository, notificationService);
+                refreshTokenRepository, userRepository, auditService, referralGrantRepository, notificationService,
+                subscriptionRepository, planRepository, referralChargeRepository);
         when(referralRepository.save(any(Referral.class))).thenAnswer(inv -> {
             Referral r = inv.getArgument(0);
             if (r.getId() == null) ReflectionTestUtils.setField(r, "id", UUID.randomUUID());
@@ -136,14 +149,14 @@ class ReferralServiceTest {
     }
 
     @Test
-    void onPlanChanged_movesRegisteredToSubscribed() {
+    void onReferredUserCharged_movesRegisteredToSubscribed() {
         Referral referral = new Referral();
         referral.setReferrerUserId(referrerId);
         referral.setReferredUserId(referredId);
         referral.setStatus(Referral.STATUS_REGISTERED);
         when(referralRepository.findByReferredUserId(referredId)).thenReturn(Optional.of(referral));
 
-        service.onPlanChanged(referredId, "PLUS");
+        service.onReferredUserCharged(referredId, "PLUS", "RAZORPAY", "pay_test_1");
 
         assertThat(referral.getStatus()).isEqualTo(Referral.STATUS_SUBSCRIBED);
         verify(referralRepository).save(referral);
@@ -151,28 +164,28 @@ class ReferralServiceTest {
     }
 
     @Test
-    void onPlanChanged_isANoOp_whenTheUserWasNeverReferred() {
+    void onReferredUserCharged_isANoOp_whenTheUserWasNeverReferred() {
         when(referralRepository.findByReferredUserId(referredId)).thenReturn(Optional.empty());
 
-        service.onPlanChanged(referredId, "PLUS");
+        service.onReferredUserCharged(referredId, "PLUS", "RAZORPAY", "pay_test_1");
 
         verify(referralRepository, never()).save(any());
     }
 
     @Test
-    void onPlanChanged_isANoOp_whenTheReferralIsNotCurrentlyRegistered() {
+    void onReferredUserCharged_isANoOp_whenTheReferralIsNotCurrentlyRegistered() {
         Referral referral = new Referral();
         referral.setStatus(Referral.STATUS_SUBSCRIBED);
         when(referralRepository.findByReferredUserId(referredId)).thenReturn(Optional.of(referral));
 
-        service.onPlanChanged(referredId, "PREMIUM");
+        service.onReferredUserCharged(referredId, "PREMIUM", "RAZORPAY", "pay_test_1");
 
         verify(referralRepository, never()).save(any());
     }
 
     @Test
-    void onPlanChanged_isANoOp_forADowngradeToFree() {
-        service.onPlanChanged(referredId, "FREE");
+    void onReferredUserCharged_isANoOp_forADowngradeToFree() {
+        service.onReferredUserCharged(referredId, "FREE", "RAZORPAY", "pay_test_1");
 
         verifyNoInteractions(referralRepository);
     }
@@ -205,13 +218,13 @@ class ReferralServiceTest {
     }
 
     @Test
-    void onPlanChanged_incrementsTheOneMilestoneCounterAndNotifiesProgress() {
+    void onReferredUserCharged_incrementsTheOneMilestoneCounterAndNotifiesProgress() {
         givenReferralReachingSubscribed();
         ReferralCode code = codeWithCounter(1);
         code.setPlusMilestoneCounter(1);
         when(referralCodeRepository.findByUserIdForUpdate(referrerId)).thenReturn(Optional.of(code));
 
-        service.onPlanChanged(referredId, "PLUS");
+        service.onReferredUserCharged(referredId, "PLUS", "RAZORPAY", "pay_test_1");
 
         assertThat(code.getPremiumMilestoneCounter()).isEqualTo(2);
         // The retired 3-referral counter is no longer touched.
@@ -223,24 +236,24 @@ class ReferralServiceTest {
     }
 
     @Test
-    void onPlanChanged_reachingThreeNoLongerFiresAnyMilestone() {
+    void onReferredUserCharged_reachingThreeNoLongerFiresAnyMilestone() {
         givenReferralReachingSubscribed();
         ReferralCode code = codeWithCounter(2);
         when(referralCodeRepository.findByUserIdForUpdate(referrerId)).thenReturn(Optional.of(code));
 
-        service.onPlanChanged(referredId, "PLUS");
+        service.onReferredUserCharged(referredId, "PLUS", "RAZORPAY", "pay_test_1");
 
         assertThat(code.getPremiumMilestoneCounter()).isEqualTo(3);
         verify(notificationService, never()).request(argThat(req -> req.type() == NotificationType.REFERRAL_MILESTONE_REACHED));
     }
 
     @Test
-    void onPlanChanged_reachingSevenFiresMilestoneReachedForPlus() {
+    void onReferredUserCharged_reachingSevenFiresMilestoneReachedForPlus() {
         givenReferralReachingSubscribed();
         ReferralCode code = codeWithCounter(6);
         when(referralCodeRepository.findByUserIdForUpdate(referrerId)).thenReturn(Optional.of(code));
 
-        service.onPlanChanged(referredId, "PLUS");
+        service.onReferredUserCharged(referredId, "PLUS", "RAZORPAY", "pay_test_1");
 
         assertThat(code.getPremiumMilestoneCounter()).isEqualTo(7);
         verify(notificationService).request(argThat(req ->
@@ -252,12 +265,12 @@ class ReferralServiceTest {
     }
 
     @Test
-    void onPlanChanged_eighthReferralDoesNotRepeatTheMilestoneNotification() {
+    void onReferredUserCharged_eighthReferralDoesNotRepeatTheMilestoneNotification() {
         givenReferralReachingSubscribed();
         ReferralCode code = codeWithCounter(7);
         when(referralCodeRepository.findByUserIdForUpdate(referrerId)).thenReturn(Optional.of(code));
 
-        service.onPlanChanged(referredId, "PLUS");
+        service.onReferredUserCharged(referredId, "PLUS", "RAZORPAY", "pay_test_1");
 
         assertThat(code.getPremiumMilestoneCounter()).isEqualTo(8);
         verify(notificationService, never()).request(argThat(req -> req.type() == NotificationType.REFERRAL_MILESTONE_REACHED));
@@ -266,12 +279,12 @@ class ReferralServiceTest {
     // Redeeming subtracts 7 instead of resetting, so an unredeemed 14 is a second earned month
     // and must get its own "redeem it now".
     @Test
-    void onPlanChanged_reachingFourteenFiresTheMilestoneAgain() {
+    void onReferredUserCharged_reachingFourteenFiresTheMilestoneAgain() {
         givenReferralReachingSubscribed();
         ReferralCode code = codeWithCounter(13);
         when(referralCodeRepository.findByUserIdForUpdate(referrerId)).thenReturn(Optional.of(code));
 
-        service.onPlanChanged(referredId, "PLUS");
+        service.onReferredUserCharged(referredId, "PLUS", "RAZORPAY", "pay_test_1");
 
         assertThat(code.getPremiumMilestoneCounter()).isEqualTo(14);
         verify(notificationService).request(argThat(req ->
@@ -280,23 +293,23 @@ class ReferralServiceTest {
     }
 
     @Test
-    void onPlanChanged_incrementUsesTheRowLockedRead() {
+    void onReferredUserCharged_incrementUsesTheRowLockedRead() {
         givenReferralReachingSubscribed();
         when(referralCodeRepository.findByUserIdForUpdate(referrerId)).thenReturn(Optional.of(codeWithCounter(0)));
 
-        service.onPlanChanged(referredId, "PLUS");
+        service.onReferredUserCharged(referredId, "PLUS", "RAZORPAY", "pay_test_1");
 
         verify(referralCodeRepository).findByUserIdForUpdate(referrerId);
         verify(referralCodeRepository, never()).findByUserId(referrerId);
     }
 
     @Test
-    void onPlanChanged_selfReferralSharingDeviceIncrementsNeitherCounter() {
+    void onReferredUserCharged_selfReferralSharingDeviceIncrementsNeitherCounter() {
         givenReferralReachingSubscribed();
         when(refreshTokenRepository.findDistinctLastSeenIpsByUserId(referrerId)).thenReturn(List.of("1.2.3.4"));
         when(refreshTokenRepository.findDistinctLastSeenIpsByUserId(referredId)).thenReturn(List.of("1.2.3.4"));
 
-        service.onPlanChanged(referredId, "PLUS");
+        service.onReferredUserCharged(referredId, "PLUS", "RAZORPAY", "pay_test_1");
 
         verify(referralCodeRepository, never()).save(any());
         verify(notificationService, never()).request(any());
@@ -411,6 +424,29 @@ class ReferralServiceTest {
 
         assertThat(dto.plusMilestoneCounter()).isZero();
         assertThat(dto.premiumMilestoneCounter()).isEqualTo(4);
+    }
+
+    /** A stored counter below 0 (refund after redemption) is shown as 0 progress plus the debt,
+     *  never as "-2 / 7" -- app builds already on phones read premiumMilestoneCounter only. */
+    @Test
+    void myReferrals_reportsANegativeCounterAsZeroProgressPlusReferralsOwed() {
+        when(referralCodeRepository.findByUserId(referrerId)).thenReturn(Optional.of(codeWithCounter(-2)));
+        when(referralRepository.findByReferrerUserIdOrderByCreatedAtDesc(referrerId)).thenReturn(List.of());
+        when(walletLedgerRepository.sumAmountByUserId(referrerId)).thenReturn(java.math.BigDecimal.ZERO);
+
+        var dto = service.myReferrals(referrerId);
+
+        assertThat(dto.premiumMilestoneCounter()).isZero();
+        assertThat(dto.referralsOwed()).isEqualTo(2);
+    }
+
+    @Test
+    void myReferrals_owesNothingNormally() {
+        when(referralCodeRepository.findByUserId(referrerId)).thenReturn(Optional.of(codeWithCounter(4)));
+        when(referralRepository.findByReferrerUserIdOrderByCreatedAtDesc(referrerId)).thenReturn(List.of());
+        when(walletLedgerRepository.sumAmountByUserId(referrerId)).thenReturn(java.math.BigDecimal.ZERO);
+
+        assertThat(service.myReferrals(referrerId).referralsOwed()).isZero();
     }
 
     @Test
@@ -560,5 +596,390 @@ class ReferralServiceTest {
         assertThat(referral.getReward()).isNull();
         verify(referralRepository, never()).save(any());
         verifyNoInteractions(auditService);
+    }
+
+    // ---- referral_charges: which charge counted, and taking it back ----
+
+    @Test
+    void onReferredUserCharged_recordsTheChargeAsCounted() {
+        givenReferralReachingSubscribed();
+        when(referralCodeRepository.findByUserIdForUpdate(referrerId)).thenReturn(Optional.of(codeWithCounter(0)));
+
+        service.onReferredUserCharged(referredId, "PLUS", "RAZORPAY", "pay_test_1");
+
+        verify(referralChargeRepository).save(argThat(c -> c.getReferrerUserId().equals(referrerId)
+                && "RAZORPAY".equals(c.getProvider()) && "pay_test_1".equals(c.getChargeRef()) && c.isCounted()
+                && c.getReferralId() != null));
+    }
+
+    @Test
+    void onReferredUserCharged_recordsASharedDeviceChargeAsNotCounted() {
+        givenReferralReachingSubscribed();
+        when(refreshTokenRepository.findDistinctLastSeenIpsByUserId(referrerId)).thenReturn(List.of("1.2.3.4"));
+        when(refreshTokenRepository.findDistinctLastSeenIpsByUserId(referredId)).thenReturn(List.of("1.2.3.4"));
+
+        service.onReferredUserCharged(referredId, "PLUS", "RAZORPAY", "pay_test_1");
+
+        verify(referralChargeRepository).save(argThat(c -> !c.isCounted()));
+    }
+
+    @Test
+    void onReferredUserCharged_withoutAChargeIdIsANoOp() {
+        givenReferralReachingSubscribed();
+
+        service.onReferredUserCharged(referredId, "PLUS", "RAZORPAY", null);
+        service.onReferredUserCharged(referredId, "PLUS", "RAZORPAY", " ");
+
+        verify(referralRepository, never()).save(any());
+        verify(referralCodeRepository, never()).save(any());
+        verify(referralChargeRepository, never()).save(any());
+    }
+
+    /** A purchase event re-delivered after its charge was refunded must not count that charge again. */
+    @Test
+    void onReferredUserCharged_aChargeAlreadyRecordedNeverCountsAgain() {
+        givenReferralReachingSubscribed();
+        when(referralChargeRepository.existsByProviderAndChargeRef("REVENUECAT", "txn_1")).thenReturn(true);
+
+        service.onReferredUserCharged(referredId, "PLUS", "REVENUECAT", "txn_1");
+
+        verify(referralRepository, never()).save(any());
+        verify(referralCodeRepository, never()).save(any());
+        verify(referralChargeRepository, never()).save(any());
+    }
+
+    private ReferralCharge chargeRow(boolean counted, UUID referralId) {
+        ReferralCharge charge = new ReferralCharge();
+        ReflectionTestUtils.setField(charge, "id", UUID.randomUUID());
+        charge.setReferrerUserId(referrerId);
+        charge.setReferralId(referralId);
+        charge.setProvider("RAZORPAY");
+        charge.setChargeRef("pay_test_1");
+        charge.setCounted(counted);
+        when(referralChargeRepository.findForUpdate("RAZORPAY", "pay_test_1")).thenReturn(Optional.of(charge));
+        return charge;
+    }
+
+    private Referral subscribedReferral(String status) {
+        Referral referral = new Referral();
+        UUID id = UUID.randomUUID();
+        ReflectionTestUtils.setField(referral, "id", id);
+        referral.setReferrerUserId(referrerId);
+        referral.setReferredUserId(referredId);
+        referral.setStatus(status);
+        when(referralRepository.findById(id)).thenReturn(Optional.of(referral));
+        return referral;
+    }
+
+    @Test
+    void onChargeReversed_takesOneOffTheCounterAndMovesTheReferralBackToRegistered() {
+        Referral referral = subscribedReferral(Referral.STATUS_SUBSCRIBED);
+        ReferralCharge charge = chargeRow(true, referral.getId());
+        ReferralCode code = codeWithCounter(3);
+        when(referralCodeRepository.findByUserIdForUpdate(referrerId)).thenReturn(Optional.of(code));
+
+        service.onChargeReversed("RAZORPAY", "pay_test_1", "REFUND");
+
+        assertThat(code.getPremiumMilestoneCounter()).isEqualTo(2);
+        assertThat(referral.getStatus()).isEqualTo(Referral.STATUS_REGISTERED);
+        assertThat(charge.getReversedAt()).isNotNull();
+        assertThat(charge.getReversalReason()).isEqualTo("REFUND");
+        verify(referralChargeRepository).save(charge);
+        verify(auditService).record(eq(referrerId), eq("REFERRAL_CHARGE_REVERSED"), eq("ReferralCharge"),
+                eq(charge.getId()), argThat(m -> Integer.valueOf(2).equals(m.get("counterAfter"))));
+    }
+
+    /** The month was already redeemed: it is kept (no grant touched), but the referral is owed --
+     *  the counter goes below 0 instead of flooring, so "redeem, then refund everyone" is not free. */
+    @Test
+    void onChargeReversed_afterARedemptionLeavesTheReferralOwed() {
+        chargeRow(true, subscribedReferral(Referral.STATUS_SUBSCRIBED).getId());
+        ReferralCode code = codeWithCounter(0);
+        when(referralCodeRepository.findByUserIdForUpdate(referrerId)).thenReturn(Optional.of(code));
+
+        service.onChargeReversed("RAZORPAY", "pay_test_1", "REFUND");
+
+        assertThat(code.getPremiumMilestoneCounter()).isEqualTo(-1);
+        verify(referralCodeRepository).save(code);
+        verifyNoInteractions(referralGrantRepository);
+        // The notice shows progress as the app does: never below 0.
+        verify(notificationService).request(argThat(req -> req.type() == NotificationType.REFERRAL_REVERSED
+                && "0".equals(req.params().get("count"))));
+    }
+
+    @Test
+    void onChargeReversed_tellsTheReferrerOnce() {
+        chargeRow(true, subscribedReferral(Referral.STATUS_SUBSCRIBED).getId());
+        when(referralCodeRepository.findByUserIdForUpdate(referrerId)).thenReturn(Optional.of(codeWithCounter(3)));
+
+        service.onChargeReversed("RAZORPAY", "pay_test_1", "REFUND");
+        service.onChargeReversed("RAZORPAY", "pay_test_1", "REFUND");
+
+        verify(notificationService, times(1)).request(argThat(req -> req.type() == NotificationType.REFERRAL_REVERSED
+                && req.userId().equals(referrerId) && "2".equals(req.params().get("count"))
+                && req.notificationKey().startsWith("REFERRAL_REVERSED_")));
+    }
+
+    /** Climbing back from a refund debt passes through 0 -- a multiple of 7, but no reward. */
+    @Test
+    void onReferredUserCharged_repayingADebtToZeroFiresNoMilestone() {
+        givenReferralReachingSubscribed();
+        ReferralCode code = codeWithCounter(-1);
+        when(referralCodeRepository.findByUserIdForUpdate(referrerId)).thenReturn(Optional.of(code));
+
+        service.onReferredUserCharged(referredId, "PLUS", "RAZORPAY", "pay_test_1");
+
+        assertThat(code.getPremiumMilestoneCounter()).isZero();
+        verify(notificationService, never()).request(argThat(req -> req.type() == NotificationType.REFERRAL_MILESTONE_REACHED));
+        verify(notificationService).request(argThat(req -> req.type() == NotificationType.REFERRAL_FRIEND_SUBSCRIBED
+                && "0".equals(req.params().get("count"))));
+    }
+
+    @Test
+    void onReferredUserCharged_progressShownNeverNegative() {
+        givenReferralReachingSubscribed();
+        when(referralCodeRepository.findByUserIdForUpdate(referrerId)).thenReturn(Optional.of(codeWithCounter(-3)));
+
+        service.onReferredUserCharged(referredId, "PLUS", "RAZORPAY", "pay_test_1");
+
+        verify(notificationService).request(argThat(req -> req.type() == NotificationType.REFERRAL_FRIEND_SUBSCRIBED
+                && "0".equals(req.params().get("count"))));
+    }
+
+    @Test
+    void redeemMilestone_whileOwingReportsZeroNotANegativeCount() {
+        when(referralCodeRepository.findByUserId(referrerId)).thenReturn(Optional.of(codeWithCounter(-2)));
+
+        assertThatThrownBy(() -> service.redeemMilestone(referrerId, ReferralGrant.TIER_PLUS))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("you have 0, need 7");
+    }
+
+    @Test
+    void onChargeReversed_ofAnUncountedChargeRevertsTheStatusButLeavesTheCounter() {
+        Referral referral = subscribedReferral(Referral.STATUS_SUBSCRIBED);
+        chargeRow(false, referral.getId());
+
+        service.onChargeReversed("RAZORPAY", "pay_test_1", "REFUND");
+
+        assertThat(referral.getStatus()).isEqualTo(Referral.STATUS_REGISTERED);
+        verify(referralCodeRepository, never()).findByUserIdForUpdate(any());
+        verify(referralCodeRepository, never()).save(any());
+    }
+
+    @Test
+    void onChargeReversed_twiceTakesOnlyOneOff() {
+        chargeRow(true, subscribedReferral(Referral.STATUS_SUBSCRIBED).getId());
+        ReferralCode code = codeWithCounter(3);
+        when(referralCodeRepository.findByUserIdForUpdate(referrerId)).thenReturn(Optional.of(code));
+
+        service.onChargeReversed("RAZORPAY", "pay_test_1", "REFUND");
+        service.onChargeReversed("RAZORPAY", "pay_test_1", "CHARGEBACK_LOST");
+
+        assertThat(code.getPremiumMilestoneCounter()).isEqualTo(2);
+        verify(referralChargeRepository, times(1)).save(any());
+    }
+
+    /** No row yet: recorded as born-reversed so a late-arriving charge with this id never counts. */
+    @Test
+    void onChargeReversed_ofAChargeWithNoRowMarksItReversedAndChangesNothingElse() {
+        when(referralChargeRepository.findForUpdate("RAZORPAY", "pay_other")).thenReturn(Optional.empty());
+        when(referralChargeRepository.insertReversedIfAbsent("RAZORPAY", "pay_other", "REFUND")).thenReturn(1);
+
+        service.onChargeReversed("RAZORPAY", "pay_other", "REFUND");
+        service.onChargeReversed("RAZORPAY", null, "REFUND");
+
+        verify(referralChargeRepository).insertReversedIfAbsent("RAZORPAY", "pay_other", "REFUND");
+        verify(referralChargeRepository, times(1)).insertReversedIfAbsent(any(), any(), any());
+        verify(referralChargeRepository, never()).save(any());
+        verifyNoInteractions(referralCodeRepository, auditService);
+    }
+
+    /** The born-reversed insert lost to a concurrent transaction inserting the charge's own row:
+     *  the reversal must then act on that row, not drop out. */
+    @Test
+    void onChargeReversed_whenTheChargeRowAppearsConcurrentlyReversesIt() {
+        Referral referral = subscribedReferral(Referral.STATUS_SUBSCRIBED);
+        ReferralCharge charge = new ReferralCharge();
+        ReflectionTestUtils.setField(charge, "id", UUID.randomUUID());
+        charge.setReferrerUserId(referrerId);
+        charge.setReferralId(referral.getId());
+        charge.setProvider("RAZORPAY");
+        charge.setChargeRef("pay_test_1");
+        charge.setCounted(true);
+        when(referralChargeRepository.findForUpdate("RAZORPAY", "pay_test_1"))
+                .thenReturn(Optional.empty()).thenReturn(Optional.of(charge));
+        when(referralChargeRepository.insertReversedIfAbsent("RAZORPAY", "pay_test_1", "REFUND")).thenReturn(0);
+        ReferralCode code = codeWithCounter(1);
+        when(referralCodeRepository.findByUserIdForUpdate(referrerId)).thenReturn(Optional.of(code));
+
+        service.onChargeReversed("RAZORPAY", "pay_test_1", "REFUND");
+
+        assertThat(code.getPremiumMilestoneCounter()).isZero();
+        assertThat(referral.getStatus()).isEqualTo(Referral.STATUS_REGISTERED);
+        assertThat(charge.getReversedAt()).isNotNull();
+    }
+
+    /** The referred account was purged: its referral row is gone (referral_id NULL), the count
+     *  still comes back off. */
+    @Test
+    void onChargeReversed_afterTheReferredAccountWasPurgedStillTakesOneOff() {
+        chargeRow(true, null);
+        ReferralCode code = codeWithCounter(1);
+        when(referralCodeRepository.findByUserIdForUpdate(referrerId)).thenReturn(Optional.of(code));
+
+        service.onChargeReversed("RAZORPAY", "pay_test_1", "REFUND");
+
+        assertThat(code.getPremiumMilestoneCounter()).isZero();
+        verify(referralRepository, never()).save(any());
+    }
+
+    /** A referral an admin cash-credited keeps REWARDED; the wallet credit is not reversed here. */
+    @Test
+    void onChargeReversed_leavesAnAdminRewardedReferralAlone() {
+        Referral referral = subscribedReferral(Referral.STATUS_REWARDED);
+        chargeRow(true, referral.getId());
+        when(referralCodeRepository.findByUserIdForUpdate(referrerId)).thenReturn(Optional.of(codeWithCounter(1)));
+
+        service.onChargeReversed("RAZORPAY", "pay_test_1", "REFUND");
+
+        assertThat(referral.getStatus()).isEqualTo(Referral.STATUS_REWARDED);
+        verify(referralRepository, never()).save(any());
+        verifyNoInteractions(walletLedgerRepository);
+    }
+
+    // ---- applyCode: a friend's code entered after signing up ----
+
+    private ReferralCode friendsCode() {
+        ReferralCode code = new ReferralCode();
+        code.setUserId(referrerId);
+        code.setCode("ABCD1234");
+        return code;
+    }
+
+    private void givenSubscription(String planCode, String status) {
+        UUID planId = UUID.randomUUID();
+        Plan plan = new Plan();
+        ReflectionTestUtils.setField(plan, "id", planId);
+        plan.setCode(planCode);
+        Subscription sub = new Subscription();
+        sub.setUserId(referredId);
+        sub.setPlanId(planId);
+        sub.setStatus(status);
+        when(subscriptionRepository.findByUserIdIncludingDeletedOrderByCreatedAtDesc(referredId)).thenReturn(List.of(sub));
+        when(planRepository.findById(planId)).thenReturn(Optional.of(plan));
+    }
+
+    @Test
+    void applyCode_linksTheUserToTheFriendWhoseCodeItIs() {
+        when(referralCodeRepository.findByCode("ABCD1234")).thenReturn(Optional.of(friendsCode()));
+        when(referralRepository.saveAndFlush(any(Referral.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.applyCode(referredId, "  abcd1234 ");
+
+        verify(referralRepository).saveAndFlush(argThat(r -> r.getReferrerUserId().equals(referrerId)
+                && r.getReferredUserId().equals(referredId) && Referral.STATUS_REGISTERED.equals(r.getStatus())));
+    }
+
+    // One referral per person: referred by 10 friends, only the first code used counts.
+    @Test
+    void applyCode_refusesASecondCodeOnceTheUserAlreadyHasAReferral() {
+        when(referralRepository.findByReferredUserId(referredId)).thenReturn(Optional.of(new Referral()));
+
+        assertThatThrownBy(() -> service.applyCode(referredId, "ABCD1234"))
+                .isInstanceOf(ApiException.class).hasMessageContaining("already used a referral code");
+        verify(referralRepository, never()).saveAndFlush(any());
+    }
+
+    // The database is the real one-per-person guard (referred_user_id UNIQUE): a concurrent second
+    // submit that slips past the check above fails at the insert, surfaced the same way.
+    @Test
+    void applyCode_aConcurrentDuplicateInsertIsTheSameRefusal() {
+        when(referralCodeRepository.findByCode("ABCD1234")).thenReturn(Optional.of(friendsCode()));
+        when(referralRepository.saveAndFlush(any(Referral.class)))
+                .thenThrow(new org.springframework.dao.DataIntegrityViolationException("uq_referred_user"));
+
+        assertThatThrownBy(() -> service.applyCode(referredId, "ABCD1234"))
+                .isInstanceOf(ApiException.class).hasMessageContaining("already used a referral code");
+        verifyNoInteractions(auditService);
+    }
+
+    @Test
+    void applyCode_refusedWhilePayingForAPlan() {
+        givenSubscription("PLUS", Subscription.STATUS_ACTIVE);
+
+        assertThatThrownBy(() -> service.applyCode(referredId, "ABCD1234"))
+                .isInstanceOf(ApiException.class).hasMessageContaining("before you subscribe");
+        verify(referralRepository, never()).saveAndFlush(any());
+    }
+
+    // A cancelled paid plan still means they subscribed; otherwise cancel, add a code, resubscribe
+    // would credit a friend for a subscription the friend never brought in.
+    @Test
+    void applyCode_refusedAfterAPaidPlanWasCancelled() {
+        givenSubscription("PLUS", Subscription.STATUS_CANCELLED);
+
+        assertThatThrownBy(() -> service.applyCode(referredId, "ABCD1234"))
+                .isInstanceOf(ApiException.class).hasMessageContaining("before you subscribe");
+    }
+
+    @Test
+    void applyCode_allowedDuringAFreeTrial() {
+        givenSubscription("PLUS", Subscription.STATUS_TRIAL);
+        when(referralCodeRepository.findByCode("ABCD1234")).thenReturn(Optional.of(friendsCode()));
+        when(referralRepository.saveAndFlush(any(Referral.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.applyCode(referredId, "ABCD1234");
+
+        verify(referralRepository).saveAndFlush(any(Referral.class));
+    }
+
+    @Test
+    void applyCode_allowedOnTheFreePlan() {
+        givenSubscription("FREE", Subscription.STATUS_ACTIVE);
+        when(referralCodeRepository.findByCode("ABCD1234")).thenReturn(Optional.of(friendsCode()));
+        when(referralRepository.saveAndFlush(any(Referral.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.applyCode(referredId, "ABCD1234");
+
+        verify(referralRepository).saveAndFlush(any(Referral.class));
+    }
+
+    @Test
+    void applyCode_refusesTheUsersOwnCode() {
+        ReferralCode own = new ReferralCode();
+        own.setUserId(referredId);
+        own.setCode("OWN00001");
+        when(referralCodeRepository.findByCode("OWN00001")).thenReturn(Optional.of(own));
+
+        assertThatThrownBy(() -> service.applyCode(referredId, "own00001"))
+                .isInstanceOf(ApiException.class).hasMessageContaining("your own referral code");
+        verify(referralRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void applyCode_refusesAnUnknownCode() {
+        when(referralCodeRepository.findByCode("NOPE0000")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.applyCode(referredId, "NOPE0000"))
+                .isInstanceOf(ApiException.class).hasMessageContaining("isn't valid");
+    }
+
+    @Test
+    void applyCode_refusesABlankCode() {
+        assertThatThrownBy(() -> service.applyCode(referredId, "   "))
+                .isInstanceOf(ApiException.class).hasMessageContaining("Enter a referral code");
+    }
+
+    @Test
+    void canApplyCode_onlyWhileNotReferredAndNeverSubscribed() {
+        assertThat(service.canApplyCode(referredId)).isTrue();
+
+        when(referralRepository.findByReferredUserId(referredId)).thenReturn(Optional.of(new Referral()));
+        assertThat(service.canApplyCode(referredId)).isFalse();
+
+        when(referralRepository.findByReferredUserId(referredId)).thenReturn(Optional.empty());
+        givenSubscription("PLUS", Subscription.STATUS_PAST_DUE);
+        assertThat(service.canApplyCode(referredId)).isFalse();
     }
 }

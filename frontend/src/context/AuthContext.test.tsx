@@ -17,7 +17,7 @@ import { AUTH_CHANGED_EVENT } from './ThemeContext';
 
 vi.mock('../api/endpoints', () => ({
   authApi: {
-    login: vi.fn(), register: vi.fn(), logout: vi.fn(), google: vi.fn(), refresh: vi.fn(),
+    login: vi.fn(), register: vi.fn(), logout: vi.fn(), google: vi.fn(), apple: vi.fn(), refresh: vi.fn(),
     otpEmailRequest: vi.fn(), otpEmailLogin: vi.fn(), otpPhoneLogin: vi.fn(),
   },
   userApi: { get: vi.fn() },
@@ -38,8 +38,9 @@ const AUTH_RESPONSE = {
 function Harness() {
   const {
     token, email, fullName, phoneVerified, onboardingCompleted,
-    login, register, loginWithGoogle, logout, setOnboardingCompleted,
+    login, register, loginWithGoogle, loginWithApple, logout, setOnboardingCompleted,
     loginWithEmailOtpRequest, loginWithEmailOtpVerify, loginWithPhoneOtp,
+    referralPromptPending, dismissReferralPrompt,
   } = useAuth();
   return (
     <div>
@@ -48,6 +49,10 @@ function Harness() {
       <p data-testid="fullName">{fullName ?? 'none'}</p>
       <p data-testid="phoneVerified">{String(phoneVerified)}</p>
       <p data-testid="onboardingCompleted">{String(onboardingCompleted)}</p>
+      <p data-testid="referralPromptPending">{String(referralPromptPending)}</p>
+      <button onClick={() => void loginWithGoogle('fake-google-id-token', ' abcd1234 ')}>Google with code</button>
+      <button onClick={() => void loginWithApple('fake-apple-id-token', null)}>Sign in with Apple</button>
+      <button onClick={dismissReferralPrompt}>Dismiss referral prompt</button>
       <button onClick={() => void login('jane@example.com', 'password123')}>Log in</button>
       {/* Phone number matches the synthetic placeholder already used by
           VerifyPhone.test.tsx/ChangePasswordModal.test.tsx elsewhere in this codebase. */}
@@ -206,8 +211,77 @@ describe('AuthContext', () => {
 
     await waitFor(() => expect(screen.getByTestId('token')).toHaveTextContent('access-token-1'));
     expect(screen.getByTestId('phoneVerified')).toHaveTextContent('false');
-    expect(authApi.google).toHaveBeenCalledWith('fake-google-id-token');
+    expect(authApi.google).toHaveBeenCalledWith('fake-google-id-token', undefined);
     expect(localStorage.getItem('finora_refresh_token')).toBeNull();
+  });
+
+  describe('referral prompt after a Google/Apple sign-up', () => {
+    it('is pending after a Google sign-in that created the account with no code', async () => {
+      const user = userEvent.setup();
+      vi.mocked(authApi.google).mockResolvedValue({ data: { ...AUTH_RESPONSE, accountCreated: true } } as any);
+      renderHarness();
+
+      await user.click(screen.getByRole('button', { name: 'Sign in with Google' }));
+
+      await waitFor(() => expect(screen.getByTestId('referralPromptPending')).toHaveTextContent('true'));
+      expect(localStorage.getItem('finora_referral_prompt_for')).toBe('jane@example.com');
+    });
+
+    it('sends a code along (trimmed) and does not ask again', async () => {
+      const user = userEvent.setup();
+      vi.mocked(authApi.google).mockResolvedValue({ data: { ...AUTH_RESPONSE, accountCreated: true } } as any);
+      renderHarness();
+
+      await user.click(screen.getByRole('button', { name: 'Google with code' }));
+
+      await waitFor(() => expect(screen.getByTestId('token')).toHaveTextContent('access-token-1'));
+      expect(authApi.google).toHaveBeenCalledWith('fake-google-id-token', 'abcd1234');
+      expect(screen.getByTestId('referralPromptPending')).toHaveTextContent('false');
+    });
+
+    it('is never pending for a returning user', async () => {
+      const user = userEvent.setup();
+      vi.mocked(authApi.apple).mockResolvedValue({ data: { ...AUTH_RESPONSE, accountCreated: false } } as any);
+      renderHarness();
+
+      await user.click(screen.getByRole('button', { name: 'Sign in with Apple' }));
+
+      await waitFor(() => expect(screen.getByTestId('token')).toHaveTextContent('access-token-1'));
+      expect(screen.getByTestId('referralPromptPending')).toHaveTextContent('false');
+      expect(localStorage.getItem('finora_referral_prompt_for')).toBeNull();
+    });
+
+    it('dismissing clears it for good, and logout clears it too', async () => {
+      const user = userEvent.setup();
+      vi.mocked(authApi.apple).mockResolvedValue({ data: { ...AUTH_RESPONSE, accountCreated: true } } as any);
+      vi.mocked(authApi.logout).mockResolvedValue({ message: 'ok' } as any);
+      renderHarness();
+
+      await user.click(screen.getByRole('button', { name: 'Sign in with Apple' }));
+      await waitFor(() => expect(screen.getByTestId('referralPromptPending')).toHaveTextContent('true'));
+      await user.click(screen.getByRole('button', { name: 'Dismiss referral prompt' }));
+      expect(screen.getByTestId('referralPromptPending')).toHaveTextContent('false');
+      expect(localStorage.getItem('finora_referral_prompt_for')).toBeNull();
+
+      await user.click(screen.getByRole('button', { name: 'Sign in with Apple' }));
+      await waitFor(() => expect(screen.getByTestId('referralPromptPending')).toHaveTextContent('true'));
+      await user.click(screen.getByRole('button', { name: 'Log out' }));
+      expect(screen.getByTestId('referralPromptPending')).toHaveTextContent('false');
+      expect(localStorage.getItem('finora_referral_prompt_for')).toBeNull();
+    });
+
+    // A flag left by a session that ended without logout must not be shown to someone else.
+    it('is not pending for a different account signing in on the same browser', async () => {
+      const user = userEvent.setup();
+      localStorage.setItem('finora_referral_prompt_for', 'someone-else@example.com');
+      vi.mocked(authApi.google).mockResolvedValue({ data: { ...AUTH_RESPONSE, accountCreated: false } } as any);
+      renderHarness();
+
+      await user.click(screen.getByRole('button', { name: 'Sign in with Google' }));
+
+      await waitFor(() => expect(screen.getByTestId('token')).toHaveTextContent('access-token-1'));
+      expect(screen.getByTestId('referralPromptPending')).toHaveTextContent('false');
+    });
   });
 
   it('logout() clears the local session even when the best-effort server revoke call fails', async () => {

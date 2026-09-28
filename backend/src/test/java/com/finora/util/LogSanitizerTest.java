@@ -40,6 +40,20 @@ class LogSanitizerTest {
         assertThat(LogSanitizer.sanitize("a\tb c")).isEqualTo("a?b c");
     }
 
+    /** The line-break handling is two literal replaces followed by the control-character pattern;
+     *  each stage has to keep working on its own, not just the CRLF pair the test above uses. */
+    @Test
+    void sanitize_aLoneLineFeedOrCarriageReturn_isNeutralised() {
+        assertThat(LogSanitizer.sanitize("a\nb")).isEqualTo("a?b");
+        assertThat(LogSanitizer.sanitize("a\rb")).isEqualTo("a?b");
+        assertThat(LogSanitizer.sanitize("\n\r\n\r")).isEqualTo("????");
+    }
+
+    @Test
+    void sanitize_lineBreaksMixedWithOtherControlCharacters_areAllNeutralised() {
+        assertThat(LogSanitizer.sanitize("a\n\tb\u0000c\u007Fd\r")).isEqualTo("a??b?c?d?");
+    }
+
     @Test
     void sanitize_preservesLength_soTheResultDoesNotLookTruncated() {
         String withControlChars = "abc\r\ndef";

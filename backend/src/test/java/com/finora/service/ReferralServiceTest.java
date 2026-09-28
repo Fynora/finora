@@ -648,6 +648,36 @@ class ReferralServiceTest {
         verify(referralChargeRepository, never()).save(any());
     }
 
+    /** The charge id comes from a webhook payload. Signed, so not something a customer can shape,
+     *  but external text reaching a log line all the same: a line break in it must not forge a
+     *  second entry. Code-scanning #220/#221 (java/log-injection). */
+    @Test
+    void aChargeIdWithLineBreaksCannotForgeASecondLogLine() {
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(ReferralService.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            String forged = "txn_1\r\n[ERROR] forged entry";
+            // The "already recorded" branch of onReferredUserCharged...
+            givenReferralReachingSubscribed();
+            when(referralChargeRepository.existsByProviderAndChargeRef("REVENUECAT", forged)).thenReturn(true);
+            service.onReferredUserCharged(referredId, "PLUS", "REVENUECAT", forged);
+            // ...and the "reversed before its own charge was recorded" branch of onChargeReversed.
+            when(referralChargeRepository.insertReversedIfAbsent("RAZORPAY", forged, "REFUND")).thenReturn(1);
+            service.onChargeReversed("RAZORPAY", forged, "REFUND");
+
+            assertThat(appender.list).hasSize(2);
+            for (var event : appender.list) {
+                String line = event.getFormattedMessage();
+                assertThat(line).doesNotContain("\r").doesNotContain("\n");
+                assertThat(line).contains("txn_1??[ERROR] forged entry");
+            }
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
+
     private ReferralCharge chargeRow(boolean counted, UUID referralId) {
         ReferralCharge charge = new ReferralCharge();
         ReflectionTestUtils.setField(charge, "id", UUID.randomUUID());

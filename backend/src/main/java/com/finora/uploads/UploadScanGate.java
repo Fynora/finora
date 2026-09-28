@@ -5,6 +5,7 @@ import com.finora.exception.ErrorCode;
 import com.finora.imports.StatementUpload;
 import com.finora.service.AuditService;
 import com.finora.uploads.MalwareScanner.ScanResult;
+import com.finora.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -91,12 +92,19 @@ public class UploadScanGate {
         }
 
         String fileName = StatementUpload.safeFileName(file, "upload");
+        // For the log lines only; the audit row below keeps the raw values. safeFileName already
+        // strips control characters, but a log argument is not something to leave to a different
+        // method's promise, and the detail is the scanner's reply text (or an I/O error message),
+        // which nothing here has bounded. The same helper the webhook controllers and the import
+        // path already use.
+        String loggedName = LogSanitizer.sanitize(fileName);
+        String loggedDetail = LogSanitizer.sanitize(result.detail());
         switch (result.status()) {
             case CLEAN -> log.debug("Upload {} ({} bytes, {}) scanned clean by {}",
-                    fileName, file.getSize(), context, active.describe());
+                    loggedName, file.getSize(), context, active.describe());
             case INFECTED -> {
                 log.warn("Upload {} ({} bytes, {}) rejected by {}: {}",
-                        fileName, file.getSize(), context, active.describe(), result.detail());
+                        loggedName, file.getSize(), context, active.describe(), loggedDetail);
                 // "actorId" alongside the subject, as every admin-reachable audit write does (FG-025):
                 // here they are the same person, since nobody uploads a file on someone else's
                 // behalf -- an admin's analysis upload is the admin's own act.
@@ -112,12 +120,12 @@ public class UploadScanGate {
                 if (rejectWhenUnavailable) {
                     log.error("Malware scanner unavailable ({}); refusing upload {} ({}) per "
                             + "app.malware-scan.on-unavailable=reject: {}",
-                            active.describe(), fileName, context, result.detail());
+                            active.describe(), loggedName, context, loggedDetail);
                     throw new ApiException(ErrorCode.UPLOAD_SCANNER_UNAVAILABLE);
                 }
                 log.warn("Malware scanner unavailable ({}); upload {} ({}) allowed through UNSCANNED per "
                         + "app.malware-scan.on-unavailable=allow: {}",
-                        active.describe(), fileName, context, result.detail());
+                        active.describe(), loggedName, context, loggedDetail);
             }
         }
     }

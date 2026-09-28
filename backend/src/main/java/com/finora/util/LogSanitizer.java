@@ -38,6 +38,13 @@ public final class LogSanitizer {
      */
     public static String sanitize(String value) {
         if (value == null) return null;
-        return CONTROL_CHARACTERS.matcher(value).replaceAll("?");
+        // The two literal replaces look redundant next to the pattern below, which already covers
+        // CR and LF, and that is deliberate. A CodeQL java/log-injection alert (code-scanning #203,
+        // 2026-09-24) pointed at a log argument that was already wrapped in this method, so the
+        // character-class pattern on its own was evidently not treated as a barrier. The replaces
+        // state the same barrier in the conventional form of a line-break sanitizer. The behaviour
+        // is identical -- every control character still becomes '?' and the length is preserved.
+        String withoutLineBreaks = value.replace("\n", "?").replace("\r", "?");
+        return CONTROL_CHARACTERS.matcher(withoutLineBreaks).replaceAll("?");
     }
 }

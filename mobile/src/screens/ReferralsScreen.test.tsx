@@ -399,7 +399,7 @@ describe('ReferralsScreen', () => {
     it('says how many refunded referrals must be made up when some are owed', async () => {
       api.mine.mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [], referralsOwed: 1,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [], canApplyCode: false, referralsOwed: 1,
       });
       renderScreen();
 
@@ -410,7 +410,7 @@ describe('ReferralsScreen', () => {
     it('shows no owed line when nothing is owed, or when an older backend omits the field', async () => {
       api.mine.mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 0, premiumMilestoneCounter: 3, grants: [],
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 3, grants: [], canApplyCode: false,
       });
       renderScreen();
 

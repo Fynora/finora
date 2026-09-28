@@ -176,7 +176,7 @@ describe('Referrals', () => {
     it('says how many refunded referrals must be made up when some are owed', async () => {
       vi.mocked(referralsApi.mine).mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [], referralsOwed: 2,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [], canApplyCode: false, referralsOwed: 2,
       });
       renderPage();
 
@@ -187,7 +187,7 @@ describe('Referrals', () => {
     it('shows no owed line when nothing is owed, or when an older backend omits the field', async () => {
       vi.mocked(referralsApi.mine).mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
-        plusMilestoneCounter: 0, premiumMilestoneCounter: 3, grants: [],
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 3, grants: [], canApplyCode: false,
       });
       renderPage();
 

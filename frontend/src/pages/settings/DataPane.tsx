@@ -5,6 +5,7 @@ import { formatDayMonthYear, MetricTile } from '../../components/AccountUI';
 import { Button } from '../../design-system/Button';
 import { FinoraCard } from '../../design-system/FinoraCard';
 import { SectionHeader } from '../../design-system/SectionHeader';
+import { SavedStatementPasswordsSection } from './SavedStatementPasswordsSection';
 
 export function DataPane({
   loading, loadError, signInMethod,
@@ -52,6 +53,8 @@ export function DataPane({
           Export My Data
         </Button>
       </div>
+
+      <SavedStatementPasswordsSection />
 
       {exportOpen && <ExportDataModal onClose={() => setExportOpen(false)} signInMethod={signInMethod} />}
     </FinoraCard>

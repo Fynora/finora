@@ -1989,6 +1989,114 @@ describe('Import — queued imports', () => {
     expect(queryClient.getQueryState(['import-jobs-recent'])?.isInvalidated).toBe(true);
   });
 
+  /**
+   * Statement refresh, step 4. Keeping a protected PDF's password is the user's choice, per
+   * upload: the box starts unticked, and only a ticked box sends the password to the queue (which
+   * keeps it). Unticked, the password goes to the synchronous path, which keeps nothing.
+   */
+  describe('keeping a statement password', () => {
+    beforeEach(() => {
+      vi.mocked(importJobsApi.availability).mockReset()
+        .mockResolvedValue({ asyncImportAvailable: true, savePasswordAvailable: true });
+      vi.mocked(importApi.stagePdf).mockReset().mockResolvedValue(stagingResultWith());
+      vi.mocked(importJobsApi.progress).mockResolvedValue(queuedJob({ status: 'PARSING' }));
+    });
+
+    it('queues the file with the password only when the user ticks the box', async () => {
+      const user = userEvent.setup();
+      renderImport();
+      await waitFor(() => expect(importJobsApi.availability).toHaveBeenCalled());
+
+      await user.upload(screen.getByTestId('statement-file-input'), pdfFile());
+      const keep = await screen.findByLabelText(/keep this password/i);
+      expect(keep).not.toBeChecked();
+      await user.type(screen.getByLabelText(/statement password/i), 'SYNTH1234');
+      await user.click(keep);
+      await user.click(screen.getByRole('button', { name: /upload statement/i }));
+
+      await waitFor(() => expect(importJobsApi.submit).toHaveBeenCalledTimes(1));
+      expect(vi.mocked(importJobsApi.submit).mock.calls[0][2]).toEqual({ password: 'SYNTH1234' });
+      expect(importApi.stagePdf).not.toHaveBeenCalled();
+    });
+
+    it('uses the password once, on the path that keeps nothing, when the box is left unticked', async () => {
+      const user = userEvent.setup();
+      renderImport();
+      await waitFor(() => expect(importJobsApi.availability).toHaveBeenCalled());
+
+      await pickAndUploadPdf(user, pdfFile(), 'SYNTH1234');
+
+      await waitFor(() => expect(importApi.stagePdf).toHaveBeenCalledTimes(1));
+      expect(vi.mocked(importApi.stagePdf).mock.calls[0][2]).toBe('SYNTH1234');
+      expect(importJobsApi.submit).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the path that keeps nothing when the server will not keep it after all', async () => {
+      // Saving switched off after the page asked: the queue refuses the ticked upload with IMPORT_008.
+      vi.mocked(importJobsApi.submit).mockReset().mockRejectedValue({
+        response: { data: { errorCode: PDF_PASSWORD_REQUIRED, message: 'server copy' } },
+      });
+      const user = userEvent.setup();
+      renderImport();
+      await waitFor(() => expect(importJobsApi.availability).toHaveBeenCalled());
+
+      await user.upload(screen.getByTestId('statement-file-input'), pdfFile());
+      await user.type(screen.getByLabelText(/statement password/i), 'SYNTH1234');
+      await user.click(await screen.findByLabelText(/keep this password/i));
+      await user.click(screen.getByRole('button', { name: /upload statement/i }));
+
+      await waitFor(() => expect(importApi.stagePdf).toHaveBeenCalledTimes(1));
+      expect(vi.mocked(importApi.stagePdf).mock.calls[0][2]).toBe('SYNTH1234');
+      expect(importJobsApi.submit).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(screen.queryByLabelText(/keep this password/i)).not.toBeInTheDocument());
+    });
+
+    it('says so when the file needed no password and nothing was kept', async () => {
+      vi.mocked(importJobsApi.submit).mockReset().mockResolvedValue({
+        jobId: 'job-1', statusUrl: '/api/v1/import/jobs/job-1', passwordSaved: false,
+      });
+      const user = userEvent.setup();
+      renderImport();
+      await waitFor(() => expect(importJobsApi.availability).toHaveBeenCalled());
+
+      await user.upload(screen.getByTestId('statement-file-input'), pdfFile());
+      await user.type(screen.getByLabelText(/statement password/i), 'SYNTH1234');
+      await user.click(await screen.findByLabelText(/keep this password/i));
+      await user.click(screen.getByRole('button', { name: /upload statement/i }));
+
+      expect(await screen.findByTestId('password-not-kept')).toHaveTextContent(/isn't password protected/i);
+    });
+
+    it('says nothing when the password was kept', async () => {
+      vi.mocked(importJobsApi.submit).mockReset().mockResolvedValue({
+        jobId: 'job-1', statusUrl: '/api/v1/import/jobs/job-1', passwordSaved: true,
+      });
+      const user = userEvent.setup();
+      renderImport();
+      await waitFor(() => expect(importJobsApi.availability).toHaveBeenCalled());
+
+      await user.upload(screen.getByTestId('statement-file-input'), pdfFile());
+      await user.type(screen.getByLabelText(/statement password/i), 'SYNTH1234');
+      await user.click(await screen.findByLabelText(/keep this password/i));
+      await user.click(screen.getByRole('button', { name: /upload statement/i }));
+
+      expect(await screen.findByTestId('import-progress')).toBeInTheDocument();
+      expect(screen.queryByTestId('password-not-kept')).not.toBeInTheDocument();
+    });
+
+    it('does not offer to keep it where the server cannot', async () => {
+      vi.mocked(importJobsApi.availability).mockReset().mockResolvedValue({ asyncImportAvailable: true });
+      const user = userEvent.setup();
+      renderImport();
+      await waitFor(() => expect(importJobsApi.availability).toHaveBeenCalled());
+
+      await user.upload(screen.getByTestId('statement-file-input'), pdfFile());
+
+      expect(await screen.findByTestId('pdf-password-panel')).toBeInTheDocument();
+      expect(screen.queryByLabelText(/keep this password/i)).not.toBeInTheDocument();
+    });
+  });
+
   it('falls back to the synchronous upload where the queue is not available', async () => {
     // The queue is opt-in per deployment. Asked before the upload, so the file crosses the network
     // once rather than being sent, refused with a 503, and sent again.

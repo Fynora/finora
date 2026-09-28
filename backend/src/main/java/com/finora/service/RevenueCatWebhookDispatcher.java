@@ -2,7 +2,9 @@ package com.finora.service;
 
 import com.finora.entity.IapProduct;
 import com.finora.entity.Plan;
+import com.finora.entity.ReferralCharge;
 import com.finora.entity.Subscription;
+import com.finora.integrations.revenuecat.RevenueCatProperties;
 import com.finora.repository.IapProductRepository;
 import com.finora.repository.PlanRepository;
 import com.finora.repository.SubscriptionRepository;
@@ -34,13 +36,16 @@ public class RevenueCatWebhookDispatcher {
     private final PlanRepository planRepository;
     private final IapProductRepository iapProductRepository;
     private final ReferralService referralService;
+    private final RevenueCatProperties properties;
 
     public RevenueCatWebhookDispatcher(SubscriptionRepository subscriptionRepository, PlanRepository planRepository,
-                                        IapProductRepository iapProductRepository, ReferralService referralService) {
+                                        IapProductRepository iapProductRepository, ReferralService referralService,
+                                        RevenueCatProperties properties) {
         this.subscriptionRepository = subscriptionRepository;
         this.planRepository = planRepository;
         this.iapProductRepository = iapProductRepository;
         this.referralService = referralService;
+        this.properties = properties;
     }
 
     @Transactional
@@ -53,6 +58,12 @@ public class RevenueCatWebhookDispatcher {
             case "EXPIRATION" -> handleExpiration(eventPayload);
             case "BILLING_ISSUE" -> handleBillingIssue(eventPayload);
             case "PRODUCT_CHANGE" -> handleProductChange(eventPayload);
+            // The store took a refund back. Deliberately not acted on (Sid's decision, 2026-09-28):
+            // it is rare, and a referral taken back by the refund stays REGISTERED and counts
+            // again on the friend's next paid charge anyway.
+            case "REFUND_REVERSED" -> log.info("RevenueCat REFUND_REVERSED for transaction {} -- logged only, "
+                    + "the referral it may have taken back is not restored.",
+                    LogSanitizer.sanitize(String.valueOf(eventPayload.get("transaction_id"))));
             default -> log.info("RevenueCat webhook event '{}' received but not handled in V4 yet.",
                     LogSanitizer.sanitize(eventType));
         }
@@ -152,11 +163,33 @@ public class RevenueCatWebhookDispatcher {
         applyExpiration(subscription, eventPayload);
         subscriptionRepository.save(subscription);
 
-        // design spec §5 (referral reward ledger): the store has already charged the user by the
-        // time this webhook arrives, so INITIAL_PURCHASE is a real-charge signal, same as
-        // Razorpay's subscription.charged. onPlanChanged's own REGISTERED-only guard keeps this
-        // safe even though this handler doesn't run on renewals (see handleRenewal above).
-        referralService.onPlanChanged(subscription.getUserId(), plan.getCode());
+        // design spec §5 (referral reward ledger): a paid INITIAL_PURCHASE means the store has
+        // already charged the user, same as Razorpay's subscription.charged. A free-trial start
+        // also arrives as INITIAL_PURCHASE, which is why this goes through countIfPaid.
+        countIfPaid(subscription.getUserId(), plan.getCode(), eventPayload);
+    }
+
+    /**
+     * Counts the referral (if any) of a user whose charge this event reports -- but only a paid
+     * one. RevenueCat's webhook docs: {@code period_type} is TRIAL for a free trial, and
+     * {@code price} is "0 for free trials, or negative for refunds". A null price ("unknown") is
+     * not held against the event; the period_type check still applies. When a trial converts,
+     * RevenueCat sends a RENEWAL for the first paid period, which lands here through
+     * handleRenewal and counts then.
+     *
+     * <p>A SANDBOX purchase (the {@code environment} field) costs nothing and does not count,
+     * unless {@code app.integrations.revenuecat.count-sandbox-referrals} is set for a test
+     * environment -- see RevenueCatProperties.
+     *
+     * <p>The charge is identified by {@code transaction_id}: that is the id a refund's
+     * CANCELLATION carries (see handleCancellation).
+     */
+    private void countIfPaid(UUID userId, String planCode, Map<String, Object> eventPayload) {
+        if ("TRIAL".equals(eventPayload.get("period_type"))) return;
+        if ("SANDBOX".equals(eventPayload.get("environment")) && !properties.isCountSandboxReferrals()) return;
+        if (eventPayload.get("price") instanceof Number price && price.doubleValue() <= 0) return;
+        referralService.onReferredUserCharged(userId, planCode, ReferralCharge.PROVIDER_REVENUECAT,
+                (String) eventPayload.get("transaction_id"));
     }
 
     /** spec §5. Renewal is passive -- just refresh the expiration date. Looked up by
@@ -168,6 +201,12 @@ public class RevenueCatWebhookDispatcher {
         subscription.setStatus(Subscription.STATUS_ACTIVE);
         applyExpiration(subscription, eventPayload);
         subscriptionRepository.save(subscription);
+
+        // A referred user whose first paid period is a renewal -- a trial converting, or a
+        // referral taken back by a refund and then paid for again. For everyone else
+        // onReferredUserCharged's REGISTERED-only guard makes this a no-op.
+        planRepository.findById(subscription.getPlanId())
+                .ifPresent(plan -> countIfPaid(subscription.getUserId(), plan.getCode(), eventPayload));
     }
 
     /** spec §5/§3. Turns off auto-renew only -- status/plan/renewal_date untouched, exactly
@@ -185,7 +224,39 @@ public class RevenueCatWebhookDispatcher {
      *  healthy and actively renewing. */
     void handleCancellation(Map<String, Object> eventPayload) {
         if ("BILLING_ERROR".equals(eventPayload.get("cancel_reason"))) return;
+        // A refund, by either documented marker: cancel_reason CUSTOMER_SUPPORT ("Customer received
+        // a refund"), or a negative price ("negative for refunds") -- the latter also catches a
+        // refund Apple reports with cancel_reason UNKNOWN ("Apple did not provide the reason").
+        boolean refund = "CUSTOMER_SUPPORT".equals(eventPayload.get("cancel_reason"))
+                || (eventPayload.get("price") instanceof Number price && price.doubleValue() < 0);
+        if (refund) {
+            handleRefund(eventPayload);
+            return;
+        }
         subscriptionForOriginalTransactionId(eventPayload, "CANCELLATION").ifPresent(subscription -> {
+            subscription.setAutoRenew(false);
+            subscriptionRepository.save(subscription);
+        });
+    }
+
+    /**
+     * A refund CANCELLATION (see handleCancellation for how one is recognized). Takes back the referral this exact transaction counted, if any
+     * (ReferralService.onChargeReversed matches on {@code transaction_id}, so a refund of a later
+     * renewal leaves it alone).
+     *
+     * <p>Unlike every other CANCELLATION, a subscription that cannot be found is not an error
+     * here: Apple and Google refund after a subscription has expired, and handleExpiration has by
+     * then cleared the original_transaction_id this looks up. Throwing (what
+     * subscriptionForOriginalTransactionId does) would roll back the referral reversal with it and
+     * fail the webhook on every retry, forever. The auto-renew update that other cancellations get
+     * is kept for a subscription that is still there.
+     */
+    private void handleRefund(Map<String, Object> eventPayload) {
+        referralService.onChargeReversed(ReferralCharge.PROVIDER_REVENUECAT,
+                (String) eventPayload.get("transaction_id"), "REFUND");
+        String originalTransactionId = (String) eventPayload.get("original_transaction_id");
+        if (originalTransactionId == null) return;
+        subscriptionRepository.findByRevenuecatOriginalTransactionId(originalTransactionId).ifPresent(subscription -> {
             subscription.setAutoRenew(false);
             subscriptionRepository.save(subscription);
         });

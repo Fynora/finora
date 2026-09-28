@@ -15,7 +15,7 @@ public interface ReferralRepository extends JpaRepository<Referral, UUID> {
     List<Referral> findByReferrerUserIdOrderByCreatedAtDesc(UUID referrerUserId);
 
     /** {@code referred_user_id} is unique (V101) -- at most one row can ever match. Used by
-     *  {@code ReferralService.onPlanChanged} to find the referral (if any) a newly-paying user
+     *  {@code ReferralService.onReferredUserCharged} to find the referral (if any) a newly-paying user
      *  arrived through. */
     Optional<Referral> findByReferredUserId(UUID referredUserId);
 

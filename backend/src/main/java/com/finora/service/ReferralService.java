@@ -6,6 +6,7 @@ import com.finora.dto.ReferralDtos.MyReferralDto;
 import com.finora.dto.ReferralDtos.MyReferralsDto;
 import com.finora.dto.ReferralDtos.ReferralGrantDto;
 import com.finora.entity.Referral;
+import com.finora.entity.ReferralCharge;
 import com.finora.entity.ReferralCode;
 import com.finora.entity.ReferralGrant;
 import com.finora.entity.User;
@@ -16,6 +17,7 @@ import com.finora.notification.domain.NotificationCategory;
 import com.finora.notification.domain.NotificationChannel;
 import com.finora.notification.domain.NotificationPriority;
 import com.finora.notification.domain.NotificationType;
+import com.finora.repository.ReferralChargeRepository;
 import com.finora.repository.ReferralCodeRepository;
 import com.finora.repository.ReferralGrantRepository;
 import com.finora.repository.ReferralRepository;
@@ -33,6 +35,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.security.SecureRandom;
+import java.time.Instant;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -65,12 +69,14 @@ public class ReferralService {
     private final AuditService auditService;
     private final ReferralGrantRepository referralGrantRepository;
     private final NotificationService notificationService;
+    private final ReferralChargeRepository referralChargeRepository;
     private final SecureRandom secureRandom = new SecureRandom();
 
     public ReferralService(ReferralCodeRepository referralCodeRepository, ReferralRepository referralRepository,
                             WalletLedgerRepository walletLedgerRepository, RefreshTokenRepository refreshTokenRepository,
                             UserRepository userRepository, AuditService auditService,
-                            ReferralGrantRepository referralGrantRepository, NotificationService notificationService) {
+                            ReferralGrantRepository referralGrantRepository, NotificationService notificationService,
+                            ReferralChargeRepository referralChargeRepository) {
         this.referralCodeRepository = referralCodeRepository;
         this.referralRepository = referralRepository;
         this.walletLedgerRepository = walletLedgerRepository;
@@ -79,6 +85,7 @@ public class ReferralService {
         this.auditService = auditService;
         this.referralGrantRepository = referralGrantRepository;
         this.notificationService = notificationService;
+        this.referralChargeRepository = referralChargeRepository;
     }
 
     /** Lazily creates the user's own shareable code on first request -- there is no natural
@@ -150,27 +157,153 @@ public class ReferralService {
 
     /**
      * Called from {@code RazorpayWebhookDispatcher.handleCharged} and
-     * {@code RevenueCatWebhookDispatcher.handleInitialPurchase} -- both represent a real, confirmed
-     * charge, not merely a mandate authorization (design spec §5: {@code subscription.activated}
-     * can fire with zero funds movement, so it is deliberately NOT a call site for this). A purely
-     * factual transition (this user is now on a paying plan) -- no business term is being invented
-     * by observing it, so it happens automatically, unlike reward crediting. Silently a no-op if
-     * the user was never referred, was already past REGISTERED, or {@code newPlanCode} is FREE (a
-     * downgrade/reconciliation must never re-trigger or reverse this). Takes no admin id -- unlike
-     * the reward-crediting audit trail below, there is no admin in scope at a webhook call site.
+     * {@code RevenueCatWebhookDispatcher}'s INITIAL_PURCHASE/RENEWAL handlers, only for a real,
+     * confirmed, non-trial charge -- deciding that is each dispatcher's job, since only it can read
+     * its provider's payload (design spec §5: {@code subscription.activated} can fire with zero
+     * funds movement, so it is deliberately NOT a call site for this; a RevenueCat free trial is
+     * {@code period_type=TRIAL} with price 0). A purely factual transition (this user is now
+     * paying) -- no business term is being invented by observing it, so it happens automatically,
+     * unlike reward crediting. Takes no admin id -- there is no admin in scope at a webhook call
+     * site.
+     *
+     * <p>Silently a no-op if the user was never referred, was already past REGISTERED,
+     * {@code newPlanCode} is FREE (a downgrade/reconciliation must never re-trigger this), or the
+     * charge has no provider id. The last one is deliberate: a charge that cannot be named cannot
+     * be matched to its refund later, so counting it would reopen the refund gap
+     * {@link #onChargeReversed} closes.
+     *
+     * <p>Records the charge in {@code referral_charges} (V241), counted or not, so its refund can
+     * take the referral back. A charge already recorded never counts again: that stops a
+     * redelivered purchase event from re-counting a charge that was since refunded.
+     *
+     * @param provider  ReferralCharge.PROVIDER_RAZORPAY or PROVIDER_REVENUECAT
+     * @param chargeRef the provider's own id for this charge: Razorpay's payment id, RevenueCat's
+     *                  transaction_id
      */
     @Transactional
-    public void onPlanChanged(UUID userId, String newPlanCode) {
+    public void onReferredUserCharged(UUID userId, String newPlanCode, String provider, String chargeRef) {
         if ("FREE".equals(newPlanCode)) return;
-        referralRepository.findByReferredUserId(userId)
+        if (chargeRef == null || chargeRef.isBlank()) {
+            log.warn("{} charge for user {} carries no charge id -- not counted toward a referral, since its "
+                    + "refund could never be matched back to it.", provider, userId);
+            return;
+        }
+        Referral referral = referralRepository.findByReferredUserId(userId)
                 .filter(r -> Referral.STATUS_REGISTERED.equals(r.getStatus()))
-                .ifPresent(r -> {
-                    r.setStatus(Referral.STATUS_SUBSCRIBED);
-                    referralRepository.save(r);
-                    auditService.record(userId, "REFERRAL_SUBSCRIBED", "Referral", r.getId(),
-                            Map.of("referrerUserId", r.getReferrerUserId().toString(), "planCode", newPlanCode));
-                    incrementMilestoneCountersIfEligible(r);
-                });
+                .orElse(null);
+        if (referral == null) return;
+        if (referralChargeRepository.existsByProviderAndChargeRef(provider, chargeRef)) {
+            log.info("{} charge {} already moved a referral once -- not counted again.", provider, chargeRef);
+            return;
+        }
+
+        referral.setStatus(Referral.STATUS_SUBSCRIBED);
+        referralRepository.save(referral);
+        auditService.record(userId, "REFERRAL_SUBSCRIBED", "Referral", referral.getId(),
+                Map.of("referrerUserId", referral.getReferrerUserId().toString(), "planCode", newPlanCode));
+        boolean counted = incrementMilestoneCountersIfEligible(referral);
+
+        ReferralCharge charge = new ReferralCharge();
+        charge.setReferrerUserId(referral.getReferrerUserId());
+        charge.setReferralId(referral.getId());
+        charge.setProvider(provider);
+        charge.setChargeRef(chargeRef);
+        charge.setCounted(counted);
+        referralChargeRepository.save(charge);
+    }
+
+    /**
+     * A refund or a lost chargeback of a referred user's charge. If that charge is the one that
+     * moved their referral to SUBSCRIBED, the referral goes back to REGISTERED and, if the charge
+     * was counted, 1 comes off the referrer's milestone counter. Any other charge (a later renewal,
+     * a charge before the user was referred) matches no {@code referral_charges} row and changes
+     * nothing.
+     *
+     * <p>Works after the referred account has been purged: the purge deletes the referral and
+     * payment rows, but not the {@code referral_charges} row (see V241), which still names the
+     * referrer. Without that, "pay, get counted, delete the account, get refunded" would keep the
+     * count.
+     *
+     * <p>The counter floors at 0, and a month already redeemed is not clawed back. Example: 7
+     * friends pay, the referrer redeems (counter 7 to 0, a grant is created), then one friend is
+     * refunded: the counter stays 0 and the grant stands. Progress not yet redeemed does absorb the
+     * refund: a counter of 1 left after a redemption drops to 0.
+     *
+     * <p>Idempotent and race-safe: the charge row is read row-locked
+     * ({@link ReferralChargeRepository#findForUpdate}), and a charge already reversed is left
+     * alone, so a refund and a chargeback of the same payment, or one event re-sent, reverse it
+     * once. The counter is then changed under the same referral_codes row lock the increment and
+     * {@link ReferralCodeRepository#consumeMilestoneIfAtLeast} take, so it cannot interleave with
+     * either.
+     *
+     * <p>A refund that arrives before its own charge has been processed (neither provider
+     * guarantees webhook order) leaves a row born reversed, with no referrer, so the charge never
+     * counts when it does arrive. See {@link ReferralChargeRepository#insertReversedIfAbsent}.
+     *
+     * <p>A referral an admin already cash-REWARDED through the dormant {@link #creditReward} path
+     * keeps its status: the wallet credit is a separate record this does not reverse. Logged for
+     * manual follow-up.
+     *
+     * @param reason short machine-readable reason, e.g. REFUND or CHARGEBACK_LOST
+     */
+    @Transactional
+    public void onChargeReversed(String provider, String chargeRef, String reason) {
+        if (chargeRef == null || chargeRef.isBlank()) return;
+        ReferralCharge charge = referralChargeRepository.findForUpdate(provider, chargeRef).orElse(null);
+        if (charge == null) {
+            // No row: either a charge that never moved a referral, or one whose own webhook has
+            // not been processed yet (delivery order is not guaranteed). Record the id as
+            // reversed so the second case can never count later.
+            if (referralChargeRepository.insertReversedIfAbsent(provider, chargeRef, reason) == 1) {
+                log.info("{} charge {} reversed ({}) before any referral recorded it -- marked so it never counts.",
+                        provider, chargeRef, reason);
+                return;
+            }
+            // A concurrent transaction committed this charge's row meanwhile: act on it.
+            charge = referralChargeRepository.findForUpdate(provider, chargeRef).orElse(null);
+            if (charge == null) return;
+        }
+        if (charge.getReversedAt() != null) return;
+
+        charge.setReversedAt(Instant.now());
+        charge.setReversalReason(reason);
+        referralChargeRepository.save(charge);
+
+        Integer counterAfter = null;
+        if (charge.isCounted()) {
+            ReferralCode code = referralCodeRepository.findByUserIdForUpdate(charge.getReferrerUserId()).orElse(null);
+            if (code != null) {
+                if (code.getPremiumMilestoneCounter() > 0) {
+                    code.setPremiumMilestoneCounter(code.getPremiumMilestoneCounter() - 1);
+                    referralCodeRepository.save(code);
+                } else {
+                    log.info("Referral charge {} reversed ({}) but referrer {}'s counter is already 0 -- the month "
+                            + "it helped earn was already redeemed and is not clawed back.",
+                            charge.getId(), reason, charge.getReferrerUserId());
+                }
+                counterAfter = code.getPremiumMilestoneCounter();
+            }
+        }
+
+        if (charge.getReferralId() != null) {
+            referralRepository.findById(charge.getReferralId()).ifPresent(referral -> {
+                if (Referral.STATUS_SUBSCRIBED.equals(referral.getStatus())) {
+                    referral.setStatus(Referral.STATUS_REGISTERED);
+                    referralRepository.save(referral);
+                } else if (Referral.STATUS_REWARDED.equals(referral.getStatus())) {
+                    log.warn("Referral {} was cash-REWARDED by an admin and its charge was since reversed ({}). "
+                            + "The wallet credit is not reversed automatically -- needs manual review.",
+                            referral.getId(), reason);
+                }
+            });
+        }
+
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("provider", provider);
+        metadata.put("reason", reason);
+        metadata.put("counted", charge.isCounted());
+        if (counterAfter != null) metadata.put("counterAfter", counterAfter);
+        auditService.record(charge.getReferrerUserId(), "REFERRAL_CHARGE_REVERSED", "ReferralCharge", charge.getId(), metadata);
     }
 
     /**
@@ -178,7 +311,7 @@ public class ReferralService {
      * earlier, to counter-increment time -- redemption is now self-service with no admin in the
      * loop, so the check can no longer happen only at the old manual-approval step (design spec
      * section 2). A flagged pair's referral increments neither counter and sends no notification;
-     * onPlanChanged's own SUBSCRIBED transition above still happens either way, since that part is
+     * onReferredUserCharged's own SUBSCRIBED transition above still happens either way, since that part is
      * a plain factual observation, not a reward.
      *
      * <p>One milestone: {@link #MILESTONE_REFERRALS} referrals earn one free month of Plus. The
@@ -187,16 +320,18 @@ public class ReferralService {
      * premium_milestone_counter column (the one that was already tracking toward 7 and was never
      * reset by a 3-referral redemption, so nobody lost progress in the switch);
      * plus_milestone_counter is no longer incremented or read.
+     *
+     * @return whether the counter was actually incremented
      */
-    private void incrementMilestoneCountersIfEligible(Referral referral) {
+    private boolean incrementMilestoneCountersIfEligible(Referral referral) {
         if (sharesADeviceOrIp(referral.getReferrerUserId(), referral.getReferredUserId())) {
             log.info("Referral {} not counted toward a milestone -- referrer/referred share a device/IP.",
                     referral.getId());
-            return;
+            return false;
         }
         // Row-locked read: see findByUserIdForUpdate for the races a plain read allowed.
         ReferralCode code = referralCodeRepository.findByUserIdForUpdate(referral.getReferrerUserId()).orElse(null);
-        if (code == null) return;
+        if (code == null) return false;
 
         int updated = code.getPremiumMilestoneCounter() + 1;
         code.setPremiumMilestoneCounter(updated);
@@ -223,6 +358,7 @@ public class ReferralService {
                     Set.of(NotificationChannel.PUSH, NotificationChannel.EMAIL),
                     Map.of("tier", ReferralGrant.TIER_PLUS)));
         }
+        return true;
     }
 
     /**

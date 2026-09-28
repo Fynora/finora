@@ -924,6 +924,8 @@ app:
     # a real RevenueCat project exists (spec §10).
     revenuecat:
       webhook-signing-secret: ${REVENUECAT_WEBHOOK_SIGNING_SECRET:}
+      # Sandbox purchases are free; false keeps them from earning referral months. See RevenueCatProperties.
+      count-sandbox-referrals: ${REVENUECAT_COUNT_SANDBOX_REFERRALS:false}
 
   # NotificationDispatcher's poller/nudge -- same enabled-flag shape as learning/import above.
   notification:

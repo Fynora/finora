@@ -1,0 +1,36 @@
+-- The charge that moved each referral from REGISTERED to SUBSCRIBED, so a refund or a lost
+-- chargeback of that exact charge can take the referral back (ReferralService.onChargeReversed).
+--
+-- Why a table of its own rather than a column on referrals or a lookup through payments: the
+-- account purge (AccountPurgeSweepService) hard-deletes the referred user's referral row and their
+-- payments. "Pay, get counted, delete the account, get refunded" would then leave nothing linking
+-- the refund back to the referrer, and the count would stay. This row keeps only the referrer, the
+-- provider and the provider's own charge id -- no column identifies the referred user -- so it is
+-- left in place when the referred user is purged (referral_id goes NULL) and removed when the
+-- referrer is purged.
+--
+-- counted: whether this charge actually added 1 to the referrer's milestone counter. A referral
+-- whose two accounts share a device/IP still becomes SUBSCRIBED but is not counted, and reversing
+-- it must then not take 1 off.
+--
+-- reversed_at: set once, by the first refund/chargeback of this charge. The locked read of it is
+-- what makes a repeated or concurrent reversal a no-op.
+--
+-- referrer_user_id is NULL only on a row written by a refund that arrived BEFORE the charge it
+-- refunds had been processed (neither provider guarantees webhook order, and a charge that raced
+-- ahead of its subscription's activation waits for the recovery sweep). That row is born
+-- reversed, so the late charge finds its id already taken and never counts.
+CREATE TABLE referral_charges (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    referrer_user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    referral_id UUID REFERENCES referrals(id) ON DELETE SET NULL,
+    provider VARCHAR(20) NOT NULL,
+    charge_ref VARCHAR(255) NOT NULL,
+    counted BOOLEAN NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    reversed_at TIMESTAMPTZ,
+    reversal_reason VARCHAR(40),
+    CONSTRAINT uq_referral_charges_provider_charge_ref UNIQUE (provider, charge_ref)
+);
+CREATE INDEX idx_referral_charges_referrer_user_id ON referral_charges(referrer_user_id);
+CREATE INDEX idx_referral_charges_referral_id ON referral_charges(referral_id);

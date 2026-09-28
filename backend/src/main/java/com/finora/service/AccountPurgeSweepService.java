@@ -50,6 +50,7 @@ import com.finora.repository.PasswordResetTokenRepository;
 import com.finora.repository.PaymentRepository;
 import com.finora.repository.PhoneChangeSessionRepository;
 import com.finora.repository.RecurringDismissalRepository;
+import com.finora.repository.ReferralChargeRepository;
 import com.finora.repository.ReferralCodeRepository;
 import com.finora.repository.ReferralGrantRepository;
 import com.finora.repository.ReferralRepository;
@@ -209,6 +210,7 @@ public class AccountPurgeSweepService {
     private final ReferralCodeRepository referralCodeRepository;
     private final ReferralGrantRepository referralGrantRepository;
     private final ReferralRepository referralRepository;
+    private final ReferralChargeRepository referralChargeRepository;
     private final WalletLedgerRepository walletLedgerRepository;
     private final CategoryRuleRepository categoryRuleRepository;
     private final CategoryRepository categoryRepository;
@@ -278,6 +280,7 @@ public class AccountPurgeSweepService {
                                      ReferralCodeRepository referralCodeRepository,
                                      ReferralGrantRepository referralGrantRepository,
                                      ReferralRepository referralRepository,
+                                     ReferralChargeRepository referralChargeRepository,
                                      WalletLedgerRepository walletLedgerRepository,
                                      CategoryRuleRepository categoryRuleRepository,
                                      CategoryRepository categoryRepository,
@@ -346,6 +349,7 @@ public class AccountPurgeSweepService {
         this.referralCodeRepository = referralCodeRepository;
         this.referralGrantRepository = referralGrantRepository;
         this.referralRepository = referralRepository;
+        this.referralChargeRepository = referralChargeRepository;
         this.walletLedgerRepository = walletLedgerRepository;
         this.categoryRuleRepository = categoryRuleRepository;
         this.categoryRepository = categoryRepository;
@@ -715,6 +719,10 @@ public class AccountPurgeSweepService {
             // party's half of either row.
             referralGrantRepository.deleteByUserId(userId);
             referralCodeRepository.deleteByUserId(userId);
+            // V241: only the purged user's rows as a REFERRER. Rows for charges the purged user
+            // paid as the one referred are kept on purpose -- they carry no id of theirs, and a
+            // refund arriving after the purge still has to take the referrer's count back.
+            referralChargeRepository.deleteByReferrerUserId(userId);
             referralRepository.deleteByReferrerUserId(userId);
             referralRepository.deleteByReferredUserId(userId);
             walletLedgerRepository.deleteByUserId(userId);

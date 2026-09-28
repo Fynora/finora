@@ -69,7 +69,7 @@ class ReferralMilestoneConcurrentRedeemRaceIT extends AbstractIntegrationTest {
         for (int i = 0; i < ReferralService.MILESTONE_REFERRALS; i++) {
             User referred = newUser();
             referralService.redeemCode(referred.getId(), code);
-            referralService.onPlanChanged(referred.getId(), "PLUS");
+            referralService.onReferredUserCharged(referred.getId(), "PLUS", "RAZORPAY", "pay_test_" + UUID.randomUUID());
         }
 
         CountDownLatch firstHasUpdatedButNotCommitted = new CountDownLatch(1);
@@ -152,7 +152,7 @@ class ReferralMilestoneConcurrentRedeemRaceIT extends AbstractIntegrationTest {
         for (int i = 0; i < ReferralService.MILESTONE_REFERRALS; i++) {
             User referred = newUser();
             referralService.redeemCode(referred.getId(), code);
-            referralService.onPlanChanged(referred.getId(), "PLUS");
+            referralService.onReferredUserCharged(referred.getId(), "PLUS", "RAZORPAY", "pay_test_" + UUID.randomUUID());
         }
         User late = newUser();
         referralService.redeemCode(late.getId(), code);
@@ -187,7 +187,7 @@ class ReferralMilestoneConcurrentRedeemRaceIT extends AbstractIntegrationTest {
 
         Thread increment = new Thread(() -> {
             try {
-                referralService.onPlanChanged(late.getId(), "PLUS");
+                referralService.onReferredUserCharged(late.getId(), "PLUS", "RAZORPAY", "pay_test_" + UUID.randomUUID());
             } catch (Throwable t) {
                 incrementFailure.set(t);
             }

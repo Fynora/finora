@@ -109,14 +109,27 @@ public class StatementPasswordService {
     /**
      * A held upload's file as a member of staff can read it: a protected PDF whose password the
      * user saved is unlocked in memory for this download only -- no unlocked copy is ever stored.
-     * Anything else is returned as it is.
+     * Anything else is returned as it is, and so is a file that cannot be unlocked: a held upload
+     * is often one that failed to open at all, and the reviewer still needs the file itself.
      */
     @Transactional(readOnly = true)
-    public ReviewCopy reviewCopy(ImportJob job, byte[] content) throws java.io.IOException {
+    public ReviewCopy reviewCopy(ImportJob job, byte[] content) {
         if (!"PDF".equalsIgnoreCase(job.getSourceFormat())) return new ReviewCopy(content, false);
         Optional<String> password = forJob(job.getId());
         if (password.isEmpty()) return new ReviewCopy(content, false);
-        return new ReviewCopy(com.finora.imports.pdf.PdfTextExtractor.unlockedCopy(content, password.get()), true);
+        try {
+            return new ReviewCopy(com.finora.imports.pdf.PdfTextExtractor.unlockedCopy(content, password.get()), true);
+        } catch (java.io.IOException | RuntimeException e) {
+            log.warn("Held upload {} could not be unlocked for review; handing over the stored file: {}",
+                    job.getId(), e.getClass().getSimpleName());
+            return new ReviewCopy(content, false);
+        }
+    }
+
+    /** Whether a queued upload has a saved password -- known before its file is read. */
+    @Transactional(readOnly = true)
+    public boolean hasJobPassword(UUID importJobId) {
+        return repository.findByImportJobId(importJobId).isPresent();
     }
 
     /** @param unlocked whether the saved password was used to remove the file's protection */

@@ -2932,6 +2932,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/statement-passwords": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listSavedStatementPasswords"];
+        put?: never;
+        post?: never;
+        delete: operations["removeAllSavedStatementPasswords"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/statement-imports": {
         parameters: {
             query?: never;
@@ -4948,6 +4964,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/statement-passwords/{statementImportId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["removeSavedStatementPassword"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sender-inflow-rules/{id}": {
         parameters: {
             query?: never;
@@ -6025,6 +6057,7 @@ export interface components {
         };
         StatementRefreshRequest: {
             password?: string;
+            savePassword?: boolean;
         };
         ApiResponseStatementRefreshOutcome: {
             success?: boolean;
@@ -7629,6 +7662,34 @@ export interface components {
             /** Format: int32 */
             totalPages?: number;
         };
+        ApiResponseSavedStatementPasswordList: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["SavedStatementPasswordList"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        SavedStatementPassword: {
+            /** Format: uuid */
+            statementImportId?: string;
+            fileName?: string;
+            accountName?: string;
+            /** Format: date */
+            periodStart?: string;
+            /** Format: date */
+            periodEnd?: string;
+            /** Format: date-time */
+            savedAt?: string;
+        };
+        SavedStatementPasswordList: {
+            saveAvailable?: boolean;
+            items?: components["schemas"]["SavedStatementPassword"][];
+        };
         AccountGroup: {
             /** Format: uuid */
             accountId?: string;
@@ -8104,6 +8165,7 @@ export interface components {
         };
         Availability: {
             asyncImportAvailable?: boolean;
+            savePasswordAvailable?: boolean;
         };
         ApiResponseListImportFailureSummaryDto: {
             success?: boolean;
@@ -10190,6 +10252,22 @@ export interface components {
             /** Format: date */
             periodEnd?: string;
             classification?: string;
+        };
+        ApiResponseSavedStatementPasswordsRemoved: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["SavedStatementPasswordsRemoved"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        SavedStatementPasswordsRemoved: {
+            /** Format: int32 */
+            removed?: number;
         };
     };
     responses: never;
@@ -12410,7 +12488,10 @@ export interface operations {
     };
     submit: {
         parameters: {
-            query?: never;
+            query?: {
+                password?: string;
+                savePassword?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -15533,6 +15614,46 @@ export interface operations {
             };
         };
     };
+    listSavedStatementPasswords: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseSavedStatementPasswordList"];
+                };
+            };
+        };
+    };
+    removeAllSavedStatementPasswords: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseSavedStatementPasswordsRemoved"];
+                };
+            };
+        };
+    };
     list_18: {
         parameters: {
             query?: never;
@@ -18261,6 +18382,28 @@ export interface operations {
             header?: never;
             path: {
                 id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
+    removeSavedStatementPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                statementImportId: string;
             };
             cookie?: never;
         };

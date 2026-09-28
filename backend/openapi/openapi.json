@@ -3141,6 +3141,24 @@
                     "import-job-controller"
                 ],
                 "operationId": "submit",
+                "parameters": [
+                    {
+                        "name": "password",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "savePassword",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    }
+                ],
                 "requestBody": {
                     "content": {
                         "multipart/form-data": {
@@ -7463,6 +7481,44 @@
                 }
             }
         },
+        "/api/v1/statement-passwords": {
+            "get": {
+                "tags": [
+                    "statement-password-controller"
+                ],
+                "operationId": "listSavedStatementPasswords",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseSavedStatementPasswordList"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "statement-password-controller"
+                ],
+                "operationId": "removeAllSavedStatementPasswords",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseSavedStatementPasswordsRemoved"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/statement-imports": {
             "get": {
                 "tags": [
@@ -11192,6 +11248,37 @@
                 }
             }
         },
+        "/api/v1/statement-passwords/{statementImportId}": {
+            "delete": {
+                "tags": [
+                    "statement-password-controller"
+                ],
+                "operationId": "removeSavedStatementPassword",
+                "parameters": [
+                    {
+                        "name": "statementImportId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sender-inflow-rules/{id}": {
             "delete": {
                 "tags": [
@@ -14027,6 +14114,9 @@
                 "properties": {
                     "password": {
                         "type": "string"
+                    },
+                    "savePassword": {
+                        "type": "boolean"
                     }
                 }
             },
@@ -18284,6 +18374,75 @@
                     }
                 }
             },
+            "ApiResponseSavedStatementPasswordList": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/SavedStatementPasswordList"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "SavedStatementPassword": {
+                "type": "object",
+                "properties": {
+                    "statementImportId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "fileName": {
+                        "type": "string"
+                    },
+                    "accountName": {
+                        "type": "string"
+                    },
+                    "periodStart": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "periodEnd": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "savedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            },
+            "SavedStatementPasswordList": {
+                "type": "object",
+                "properties": {
+                    "saveAvailable": {
+                        "type": "boolean"
+                    },
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SavedStatementPassword"
+                        }
+                    }
+                }
+            },
             "AccountGroup": {
                 "type": "object",
                 "properties": {
@@ -19502,6 +19661,9 @@
                 "type": "object",
                 "properties": {
                     "asyncImportAvailable": {
+                        "type": "boolean"
+                    },
+                    "savePasswordAvailable": {
                         "type": "boolean"
                     }
                 }
@@ -24684,6 +24846,43 @@
                     },
                     "classification": {
                         "type": "string"
+                    }
+                }
+            },
+            "ApiResponseSavedStatementPasswordsRemoved": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/SavedStatementPasswordsRemoved"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "SavedStatementPasswordsRemoved": {
+                "type": "object",
+                "properties": {
+                    "removed": {
+                        "type": "integer",
+                        "format": "int32"
                     }
                 }
             }

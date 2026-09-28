@@ -2051,6 +2051,39 @@ describe('Import — queued imports', () => {
       await waitFor(() => expect(screen.queryByLabelText(/keep this password/i)).not.toBeInTheDocument());
     });
 
+    it('says so when the file needed no password and nothing was kept', async () => {
+      vi.mocked(importJobsApi.submit).mockReset().mockResolvedValue({
+        jobId: 'job-1', statusUrl: '/api/v1/import/jobs/job-1', passwordSaved: false,
+      });
+      const user = userEvent.setup();
+      renderImport();
+      await waitFor(() => expect(importJobsApi.availability).toHaveBeenCalled());
+
+      await user.upload(screen.getByTestId('statement-file-input'), pdfFile());
+      await user.type(screen.getByLabelText(/statement password/i), 'SYNTH1234');
+      await user.click(await screen.findByLabelText(/keep this password/i));
+      await user.click(screen.getByRole('button', { name: /upload statement/i }));
+
+      expect(await screen.findByTestId('password-not-kept')).toHaveTextContent(/isn't password protected/i);
+    });
+
+    it('says nothing when the password was kept', async () => {
+      vi.mocked(importJobsApi.submit).mockReset().mockResolvedValue({
+        jobId: 'job-1', statusUrl: '/api/v1/import/jobs/job-1', passwordSaved: true,
+      });
+      const user = userEvent.setup();
+      renderImport();
+      await waitFor(() => expect(importJobsApi.availability).toHaveBeenCalled());
+
+      await user.upload(screen.getByTestId('statement-file-input'), pdfFile());
+      await user.type(screen.getByLabelText(/statement password/i), 'SYNTH1234');
+      await user.click(await screen.findByLabelText(/keep this password/i));
+      await user.click(screen.getByRole('button', { name: /upload statement/i }));
+
+      expect(await screen.findByTestId('import-progress')).toBeInTheDocument();
+      expect(screen.queryByTestId('password-not-kept')).not.toBeInTheDocument();
+    });
+
     it('does not offer to keep it where the server cannot', async () => {
       vi.mocked(importJobsApi.availability).mockReset().mockResolvedValue({ asyncImportAvailable: true });
       const user = userEvent.setup();

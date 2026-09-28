@@ -219,6 +219,9 @@ export default function Import() {
   // something the user chooses, per upload.
   const [savePasswordOffered, setSavePasswordOffered] = useState(false);
   const [savePassword, setSavePassword] = useState(false);
+  // Set when the user asked to keep the password but the file turned out not to be locked, so
+  // nothing was kept -- said out loud rather than letting them believe it was saved.
+  const [passwordNotKept, setPasswordNotKept] = useState(false);
 
   // Staged rows. `review` holds the include flags and the duplicate decisions as one value --
   // see lib/importReview.ts for why they are not two pieces of state.
@@ -639,6 +642,7 @@ export default function Import() {
         setPendingPdf(null);
         setPdfPassword('');
         setPasswordState(null);
+        setPasswordNotKept(keepPassword && accepted.passwordSaved === false);
         setJobId(accepted.jobId);
         // StatementHistory's "Recent Imports" section (Premium Import Reliability v1, §3.2) reads
         // this same key with a 30s staleTime -- without this, a person who was on that page inside
@@ -1037,6 +1041,11 @@ export default function Import() {
               the user did not ask for. */}
           {jobId && (
             <>
+              {passwordNotKept && (
+                <p className="text-xs text-muted" role="status" data-testid="password-not-kept">
+                  This statement isn't password protected, so there was no password to keep.
+                </p>
+              )}
               <ImportProgress
                 jobId={jobId}
                 onReady={(sessionId) => void openReviewedJob(sessionId)}

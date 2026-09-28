@@ -118,6 +118,9 @@ export function ImportScreen() {
   const [keepRefused, setKeepRefused] = useState(false);
   const savePasswordOffered = asyncAvailable && asyncAvailableQ.data?.savePasswordAvailable === true && !keepRefused;
   const [savePassword, setSavePassword] = useState(false);
+  // Set when the user asked to keep the password but the file turned out not to be locked, so
+  // nothing was kept -- said out loud rather than letting them believe it was saved.
+  const [passwordNotKept, setPasswordNotKept] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);
 
   // Phase 4 (Medium-Tier Parity). "Your recent failed imports" -- a document that never got far
@@ -569,6 +572,7 @@ export function ImportScreen() {
         setPdfPassword('');
     setPasswordRevealed(false);
         setPasswordState(null);
+        setPasswordNotKept(keepPassword && accepted.passwordSaved === false);
         setJobId(accepted.jobId);
       } catch (e) {
         // Cancel checked first, same reasoning as the synchronous branch below: a cancelled
@@ -809,12 +813,19 @@ export function ImportScreen() {
               on this screen until it lands, and offering a second upload alongside it would start
               a race the user did not ask for. */}
           {jobId ? (
-            <ImportProgressCard
-              jobId={jobId}
-              onReady={(sid) => void onJobReady(sid)}
-              onGaveUp={onJobGaveUp}
-              onDismiss={() => { setJobId(null); setError(null); }}
-            />
+            <>
+              {passwordNotKept ? (
+                <Text style={[styles.helpText, { color: c.muted }]} testID="password-not-kept">
+                  This statement isn't password protected, so there was no password to keep.
+                </Text>
+              ) : null}
+              <ImportProgressCard
+                jobId={jobId}
+                onReady={(sid) => void onJobReady(sid)}
+                onGaveUp={onJobGaveUp}
+                onDismiss={() => { setJobId(null); setError(null); }}
+              />
+            </>
           ) : (
           <Card>
             <SectionHeading title="Import a statement" />

@@ -1150,6 +1150,35 @@ describe('ImportScreen — async import job (Phase 4)', () => {
       expect(api.importJobs.submit).toHaveBeenCalledTimes(1);
     });
 
+    it('says so when the file needed no password and nothing was kept', async () => {
+      api.importJobs.submit.mockResolvedValue({ jobId: 'job-1', statusUrl: '/import/jobs/job-1', passwordSaved: false });
+      render(treeSaveOffered());
+      fireEvent.press(await screen.findByText('Choose a file'));
+      await settle();
+
+      fireEvent.changeText(screen.getByLabelText('Statement password'), 'SYNTH1234');
+      fireEvent(screen.getByTestId('pdf-save-password'), 'valueChange', true);
+      fireEvent.press(screen.getByText('Upload statement'));
+      await settle();
+
+      expect(await screen.findByTestId('password-not-kept')).toBeTruthy();
+    });
+
+    it('says nothing when the password was kept', async () => {
+      api.importJobs.submit.mockResolvedValue({ jobId: 'job-1', statusUrl: '/import/jobs/job-1', passwordSaved: true });
+      render(treeSaveOffered());
+      fireEvent.press(await screen.findByText('Choose a file'));
+      await settle();
+
+      fireEvent.changeText(screen.getByLabelText('Statement password'), 'SYNTH1234');
+      fireEvent(screen.getByTestId('pdf-save-password'), 'valueChange', true);
+      fireEvent.press(screen.getByText('Upload statement'));
+      await settle();
+
+      await waitFor(() => expect(api.importJobs.submit).toHaveBeenCalledTimes(1));
+      expect(screen.queryByTestId('password-not-kept')).not.toBeOnTheScreen();
+    });
+
     it('does not offer to keep it where the server cannot', async () => {
       // The mount refetches availability, so the mock must agree with the seeded cache.
       api.importJobs.availability.mockResolvedValue({ asyncImportAvailable: true });

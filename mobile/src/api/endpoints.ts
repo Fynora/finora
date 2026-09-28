@@ -642,7 +642,9 @@ export const importJobsApi = {
       form.append('savePassword', 'true');
     }
     return api
-      .post<{ jobId: string; statusUrl: string }>('/import/jobs', form, toUploadProgressConfig(onProgress, signal))
+      // passwordSaved: whether a password sent with consent was kept -- false when the file turned
+      // out not to be locked. Optional because an older backend does not send it.
+      .post<{ jobId: string; statusUrl: string; passwordSaved?: boolean }>('/import/jobs', form, toUploadProgressConfig(onProgress, signal))
       .then((r) => r.data);
   },
   progress: (jobId: string) =>

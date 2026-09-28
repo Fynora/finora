@@ -1,5 +1,6 @@
 package com.finora.imports;
 
+import com.finora.imports.analysis.DocumentIdentity;
 import com.finora.imports.analysis.ParseDiagnostics;
 import com.finora.imports.analysis.StatementAnalysisSession;
 import com.finora.imports.analysis.StatementAnalysisRecorder;
@@ -234,7 +235,8 @@ public class ImportService {
             var result = previewGenerator.generateWithContext(userId, fileName, new java.io.ByteArrayInputStream(fileContent));
             fingerprint = fingerprintOf(result.documentContext());
             StagingResponse staged = result.response();
-            diagnostics = ParseDiagnostics.of(staged.rows().size(), result.documentContext().unanchoredReasons());
+            diagnostics = ParseDiagnostics.of(staged.rows().size(), result.documentContext().unanchoredReasons())
+                    .withIdentity(DocumentIdentity.of(staged.detectedAccount()));
             rejectIfNothingWasExtracted(staged, result.documentContext());
             var session = importSessionService.createSession(userId, fileName, fileContent, staged.rows(), staged.detectedAccount(),
                     result.documentContext(), null, null, null, staged.verification());
@@ -351,7 +353,8 @@ public class ImportService {
             // this row with a narrower scope than the rest of it.
             diagnostics = ParseDiagnostics.of(
                     sections.stream().mapToInt(section -> section.rows().size()).sum(),
-                    result.documentContext().unanchoredReasons());
+                    result.documentContext().unanchoredReasons())
+                    .withIdentity(DocumentIdentity.ofSections(sections));
 
             // P-002 Fix 1. Hoisted out of the single-section branch below, where it used to live and
             // where it only ever saw documents that located one table. A document that staged NO

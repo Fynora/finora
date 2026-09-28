@@ -90,7 +90,7 @@ public class StatementAnalysisRecorder {
             var session = StatementAnalysisSession.parsed(nextReference(), userId, source, fileName,
                     sourceFormat, byteSize, layoutFingerprint, sectionCount, durationMs,
                     diagnostics.rowCount(), writeHistogram(diagnostics, fileName),
-                    importSessionId, currentCorrelationId());
+                    importSessionId, currentCorrelationId()).identifiedAs(diagnostics.identity());
             return repository.save(session).getReference();
         } catch (RuntimeException e) {
             // LogSanitizer: fileName is the upload's original, user-supplied filename -- see
@@ -111,7 +111,7 @@ public class StatementAnalysisRecorder {
             var session = StatementAnalysisSession.failed(nextReference(), userId, source, fileName,
                     sourceFormat, byteSize, layoutFingerprint, failureCode, truncate(failureDetail),
                     durationMs, diagnostics.rowCount(), writeHistogram(diagnostics, fileName),
-                    currentCorrelationId());
+                    currentCorrelationId()).identifiedAs(diagnostics.identity());
             return repository.save(session).getReference();
         } catch (RuntimeException e) {
             log.error("Could not record a FAILED analysis session for {} ({}) -- the layout that "

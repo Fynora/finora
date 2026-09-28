@@ -134,6 +134,18 @@ public class StatementAnalysisSession {
     @Column(name = "correlation_id", length = 64, updatable = false)
     private String correlationId;
 
+    /** Whether bank/type detection ran for this upload -- see {@link DocumentIdentity#checked}. V239. */
+    @Column(name = "identity_checked", nullable = false, updatable = false)
+    private boolean identityChecked;
+
+    /** The bank the engine recognised, or null -- see {@link DocumentIdentity}. V239. */
+    @Column(name = "bank_name", length = 128, updatable = false)
+    private String bankName;
+
+    /** The identified statement/product types, comma-joined, or null. V239. */
+    @Column(name = "statement_type", length = 64, updatable = false)
+    private String statementType;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -223,6 +235,20 @@ public class StatementAnalysisSession {
                 durationMs, rowCount, unanchoredReasonsJson, null, correlationId);
     }
 
+    /**
+     * Stamps what the engine identified the document as. Package-private and used only by
+     * {@link StatementAnalysisRecorder} before the first save -- the columns are not updatable, so
+     * this cannot revise a stored row, and the "no setters" evidence rule still holds from outside.
+     */
+    StatementAnalysisSession identifiedAs(DocumentIdentity identity) {
+        if (identity != null) {
+            this.identityChecked = identity.checked();
+            this.bankName = identity.bankName();
+            this.statementType = identity.statementType();
+        }
+        return this;
+    }
+
     public UUID getId() { return id; }
     public String getReference() { return reference; }
     public UUID getUserId() { return userId; }
@@ -240,5 +266,8 @@ public class StatementAnalysisSession {
     public String getUnanchoredReasonsJson() { return unanchoredReasonsJson; }
     public UUID getImportSessionId() { return importSessionId; }
     public String getCorrelationId() { return correlationId; }
+    public boolean isIdentityChecked() { return identityChecked; }
+    public String getBankName() { return bankName; }
+    public String getStatementType() { return statementType; }
     public Instant getCreatedAt() { return createdAt; }
 }

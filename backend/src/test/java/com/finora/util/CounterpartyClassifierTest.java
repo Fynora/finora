@@ -86,6 +86,29 @@ class CounterpartyClassifierTest {
     }
 
     @Test
+    void aFeePaidToThePassportPortalOrTheExamBodyIsGovernment_notAPersonsTransfer() {
+        // The portal's payee line is three name-shaped words, so the HDFC slot rule read it as a
+        // person and the refund pass would never have linked a returned fee.
+        String passport = "UPI-PASSPORT SEVA PROJEC-passportseva.sample@sbi-XXXX0001234-REF61-FEE"; // synthetic-ok
+        assertThat(CounterpartyClassifier.classify(passport)).isEqualTo(CounterpartyType.GOVERNMENT);
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(passport)).isFalse();
+        assertThat(CounterpartyClassifier.classify("UPIAR/REF62/DR/Passport/SBIN/passportseva.sample"))
+                .isEqualTo(CounterpartyType.GOVERNMENT);
+        assertThat(CounterpartyClassifier.classify("UPI/REF63/UPI/upsc.sample@sbi"))
+                .isEqualTo(CounterpartyType.GOVERNMENT);
+    }
+
+    @Test
+    void aTwoWordCafeChainIsABusiness_onceItIsAKnownMerchant() {
+        // Structurally a two-word brand is indistinguishable from a person's name (the detector's
+        // documented limitation); the merchant vocabulary is what separates them.
+        String cafe = "UPI-TEA POST-sampleoutlet@ybl-XXXX0YBLUPI-REF64-PAYMENT FOR ORDER"; // synthetic-ok
+        assertThat(CounterpartyClassifier.classify(cafe)).isEqualTo(CounterpartyType.BUSINESS);
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(cafe)).isFalse();
+        assertThat(CategoryRules.suggestCategory(cafe)).isEqualTo("Dining");
+    }
+
+    @Test
     void nothingIdentifiableIsUnknownRatherThanAGuess() {
         // ~530 corpus rows land here. UNKNOWN is the honest answer, and the codebase prefers it to
         // a confident wrong one -- this test exists so a future "improvement" that assigns a

@@ -423,4 +423,15 @@ class PersonToPersonTransferDetectorTest {
         assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
                 "UPI-SWIGGY INSTAMART-sampleuser3@ybl-XXXX0001234-REF57-UPI")).isFalse(); // synthetic-ok
     }
+
+    @Test
+    void aKnownMerchantInAnySegmentIsNotReadAsAPersonsName() {
+        // The segment scan read "Dominos Pizza" as two name words. The type was already BUSINESS from
+        // the merchant lookup, but this answer alone decides the "Personal Transfer" fallback.
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/Dominos Pizza/REF65/UPI")).isFalse();
+        // A person's name in the same position still is one.
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/Sunita Rao/REF66/UPI")).isTrue();
+    }
 }

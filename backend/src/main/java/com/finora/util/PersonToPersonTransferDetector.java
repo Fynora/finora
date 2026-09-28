@@ -332,6 +332,8 @@ public final class PersonToPersonTransferDetector {
         if (description == null || description.isBlank()) return false;
         if (VPA_BUSINESS_QR.matcher(description).find()) return false;
         if (MERCHANT_ACQUIRER_MARKER.matcher(description).find()) return false;
+        // A fee paid to the state, however person-shaped its payee line (a portal's own 3-word name).
+        if (CounterpartyClassifier.namesGovernmentBody(description)) return false;
 
         Matcher marker = TRANSFER_MARKER.matcher(description);
         if (!marker.find()) return false;
@@ -353,7 +355,8 @@ public final class PersonToPersonTransferDetector {
         // whose rail token is the LAST segment ("<name>/<ref>/IMPS"), and slicing them at the
         // marker left nothing but the rail itself for this loop to read.
         for (String segment : SEGMENT_DELIMITERS.split(description)) {
-            if (looksLikePersonName(segment.trim())) return true;
+            String candidate = segment.trim();
+            if (looksLikePersonName(candidate) && !MerchantIdentityLookup.namesKnownMerchant(candidate)) return true;
         }
         return namesPersonInAFixedSlot(description);
     }

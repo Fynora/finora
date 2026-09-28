@@ -79,7 +79,10 @@ public final class CounterpartyClassifier {
     //    rail, and reads only the payee slot of HDFC's UPI layout, never its free-text remark --
     //    measured on the corpus, 3 rows PERSON -> BUSINESS and 1 UNKNOWN -> BUSINESS (all merchants),
     //    7 UNKNOWN -> PERSON (all people), and 35 already-BUSINESS rows stop reading as a personal
-    //    transfer. Every flip read.
+    //    transfer. Then, in the same unreleased revision: the passport portal and the exam body join
+    //    GOVERNMENT (6 rows), a two-word cafe chain joins the merchant vocabulary (7 rows PERSON ->
+    //    BUSINESS), and a known merchant in any segment is no longer read as a name (16 more
+    //    already-BUSINESS rows). Every flip read.
     public static final short VERSION = 5;
 
     /**
@@ -118,7 +121,20 @@ public final class CounterpartyClassifier {
      */
     private static final Pattern GOVERNMENT = Pattern.compile(
             "(?i)\\b(gst|gstn|incometax|income\\s+tax|itd|tds|tcs\\s+challan|challan|epfo|epf"
-            + "|uidai|cbdt|treasury|municipal|nagar\\s*nigam|panchayat|rto)\\b");
+            + "|uidai|cbdt|treasury|municipal|nagar\\s*nigam|panchayat|rto"
+            // The passport portal and the civil-services exam body, both paid through a
+            // government handle: 4 passport rows (typed PERSON from a 3-word payee name, or
+            // UNKNOWN) and 2 exam-fee rows (UNKNOWN) on the corpus.
+            + "|passport\\s*seva|passportseva|upsc)\\b");
+
+    /**
+     * Whether a government or tax body is named -- exposed so the person check can decline these
+     * rows, as it declines a merchant rail, rather than suggesting "Personal Transfer" for a fee
+     * paid to the state.
+     */
+    static boolean namesGovernmentBody(String description) {
+        return description != null && GOVERNMENT.matcher(description).find();
+    }
 
     /**
      * Corporate suffixes proper -- narrower than the detector's full trade vocabulary.
@@ -141,7 +157,7 @@ public final class CounterpartyClassifier {
         int markerStart = PersonToPersonTransferDetector.transferMarkerStart(description);
 
         if (FINANCIAL_MECHANISM.matcher(description).find()) return CounterpartyType.FINANCIAL_INSTITUTION;
-        if (GOVERNMENT.matcher(description).find()) return CounterpartyType.GOVERNMENT;
+        if (namesGovernmentBody(description)) return CounterpartyType.GOVERNMENT;
         if (matchesOutsideIssuerPrefix(FINANCIAL_ENTITY, description, markerStart)) return CounterpartyType.FINANCIAL_INSTITUTION;
 
         // Reuses the detector's own marker pattern rather than a second copy -- see

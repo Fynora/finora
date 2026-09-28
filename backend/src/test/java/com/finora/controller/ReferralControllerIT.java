@@ -91,4 +91,51 @@ class ReferralControllerIT extends AbstractIntegrationTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
     }
+
+    @Test
+    void applyCode_linksAFriendOnce_andRefusesASecondCodeWith409() throws Exception {
+        User friendA = createUser();
+        User friendB = createUser();
+        User joiner = createUser();
+        String codeA = mapper.readTree(restTemplate.exchange("/api/v1/referrals/my-code", HttpMethod.GET,
+                new HttpEntity<>(bearerFor(friendA)), String.class).getBody()).get("data").get("code").asText();
+        String codeB = mapper.readTree(restTemplate.exchange("/api/v1/referrals/my-code", HttpMethod.GET,
+                new HttpEntity<>(bearerFor(friendB)), String.class).getBody()).get("data").get("code").asText();
+
+        JsonNode before = mapper.readTree(restTemplate.exchange("/api/v1/referrals/mine", HttpMethod.GET,
+                new HttpEntity<>(bearerFor(joiner)), String.class).getBody()).get("data");
+        assertThat(before.get("canApplyCode").asBoolean()).isTrue();
+
+        ResponseEntity<String> first = restTemplate.exchange("/api/v1/referrals/apply-code", HttpMethod.POST,
+                new HttpEntity<>("{\"code\":\"" + codeA.toLowerCase() + "\"}", bearerFor(joiner)), String.class);
+        ResponseEntity<String> second = restTemplate.exchange("/api/v1/referrals/apply-code", HttpMethod.POST,
+                new HttpEntity<>("{\"code\":\"" + codeB + "\"}", bearerFor(joiner)), String.class);
+
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(second.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(second.getBody()).contains("already used a referral code");
+        JsonNode after = mapper.readTree(restTemplate.exchange("/api/v1/referrals/mine", HttpMethod.GET,
+                new HttpEntity<>(bearerFor(joiner)), String.class).getBody()).get("data");
+        assertThat(after.get("canApplyCode").asBoolean()).isFalse();
+    }
+
+    @Test
+    void applyCode_unknownAndOwnCodesAre400_andABlankBodyIsRejected() throws Exception {
+        User user = createUser();
+        String own = mapper.readTree(restTemplate.exchange("/api/v1/referrals/my-code", HttpMethod.GET,
+                new HttpEntity<>(bearerFor(user)), String.class).getBody()).get("data").get("code").asText();
+
+        ResponseEntity<String> unknown = restTemplate.exchange("/api/v1/referrals/apply-code", HttpMethod.POST,
+                new HttpEntity<>("{\"code\":\"ZZZZ9999\"}", bearerFor(user)), String.class);
+        ResponseEntity<String> self = restTemplate.exchange("/api/v1/referrals/apply-code", HttpMethod.POST,
+                new HttpEntity<>("{\"code\":\"" + own + "\"}", bearerFor(user)), String.class);
+        ResponseEntity<String> blank = restTemplate.exchange("/api/v1/referrals/apply-code", HttpMethod.POST,
+                new HttpEntity<>("{\"code\":\"\"}", bearerFor(user)), String.class);
+
+        assertThat(unknown.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(unknown.getBody()).contains("isn't valid");
+        assertThat(self.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(self.getBody()).contains("your own referral code");
+        assertThat(blank.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
 }

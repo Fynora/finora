@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   AccessibilityInfo, ActivityIndicator, Animated, Image, Linking, Platform, Pressable, ScrollView,
-  Share, StyleSheet, Text, View,
+  Share, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -91,9 +91,9 @@ const SEEN_ACTIVE_GRANTS_KEY = 'finora_seen_active_referral_grants';
  *  (at/above threshold). There is one milestone: 7 referrals earn a free month of Plus
  *  (ReferralService.MILESTONE_REFERRALS). Mirrors web's own MilestoneRow. */
 function MilestoneRow({
-  c, label, counter, threshold, onRedeem, redeeming, error,
+  c, label, counter, threshold, owed, onRedeem, redeeming, error,
 }: {
-  c: ReturnType<typeof useTheme>; label: string; counter: number; threshold: number;
+  c: ReturnType<typeof useTheme>; label: string; counter: number; threshold: number; owed: number;
   onRedeem: () => void; redeeming: boolean; error?: string | null;
 }) {
   if (counter >= threshold) {
@@ -118,6 +118,14 @@ function MilestoneRow({
       <Text style={[styles.cardLabel, { color: c.ink }]}>
         {counter} / {threshold} referrals — 1 month of {label} free
       </Text>
+      {/* A friend was refunded after the reward they helped earn was redeemed: the month is
+          kept, the next referrals repay the refunded ones first (API referralsOwed; the counter
+          itself never goes below 0). Mirrors web's owedText. */}
+      {owed > 0 && (
+        <Text style={[styles.emptyDesc, { color: c.muted }]}>
+          {owed} refunded {owed === 1 ? 'referral' : 'referrals'} to make up before your count grows again.
+        </Text>
+      )}
     </Card>
   );
 }
@@ -237,6 +245,62 @@ function MobileUpgradeCelebration({
  * bonus for someone who already has it, not a replacement for the code a friend can always type
  * into their own Register screen's "Referral code (optional)" field.
  */
+/**
+ * "Enter a friend's code" -- for someone who signed up without one (the Google/Apple sign-up screens
+ * never had the field, and the one-time ReferralCodePrompt can be skipped). Rendered only while the
+ * server says canApplyCode: not already referred, never subscribed. Once a code is added the
+ * refetched canApplyCode is false and this card is gone -- one code per person, ever.
+ */
+function FriendCodeCard({ c }: { c: ReturnType<typeof useTheme> }) {
+  const queryClient = useQueryClient();
+  const [code, setCode] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const apply = useMutation({
+    mutationFn: (value: string) => referralsApi.applyCode(value),
+    onMutate: () => setError(null),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['referrals-mine'] }),
+    onError: (err) => {
+      reportTransportFailure(err, 'referrals:apply-code');
+      setError(toUserMessage(err, 'Could not add this code. Try again.'));
+    },
+  });
+  const trimmed = code.trim();
+  const canSubmit = trimmed.length > 0 && !apply.isPending;
+
+  return (
+    <Card style={styles.codeCard} testID="friend-code-card">
+      <Text style={[styles.cardLabel, { color: c.ink }]}>Were you invited by a friend?</Text>
+      <Text style={[styles.emptyDesc, { color: c.muted }]}>
+        Enter their code so it counts for them. You can only use one code, before you subscribe.
+      </Text>
+      <View style={[styles.codeRow, { backgroundColor: c.bg, borderColor: error ? c.danger : c.border }]}>
+        <TextInput
+          value={code}
+          onChangeText={(v) => setCode(v.toUpperCase())}
+          autoCapitalize="characters"
+          autoCorrect={false}
+          placeholder="Friend's code"
+          placeholderTextColor={c.muted}
+          style={[styles.friendCodeInput, { color: c.ink }]}
+          accessibilityLabel="Friend's referral code"
+          onSubmitEditing={() => { if (canSubmit) apply.mutate(trimmed); }}
+          returnKeyType="done"
+        />
+      </View>
+      {error ? <Text style={[styles.redeemErrorText, { color: c.danger }]}>{error}</Text> : null}
+      <Pressable
+        onPress={() => { if (canSubmit) apply.mutate(trimmed); }}
+        disabled={!canSubmit}
+        style={[styles.shareButton, { backgroundColor: c.primary, opacity: canSubmit ? 1 : 0.5 }]}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: !canSubmit, busy: apply.isPending }}
+      >
+        <Text style={[styles.shareButtonText, { color: c.onPrimary }]}>{apply.isPending ? 'Adding…' : 'Add code'}</Text>
+      </Pressable>
+    </Card>
+  );
+}
+
 export function ReferralsScreen() {
   const c = useTheme();
   const insets = useSafeAreaInsets();
@@ -444,6 +508,8 @@ export function ReferralsScreen() {
         </View>
       </Card>
 
+      {data.canApplyCode ? <FriendCodeCard c={c} /> : null}
+
       {/* MetricTile's 45% minWidth is for a wrapping 2-column grid; three of them in this
           non-wrapping row came to 135% of the width and pushed Earned off-screen. So they share
           one row -- except at large text sizes, where a third of the width broke the labels
@@ -461,6 +527,7 @@ export function ReferralsScreen() {
           push at the 7th referral points here. */}
       <MilestoneRow
         c={c} label="Plus" counter={data.premiumMilestoneCounter} threshold={REFERRAL_MILESTONE}
+        owed={data.referralsOwed ?? 0}
         onRedeem={() => redeemMutation.mutate('PLUS')} redeeming={redeemMutation.isPending}
         error={redeemError?.message ?? null}
       />
@@ -557,6 +624,7 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderRadius: radius.md, paddingLeft: spacing.md, paddingRight: spacing.xs, minHeight: 52,
   },
   code: { fontSize: 18, fontWeight: '700', fontFamily: 'monospace', letterSpacing: 1 },
+  friendCodeInput: { flex: 1, fontSize: 16, letterSpacing: 1, minHeight: 48 },
   // Design review (Apple HIG / touch-target guidance): was 40x40, 4pt short of the 44pt minimum
   // this same file already applies to channelIcon below.
   iconButton: {

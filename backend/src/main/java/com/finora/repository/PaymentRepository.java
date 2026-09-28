@@ -21,6 +21,10 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
      *  must not insert a second Payment row for the same charge. */
     boolean existsByProviderTransactionId(String providerTransactionId);
 
+    /** RazorpayWebhookDispatcher.handleRefundProcessed -- the payment a refund belongs to. A list,
+     *  not an Optional: provider_transaction_id carries no unique constraint (V100). */
+    List<Payment> findAllByProviderTransactionId(String providerTransactionId);
+
     /** AccountPurgeSweepService. Native, bypassing Hibernate entirely -- same naming discipline as
      *  {@code SubscriptionRepository.hardDeleteByUserId}. Unlike subscription_events/plan_changes,
      *  payments has its own user_id column, so it gets its own explicit purge call rather than

@@ -49,6 +49,7 @@ import com.finora.repository.PhoneChangeSessionRepository;
 import com.finora.repository.RecurringDismissalRepository;
 import com.finora.repository.ReferralCodeRepository;
 import com.finora.repository.ReferralGrantRepository;
+import com.finora.repository.ReferralChargeRepository;
 import com.finora.repository.ReferralRepository;
 import com.finora.repository.RefreshTokenRepository;
 import com.finora.repository.ReimportConfirmationClaimRepository;
@@ -107,6 +108,7 @@ class AccountPurgeSweepServiceTest {
     private ReferralCodeRepository referralCodeRepository;
     private ReferralGrantRepository referralGrantRepository;
     private ReferralRepository referralRepository;
+    private ReferralChargeRepository referralChargeRepository;
     private WalletLedgerRepository walletLedgerRepository;
     private StatementImportRepository statementImportRepository;
     private StatementImportService statementImportService;
@@ -140,6 +142,7 @@ class AccountPurgeSweepServiceTest {
         referralCodeRepository = mock(ReferralCodeRepository.class);
         referralGrantRepository = mock(ReferralGrantRepository.class);
         referralRepository = mock(ReferralRepository.class);
+        referralChargeRepository = mock(ReferralChargeRepository.class);
         walletLedgerRepository = mock(WalletLedgerRepository.class);
         statementImportRepository = mock(StatementImportRepository.class);
         statementImportService = mock(StatementImportService.class);
@@ -177,7 +180,7 @@ class AccountPurgeSweepServiceTest {
                 mock(MerchantCategoryMapRepository.class), mock(MerchantRepository.class),
                 mock(BudgetRepository.class), mock(GoalRepository.class), subscriptionRepository,
                 paymentRepository, subscriptionOrderRepository,
-                referralCodeRepository, referralGrantRepository, referralRepository, walletLedgerRepository,
+                referralCodeRepository, referralGrantRepository, referralRepository, referralChargeRepository, walletLedgerRepository,
                 mock(CategoryRuleRepository.class), mock(CategoryRepository.class),
                 mock(UserMerchantCategoryResolutionRepository.class),
                 relationshipRepository, mock(RelationshipIdentifierRepository.class),

@@ -11,6 +11,7 @@ import { AppTabs } from './AppTabs';
 import { OnboardingNavigator } from '../onboarding/OnboardingNavigator';
 import { useOnboardingStep } from '../onboarding/OnboardingStepContext';
 import { TourTargetProvider } from '../onboarding/TourTargetRegistry';
+import { ReferralCodePrompt } from '../components/ReferralCodePrompt';
 import { TourOverlay } from '../onboarding/TourOverlay';
 import { TOUR_STEPS, type TourStep } from '../onboarding/tourSteps';
 import { useAuth } from '../context/AuthContext';
@@ -214,7 +215,12 @@ export function RootNavigator() {
           <OnboardingNavigator />
         )
       ) : (
-        <AppTabs />
+        <>
+          <AppTabs />
+          {/* Only here -- after phone verification and onboarding -- so it never stacks on the
+              tour or a sign-up step. Renders nothing unless a Google/Apple sign-up is pending it. */}
+          <ReferralCodePrompt />
+        </>
       )}
       </TourTargetProvider>
     </NavigationContainer>

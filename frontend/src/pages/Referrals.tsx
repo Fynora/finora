@@ -29,15 +29,76 @@ function statusLabel(status: string) {
   }
 }
 
+/**
+ * "Enter a friend's code" -- for someone who signed up without one (Google/Apple sign-up has no code
+ * field, and the one-time ReferralCodePrompt can be skipped). Shown only while the server says
+ * canApplyCode: not already referred, never subscribed. After a code is added the refetched
+ * canApplyCode is false and this card is gone -- one code per person, ever. Mirrors mobile.
+ */
+function FriendCodeCard() {
+  const queryClient = useQueryClient();
+  const [code, setCode] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const apply = useMutation({
+    mutationFn: (value: string) => referralsApi.applyCode(value),
+    onMutate: () => setError(null),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['referrals-mine'] }),
+    onError: (e: any) => setError(e?.response?.data?.message ?? 'Could not add this code. Try again.'),
+  });
+  const trimmed = code.trim();
+  const canSubmit = trimmed.length > 0 && !apply.isPending;
+
+  return (
+    <section data-testid="friend-code-card">
+    <FinoraCard padding="lg">
+      <p className="text-sm font-semibold text-ink">Were you invited by a friend?</p>
+      <p className="text-xs text-muted mb-3">Enter their code so it counts for them. You can only use one code, before you subscribe.</p>
+      <form
+        className="flex items-center gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (canSubmit) apply.mutate(trimmed);
+        }}
+      >
+        <label htmlFor="friend-code-input" className="sr-only">Friend&apos;s referral code</label>
+        <input
+          id="friend-code-input"
+          value={code}
+          onChange={(e) => setCode(e.target.value.toUpperCase())}
+          autoComplete="off"
+          placeholder="Friend's code"
+          className="flex-1 min-w-0 border border-border rounded-lg px-3 py-2 text-sm bg-bg text-ink tracking-wider"
+        />
+        <button
+          type="submit"
+          disabled={!canSubmit}
+          className="bg-primary text-white text-xs font-semibold rounded-lg px-3 py-2 flex-shrink-0 disabled:opacity-50"
+        >
+          {apply.isPending ? 'Adding…' : 'Add code'}
+        </button>
+      </form>
+      {error && <p className="text-xs text-danger mt-2" role="alert">{error}</p>}
+    </FinoraCard>
+    </section>
+  );
+}
+
 /** Mirrors ReferralService.MILESTONE_REFERRALS on the backend. */
 const REFERRAL_MILESTONE = 7;
 
 /** The referral reward row -- either a progress bar (below threshold) or a redeem card (at/above
  *  threshold). There is one milestone: 7 referrals earn a free month of Plus. */
+/** "N refunded referrals to make up": a friend was refunded after the reward they helped earn
+ *  was redeemed. The month is kept; the next referrals repay the refunded ones first (the API's
+ *  referralsOwed -- premiumMilestoneCounter itself never goes below 0). */
+export function owedText(owed: number): string {
+  return `${owed} refunded ${owed === 1 ? 'referral' : 'referrals'} to make up before your count grows again.`;
+}
+
 function MilestoneRow({
-  label, counter, threshold, onRedeem, redeeming, error,
+  label, counter, threshold, owed, onRedeem, redeeming, error,
 }: {
-  label: string; counter: number; threshold: number;
+  label: string; counter: number; threshold: number; owed: number;
   onRedeem: () => void; redeeming: boolean; error?: string | null;
 }) {
   if (counter >= threshold) {
@@ -66,6 +127,7 @@ function MilestoneRow({
       <div className="h-2 rounded-full bg-bg overflow-hidden">
         <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
       </div>
+      {owed > 0 && <p className="text-xs text-muted mt-2">{owedText(owed)}</p>}
     </FinoraCard>
   );
 }
@@ -171,6 +233,8 @@ export default function Referrals() {
         )}
       </FinoraCard>
 
+      {mine?.canApplyCode && <FriendCodeCard />}
+
       <FinoraCard padding="lg">
         <p className="text-xs uppercase text-muted mb-1">Wallet balance</p>
         <p className="text-2xl font-bold text-ink">{isLoading ? '—' : fmt(mine?.walletBalance ?? 0)}</p>
@@ -215,6 +279,7 @@ export default function Referrals() {
               referral points here. */}
           <MilestoneRow
             label="Plus" counter={mine.premiumMilestoneCounter} threshold={REFERRAL_MILESTONE}
+            owed={mine.referralsOwed ?? 0}
             onRedeem={() => redeemMutation.mutate('PLUS')} redeeming={redeemMutation.isPending}
             error={redeemError?.message ?? null}
           />

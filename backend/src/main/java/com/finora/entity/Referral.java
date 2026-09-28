@@ -13,7 +13,7 @@ import java.util.UUID;
  * signs up with a valid code (see {@code ReferralService.redeemCode}). Not extending
  * {@link BaseEntity}: this is a status-tracking row updated in place by well-defined,
  * one-directional transitions (REGISTERED -> SUBSCRIBED -> REWARDED, see
- * {@code ReferralService.onPlanChanged}/{@code creditReward}), not a soft-deletable user-owned
+ * {@code ReferralService.onReferredUserCharged}/{@code creditReward}), not a soft-deletable user-owned
  * resource.
  */
 @Entity

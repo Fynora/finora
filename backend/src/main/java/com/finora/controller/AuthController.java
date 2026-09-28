@@ -245,7 +245,7 @@ public class AuthController {
     @PostMapping("/google")
     public ResponseEntity<ApiResponse<AuthResponse>> google(@Valid @RequestBody GoogleAuthRequest request) {
         var identity = googleIdTokenVerifierService.verify(request.idToken());
-        AuthResponse response = authService.loginWithGoogle(identity);
+        AuthResponse response = authService.loginWithGoogle(identity, request.referralCode());
         return withRefreshCookie(response)
                 .body(ApiResponse.ok(response, "Signed in with Google"));
     }
@@ -261,7 +261,7 @@ public class AuthController {
     @PostMapping("/apple")
     public ResponseEntity<ApiResponse<AuthResponse>> apple(@Valid @RequestBody AppleAuthRequest request) {
         var identity = appleIdTokenVerifierService.verify(request.idToken());
-        AuthResponse response = authService.loginWithApple(identity, request.fullName());
+        AuthResponse response = authService.loginWithApple(identity, request.fullName(), request.referralCode());
         return withRefreshCookie(response)
                 .body(ApiResponse.ok(response, "Signed in with Apple"));
     }

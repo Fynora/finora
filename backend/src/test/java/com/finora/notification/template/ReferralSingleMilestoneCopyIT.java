@@ -58,6 +58,17 @@ class ReferralSingleMilestoneCopyIT extends AbstractIntegrationTest {
         }
     }
 
+    /** V241's REFERRAL_REVERSED copy, with the one param ReferralService.onChargeReversed sends. */
+    @Test
+    void referralReversedRendersTheCountTowardPlus() {
+        for (NotificationChannel channel : new NotificationChannel[] {NotificationChannel.EMAIL, NotificationChannel.PUSH}) {
+            RenderedMessage m = renderer.render(NotificationType.REFERRAL_REVERSED, channel, Map.of("count", "2"));
+            String all = m.title() + " " + m.body();
+            assertThat(all).as(channel.name()).contains("2/7").contains("refunded")
+                    .doesNotContain("{{").doesNotContain("Premium");
+        }
+    }
+
     @Test
     void theOldCopyIsRetiredNotDeleted() {
         Integer retired = jdbcTemplate.queryForObject("""

@@ -71,7 +71,7 @@ class ReferralConcurrentCreditRaceIT extends AbstractIntegrationTest {
         String code = referralService.myCode(referrer.getId());
         User referred = newUser();
         referralService.redeemCode(referred.getId(), code);
-        referralService.onPlanChanged(referred.getId(), "PLUS");
+        referralService.onReferredUserCharged(referred.getId(), "PLUS", "RAZORPAY", "pay_test_" + UUID.randomUUID());
         Referral referral = referralRepository.findByReferredUserId(referred.getId()).orElseThrow();
         assertThat(referral.getStatus()).isEqualTo(Referral.STATUS_SUBSCRIBED);
 

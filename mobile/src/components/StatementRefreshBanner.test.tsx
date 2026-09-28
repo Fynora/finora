@@ -77,7 +77,11 @@ describe('StatementRefreshBanner (mobile)', () => {
     expect(await screen.findByText('We now read one of your statements more accurately')).toBeOnTheScreen();
     fireEvent.press(screen.getByTestId('statement-refresh-update-all'));
 
-    await waitFor(() => expect(api.applyAll).toHaveBeenCalledTimes(1));
+    // Wait for the update to finish (the button's label comes back), then count: a waitFor on the
+    // count alone passes at the first call, before any extra ones.
+    await waitFor(() => expect(api.applyAll).toHaveBeenCalled());
+    expect(await screen.findByText('Update 1 statement')).toBeOnTheScreen();
+    expect(api.applyAll).toHaveBeenCalledTimes(1);
   });
 
   it("asks for a locked statement's password, keeps it only if switched on, and shows what changed", async () => {

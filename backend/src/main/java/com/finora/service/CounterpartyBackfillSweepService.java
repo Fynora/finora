@@ -12,7 +12,10 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 
 /**
  * Types the counterparty on transactions that predate the counterparty layer, in bounded batches,
@@ -77,15 +80,18 @@ public class CounterpartyBackfillSweepService {
     private final TransactionTemplate transactionTemplate;
     private final com.finora.repository.SenderInflowRuleRepository senderInflowRuleRepository;
     private final com.finora.repository.UserMerchantCategoryResolutionRepository categoryResolutionRepository;
+    private final ReconciliationService reconciliationService;
 
     public CounterpartyBackfillSweepService(TransactionRepository transactionRepository,
                                              TransactionTemplate transactionTemplate,
                                              com.finora.repository.SenderInflowRuleRepository senderInflowRuleRepository,
-                                             com.finora.repository.UserMerchantCategoryResolutionRepository categoryResolutionRepository) {
+                                             com.finora.repository.UserMerchantCategoryResolutionRepository categoryResolutionRepository,
+                                             ReconciliationService reconciliationService) {
         this.transactionRepository = transactionRepository;
         this.transactionTemplate = transactionTemplate;
         this.senderInflowRuleRepository = senderInflowRuleRepository;
         this.categoryResolutionRepository = categoryResolutionRepository;
+        this.reconciliationService = reconciliationService;
     }
 
     /**
@@ -132,6 +138,7 @@ public class CounterpartyBackfillSweepService {
         if (candidates.isEmpty()) return new Result(0, 0, 0, true);
 
         int[] counts = new int[3]; // typed, skipped, failed -- an array because the lambda closes over it
+        Set<UUID> retypedUsers = new LinkedHashSet<>();
         transactionTemplate.executeWithoutResult(tx -> {
             for (CounterpartyBackfillRow row : candidates) {
                 try {
@@ -139,6 +146,7 @@ public class CounterpartyBackfillSweepService {
                     int updated = transactionRepository.applyCounterpartyTyping(
                             row.getId(), typing.type(), typing.key(), typing.version());
                     if (updated > 0) counts[0]++; else counts[1]++;
+                    if (updated > 0 && row.getCounterpartyType() != typing.type()) retypedUsers.add(row.getUserId());
                     // A remembered sender (Plan 2) is keyed on the old key; without this, every
                     // payment from that sender would silently drop back to "not counted".
                     String oldKey = row.getCounterpartyKey();
@@ -160,6 +168,26 @@ public class CounterpartyBackfillSweepService {
                 }
             }
         });
+
+        // A new type can change what reconciliation concludes -- a merchant's credit typed PERSON is
+        // never linked to its payment by name, and the same credit typed BUSINESS is -- but the rows
+        // were rewritten by a bulk update, and nothing else re-runs reconciliation until the user
+        // next imports or edits something. So each user whose rows changed type is reconciled now,
+        // after the typing above has committed (reconcile reads the rows back), and each in its own
+        // transaction: one user's failure must neither undo the typing nor block anyone else. A
+        // failure is logged and left for that user's next reconciliation, which every import and
+        // edit triggers anyway. Unlike the bulk update above, reconciliation saves entities, so it
+        // can race a user's own edit on the same rows; the loser gets the optimistic-lock 409 that
+        // GlobalExceptionHandler already returns for two edits racing each other, never an
+        // overwrite. It runs once per user per classifier bump, and only for users whose rows'
+        // type actually changed.
+        for (UUID userId : retypedUsers) {
+            try {
+                transactionTemplate.executeWithoutResult(tx -> reconciliationService.reconcileForUser(userId));
+            } catch (RuntimeException e) {
+                log.error("Reconciliation after counterparty re-typing failed for user {}: {}", userId, e.toString());
+            }
+        }
 
         // A short page means no MORE rows were waiting, which is the only "we are done" signal this
         // design has -- and it is free, where a COUNT(*) of the remainder would not be.

@@ -138,6 +138,47 @@ class CounterpartyClassifierTest {
     }
 
     @Test
+    void aRemarkSpeaksOnlyWhenThePayeesOwnWordsSayNothing_andNeverOverAPerson() {
+        // Payee says nothing: the remark's strong signals decide.
+        assertThat(CounterpartyClassifier.classify(
+                "UPI-SAMPLEAPP-sampleapp@ybl-XXXX0001234-100000000001-CASHBACK")) // synthetic-ok
+                .isEqualTo(CounterpartyType.FINANCIAL_INSTITUTION);
+        assertThat(CounterpartyClassifier.classify(
+                "UPI-SAMPLEAPP-sampleapp@ybl-XXXX0001234-100000000001-GST CHALLAN")) // synthetic-ok
+                .isEqualTo(CounterpartyType.GOVERNMENT);
+        assertThat(CounterpartyClassifier.classify(
+                "UPI-SAMPLEAPP-sampleapp@ybl-XXXX0001234-100000000001-PAY TO BHARATPE MERCHANT")) // synthetic-ok
+                .isEqualTo(CounterpartyType.BUSINESS);
+        assertThat(CounterpartyClassifier.classify(
+                "UPI/100000000001/sample@ybl/sample@ybl/XXXX0001234 1000/CASHBACK/100000000001/SAMPLE BANK/")) // synthetic-ok
+                .isEqualTo(CounterpartyType.FINANCIAL_INSTITUTION);
+        // A weak word (a bank's name) in the remark, or the printed branch, still says nothing.
+        assertThat(CounterpartyClassifier.classify(
+                "UPI-SAMPLEAPP-sampleapp@ybl-XXXX0001234-100000000001-HDFC BANK")) // synthetic-ok
+                .isEqualTo(CounterpartyType.UNKNOWN);
+        assertThat(CounterpartyClassifier.classify(
+                "UPI/100000000001/sample@ybl/sample@ybl/XXXX0001234 1000/UPI/100000000001/SAMPLE BANK/")) // synthetic-ok
+                .isEqualTo(CounterpartyType.UNKNOWN);
+        // A friend's remark never makes them a bank, whether named in full or by a first name.
+        assertThat(CounterpartyClassifier.classify(
+                "UPI-SUNITA RAO-sampleuser@ybl-XXXX0001234-100000000001-LOAN INTEREST")) // synthetic-ok
+                .isEqualTo(CounterpartyType.PERSON);
+        assertThat(CounterpartyClassifier.classify(
+                "UPI-SUNITA-9999999999@ybl-XXXX0001234-100000000001-INTEREST")) // synthetic-ok
+                .isEqualTo(CounterpartyType.PERSON);
+    }
+
+    @Test
+    void aHandleSpelledLikeAWebDomainIsNotACompany() {
+        assertThat(CounterpartyClassifier.classify(
+                "UPI-SUNITA RAO-sunita.co.in@ybl-XXXX0001234-100000000001-UPI")) // synthetic-ok
+                .isEqualTo(CounterpartyType.PERSON);
+        assertThat(CounterpartyClassifier.classify(
+                "UPI-ACME TRADERS-acme.co.in@ybl-XXXX0001234-100000000001-UPI")) // synthetic-ok
+                .isEqualTo(CounterpartyType.BUSINESS);
+    }
+
+    @Test
     void aTwoWordCafeChainIsABusiness_onceItIsAKnownMerchant() {
         // Structurally a two-word brand is indistinguishable from a person's name (the detector's
         // documented limitation); the merchant vocabulary is what separates them.

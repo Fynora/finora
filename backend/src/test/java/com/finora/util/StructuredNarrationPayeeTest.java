@@ -169,4 +169,19 @@ class StructuredNarrationPayeeTest {
         assertThat(label("UPI-REF9182736")).isNull();
         assertThat(label("ACH TRANSFER")).isNull();
     }
+
+    // Measured on a real Kotak statement: an IMPS debit prints its payee glued to the rail word and
+    // the reference, "SentIMPS<12 digits><name>/<IFSC>/<note>", and the name came out as a word of
+    // the payee plus the note ("chat imps").
+    @Test
+    void aKotakImpsDebitNamesThePayeeGluedAfterItsReference() {
+        assertThat(label("SentIMPS100000000001Asha Verma/HDFC0XXXXXX/IMPS")).isEqualTo("asha verma");
+        assertThat(label("SentIMPS100000000001Asha Verma/HDFC0XXXXXX/RENT")).isEqualTo("asha verma");
+    }
+
+    // Measured on a real CBI statement: "UPI/RRN <ref>/Pay for Intent" names no payee.
+    @Test
+    void aUpiIntentBoilerplateFieldIsNotAName() {
+        assertThat(label("UPI/RRN 100000000001/Pay for Intent")).isNull();
+    }
 }

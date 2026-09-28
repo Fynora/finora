@@ -75,7 +75,13 @@ public final class CounterpartyClassifier {
     // 4: the counterparty KEY changed (CounterpartyIdentity): a masked VPA is a weak "masked:" key, a
     //    payment app's name is never the sender, and a reference no longer takes the payee's name
     //    with it. Bumped so the backfill sweep re-keys stored rows; sender rules move with them.
-    public static final short VERSION = 4;
+    // 5: reserved by PR #1827 (a merchant collecting through a bank's DC0099 branch code), which
+    //    must merge first.
+    // 6: the counterparty KEY changed again (CounterpartyIdentity): Kotak's "SentIMPS<ref><payee>/"
+    //    is keyed on the payee instead of the free-text note, a VPA local part split by a line wrap
+    //    is rejoined, and "Pay for Intent" is no key. Measured on the corpus: 35 keys change, every
+    //    one read.
+    public static final short VERSION = 6;
 
     /**
      * Bank-generated activity, where the counterparty is the institution itself. These words are

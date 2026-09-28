@@ -272,29 +272,37 @@ class TableTotalsRowPdfTableLocatorTest {
     }
 
     @Test
-    void aFigurePrintedOnlyInATextColumn_isNotATotalsRow() {
-        // The figure must sit in an amount column: a narration fragment such as "TOTAL 1,234.00"
-        // under the description is not evidence of a totals line.
+    void aWholeTotalsLinePrintedAsOneRun_inTheNarrationColumn_isATotalsRow() {
         List<PositionedText> runs = table();
-        runs.add(run("TOTAL 2,500.00", 118.8f, 284.5f));
-
-        DocumentContext ctx = new DocumentContext("PDF", "test");
-        only(runs, ctx);
-
-        assertThat(ctx.capabilities().stream().map(c -> c.capability())).doesNotContain("TABLE_TOTALS_ROW_DIVERTED");
+        runs.add(run("TOTAL 2,500.00 1,488.00", 118.8f, 292.1f));
+        assertDiverted(runs);
     }
 
     @Test
-    void onlyPlaceholdersBesideTheLabel_isNotATotalsRow() {
+    void aTotalsWordFollowedByAWordOrACount_inTheNarrationColumn_isNotATotalsRow() {
+        // Decimals are required: "TOTAL 3" and "TOTAL REF 2,500.00" read as narration.
+        for (String line : List.of("TOTAL 3", "TOTAL REF 2,500.00", "TOTAL 123456")) {
+            List<PositionedText> runs = table();
+            runs.add(run(line, 118.8f, 284.5f));
+
+            DocumentContext ctx = new DocumentContext("PDF", "test");
+            PdfTableLocator.LocatedSection section = only(runs, ctx);
+
+            assertThat(section.rows().get(1).get("Description")).as(line).contains(line);
+            assertThat(ctx.capabilities().stream().map(c -> c.capability()))
+                    .as(line).doesNotContain("TABLE_TOTALS_ROW_DIVERTED");
+        }
+    }
+
+    @Test
+    void aLabelWithOnlyPlaceholdersInTheAmountColumns_isATotalsRow() {
+        // A period with no activity prints "-" under both totals; the placeholders are table
+        // structure, never narration.
         List<PositionedText> runs = table();
         runs.add(run("Total", 307.2f, 292.1f));
         runs.add(run("-", 410.0f, 292.8f));
         runs.add(run("-", 480.0f, 292.8f));
-
-        DocumentContext ctx = new DocumentContext("PDF", "test");
-        only(runs, ctx);
-
-        assertThat(ctx.capabilities().stream().map(c -> c.capability())).doesNotContain("TABLE_TOTALS_ROW_DIVERTED");
+        assertDiverted(runs);
     }
 
     @Test
@@ -310,5 +318,66 @@ class TableTotalsRowPdfTableLocatorTest {
             assertThat(ctx.capabilities().stream().map(c -> c.capability()))
                     .as(label).doesNotContain("TABLE_TOTALS_ROW_DIVERTED");
         }
+    }
+
+    @Test
+    void aTotalsLineSplitOverTwoPhysicalRows_isDivertedWhole_labelAbove() {
+        // The label's baseline sits 3.9pt above its figures': more than ROW_Y_TOLERANCE, so the
+        // two halves of one printed line form two physical rows.
+        List<PositionedText> runs = table();
+        runs.add(run("Total", 307.2f, 292.1f));
+        runs.add(run(" 2,500.00", 399.8f, 296.0f));
+        runs.add(run(" 1,488.00", 465.8f, 296.0f));
+        assertDiverted(runs);
+        assertThat(only(runs, new DocumentContext("PDF", "test")).auxiliaryText())
+                .anySatisfy(line -> assertThat(line).contains("Total"))
+                .anySatisfy(line -> assertThat(line).contains("2,500.00").contains("1,488.00"));
+    }
+
+    @Test
+    void aTotalsLineSplitOverTwoPhysicalRows_isDivertedWhole_figuresAbove() {
+        List<PositionedText> runs = table();
+        runs.add(run(" 2,500.00", 399.8f, 292.1f));
+        runs.add(run(" 1,488.00", 465.8f, 292.1f));
+        runs.add(run("Total", 307.2f, 296.0f));
+        assertDiverted(runs);
+    }
+
+    @Test
+    void aLabelAndFiguresALinePitchApart_areNotPairedAsOneTotalsLine() {
+        List<PositionedText> runs = table();
+        runs.add(run("Total", 307.2f, 292.1f));
+        runs.add(run(" 2,500.00", 399.8f, 302.5f));
+
+        DocumentContext ctx = new DocumentContext("PDF", "test");
+        only(runs, ctx);
+
+        assertThat(ctx.capabilities().stream().map(c -> c.capability())).doesNotContain("TABLE_TOTALS_ROW_DIVERTED");
+    }
+
+    @Test
+    void aTotalsShapedLineUnderATransactionWithNoAmountYet_staysWithThatTransaction() {
+        // Layouts that print a transaction's amount on its own dateless line under the narration:
+        // a merchant named "TOTAL" beside that amount is the transaction's own amount line.
+        List<PositionedText> runs = new ArrayList<>(table());
+        runs.add(run("01 Jul 2026", DATE_X, 288.0f));
+        runs.add(run("01 Jul 2026", VALUE_DATE_X, 288.0f));
+        runs.add(run("POS 000000000009", 118.8f, 288.0f));
+        runs.add(run("TOTAL", 118.8f, 298.0f));
+        runs.add(run("300.00", 470.0f, 298.0f));
+
+        DocumentContext ctx = new DocumentContext("PDF", "test");
+        PdfTableLocator.LocatedSection section = only3(runs, ctx);
+
+        Map<String, String> last = section.rows().get(2);
+        assertThat(last).containsEntry("Withdrawal", "300.00");
+        assertThat(last.get("Description")).contains("TOTAL");
+        assertThat(ctx.capabilities().stream().map(c -> c.capability())).doesNotContain("TABLE_TOTALS_ROW_DIVERTED");
+    }
+
+    private static PdfTableLocator.LocatedSection only3(List<PositionedText> runs, DocumentContext ctx) {
+        PdfTableLocator.LocatedSection section = only(runs, ctx);
+        assertThat(section.rows()).hasSize(3);
+        return section;
     }
 }

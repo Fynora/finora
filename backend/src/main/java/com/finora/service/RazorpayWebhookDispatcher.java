@@ -522,12 +522,7 @@ public class RazorpayWebhookDispatcher {
         // part of it was still paid, and its invoice stays downloadable (InvoiceService only
         // issues one for SUCCESS).
         if (paymentId != null && "full".equals(asString(paymentEntity.get("refund_status")))) {
-            paymentRepository.findAllByProviderTransactionId(paymentId).stream()
-                    .filter(p -> Payment.STATUS_SUCCESS.equals(p.getStatus()))
-                    .forEach(p -> {
-                        p.setStatus(Payment.STATUS_REFUNDED);
-                        paymentRepository.save(p);
-                    });
+            markRefunded(paymentId);
         }
     }
 
@@ -537,9 +532,29 @@ public class RazorpayWebhookDispatcher {
      *  {@code dispute.entity.payment_id} as the fallback. Needs payment.dispute.lost enabled on the
      *  Razorpay dashboard's webhook. */
     void handleDisputeLost(Map<String, Object> payload) {
-        String paymentId = asString(entityOf(payload, "payment").get("id"));
-        if (paymentId == null) paymentId = asString(entityOf(payload, "dispute").get("payment_id"));
+        Map<String, Object> paymentEntity = entityOf(payload, "payment");
+        Map<String, Object> disputeEntity = entityOf(payload, "dispute");
+        String paymentId = asString(paymentEntity.get("id"));
+        if (paymentId == null) paymentId = asString(disputeEntity.get("payment_id"));
         referralService.onChargeReversed(ReferralCharge.PROVIDER_RAZORPAY, paymentId, "CHARGEBACK_LOST");
+
+        // Billing history, same rule as a refund: Refunded only when the whole payment went back.
+        // Razorpay's lost-dispute payload carries dispute.entity.amount_deducted next to
+        // payment.entity.amount (both in paise); a partial chargeback leaves the payment SUCCESS.
+        if (paymentId != null && disputeEntity.get("amount_deducted") instanceof Number deducted
+                && paymentEntity.get("amount") instanceof Number amount
+                && amount.longValue() > 0 && deducted.longValue() >= amount.longValue()) {
+            markRefunded(paymentId);
+        }
+    }
+
+    private void markRefunded(String paymentId) {
+        paymentRepository.findAllByProviderTransactionId(paymentId).stream()
+                .filter(p -> Payment.STATUS_SUCCESS.equals(p.getStatus()))
+                .forEach(p -> {
+                    p.setStatus(Payment.STATUS_REFUNDED);
+                    paymentRepository.save(p);
+                });
     }
 
     /** Fires for every successful charge this method creates a Payment row for -- first purchase,

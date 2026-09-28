@@ -35,6 +35,13 @@ CREATE TABLE referral_charges (
 CREATE INDEX idx_referral_charges_referrer_user_id ON referral_charges(referrer_user_id);
 CREATE INDEX idx_referral_charges_referral_id ON referral_charges(referral_id);
 
+-- The store transaction of the subscription's latest paid period (RevenueCat INITIAL_PURCHASE or
+-- RENEWAL transaction_id). A refund of exactly this transaction took the current period away, so
+-- paid access ends then; a refund of any older transaction leaves the current period alone. The
+-- expiry date on a refund cannot tell the two apart: RevenueCat moves the refunded period's
+-- expiration_at_ms back to the refund time (its own sample refund event shows that).
+ALTER TABLE subscriptions ADD COLUMN revenuecat_latest_transaction_id VARCHAR(255);
+
 -- REFERRAL_REVERSED (NotificationType): tells the referrer a friend's counted payment was refunded
 -- or charged back, so that referral no longer counts. {{count}} is the progress shown in the app,
 -- never below 0 (ReferralService.onChargeReversed). The dash is a real em dash (U+2014), as in V230.

@@ -118,11 +118,11 @@ public class InvoiceService {
                 .filter(p -> p.getUserId().equals(userId))
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Payment not found"));
 
-        // Only a completed charge is a real invoice -- PENDING/FAILED/REFUNDED have nothing paid
-        // to itemize (a REFUNDED payment did have a successful charge first, but V1 has no credit-
-        // note concept yet; the original SUCCESS payment stays invoiceable, a separate refund
-        // document is out of scope here).
-        if (!Payment.STATUS_SUCCESS.equals(payment.getStatus())) {
+        // Only a charge that actually happened has an invoice. PENDING/FAILED never charged. A
+        // REFUNDED payment did: its invoice was issued (and emailed) at charge time and stays the
+        // record of that sale, so it remains downloadable after the refund. The refund itself is
+        // a separate document (a credit note), not a change to this one.
+        if (!Payment.STATUS_SUCCESS.equals(payment.getStatus()) && !Payment.STATUS_REFUNDED.equals(payment.getStatus())) {
             throw new ApiException(HttpStatus.CONFLICT, "An invoice is only available for a completed payment");
         }
 

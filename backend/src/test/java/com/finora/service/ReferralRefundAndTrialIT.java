@@ -304,6 +304,29 @@ class ReferralRefundAndTrialIT extends AbstractIntegrationTest {
                 Integer.class, referrer.getId())).isPositive();
     }
 
+    /** A lost chargeback marks the payment Refunded only when the whole payment was deducted. */
+    @Test
+    void razorpayLostChargebackMarksThePaymentRefundedOnlyWhenFullyDeducted() {
+        User referrer = newUser();
+        String code = referralService.myCode(referrer.getId());
+        String full = razorpayCountedFriend(code, referrer);
+        String partial = razorpayCountedFriend(code, referrer);
+
+        razorpayDispatcher.dispatch("payment.dispute.lost", Map.of(
+                "payment", Map.of("entity", Map.of("id", full, "amount", 79900)),
+                "dispute", Map.of("entity", Map.of("id", "disp_test_" + UUID.randomUUID(), "payment_id", full,
+                        "amount", 79900, "amount_deducted", 79900))));
+        razorpayDispatcher.dispatch("payment.dispute.lost", Map.of(
+                "payment", Map.of("entity", Map.of("id", partial, "amount", 79900)),
+                "dispute", Map.of("entity", Map.of("id", "disp_test_" + UUID.randomUUID(), "payment_id", partial,
+                        "amount", 10000, "amount_deducted", 10000))));
+
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM payments WHERE provider_transaction_id = ?", String.class, full))
+                .isEqualTo("REFUNDED");
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM payments WHERE provider_transaction_id = ?", String.class, partial))
+                .isEqualTo("SUCCESS");
+    }
+
     /** Billing history: a full refund marks the payment Refunded; a partial one leaves it paid. */
     @Test
     void razorpayFullRefundMarksThePaymentRefundedAndAPartialOneDoesNot() {
@@ -525,6 +548,109 @@ class ReferralRefundAndTrialIT extends AbstractIntegrationTest {
         revenueCatDispatcher.dispatch("CANCELLATION", refund);
 
         assertThat(counter(referrer)).isZero();
+    }
+
+    private Subscription revenueCatSubscription(String originalTransactionId) {
+        return subscriptionRepository.findByRevenuecatOriginalTransactionId(originalTransactionId).orElseThrow();
+    }
+
+    private String planCode(Subscription subscription) {
+        return planRepository.findById(subscription.getPlanId()).orElseThrow().getCode();
+    }
+
+    /** A refund of the latest paid transaction took the current period away: Plus ends now, not
+     *  whenever an EXPIRATION might arrive. (The refund's expiry fields are RevenueCat's own sample
+     *  refund values, moved to the past.) The mandate stays recorded, so a later EXPIRATION still
+     *  finds the row and finishes the downgrade without throwing. */
+    @Test
+    void revenueCatRefundOfTheCurrentPeriodEndsPlusAtOnceAndALaterExpirationStillWorks() {
+        User referred = newUser();
+        subscriptionService.provisionFreeSubscription(referred.getId());
+        String productId = iosPlusProduct();
+        String txn = "txn_test_" + UUID.randomUUID();
+        revenueCatDispatcher.dispatch("INITIAL_PURCHASE", revenueCatEvent(referred, productId, txn, txn, "NORMAL", 4.99));
+        assertThat(planCode(revenueCatSubscription(txn))).isEqualTo("PLUS");
+
+        Map<String, Object> refund = revenueCatEvent(referred, productId, txn, txn, "NORMAL", -4.99);
+        refund.put("cancel_reason", "CUSTOMER_SUPPORT");
+        refund.put("expiration_at_ms", 1601336705000L); // synthetic-ok: RevenueCat sample refund's expiry
+        refund.put("event_timestamp_ms", 1601337615995L); // synthetic-ok: ...and its event time, after it
+        revenueCatDispatcher.dispatch("CANCELLATION", refund);
+
+        Subscription afterRefund = revenueCatSubscription(txn);
+        assertThat(planCode(afterRefund)).isEqualTo("FREE");
+        assertThat(afterRefund.getPaymentProvider()).isEqualTo("REVENUECAT");
+        assertThat(afterRefund.isAutoRenew()).isTrue();
+
+        revenueCatDispatcher.dispatch("EXPIRATION", revenueCatEvent(referred, productId, txn, txn, "NORMAL", 4.99));
+        Subscription expired = subscriptionRepository.findByUserIdOrderByCreatedAtDesc(referred.getId()).get(0);
+        assertThat(planCode(expired)).isEqualTo("FREE");
+        assertThat(expired.getPaymentProvider()).isNull();
+    }
+
+    /** Refunded, but the store keeps renewing (a refund does not cancel the subscription): the
+     *  next RENEWAL is a new paid period and brings Plus back. */
+    @Test
+    void revenueCatRenewalAfterARefundBringsPlusBack() {
+        User referred = newUser();
+        subscriptionService.provisionFreeSubscription(referred.getId());
+        String productId = iosPlusProduct();
+        String txn = "txn_test_" + UUID.randomUUID();
+        revenueCatDispatcher.dispatch("INITIAL_PURCHASE", revenueCatEvent(referred, productId, txn, txn, "NORMAL", 4.99));
+        Map<String, Object> refund = revenueCatEvent(referred, productId, txn, txn, "NORMAL", -4.99);
+        refund.put("cancel_reason", "CUSTOMER_SUPPORT");
+        refund.put("expiration_at_ms", 1601336705000L); // synthetic-ok: RevenueCat sample refund's expiry
+        refund.put("event_timestamp_ms", 1601337615995L); // synthetic-ok: ...and its event time, after it
+        revenueCatDispatcher.dispatch("CANCELLATION", refund);
+        assertThat(planCode(revenueCatSubscription(txn))).isEqualTo("FREE");
+
+        revenueCatDispatcher.dispatch("RENEWAL",
+                revenueCatEvent(referred, productId, "txn_test_" + UUID.randomUUID(), txn, "NORMAL", 4.99));
+
+        Subscription renewed = revenueCatSubscription(txn);
+        assertThat(planCode(renewed)).isEqualTo("PLUS");
+        assertThat(renewed.getBillingCycle()).isEqualTo("MONTHLY");
+    }
+
+    /** A late refund of an older, already-ended period, arriving after a RENEWAL recorded a newer
+     *  paid period: the current period is still paid for, so Plus stays. */
+    @Test
+    void revenueCatLateRefundOfAnEndedOlderPeriodLeavesTheRenewedPeriodAlone() {
+        User referred = newUser();
+        subscriptionService.provisionFreeSubscription(referred.getId());
+        String productId = iosPlusProduct();
+        String txn = "txn_test_" + UUID.randomUUID();
+        revenueCatDispatcher.dispatch("INITIAL_PURCHASE", revenueCatEvent(referred, productId, txn, txn, "NORMAL", 4.99));
+        String renewalTxn = "txn_test_" + UUID.randomUUID();
+        revenueCatDispatcher.dispatch("RENEWAL", revenueCatEvent(referred, productId, renewalTxn, txn, "NORMAL", 4.99));
+
+        // Refund of the first period: its expiry (2020) is past, but the renewal runs to 2030.
+        Map<String, Object> refund = revenueCatEvent(referred, productId, txn, txn, "NORMAL", -4.99);
+        refund.put("cancel_reason", "CUSTOMER_SUPPORT");
+        refund.put("expiration_at_ms", 1601336705000L); // synthetic-ok: RevenueCat sample refund's expiry
+        refund.put("event_timestamp_ms", 1601337615995L); // synthetic-ok: ...and its event time, after it
+        revenueCatDispatcher.dispatch("CANCELLATION", refund);
+
+        assertThat(planCode(revenueCatSubscription(txn))).isEqualTo("PLUS");
+    }
+
+    /** The latest paid transaction refunded, even while its expiry still reads as future: the
+     *  refunded purchase pays for nothing, so Plus ends. */
+    @Test
+    void revenueCatRefundOfTheLatestPeriodEndsPlusWhateverItsExpirySays() {
+        User referred = newUser();
+        subscriptionService.provisionFreeSubscription(referred.getId());
+        String productId = iosPlusProduct();
+        String txn = "txn_test_" + UUID.randomUUID();
+        revenueCatDispatcher.dispatch("INITIAL_PURCHASE", revenueCatEvent(referred, productId, txn, txn, "NORMAL", 4.99));
+        String renewalTxn = "txn_test_" + UUID.randomUUID();
+        revenueCatDispatcher.dispatch("RENEWAL", revenueCatEvent(referred, productId, renewalTxn, txn, "NORMAL", 4.99));
+
+        Map<String, Object> refund = revenueCatEvent(referred, productId, renewalTxn, txn, "NORMAL", -4.99);
+        refund.put("cancel_reason", "CUSTOMER_SUPPORT");
+        revenueCatDispatcher.dispatch("CANCELLATION", refund);
+
+        assertThat(planCode(revenueCatSubscription(txn))).isEqualTo("FREE");
     }
 
     /** A voluntary unsubscribe is not a refund: the friend paid and keeps what they paid for. */

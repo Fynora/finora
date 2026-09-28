@@ -66,7 +66,7 @@ describe('BillingHistorySection', () => {
     expect(screen.getByText('Pending')).toBeTruthy();
   });
 
-  it('offers an invoice only for a completed payment', async () => {
+  it('offers an invoice for a charge that happened (paid or since refunded), not failed or pending', async () => {
     mockedBillingApi.history.mockResolvedValue([
       entry(),
       entry({ id: '11111111-0000-0000-0000-000000000000', status: 'FAILED' }),
@@ -76,7 +76,8 @@ describe('BillingHistorySection', () => {
     renderSection();
 
     await screen.findByText('Paid');
-    expect(screen.getAllByText('Invoice')).toHaveLength(1);
+    expect(screen.getAllByText('Invoice')).toHaveLength(2);
+    expect(screen.getByLabelText('Invoice for payment 22222222')).toBeTruthy();
   });
 
   it('downloads the invoice with a reference-based file name when tapped', async () => {

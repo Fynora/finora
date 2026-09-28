@@ -88,8 +88,15 @@ describe('Privacy policy matches what the product does', () => {
     expect(t).toMatch(/does not keep the password you type to open one\s+unless you agree to it/i);
     expect(t).toMatch(/applies to that one\s+statement only/i);
     expect(t).toMatch(/If you choose not to save it, nothing is stored/i);
-    expect(t).toMatch(/Settings → Saved statement passwords, which deletes it immediately/i);
-    expect(t).toMatch(/never shown to you or to Fynora staff, and it is never written to logs/i);
+    expect(t).toMatch(/Settings → Data → Saved statement passwords, which\s+deletes it immediately/i);
+    expect(t).toMatch(/password itself is never shown to you or to Fynora staff, and it is never written to logs/i);
+  });
+
+  it('says staff reviewing a held statement can open an unlocked copy of one whose password was saved', () => {
+    const t = policyText();
+    expect(t).toMatch(/to import it,\s+to refresh it, and, if we could not read it automatically, to let authorized staff review it/i);
+    expect(t).toMatch(/authorized staff reviewing it can open an unlocked copy so they can read its contents/i);
+    expect(t).toMatch(/created only for that review and is never stored, and every\s+such access is logged/i);
   });
 
   it('says a refresh uses the stored files, runs only when the user starts it, and keeps their edits', () => {

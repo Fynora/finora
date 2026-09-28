@@ -78,11 +78,18 @@ export default function Privacy() {
           offer to save it, the next time that statement is refreshed.
         </p>
         <p>
-          A saved password is stored encrypted and is used only to open that statement's file to refresh it. It
-          is never shown to you or to Fynora staff, and it is never written to logs. You can remove any saved
-          password at any time from Settings → Saved statement passwords, which deletes it immediately. A saved
-          password is also deleted when you delete its statement or its account, or delete your Fynora account.
-          We keep a record of when you gave and withdrew this consent.
+          A saved password is stored encrypted and is used only to open that statement's file — to import it,
+          to refresh it, and, if we could not read it automatically, to let authorized staff review it (see
+          below). The password itself is never shown to you or to Fynora staff, and it is never written to logs.
+          You can remove any saved password at any time from Settings → Data → Saved statement passwords, which
+          deletes it immediately. A saved password is also deleted when you delete its statement or its account,
+          or delete your Fynora account. We keep a record of when you gave and withdrew this consent.
+        </p>
+        <p>
+          If a statement whose password you saved is queued for review because we could not read it
+          automatically, authorized staff reviewing it can open an unlocked copy so they can read its contents
+          and fix the problem. The unlocked copy is created only for that review and is never stored, and every
+          such access is logged.
         </p>
       </PublicSection>
 

@@ -309,6 +309,8 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
                 "/api/v1/device-tokens/revoke",
                 "/api/v1/integrations/setu/links",
                 "/api/v1/fyn/chat/screenshot",
+                "/api/v1/statement-imports/" + java.util.UUID.randomUUID() + "/refresh",
+                "/api/v1/statement-refresh/apply",
         };
 
         for (String path : mustBeLimited) {
@@ -705,7 +707,7 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
         return new RateLimitFilter(objectMapper, clientIpResolver, testCorsConfigurationSource(), redisTemplate,
                 high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60,
                 high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60,
-                high, 60, high, 60, high, 60, high, 60,
+                high, 60, high, 60, high, 60, high, 60, high, 60,
                 globalMax, 60);
     }
 

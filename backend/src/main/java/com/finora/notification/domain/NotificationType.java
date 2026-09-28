@@ -29,5 +29,7 @@ public enum NotificationType {
     // that has to happen together.
     REFERRAL_FRIEND_SUBSCRIBED,
     REFERRAL_MILESTONE_REACHED,
-    REFERRAL_GRANT_ACTIVATED
+    REFERRAL_GRANT_ACTIVATED,
+    /** Statement refresh, step 5: an improved parser would change some of the user's statements. */
+    STATEMENT_REFRESH_AVAILABLE
 }

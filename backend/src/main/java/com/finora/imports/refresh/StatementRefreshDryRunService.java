@@ -52,6 +52,7 @@ public class StatementRefreshDryRunService {
     private final StatementContentService statementContentService;
     private final ImportService importService;
     private final com.finora.imports.passwords.StatementPasswordService statementPasswordService;
+    private final StatementRefreshNotifier notifier;
     private final BuildVersionResolver buildVersionResolver;
     private final TransactionTemplate readTransaction;
     private final TransactionTemplate writeTransaction;
@@ -72,7 +73,9 @@ public class StatementRefreshDryRunService {
                                          PlatformTransactionManager transactionManager,
                                          @org.springframework.beans.factory.annotation.Qualifier("statementRefreshDryRunExecutor")
                                          java.util.concurrent.Executor executor,
-                                         com.finora.imports.passwords.StatementPasswordService statementPasswordService) {
+                                         com.finora.imports.passwords.StatementPasswordService statementPasswordService,
+                                         StatementRefreshNotifier notifier) {
+        this.notifier = notifier;
         this.executor = executor;
         this.statementPasswordService = statementPasswordService;
         this.statementImportRepository = statementImportRepository;
@@ -177,12 +180,16 @@ public class StatementRefreshDryRunService {
             return;
         }
 
-        writeTransaction.executeWithoutResult(tx -> {
-            if (!stillCurrent(statementId)) return;
+        StatementRefreshPreview saved = writeTransaction.execute(tx -> {
+            if (!stillCurrent(statementId)) return null;
             StatementRefreshPreview preview = compare(statement, parserVersion, staging);
             previewRepository.deleteOlderThan(statementId, parserVersion);
-            previewRepository.save(preview);
+            return previewRepository.save(preview);
         });
+        // After the commit, so the banner the notification points to already shows this statement.
+        if (saved != null && saved.getStatus() == StatementRefreshPreview.Status.CHANGES) {
+            notifier.changesFound(statement.getUserId(), parserVersion);
+        }
     }
 
     private void save(StatementRefreshPreview preview) {

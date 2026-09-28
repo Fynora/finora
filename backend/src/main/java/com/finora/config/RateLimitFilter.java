@@ -248,6 +248,10 @@ public class RateLimitFilter extends OncePerRequestFilter {
     // 10/10min matches importStageLimiter's own ceiling and reasoning: generous for a legitimate
     // user attaching a few screenshots in one sitting, tight enough to bound a script hammering it.
     private final RateLimiter fynScreenshotLimiter;
+    // Statement refresh (steps 3 and 5): every call parses a whole stored statement again -- ten of
+    // them for "update all". ImportConcurrencyLimiter bounds how many parse at once; this bounds how
+    // often one caller may ask, so a loop cannot keep the parse slots busy.
+    private final RateLimiter statementRefreshLimiter;
     // Audit fix (2026-09-24). Every limiter above is keyed by client IP, which bounds one client
     // and nothing else. The endpoints below each cost a bcrypt(12) verification (~250ms of CPU)
     // per call by design, and there is one instance: a few hundred IPs at their per-IP allowance
@@ -350,6 +354,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
     static final int DEFAULT_DEVICE_TOKEN_REVOKE_MAX = 10, DEFAULT_DEVICE_TOKEN_REVOKE_WINDOW = 600;
     static final int DEFAULT_AA_LINK_INITIATE_MAX = 10, DEFAULT_AA_LINK_INITIATE_WINDOW = 600;
     static final int DEFAULT_FYN_SCREENSHOT_MAX = 10, DEFAULT_FYN_SCREENSHOT_WINDOW = 600;
+    static final int DEFAULT_STATEMENT_REFRESH_MAX = 20;
+    static final int DEFAULT_STATEMENT_REFRESH_WINDOW = 600;
     // 600/min is ~2.5 cores of bcrypt(12): high enough that a launch-day spike of real sign-ins
     // never meets it, low enough that a botnet cannot spend the whole instance on hashing.
     static final int DEFAULT_AUTH_GLOBAL_MAX = 600, DEFAULT_AUTH_GLOBAL_WINDOW = 60;
@@ -387,6 +393,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
                 DEFAULT_DEVICE_TOKEN_REVOKE_MAX, DEFAULT_DEVICE_TOKEN_REVOKE_WINDOW,
                 DEFAULT_AA_LINK_INITIATE_MAX, DEFAULT_AA_LINK_INITIATE_WINDOW,
                 DEFAULT_FYN_SCREENSHOT_MAX, DEFAULT_FYN_SCREENSHOT_WINDOW,
+                DEFAULT_STATEMENT_REFRESH_MAX, DEFAULT_STATEMENT_REFRESH_WINDOW,
                 DEFAULT_AUTH_GLOBAL_MAX, DEFAULT_AUTH_GLOBAL_WINDOW);
     }
 
@@ -451,6 +458,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
             @Value("${app.rate-limit.aa-link-initiate.window-seconds:600}") int aaLinkInitiateWindow,
             @Value("${app.rate-limit.fyn-screenshot.max:10}") int fynScreenshotMax,
             @Value("${app.rate-limit.fyn-screenshot.window-seconds:600}") int fynScreenshotWindow,
+            @Value("${app.rate-limit.statement-refresh.max:20}") int statementRefreshMax,
+            @Value("${app.rate-limit.statement-refresh.window-seconds:600}") int statementRefreshWindow,
             @Value("${app.rate-limit.auth-global.max:600}") int authGlobalMax,
             @Value("${app.rate-limit.auth-global.window-seconds:60}") int authGlobalWindow) {
         this.objectMapper = objectMapper;
@@ -478,6 +487,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
         this.deviceTokenRevokeLimiter = new RateLimiter(deviceTokenRevokeMax, deviceTokenRevokeWindow, "device-token-revoke", redisTemplate);
         this.linkInitiateLimiter = new RateLimiter(aaLinkInitiateMax, aaLinkInitiateWindow, "aa-link-initiate", redisTemplate);
         this.fynScreenshotLimiter = new RateLimiter(fynScreenshotMax, fynScreenshotWindow, "fyn-screenshot", redisTemplate);
+        this.statementRefreshLimiter = new RateLimiter(statementRefreshMax, statementRefreshWindow, "statement-refresh", redisTemplate);
         this.authGlobalLimiter = new RateLimiter(authGlobalMax, authGlobalWindow, "auth-global", redisTemplate);
         this.authGlobalEndpoints = List.of(
                 PARSER.parse("/api/v1/auth/login"),
@@ -560,7 +570,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
                 new LimitedEndpoint(PARSER.parse("/api/v1/device-tokens"), deviceTokenRegisterLimiter),
                 new LimitedEndpoint(PARSER.parse("/api/v1/device-tokens/revoke"), deviceTokenRevokeLimiter),
                 new LimitedEndpoint(PARSER.parse("/api/v1/integrations/setu/links"), linkInitiateLimiter),
-                new LimitedEndpoint(PARSER.parse("/api/v1/fyn/chat/screenshot"), fynScreenshotLimiter));
+                new LimitedEndpoint(PARSER.parse("/api/v1/fyn/chat/screenshot"), fynScreenshotLimiter),
+                new LimitedEndpoint(PARSER.parse("/api/v1/statement-imports/{id}/refresh"), statementRefreshLimiter),
+                new LimitedEndpoint(PARSER.parse("/api/v1/statement-refresh/apply"), statementRefreshLimiter));
     }
 
     @Override

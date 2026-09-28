@@ -89,6 +89,8 @@ class StatementPasswordIT extends AbstractIntegrationTest {
     @Autowired private RefreshTokenRepository refreshTokens;
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private StatementContentService statementContentService;
+    @Autowired private com.finora.imports.refresh.StatementRefreshDryRunService dryRunService;
+    @Autowired private com.finora.config.BuildVersionResolver buildVersionResolver;
     @Autowired private com.finora.imports.evidence.ClosingBalanceEvidenceRederivationService rederivationService;
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -436,6 +438,38 @@ class StatementPasswordIT extends AbstractIntegrationTest {
                 user.getId(), sessionId, null, new BigDecimal("1000.00"));
 
         assertThat(evidence.assessment()).isNotNull();
+    }
+
+    @Test
+    void aLockedStatementWithNoSavedPassword_isListedAsNeedingOne_andUpdatesOnceItIsSaved() throws Exception {
+        User user = user();
+        UUID statementId = importWithSavedPassword(user, account(user));
+        passwordService.remove(user.getId(), statementId);
+        // A check under a newer build, which cannot open the file without the password.
+        dryRunService.check(statementId, "a-newer-build");
+
+        JsonNode before = read(restTemplate.exchange("/api/v1/statement-refresh", HttpMethod.GET,
+                new HttpEntity<>(bearerFor(user)), String.class)).get("data");
+        assertThat(before.get("enabled").asBoolean()).isTrue();
+        assertThat(before.get("updatable")).isEmpty();
+        assertThat(before.get("needsPassword")).singleElement()
+                .satisfies(p -> assertThat(p.get("statementImportId").asText()).isEqualTo(statementId.toString()));
+
+        ResponseEntity<String> nothingToDo = restTemplate.exchange("/api/v1/statement-refresh/apply", HttpMethod.POST,
+                new HttpEntity<>(bearerFor(user)), String.class);
+        assertThat(read(nothingToDo).get("data").get("results")).as("a password-locked statement is left for the prompt").isEmpty();
+
+        passwordService.saveForStatement(user.getId(), statementId, PASSWORD);
+        JsonNode after = read(restTemplate.exchange("/api/v1/statement-refresh", HttpMethod.GET,
+                new HttpEntity<>(bearerFor(user)), String.class)).get("data");
+        assertThat(after.get("updatable")).singleElement()
+                .satisfies(p -> assertThat(p.get("passwordSaved").asBoolean()).isTrue());
+
+        JsonNode applied = read(restTemplate.exchange("/api/v1/statement-refresh/apply", HttpMethod.POST,
+                new HttpEntity<>(bearerFor(user)), String.class)).get("data");
+        assertThat(applied.get("results")).singleElement()
+                .satisfies(r -> assertThat(r.get("status").asText()).isIn("APPLIED", "NO_CHANGES"));
+        assertThat(applied.get("remaining").asInt()).isZero();
     }
 
     @Test

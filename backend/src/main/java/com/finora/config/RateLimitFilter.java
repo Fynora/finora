@@ -354,7 +354,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
     static final int DEFAULT_DEVICE_TOKEN_REVOKE_MAX = 10, DEFAULT_DEVICE_TOKEN_REVOKE_WINDOW = 600;
     static final int DEFAULT_AA_LINK_INITIATE_MAX = 10, DEFAULT_AA_LINK_INITIATE_WINDOW = 600;
     static final int DEFAULT_FYN_SCREENSHOT_MAX = 10, DEFAULT_FYN_SCREENSHOT_WINDOW = 600;
-    static final int DEFAULT_STATEMENT_REFRESH_MAX = 20;
+    static final int DEFAULT_STATEMENT_REFRESH_MAX = 15;
     static final int DEFAULT_STATEMENT_REFRESH_WINDOW = 600;
     // 600/min is ~2.5 cores of bcrypt(12): high enough that a launch-day spike of real sign-ins
     // never meets it, low enough that a botnet cannot spend the whole instance on hashing.
@@ -458,7 +458,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
             @Value("${app.rate-limit.aa-link-initiate.window-seconds:600}") int aaLinkInitiateWindow,
             @Value("${app.rate-limit.fyn-screenshot.max:10}") int fynScreenshotMax,
             @Value("${app.rate-limit.fyn-screenshot.window-seconds:600}") int fynScreenshotWindow,
-            @Value("${app.rate-limit.statement-refresh.max:20}") int statementRefreshMax,
+            @Value("${app.rate-limit.statement-refresh.max:15}") int statementRefreshMax,
             @Value("${app.rate-limit.statement-refresh.window-seconds:600}") int statementRefreshWindow,
             @Value("${app.rate-limit.auth-global.max:600}") int authGlobalMax,
             @Value("${app.rate-limit.auth-global.window-seconds:60}") int authGlobalWindow) {

@@ -156,6 +156,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     @Autowired private com.finora.repository.StatementImportExcludedRowRepository excludedRowRepository;
     @Autowired private com.finora.repository.StatementRefreshPreviewRepository refreshPreviewRepository;
     @Autowired private com.finora.repository.StatementRefreshRunRepository refreshRunRepository;
+    @Autowired private com.finora.repository.StatementPasswordRepository statementPasswordRepository;
     @Autowired private GmailConnectionService gmailConnectionService;
     @Autowired private GmailConnectionRepository gmailConnectionRepository;
     @Autowired private RazorpaySubscriptionGateway gateway;
@@ -557,6 +558,10 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 statementId, userId, "somebuild", com.finora.entity.StatementRefreshRun.Status.APPLIED);
         run.setDetail(java.util.Map.of("removed", java.util.List.of(java.util.Map.of("description", "SAMPLE ROW"))));
         refreshRunRepository.save(run);
+        // ...and a statement password the user agreed to save for it (V240).
+        statementPasswordRepository.save(com.finora.entity.StatementPassword.forStatement(userId, statementId,
+                new com.finora.security.crypto.EncryptedValue("test-key", "not-real-ciphertext"),
+                "test-consent", java.time.Instant.now()));
         entityManager.flush();
 
         AccountPurgeSweepService.Result result = service.sweep();
@@ -592,6 +597,10 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 .createNativeQuery("SELECT count(*) FROM statement_refresh_runs WHERE user_id = :userId")
                 .setParameter("userId", userId).getSingleResult();
         assertThat(runsLeft.intValue()).isZero();
+        Number passwordsLeft = (Number) entityManager
+                .createNativeQuery("SELECT count(*) FROM statement_passwords WHERE user_id = :userId")
+                .setParameter("userId", userId).getSingleResult();
+        assertThat(passwordsLeft.intValue()).isZero();
 
         User purgedUser = userRepository.findById(userId).orElseThrow();
         assertThat(purgedUser.getStatus()).isEqualTo(User.STATUS_DELETED);

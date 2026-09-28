@@ -52,6 +52,7 @@ public class StatementImportService {
     private final BankManagementService bankManagementService;
     private final com.finora.imports.storage.StatementContentService statementContentService;
     private final com.finora.repository.ReimportConfirmationClaimRepository reimportClaimRepository;
+    private final com.finora.imports.passwords.StatementPasswordService statementPasswordService;
 
     public StatementImportService(StatementImportRepository statementImportRepository, AccountRepository accountRepository,
                                    CategoryRepository categoryRepository, TransactionRepository transactionRepository,
@@ -59,7 +60,9 @@ public class StatementImportService {
                                    ImportService importService, AuditService auditService,
                                    BankManagementService bankManagementService,
                                    com.finora.imports.storage.StatementContentService statementContentService,
-                                   com.finora.repository.ReimportConfirmationClaimRepository reimportClaimRepository) {
+                                   com.finora.repository.ReimportConfirmationClaimRepository reimportClaimRepository,
+                                   com.finora.imports.passwords.StatementPasswordService statementPasswordService) {
+        this.statementPasswordService = statementPasswordService;
         this.statementImportRepository = statementImportRepository;
         this.accountRepository = accountRepository;
         this.categoryRepository = categoryRepository;
@@ -73,6 +76,12 @@ public class StatementImportService {
         this.reimportClaimRepository = reimportClaimRepository;
         this.balanceCoverage = new com.finora.accounts.BalanceCoverage(statementImportRepository, transactionRepository);
         this.rowBalanceEffect = new com.finora.accounts.RowBalanceEffect(statementImportRepository);
+    }
+
+    /** The password the caller gave, else the one the user saved for this statement, else null. */
+    private String passwordOrSaved(UUID userId, UUID statementImportId, String password) {
+        if (password != null && !password.isEmpty()) return password;
+        return statementPasswordService.forStatement(userId, statementImportId).orElse(null);
     }
 
     private final com.finora.accounts.BalanceCoverage balanceCoverage;
@@ -236,7 +245,9 @@ public class StatementImportService {
      * @param password the document open password when the stored file is a protected PDF, or null.
      *   The stored bytes are the ORIGINAL encrypted ones and the upload-time password is never
      *   persisted, so a protected statement cannot be replayed without being given it again:
-     *   calling with null yields IMPORT_PDF_PASSWORD_REQUIRED, which is what prompts the user.
+     *   calling with null yields IMPORT_PDF_PASSWORD_REQUIRED, which is what prompts the user --
+     *   unless the user agreed to save its password (statement refresh, step 4), which is then
+     *   used instead.
      */
     @Transactional(readOnly = true)
     public com.finora.dto.StatementImportDto.ReimportResult reimport(UUID userId, UUID statementImportId, String password) throws Exception {
@@ -248,7 +259,7 @@ public class StatementImportService {
         // confirm() time, not the filename's extension -- see
         // ImportService.parseAndStageAnyFormat's own doc comment for why that's more robust.
         var staging = importService.parseAndStageAnyFormat(userId, si.getSourceFormat(), si.getFileName(), content,
-                si.getSourceSectionIndex(), password);
+                si.getSourceSectionIndex(), passwordOrSaved(userId, statementImportId, password));
 
         Account account = accountRepository.findById(si.getAccountId())
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND,
@@ -361,7 +372,8 @@ public class StatementImportService {
         byte[] content = statementContentService.read(original);
 
         var freshStaging = importService.parseAndStageAnyFormat(userId, original.getSourceFormat(),
-                original.getFileName(), content, original.getSourceSectionIndex(), request.password());
+                original.getFileName(), content, original.getSourceSectionIndex(),
+                passwordOrSaved(userId, statementImportId, request.password()));
         ConfirmedRowIntegrity.requireSameRows(freshStaging.rows(), request.rows());
         request = request.withRows(ConfirmedRowIntegrity.withStatementFacts(freshStaging.rows(), request.rows()));
 
@@ -375,6 +387,10 @@ public class StatementImportService {
                 request.statementPeriodStart(), request.statementPeriodEnd(),
                 request.totalAmountDue(), request.paymentDueDate());
         var response = importService.confirm(userId, original.getFileName(), content, scoped);
+        // The new statement is the same file, so it opens with the same saved password.
+        if (response.statementImportId() != null) {
+            statementPasswordService.copyToStatement(statementImportId, response.statementImportId());
+        }
 
         // Bug fix (self-review, statement continuity Phase 2): this reimport-confirms via the same
         // path a first-time import takes, and `original` is never deleted -- confirm() creates a
@@ -530,6 +546,7 @@ public class StatementImportService {
         statementImportRepository.deleteExcludedRowsOfStatement(statementImport.getUserId(), statementImport.getId());
         statementImportRepository.deleteRefreshPreviewsOfStatement(statementImport.getUserId(), statementImport.getId());
         statementImportRepository.deleteRefreshRunsOfStatement(statementImport.getUserId(), statementImport.getId());
+        statementPasswordService.deleteForStatement(statementImport.getId());
         statementImportRepository.delete(statementImport);
 
         // With this statement gone, a restored original's own closing balance -- undone when it was

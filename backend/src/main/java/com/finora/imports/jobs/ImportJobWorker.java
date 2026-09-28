@@ -134,6 +134,7 @@ public class ImportJobWorker {
     private final com.finora.service.HeldStatementService heldStatementService;
     private final ParserVersionProvider parserVersionProvider;
     private final HeldItemAdminAlertService heldItemAdminAlertService;
+    private final com.finora.imports.passwords.StatementPasswordService statementPasswordService;
 
     @Value("${app.import.queue.enabled:false}")
     private boolean enabled;
@@ -148,7 +149,8 @@ public class ImportJobWorker {
                             ImportVerificationRecorder verificationRecorder,
                             com.finora.service.HeldStatementService heldStatementService,
                             ParserVersionProvider parserVersionProvider,
-                            HeldItemAdminAlertService heldItemAdminAlertService) {
+                            HeldItemAdminAlertService heldItemAdminAlertService,
+                            com.finora.imports.passwords.StatementPasswordService statementPasswordService) {
         this.jobStore = jobStore;
         this.importService = importService;
         this.statementContentService = statementContentService;
@@ -160,6 +162,7 @@ public class ImportJobWorker {
         this.heldStatementService = heldStatementService;
         this.parserVersionProvider = parserVersionProvider;
         this.heldItemAdminAlertService = heldItemAdminAlertService;
+        this.statementPasswordService = statementPasswordService;
 
         observability.publishQueueDepth(WORKER, JOB_KIND, jobStore::queueDepth);
         observability.publishOldestPendingAge(WORKER, JOB_KIND, jobStore::oldestQueuedAt);
@@ -376,14 +379,15 @@ public class ImportJobWorker {
      * <p>BH-029: read from {@code import_jobs.source_format}, which the upload endpoint wrote after
      * validating the bytes against it — so the parser that runs here is the one the file was
      * accepted for, as a recorded fact rather than as two call sites evaluating
-     * {@link ImportJobService#formatOf} against the same filename and agreeing. PDF gets a null
-     * password: a protected document cannot be queued, because there is nobody to ask for the
-     * password minutes later.
+     * {@link ImportJobService#formatOf} against the same filename and agreeing. A protected PDF is
+     * queued only with a password the user agreed to let Fynora keep (statement refresh, step 4),
+     * so it is opened with that; every other PDF gets null, as before.
      */
     private StagedForJob stage(ImportJob job, byte[] content) throws java.io.IOException {
         return StatementUpload.Format.PDF.name().equals(job.getSourceFormat())
                 ? StagedForJob.of(importService.parseAndStagePdfWithSession(
-                        job.getUserId(), job.getFileName(), content, null))
+                        job.getUserId(), job.getFileName(), content,
+                        statementPasswordService.forJob(job.getId()).orElse(null)))
                 : StagedForJob.of(importService.parseAndStageWithSession(
                         job.getUserId(), job.getFileName(), content));
     }

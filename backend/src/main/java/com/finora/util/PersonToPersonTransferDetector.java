@@ -356,8 +356,8 @@ public final class PersonToPersonTransferDetector {
         // "<BRAND> <PRODUCT> TRIP I" and a payer's birthday greeting both read as a person's name.
         Matcher dashPayee = DASH_UPI_PAYEE_SLOT.matcher(description);
         if (dashPayee.find()) {
-            return !isBrandNamedInItsOwnHandle(dashPayee.group(1), dashPayee.group(2))
-                    && looksLikeSlotName(dashPayee.group(1));
+            String payee = withoutCareOf(dashPayee.group(1));
+            return !isBrandNamedInItsOwnHandle(payee, dashPayee.group(2)) && looksLikeSlotName(payee);
         }
 
         // The same for the layout that repeats its reference: only the payee slot is read, never
@@ -425,14 +425,29 @@ public final class PersonToPersonTransferDetector {
     public static String counterpartyText(String description) {
         if (description == null) return null;
         Matcher dash = DASH_UPI_WITHOUT_REMARK.matcher(description);
-        if (dash.matches()) return dash.group(1);
+        if (dash.matches()) return withoutCareOf(dash.group(1));
         Matcher repeated = REPEATED_REF_UPI_LAYOUT.matcher(description);
         if (repeated.find()) {
             String between = repeated.group(2);
             int remark = between.lastIndexOf('/');
-            return "UPI/" + repeated.group(1) + "/" + (remark < 0 ? between : between.substring(0, remark));
+            return withoutCareOf("UPI/" + repeated.group(1) + "/" + (remark < 0 ? between : between.substring(0, remark)));
         }
-        return description;
+        return withoutCareOf(description);
+    }
+
+    /**
+     * "C/O" -- care of -- inside a person's name: {@code <NAME> CO <NAME>}. As a word it is also
+     * "& Co", a company, so it sits in {@link #BUSINESS_SUFFIX_TOKENS}, and a person paid under
+     * "... KHAN CO SHAH" was typed BUSINESS. On the corpus the two uses separate by position: every
+     * company has CO ending its name ("... CENTRE CO/", "... CLEARING CO", "ONE97 CO/") and the one
+     * person has a name word after it. So a CO followed by another word, and not after "&"/"AND", is
+     * care of and is dropped; a CO that ends its segment is still a company.
+     */
+    private static final Pattern CARE_OF = Pattern.compile(
+            "(?i)(?<!&)(?<!&\\s)(?<!\\bAND\\s)\\bC\\s?/?\\s?O\\s+(?=[A-Za-z]{2,})");
+
+    static String withoutCareOf(String text) {
+        return text == null ? null : CARE_OF.matcher(text).replaceAll("");
     }
 
     /** Google Pay's consumer handles; its business handles are {@code @okbiz...} instead. */
@@ -482,6 +497,7 @@ public final class PersonToPersonTransferDetector {
         // Google Pay gives businesses @okbiz... handles instead, and on the corpus every one of 149
         // rows paid to a consumer handle whose name could be read is a person.
         if (payee == null) return GPAY_CONSUMER_HANDLE.matcher(handleFull).find();
+        payee = withoutCareOf(payee);
         // At most 4 words, not the slot rule's usual 6: this bank prints the name whole rather than
         // cut and repeated, and on the corpus every person here has 1-4 words while a 6-word slot was
         // a cafe with its locality appended.

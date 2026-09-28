@@ -479,4 +479,16 @@ class PersonToPersonTransferDetectorTest {
         assertThat(PersonToPersonTransferDetector.hasMerchantAcquirerMarker(
                 "UPI-SUNITA RAO-BHARATPE90000000001@yesbankltd-XXXX0YESUPI-100000000001-UPI")).isTrue(); // synthetic-ok
     }
+
+    // "CO" is both "care of" inside a person's name and "& Co" ending a company's.
+    @Test
+    void careOfInsideANameIsDropped_butACompanysClosingCoIsKept() {
+        assertThat(PersonToPersonTransferDetector.withoutCareOf("SUNITA KHAN CO RAO")).isEqualTo("SUNITA KHAN RAO");
+        assertThat(PersonToPersonTransferDetector.withoutCareOf("SUNITA KHAN C/O RAO")).isEqualTo("SUNITA KHAN RAO");
+        assertThat(PersonToPersonTransferDetector.withoutCareOf("ACME WINE CENTRE CO/sample@ybl")).isEqualTo("ACME WINE CENTRE CO/sample@ybl");
+        assertThat(PersonToPersonTransferDetector.withoutCareOf("SHARMA AND CO TRADERS")).isEqualTo("SHARMA AND CO TRADERS");
+        assertThat(PersonToPersonTransferDetector.withoutCareOf("SHARMA & CO TRADERS")).isEqualTo("SHARMA & CO TRADERS");
+        // An initial followed by a surname starting with O is not care of.
+        assertThat(PersonToPersonTransferDetector.withoutCareOf("RAHUL C OBEROI")).isEqualTo("RAHUL C OBEROI");
+    }
 }

@@ -115,6 +115,15 @@ class CounterpartyClassifierTest {
     }
 
     @Test
+    void aPersonPaidUnderACareOfNameIsAPerson_andACompanyEndingInCoIsStillABusiness() {
+        assertThat(CounterpartyClassifier.classify(
+                "UPI-SUNITA KHAN CO RAO-sampleuser-1@oksbi-XXXX0001234-100000000001-UPI")) // synthetic-ok
+                .isEqualTo(CounterpartyType.PERSON);
+        assertThat(CounterpartyClassifier.classify("NEFT-RAMESH CO-REF71"))
+                .isEqualTo(CounterpartyType.BUSINESS);
+    }
+
+    @Test
     void aTwoWordCafeChainIsABusiness_onceItIsAKnownMerchant() {
         // Structurally a two-word brand is indistinguishable from a person's name (the detector's
         // documented limitation); the merchant vocabulary is what separates them.

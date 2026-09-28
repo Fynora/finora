@@ -86,7 +86,8 @@ public final class CounterpartyClassifier {
     //    narration (a remark and a printed bank branch are not evidence), and the repeated-reference
     //    layout reads only its payee slot -- 12 rows to PERSON from BUSINESS, FINANCIAL_INSTITUTION or
     //    UNKNOWN (all people), 4 FINANCIAL_INSTITUTION -> BUSINESS (all businesses), no row leaves
-    //    PERSON. Every flip read.
+    //    PERSON. Last, a "CO" inside a person's name reads as "care of", not "& Co" (1 row BUSINESS
+    //    -> PERSON; the three companies ending in CO are unchanged). Every flip read.
     public static final short VERSION = 5;
 
     /**

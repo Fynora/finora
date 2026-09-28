@@ -512,9 +512,23 @@ public class RazorpayWebhookDispatcher {
      *  there. The payment id is in {@code refund.entity.payment_id} (Razorpay's refund webhook
      *  docs). Needs refund.processed enabled on the Razorpay dashboard's webhook. */
     void handleRefundProcessed(Map<String, Object> payload) {
+        Map<String, Object> paymentEntity = entityOf(payload, "payment");
         String paymentId = asString(entityOf(payload, "refund").get("payment_id"));
-        if (paymentId == null) paymentId = asString(entityOf(payload, "payment").get("id"));
+        if (paymentId == null) paymentId = asString(paymentEntity.get("id"));
         referralService.onChargeReversed(ReferralCharge.PROVIDER_RAZORPAY, paymentId, "REFUND");
+
+        // Billing history: a fully refunded payment shows as Refunded. Razorpay's payment entity:
+        // refund_status is "null, partial, full". A partial refund leaves the payment SUCCESS --
+        // part of it was still paid, and its invoice stays downloadable (InvoiceService only
+        // issues one for SUCCESS).
+        if (paymentId != null && "full".equals(asString(paymentEntity.get("refund_status")))) {
+            paymentRepository.findAllByProviderTransactionId(paymentId).stream()
+                    .filter(p -> Payment.STATUS_SUCCESS.equals(p.getStatus()))
+                    .forEach(p -> {
+                        p.setStatus(Payment.STATUS_REFUNDED);
+                        paymentRepository.save(p);
+                    });
+        }
     }
 
     /** A chargeback we lost: the money went back to the customer, same as a refund. Only the lost

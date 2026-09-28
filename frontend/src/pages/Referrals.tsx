@@ -34,10 +34,17 @@ const REFERRAL_MILESTONE = 7;
 
 /** The referral reward row -- either a progress bar (below threshold) or a redeem card (at/above
  *  threshold). There is one milestone: 7 referrals earn a free month of Plus. */
+/** "N refunded referrals to make up": a friend was refunded after the reward they helped earn
+ *  was redeemed. The month is kept; the next referrals repay the refunded ones first (the API's
+ *  referralsOwed -- premiumMilestoneCounter itself never goes below 0). */
+export function owedText(owed: number): string {
+  return `${owed} refunded ${owed === 1 ? 'referral' : 'referrals'} to make up before your count grows again.`;
+}
+
 function MilestoneRow({
-  label, counter, threshold, onRedeem, redeeming, error,
+  label, counter, threshold, owed, onRedeem, redeeming, error,
 }: {
-  label: string; counter: number; threshold: number;
+  label: string; counter: number; threshold: number; owed: number;
   onRedeem: () => void; redeeming: boolean; error?: string | null;
 }) {
   if (counter >= threshold) {
@@ -66,6 +73,7 @@ function MilestoneRow({
       <div className="h-2 rounded-full bg-bg overflow-hidden">
         <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
       </div>
+      {owed > 0 && <p className="text-xs text-muted mt-2">{owedText(owed)}</p>}
     </FinoraCard>
   );
 }
@@ -215,6 +223,7 @@ export default function Referrals() {
               referral points here. */}
           <MilestoneRow
             label="Plus" counter={mine.premiumMilestoneCounter} threshold={REFERRAL_MILESTONE}
+            owed={mine.referralsOwed ?? 0}
             onRedeem={() => redeemMutation.mutate('PLUS')} redeeming={redeemMutation.isPending}
             error={redeemError?.message ?? null}
           />

@@ -134,9 +134,9 @@ class ReferralChargeReversalRaceIT extends AbstractIntegrationTest {
     }
 
     /** A refund landing while the referrer redeems at exactly 7. The refund waits for the
-     *  redemption's row lock and then reads what it left (0), so the result is 0 with the month
-     *  granted. Reading the pre-redemption 7 instead would write 6 over the redemption and hand
-     *  back 6 referrals the month just consumed. */
+     *  redemption's row lock and then reads what it left (0), so the result is -1 (one referral
+     *  owed) with the month granted. Reading the pre-redemption 7 instead would write 6 over the
+     *  redemption and hand back 6 referrals the month just consumed. */
     @Test
     void aRefundLandingMidRedeemIsAppliedAfterTheRedemptionNotOverIt() throws Exception {
         User referrer = newUser();
@@ -178,7 +178,7 @@ class ReferralChargeReversalRaceIT extends AbstractIntegrationTest {
         assertThat(redeemFailure.get()).isNull();
         assertThat(refundFailure.get()).isNull();
 
-        assertThat(counter(referrer)).as("7 redeemed, then the refund floors at 0").isZero();
+        assertThat(counter(referrer)).as("7 redeemed, then the refunded referral is owed").isEqualTo(-1);
         assertThat(referralGrantRepository.findByUserIdOrderByCreatedAtDesc(referrer.getId())).hasSize(1);
     }
 }

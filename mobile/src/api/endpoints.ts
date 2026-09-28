@@ -1411,6 +1411,10 @@ export interface MyReferralsDto {
    *  the retired 7-referral Premium reward it used to track. */
   premiumMilestoneCounter: number;
   grants: ReferralGrantEntry[];
+  /** Referrals owed back: friends refunded after the reward they helped earn was redeemed. 0
+   *  normally; premiumMilestoneCounter itself never goes below 0. Optional so a response from a
+   *  backend without this field still parses. */
+  referralsOwed?: number;
 }
 
 export const referralsApi = {

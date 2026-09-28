@@ -18708,6 +18708,10 @@
                         "items": {
                             "$ref": "#/components/schemas/ReferralGrantDto"
                         }
+                    },
+                    "referralsOwed": {
+                        "type": "integer",
+                        "format": "int32"
                     }
                 }
             },

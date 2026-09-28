@@ -196,3 +196,23 @@ Validated live in the browser during design (mocked against the real sidebar dar
 - A prestige/status layer (the badge signals the user's own plan to themselves, not to others) —
   explicitly a different product from this one; see the parked Identity Engine proposal for that
   discussion.
+
+## 8. Addendum (2026-09-28): what counts, and refunds
+
+Decided with Sid on 2026-09-28; implemented in the PR that adds V241.
+
+- **Only a paid charge counts.** Razorpay `subscription.charged` with amount > 0; RevenueCat
+  `INITIAL_PURCHASE` or `RENEWAL` unless `period_type=TRIAL` or price ≤ 0 (a trial counts when it
+  converts, on that first paid `RENEWAL`). A RevenueCat `environment=SANDBOX` purchase never
+  counts in production (`REVENUECAT_COUNT_SANDBOX_REFERRALS`, default false), but still unlocks
+  the plan: Apple's App Review buys in the sandbox against the production server.
+- **Refunds and lost chargebacks take the referral back.** Razorpay `refund.processed` (any
+  refund, full or partial) and `payment.dispute.lost`; RevenueCat `CANCELLATION` with
+  `cancel_reason=CUSTOMER_SUPPORT` or a negative price. Matched to the exact charge that counted
+  (`referral_charges`), so a refund of a later renewal changes nothing. The referral goes back to
+  REGISTERED and counts again on the friend's next paid charge. `REFUND_REVERSED` is logged only.
+- **A redeemed month is kept, but the referral is owed.** The counter may go below 0; the next
+  referrals repay it before counting toward a new month. `GET /referrals/mine` never shows a
+  negative `premiumMilestoneCounter` (installed apps would draw "-1 / 7"); the debt is reported
+  as `referralsOwed`.
+- **The referrer is told** (`REFERRAL_REVERSED`, push + email), with progress shown clamped at 0.

@@ -224,10 +224,12 @@ public class ReferralService {
      * referrer. Without that, "pay, get counted, delete the account, get refunded" would keep the
      * count.
      *
-     * <p>The counter floors at 0, and a month already redeemed is not clawed back. Example: 7
-     * friends pay, the referrer redeems (counter 7 to 0, a grant is created), then one friend is
-     * refunded: the counter stays 0 and the grant stands. Progress not yet redeemed does absorb the
-     * refund: a counter of 1 left after a redemption drops to 0.
+     * <p>A month already redeemed is not clawed back, but the referral is owed: the counter may go
+     * below 0. Example: 7 friends pay, the referrer redeems (counter 7 to 0, a grant is created),
+     * then one friend is refunded: the grant stands and the counter goes to -1, so the next
+     * referral brings it back to 0 rather than to 1. Without that, "redeem at once, then have
+     * every friend refunded" earned a month for free. The referrer is told (REFERRAL_REVERSED),
+     * with the count shown clamped at 0; the API reports the debt separately (MyReferralsDto).
      *
      * <p>Idempotent and race-safe: the charge row is read row-locked
      * ({@link ReferralChargeRepository#findForUpdate}), and a charge already reversed is left
@@ -273,15 +275,25 @@ public class ReferralService {
         if (charge.isCounted()) {
             ReferralCode code = referralCodeRepository.findByUserIdForUpdate(charge.getReferrerUserId()).orElse(null);
             if (code != null) {
-                if (code.getPremiumMilestoneCounter() > 0) {
-                    code.setPremiumMilestoneCounter(code.getPremiumMilestoneCounter() - 1);
-                    referralCodeRepository.save(code);
-                } else {
-                    log.info("Referral charge {} reversed ({}) but referrer {}'s counter is already 0 -- the month "
-                            + "it helped earn was already redeemed and is not clawed back.",
-                            charge.getId(), reason, charge.getReferrerUserId());
-                }
+                // Allowed below 0 (Sid, 2026-09-28): the month this referral helped earn was
+                // already redeemed, and is kept, but the referral is owed back -- the referrer's
+                // next referral repays it before counting toward a new month. A floor at 0 let
+                // "redeem at once, then have every friend refunded" earn a month for free.
+                code.setPremiumMilestoneCounter(code.getPremiumMilestoneCounter() - 1);
+                referralCodeRepository.save(code);
                 counterAfter = code.getPremiumMilestoneCounter();
+                if (counterAfter < 0) {
+                    log.info("Referral charge {} reversed ({}) after the month it helped earn was redeemed -- referrer {} "
+                            + "now owes {} referral(s).", charge.getId(), reason, charge.getReferrerUserId(), -counterAfter);
+                }
+                notificationService.request(NotificationRequest.of(
+                        charge.getReferrerUserId(),
+                        NotificationType.REFERRAL_REVERSED,
+                        NotificationCategory.FINANCIAL,
+                        NotificationPriority.NORMAL,
+                        "REFERRAL_REVERSED_" + charge.getId(),
+                        Set.of(NotificationChannel.PUSH, NotificationChannel.EMAIL),
+                        Map.of("count", String.valueOf(Math.max(0, counterAfter)))));
             }
         }
 
@@ -344,11 +356,13 @@ public class ReferralService {
                 NotificationPriority.NORMAL,
                 "REFERRAL_FRIEND_SUBSCRIBED_" + referral.getId(),
                 Set.of(NotificationChannel.PUSH, NotificationChannel.EMAIL),
-                Map.of("count", String.valueOf(updated))));
+                Map.of("count", String.valueOf(Math.max(0, updated)))));
 
         // Every multiple, not just the first: redeeming subtracts 7 rather than resetting, so an
         // unredeemed 14 is a second earned month and gets its own "redeem it now".
-        if (updated % MILESTONE_REFERRALS == 0) {
+        // updated > 0: a counter climbing back from a refund debt passes through 0, which is a
+        // multiple of 7 but no reward.
+        if (updated > 0 && updated % MILESTONE_REFERRALS == 0) {
             notificationService.request(NotificationRequest.of(
                     referral.getReferrerUserId(),
                     NotificationType.REFERRAL_MILESTONE_REACHED,
@@ -391,7 +405,7 @@ public class ReferralService {
         int current = code.getPremiumMilestoneCounter();
         if (current < MILESTONE_REFERRALS) {
             throw new ApiException(HttpStatus.CONFLICT,
-                    "Not enough referrals yet -- you have " + current + ", need " + MILESTONE_REFERRALS + ".");
+                    "Not enough referrals yet -- you have " + Math.max(0, current) + ", need " + MILESTONE_REFERRALS + ".");
         }
 
         int consumed = referralCodeRepository.consumeMilestoneIfAtLeast(userId, MILESTONE_REFERRALS);
@@ -447,11 +461,15 @@ public class ReferralService {
         // plusMilestoneCounter is always 0: the 3-referral reward no longer exists, and a real
         // value here would make older app builds offer a Redeem at 3 that the server now rejects.
         int plusMilestoneCounter = 0;
-        int premiumMilestoneCounter = referralCode.map(ReferralCode::getPremiumMilestoneCounter).orElse(0);
+        int storedCounter = referralCode.map(ReferralCode::getPremiumMilestoneCounter).orElse(0);
+        // Negative after a refund of an already-redeemed referral -- see MyReferralsDto.
+        int premiumMilestoneCounter = Math.max(0, storedCounter);
+        int referralsOwed = Math.max(0, -storedCounter);
         List<ReferralGrantDto> grants = referralGrantRepository.findByUserIdOrderByCreatedAtDesc(userId).stream()
                 .map(g -> new ReferralGrantDto(g.getId(), g.getTier(), g.getStatus(), g.getActivatedAt(), g.getExpiresAt()))
                 .toList();
-        return new MyReferralsDto(code, dtos, balance, dtos.size(), plusMilestoneCounter, premiumMilestoneCounter, grants);
+        return new MyReferralsDto(code, dtos, balance, dtos.size(), plusMilestoneCounter, premiumMilestoneCounter, grants,
+                referralsOwed);
     }
 
     /** Admin Portal, Referral dashboard. An unconditional {@code findAll()} across the whole table

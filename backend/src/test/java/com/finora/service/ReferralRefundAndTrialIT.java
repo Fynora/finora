@@ -240,10 +240,11 @@ class ReferralRefundAndTrialIT extends AbstractIntegrationTest {
         assertThat(counter(referrer)).isZero();
     }
 
-    /** A month already redeemed is kept: the counter floors at 0 rather than going negative, and
-     *  the grant is untouched. */
+    /** A month already redeemed is kept (the grant is untouched), but the refunded referral is
+     *  owed: the counter goes to -1 and the next friend only repays it. Without that, "redeem at
+     *  once, then have every friend refunded" earned a month for free. */
     @Test
-    void refundAfterTheMonthWasRedeemedDoesNotClawTheMonthBack() {
+    void refundAfterTheMonthWasRedeemedKeepsTheMonthButOwesTheReferral() {
         User referrer = newUser();
         String code = referralService.myCode(referrer.getId());
         String first = null;
@@ -257,8 +258,71 @@ class ReferralRefundAndTrialIT extends AbstractIntegrationTest {
 
         razorpayRefundProcessed(first);
 
-        assertThat(counter(referrer)).isZero();
+        assertThat(counter(referrer)).isEqualTo(-1);
         assertThat(referralGrantRepository.findByUserIdOrderByCreatedAtDesc(referrer.getId())).hasSize(1);
+        var mine = referralService.myReferrals(referrer.getId());
+        assertThat(mine.premiumMilestoneCounter()).isZero();
+        assertThat(mine.referralsOwed()).isEqualTo(1);
+
+        razorpayCountedFriend(code, referrer);
+        assertThat(counter(referrer)).isZero();
+        assertThat(referralService.myReferrals(referrer.getId()).referralsOwed()).isZero();
+    }
+
+    /** The "redeem, then refund everyone" farm: 7 friends counted, a month redeemed, all 7
+     *  refunded. The month stays, but the next 7 referrals only repay it -- none of them earns a
+     *  second month. */
+    @Test
+    void redeemThenRefundEveryFriendDoesNotEarnASecondMonth() {
+        User referrer = newUser();
+        String code = referralService.myCode(referrer.getId());
+        java.util.List<String> payments = new java.util.ArrayList<>();
+        for (int i = 0; i < ReferralService.MILESTONE_REFERRALS; i++) payments.add(razorpayCountedFriend(code, referrer));
+        referralService.redeemMilestone(referrer.getId(), ReferralGrant.TIER_PLUS);
+        payments.forEach(this::razorpayRefundProcessed);
+        assertThat(counter(referrer)).isEqualTo(-ReferralService.MILESTONE_REFERRALS);
+
+        for (int i = 0; i < ReferralService.MILESTONE_REFERRALS; i++) razorpayCountedFriend(code, referrer);
+
+        assertThat(counter(referrer)).isZero();
+        assertThat(org.assertj.core.api.Assertions.catchThrowable(
+                () -> referralService.redeemMilestone(referrer.getId(), ReferralGrant.TIER_PLUS)))
+                .isInstanceOf(com.finora.exception.ApiException.class);
+        assertThat(referralGrantRepository.findByUserIdOrderByCreatedAtDesc(referrer.getId())).hasSize(1);
+    }
+
+    @Test
+    void referrerIsToldWhenAReferralIsTakenBack() {
+        User referrer = newUser();
+        String code = referralService.myCode(referrer.getId());
+        String paymentId = razorpayCountedFriend(code, referrer);
+
+        razorpayRefundProcessed(paymentId);
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM notifications WHERE user_id = ? AND type = 'REFERRAL_REVERSED'",
+                Integer.class, referrer.getId())).isPositive();
+    }
+
+    /** Billing history: a full refund marks the payment Refunded; a partial one leaves it paid. */
+    @Test
+    void razorpayFullRefundMarksThePaymentRefundedAndAPartialOneDoesNot() {
+        User referrer = newUser();
+        String code = referralService.myCode(referrer.getId());
+        String full = razorpayCountedFriend(code, referrer);
+        String partial = razorpayCountedFriend(code, referrer);
+
+        razorpayDispatcher.dispatch("refund.processed", Map.of(
+                "refund", Map.of("entity", Map.of("id", "rfnd_test_" + UUID.randomUUID(), "payment_id", full, "amount", 79900)),
+                "payment", Map.of("entity", Map.of("id", full, "amount", 79900, "amount_refunded", 79900, "refund_status", "full"))));
+        razorpayDispatcher.dispatch("refund.processed", Map.of(
+                "refund", Map.of("entity", Map.of("id", "rfnd_test_" + UUID.randomUUID(), "payment_id", partial, "amount", 10000)),
+                "payment", Map.of("entity", Map.of("id", partial, "amount", 79900, "amount_refunded", 10000, "refund_status", "partial"))));
+
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM payments WHERE provider_transaction_id = ?", String.class, full))
+                .isEqualTo("REFUNDED");
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM payments WHERE provider_transaction_id = ?", String.class, partial))
+                .isEqualTo("SUCCESS");
     }
 
     /** Taken back, then the friend pays again for real: the new charge counts again. */
@@ -359,8 +423,9 @@ class ReferralRefundAndTrialIT extends AbstractIntegrationTest {
         assertThat(referralStatus(referred)).isEqualTo(Referral.STATUS_REGISTERED);
     }
 
-    /** App Store sandbox / TestFlight purchases cost nothing. RevenueCat can deliver them to the
-     *  production webhook with environment=SANDBOX; they must not earn referral months. */
+    /** App Store sandbox / TestFlight purchases cost nothing. RevenueCat delivers them to the
+     *  production webhook with environment=SANDBOX; they must not earn referral months, but must
+     *  still unlock the plan (App Review). */
     @Test
     void revenueCatSandboxPurchaseDoesNotCount() {
         User referrer = newUser();
@@ -374,6 +439,11 @@ class ReferralRefundAndTrialIT extends AbstractIntegrationTest {
 
         assertThat(counter(referrer)).isZero();
         assertThat(referralStatus(referred)).isEqualTo(Referral.STATUS_REGISTERED);
+        // The plan itself is still unlocked: Apple's App Review buys in the sandbox against the
+        // production server, and must see the purchase work.
+        Subscription subscription = subscriptionRepository.findByUserIdOrderByCreatedAtDesc(referred.getId()).get(0);
+        assertThat(subscription.getPaymentProvider()).isEqualTo("REVENUECAT");
+        assertThat(planRepository.findById(subscription.getPlanId()).orElseThrow().getCode()).isEqualTo("PLUS");
     }
 
     /** RevenueCat's documented trial flow: INITIAL_PURCHASE (TRIAL), then a RENEWAL when the trial
@@ -412,6 +482,11 @@ class ReferralRefundAndTrialIT extends AbstractIntegrationTest {
 
         assertThat(counter(referrer)).isZero();
         assertThat(referralStatus(referred)).isEqualTo(Referral.STATUS_REGISTERED);
+        // RevenueCat: a refund "doesn't mean that a subscription's autorenewal preference has been
+        // deactivated" -- the subscription is left as it was.
+        Subscription subscription = subscriptionRepository.findByRevenuecatOriginalTransactionId(txn).orElseThrow();
+        assertThat(subscription.isAutoRenew()).isTrue();
+        assertThat(subscription.getStatus()).isEqualTo(Subscription.STATUS_ACTIVE);
     }
 
     /** Apple refunds after a subscription has already expired are routine. EXPIRATION clears the

@@ -7792,6 +7792,8 @@ export interface components {
             /** Format: int32 */
             premiumMilestoneCounter?: number;
             grants?: components["schemas"]["ReferralGrantDto"][];
+            /** Format: int32 */
+            referralsOwed?: number;
         };
         ReferralGrantDto: {
             /** Format: uuid */

@@ -34,3 +34,15 @@ CREATE TABLE referral_charges (
 );
 CREATE INDEX idx_referral_charges_referrer_user_id ON referral_charges(referrer_user_id);
 CREATE INDEX idx_referral_charges_referral_id ON referral_charges(referral_id);
+
+-- REFERRAL_REVERSED (NotificationType): tells the referrer a friend's counted payment was refunded
+-- or charged back, so that referral no longer counts. {{count}} is the progress shown in the app,
+-- never below 0 (ReferralService.onChargeReversed). The dash is a real em dash (U+2014), as in V230.
+INSERT INTO notification_templates (id, type, channel, title_template, body_template) VALUES
+    (gen_random_uuid(), 'REFERRAL_REVERSED', 'EMAIL',
+     'A referral no longer counts',
+     'A payment from a friend you referred was refunded, so that referral no longer counts toward '
+     'your free month of Fynora Plus. You''re now at {{count}}/7.'),
+    (gen_random_uuid(), 'REFERRAL_REVERSED', 'PUSH',
+     'Referral refunded',
+     'A friend''s payment was refunded — you''re now at {{count}}/7.');

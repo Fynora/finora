@@ -418,6 +418,29 @@ class ReferralServiceTest {
         assertThat(dto.premiumMilestoneCounter()).isEqualTo(4);
     }
 
+    /** A stored counter below 0 (refund after redemption) is shown as 0 progress plus the debt,
+     *  never as "-2 / 7" -- app builds already on phones read premiumMilestoneCounter only. */
+    @Test
+    void myReferrals_reportsANegativeCounterAsZeroProgressPlusReferralsOwed() {
+        when(referralCodeRepository.findByUserId(referrerId)).thenReturn(Optional.of(codeWithCounter(-2)));
+        when(referralRepository.findByReferrerUserIdOrderByCreatedAtDesc(referrerId)).thenReturn(List.of());
+        when(walletLedgerRepository.sumAmountByUserId(referrerId)).thenReturn(java.math.BigDecimal.ZERO);
+
+        var dto = service.myReferrals(referrerId);
+
+        assertThat(dto.premiumMilestoneCounter()).isZero();
+        assertThat(dto.referralsOwed()).isEqualTo(2);
+    }
+
+    @Test
+    void myReferrals_owesNothingNormally() {
+        when(referralCodeRepository.findByUserId(referrerId)).thenReturn(Optional.of(codeWithCounter(4)));
+        when(referralRepository.findByReferrerUserIdOrderByCreatedAtDesc(referrerId)).thenReturn(List.of());
+        when(walletLedgerRepository.sumAmountByUserId(referrerId)).thenReturn(java.math.BigDecimal.ZERO);
+
+        assertThat(service.myReferrals(referrerId).referralsOwed()).isZero();
+    }
+
     @Test
     void myReferrals_includesTheCodeListAndWalletBalance() {
         ReferralCode existing = new ReferralCode();
@@ -658,18 +681,70 @@ class ReferralServiceTest {
                 eq(charge.getId()), argThat(m -> Integer.valueOf(2).equals(m.get("counterAfter"))));
     }
 
-    /** The month was already redeemed: floor at 0, nothing clawed back. */
+    /** The month was already redeemed: it is kept (no grant touched), but the referral is owed --
+     *  the counter goes below 0 instead of flooring, so "redeem, then refund everyone" is not free. */
     @Test
-    void onChargeReversed_atZeroLeavesTheCounterAtZero() {
+    void onChargeReversed_afterARedemptionLeavesTheReferralOwed() {
         chargeRow(true, subscribedReferral(Referral.STATUS_SUBSCRIBED).getId());
         ReferralCode code = codeWithCounter(0);
         when(referralCodeRepository.findByUserIdForUpdate(referrerId)).thenReturn(Optional.of(code));
 
         service.onChargeReversed("RAZORPAY", "pay_test_1", "REFUND");
 
-        assertThat(code.getPremiumMilestoneCounter()).isZero();
-        verify(referralCodeRepository, never()).save(any());
+        assertThat(code.getPremiumMilestoneCounter()).isEqualTo(-1);
+        verify(referralCodeRepository).save(code);
         verifyNoInteractions(referralGrantRepository);
+        // The notice shows progress as the app does: never below 0.
+        verify(notificationService).request(argThat(req -> req.type() == NotificationType.REFERRAL_REVERSED
+                && "0".equals(req.params().get("count"))));
+    }
+
+    @Test
+    void onChargeReversed_tellsTheReferrerOnce() {
+        chargeRow(true, subscribedReferral(Referral.STATUS_SUBSCRIBED).getId());
+        when(referralCodeRepository.findByUserIdForUpdate(referrerId)).thenReturn(Optional.of(codeWithCounter(3)));
+
+        service.onChargeReversed("RAZORPAY", "pay_test_1", "REFUND");
+        service.onChargeReversed("RAZORPAY", "pay_test_1", "REFUND");
+
+        verify(notificationService, times(1)).request(argThat(req -> req.type() == NotificationType.REFERRAL_REVERSED
+                && req.userId().equals(referrerId) && "2".equals(req.params().get("count"))
+                && req.notificationKey().startsWith("REFERRAL_REVERSED_")));
+    }
+
+    /** Climbing back from a refund debt passes through 0 -- a multiple of 7, but no reward. */
+    @Test
+    void onReferredUserCharged_repayingADebtToZeroFiresNoMilestone() {
+        givenReferralReachingSubscribed();
+        ReferralCode code = codeWithCounter(-1);
+        when(referralCodeRepository.findByUserIdForUpdate(referrerId)).thenReturn(Optional.of(code));
+
+        service.onReferredUserCharged(referredId, "PLUS", "RAZORPAY", "pay_test_1");
+
+        assertThat(code.getPremiumMilestoneCounter()).isZero();
+        verify(notificationService, never()).request(argThat(req -> req.type() == NotificationType.REFERRAL_MILESTONE_REACHED));
+        verify(notificationService).request(argThat(req -> req.type() == NotificationType.REFERRAL_FRIEND_SUBSCRIBED
+                && "0".equals(req.params().get("count"))));
+    }
+
+    @Test
+    void onReferredUserCharged_progressShownNeverNegative() {
+        givenReferralReachingSubscribed();
+        when(referralCodeRepository.findByUserIdForUpdate(referrerId)).thenReturn(Optional.of(codeWithCounter(-3)));
+
+        service.onReferredUserCharged(referredId, "PLUS", "RAZORPAY", "pay_test_1");
+
+        verify(notificationService).request(argThat(req -> req.type() == NotificationType.REFERRAL_FRIEND_SUBSCRIBED
+                && "0".equals(req.params().get("count"))));
+    }
+
+    @Test
+    void redeemMilestone_whileOwingReportsZeroNotANegativeCount() {
+        when(referralCodeRepository.findByUserId(referrerId)).thenReturn(Optional.of(codeWithCounter(-2)));
+
+        assertThatThrownBy(() -> service.redeemMilestone(referrerId, ReferralGrant.TIER_PLUS))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("you have 0, need 7");
     }
 
     @Test

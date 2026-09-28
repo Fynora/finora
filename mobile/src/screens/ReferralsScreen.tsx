@@ -91,9 +91,9 @@ const SEEN_ACTIVE_GRANTS_KEY = 'finora_seen_active_referral_grants';
  *  (at/above threshold). There is one milestone: 7 referrals earn a free month of Plus
  *  (ReferralService.MILESTONE_REFERRALS). Mirrors web's own MilestoneRow. */
 function MilestoneRow({
-  c, label, counter, threshold, onRedeem, redeeming, error,
+  c, label, counter, threshold, owed, onRedeem, redeeming, error,
 }: {
-  c: ReturnType<typeof useTheme>; label: string; counter: number; threshold: number;
+  c: ReturnType<typeof useTheme>; label: string; counter: number; threshold: number; owed: number;
   onRedeem: () => void; redeeming: boolean; error?: string | null;
 }) {
   if (counter >= threshold) {
@@ -118,6 +118,14 @@ function MilestoneRow({
       <Text style={[styles.cardLabel, { color: c.ink }]}>
         {counter} / {threshold} referrals — 1 month of {label} free
       </Text>
+      {/* A friend was refunded after the reward they helped earn was redeemed: the month is
+          kept, the next referrals repay the refunded ones first (API referralsOwed; the counter
+          itself never goes below 0). Mirrors web's owedText. */}
+      {owed > 0 && (
+        <Text style={[styles.emptyDesc, { color: c.muted }]}>
+          {owed} refunded {owed === 1 ? 'referral' : 'referrals'} to make up before your count grows again.
+        </Text>
+      )}
     </Card>
   );
 }
@@ -461,6 +469,7 @@ export function ReferralsScreen() {
           push at the 7th referral points here. */}
       <MilestoneRow
         c={c} label="Plus" counter={data.premiumMilestoneCounter} threshold={REFERRAL_MILESTONE}
+        owed={data.referralsOwed ?? 0}
         onRedeem={() => redeemMutation.mutate('PLUS')} redeeming={redeemMutation.isPending}
         error={redeemError?.message ?? null}
       />

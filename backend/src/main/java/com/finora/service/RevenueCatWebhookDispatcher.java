@@ -177,15 +177,14 @@ public class RevenueCatWebhookDispatcher {
      * RevenueCat sends a RENEWAL for the first paid period, which lands here through
      * handleRenewal and counts then.
      *
-     * <p>A SANDBOX purchase (the {@code environment} field) costs nothing and does not count,
-     * unless {@code app.integrations.revenuecat.count-sandbox-referrals} is set for a test
-     * environment -- see RevenueCatProperties.
-     *
      * <p>The charge is identified by {@code transaction_id}: that is the id a refund's
      * CANCELLATION carries (see handleCancellation).
      */
     private void countIfPaid(UUID userId, String planCode, Map<String, Object> eventPayload) {
         if ("TRIAL".equals(eventPayload.get("period_type"))) return;
+        // RevenueCat's environment field: "Store environment: SANDBOX or PRODUCTION". A sandbox
+        // purchase costs nothing -- see RevenueCatProperties.countSandboxReferrals for why it
+        // still unlocks the plan but does not count here.
         if ("SANDBOX".equals(eventPayload.get("environment")) && !properties.isCountSandboxReferrals()) return;
         if (eventPayload.get("price") instanceof Number price && price.doubleValue() <= 0) return;
         referralService.onReferredUserCharged(userId, planCode, ReferralCharge.PROVIDER_REVENUECAT,
@@ -240,26 +239,24 @@ public class RevenueCatWebhookDispatcher {
     }
 
     /**
-     * A refund CANCELLATION (see handleCancellation for how one is recognized). Takes back the referral this exact transaction counted, if any
-     * (ReferralService.onChargeReversed matches on {@code transaction_id}, so a refund of a later
-     * renewal leaves it alone).
+     * A refund CANCELLATION (see handleCancellation for how one is recognized). Takes back the
+     * referral this exact transaction counted, if any (ReferralService.onChargeReversed matches on
+     * {@code transaction_id}, so a refund of a later renewal leaves it alone).
      *
-     * <p>Unlike every other CANCELLATION, a subscription that cannot be found is not an error
-     * here: Apple and Google refund after a subscription has expired, and handleExpiration has by
-     * then cleared the original_transaction_id this looks up. Throwing (what
-     * subscriptionForOriginalTransactionId does) would roll back the referral reversal with it and
-     * fail the webhook on every retry, forever. The auto-renew update that other cancellations get
-     * is kept for a subscription that is still there.
+     * <p>Deliberately leaves the subscription alone, auto-renew included. RevenueCat's docs on
+     * CUSTOMER_SUPPORT: "this doesn't mean that a subscription's autorenewal preference has been
+     * deactivated since refunds can be given without canceling a subscription". Turning auto-renew
+     * off here (the old behavior) mislabeled a still-renewing subscription as ending. A user who
+     * also turns renewal off sends their own UNSUBSCRIBE cancellation.
+     *
+     * <p>Never looks the subscription up, so never throws on a missing one: Apple and Google refund
+     * after a subscription has expired, when handleExpiration has already cleared its
+     * original_transaction_id. A throw would roll the referral reversal back with it and fail the
+     * webhook on every retry.
      */
     private void handleRefund(Map<String, Object> eventPayload) {
         referralService.onChargeReversed(ReferralCharge.PROVIDER_REVENUECAT,
                 (String) eventPayload.get("transaction_id"), "REFUND");
-        String originalTransactionId = (String) eventPayload.get("original_transaction_id");
-        if (originalTransactionId == null) return;
-        subscriptionRepository.findByRevenuecatOriginalTransactionId(originalTransactionId).ifPresent(subscription -> {
-            subscription.setAutoRenew(false);
-            subscriptionRepository.save(subscription);
-        });
     }
 
     void handleUncancellation(Map<String, Object> eventPayload) {

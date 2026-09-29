@@ -1099,6 +1099,77 @@
                 }
             }
         },
+        "/api/v1/admin/imports/layout-registry/{fingerprint}/profile": {
+            "put": {
+                "tags": [
+                    "admin-layout-registry-controller"
+                ],
+                "operationId": "linkToProfile",
+                "parameters": [
+                    {
+                        "name": "fingerprint",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseRegistryEntry"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "admin-layout-registry-controller"
+                ],
+                "operationId": "unlinkFromProfile",
+                "parameters": [
+                    {
+                        "name": "fingerprint",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseRegistryEntry"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/feature-flags/{id}": {
             "put": {
                 "tags": [
@@ -6021,6 +6092,87 @@
                 }
             }
         },
+        "/api/v1/admin/imports/layout-registry/{fingerprint}/review/resolve": {
+            "post": {
+                "tags": [
+                    "admin-layout-registry-controller"
+                ],
+                "operationId": "resolveReview",
+                "parameters": [
+                    {
+                        "name": "fingerprint",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseRegistryEntry"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/imports/layout-registry/profiles": {
+            "get": {
+                "tags": [
+                    "admin-layout-registry-controller"
+                ],
+                "operationId": "profiles",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseListProfileView"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "admin-layout-registry-controller"
+                ],
+                "operationId": "createProfile",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseProfileView"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/imports/analyses": {
             "get": {
                 "tags": [
@@ -7047,6 +7199,91 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseSummary"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/imports/layout-registry/{fingerprint}": {
+            "patch": {
+                "tags": [
+                    "admin-layout-registry-controller"
+                ],
+                "operationId": "update_15",
+                "parameters": [
+                    {
+                        "name": "fingerprint",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseRegistryEntry"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/imports/layout-registry/profiles/{profileId}": {
+            "patch": {
+                "tags": [
+                    "admin-layout-registry-controller"
+                ],
+                "operationId": "renameProfile",
+                "parameters": [
+                    {
+                        "name": "profileId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
                                 }
                             }
                         }
@@ -10451,6 +10688,46 @@
                 }
             }
         },
+        "/api/v1/admin/imports/layout-registry": {
+            "get": {
+                "tags": [
+                    "admin-layout-registry-controller"
+                ],
+                "operationId": "registry",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseListRegistryEntry"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/imports/layout-registry/review-queue": {
+            "get": {
+                "tags": [
+                    "admin-layout-registry-controller"
+                ],
+                "operationId": "reviewQueue_1",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseListRegistryEntry"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/imports/analyses/{reference}": {
             "get": {
                 "tags": [
@@ -12890,6 +13167,103 @@
                     },
                     "domainIsTrusted": {
                         "type": "boolean"
+                    }
+                }
+            },
+            "ApiResponseRegistryEntry": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/RegistryEntry"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "RegistryEntry": {
+                "type": "object",
+                "properties": {
+                    "fingerprint": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "sourceFormat": {
+                        "type": "string"
+                    },
+                    "parser": {
+                        "type": "string"
+                    },
+                    "observationCount": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "stagingCount": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "firstSeen": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "lastSeen": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "needsReview": {
+                        "type": "boolean"
+                    },
+                    "reviewReasons": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "reviewFlaggedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "reviewAnalysisReference": {
+                        "type": "string"
+                    },
+                    "acknowledgedReasons": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "profileId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "profileName": {
+                        "type": "string"
+                    },
+                    "profileVersion": {
+                        "type": "integer",
+                        "format": "int32"
                     }
                 }
             },
@@ -17090,6 +17464,52 @@
                     "importSessionId": {
                         "type": "string",
                         "format": "uuid"
+                    }
+                }
+            },
+            "ApiResponseProfileView": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/ProfileView"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "ProfileView": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "versions": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/RegistryEntry"
+                        }
                     }
                 }
             },
@@ -24150,6 +24570,68 @@
                     },
                     "verdict": {
                         "type": "string"
+                    }
+                }
+            },
+            "ApiResponseListRegistryEntry": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/RegistryEntry"
+                        }
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "ApiResponseListProfileView": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProfileView"
+                        }
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
                     }
                 }
             },

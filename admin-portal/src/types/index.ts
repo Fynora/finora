@@ -1425,6 +1425,45 @@ export interface LayoutSummary {
   totalRowsSkipped: number;
 }
 
+/** Why the engine flagged a layout for review at staging time (V243). A verification reason
+ *  carries the rule that did not pass: `VERIFICATION_NOT_PASSED:<RULE>`. */
+export type LayoutReviewReason =
+  | 'NEW_LAYOUT' | 'BLANK_DESCRIPTIONS' | 'STAGING_FAILED' | `VERIFICATION_NOT_PASSED:${string}`;
+
+export type LayoutStatus = 'OBSERVED' | 'UNDER_REVIEW' | 'SUPPORTED' | 'UNSUPPORTED';
+
+/** One layout_registry row as an operator curates it (V243). Same anonymity as LayoutSummary:
+ *  fingerprint, names, counts and reason codes only. */
+export interface RegistryEntry {
+  fingerprint: string;
+  name: string | null;
+  status: LayoutStatus;
+  sourceFormat: string | null;
+  parser: string | null;
+  /** Confirmed imports. */
+  observationCount: number;
+  /** Staging runs, confirmed or not. */
+  stagingCount: number;
+  firstSeen: string;
+  lastSeen: string;
+  needsReview: boolean;
+  reviewReasons: LayoutReviewReason[];
+  reviewFlaggedAt: string | null;
+  reviewAnalysisReference: string | null;
+  /** Reasons already reviewed; these no longer re-flag the layout. */
+  acknowledgedReasons: LayoutReviewReason[];
+  profileId: string | null;
+  profileName: string | null;
+  profileVersion: number | null;
+}
+
+/** An operator-named family of layouts, members in version order. */
+export interface LayoutProfileView {
+  id: string;
+  name: string;
+  versions: RegistryEntry[];
+}
+
 export interface UnknownHeaderSummary {
   header: string;
   importCount: number;

@@ -134,6 +134,8 @@ public class ImportService {
     private final com.finora.service.SharedCorpusService sharedCorpusService;
     private final com.finora.service.UserMerchantCategoryResolutionService userMerchantCategoryResolutionService;
     private final StatementProvenanceRecorder provenanceRecorder;
+    /** Null only in unit tests that construct this class directly -- see reviewLayout. */
+    private final LayoutReviewService layoutReviewService;
 
     public ImportService(AccountRepository accountRepository, AccountService accountService,
                           TransactionRepository transactionRepository, MerchantRepository merchantRepository,
@@ -159,7 +161,9 @@ public class ImportService {
                           com.finora.service.SharedCorpusService sharedCorpusService,
                           com.finora.service.UserMerchantCategoryResolutionService userMerchantCategoryResolutionService,
                           StatementProvenanceRecorder provenanceRecorder,
-                          com.finora.imports.passwords.StatementPasswordService statementPasswordService) {
+                          com.finora.imports.passwords.StatementPasswordService statementPasswordService,
+                          LayoutReviewService layoutReviewService) {
+        this.layoutReviewService = layoutReviewService;
         this.provenanceRecorder = provenanceRecorder;
         this.statementPasswordService = statementPasswordService;
         this.evidenceShadowObserver = evidenceShadowObserver;
@@ -255,6 +259,8 @@ public class ImportService {
             // checked", distinct from a report saying NOT_APPLICABLE) and List.of would throw on it.
             verificationRecorder.recordForAnalysis(reference,
                     java.util.Collections.singletonList(staged.verification()));
+            reviewLayout(fingerprint, "CSV", staged.rows(),
+                    java.util.Collections.singletonList(staged.verification()), reference);
             return new StagingSessionResponse(session.getId(), staged, previousImportOf(userId, session.getContentHash()));
         } catch (RuntimeException e) {
             // BH-028. This caught ApiException only, so a document that made the PARSER FALL OVER
@@ -293,9 +299,12 @@ public class ImportService {
                                      ParseDiagnostics diagnostics) {
         String code = ErrorCode.failureCodeOf(failure);
         try {
-            analysisRecorder.recordFailed(userId, StatementAnalysisSession.Source.CUSTOMER_IMPORT, fileName,
-                    sourceFormat, byteSize, fingerprint, code, failure.getMessage(),
+            String reference = analysisRecorder.recordFailed(userId, StatementAnalysisSession.Source.CUSTOMER_IMPORT,
+                    fileName, sourceFormat, byteSize, fingerprint, code, failure.getMessage(),
                     System.currentTimeMillis() - startedAtMs, diagnostics);
+            // A located-but-failed layout is exactly what the layout review queue exists for. Inside
+            // this try so a review failure can never replace the parse failure being rethrown.
+            if (layoutReviewService != null) layoutReviewService.onStagingFailed(fingerprint, sourceFormat, reference);
         } catch (RuntimeException recordingFailed) {
             log.error("Could not record the failed analysis for {} -- the parse failure itself is "
                     + "being rethrown and is the one that matters.", LogSanitizer.sanitize(fileName), recordingFailed);
@@ -389,7 +398,7 @@ public class ImportService {
                         result.documentContext(), null, null, result.creditCardSummary(), staged.verification());
                 recordPdfParsed(userId, fileName, fileContent.length, fingerprint, sections.size(), startedAtMs,
                         diagnostics, session.getId(),
-                        java.util.Collections.singletonList(staged.verification()));
+                        java.util.Collections.singletonList(staged.verification()), staged.rows());
                 return new PdfStagingSessionResponse(session.getId(), false, staged, null,
                         previousImportOf(userId, session.getContentHash()));
             }
@@ -401,7 +410,8 @@ public class ImportService {
             // report would lose exactly the distinction the verification framework computes.
             recordPdfParsed(userId, fileName, fileContent.length, fingerprint, sections.size(), startedAtMs,
                     diagnostics, session.getId(),
-                    sections.stream().map(StagedAccountSection::verification).toList());
+                    sections.stream().map(StagedAccountSection::verification).toList(),
+                    sections.stream().flatMap(section -> section.rows().stream()).toList());
             return new PdfStagingSessionResponse(session.getId(), true, null, sections,
                     previousImportOf(userId, session.getContentHash()));
         } catch (RuntimeException e) {
@@ -561,11 +571,26 @@ public class ImportService {
     private void recordPdfParsed(UUID userId, String fileName, long byteSize, String fingerprint,
                                   int sectionCount, long startedAtMs, ParseDiagnostics diagnostics,
                                   UUID importSessionId,
-                                  List<VerificationReport> verificationBySection) {
+                                  List<VerificationReport> verificationBySection,
+                                  List<StagedRow> stagedRows) {
         String reference = analysisRecorder.recordParsed(userId, StatementAnalysisSession.Source.CUSTOMER_IMPORT, fileName,
                 "PDF", byteSize, fingerprint, sectionCount, System.currentTimeMillis() - startedAtMs,
                 diagnostics, importSessionId);
         verificationRecorder.recordForAnalysis(reference, verificationBySection);
+        reviewLayout(fingerprint, "PDF", stagedRows, verificationBySection, reference);
+    }
+
+    /**
+     * Hands a staging run's outcome to {@link LayoutReviewService}, which flags the layout for an
+     * admin when it is new or staged badly. Runs on every staging attempt, not only confirmed ones:
+     * a layout that stages badly is exactly the one a user abandons before confirming. Never throws
+     * -- the service swallows its own failures -- and a null service (unit tests constructing this
+     * class directly) simply skips it.
+     */
+    private void reviewLayout(String fingerprint, String sourceFormat, List<StagedRow> rows,
+                              List<VerificationReport> verificationBySection, String analysisReference) {
+        if (layoutReviewService == null) return;
+        layoutReviewService.onStaged(fingerprint, sourceFormat, rows, verificationBySection, analysisReference);
     }
 
     /**

@@ -28,6 +28,16 @@ public interface RegisteredLayoutRepository extends JpaRepository<RegisteredLayo
      *  caller iterating a whole failure-analytics window still shouldn't pay N+1 for it. */
     java.util.List<RegisteredLayout> findByFingerprintIn(java.util.Collection<String> fingerprints);
 
+    /** The review queue: every flagged layout, oldest flag first. */
+    java.util.List<RegisteredLayout> findByNeedsReviewTrueOrderByReviewFlaggedAtAsc();
+
+    java.util.List<RegisteredLayout> findByProfileIdOrderByProfileVersionAsc(UUID profileId);
+
+    /** The highest version already used in a profile, or null for an empty profile. Read under the
+     *  profile's row lock -- see LayoutProfileRepository.findByIdForUpdate. */
+    @Query("select max(l.profileVersion) from RegisteredLayout l where l.profileId = :profileId")
+    Integer maxProfileVersion(@Param("profileId") UUID profileId);
+
     /**
      * Records that a confirmed import produced this layout: inserts the row, or advances the
      * observed columns of the row that is already there.

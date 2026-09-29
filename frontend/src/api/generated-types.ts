@@ -276,6 +276,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/imports/layout-registry/{fingerprint}/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["linkToProfile"];
+        post?: never;
+        delete: operations["unlinkFromProfile"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/feature-flags/{id}": {
         parameters: {
             query?: never;
@@ -2308,6 +2324,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/imports/layout-registry/{fingerprint}/review/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["resolveReview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/imports/layout-registry/profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["profiles"];
+        put?: never;
+        post: operations["createProfile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/imports/analyses": {
         parameters: {
             query?: never;
@@ -2674,6 +2722,38 @@ export interface paths {
         options?: never;
         head?: never;
         patch: operations["updateStatus"];
+        trace?: never;
+    };
+    "/api/v1/admin/imports/layout-registry/{fingerprint}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["update_15"];
+        trace?: never;
+    };
+    "/api/v1/admin/imports/layout-registry/profiles/{profileId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["renameProfile"];
         trace?: never;
     };
     "/api/v1/workspace/dashboard": {
@@ -4596,6 +4676,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/imports/layout-registry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["registry"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/imports/layout-registry/review-queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["reviewQueue_1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/imports/analyses/{reference}": {
         parameters: {
             query?: never;
@@ -5631,6 +5743,44 @@ export interface components {
             /** Format: date-time */
             updatedAt?: string;
             domainIsTrusted?: boolean;
+        };
+        ApiResponseRegistryEntry: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["RegistryEntry"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        RegistryEntry: {
+            fingerprint?: string;
+            name?: string;
+            status?: string;
+            sourceFormat?: string;
+            parser?: string;
+            /** Format: int64 */
+            observationCount?: number;
+            /** Format: int64 */
+            stagingCount?: number;
+            /** Format: date-time */
+            firstSeen?: string;
+            /** Format: date-time */
+            lastSeen?: string;
+            needsReview?: boolean;
+            reviewReasons?: string[];
+            /** Format: date-time */
+            reviewFlaggedAt?: string;
+            reviewAnalysisReference?: string;
+            acknowledgedReasons?: string[];
+            /** Format: uuid */
+            profileId?: string;
+            profileName?: string;
+            /** Format: int32 */
+            profileVersion?: number;
         };
         UpdateFeatureFlagRequest: {
             enabled?: boolean;
@@ -7163,6 +7313,24 @@ export interface components {
             statementFileName?: string;
             /** Format: uuid */
             importSessionId?: string;
+        };
+        ApiResponseProfileView: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["ProfileView"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        ProfileView: {
+            /** Format: uuid */
+            id?: string;
+            name?: string;
+            versions?: components["schemas"]["RegistryEntry"][];
         };
         AnalysisDetail: {
             analysis?: components["schemas"]["AnalysisView"];
@@ -9980,6 +10148,30 @@ export interface components {
             avgSkippedRowsRecurring?: number;
             verdict?: string;
         };
+        ApiResponseListRegistryEntry: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["RegistryEntry"][];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        ApiResponseListProfileView: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["ProfileView"][];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
         ApiResponseListAnalysisView: {
             success?: boolean;
             message?: string;
@@ -11236,6 +11428,56 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseMerchantTemplateDto"];
+                };
+            };
+        };
+    };
+    linkToProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fingerprint: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseRegistryEntry"];
+                };
+            };
+        };
+    };
+    unlinkFromProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fingerprint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseRegistryEntry"];
                 };
             };
         };
@@ -14766,6 +15008,74 @@ export interface operations {
             };
         };
     };
+    resolveReview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fingerprint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseRegistryEntry"];
+                };
+            };
+        };
+    };
+    profiles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListProfileView"];
+                };
+            };
+        };
+    };
+    createProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseProfileView"];
+                };
+            };
+        };
+    };
     recent_1: {
         parameters: {
             query?: {
@@ -15476,6 +15786,62 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseSummary"];
+                };
+            };
+        };
+    };
+    update_15: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fingerprint: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseRegistryEntry"];
+                };
+            };
+        };
+    };
+    renameProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profileId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
                 };
             };
         };
@@ -18093,6 +18459,46 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseListLayoutSummary"];
+                };
+            };
+        };
+    };
+    registry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListRegistryEntry"];
+                };
+            };
+        };
+    };
+    reviewQueue_1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListRegistryEntry"];
                 };
             };
         };

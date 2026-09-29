@@ -6,8 +6,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import LayoutIntelligence from './LayoutIntelligence';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { mockAdminAuthState } from '../test/mockAdminAuth';
-import { adminLayoutsApi } from '../api/endpoints';
-import type { LayoutEvidenceReport, LayoutSummary, UnknownHeaderSummary } from '../types';
+import { adminLayoutsApi, adminLayoutRegistryApi } from '../api/endpoints';
+import type { LayoutEvidenceReport, LayoutProfileView, LayoutSummary, RegistryEntry, UnknownHeaderSummary } from '../types';
 
 // AdminLayout now renders ThemeToggle (dark-mode support), which calls useTheme() --
 // same reason adminSearchApi is stubbed below for GlobalSearch: a real ThemeProvider isn't
@@ -27,13 +27,24 @@ vi.mock('../api/endpoints', () => ({
     evidence: vi.fn(),
     timeline: vi.fn(),
   },
+  adminLayoutRegistryApi: {
+    registry: vi.fn(),
+    reviewQueue: vi.fn(),
+    resolveReview: vi.fn(),
+    update: vi.fn(),
+    profiles: vi.fn(),
+    createProfile: vi.fn(),
+    renameProfile: vi.fn(),
+    linkToProfile: vi.fn(),
+    unlinkFromProfile: vi.fn(),
+  },
 }));
 
-function renderPage() {
+function renderPage(path = '/layout-intelligence') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[path]}>
         <LayoutIntelligence />
       </MemoryRouter>
     </QueryClientProvider>
@@ -80,6 +91,9 @@ const LAYOUT: LayoutSummary = {
 beforeEach(() => {
   vi.clearAllMocks();
   mockAuth();
+  vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([]);
+  vi.mocked(adminLayoutRegistryApi.profiles).mockResolvedValue([]);
+  vi.mocked(adminLayoutRegistryApi.registry).mockResolvedValue([]);
   vi.mocked(adminLayoutsApi.evidence).mockResolvedValue(EVIDENCE);
   vi.mocked(adminLayoutsApi.overview).mockResolvedValue([LAYOUT]);
   vi.mocked(adminLayoutsApi.drifting).mockResolvedValue([]);
@@ -186,5 +200,119 @@ describe('LayoutIntelligence', () => {
     await waitFor(() => {
       expect(screen.queryByText(/Is layout reuse worth building/)).not.toBeInTheDocument();
     });
+  });
+});
+
+function entry(overrides: Partial<RegistryEntry> = {}): RegistryEntry {
+  return {
+    fingerprint: 'FP-1-AAAA0001', name: null, status: 'OBSERVED', sourceFormat: 'PDF', parser: null,
+    observationCount: 0, stagingCount: 2, firstSeen: '2026-09-01T00:00:00Z', lastSeen: '2026-09-02T00:00:00Z',
+    needsReview: true, reviewReasons: ['NEW_LAYOUT', 'BLANK_DESCRIPTIONS', 'VERIFICATION_NOT_PASSED:BALANCE_CHAIN'], reviewFlaggedAt: '2026-09-01T00:00:00Z',
+    reviewAnalysisReference: 'SA-000001', acknowledgedReasons: [], profileId: null, profileName: null,
+    profileVersion: null, ...overrides,
+  };
+}
+
+describe('LayoutIntelligence — layout review queue and profiles', () => {
+  it('opens the review queue from the alert email link, with the reasons in plain words and the count on the tab', async () => {
+    vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry()]);
+    renderPage('/layout-intelligence?tab=review');
+
+    expect(await screen.findByText('FP-1-AAAA0001')).toBeInTheDocument();
+    expect(screen.getByText('New layout')).toBeInTheDocument();
+    expect(screen.getByText('Mostly blank descriptions')).toBeInTheDocument();
+    expect(screen.getByText('Verification did not pass: BALANCE_CHAIN')).toBeInTheDocument();
+    expect(screen.getByText('SA-000001')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Needs review \(1\)/ })).toBeInTheDocument();
+  });
+
+  it('resolves a flagged layout for a curator', async () => {
+    mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE']);
+    vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry()]);
+    vi.mocked(adminLayoutRegistryApi.resolveReview).mockResolvedValue(entry({ needsReview: false }));
+    const user = userEvent.setup();
+    renderPage('/layout-intelligence?tab=review');
+
+    await user.click(await screen.findByRole('button', { name: /Resolve/ }));
+
+    await waitFor(() => expect(adminLayoutRegistryApi.resolveReview).toHaveBeenCalled());
+    expect(vi.mocked(adminLayoutRegistryApi.resolveReview).mock.calls[0][0]).toBe('FP-1-AAAA0001');
+  });
+
+  it('shows the queue read-only without LAYOUT_REGISTRY_MANAGE', async () => {
+    vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry()]);
+    renderPage('/layout-intelligence?tab=review');
+
+    expect(await screen.findByText('FP-1-AAAA0001')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Resolve/ })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Name for FP-1-AAAA0001')).toBeDisabled();
+  });
+
+  it('surfaces the server\'s message when an action fails', async () => {
+    mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE']);
+    vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry()]);
+    vi.mocked(adminLayoutRegistryApi.resolveReview).mockRejectedValue(
+      { response: { data: { message: 'Layout FP-1-AAAA0001 is not waiting for review' } } });
+    const user = userEvent.setup();
+    renderPage('/layout-intelligence?tab=review');
+
+    await user.click(await screen.findByRole('button', { name: /Resolve/ }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('not waiting for review');
+  });
+
+  it('lists profiles with their layouts in version order and adds a layout as the next version', async () => {
+    mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE']);
+    const profile: LayoutProfileView = {
+      id: 'p-1', name: 'Sample Bank Credit Card',
+      versions: [
+        entry({ fingerprint: 'FP-1-OLD00001', profileId: 'p-1', profileName: 'Sample Bank Credit Card', profileVersion: 1, name: 'Old table' }),
+        entry({ fingerprint: 'FP-1-NEW00002', profileId: 'p-1', profileName: 'Sample Bank Credit Card', profileVersion: 2 }),
+      ],
+    };
+    vi.mocked(adminLayoutRegistryApi.profiles).mockResolvedValue([profile]);
+    vi.mocked(adminLayoutRegistryApi.registry).mockResolvedValue([entry({ fingerprint: 'FP-1-LOOSE003' })]);
+    vi.mocked(adminLayoutRegistryApi.linkToProfile).mockResolvedValue(entry());
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole('button', { name: /Profiles/ }));
+
+    expect(await screen.findByDisplayValue('Sample Bank Credit Card')).toBeInTheDocument();
+    const versions = screen.getAllByText(/^v\d$/).map((el) => el.textContent);
+    expect(versions).toEqual(['v1', 'v2']);
+    expect(screen.getByText('Old table')).toBeInTheDocument();
+
+    await user.selectOptions(await screen.findByLabelText('Add a layout to Sample Bank Credit Card'), 'FP-1-LOOSE003');
+    await waitFor(() => expect(adminLayoutRegistryApi.linkToProfile).toHaveBeenCalledWith('FP-1-LOOSE003', 'p-1'));
+  });
+
+  it('creates a profile', async () => {
+    mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE']);
+    vi.mocked(adminLayoutRegistryApi.createProfile).mockResolvedValue({ id: 'p-2', name: 'New Profile', versions: [] });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole('button', { name: /Profiles/ }));
+    await user.type(await screen.findByLabelText('New profile name'), 'New Profile');
+    await user.click(screen.getByRole('button', { name: /Create profile/ }));
+
+    await waitFor(() => expect(adminLayoutRegistryApi.createProfile).toHaveBeenCalled());
+    expect(vi.mocked(adminLayoutRegistryApi.createProfile).mock.calls[0][0]).toBe('New Profile');
+  });
+
+  it('renames a profile in place', async () => {
+    mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE']);
+    vi.mocked(adminLayoutRegistryApi.profiles).mockResolvedValue([{ id: 'p-1', name: 'Old Name', versions: [] }]);
+    vi.mocked(adminLayoutRegistryApi.renameProfile).mockResolvedValue(undefined as never);
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole('button', { name: /Profiles/ }));
+    const field = await screen.findByLabelText('Profile name for Old Name');
+    await user.clear(field);
+    await user.type(field, 'Better Name{Enter}');
+
+    await waitFor(() => expect(adminLayoutRegistryApi.renameProfile).toHaveBeenCalledWith('p-1', 'Better Name'));
   });
 });

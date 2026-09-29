@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { RefreshCw, AlertTriangle, Columns3, ScrollText, Scale } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { RefreshCw, AlertTriangle, Columns3, ScrollText, Scale, Flag, Layers } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { RequirePermission } from '../components/ProtectedRoute';
-import { adminLayoutsApi } from '../api/endpoints';
+import { adminLayoutsApi, adminLayoutRegistryApi } from '../api/endpoints';
+import { ReviewQueuePanel, ProfilesPanel } from './LayoutRegistryPanels';
 import type { LayoutSummary, LayoutEvidenceReport, UnknownHeaderSummary } from '../types';
 
 /**
@@ -168,7 +170,12 @@ function UnknownHeaderRow({ header }: { header: UnknownHeaderSummary }) {
 }
 
 export default function LayoutIntelligence() {
-  const [tab, setTab] = useState<'layouts' | 'drifting' | 'headers'>('layouts');
+  // Opens on All layouts; ?tab=review (the layout review alert email's link) opens the queue.
+  const [searchParams] = useSearchParams();
+  const [tab, setTab] = useState<'review' | 'layouts' | 'drifting' | 'headers' | 'profiles'>(
+    searchParams.get('tab') === 'review' ? 'review' : 'layouts');
+  // Drives the count on the Needs review tab; the panel itself reads the same cached query.
+  const reviewQ = useQuery({ queryKey: ['layout-review-queue'], queryFn: adminLayoutRegistryApi.reviewQueue });
 
   // Independent queries, so one failing report degrades to one empty section instead of blanking
   // the page -- same reasoning the dashboards already use.
@@ -182,6 +189,7 @@ export default function LayoutIntelligence() {
     void overviewQ.refetch();
     void driftingQ.refetch();
     void headersQ.refetch();
+    void reviewQ.refetch();
   };
 
   const layouts = tab === 'drifting' ? (driftingQ.data ?? []) : (overviewQ.data ?? []);
@@ -210,9 +218,11 @@ export default function LayoutIntelligence() {
 
         <div className="flex gap-1 mb-3 border-b border-border">
           {([
+            ['review', `Needs review${reviewQ.data ? ` (${reviewQ.data.length})` : ''}`, Flag],
             ['layouts', 'All layouts', Columns3],
             ['drifting', 'Drifting', AlertTriangle],
             ['headers', 'Unknown headers', ScrollText],
+            ['profiles', 'Profiles', Layers],
           ] as const).map(([key, label, Icon]) => (
             <button
               key={key}
@@ -235,6 +245,10 @@ export default function LayoutIntelligence() {
           </p>
         )}
 
+        {tab === 'review' && <ReviewQueuePanel />}
+        {tab === 'profiles' && <ProfilesPanel />}
+
+        {tab !== 'review' && tab !== 'profiles' && (
         <div className="bg-card border border-border rounded-xl2 overflow-x-auto">
           {tab === 'headers' ? (
             headersQ.isLoading ? (
@@ -285,6 +299,7 @@ export default function LayoutIntelligence() {
             </table>
           )}
         </div>
+        )}
       </RequirePermission>
     </AdminLayout>
   );

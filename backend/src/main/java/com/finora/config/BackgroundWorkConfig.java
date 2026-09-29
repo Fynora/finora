@@ -107,6 +107,26 @@ public class BackgroundWorkConfig {
         return executor;
     }
 
+    /**
+     * Sends layout review alert emails ({@code LayoutReviewAlertService}) off the upload request.
+     * The email provider may take up to its connect-plus-read timeout per recipient; on the request
+     * thread that would hold a user's statement upload hostage to an admin notification. One
+     * thread, a small queue, and a full queue drops the alert rather than running it on the caller:
+     * a dropped email loses nothing, because the flag itself is already in the review queue.
+     */
+    @Bean("layoutReviewAlertExecutor")
+    public Executor layoutReviewAlertExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setQueueCapacity(20);
+        executor.setThreadNamePrefix("layout-review-alert-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.DiscardPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(false);
+        executor.initialize();
+        return executor;
+    }
+
     @Bean("importQueueExecutor")
     public Executor importQueueExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();

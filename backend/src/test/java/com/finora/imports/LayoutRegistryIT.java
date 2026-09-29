@@ -265,4 +265,17 @@ class LayoutRegistryIT extends AbstractIntegrationTest {
 
         assertThat(repository.count()).isEqualTo(before);
     }
+
+    @Test
+    void aConfirmedImportOfAHeaderlessDocumentRegistersNothing() {
+        // Every headerless document shares this fingerprint across banks -- see
+        // LayoutReviewService.isHeaderlessFingerprint.
+        String headerless = new DocumentContext("PDF", "any").buildFingerprint();
+        long before = repository.findByFingerprint(headerless).map(RegisteredLayout::getObservationCount).orElse(0L);
+
+        registryService.observe(headerless, "PDF", null);
+
+        assertThat(repository.findByFingerprint(headerless).map(RegisteredLayout::getObservationCount).orElse(0L))
+                .isEqualTo(before);
+    }
 }

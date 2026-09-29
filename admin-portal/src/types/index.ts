@@ -1425,6 +1425,55 @@ export interface LayoutSummary {
   totalRowsSkipped: number;
 }
 
+/** Why the engine flagged a layout for review at staging time (V243). A verification reason
+ *  carries the rule that did not pass: `VERIFICATION_NOT_PASSED:<RULE>`. */
+export type LayoutReviewReason =
+  | 'NEW_LAYOUT' | 'BLANK_DESCRIPTIONS' | 'STAGING_FAILED' | 'IDENTITY_CONFLICT'
+  | `VERIFICATION_NOT_PASSED:${string}`;
+
+export type LayoutStatus = 'OBSERVED' | 'UNDER_REVIEW' | 'SUPPORTED' | 'UNSUPPORTED';
+
+/** One layout_registry row as an operator curates it (V243). Same anonymity as LayoutSummary:
+ *  fingerprint, names, counts and reason codes only. */
+export interface RegistryEntry {
+  fingerprint: string;
+  name: string | null;
+  status: LayoutStatus;
+  sourceFormat: string | null;
+  parser: string | null;
+  /** Confirmed imports. */
+  observationCount: number;
+  /** Staging runs, confirmed or not. */
+  stagingCount: number;
+  firstSeen: string;
+  lastSeen: string;
+  needsReview: boolean;
+  reviewReasons: LayoutReviewReason[];
+  reviewFlaggedAt: string | null;
+  reviewAnalysisReference: string | null;
+  /** Reasons already reviewed; these no longer re-flag the layout. */
+  acknowledgedReasons: LayoutReviewReason[];
+  profileId: string | null;
+  profileName: string | null;
+  profileVersion: number | null;
+  /** Who placed it: AUTO (grouped by detected bank and account type), MANUAL (an operator — including
+   *  taking it out of a profile, which keeps it out), or null when nobody has decided yet. */
+  profileLinkSource: 'AUTO' | 'MANUAL' | null;
+  /** The version it had before an earlier-seen layout joined and moved it up one, and when — both
+   *  null when it has not moved in its current profile (V245). */
+  previousProfileVersion: number | null;
+  profileVersionChangedAt: string | null;
+}
+
+/** A family of layouts, members in version order. `automatic` profiles are created and filled by
+ *  the engine from the detected bank and account type (V244). */
+export interface LayoutProfileView {
+  id: string;
+  name: string;
+  automatic: boolean;
+  versions: RegistryEntry[];
+}
+
 export interface UnknownHeaderSummary {
   header: string;
   importCount: number;

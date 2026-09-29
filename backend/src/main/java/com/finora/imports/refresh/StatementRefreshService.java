@@ -182,7 +182,7 @@ public class StatementRefreshService {
         StagingResponse staging;
         try {
             staging = importService.parseAndStageAnyFormat(userId, statement.getSourceFormat(),
-                    statement.getFileName(), content, statement.getSourceSectionIndex(), opener);
+                    statement.getFileName(), content, statement.getSourceSectionIndex(), opener, true);
         } catch (ApiException e) {
             if (e.getCode() == ErrorCode.IMPORT_PDF_PASSWORD_REQUIRED || e.getCode() == ErrorCode.IMPORT_PDF_PASSWORD_INVALID) {
                 // Not recorded as a run: nothing was attempted yet, and the user is about to be

@@ -109,6 +109,12 @@ describe('Sidebar', () => {
     expect(screen.queryByText('Learning Engine')).not.toBeInTheDocument();
   });
 
+  it('shows Layout Intelligence to a layout curator as well as to diagnostics viewers', () => {
+    renderSidebar(['LAYOUT_REGISTRY_MANAGE']);
+    expect(screen.getByRole('link', { name: /Layout Intelligence/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Layout Studio/ })).not.toBeInTheDocument();
+  });
+
   it('shows Platform Analytics only when the account holds PLATFORM_ANALYTICS_VIEW', () => {
     renderSidebar(['PLATFORM_ANALYTICS_VIEW']);
 

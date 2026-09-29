@@ -1,9 +1,12 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { RefreshCw, AlertTriangle, Columns3, ScrollText, Scale } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { RefreshCw, AlertTriangle, Columns3, ScrollText, Scale, Flag, Layers } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { RequirePermission } from '../components/ProtectedRoute';
-import { adminLayoutsApi } from '../api/endpoints';
+import { useAdminAuth } from '../context/AdminAuthContext';
+import { adminLayoutsApi, adminLayoutRegistryApi } from '../api/endpoints';
+import { ReviewQueuePanel, ProfilesPanel } from './LayoutRegistryPanels';
 import type { LayoutSummary, LayoutEvidenceReport, UnknownHeaderSummary } from '../types';
 
 /**
@@ -168,20 +171,38 @@ function UnknownHeaderRow({ header }: { header: UnknownHeaderSummary }) {
 }
 
 export default function LayoutIntelligence() {
-  const [tab, setTab] = useState<'layouts' | 'drifting' | 'headers'>('layouts');
+  // Opens on All layouts; ?tab=review (the layout review alert email's link) opens the queue.
+  const [searchParams] = useSearchParams();
+  // Two ways in: PLATFORM_DIAGNOSTICS_VIEW sees the whole page; LAYOUT_REGISTRY_MANAGE alone (a
+  // layout curator) sees only the review queue and profiles, whose endpoints it can read -- the
+  // diagnostics reports would only answer it with 403s.
+  const { hasPermission } = useAdminAuth();
+  const canDiagnose = hasPermission('PLATFORM_DIAGNOSTICS_VIEW');
+  const canCurate = hasPermission('LAYOUT_REGISTRY_MANAGE');
+  const [tab, setTab] = useState<'review' | 'layouts' | 'drifting' | 'headers' | 'profiles'>(
+    searchParams.get('tab') === 'review' || !canDiagnose ? 'review' : 'layouts');
+  // Drives the count on the Needs review tab; the panel itself reads the same cached query.
+  const reviewQ = useQuery({
+    queryKey: ['layout-review-queue'], queryFn: adminLayoutRegistryApi.reviewQueue, enabled: canDiagnose || canCurate,
+  });
 
   // Independent queries, so one failing report degrades to one empty section instead of blanking
   // the page -- same reasoning the dashboards already use.
-  const evidenceQ = useQuery({ queryKey: ['layout-evidence'], queryFn: () => adminLayoutsApi.evidence() });
-  const overviewQ = useQuery({ queryKey: ['layout-overview'], queryFn: () => adminLayoutsApi.overview() });
-  const driftingQ = useQuery({ queryKey: ['layout-drifting'], queryFn: () => adminLayoutsApi.drifting() });
-  const headersQ = useQuery({ queryKey: ['layout-unknown-headers'], queryFn: () => adminLayoutsApi.unknownHeaders() });
+  const evidenceQ = useQuery({ queryKey: ['layout-evidence'], queryFn: () => adminLayoutsApi.evidence(), enabled: canDiagnose });
+  const overviewQ = useQuery({ queryKey: ['layout-overview'], queryFn: () => adminLayoutsApi.overview(), enabled: canDiagnose });
+  const driftingQ = useQuery({ queryKey: ['layout-drifting'], queryFn: () => adminLayoutsApi.drifting(), enabled: canDiagnose });
+  const headersQ = useQuery({
+    queryKey: ['layout-unknown-headers'], queryFn: () => adminLayoutsApi.unknownHeaders(), enabled: canDiagnose,
+  });
 
   const refetchAll = () => {
-    void evidenceQ.refetch();
-    void overviewQ.refetch();
-    void driftingQ.refetch();
-    void headersQ.refetch();
+    if (canDiagnose) {
+      void evidenceQ.refetch();
+      void overviewQ.refetch();
+      void driftingQ.refetch();
+      void headersQ.refetch();
+    }
+    void reviewQ.refetch();
   };
 
   const layouts = tab === 'drifting' ? (driftingQ.data ?? []) : (overviewQ.data ?? []);
@@ -192,7 +213,7 @@ export default function LayoutIntelligence() {
       title="Layout Intelligence"
       subtitle="What the import engine has learned about the documents it reads. Aggregated by structural fingerprint — no user, account, bank or transaction appears here."
     >
-      <RequirePermission permission="PLATFORM_DIAGNOSTICS_VIEW">
+      <RequirePermission permission={canCurate ? 'LAYOUT_REGISTRY_MANAGE' : 'PLATFORM_DIAGNOSTICS_VIEW'}>
         <div className="flex items-center justify-end mb-4">
           <button
             type="button"
@@ -203,17 +224,19 @@ export default function LayoutIntelligence() {
           </button>
         </div>
 
-        {evidenceQ.isError && (
+        {canDiagnose && evidenceQ.isError && (
           <p className="text-sm text-danger mb-4">Couldn't load the evidence report.</p>
         )}
-        {evidenceQ.data && <EvidencePanel report={evidenceQ.data} />}
+        {canDiagnose && evidenceQ.data && <EvidencePanel report={evidenceQ.data} />}
 
         <div className="flex gap-1 mb-3 border-b border-border">
           {([
-            ['layouts', 'All layouts', Columns3],
-            ['drifting', 'Drifting', AlertTriangle],
-            ['headers', 'Unknown headers', ScrollText],
-          ] as const).map(([key, label, Icon]) => (
+            ['review', `Needs review${reviewQ.data ? ` (${reviewQ.data.length})` : ''}`, Flag, true],
+            ['layouts', 'All layouts', Columns3, canDiagnose],
+            ['drifting', 'Drifting', AlertTriangle, canDiagnose],
+            ['headers', 'Unknown headers', ScrollText, canDiagnose],
+            ['profiles', 'Profiles', Layers, true],
+          ] as const).filter(([, , , visible]) => visible).map(([key, label, Icon]) => (
             <button
               key={key}
               type="button"
@@ -235,6 +258,10 @@ export default function LayoutIntelligence() {
           </p>
         )}
 
+        {tab === 'review' && <ReviewQueuePanel />}
+        {tab === 'profiles' && <ProfilesPanel />}
+
+        {tab !== 'review' && tab !== 'profiles' && (
         <div className="bg-card border border-border rounded-xl2 overflow-x-auto">
           {tab === 'headers' ? (
             headersQ.isLoading ? (
@@ -285,6 +312,7 @@ export default function LayoutIntelligence() {
             </table>
           )}
         </div>
+        )}
       </RequirePermission>
     </AdminLayout>
   );

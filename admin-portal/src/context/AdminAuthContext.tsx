@@ -71,6 +71,9 @@ export const ADMIN_PORTAL_PERMISSIONS = [
   // still get past the portal-entry check to reach the one section it can use, or this list's own
   // documented bug (RELATIONSHIP_MANAGE, above) repeats itself for a third permission.
   'TRUST_REVIEW_MANAGE',
+  // Layout curation (V243): the layout review queue, naming layouts and grouping them into
+  // versioned profiles. Listed for the same portal-entry reason as the two above.
+  'LAYOUT_REGISTRY_MANAGE',
   // Support, Help & Feedback v1, Phase 9 (V149) -- gates the Support Tickets and Feedback pages
   // (AdminSupportTicketController, AdminFeedbackController). V149's migration comment names this
   // exact allowlist by file path as one of the four places a new admin permission must appear,

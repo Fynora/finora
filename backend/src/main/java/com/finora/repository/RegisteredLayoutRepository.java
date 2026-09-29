@@ -28,6 +28,19 @@ public interface RegisteredLayoutRepository extends JpaRepository<RegisteredLayo
      *  caller iterating a whole failure-analytics window still shouldn't pay N+1 for it. */
     java.util.List<RegisteredLayout> findByFingerprintIn(java.util.Collection<String> fingerprints);
 
+    /** Locks the layout row for an operator's write. Every writer -- staging (LayoutReviewService,
+     *  LayoutProfileAutoLinker) and every operator action -- takes this lock BEFORE any profile
+     *  lock, so the two can never wait on each other in opposite orders. */
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select l from RegisteredLayout l where l.fingerprint = :fingerprint")
+    Optional<RegisteredLayout> findByFingerprintForUpdate(@Param("fingerprint") String fingerprint);
+
+    /** The review queue: every flagged layout, oldest flag first. */
+    java.util.List<RegisteredLayout> findByNeedsReviewTrueOrderByReviewFlaggedAtAsc();
+
+    java.util.List<RegisteredLayout> findByProfileIdOrderByProfileVersionAsc(UUID profileId);
+
+
     /**
      * Records that a confirmed import produced this layout: inserts the row, or advances the
      * observed columns of the row that is already there.

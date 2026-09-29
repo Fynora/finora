@@ -24,7 +24,10 @@ import java.util.UUID;
  *
  * <p>{@code sourceFormat}, {@code parser}, {@code firstSeen}, {@code lastSeen} and
  * {@code observationCount} are written by the engine, once per confirmed import, through the atomic
- * upsert in {@code RegisteredLayoutRepository.observe}. {@code name} and {@code status} are written
+ * upsert in {@code RegisteredLayoutRepository.observe}. Since V243 staging writes too, through
+ * {@code LayoutReviewService}: it can create the row (a layout is registered the first time it is
+ * seen, confirmed or not), moves {@code firstSeen}/{@code lastSeen}, and counts itself in
+ * {@code stagingCount} -- never in {@code observationCount}, which stays "confirmed imports". {@code name} and {@code status} are written
  * only by an operator, through {@link #rename} and {@link #moveTo}. Nothing on this class lets an
  * import write a curated field, and the upsert's {@code DO UPDATE} clause names only observed
  * columns -- because a layout an operator marked {@link Status#SUPPORTED} falling back to
@@ -118,6 +121,59 @@ public class RegisteredLayout {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt = Instant.now();
 
+    // ------------------------------------------------------------------ review (V243)
+    //
+    // Written by the engine at staging time through LayoutStagingRepository (plain SQL, like
+    // observe()), and cleared only by an operator through resolveReview(). Never touched by the
+    // confirmed-import upsert.
+
+    /** Staging runs that produced this layout, confirmed or not -- kept apart from
+     *  {@link #observationCount}, which stays "confirmed imports" for every existing reader. */
+    @Column(name = "staging_count", nullable = false)
+    private long stagingCount;
+
+    @Column(name = "needs_review", nullable = false)
+    private boolean needsReview;
+
+    /** Comma-separated {@code LayoutReviewService.Reason} names. Null when never flagged. */
+    @Column(name = "review_reasons")
+    private String reviewReasons;
+
+    @Column(name = "review_flagged_at")
+    private Instant reviewFlaggedAt;
+
+    /** The statement-analysis session that last flagged this layout, for the admin to open. */
+    @Column(name = "review_analysis_reference", length = 24)
+    private String reviewAnalysisReference;
+
+    /** Reasons already reviewed; a later staging re-flags only for a reason not in here. */
+    @Column(name = "acknowledged_reasons")
+    private String acknowledgedReasons;
+
+    // ------------------------------------------------------------------ profile (V243)
+
+    /** The operator-named family this layout belongs to, or null. */
+    @Column(name = "profile_id")
+    private UUID profileId;
+
+    /** This layout's version within {@link #profileId}; null exactly when profileId is. */
+    @Column(name = "profile_version")
+    private Integer profileVersion;
+
+    /** Who decided this layout's profile (V244): "AUTO" (the engine), "MANUAL" (an operator), or
+     *  null when nobody has. The engine only links a layout whose source is null, so anything an
+     *  operator did -- including removing a layout from a profile -- is never overridden. */
+    @Column(name = "profile_link_source", length = 8)
+    private String profileLinkSource;
+
+    /** The version this layout had before a later-arriving, earlier-seen layout moved it up one
+     *  (V245), and when that happened; both null when it has not moved in its current profile. */
+    @Column(name = "previous_profile_version")
+    private Integer previousProfileVersion;
+
+    @Column(name = "profile_version_changed_at")
+    private Instant profileVersionChangedAt;
+
     protected RegisteredLayout() {}
 
     // ------------------------------------------------------------------ curation
@@ -146,6 +202,58 @@ public class RegisteredLayout {
         this.updatedAt = Instant.now();
     }
 
+    /**
+     * Clears the review flag. The reasons that were flagged become acknowledged, so the same
+     * reasons on a later upload do not raise the flag (and the alert) again -- only a new one does.
+     */
+    public void resolveReview() {
+        java.util.Set<String> acknowledged = new java.util.TreeSet<>(reasonsOf(acknowledgedReasons));
+        acknowledged.addAll(reasonsOf(reviewReasons));
+        this.acknowledgedReasons = acknowledged.isEmpty() ? null : String.join(",", acknowledged);
+        this.needsReview = false;
+        this.updatedAt = Instant.now();
+    }
+
+    /** Places this layout in a profile at the given version. The caller picks the version under a
+     *  lock on the profile -- see LayoutProfileService -- and the database's unique index is the
+     *  backstop. */
+    public void linkToProfile(UUID profileId, int version) {
+        if (profileId == null) throw new IllegalArgumentException("A profile id is required");
+        if (version < 1) throw new IllegalArgumentException("A profile version starts at 1");
+        this.profileId = profileId;
+        this.profileVersion = version;
+        this.profileLinkSource = "MANUAL";
+        this.updatedAt = Instant.now();
+    }
+
+    /** Takes the layout out of its profile. Recorded as an operator's decision, so automatic
+     *  grouping does not put it straight back on the next upload. */
+    public void unlinkFromProfile() {
+        this.profileId = null;
+        this.profileVersion = null;
+        this.previousProfileVersion = null;
+        this.profileVersionChangedAt = null;
+        this.profileLinkSource = "MANUAL";
+        this.updatedAt = Instant.now();
+    }
+
+    /** Hands the layout back to automatic grouping: out of any profile, and nobody's decision, so
+     *  the engine may place it again (V244 profile_link_source back to null). */
+    public void returnToAutomatic() {
+        this.profileId = null;
+        this.profileVersion = null;
+        this.previousProfileVersion = null;
+        this.profileVersionChangedAt = null;
+        this.profileLinkSource = null;
+        this.updatedAt = Instant.now();
+    }
+
+    /** Splits a stored comma-separated reason list; null or blank is the empty list. */
+    public static java.util.List<String> reasonsOf(String stored) {
+        if (stored == null || stored.isBlank()) return java.util.List.of();
+        return java.util.Arrays.stream(stored.split(",")).map(String::trim).filter(r -> !r.isEmpty()).toList();
+    }
+
     // ------------------------------------------------------------------ accessors
 
     public UUID getId() { return id; }
@@ -159,4 +267,15 @@ public class RegisteredLayout {
     public long getObservationCount() { return observationCount; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
+    public long getStagingCount() { return stagingCount; }
+    public boolean isNeedsReview() { return needsReview; }
+    public java.util.List<String> getReviewReasons() { return reasonsOf(reviewReasons); }
+    public Instant getReviewFlaggedAt() { return reviewFlaggedAt; }
+    public String getReviewAnalysisReference() { return reviewAnalysisReference; }
+    public java.util.List<String> getAcknowledgedReasons() { return reasonsOf(acknowledgedReasons); }
+    public UUID getProfileId() { return profileId; }
+    public Integer getProfileVersion() { return profileVersion; }
+    public String getProfileLinkSource() { return profileLinkSource; }
+    public Integer getPreviousProfileVersion() { return previousProfileVersion; }
+    public Instant getProfileVersionChangedAt() { return profileVersionChangedAt; }
 }

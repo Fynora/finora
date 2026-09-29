@@ -30,6 +30,9 @@ import type {
   NotificationAdminRow, NotificationAdminDetail, NotificationAdminSummary,
   MerchantReviewItem,
   LayoutSummary,
+  RegistryEntry,
+  LayoutProfileView,
+  LayoutStatus,
   UnknownHeaderSummary,
   LayoutTimelinePoint,
   LayoutEvidenceReport,
@@ -766,6 +769,49 @@ export const adminAnalysisRunApi = {
  * exists so the evidence report can be read by a human, which is precondition 3 of the proposal's
  * §11 for ever building structural learning.
  */
+/**
+ * The layout registry's curation surface (V243): the review queue the engine fills at staging
+ * time, naming a layout and setting its support status, and grouping layouts into versioned
+ * profiles. Reads need PLATFORM_DIAGNOSTICS_VIEW or LAYOUT_REGISTRY_MANAGE; writes need
+ * LAYOUT_REGISTRY_MANAGE.
+ */
+export const adminLayoutRegistryApi = {
+  registry: () =>
+    api.get<RegistryEntry[]>('/admin/imports/layout-registry').then((r) => r.data),
+  reviewQueue: () =>
+    api.get<RegistryEntry[]>('/admin/imports/layout-registry/review-queue').then((r) => r.data),
+  resolveReview: (fingerprint: string) =>
+    api
+      .post<RegistryEntry>(`/admin/imports/layout-registry/${encodeURIComponent(fingerprint)}/review/resolve`)
+      .then((r) => r.data),
+  /** `name: null` clears the name; omit a key to leave it unchanged. */
+  update: (fingerprint: string, changes: { name?: string | null; status?: LayoutStatus }) =>
+    api
+      .patch<RegistryEntry>(`/admin/imports/layout-registry/${encodeURIComponent(fingerprint)}`, changes)
+      .then((r) => r.data),
+  profiles: () =>
+    api.get<LayoutProfileView[]>('/admin/imports/layout-registry/profiles').then((r) => r.data),
+  createProfile: (name: string) =>
+    api.post<LayoutProfileView>('/admin/imports/layout-registry/profiles', { name }).then((r) => r.data),
+  renameProfile: (profileId: string, name: string) =>
+    api.patch<void>(`/admin/imports/layout-registry/profiles/${encodeURIComponent(profileId)}`, { name }),
+  /** The layout becomes the profile's next version. */
+  linkToProfile: (fingerprint: string, profileId: string) =>
+    api
+      .put<RegistryEntry>(`/admin/imports/layout-registry/${encodeURIComponent(fingerprint)}/profile`, { profileId })
+      .then((r) => r.data),
+  /** Undoes an operator's profile decision and lets automatic grouping place the layout — straight
+   *  away where stored evidence allows, otherwise on its next upload. */
+  returnToAutomatic: (fingerprint: string) =>
+    api
+      .post<RegistryEntry>(`/admin/imports/layout-registry/${encodeURIComponent(fingerprint)}/profile/automatic`)
+      .then((r) => r.data),
+  unlinkFromProfile: (fingerprint: string) =>
+    api
+      .delete<RegistryEntry>(`/admin/imports/layout-registry/${encodeURIComponent(fingerprint)}/profile`)
+      .then((r) => r.data),
+};
+
 export const adminLayoutsApi = {
   /** Every layout, most-used first, with its stable/unstable capability split. */
   overview: () =>

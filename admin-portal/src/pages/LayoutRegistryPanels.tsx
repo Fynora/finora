@@ -135,7 +135,7 @@ function ProfilePicker({ entry, profiles, disabled, onLink }: {
       className="bg-card text-ink border border-border rounded px-1 py-1 text-xs disabled:opacity-60"
     >
       <option value="">{profiles.length === 0 ? 'No profiles yet' : 'Add to profile…'}</option>
-      {profiles.map((p) => <option key={p.id} value={p.id}>{p.name} (next: v{p.versions.length === 0 ? 1 : Math.max(...p.versions.map((v) => v.profileVersion ?? 0)) + 1})</option>)}
+      {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
     </select>
   );
 }
@@ -265,9 +265,10 @@ export function ProfilesPanel() {
     <div>
       <p className="text-xs text-muted mb-3">
         Layouts are grouped automatically by detected bank and account type: when a bank changes its
-        statement format, the new layout joins the same profile as its next version. A version
-        orders a bank's layouts by when they first appeared — two can be in use at once. Moving or
-        removing a layout here is final; automatic grouping will not undo it.
+        statement format, the new layout joins the same profile as its next version. Versions follow
+        when each layout first appeared — a layout added later that appeared earlier takes its place
+        and the ones after it move up — and two can be in use at once. Moving or removing a layout
+        here is final; automatic grouping will not undo it.
       </p>
       {actionError && <p role="alert" className="text-sm text-danger mb-3">{actionError}</p>}
       {canManage && (
@@ -319,7 +320,7 @@ export function ProfilesPanel() {
                     }}
                     className="bg-card text-ink border border-border rounded px-1 py-1 text-xs"
                   >
-                    <option value="">Add layout as next version…</option>
+                    <option value="">Add a layout…</option>
                     {unassigned.map((e) => (
                       <option key={e.fingerprint} value={e.fingerprint}>
                         {e.fingerprint}{e.name ? ` — ${e.name}` : ''}

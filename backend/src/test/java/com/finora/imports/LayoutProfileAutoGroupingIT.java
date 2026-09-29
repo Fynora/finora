@@ -28,6 +28,10 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.verify;
 
 /**
  * Automatic layout profile grouping (V244) against real PostgreSQL: at staging, the rules that keep
@@ -98,6 +102,61 @@ class LayoutProfileAutoGroupingIT extends AbstractIntegrationTest {
         assertThat(v2.getProfileVersion()).isEqualTo(v1.getProfileVersion() + 1);
         String name = jdbc.queryForObject("SELECT name FROM layout_profile WHERE id = ?", String.class, v1.getProfileId());
         assertThat(name).isEqualTo("Kotak Mahindra Bank — Credit Card");
+    }
+
+    /** An older format grouped late -- its first statements carried no bank evidence -- still reads
+     *  as the earlier version: it goes before the newer layout, which moves up one. */
+    @Test
+    void anOlderLayoutGroupedLateStillComesFirst() {
+        String bankId = "TEST" + UUID.randomUUID().toString().substring(0, 6).toUpperCase();
+        LayoutIdentity identity = new LayoutIdentity(bankId, "Test Bank " + bankId, Set.of("CREDIT_CARD"));
+        Instant now = Instant.now();
+        String older = fingerprint();
+        String newer = fingerprint();
+        registeredEarlier(older, now.minus(90, ChronoUnit.DAYS));
+        registeredEarlier(newer, now.minus(5, ChronoUnit.DAYS));
+
+        stage(newer, identity);
+        assertThat(layout(newer).getProfileVersion()).isEqualTo(1);
+
+        stage(older, identity);
+        assertThat(layout(older).getProfileVersion()).isEqualTo(1);
+        assertThat(layout(newer).getProfileVersion()).isEqualTo(2);
+        assertThat(layout(older).getProfileId()).isEqualTo(layout(newer).getProfileId());
+    }
+
+    @Test
+    void anOperatorsLinkIsPlacedByFirstAppearanceToo() {
+        UUID admin = admin();
+        var profile = curationService.createProfile(admin, "Test Chronological " + UUID.randomUUID());
+        Instant now = Instant.now();
+        String a = fingerprint();
+        String b = fingerprint();
+        String c = fingerprint();
+        registeredEarlier(a, now.minus(30, ChronoUnit.DAYS));
+        registeredEarlier(b, now.minus(20, ChronoUnit.DAYS));
+        registeredEarlier(c, now.minus(10, ChronoUnit.DAYS));
+
+        curationService.linkToProfile(admin, a, profile.id());
+        curationService.linkToProfile(admin, c, profile.id());
+        var middle = curationService.linkToProfile(admin, b, profile.id());
+
+        assertThat(middle.profileVersion()).isEqualTo(2);
+        assertThat(middle.profileLinkSource()).isEqualTo("MANUAL");
+        assertThat(layout(a).getProfileVersion()).isEqualTo(1);
+        assertThat(layout(c).getProfileVersion()).isEqualTo(3);
+    }
+
+    @Test
+    void theAlertNamesTheProfileAndVersionTheLayoutJoined() {
+        String bankId = "TEST" + UUID.randomUUID().toString().substring(0, 6).toUpperCase();
+        LayoutIdentity identity = new LayoutIdentity(bankId, "Test Bank " + bankId, Set.of("SAVINGS"));
+        String fp = fingerprint();
+
+        stage(fp, identity);
+
+        verify(alertService, timeout(5000)).alertLayoutNeedsReview(eq(fp), any(), any(),
+                eq("Test Bank " + bankId + " — Savings / Current v1"));
     }
 
     @Test

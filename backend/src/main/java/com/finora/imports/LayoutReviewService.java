@@ -157,15 +157,16 @@ public class LayoutReviewService {
         }
         if (flagged != null && flagged.newlyRaised()) {
             try {
-                alertService.alertLayoutNeedsReview(fingerprint, flagged.reasons(), analysisReference);
+                alertService.alertLayoutNeedsReview(fingerprint, flagged.reasons(), analysisReference, flagged.profile());
             } catch (RuntimeException e) {
                 log.warn("Could not send the layout review alert for {}.", fingerprint, e);
             }
         }
     }
 
-    /** What the flag became, and whether this call is the one that raised it. */
-    record Flagged(boolean newlyRaised, List<String> reasons) {}
+    /** What the flag became, whether this call is the one that raised it, and the profile the
+     *  layout sits in ("Kotak Mahindra Bank — Credit Card v2"), or null. */
+    record Flagged(boolean newlyRaised, List<String> reasons, String profile) {}
 
     private Flagged recordInTransaction(String fingerprint, String sourceFormat, Set<String> reasons,
                                         String analysisReference, LayoutIdentity identity) {
@@ -217,6 +218,10 @@ public class LayoutReviewService {
                     updated_at = now()
                 WHERE fingerprint = ?
                 """, String.join(",", merged), now, analysisReference, fingerprint);
-        return new Flagged(!wasFlagged, List.copyOf(merged));
+        List<String> profile = jdbc.queryForList("""
+                SELECT p.name || ' v' || r.profile_version FROM layout_registry r
+                JOIN layout_profile p ON p.id = r.profile_id WHERE r.fingerprint = ?
+                """, String.class, fingerprint);
+        return new Flagged(!wasFlagged, List.copyOf(merged), profile.isEmpty() ? null : profile.get(0));
     }
 }

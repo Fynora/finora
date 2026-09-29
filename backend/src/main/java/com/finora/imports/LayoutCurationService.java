@@ -33,13 +33,19 @@ public class LayoutCurationService {
     private final RegisteredLayoutRepository layoutRepository;
     private final LayoutProfileRepository profileRepository;
     private final AuditService auditService;
+    private final LayoutProfileAutoLinker autoLinker;
+    private final jakarta.persistence.EntityManager entityManager;
 
     public LayoutCurationService(RegisteredLayoutRepository layoutRepository,
                                  LayoutProfileRepository profileRepository,
-                                 AuditService auditService) {
+                                 AuditService auditService,
+                                 LayoutProfileAutoLinker autoLinker,
+                                 jakarta.persistence.EntityManager entityManager) {
         this.layoutRepository = layoutRepository;
         this.profileRepository = profileRepository;
         this.auditService = auditService;
+        this.autoLinker = autoLinker;
+        this.entityManager = entityManager;
     }
 
     /** One registry row as an admin sees it. {@code profileName} is resolved for display. */
@@ -148,16 +154,19 @@ public class LayoutCurationService {
     }
 
     /**
-     * Adds a layout to a profile as its next version (v1 for an empty profile). The profile row is
-     * locked first so two operators adding layouts at once get consecutive versions; the unique
-     * index on (profile, version) is the backstop. A layout already in this profile keeps its
+     * Adds a layout to a profile at the version its first appearance earns (see
+     * LayoutProfileAutoLinker.place): v1 for an empty profile, and later-seen members move up one
+     * when an earlier-seen layout joins. The layout row, then the profile row, are locked -- the
+     * order staging uses -- and the unique index on (profile, version) is the backstop. A layout already in this profile keeps its
      * version -- re-linking is a no-op, not a renumbering. Moving from another profile takes the
      * next version here.
      */
     @Transactional
     public RegistryEntry linkToProfile(UUID actingAdminId, String fingerprint, UUID profileId) {
-        LayoutProfile profile = profileRepository.findByIdForUpdate(profileId).orElseThrow(() -> notFoundProfile(profileId));
+        // Layout first, then profile: the same order staging takes them in -- see
+        // RegisteredLayoutRepository.findByFingerprintForUpdate.
         RegisteredLayout layout = requireLayout(fingerprint);
+        LayoutProfile profile = profileRepository.findByIdForUpdate(profileId).orElseThrow(() -> notFoundProfile(profileId));
         if (profileId.equals(layout.getProfileId())) {
             // Already there. An operator confirming an automatic link makes it theirs, so the
             // engine will not treat it as its own to reconsider.
@@ -168,10 +177,12 @@ public class LayoutCurationService {
             }
             return entryOf(layout, profileNames());
         }
-        Integer max = layoutRepository.maxProfileVersion(profileId);
-        int version = max == null ? 1 : max + 1;
         UUID previousProfile = layout.getProfileId();
-        layout.linkToProfile(profileId, version);
+        // The same first-seen placement automatic grouping uses, so a profile reads in the order its
+        // layouts appeared however they got there. Written with SQL (it also moves later members up
+        // one), so the managed entity is refreshed afterwards rather than trusted.
+        int version = autoLinker.place(fingerprint, profileId, "MANUAL");
+        entityManager.refresh(layout);
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("profileId", profileId.toString());
         metadata.put("profileName", profile.getName());
@@ -220,8 +231,10 @@ public class LayoutCurationService {
                 l.getProfileLinkSource());
     }
 
+    /** Locked for the rest of the transaction: every caller writes the layout, and staging may be
+     *  writing its review flag or profile at the same moment. */
     private RegisteredLayout requireLayout(String fingerprint) {
-        return layoutRepository.findByFingerprint(fingerprint).orElseThrow(() -> new ApiException(
+        return layoutRepository.findByFingerprintForUpdate(fingerprint).orElseThrow(() -> new ApiException(
                 HttpStatus.NOT_FOUND, "No layout is registered under fingerprint " + fingerprint));
     }
 

@@ -25,14 +25,19 @@ import java.util.UUID;
  *       two account families is a detection problem a person should look at.</li>
  *   <li>The profile is found by its auto key, else adopted by name (an operator may have created
  *       "Kotak Mahindra Bank — Credit Card" by hand before this existed), else created.</li>
- *   <li>The version is the profile's highest + 1, read under a lock on the profile row, so two
- *       layouts arriving together get consecutive versions.</li>
+ *   <li>The version follows first appearance: the layout goes right after every member first seen
+ *       before it, and later members move up one. Decided under a lock on the profile row (taken
+ *       after the layout's own row, the order every writer uses), so concurrent layouts never get
+ *       the same number.</li>
  * </ul>
  */
 @Component
 public class LayoutProfileAutoLinker {
 
     public enum Outcome { LINKED, ALREADY_IN_GROUP, OPERATOR_DECIDED, CONFLICT, NO_IDENTITY, NOT_REGISTERED }
+
+    /** Larger than any real version, so a shifted block never collides with an unshifted one. */
+    private static final int SHIFT_OFFSET = 1_000_000;
 
     private final JdbcTemplate jdbc;
 
@@ -57,16 +62,43 @@ public class LayoutProfileAutoLinker {
 
         UUID profileId = profileFor(identity);
         if (profileId == null) return Outcome.CONFLICT;
+        place(fingerprint, profileId, "AUTO");
+        return Outcome.LINKED;
+    }
+
+    /**
+     * Puts a layout into a profile at the version its first appearance earns, and records who
+     * decided ("AUTO" or "MANUAL"). Shared with the operator's own "add to profile"
+     * (LayoutCurationService), so every profile is ordered the same way however its members got
+     * there. The caller must already hold the layout's row lock; this takes the profile's.
+     *
+     * @return the version the layout now has
+     */
+    public int place(String fingerprint, UUID profileId, String source) {
+        Object firstSeen = jdbc.queryForObject(
+                "SELECT first_seen FROM layout_registry WHERE fingerprint = ?", Object.class, fingerprint);
         jdbc.queryForObject("SELECT id FROM layout_profile WHERE id = ? FOR UPDATE", UUID.class, profileId);
-        Integer max = jdbc.queryForObject(
-                "SELECT max(profile_version) FROM layout_registry WHERE profile_id = ?", Integer.class, profileId);
-        int version = max == null ? 1 : max + 1;
+
+        // Placed by when the layout first appeared, not by when it happened to be grouped: an older
+        // format grouped late (its first statement carried no bank evidence) must still read as the
+        // earlier version. It goes right after every member first seen before it, and the members
+        // after that move up one. Two statements for the move because the (profile, version) unique
+        // index is checked row by row: shift clear of every real number first, then back down.
+        Integer before = jdbc.queryForObject("""
+                SELECT max(profile_version) FROM layout_registry
+                WHERE profile_id = ? AND (first_seen < ? OR (first_seen = ? AND fingerprint < ?))
+                """, Integer.class, profileId, firstSeen, firstSeen, fingerprint);
+        int version = before == null ? 1 : before + 1;
+        jdbc.update("UPDATE layout_registry SET profile_version = profile_version + " + SHIFT_OFFSET
+                + " WHERE profile_id = ? AND profile_version >= ?", profileId, version);
+        jdbc.update("UPDATE layout_registry SET profile_version = profile_version - " + (SHIFT_OFFSET - 1)
+                + ", updated_at = now() WHERE profile_id = ? AND profile_version >= ?", profileId, SHIFT_OFFSET);
         jdbc.update("""
                 UPDATE layout_registry
-                SET profile_id = ?, profile_version = ?, profile_link_source = 'AUTO', updated_at = now()
-                WHERE fingerprint = ? AND profile_link_source IS NULL
-                """, profileId, version, fingerprint);
-        return Outcome.LINKED;
+                SET profile_id = ?, profile_version = ?, profile_link_source = ?, updated_at = now()
+                WHERE fingerprint = ?
+                """, profileId, version, source, fingerprint);
+        return version;
     }
 
     /** The profile answering to this identity's key: by key, else an unkeyed profile of the same

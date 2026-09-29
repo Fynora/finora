@@ -54,7 +54,8 @@ public class LayoutReviewAlertService {
 
     /** Runs on {@code layoutReviewAlertExecutor}, never on the upload request -- see that bean. */
     @org.springframework.scheduling.annotation.Async("layoutReviewAlertExecutor")
-    public void alertLayoutNeedsReview(String fingerprint, List<String> reasons, String analysisReference) {
+    public void alertLayoutNeedsReview(String fingerprint, List<String> reasons, String analysisReference,
+                                       String profile) {
         String subject = "Statement layout needs review — " + fingerprint;
         StringBuilder reasonItems = new StringBuilder();
         for (String reason : reasons) {
@@ -62,9 +63,13 @@ public class LayoutReviewAlertService {
         }
         String referenceLine = analysisReference == null || analysisReference.isBlank()
                 ? "" : "<li><strong>Analysis:</strong> " + escape(analysisReference) + "</li>";
+        String profileLine = profile == null || profile.isBlank()
+                ? "<li><strong>Grouped as:</strong> not grouped (bank or account type not detected)</li>"
+                : "<li><strong>Grouped as:</strong> " + escape(profile) + "</li>";
         String html = "<p>A statement layout was flagged for review while a statement was being staged.</p>"
                 + "<ul>"
                 + "<li><strong>Layout:</strong> " + escape(fingerprint) + "</li>"
+                + profileLine
                 + referenceLine
                 + "</ul>"
                 + "<p><strong>Why:</strong></p><ul>" + reasonItems + "</ul>"

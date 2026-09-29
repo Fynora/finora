@@ -298,6 +298,15 @@ class PdfPipelineDiagnostic {
                     System.out.println("    amount=" + row.amount() + " type=" + row.type());
                 }
             }
+            // Full rows, for value-level before/after comparison of a parser change. Prints the
+            // statement's own text, so the output belongs in a scratch directory, never the repo.
+            if (Boolean.getBoolean("dumpStagedRows")) {
+                for (var row : s.rows()) {
+                    System.out.println("    " + row.date() + " | " + row.type() + " | " + row.amount()
+                            + " | " + row.suggestedCategory() + " (" + row.categorySource() + ") | "
+                            + row.description());
+                }
+            }
         }
         System.out.println();
         printVerificationReport(pdfPath, generated);
@@ -358,6 +367,8 @@ class PdfPipelineDiagnostic {
                     // that this whole framework exists to move past.
                     Object explanation = finding.details() == null ? null : finding.details().get("explanation");
                     if (explanation != null) System.out.println("      " + explanation);
+                    Object conflicting = finding.details() == null ? null : finding.details().get("conflictingFields");
+                    if (conflicting != null) System.out.println("      conflictingFields=" + conflicting);
 
                     if (f > 0) json.append(",");
                     json.append("\"").append(finding.rule()).append("\":\"")

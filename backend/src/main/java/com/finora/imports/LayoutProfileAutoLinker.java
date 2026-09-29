@@ -40,9 +40,11 @@ public class LayoutProfileAutoLinker {
     private static final int SHIFT_OFFSET = 1_000_000;
 
     private final JdbcTemplate jdbc;
+    private final com.finora.service.AuditService auditService;
 
-    public LayoutProfileAutoLinker(JdbcTemplate jdbc) {
+    public LayoutProfileAutoLinker(JdbcTemplate jdbc, com.finora.service.AuditService auditService) {
         this.jdbc = jdbc;
+        this.auditService = auditService;
     }
 
     public Outcome link(String fingerprint, LayoutIdentity identity) {
@@ -62,7 +64,7 @@ public class LayoutProfileAutoLinker {
 
         UUID profileId = profileFor(identity);
         if (profileId == null) return Outcome.CONFLICT;
-        place(fingerprint, profileId, "AUTO");
+        place(fingerprint, profileId, "AUTO", null);
         return Outcome.LINKED;
     }
 
@@ -72,9 +74,13 @@ public class LayoutProfileAutoLinker {
      * (LayoutCurationService), so every profile is ordered the same way however its members got
      * there. The caller must already hold the layout's row lock; this takes the profile's.
      *
+     * <p>Any member that moves up is recorded: its previous number and the time are kept on the row
+     * (V245) and one audit entry lists every move, so a renumbering is never silent.
+     *
+     * @param actingAdminId the operator who caused the placement, or null when the engine did
      * @return the version the layout now has
      */
-    public int place(String fingerprint, UUID profileId, String source) {
+    public int place(String fingerprint, UUID profileId, String source, UUID actingAdminId) {
         Object firstSeen = jdbc.queryForObject(
                 "SELECT first_seen FROM layout_registry WHERE fingerprint = ?", Object.class, fingerprint);
         jdbc.queryForObject("SELECT id FROM layout_profile WHERE id = ? FOR UPDATE", UUID.class, profileId);
@@ -89,15 +95,37 @@ public class LayoutProfileAutoLinker {
                 WHERE profile_id = ? AND (first_seen < ? OR (first_seen = ? AND fingerprint < ?))
                 """, Integer.class, profileId, firstSeen, firstSeen, fingerprint);
         int version = before == null ? 1 : before + 1;
+        List<Map<String, Object>> moving = jdbc.queryForList(
+                "SELECT fingerprint, profile_version FROM layout_registry WHERE profile_id = ? AND profile_version >= ? "
+                        + "ORDER BY profile_version", profileId, version);
         jdbc.update("UPDATE layout_registry SET profile_version = profile_version + " + SHIFT_OFFSET
                 + " WHERE profile_id = ? AND profile_version >= ?", profileId, version);
-        jdbc.update("UPDATE layout_registry SET profile_version = profile_version - " + (SHIFT_OFFSET - 1)
-                + ", updated_at = now() WHERE profile_id = ? AND profile_version >= ?", profileId, SHIFT_OFFSET);
+        // Each moved layout keeps the number it had, so the admin screen can say "was v2" (V245).
+        jdbc.update("UPDATE layout_registry SET previous_profile_version = profile_version - " + SHIFT_OFFSET
+                + ", profile_version = profile_version - " + (SHIFT_OFFSET - 1)
+                + ", profile_version_changed_at = now(), updated_at = now()"
+                + " WHERE profile_id = ? AND profile_version >= ?", profileId, SHIFT_OFFSET);
         jdbc.update("""
                 UPDATE layout_registry
-                SET profile_id = ?, profile_version = ?, profile_link_source = ?, updated_at = now()
+                SET profile_id = ?, profile_version = ?, profile_link_source = ?,
+                    previous_profile_version = NULL, profile_version_changed_at = NULL, updated_at = now()
                 WHERE fingerprint = ?
                 """, profileId, version, source, fingerprint);
+        if (!moving.isEmpty()) {
+            StringBuilder moves = new StringBuilder();
+            for (Map<String, Object> m : moving) {
+                if (!moves.isEmpty()) moves.append(", ");
+                int old = ((Number) m.get("profile_version")).intValue();
+                moves.append(m.get("fingerprint")).append(" v").append(old).append("->v").append(old + 1);
+            }
+            Map<String, Object> metadata = new java.util.HashMap<>();
+            metadata.put("insertedFingerprint", fingerprint);
+            metadata.put("insertedVersion", version);
+            metadata.put("moved", moves.toString());
+            metadata.put("source", source);
+            if (actingAdminId != null) metadata.put("actorId", actingAdminId.toString());
+            auditService.record(actingAdminId, "LAYOUT_PROFILE_VERSIONS_SHIFTED", "LayoutProfile", profileId, metadata);
+        }
         return version;
     }
 

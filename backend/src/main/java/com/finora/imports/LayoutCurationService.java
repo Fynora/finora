@@ -34,13 +34,16 @@ public class LayoutCurationService {
     private final LayoutProfileRepository profileRepository;
     private final AuditService auditService;
     private final LayoutProfileAutoLinker autoLinker;
+    private final LayoutProfileBackfill backfill;
     private final jakarta.persistence.EntityManager entityManager;
 
     public LayoutCurationService(RegisteredLayoutRepository layoutRepository,
                                  LayoutProfileRepository profileRepository,
                                  AuditService auditService,
                                  LayoutProfileAutoLinker autoLinker,
+                                 LayoutProfileBackfill backfill,
                                  jakarta.persistence.EntityManager entityManager) {
+        this.backfill = backfill;
         this.layoutRepository = layoutRepository;
         this.profileRepository = profileRepository;
         this.auditService = auditService;
@@ -56,7 +59,10 @@ public class LayoutCurationService {
             String reviewAnalysisReference, List<String> acknowledgedReasons,
             UUID profileId, String profileName, Integer profileVersion,
             /** "AUTO", "MANUAL", or null when nobody has decided this layout's profile yet. */
-            String profileLinkSource) {}
+            String profileLinkSource,
+            /** The version it had before an earlier-seen layout joined and moved it up (V245), and
+             *  when; both null when it has not moved in its current profile. */
+            Integer previousProfileVersion, Instant profileVersionChangedAt) {}
 
     /** A profile and its layouts, in version order. {@code automatic} is true for a profile the
      *  engine groups into by bank and account family. */
@@ -181,7 +187,7 @@ public class LayoutCurationService {
         // The same first-seen placement automatic grouping uses, so a profile reads in the order its
         // layouts appeared however they got there. Written with SQL (it also moves later members up
         // one), so the managed entity is refreshed afterwards rather than trusted.
-        int version = autoLinker.place(fingerprint, profileId, "MANUAL");
+        int version = autoLinker.place(fingerprint, profileId, "MANUAL", actingAdminId);
         entityManager.refresh(layout);
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("profileId", profileId.toString());
@@ -209,6 +215,32 @@ public class LayoutCurationService {
         return entryOf(layout, profileNames());
     }
 
+    /**
+     * Undoes an operator's decision about a layout's profile -- a manual link or a removal -- and
+     * lets automatic grouping place it again straight away from the evidence already stored (the
+     * same evidence the startup backfill reads). With no evidence it stays ungrouped until a
+     * statement of it is next uploaded, when staging groups it.
+     */
+    @Transactional
+    public RegistryEntry returnToAutomatic(UUID actingAdminId, String fingerprint) {
+        RegisteredLayout layout = requireLayout(fingerprint);
+        if (!"MANUAL".equals(layout.getProfileLinkSource())) {
+            throw new ApiException(HttpStatus.CONFLICT, "Layout " + fingerprint + " is already grouped automatically");
+        }
+        Map<String, Object> metadata = new HashMap<>();
+        if (layout.getProfileId() != null) {
+            metadata.put("previousProfileId", layout.getProfileId().toString());
+            metadata.put("previousVersion", layout.getProfileVersion());
+        }
+        layout.returnToAutomatic();
+        layoutRepository.flush();
+        LayoutProfileAutoLinker.Outcome outcome = backfill.regroup(fingerprint, layout.getSourceFormat());
+        entityManager.refresh(layout);
+        metadata.put("outcome", outcome.name());
+        audit(actingAdminId, "LAYOUT_RETURNED_TO_AUTOMATIC", layout, metadata);
+        return entryOf(layout, profileNames());
+    }
+
     private void audit(UUID actingAdminId, String action, RegisteredLayout layout, Map<String, Object> metadata) {
         Map<String, Object> withFingerprint = new HashMap<>(metadata);
         withFingerprint.put("fingerprint", layout.getFingerprint());
@@ -228,7 +260,7 @@ public class LayoutCurationService {
                 l.isNeedsReview(), l.getReviewReasons(), l.getReviewFlaggedAt(), l.getReviewAnalysisReference(),
                 l.getAcknowledgedReasons(), l.getProfileId(),
                 l.getProfileId() == null ? null : profileNames.get(l.getProfileId()), l.getProfileVersion(),
-                l.getProfileLinkSource());
+                l.getProfileLinkSource(), l.getPreviousProfileVersion(), l.getProfileVersionChangedAt());
     }
 
     /** Locked for the rest of the transaction: every caller writes the layout, and staging may be

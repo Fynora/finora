@@ -406,4 +406,26 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
                 .isEqualTo(before);
         verify(alertService, after(500).never()).alertLayoutNeedsReview(eq(headerless), any(), any(), any());
     }
+
+    /** Statement refresh and the reimport preview re-stage through parseAndStageAnyFormat with
+     *  reviewLayout=true and join the review; background dry runs (false) never touch it. */
+    @Test
+    void reviewedReStagingReachesTheRegistry_unreviewedDoesNot() throws Exception {
+        String extraColumn = "Memo" + UUID.randomUUID().toString().substring(0, 6);
+        byte[] csv = ("Date,Description,Amount,Type," + extraColumn + "\n"
+                + "2026-07-01,SAMPLE PAYER CREDIT,10000.00,CREDIT,x\n"
+                + "2026-07-29,SAMPLE SHOP DEBIT,1628.00,DEBIT,y\n").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        User user = createUser("USER");
+        DocumentContext ctx = new DocumentContext("CSV", "any");
+        ctx.recordHeaders(List.of("Date", "Description", "Amount", "Type", extraColumn));
+        String fp = ctx.buildFingerprint();
+
+        importService.parseAndStageAnyFormat(user.getId(), "CSV", "dry.csv", csv, null, null, false);
+        assertThat(layoutRepository.findByFingerprint(fp)).isEmpty();
+
+        importService.parseAndStageAnyFormat(user.getId(), "CSV", "refresh.csv", csv, null, null, true);
+        RegisteredLayout layout = layout(fp);
+        assertThat(layout.getStagingCount()).isEqualTo(1);
+        assertThat(layout.getReviewReasons()).contains("NEW_LAYOUT");
+    }
 }

@@ -1459,6 +1459,10 @@ export interface RegistryEntry {
   /** Who placed it: AUTO (grouped by detected bank and account type), MANUAL (an operator — including
    *  taking it out of a profile, which keeps it out), or null when nobody has decided yet. */
   profileLinkSource: 'AUTO' | 'MANUAL' | null;
+  /** The version it had before an earlier-seen layout joined and moved it up one, and when — both
+   *  null when it has not moved in its current profile (V245). */
+  previousProfileVersion: number | null;
+  profileVersionChangedAt: string | null;
 }
 
 /** A family of layouts, members in version order. `automatic` profiles are created and filled by

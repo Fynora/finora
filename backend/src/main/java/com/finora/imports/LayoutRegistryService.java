@@ -74,6 +74,10 @@ public class LayoutRegistryService {
      */
     public void observe(String fingerprint, String sourceFormat, String layoutMetadataJson) {
         if (fingerprint == null || fingerprint.isBlank()) return;
+        // A document with no recognised column headers hashes to one fingerprint whatever bank it
+        // came from, so registering it would describe several unrelated layouts as one. See
+        // LayoutReviewService's class comment, which skips it at staging for the same reason.
+        if (sourceFormat != null && LayoutReviewService.isHeaderlessFingerprint(fingerprint, sourceFormat)) return;
 
         // Captured now, on the import's own thread, rather than read inside the callback: the point
         // being recorded is when the import happened, not when the registry got round to it.

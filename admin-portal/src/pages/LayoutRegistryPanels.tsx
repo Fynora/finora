@@ -70,6 +70,7 @@ function useRegistryMutations(onError: (message: string | null) => void) {
       onError: fail,
     }),
     unlink: useMutation({ mutationFn: adminLayoutRegistryApi.unlinkFromProfile, onSuccess: refresh, onError: fail }),
+    returnToAutomatic: useMutation({ mutationFn: adminLayoutRegistryApi.returnToAutomatic, onSuccess: refresh, onError: fail }),
     createProfile: useMutation({ mutationFn: adminLayoutRegistryApi.createProfile, onSuccess: refresh, onError: fail }),
     renameProfile: useMutation({
       mutationFn: (v: { profileId: string; name: string }) => adminLayoutRegistryApi.renameProfile(v.profileId, v.name),
@@ -115,14 +116,41 @@ function NameField({ entry, disabled, onSave }: {
   );
 }
 
-function ProfilePicker({ entry, profiles, disabled, onLink }: {
+/** "Return to automatic" for a layout whose profile an operator decided (linked or removed). */
+function ReturnToAutomatic({ entry, disabled, onReturn }: {
+  entry: RegistryEntry; disabled: boolean; onReturn: () => void;
+}) {
+  if (entry.profileLinkSource !== 'MANUAL' || disabled) return null;
+  return (
+    <button type="button" onClick={onReturn}
+      aria-label={`Return ${entry.fingerprint} to automatic grouping`}
+      className="ml-2 text-[11px] text-primary">
+      Return to automatic
+    </button>
+  );
+}
+
+function ProfilePicker({ entry, profiles, disabled, onLink, onReturn }: {
   entry: RegistryEntry; profiles: LayoutProfileView[]; disabled: boolean; onLink: (profileId: string) => void;
+  onReturn: () => void;
 }) {
   if (entry.profileId) {
     return (
       <span className="text-xs text-ink">
         {entry.profileName} · v{entry.profileVersion}
+        {entry.previousProfileVersion != null && (
+          <span className="ml-1 text-muted">(was v{entry.previousProfileVersion})</span>
+        )}
         {entry.profileLinkSource === 'AUTO' && <span className="ml-1 text-muted">(auto)</span>}
+        <ReturnToAutomatic entry={entry} disabled={disabled} onReturn={onReturn} />
+      </span>
+    );
+  }
+  if (entry.profileLinkSource === 'MANUAL') {
+    return (
+      <span className="text-xs text-muted">
+        Removed from grouping by an admin
+        <ReturnToAutomatic entry={entry} disabled={disabled} onReturn={onReturn} />
       </span>
     );
   }
@@ -206,7 +234,8 @@ export function ReviewQueuePanel() {
                   </td>
                   <td className="p-3">
                     <ProfilePicker entry={entry} profiles={profilesQ.data ?? []} disabled={!canManage}
-                      onLink={(profileId) => m.link.mutate({ fingerprint: entry.fingerprint, profileId })} />
+                      onLink={(profileId) => m.link.mutate({ fingerprint: entry.fingerprint, profileId })}
+                      onReturn={() => m.returnToAutomatic.mutate(entry.fingerprint)} />
                   </td>
                   <td className="p-3">
                     {canManage && (
@@ -336,9 +365,18 @@ export function ProfilesPanel() {
                   <tbody>
                     {profile.versions.map((v) => (
                       <tr key={v.fingerprint} className="border-t border-border">
-                        <td className="py-1.5 pr-3 text-xs font-semibold text-ink w-12">v{v.profileVersion}</td>
-                        <td className="py-1.5 pr-3 text-[11px] text-muted w-14">
+                        <td className="py-1.5 pr-3 text-xs font-semibold text-ink w-24">
+                          v{v.profileVersion}
+                          {v.previousProfileVersion != null && (
+                            <span className="ml-1 font-normal text-muted" title={`Moved ${formatWhen(v.profileVersionChangedAt)}`}>
+                              (was v{v.previousProfileVersion})
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-1.5 pr-3 text-[11px] text-muted w-40">
                           {v.profileLinkSource === 'AUTO' ? 'auto' : 'manual'}
+                          <ReturnToAutomatic entry={v} disabled={!canManage}
+                            onReturn={() => m.returnToAutomatic.mutate(v.fingerprint)} />
                         </td>
                         <td className="py-1.5 pr-3 font-mono text-xs text-ink">{v.fingerprint}</td>
                         <td className="py-1.5 pr-3 text-xs text-ink">{v.name ?? <span className="text-muted">Unnamed</span>}</td>

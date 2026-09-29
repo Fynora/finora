@@ -84,8 +84,8 @@ public class LayoutProfileBackfill {
         if (undecided.isEmpty()) return new Result(0, 0, 0);
         Map<String, Set<String>> keysByFingerprint = new HashMap<>();
         Map<String, LayoutIdentity> identityByKey = new HashMap<>();
-        collectFromAnalysisSessions(keysByFingerprint, identityByKey);
-        collectFromConfirmedImports(keysByFingerprint, identityByKey);
+        collectFromAnalysisSessions(keysByFingerprint, identityByKey, null);
+        collectFromConfirmedImports(keysByFingerprint, identityByKey, null);
 
         int linked = 0, conflicts = 0, noEvidence = 0;
         for (Map<String, Object> row : undecided) {
@@ -114,8 +114,34 @@ public class LayoutProfileBackfill {
         return new Result(linked, conflicts, noEvidence);
     }
 
+    /**
+     * Groups one layout from its stored evidence, in the caller's transaction -- for an operator
+     * handing a layout back to automatic grouping (LayoutCurationService.returnToAutomatic), which
+     * should not have to wait for the next upload or restart. The caller holds the layout's row
+     * lock and has already cleared its profile and link source.
+     */
+    public LayoutProfileAutoLinker.Outcome regroup(String fingerprint, String sourceFormat) {
+        if (sourceFormat != null && LayoutReviewService.isHeaderlessFingerprint(fingerprint, sourceFormat)) {
+            return LayoutProfileAutoLinker.Outcome.NO_IDENTITY;
+        }
+        Map<String, Set<String>> keysByFingerprint = new HashMap<>();
+        Map<String, LayoutIdentity> identityByKey = new HashMap<>();
+        collectFromAnalysisSessions(keysByFingerprint, identityByKey, fingerprint);
+        collectFromConfirmedImports(keysByFingerprint, identityByKey, fingerprint);
+        Set<String> keys = keysByFingerprint.getOrDefault(fingerprint, Set.of());
+        if (keys.isEmpty()) return LayoutProfileAutoLinker.Outcome.NO_IDENTITY;
+        if (keys.size() > 1) {
+            flagConflict(fingerprint);
+            return LayoutProfileAutoLinker.Outcome.CONFLICT;
+        }
+        LayoutProfileAutoLinker.Outcome outcome = linker.link(fingerprint, identityByKey.get(keys.iterator().next()));
+        if (outcome == LayoutProfileAutoLinker.Outcome.CONFLICT) flagConflict(fingerprint);
+        return outcome;
+    }
+
+    /** {@code onlyFingerprint} null reads evidence for every undecided layout; otherwise just that one. */
     private void collectFromAnalysisSessions(Map<String, Set<String>> keysByFingerprint,
-                                             Map<String, LayoutIdentity> identityByKey) {
+                                             Map<String, LayoutIdentity> identityByKey, String onlyFingerprint) {
         Map<String, String> bankIdByName = new HashMap<>();
         for (BankRegistry.BankInfo bank : BankRegistry.all()) {
             if (bank.officialName() != null) bankIdByName.put(bank.officialName(), bank.id());
@@ -124,6 +150,7 @@ public class LayoutProfileBackfill {
                 SELECT DISTINCT layout_fingerprint, bank_name, statement_type FROM statement_analysis_sessions
                 WHERE identity_checked AND bank_name IS NOT NULL AND statement_type IS NOT NULL
                   AND layout_fingerprint IN (SELECT fingerprint FROM layout_registry WHERE profile_id IS NULL AND profile_link_source IS NULL)
+                  AND (CAST(? AS VARCHAR) IS NULL OR layout_fingerprint = ?)
                 """, rs -> {
             String bankId = bankIdByName.get(rs.getString("bank_name"));
             if (bankId == null) return;
@@ -135,15 +162,16 @@ public class LayoutProfileBackfill {
             }
             add(keysByFingerprint, identityByKey, rs.getString("layout_fingerprint"),
                     new LayoutIdentity(bankId, rs.getString("bank_name"), families));
-        });
+        }, onlyFingerprint, onlyFingerprint);
     }
 
     private void collectFromConfirmedImports(Map<String, Set<String>> keysByFingerprint,
-                                             Map<String, LayoutIdentity> identityByKey) {
+                                             Map<String, LayoutIdentity> identityByKey, String onlyFingerprint) {
         jdbc.query("""
                 SELECT DISTINCT si.layout_fingerprint, a.bank_id, a.account_type
                 FROM statement_imports si JOIN accounts a ON a.id = si.account_id
                 WHERE a.bank_id <> 'OTHER' AND si.layout_fingerprint IN (SELECT fingerprint FROM layout_registry WHERE profile_id IS NULL AND profile_link_source IS NULL)
+                  AND (CAST(? AS VARCHAR) IS NULL OR si.layout_fingerprint = ?)
                 """, rs -> {
             BankRegistry.BankInfo bank = BankRegistry.get(rs.getString("bank_id"));
             if (bank == null || bank.officialName() == null || BankRegistry.UNKNOWN_ID.equals(bank.id())) return;
@@ -151,7 +179,7 @@ public class LayoutProfileBackfill {
             if (family == null) return;
             add(keysByFingerprint, identityByKey, rs.getString("layout_fingerprint"),
                     new LayoutIdentity(bank.id(), bank.officialName(), Set.of(family)));
-        });
+        }, onlyFingerprint, onlyFingerprint);
     }
 
     private static void add(Map<String, Set<String>> keysByFingerprint, Map<String, LayoutIdentity> identityByKey,

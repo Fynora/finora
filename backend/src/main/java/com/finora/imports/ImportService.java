@@ -709,6 +709,59 @@ public class ImportService {
     /** @param password the document open password for a protected PDF, or null. Ignored for CSV. */
     public StagingResponse parseAndStageAnyFormat(UUID userId, String sourceFormat, String filename, byte[] content,
                                                    Integer sourceSectionIndex, String password) throws IOException {
+        return parseAndStageAnyFormat(userId, sourceFormat, filename, content, sourceSectionIndex, password, false);
+    }
+
+    /**
+     * As above, and when {@code reviewLayout} is true the run also goes to the layout review queue
+     * and automatic profile grouping, exactly as an upload does ({@link #reviewLayout}). True for a
+     * person re-staging a stored statement (statement refresh, the reimport preview); false for
+     * background dry runs, which re-parse every stored statement after a deploy and would otherwise
+     * flag and email about layouts in bulk, and for the reimport confirm step, which re-parses the
+     * same file a second time only to check its rows.
+     */
+    public StagingResponse parseAndStageAnyFormat(UUID userId, String sourceFormat, String filename, byte[] content,
+                                                   Integer sourceSectionIndex, String password,
+                                                   boolean reviewLayout) throws IOException {
+        if (!reviewLayout) return parseAndStageAnyFormatUnreviewed(userId, sourceFormat, filename, content,
+                sourceSectionIndex, password);
+        String format = "PDF".equalsIgnoreCase(sourceFormat) ? "PDF" : "CSV";
+        String fingerprint = null;
+        try {
+            if ("PDF".equals(format)) {
+                // Same filtered-list indexing as parseAndStageAnyFormatUnreviewed (see its comment); the
+                // WithContext call returns the same sections plus the fingerprint the review needs.
+                var result = pdfPreviewGenerator.generateSectionsWithContext(userId, filename, content, password);
+                fingerprint = fingerprintOf(result.documentContext());
+                List<StagedAccountSection> sections = onlySectionsThatAreActuallyAccounts(result.sections());
+                int index = sourceSectionIndex == null ? 0 : sourceSectionIndex;
+                if (index >= sections.size()) {
+                    throw new ApiException(HttpStatus.CONFLICT,
+                            "This statement's account sections no longer match what was originally imported -- re-upload the file to import it fresh.");
+                }
+                reviewLayout(fingerprint, "PDF", sections.stream().flatMap(sec -> sec.rows().stream()).toList(),
+                        sections.stream().map(StagedAccountSection::verification).toList(), null,
+                        LayoutIdentity.of(sections.stream().map(StagedAccountSection::detectedAccount).toList()));
+                return toStagingResponse(sections.get(index));
+            }
+            var result = previewGenerator.generateWithContext(userId, filename, new java.io.ByteArrayInputStream(content));
+            fingerprint = fingerprintOf(result.documentContext());
+            StagingResponse staged = result.response();
+            reviewLayout(fingerprint, "CSV", staged.rows(), java.util.Collections.singletonList(staged.verification()),
+                    null, LayoutIdentity.of(java.util.Collections.singletonList(staged.detectedAccount())));
+            return staged;
+        } catch (RuntimeException e) {
+            if (layoutReviewService != null) {
+                layoutReviewService.onStagingFailed(fingerprint, format, null, e);
+            }
+            throw e;
+        }
+    }
+
+    /** The original path, unchanged: what every caller that does not join the layout review runs. */
+    private StagingResponse parseAndStageAnyFormatUnreviewed(UUID userId, String sourceFormat, String filename,
+                                                            byte[] content, Integer sourceSectionIndex,
+                                                            String password) throws IOException {
         if ("PDF".equalsIgnoreCase(sourceFormat)) {
             // Indexed into the SAME filtered list the original upload staged and confirmed against
             // (parseAndStagePdfWithSession), because sourceSectionIndex was recorded as a position

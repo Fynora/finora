@@ -6122,6 +6122,36 @@
                 }
             }
         },
+        "/api/v1/admin/imports/layout-registry/{fingerprint}/profile/automatic": {
+            "post": {
+                "tags": [
+                    "admin-layout-registry-controller"
+                ],
+                "operationId": "returnToAutomatic",
+                "parameters": [
+                    {
+                        "name": "fingerprint",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseRegistryEntry"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/imports/layout-registry/profiles": {
             "get": {
                 "tags": [
@@ -13267,6 +13297,14 @@
                     },
                     "profileLinkSource": {
                         "type": "string"
+                    },
+                    "previousProfileVersion": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "profileVersionChangedAt": {
+                        "type": "string",
+                        "format": "date-time"
                     }
                 }
             },

@@ -37,6 +37,7 @@ vi.mock('../api/endpoints', () => ({
     renameProfile: vi.fn(),
     linkToProfile: vi.fn(),
     unlinkFromProfile: vi.fn(),
+    returnToAutomatic: vi.fn(),
   },
 }));
 
@@ -209,7 +210,8 @@ function entry(overrides: Partial<RegistryEntry> = {}): RegistryEntry {
     observationCount: 0, stagingCount: 2, firstSeen: '2026-09-01T00:00:00Z', lastSeen: '2026-09-02T00:00:00Z',
     needsReview: true, reviewReasons: ['NEW_LAYOUT', 'BLANK_DESCRIPTIONS', 'VERIFICATION_NOT_PASSED:BALANCE_CHAIN', 'IDENTITY_CONFLICT'], reviewFlaggedAt: '2026-09-01T00:00:00Z',
     reviewAnalysisReference: 'SA-000001', acknowledgedReasons: [], profileId: null, profileName: null,
-    profileVersion: null, profileLinkSource: null, ...overrides,
+    profileVersion: null, profileLinkSource: null, previousProfileVersion: null, profileVersionChangedAt: null,
+    ...overrides,
   };
 }
 
@@ -316,5 +318,54 @@ describe('LayoutIntelligence — layout review queue and profiles', () => {
     await user.type(field, 'Better Name{Enter}');
 
     await waitFor(() => expect(adminLayoutRegistryApi.renameProfile).toHaveBeenCalledWith('p-1', 'Better Name'));
+  });
+
+  it('shows a layout curator without diagnostics access only the review queue and profiles', async () => {
+    mockAuth(['LAYOUT_REGISTRY_MANAGE']);
+    vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry()]);
+    renderPage();
+
+    expect(await screen.findByText('FP-1-AAAA0001')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Profiles/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /All layouts/ })).not.toBeInTheDocument();
+    expect(adminLayoutsApi.evidence).not.toHaveBeenCalled();
+    expect(adminLayoutsApi.overview).not.toHaveBeenCalled();
+  });
+
+  it('says what version a moved layout used to be', async () => {
+    const profile: LayoutProfileView = {
+      id: 'p-1', name: 'Sample Bank Credit Card', automatic: true,
+      versions: [entry({ fingerprint: 'FP-1-MOVED001', profileId: 'p-1', profileName: 'Sample Bank Credit Card',
+        profileVersion: 2, previousProfileVersion: 1, profileVersionChangedAt: '2026-09-02T00:00:00Z', profileLinkSource: 'AUTO' })],
+    };
+    vi.mocked(adminLayoutRegistryApi.profiles).mockResolvedValue([profile]);
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole('button', { name: /Profiles/ }));
+
+    expect(await screen.findByText('(was v1)')).toBeInTheDocument();
+  });
+
+  it('returns a layout an admin removed to automatic grouping', async () => {
+    mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE']);
+    vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry({ profileLinkSource: 'MANUAL' })]);
+    vi.mocked(adminLayoutRegistryApi.returnToAutomatic).mockResolvedValue(entry({ profileLinkSource: 'AUTO' }));
+    const user = userEvent.setup();
+    renderPage('/layout-intelligence?tab=review');
+
+    expect(await screen.findByText(/Removed from grouping by an admin/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Return FP-1-AAAA0001 to automatic grouping' }));
+
+    await waitFor(() => expect(adminLayoutRegistryApi.returnToAutomatic).toHaveBeenCalled());
+    expect(vi.mocked(adminLayoutRegistryApi.returnToAutomatic).mock.calls[0][0]).toBe('FP-1-AAAA0001');
+  });
+
+  it('offers no return to automatic without LAYOUT_REGISTRY_MANAGE', async () => {
+    vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry({ profileLinkSource: 'MANUAL' })]);
+    renderPage('/layout-intelligence?tab=review');
+
+    expect(await screen.findByText(/Removed from grouping by an admin/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /to automatic grouping/ })).not.toBeInTheDocument();
   });
 });

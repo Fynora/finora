@@ -2340,6 +2340,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/imports/layout-registry/{fingerprint}/profile/automatic": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["returnToAutomatic"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/imports/layout-registry/profiles": {
         parameters: {
             query?: never;
@@ -5782,6 +5798,10 @@ export interface components {
             /** Format: int32 */
             profileVersion?: number;
             profileLinkSource?: string;
+            /** Format: int32 */
+            previousProfileVersion?: number;
+            /** Format: date-time */
+            profileVersionChangedAt?: string;
         };
         UpdateFeatureFlagRequest: {
             enabled?: boolean;
@@ -15011,6 +15031,28 @@ export interface operations {
         };
     };
     resolveReview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fingerprint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseRegistryEntry"];
+                };
+            };
+        };
+    };
+    returnToAutomatic: {
         parameters: {
             query?: never;
             header?: never;

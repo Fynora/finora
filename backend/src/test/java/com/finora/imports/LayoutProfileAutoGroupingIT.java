@@ -51,6 +51,7 @@ class LayoutProfileAutoGroupingIT extends AbstractIntegrationTest {
     @Autowired private StatementImportRepository statementImportRepository;
     @Autowired private StatementAnalysisRecorder analysisRecorder;
     @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbc;
+    @Autowired private com.finora.repository.AuditLogRepository auditLogRepository;
     @MockitoBean private LayoutReviewAlertService alertService;
 
     private static final LayoutIdentity KOTAK_CC = new LayoutIdentity("KOTAK", "Kotak Mahindra Bank", Set.of("CREDIT_CARD"));
@@ -145,6 +146,70 @@ class LayoutProfileAutoGroupingIT extends AbstractIntegrationTest {
         assertThat(middle.profileLinkSource()).isEqualTo("MANUAL");
         assertThat(layout(a).getProfileVersion()).isEqualTo(1);
         assertThat(layout(c).getProfileVersion()).isEqualTo(3);
+    }
+
+    @Test
+    void aVersionMoveIsRecordedOnTheRowAndAudited() {
+        String bankId = "TEST" + UUID.randomUUID().toString().substring(0, 6).toUpperCase();
+        LayoutIdentity identity = new LayoutIdentity(bankId, "Test Bank " + bankId, Set.of("CREDIT_CARD"));
+        Instant now = Instant.now();
+        String older = fingerprint();
+        String newer = fingerprint();
+        registeredEarlier(older, now.minus(90, ChronoUnit.DAYS));
+        registeredEarlier(newer, now.minus(5, ChronoUnit.DAYS));
+        stage(newer, identity);
+
+        stage(older, identity);
+
+        RegisteredLayout moved = layout(newer);
+        assertThat(moved.getProfileVersion()).isEqualTo(2);
+        assertThat(moved.getPreviousProfileVersion()).isEqualTo(1);
+        assertThat(moved.getProfileVersionChangedAt()).isNotNull();
+        assertThat(layout(older).getPreviousProfileVersion()).isNull();
+        assertThat(auditLogRepository.findAll()).filteredOn(a -> moved.getProfileId().equals(a.getEntityId()))
+                .extracting(a -> a.getAction()).contains("LAYOUT_PROFILE_VERSIONS_SHIFTED");
+    }
+
+    @Test
+    void returningARemovedLayoutToAutomaticRegroupsItFromStoredEvidence() {
+        UUID admin = admin();
+        User user = new User();
+        user.setEmail("layout-return-" + UUID.randomUUID() + "@example.com");
+        user.setPasswordHash("irrelevant-for-this-test");
+        user.setFullName("Return User");
+        UUID userId = userRepository.save(user).getId();
+        String fp = fingerprint();
+        registeredEarlier(fp, Instant.now().minus(3, ChronoUnit.DAYS));
+        confirmedImport(userId, account(userId, "KOTAK", Account.Type.CREDIT_CARD).getId(), fp);
+        backfill.run();
+        UUID kotakProfile = layout(fp).getProfileId();
+        assertThat(kotakProfile).isNotNull();
+        curationService.unlinkFromProfile(admin, fp);
+        assertThat(layout(fp).getProfileLinkSource()).isEqualTo("MANUAL");
+
+        var entry = curationService.returnToAutomatic(admin, fp);
+
+        assertThat(entry.profileId()).isEqualTo(kotakProfile);
+        assertThat(entry.profileLinkSource()).isEqualTo("AUTO");
+        assertThat(layout(fp).getProfileLinkSource()).isEqualTo("AUTO");
+    }
+
+    @Test
+    void returningALayoutWithNoEvidenceLeavesItUndecidedForTheNextUpload_andAnAutomaticOneCannotBeReturned() {
+        UUID admin = admin();
+        String fp = fingerprint();
+        stage(fp, null);
+        var own = curationService.createProfile(admin, "Test Return Profile " + UUID.randomUUID());
+        curationService.linkToProfile(admin, fp, own.id());
+
+        var entry = curationService.returnToAutomatic(admin, fp);
+        assertThat(entry.profileId()).isNull();
+        assertThat(entry.profileLinkSource()).isNull();
+
+        stage(fp, KOTAK_CC); // the next upload groups it
+        assertThat(layout(fp).getProfileLinkSource()).isEqualTo("AUTO");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> curationService.returnToAutomatic(admin, fp))
+                .hasMessageContaining("already grouped automatically");
     }
 
     @Test
@@ -299,7 +364,8 @@ class LayoutProfileAutoGroupingIT extends AbstractIntegrationTest {
     @Test
     void theBackfillNeverGroupsTheHeaderlessFingerprint() {
         String headerless = new DocumentContext("PDF", "any").buildFingerprint();
-        registryService.observe(headerless, "PDF", null);
+        // A row a pre-V244 confirmed import may have left (registration now skips it).
+        layoutRepository.observe(headerless, "PDF", null, Instant.now());
         jdbc.update("UPDATE layout_registry SET profile_id = NULL, profile_version = NULL, profile_link_source = NULL "
                 + "WHERE fingerprint = ?", headerless);
         User user = new User();

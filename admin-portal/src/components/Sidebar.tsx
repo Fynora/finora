@@ -18,6 +18,11 @@ import { initials } from '../lib/initials';
 // which permission gates it or which page it points to.
 const DASHBOARD_LINK = { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true, permission: null } as const;
 
+/** A link gated on one permission, or on holding any of several. */
+function holdsAny(permissions: readonly (string | null)[], required: string | null | readonly string[]) {
+  return Array.isArray(required) ? required.some((p) => permissions.includes(p)) : permissions.includes(required as string | null);
+}
+
 const GROUPS = [
   {
     label: 'Core',
@@ -65,7 +70,9 @@ const GROUPS = [
       { to: '/health', label: 'System Health', icon: HeartPulse, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
       { to: '/integrations', label: 'Integrations', icon: Plug, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
       { to: '/diagnostics', label: 'Platform Diagnostics', icon: Stethoscope, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
-      { to: '/layout-intelligence', label: 'Layout Intelligence', icon: Fingerprint, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
+      // Either permission: a layout curator without diagnostics access still reaches the review
+      // queue and profiles on this page (V243).
+      { to: '/layout-intelligence', label: 'Layout Intelligence', icon: Fingerprint, end: false, permission: ['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE'] },
       { to: '/layout-studio', label: 'Layout Studio', icon: FileSearch, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
       { to: '/held-imports', label: 'Held Imports', icon: Clock, end: false, permission: 'IMPORT_TRIAGE_MANAGE' },
       { to: '/held-statements', label: 'Held Statements', icon: ShieldAlert, end: false, permission: 'TRUST_REVIEW_MANAGE' },
@@ -135,7 +142,7 @@ export function Sidebar() {
   // group with zero visible links renders no header at all, so an account with a narrow
   // permission set doesn't see empty "Operations"/"System" section labels above nothing.
   const visibleGroups = GROUPS
-    .map((group) => ({ ...group, links: group.links.filter((l) => permissions.includes(l.permission)) }))
+    .map((group) => ({ ...group, links: group.links.filter((l) => holdsAny(permissions, l.permission)) }))
     .filter((group) => group.links.length > 0);
 
   // Landing directly on a route (bookmark, deep link, a previous toggle) whose group is

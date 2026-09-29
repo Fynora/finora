@@ -800,6 +800,12 @@ export const adminLayoutRegistryApi = {
     api
       .put<RegistryEntry>(`/admin/imports/layout-registry/${encodeURIComponent(fingerprint)}/profile`, { profileId })
       .then((r) => r.data),
+  /** Undoes an operator's profile decision and lets automatic grouping place the layout — straight
+   *  away where stored evidence allows, otherwise on its next upload. */
+  returnToAutomatic: (fingerprint: string) =>
+    api
+      .post<RegistryEntry>(`/admin/imports/layout-registry/${encodeURIComponent(fingerprint)}/profile/automatic`)
+      .then((r) => r.data),
   unlinkFromProfile: (fingerprint: string) =>
     api
       .delete<RegistryEntry>(`/admin/imports/layout-registry/${encodeURIComponent(fingerprint)}/profile`)

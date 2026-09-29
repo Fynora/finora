@@ -122,6 +122,15 @@ public class AdminLayoutRegistryController {
                 "Layout added to profile");
     }
 
+    /** Undoes an operator's profile decision for this layout and lets automatic grouping place it,
+     *  immediately where stored evidence allows. */
+    @PostMapping("/{fingerprint}/profile/automatic")
+    @PreAuthorize(WRITE)
+    public ApiResponse<RegistryEntry> returnToAutomatic(@PathVariable String fingerprint) {
+        return ApiResponse.ok(curationService.returnToAutomatic(currentUser.id(), fingerprint),
+                "Layout returned to automatic grouping");
+    }
+
     @DeleteMapping("/{fingerprint}/profile")
     @PreAuthorize(WRITE)
     public ApiResponse<RegistryEntry> unlinkFromProfile(@PathVariable String fingerprint) {

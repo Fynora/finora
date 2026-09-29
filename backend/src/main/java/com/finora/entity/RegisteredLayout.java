@@ -166,6 +166,14 @@ public class RegisteredLayout {
     @Column(name = "profile_link_source", length = 8)
     private String profileLinkSource;
 
+    /** The version this layout had before a later-arriving, earlier-seen layout moved it up one
+     *  (V245), and when that happened; both null when it has not moved in its current profile. */
+    @Column(name = "previous_profile_version")
+    private Integer previousProfileVersion;
+
+    @Column(name = "profile_version_changed_at")
+    private Instant profileVersionChangedAt;
+
     protected RegisteredLayout() {}
 
     // ------------------------------------------------------------------ curation
@@ -223,7 +231,20 @@ public class RegisteredLayout {
     public void unlinkFromProfile() {
         this.profileId = null;
         this.profileVersion = null;
+        this.previousProfileVersion = null;
+        this.profileVersionChangedAt = null;
         this.profileLinkSource = "MANUAL";
+        this.updatedAt = Instant.now();
+    }
+
+    /** Hands the layout back to automatic grouping: out of any profile, and nobody's decision, so
+     *  the engine may place it again (V244 profile_link_source back to null). */
+    public void returnToAutomatic() {
+        this.profileId = null;
+        this.profileVersion = null;
+        this.previousProfileVersion = null;
+        this.profileVersionChangedAt = null;
+        this.profileLinkSource = null;
         this.updatedAt = Instant.now();
     }
 
@@ -255,4 +276,6 @@ public class RegisteredLayout {
     public UUID getProfileId() { return profileId; }
     public Integer getProfileVersion() { return profileVersion; }
     public String getProfileLinkSource() { return profileLinkSource; }
+    public Integer getPreviousProfileVersion() { return previousProfileVersion; }
+    public Instant getProfileVersionChangedAt() { return profileVersionChangedAt; }
 }

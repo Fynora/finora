@@ -193,4 +193,53 @@ class CreditCardFlowReconciliationValidatorTest {
 
         assertThat(finding.outcome()).isEqualTo("VERIFIED");
     }
+
+    private static CreditCardSummaryEvidence summaryWithFees(String purchases, String fees, String paymentsAndCredits) {
+        return new CreditCardSummaryEvidence(
+                new BigDecimal("10000"), new BigDecimal(purchases), null, new BigDecimal(fees),
+                new BigDecimal(paymentsAndCredits), new BigDecimal("13100"),
+                CreditCardSummaryEvidence.ExtractionMethod.INLINE_LABEL_VALUE, List.of());
+    }
+
+    /** The shape of a real Kotak statement: fees printed apart from purchases, and a merchant refund
+     *  netted into the purchases figure -- the refunded purchase and the refund are both rows. */
+    @Test
+    void verifiesWhenFeesArePrintedSeparatelyAndARefundIsNettedIntoPurchases() {
+        var rows = List.of(
+                row("SAMPLE STORE", "500", "EXPENSE"),
+                row("SAMPLE STORE", "200", "EXPENSE"),
+                row("GST", "18", "EXPENSE"),
+                row("SAMPLE STORE REFUND", "200", "INCOME"),
+                row("PAYMENT RECEIVED", "1000", "INCOME"));
+
+        var finding = validator.check(rows, summaryWithFees("500", "18", "1000"));
+
+        assertThat(finding.outcome()).isEqualTo("VERIFIED");
+        assertThat(finding.details().get("creditsNettedIntoPurchases")).isEqualTo(new BigDecimal("200"));
+    }
+
+    @Test
+    void warnsWhenBothSidesAreShortByTheSameAmount_missingRowsAreNeverNetting() {
+        var rows = List.of(
+                row("SAMPLE STORE", "300", "EXPENSE"),
+                row("GST", "18", "EXPENSE"),
+                row("PAYMENT RECEIVED", "800", "INCOME"));
+
+        var finding = validator.check(rows, summaryWithFees("500", "18", "1000"));
+
+        assertThat(finding.outcome()).isEqualTo("WARNING");
+    }
+
+    @Test
+    void warnsWhenTheTwoSurplusesDiffer() {
+        var rows = List.of(
+                row("SAMPLE STORE", "700", "EXPENSE"),
+                row("GST", "18", "EXPENSE"),
+                row("SAMPLE STORE REFUND", "150", "INCOME"),
+                row("PAYMENT RECEIVED", "1000", "INCOME"));
+
+        var finding = validator.check(rows, summaryWithFees("500", "18", "1000"));
+
+        assertThat(finding.outcome()).isEqualTo("WARNING");
+    }
 }

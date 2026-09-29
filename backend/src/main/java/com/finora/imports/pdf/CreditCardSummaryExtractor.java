@@ -122,13 +122,20 @@ public final class CreditCardSummaryExtractor {
             "opening balance");
     private static final List<String> PURCHASES_LABELS = List.of(
             "purchases / charges", "purchases/charges", "purchases", "purchase", "purchases/debit",
-            "total spends");
+            "total spends",
+            // A newer Kotak credit-card layout's summary panel: "Purchases made in this cycle",
+            // "Other fees & charges" and "Payments and Other Credits", each with its value on the
+            // same line. None was listed, so the panel was never read and the statement's own
+            // arithmetic could not be checked.
+            "purchases made in this cycle");
     private static final List<String> CASH_ADVANCE_LABELS = List.of(
             "cash advances", "cash advance");
     private static final List<String> FEES_LABELS = List.of(
-            "other debit&charges", "other debit & charges", "finance charges", "fees");
+            "other debit&charges", "other debit & charges", "finance charges", "fees",
+            "other fees & charges");
     private static final List<String> PAYMENTS_LABELS = List.of(
-            "payments / credits", "payments/credits", "payments and credits", "payments & refunds");
+            "payments / credits", "payments/credits", "payments and credits", "payments & refunds",
+            "payments and other credits");
     // "total amount due (payable)" is deliberately not listed here: stripDecoration() strips any
     // trailing parenthetical before this list is consulted, so it would always collapse to the
     // plain "total amount due" entry below anyway -- listing both invited exactly the kind of
@@ -322,6 +329,14 @@ public final class CreditCardSummaryExtractor {
         for (int i = 0; i < rows.size(); i++) {
             List<PositionedText> labelRow = rows.get(i);
             if (labelRow.stream().noneMatch(t -> keyFor(StatementSummaryExtractor.normalize(t.text())) != null)) {
+                continue;
+            }
+            // A rewards-points grid is not the billing summary, even where it shares a label with
+            // it: the same Kotak statement prints "Opening balance | Points earned | Points redeemed
+            // | Points expired | Points available" with the point counts underneath, and its
+            // "Opening balance" was read as the previous balance in rupees (a points count), which
+            // then disagreed with the real "Previous statement dues" and failed the whole check.
+            if (labelRow.stream().anyMatch(t -> StatementSummaryExtractor.normalize(t.text()).matches(".*\\bpoints\\b.*"))) {
                 continue;
             }
 

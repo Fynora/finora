@@ -50,4 +50,15 @@ class TransactionTableDateRangeExtractorTest {
 
         assertThat(range).isSameAs(TransactionTableDateRangeExtractor.PrintedDateRange.NONE);
     }
+
+    /** A newer Kotak credit-card layout prints the plural, "Transactions Details from ... to ...",
+     *  on its own line above the table. */
+    @Test
+    void extract_readsThePluralTransactionsDetailsHeading() {
+        var range = TransactionTableDateRangeExtractor.extract(
+                List.of(run("Transactions Details from 11-Jan-2026 to 10-Feb-2026")));
+
+        assertThat(range.start()).isEqualTo(LocalDate.of(2026, 1, 11));
+        assertThat(range.end()).isEqualTo(LocalDate.of(2026, 2, 10));
+    }
 }

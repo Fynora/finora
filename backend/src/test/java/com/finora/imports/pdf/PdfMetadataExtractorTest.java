@@ -1561,4 +1561,34 @@ class PdfMetadataExtractorTest {
                 "State: 27 - SAMPLESTATE 48xx xxxx xxxx 6048"));
         assertThat(metadata.accountNumberMasked()).endsWith("6789");
     }
+
+    /**
+     * A newer Kotak credit-card layout prints its summary fields to the right of the customer's
+     * address, so each extracted line is "<address text> <label> <value>". The credit limit's own
+     * value sits on its line; the line below it is the AVAILABLE credit limit, which was being
+     * read as the credit limit. Same layout's due date is hyphenated ("dd-Mon-yyyy"), a shape the
+     * due-date search never recognised. Address text and amounts are synthetic.
+     */
+    @Test
+    void extract_readsSameLineCreditLimitAndHyphenatedDueDate_behindLeadingAddressText() {
+        var metadata = extractor.extract(List.of(
+                "Near Sample Guest House Credit limit ₹ 75,000.00",
+                "Sample City - 000000 Available Credit limit ₹ 40,000.00",
+                "Billing Date 12-Jan-2026",
+                "GSTIN -00AAAAA0000A0Z0 Due Date 05-Feb-2026"));
+
+        assertThat(metadata.creditLimit()).isEqualByComparingTo("75000.00");
+        assertThat(metadata.paymentDueDate()).isEqualTo(java.time.LocalDate.of(2026, 2, 5));
+    }
+
+    /** The same-line read only takes a value directly after the label: a grid header naming more
+     *  labels after "Credit Limit" keeps reading the value row underneath. */
+    @Test
+    void extract_gridHeaderWithFurtherLabels_stillReadsTheValueRowBelow() {
+        var metadata = extractor.extract(List.of(
+                "Card Number Credit Limit Available Credit Limit",
+                "XXXX0000 50,000.00 20,000.00"));
+
+        assertThat(metadata.creditLimit()).isEqualByComparingTo("50000.00");
+    }
 }

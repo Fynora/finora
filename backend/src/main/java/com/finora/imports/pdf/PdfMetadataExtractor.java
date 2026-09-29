@@ -575,9 +575,13 @@ public class PdfMetadataExtractor {
     // ICICI credit-card statement", see its own comment); it was simply unreachable because this
     // pattern never handed it the matching substring. Purely additive: a third alternative, not a
     // change to either existing one.
+    // The fourth alternative, "dd-Mon-yyyy", is the shape a real Kotak credit-card statement prints
+    // its due date in ("<GSTIN> Due Date <dd-Mon-yyyy>" on one line). DATE_FORMATS already parsed it
+    // ("d-MMM-yyyy", added for the same bank's other dates), but none of the three shapes before it
+    // matched, so the due date was never read.
     private static final Pattern DATE_LIKE = Pattern.compile(
             "\\b\\d{1,2}[-/]\\d{1,2}[-/]\\d{2,4}\\b|\\b\\d{1,2}\\s+[A-Za-z]{3,9}\\.?,?\\s+\\d{4}\\b"
-                    + "|\\b[A-Za-z]{3,9}\\s+\\d{1,2},?\\s+\\d{4}\\b");
+                    + "|\\b[A-Za-z]{3,9}\\s+\\d{1,2},?\\s+\\d{4}\\b|\\b\\d{1,2}-[A-Za-z]{3}-\\d{4}\\b");
     // A date immediately preceded or followed by " - " is one half of an explicit range (e.g. a
     // Statement Period column, "24/06/2026 - 22/07/2026") -- excluded from findGridValue's
     // date-shape scan so a standalone field like Payment Due Date is never confused with the
@@ -1197,7 +1201,22 @@ public class PdfMetadataExtractor {
                 }
             }
 
-            if (creditLimit == null && GRID_CREDIT_LIMIT_LABEL.matcher(line).find()) {
+            Matcher gridCreditLimitLabel = GRID_CREDIT_LIMIT_LABEL.matcher(line);
+            if (creditLimit == null && gridCreditLimitLabel.find()) {
+                // Same line first, the same way the due-date fallback above reads its value: a real
+                // Kotak credit-card statement prints "Credit limit ₹ <amount>" to the right of the
+                // customer's address, so the extracted line is "<address> Credit limit ₹ <amount>".
+                // Not at the line's start, and no colon, so CREDIT_LIMIT above never matched it, and
+                // the search below then took the first amount on the NEXT line -- that statement's
+                // "Available Credit limit ₹ <amount>" -- as the credit limit. noInterveningProse
+                // keeps a header row ("Credit Limit Available Credit Limit ...") on the multi-line
+                // path it has always taken.
+                String sameLineValue = firstMatchAfter(line, gridCreditLimitLabel.end(), AMOUNT_LIKE, null);
+                if (sameLineValue != null && noInterveningProse(line, gridCreditLimitLabel.end(), sameLineValue)) {
+                    creditLimit = com.finora.imports.CsvParser.parseNumeric(sameLineValue);
+                    if (ctx != null && creditLimit != null) ctx.record("GRID_METADATA_FALLBACK");
+                    if (creditLimit != null) continue;
+                }
                 String value = findGridValue(preTableLines, i, AMOUNT_LIKE, null);
                 if (value != null) creditLimit = com.finora.imports.CsvParser.parseNumeric(value);
                 if (ctx != null && creditLimit != null) ctx.record("GRID_METADATA_FALLBACK");

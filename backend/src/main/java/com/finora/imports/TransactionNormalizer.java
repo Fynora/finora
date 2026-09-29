@@ -134,9 +134,15 @@ public class TransactionNormalizer {
     // statement's transactions staged with an empty description, and its "BALANCE BROUGHT FORWARD"
     // row was rejected as having an unrecognized column instead of being read as the opening
     // balance marker it is. Only a column named exactly "Details" is affected.
+    // "description spends" added: a real Kotak credit-card statement prints its narration column
+    // header as "Description" immediately followed by "Spends", close enough that the two words
+    // form one header cell. PdfTableLocator matches header words one at a time, so it located the
+    // column correctly, but this class compares the whole name, so every row on that statement
+    // staged with an empty description and nothing for categorization to match.
     static final String[] DESCRIPTION_HINTS =
             {"description", "narration", "remarks", "particulars", "transaction remarks",
-                    "transaction description", "transaction details", "details", "transaction id"};
+                    "transaction description", "transaction details", "details", "description spends",
+                    "transaction id"};
     private static final String[] CATEGORY_HINTS = {"category"};
     // Phase 1 "capture facts" (docs/engineering/financial-document-intelligence-principles.md):
     // evidenced by a real Canara Bank statement's "Reference / Cheque No." column, silently
@@ -471,6 +477,25 @@ public class TransactionNormalizer {
     }
 
     /**
+     * The user's own category names for one staging pass, keyed by {@link #categoryNameKey} -- see
+     * the overload of {@link #normalize} that takes it. Loaded once per statement, like the other
+     * indexes above, so gating a printed category costs no query per row.
+     */
+    public Map<String, String> categoryNamesFor(UUID userId) {
+        Map<String, String> byKey = new java.util.HashMap<>();
+        for (String name : categorizationService.categoryNamesFor(userId)) {
+            byKey.putIfAbsent(categoryNameKey(name), name);
+        }
+        return byKey;
+    }
+
+    // Case-insensitive and trimmed, the same way confirm resolves a category name
+    // (CategorizationService.resolveOrCreateCategory matches ignoring case).
+    static String categoryNameKey(String name) {
+        return name.trim().toLowerCase(java.util.Locale.ROOT);
+    }
+
+    /**
      * Same again, against a {@link DuplicateIndex} the caller built once for the whole statement.
      *
      * <p>The duplicate check was the last per-row query in this method after b7aab9d removed the
@@ -509,6 +534,26 @@ public class TransactionNormalizer {
     public StagedRow normalize(UUID userId, Map<String, String> row, DocumentContext ctx,
                                 List<CategoryRule> rules, DuplicateIndex duplicateIndex,
                                 MerchantIndex merchantIndex, ResolutionIndex resolutionIndex) {
+        return normalize(userId, row, ctx, rules, duplicateIndex, merchantIndex, resolutionIndex, null);
+    }
+
+    /**
+     * Same again, with the user's own category names ({@link #categoryNamesFor}) deciding whether
+     * a category printed in the file is used at all.
+     *
+     * <p>Null keeps a file's category exactly as printed -- the CSV path, where a Category column is
+     * something a person (or their own export) wrote. Non-null is the PDF path: a bank's statement
+     * can print its own spend labels (a real Kotak credit-card statement prints "Computer",
+     * "Departmental Store", "Other Merchants"), which are the bank's taxonomy, not the user's.
+     * Staged verbatim, they matched nothing in the review screen's category list, so the web
+     * picker silently showed its first option while confirm would have created a new category per
+     * bank label. A printed label is kept only when it names one of the user's own categories;
+     * otherwise the row is categorized the same way as a row with no category column.
+     */
+    public StagedRow normalize(UUID userId, Map<String, String> row, DocumentContext ctx,
+                                List<CategoryRule> rules, DuplicateIndex duplicateIndex,
+                                MerchantIndex merchantIndex, ResolutionIndex resolutionIndex,
+                                Map<String, String> existingCategoryNames) {
         String dateRaw = CsvParser.firstNonBlank(row, DATE_HINTS);
         String amountRaw = firstNonZeroAmount(row, AMOUNT_HINTS);
         // Falls back so a genuinely zero-amount row still normalizes exactly as before -- the
@@ -590,6 +635,9 @@ public class TransactionNormalizer {
         // (Ledger.tsx falls back to `t.merchant` when `t.description` is empty).
         String description = Optional.ofNullable(CsvParser.firstNonBlank(row, DESCRIPTION_HINTS)).orElse("");
         String fileCategory = CsvParser.firstNonBlank(row, CATEGORY_HINTS);
+        if (fileCategory != null && existingCategoryNames != null) {
+            fileCategory = existingCategoryNames.get(categoryNameKey(fileCategory));
+        }
 
         // Bug fix: every credit/income row used to be hardcoded to "Salary" regardless of what it
         // actually was — a friend's UPI repayment, an interest credit, a refund, a cashback,

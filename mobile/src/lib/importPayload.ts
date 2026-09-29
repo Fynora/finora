@@ -170,7 +170,10 @@ export function estimateOpeningBalanceFromTotalDue(
 ): number | null {
   if (accountType !== 'CREDIT_CARD' || totalAmountDue == null) return null;
   const net = rows.reduce((sum, r) => sum + (r.type === 'EXPENSE' ? r.amount : -r.amount), 0);
-  return totalAmountDue - net;
+  // Rounded to paise: summing rupee amounts in binary floating point leaves residue, and this value
+  // is written straight into an editable field -- a real Kotak statement's estimate showed there with a
+  // long tail of floating-point digits.
+  return Math.round((totalAmountDue - net) * 100) / 100;
 }
 
 /** Prefills the new-account form from what the statement itself said. Every field stays editable --

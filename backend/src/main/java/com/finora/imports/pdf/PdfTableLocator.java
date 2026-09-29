@@ -485,11 +485,23 @@ public class PdfTableLocator {
     // each table's divider, so that row's description came back with the cardholder's name and
     // CKYC number printed in it twice. Matched on the bracketed "CKYC ID : <digits>" tail, which no
     // transaction narration carries.
+    //
+    // The last three alternatives are a newer Kotak credit-card layout (the "Description Spends /
+    // Category / Amount" table): it heads its groups "Purchases made in this cycle - Primary Card
+    // <masked card>" and "Other fees and charges", and closes each with its own subtotal line,
+    // "Total Purchases <amount>" and "Total Fees & Charges <amount>". A subtotal describes the group,
+    // not one transaction, but being dateless it was merged into the transaction printed before it
+    // -- the last purchase's description ended "... Total Purchases <amount> Other fees and
+    // charges" and the fee row's "<fee> Total Fees & Charges <amount>". Each is anchored to the whole
+    // line, and the subtotal alternative requires the amount to be the line's only other content.
     private static final Pattern CREDIT_CARD_CATEGORY_HEADER = Pattern.compile(
             "(?i)^\\s*(?:payments\\s+and\\s+other\\s+credits"
                     + "|primary\\s+card\\s+transactions\\b.*"
                     + "|retail\\s+purchases\\s+and\\s+cash\\s+transactions"
-                    + "|[a-z][a-z .']*\\[\\s*ckyc\\s+id\\s*:\\s*\\d+\\s*\\])\\s*$");
+                    + "|[a-z][a-z .']*\\[\\s*ckyc\\s+id\\s*:\\s*\\d+\\s*\\]"
+                    + "|purchases\\s+made\\s+in\\s+this\\s+cycle\\s*-\\s*primary\\s+card\\b.*"
+                    + "|other\\s+fees\\s+and\\s+charges"
+                    + "|total\\s+(?:purchases|fees\\s*&\\s*charges)\\s+[\\d,]+\\.\\d{2})\\s*$");
 
     // CARDHOLDER_SUBTABLE_BANNER. A real IndusInd Bank (CRED RuPay) credit-card statement splits
     // its ledger into two sub-tables under one shared column header, each opened by a banner that
@@ -1313,7 +1325,8 @@ public class PdfTableLocator {
             // otherwise defeat any of them (a real IndusInd statement's "Total 0 1,285.00" sub-table
             // total row carried its right-margin "Statement Date" value on the same line, so the
             // PAGE_LEGEND_BLOCK_START alternative written for exactly that row never matched it).
-            String rowLine = lineOf(tableRunsOf(row, rightEdgeOfTable(headerAnchors, headerEnds), marginPanelBand));
+            List<PositionedText> tableRuns = tableRunsOf(row, rightEdgeOfTable(headerAnchors, headerEnds), marginPanelBand);
+            String rowLine = lineOf(tableRuns);
 
             // Captured here, at the top, because several branches below `continue` past the end of
             // the body -- a page footer still sits physically above the next row and still sets the
@@ -1984,7 +1997,7 @@ public class PdfTableLocator {
                 }
                 continue;
             } else if (PAGE_FOOTER.matcher(rowLine).find() || STATEMENT_CLOSING_MARKER.matcher(rowLine).find()
-                    || PAGE_BANNER.matcher(rowLine).find()) {
+                    || PAGE_BANNER.matcher(rowLine).find() || pageNumberBesideTheTable(row, tableRuns)) {
                 if (ctx != null) ctx.record("PAGE_BOUNDARY_ISOLATION");
                 // Row-accounting evidence: acknowledged, real risk (see this pattern's own doc
                 // comment) -- a genuine transaction description that happens to also match this
@@ -6665,6 +6678,26 @@ public class PdfTableLocator {
             return true;
         }
         return band != null && band.claims(t.x(), tableRightEdge);
+    }
+
+    // A page number and nothing else, e.g. "Page 2 of 4". Stricter than PAGE_FOOTER on purpose:
+    // see pageNumberBesideTheTable.
+    private static final Pattern PAGE_NUMBER_ONLY = Pattern.compile("(?i)^\\s*page\\s*\\d+\\s*of\\s*\\d+\\s*$");
+
+    /**
+     * Whether {@code row} is a page footer whose page number sits outside the table. A newer Kotak
+     * credit-card layout prints each page's footer as one line, a boilerplate sentence about charges
+     * on the left and "Page 2 of 4" far to the
+     * right, past the table's right edge. {@link #tableRunsOf} rightly leaves the page number out of
+     * {@code rowLine}, which is then just the sentence, so PAGE_FOOTER never saw it and the sentence
+     * was merged into the page's last transaction as narration. Recognised only when the text beside
+     * the table is exactly a page number, and never on a row that has a date and an amount of its own.
+     */
+    private boolean pageNumberBesideTheTable(List<PositionedText> row, List<PositionedText> tableRuns) {
+        if (tableRuns == row || tableRuns.size() == row.size()) return false;
+        List<PositionedText> beside = new ArrayList<>(row);
+        beside.removeAll(tableRuns);
+        return PAGE_NUMBER_ONLY.matcher(lineOf(beside)).matches() && !isTransactionShapedRow(tableRuns);
     }
 
     /**

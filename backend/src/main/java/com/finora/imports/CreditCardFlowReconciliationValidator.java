@@ -128,6 +128,27 @@ public class CreditCardFlowReconciliationValidator {
             return new ImportDto.VerificationFinding(RULE, "VERIFIED", details);
         }
 
+        // A second reading of the same panel, tried only once the per-side check above has failed,
+        // so nothing that already verified can change. Found on a real Kotak credit-card statement
+        // whose panel prints "Other fees & charges" apart from "Purchases made in this cycle" and
+        // nets merchant refunds into the purchases figure: its rows reconcile to the rupee (the GST
+        // row is the fees line; the refund rows are the netted credits) but failed both per-side
+        // comparisons. Charges here are purchases plus whatever fees and cash advances the panel
+        // printed, and a refund netted into purchases shows up as the SAME surplus on both sides --
+        // extra expense rows (the refunded purchases) and extra income rows (the refunds). Only a
+        // non-negative, identical surplus qualifies: rows the parser missed would leave the
+        // observed side SHORT, which this never accepts.
+        BigDecimal fees = summary.fees() == null ? BigDecimal.ZERO : summary.fees();
+        BigDecimal cashAdvances = summary.cashAdvances() == null ? BigDecimal.ZERO : summary.cashAdvances();
+        BigDecimal expectedCharges = expectedExpenseAmount.add(fees).add(cashAdvances);
+        BigDecimal chargesSurplus = observedExpenseAmount.subtract(expectedCharges);
+        BigDecimal creditsSurplus = observedIncomeAmount.subtract(expectedIncomeAmount);
+        if (chargesSurplus.signum() >= 0 && chargesSurplus.compareTo(creditsSurplus) == 0) {
+            details.put("expectedChargesAmount", expectedCharges);
+            details.put("creditsNettedIntoPurchases", chargesSurplus);
+            return new ImportDto.VerificationFinding(RULE, "VERIFIED", details);
+        }
+
         details.put("explanation", "The extracted transactions, summed by direction, do not match "
                 + "this statement's own printed purchases and/or payments/credits totals. This does "
                 + "not identify which side is wrong -- only that they disagree.");

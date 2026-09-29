@@ -12,9 +12,10 @@ import type { LayoutProfileView, LayoutReviewReason, LayoutStatus, RegistryEntry
  * verification check that did not pass, mostly blank descriptions, or a staging failure. Resolving
  * one marks its reasons as reviewed, so the same reasons do not flag it again; a new reason does.
  *
- * Profiles — operator-named families of layouts ("Kotak Credit Card"), each member at a version.
- * When a bank changes its statement format, the new fingerprint is added to the existing profile
- * and becomes its next version. Nothing is added automatically.
+ * Profiles — families of layouts ("Kotak Mahindra Bank — Credit Card"), each member at a version.
+ * The engine groups layouts on its own by detected bank and account type (V244): a bank's new
+ * statement format joins its profile as the next version, with no operator work. An operator can
+ * still move a layout, or take it out — either decision is final and the engine leaves it alone.
  */
 
 const REASON_LABELS: Record<string, string> = {
@@ -22,6 +23,7 @@ const REASON_LABELS: Record<string, string> = {
   VERIFICATION_NOT_PASSED: 'Verification did not pass',
   BLANK_DESCRIPTIONS: 'Mostly blank descriptions',
   STAGING_FAILED: 'Staging failed',
+  IDENTITY_CONFLICT: 'Seen as a different bank or account type',
 };
 
 /** Plain words for a reason code; a per-rule verification reason names its rule. */
@@ -117,7 +119,12 @@ function ProfilePicker({ entry, profiles, disabled, onLink }: {
   entry: RegistryEntry; profiles: LayoutProfileView[]; disabled: boolean; onLink: (profileId: string) => void;
 }) {
   if (entry.profileId) {
-    return <span className="text-xs text-ink">{entry.profileName} · v{entry.profileVersion}</span>;
+    return (
+      <span className="text-xs text-ink">
+        {entry.profileName} · v{entry.profileVersion}
+        {entry.profileLinkSource === 'AUTO' && <span className="ml-1 text-muted">(auto)</span>}
+      </span>
+    );
   }
   return (
     <select
@@ -257,8 +264,10 @@ export function ProfilesPanel() {
   return (
     <div>
       <p className="text-xs text-muted mb-3">
-        A profile is one bank format family. When the bank changes its statement, add the new
-        layout to the same profile — it becomes the next version.
+        Layouts are grouped automatically by detected bank and account type: when a bank changes its
+        statement format, the new layout joins the same profile as its next version. A version
+        orders a bank's layouts by when they first appeared — two can be in use at once. Moving or
+        removing a layout here is final; automatic grouping will not undo it.
       </p>
       {actionError && <p role="alert" className="text-sm text-danger mb-3">{actionError}</p>}
       {canManage && (
@@ -327,6 +336,9 @@ export function ProfilesPanel() {
                     {profile.versions.map((v) => (
                       <tr key={v.fingerprint} className="border-t border-border">
                         <td className="py-1.5 pr-3 text-xs font-semibold text-ink w-12">v{v.profileVersion}</td>
+                        <td className="py-1.5 pr-3 text-[11px] text-muted w-14">
+                          {v.profileLinkSource === 'AUTO' ? 'auto' : 'manual'}
+                        </td>
                         <td className="py-1.5 pr-3 font-mono text-xs text-ink">{v.fingerprint}</td>
                         <td className="py-1.5 pr-3 text-xs text-ink">{v.name ?? <span className="text-muted">Unnamed</span>}</td>
                         <td className="py-1.5 pr-3 text-xs text-muted">{v.status}</td>

@@ -38,7 +38,8 @@ public class LayoutReviewAlertService {
             "NEW_LAYOUT", "A statement layout Finora has not seen before",
             "VERIFICATION_NOT_PASSED", "A verification check did not pass (warning or failure)",
             "BLANK_DESCRIPTIONS", "Most transactions staged with no description",
-            "STAGING_FAILED", "The layout was recognised but staging failed");
+            "STAGING_FAILED", "The layout was recognised but staging failed",
+            "IDENTITY_CONFLICT", "The layout was seen as a different bank or account type than before");
 
     private final UserRepository userRepository;
     private final EmailProvider emailProvider;

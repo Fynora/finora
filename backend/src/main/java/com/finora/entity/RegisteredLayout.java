@@ -160,6 +160,12 @@ public class RegisteredLayout {
     @Column(name = "profile_version")
     private Integer profileVersion;
 
+    /** Who decided this layout's profile (V244): "AUTO" (the engine), "MANUAL" (an operator), or
+     *  null when nobody has. The engine only links a layout whose source is null, so anything an
+     *  operator did -- including removing a layout from a profile -- is never overridden. */
+    @Column(name = "profile_link_source", length = 8)
+    private String profileLinkSource;
+
     protected RegisteredLayout() {}
 
     // ------------------------------------------------------------------ curation
@@ -208,12 +214,16 @@ public class RegisteredLayout {
         if (version < 1) throw new IllegalArgumentException("A profile version starts at 1");
         this.profileId = profileId;
         this.profileVersion = version;
+        this.profileLinkSource = "MANUAL";
         this.updatedAt = Instant.now();
     }
 
+    /** Takes the layout out of its profile. Recorded as an operator's decision, so automatic
+     *  grouping does not put it straight back on the next upload. */
     public void unlinkFromProfile() {
         this.profileId = null;
         this.profileVersion = null;
+        this.profileLinkSource = "MANUAL";
         this.updatedAt = Instant.now();
     }
 
@@ -244,4 +254,5 @@ public class RegisteredLayout {
     public java.util.List<String> getAcknowledgedReasons() { return reasonsOf(acknowledgedReasons); }
     public UUID getProfileId() { return profileId; }
     public Integer getProfileVersion() { return profileVersion; }
+    public String getProfileLinkSource() { return profileLinkSource; }
 }

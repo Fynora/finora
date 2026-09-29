@@ -260,7 +260,8 @@ public class ImportService {
             verificationRecorder.recordForAnalysis(reference,
                     java.util.Collections.singletonList(staged.verification()));
             reviewLayout(fingerprint, "CSV", staged.rows(),
-                    java.util.Collections.singletonList(staged.verification()), reference);
+                    java.util.Collections.singletonList(staged.verification()), reference,
+                    LayoutIdentity.of(java.util.Collections.singletonList(staged.detectedAccount())));
             return new StagingSessionResponse(session.getId(), staged, previousImportOf(userId, session.getContentHash()));
         } catch (RuntimeException e) {
             // BH-028. This caught ApiException only, so a document that made the PARSER FALL OVER
@@ -304,7 +305,9 @@ public class ImportService {
                     System.currentTimeMillis() - startedAtMs, diagnostics);
             // A located-but-failed layout is exactly what the layout review queue exists for. Inside
             // this try so a review failure can never replace the parse failure being rethrown.
-            if (layoutReviewService != null) layoutReviewService.onStagingFailed(fingerprint, sourceFormat, reference);
+            if (layoutReviewService != null) {
+                layoutReviewService.onStagingFailed(fingerprint, sourceFormat, reference, failure);
+            }
         } catch (RuntimeException recordingFailed) {
             log.error("Could not record the failed analysis for {} -- the parse failure itself is "
                     + "being rethrown and is the one that matters.", LogSanitizer.sanitize(fileName), recordingFailed);
@@ -398,7 +401,8 @@ public class ImportService {
                         result.documentContext(), null, null, result.creditCardSummary(), staged.verification());
                 recordPdfParsed(userId, fileName, fileContent.length, fingerprint, sections.size(), startedAtMs,
                         diagnostics, session.getId(),
-                        java.util.Collections.singletonList(staged.verification()), staged.rows());
+                        java.util.Collections.singletonList(staged.verification()), staged.rows(),
+                        LayoutIdentity.of(java.util.Collections.singletonList(staged.detectedAccount())));
                 return new PdfStagingSessionResponse(session.getId(), false, staged, null,
                         previousImportOf(userId, session.getContentHash()));
             }
@@ -411,7 +415,8 @@ public class ImportService {
             recordPdfParsed(userId, fileName, fileContent.length, fingerprint, sections.size(), startedAtMs,
                     diagnostics, session.getId(),
                     sections.stream().map(StagedAccountSection::verification).toList(),
-                    sections.stream().flatMap(section -> section.rows().stream()).toList());
+                    sections.stream().flatMap(section -> section.rows().stream()).toList(),
+                    LayoutIdentity.of(sections.stream().map(StagedAccountSection::detectedAccount).toList()));
             return new PdfStagingSessionResponse(session.getId(), true, null, sections,
                     previousImportOf(userId, session.getContentHash()));
         } catch (RuntimeException e) {
@@ -572,12 +577,12 @@ public class ImportService {
                                   int sectionCount, long startedAtMs, ParseDiagnostics diagnostics,
                                   UUID importSessionId,
                                   List<VerificationReport> verificationBySection,
-                                  List<StagedRow> stagedRows) {
+                                  List<StagedRow> stagedRows, LayoutIdentity identity) {
         String reference = analysisRecorder.recordParsed(userId, StatementAnalysisSession.Source.CUSTOMER_IMPORT, fileName,
                 "PDF", byteSize, fingerprint, sectionCount, System.currentTimeMillis() - startedAtMs,
                 diagnostics, importSessionId);
         verificationRecorder.recordForAnalysis(reference, verificationBySection);
-        reviewLayout(fingerprint, "PDF", stagedRows, verificationBySection, reference);
+        reviewLayout(fingerprint, "PDF", stagedRows, verificationBySection, reference, identity);
     }
 
     /**
@@ -588,9 +593,11 @@ public class ImportService {
      * class directly) simply skips it.
      */
     private void reviewLayout(String fingerprint, String sourceFormat, List<StagedRow> rows,
-                              List<VerificationReport> verificationBySection, String analysisReference) {
+                              List<VerificationReport> verificationBySection, String analysisReference,
+                              LayoutIdentity identity) {
         if (layoutReviewService == null) return;
-        layoutReviewService.onStaged(fingerprint, sourceFormat, rows, verificationBySection, analysisReference);
+        layoutReviewService.onStaged(fingerprint, sourceFormat, rows, verificationBySection, analysisReference,
+                identity);
     }
 
     /**

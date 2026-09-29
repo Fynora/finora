@@ -48,10 +48,13 @@ public class LayoutCurationService {
             long observationCount, long stagingCount, Instant firstSeen, Instant lastSeen,
             boolean needsReview, List<String> reviewReasons, Instant reviewFlaggedAt,
             String reviewAnalysisReference, List<String> acknowledgedReasons,
-            UUID profileId, String profileName, Integer profileVersion) {}
+            UUID profileId, String profileName, Integer profileVersion,
+            /** "AUTO", "MANUAL", or null when nobody has decided this layout's profile yet. */
+            String profileLinkSource) {}
 
-    /** A profile and its layouts, in version order. */
-    public record ProfileView(UUID id, String name, List<RegistryEntry> versions) {}
+    /** A profile and its layouts, in version order. {@code automatic} is true for a profile the
+     *  engine groups into by bank and account family. */
+    public record ProfileView(UUID id, String name, boolean automatic, List<RegistryEntry> versions) {}
 
     @Transactional(readOnly = true)
     public List<RegistryEntry> registry() {
@@ -81,7 +84,7 @@ public class LayoutCurationService {
         for (LayoutProfile profile : profileRepository.findAll()) {
             List<RegistryEntry> versions = new ArrayList<>(members.getOrDefault(profile.getId(), List.of()));
             versions.sort(Comparator.comparing(RegistryEntry::profileVersion));
-            views.add(new ProfileView(profile.getId(), profile.getName(), versions));
+            views.add(new ProfileView(profile.getId(), profile.getName(), profile.getAutoKey() != null, versions));
         }
         views.sort(Comparator.comparing(v -> v.name().toLowerCase(java.util.Locale.ROOT)));
         return views;
@@ -129,7 +132,7 @@ public class LayoutCurationService {
         LayoutProfile profile = profileRepository.save(new LayoutProfile(trimmed));
         auditService.record(actingAdminId, "LAYOUT_PROFILE_CREATED", "LayoutProfile", profile.getId(),
                 Map.of("name", profile.getName(), "actorId", String.valueOf(actingAdminId)));
-        return new ProfileView(profile.getId(), profile.getName(), List.of());
+        return new ProfileView(profile.getId(), profile.getName(), false, List.of());
     }
 
     @Transactional
@@ -155,7 +158,16 @@ public class LayoutCurationService {
     public RegistryEntry linkToProfile(UUID actingAdminId, String fingerprint, UUID profileId) {
         LayoutProfile profile = profileRepository.findByIdForUpdate(profileId).orElseThrow(() -> notFoundProfile(profileId));
         RegisteredLayout layout = requireLayout(fingerprint);
-        if (profileId.equals(layout.getProfileId())) return entryOf(layout, profileNames());
+        if (profileId.equals(layout.getProfileId())) {
+            // Already there. An operator confirming an automatic link makes it theirs, so the
+            // engine will not treat it as its own to reconsider.
+            if (!"MANUAL".equals(layout.getProfileLinkSource())) {
+                layout.linkToProfile(profileId, layout.getProfileVersion());
+                audit(actingAdminId, "LAYOUT_LINKED_TO_PROFILE", layout,
+                        Map.of("profileId", profileId.toString(), "version", layout.getProfileVersion(), "confirmedAutomatic", true));
+            }
+            return entryOf(layout, profileNames());
+        }
         Integer max = layoutRepository.maxProfileVersion(profileId);
         int version = max == null ? 1 : max + 1;
         UUID previousProfile = layout.getProfileId();
@@ -177,6 +189,8 @@ public class LayoutCurationService {
         if (layout.getProfileId() == null) {
             throw new ApiException(HttpStatus.CONFLICT, "Layout " + fingerprint + " is not in a profile");
         }
+        // Recorded as an operator decision (RegisteredLayout.unlinkFromProfile), so automatic
+        // grouping will not put the layout straight back.
         Map<String, Object> metadata = Map.of("profileId", layout.getProfileId().toString(),
                 "version", layout.getProfileVersion());
         layout.unlinkFromProfile();
@@ -202,7 +216,8 @@ public class LayoutCurationService {
                 l.getParser(), l.getObservationCount(), l.getStagingCount(), l.getFirstSeen(), l.getLastSeen(),
                 l.isNeedsReview(), l.getReviewReasons(), l.getReviewFlaggedAt(), l.getReviewAnalysisReference(),
                 l.getAcknowledgedReasons(), l.getProfileId(),
-                l.getProfileId() == null ? null : profileNames.get(l.getProfileId()), l.getProfileVersion());
+                l.getProfileId() == null ? null : profileNames.get(l.getProfileId()), l.getProfileVersion(),
+                l.getProfileLinkSource());
     }
 
     private RegisteredLayout requireLayout(String fingerprint) {

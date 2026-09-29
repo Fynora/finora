@@ -106,8 +106,8 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
     void aFirstStagingRegistersTheLayoutFlagsItAsNewAndAlertsOnce() {
         String fp = fingerprint();
 
-        reviewService.onStaged(fp, "PDF", rows(3, 0), report("VERIFIED"), "SA-TEST-1");
-        reviewService.onStaged(fp, "PDF", rows(3, 0), report("VERIFIED"), "SA-TEST-2");
+        reviewService.onStaged(fp, "PDF", rows(3, 0), report("VERIFIED"), "SA-TEST-1", null);
+        reviewService.onStaged(fp, "PDF", rows(3, 0), report("VERIFIED"), "SA-TEST-2", null);
 
         RegisteredLayout layout = layout(fp);
         assertThat(layout.getStagingCount()).isEqualTo(2);
@@ -123,7 +123,7 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
         String fp = fingerprint();
         registryService.observe(fp, "PDF", null); // a confirmed import registered it earlier
 
-        reviewService.onStaged(fp, "PDF", rows(4, 1), report("VERIFIED"), "SA-TEST-3");
+        reviewService.onStaged(fp, "PDF", rows(4, 1), report("VERIFIED"), "SA-TEST-3", null);
 
         RegisteredLayout layout = layout(fp);
         assertThat(layout.isNeedsReview()).isFalse();
@@ -139,8 +139,8 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
         registryService.observe(exactlyHalf, "PDF", null);
         registryService.observe(moreThanHalf, "PDF", null);
 
-        reviewService.onStaged(exactlyHalf, "PDF", rows(2, 2), report("VERIFIED"), "SA-TEST-4");
-        reviewService.onStaged(moreThanHalf, "PDF", rows(2, 3), report("VERIFIED"), "SA-TEST-5");
+        reviewService.onStaged(exactlyHalf, "PDF", rows(2, 2), report("VERIFIED"), "SA-TEST-4", null);
+        reviewService.onStaged(moreThanHalf, "PDF", rows(2, 3), report("VERIFIED"), "SA-TEST-5", null);
 
         assertThat(layout(exactlyHalf).isNeedsReview()).isFalse();
         assertThat(layout(moreThanHalf).getReviewReasons()).containsExactly("BLANK_DESCRIPTIONS");
@@ -150,17 +150,17 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
     void aResolvedReasonDoesNotReflag_butANewReasonDoesAndAlertsAgain() {
         String fp = fingerprint();
         registryService.observe(fp, "PDF", null);
-        reviewService.onStaged(fp, "PDF", rows(3, 0), report("WARNING"), "SA-TEST-6");
+        reviewService.onStaged(fp, "PDF", rows(3, 0), report("WARNING"), "SA-TEST-6", null);
         assertThat(layout(fp).getReviewReasons()).containsExactly("VERIFICATION_NOT_PASSED:SOME_RULE");
 
         curationService.resolveReview(adminId(), fp);
         clearInvocations(alertService);
 
-        reviewService.onStaged(fp, "PDF", rows(3, 0), report("WARNING"), "SA-TEST-7");
+        reviewService.onStaged(fp, "PDF", rows(3, 0), report("WARNING"), "SA-TEST-7", null);
         assertThat(layout(fp).isNeedsReview()).isFalse();
         verify(alertService, after(500).never()).alertLayoutNeedsReview(anyString(), any(), any());
 
-        reviewService.onStaged(fp, "PDF", rows(1, 3), report("WARNING"), "SA-TEST-8");
+        reviewService.onStaged(fp, "PDF", rows(1, 3), report("WARNING"), "SA-TEST-8", null);
         RegisteredLayout layout = layout(fp);
         assertThat(layout.isNeedsReview()).isTrue();
         assertThat(layout.getReviewReasons()).containsExactly("BLANK_DESCRIPTIONS");
@@ -173,14 +173,14 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
     void acknowledgingOneRulesWarningDoesNotSilenceADifferentRule() {
         String fp = fingerprint();
         registryService.observe(fp, "PDF", null);
-        reviewService.onStaged(fp, "PDF", rows(3, 0), report("TOTALS_RULE", "WARNING"), "SA-TEST-20");
+        reviewService.onStaged(fp, "PDF", rows(3, 0), report("TOTALS_RULE", "WARNING"), "SA-TEST-20", null);
         curationService.resolveReview(adminId(), fp);
         clearInvocations(alertService);
 
-        reviewService.onStaged(fp, "PDF", rows(3, 0), report("TOTALS_RULE", "WARNING"), "SA-TEST-21");
+        reviewService.onStaged(fp, "PDF", rows(3, 0), report("TOTALS_RULE", "WARNING"), "SA-TEST-21", null);
         assertThat(layout(fp).isNeedsReview()).isFalse();
 
-        reviewService.onStaged(fp, "PDF", rows(3, 0), report("CHAIN_RULE", "FAILED"), "SA-TEST-22");
+        reviewService.onStaged(fp, "PDF", rows(3, 0), report("CHAIN_RULE", "FAILED"), "SA-TEST-22", null);
         assertThat(layout(fp).getReviewReasons()).containsExactly("VERIFICATION_NOT_PASSED:CHAIN_RULE");
         verify(alertService, timeout(5000).times(1)).alertLayoutNeedsReview(eq(fp), any(), eq("SA-TEST-22"));
     }
@@ -190,7 +190,7 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
         String headerless = new DocumentContext("PDF", "any").buildFingerprint();
         long before = layoutRepository.findByFingerprint(headerless).map(RegisteredLayout::getStagingCount).orElse(0L);
 
-        reviewService.onStagingFailed(headerless, "PDF", "SA-TEST-23");
+        reviewService.onStagingFailed(headerless, "PDF", "SA-TEST-23", new IllegalStateException("parser broke"));
 
         assertThat(layoutRepository.findByFingerprint(headerless).map(RegisteredLayout::getStagingCount).orElse(0L))
                 .isEqualTo(before);
@@ -200,8 +200,8 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
     @Test
     void aSecondReasonWhileStillFlaggedIsAddedWithoutASecondAlert() {
         String fp = fingerprint();
-        reviewService.onStaged(fp, "PDF", rows(3, 0), report("VERIFIED"), "SA-TEST-9");
-        reviewService.onStaged(fp, "PDF", rows(3, 0), report("FAILED"), "SA-TEST-10");
+        reviewService.onStaged(fp, "PDF", rows(3, 0), report("VERIFIED"), "SA-TEST-9", null);
+        reviewService.onStaged(fp, "PDF", rows(3, 0), report("FAILED"), "SA-TEST-10", null);
 
         assertThat(layout(fp).getReviewReasons()).containsExactly("NEW_LAYOUT", "VERIFICATION_NOT_PASSED:SOME_RULE");
         verify(alertService, timeout(5000).times(1)).alertLayoutNeedsReview(eq(fp), any(), any());
@@ -212,16 +212,28 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
         String fp = fingerprint();
         registryService.observe(fp, "PDF", null);
 
-        reviewService.onStagingFailed(fp, "PDF", "SA-TEST-11");
-        reviewService.onStagingFailed(null, "PDF", "SA-TEST-12");
+        reviewService.onStagingFailed(fp, "PDF", "SA-TEST-11", new IllegalStateException("parser broke"));
+        reviewService.onStagingFailed(null, "PDF", "SA-TEST-12", new IllegalStateException("parser broke"));
 
         assertThat(layout(fp).getReviewReasons()).containsExactly("STAGING_FAILED");
     }
 
     @Test
+    void aDeliberateRefusalRegistersTheLayoutButDoesNotFlagIt() {
+        String fp = fingerprint();
+        registryService.observe(fp, "PDF", null);
+
+        reviewService.onStagingFailed(fp, "PDF", "SA-TEST-30",
+                new ApiException(com.finora.exception.ErrorCode.IMPORT_NO_ACTIVITY_IN_PERIOD));
+
+        assertThat(layout(fp).isNeedsReview()).isFalse();
+        assertThat(layout(fp).getStagingCount()).isEqualTo(1);
+    }
+
+    @Test
     void aConfirmedImportAfterStagingCountsAsAnObservationAndLeavesTheFlagAlone() {
         String fp = fingerprint();
-        reviewService.onStaged(fp, "PDF", rows(3, 0), report("VERIFIED"), "SA-TEST-13");
+        reviewService.onStaged(fp, "PDF", rows(3, 0), report("VERIFIED"), "SA-TEST-13", null);
 
         registryService.observe(fp, "PDF", null);
 
@@ -301,7 +313,7 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
     void anAdminCanReadTheQueueRenameAndResolve_andEveryWriteIsAudited() throws Exception {
         User admin = createUser("ADMIN");
         String fp = fingerprint();
-        reviewService.onStaged(fp, "PDF", rows(1, 3), report("VERIFIED"), "SA-TEST-14");
+        reviewService.onStaged(fp, "PDF", rows(1, 3), report("VERIFIED"), "SA-TEST-14", null);
         String base = "/api/v1/admin/imports/layout-registry";
 
         ResponseEntity<String> queue = restTemplate.exchange(base + "/review-queue", HttpMethod.GET,

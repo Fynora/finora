@@ -55,7 +55,7 @@ class LayoutReviewAlertAsyncIT extends AbstractIntegrationTest {
                 "EXPENSE", "Other", "default", null, false, null, null);
 
         long started = System.nanoTime();
-        reviewService.onStaged(fingerprint, "PDF", List.of(row), List.of(), "SA-ASYNC-1");
+        reviewService.onStaged(fingerprint, "PDF", List.of(row), List.of(), "SA-ASYNC-1", null);
         long elapsedMs = (System.nanoTime() - started) / 1_000_000;
 
         assertThat(elapsedMs).isLessThan(2000);

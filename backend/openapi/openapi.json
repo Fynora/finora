@@ -13264,6 +13264,9 @@
                     "profileVersion": {
                         "type": "integer",
                         "format": "int32"
+                    },
+                    "profileLinkSource": {
+                        "type": "string"
                     }
                 }
             },
@@ -17504,6 +17507,9 @@
                     },
                     "name": {
                         "type": "string"
+                    },
+                    "automatic": {
+                        "type": "boolean"
                     },
                     "versions": {
                         "type": "array",

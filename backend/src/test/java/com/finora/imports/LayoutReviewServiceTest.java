@@ -33,11 +33,11 @@ class LayoutReviewServiceTest {
         PlatformTransactionManager transactions = mock(PlatformTransactionManager.class);
         when(transactions.getTransaction(any())).thenThrow(new TransactionException("database unreachable") {});
         LayoutReviewAlertService alerts = mock(LayoutReviewAlertService.class);
-        LayoutReviewService service = new LayoutReviewService(mock(JdbcTemplate.class), transactions, alerts);
+        LayoutReviewService service = new LayoutReviewService(mock(JdbcTemplate.class), transactions, alerts, mock(LayoutProfileAutoLinker.class));
 
-        assertThatCode(() -> service.onStaged("FP-1-ABCDEF12", "PDF", List.of(row("")), List.of(), "SA-1"))
+        assertThatCode(() -> service.onStaged("FP-1-ABCDEF12", "PDF", List.of(row("")), List.of(), "SA-1", null))
                 .doesNotThrowAnyException();
-        assertThatCode(() -> service.onStagingFailed("FP-1-ABCDEF12", "PDF", "SA-2")).doesNotThrowAnyException();
+        assertThatCode(() -> service.onStagingFailed("FP-1-ABCDEF12", "PDF", "SA-2", new IllegalStateException("parser broke"))).doesNotThrowAnyException();
         verifyNoInteractions(alerts);
     }
 
@@ -81,12 +81,28 @@ class LayoutReviewServiceTest {
     void aHeaderlessDocumentNeverTouchesTheRegistry() {
         PlatformTransactionManager transactions = mock(PlatformTransactionManager.class);
         LayoutReviewAlertService alerts = mock(LayoutReviewAlertService.class);
-        LayoutReviewService service = new LayoutReviewService(mock(JdbcTemplate.class), transactions, alerts);
+        LayoutReviewService service = new LayoutReviewService(mock(JdbcTemplate.class), transactions, alerts, mock(LayoutProfileAutoLinker.class));
         String headerless = new DocumentContext("PDF", "any").buildFingerprint();
 
-        service.onStagingFailed(headerless, "PDF", "SA-3");
-        service.onStaged(headerless, "PDF", List.of(row("")), List.of(), "SA-4");
+        service.onStagingFailed(headerless, "PDF", "SA-3", new IllegalStateException("parser broke"));
+        service.onStaged(headerless, "PDF", List.of(row("")), List.of(), "SA-4", null);
 
         verifyNoInteractions(transactions, alerts);
+    }
+
+    @Test
+    void onlyAParserSideFailureCountsAsStagingFailed() {
+        assertThat(LayoutReviewService.isParserSideFailure(new IllegalStateException("index out of bounds"))).isTrue();
+        assertThat(LayoutReviewService.isParserSideFailure(
+                new com.finora.exception.ApiException(com.finora.exception.ErrorCode.IMPORT_NO_HEADER_DETECTED))).isTrue();
+        assertThat(LayoutReviewService.isParserSideFailure(
+                new com.finora.exception.ApiException(com.finora.exception.ErrorCode.IMPORT_NO_TRANSACTIONS_FOUND))).isTrue();
+        assertThat(LayoutReviewService.isParserSideFailure(
+                new com.finora.exception.ApiException(com.finora.exception.ErrorCode.IMPORT_NO_ACTIVITY_IN_PERIOD))).isFalse();
+        assertThat(LayoutReviewService.isParserSideFailure(
+                new com.finora.exception.ApiException(com.finora.exception.ErrorCode.IMPORT_PAYMENT_APP_HISTORY))).isFalse();
+        assertThat(LayoutReviewService.isParserSideFailure(
+                new com.finora.exception.ApiException(com.finora.exception.ErrorCode.IMPORT_PDF_PASSWORD_INVALID))).isFalse();
+        assertThat(LayoutReviewService.isParserSideFailure(null)).isFalse();
     }
 }

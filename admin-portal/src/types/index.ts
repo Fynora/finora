@@ -1428,7 +1428,8 @@ export interface LayoutSummary {
 /** Why the engine flagged a layout for review at staging time (V243). A verification reason
  *  carries the rule that did not pass: `VERIFICATION_NOT_PASSED:<RULE>`. */
 export type LayoutReviewReason =
-  | 'NEW_LAYOUT' | 'BLANK_DESCRIPTIONS' | 'STAGING_FAILED' | `VERIFICATION_NOT_PASSED:${string}`;
+  | 'NEW_LAYOUT' | 'BLANK_DESCRIPTIONS' | 'STAGING_FAILED' | 'IDENTITY_CONFLICT'
+  | `VERIFICATION_NOT_PASSED:${string}`;
 
 export type LayoutStatus = 'OBSERVED' | 'UNDER_REVIEW' | 'SUPPORTED' | 'UNSUPPORTED';
 
@@ -1455,12 +1456,17 @@ export interface RegistryEntry {
   profileId: string | null;
   profileName: string | null;
   profileVersion: number | null;
+  /** Who placed it: AUTO (grouped by detected bank and account type), MANUAL (an operator — including
+   *  taking it out of a profile, which keeps it out), or null when nobody has decided yet. */
+  profileLinkSource: 'AUTO' | 'MANUAL' | null;
 }
 
-/** An operator-named family of layouts, members in version order. */
+/** A family of layouts, members in version order. `automatic` profiles are created and filled by
+ *  the engine from the detected bank and account type (V244). */
 export interface LayoutProfileView {
   id: string;
   name: string;
+  automatic: boolean;
   versions: RegistryEntry[];
 }
 

@@ -5781,6 +5781,7 @@ export interface components {
             profileName?: string;
             /** Format: int32 */
             profileVersion?: number;
+            profileLinkSource?: string;
         };
         UpdateFeatureFlagRequest: {
             enabled?: boolean;
@@ -7330,6 +7331,7 @@ export interface components {
             /** Format: uuid */
             id?: string;
             name?: string;
+            automatic?: boolean;
             versions?: components["schemas"]["RegistryEntry"][];
         };
         AnalysisDetail: {

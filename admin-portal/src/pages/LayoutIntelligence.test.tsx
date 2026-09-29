@@ -207,9 +207,9 @@ function entry(overrides: Partial<RegistryEntry> = {}): RegistryEntry {
   return {
     fingerprint: 'FP-1-AAAA0001', name: null, status: 'OBSERVED', sourceFormat: 'PDF', parser: null,
     observationCount: 0, stagingCount: 2, firstSeen: '2026-09-01T00:00:00Z', lastSeen: '2026-09-02T00:00:00Z',
-    needsReview: true, reviewReasons: ['NEW_LAYOUT', 'BLANK_DESCRIPTIONS', 'VERIFICATION_NOT_PASSED:BALANCE_CHAIN'], reviewFlaggedAt: '2026-09-01T00:00:00Z',
+    needsReview: true, reviewReasons: ['NEW_LAYOUT', 'BLANK_DESCRIPTIONS', 'VERIFICATION_NOT_PASSED:BALANCE_CHAIN', 'IDENTITY_CONFLICT'], reviewFlaggedAt: '2026-09-01T00:00:00Z',
     reviewAnalysisReference: 'SA-000001', acknowledgedReasons: [], profileId: null, profileName: null,
-    profileVersion: null, ...overrides,
+    profileVersion: null, profileLinkSource: null, ...overrides,
   };
 }
 
@@ -222,6 +222,7 @@ describe('LayoutIntelligence — layout review queue and profiles', () => {
     expect(screen.getByText('New layout')).toBeInTheDocument();
     expect(screen.getByText('Mostly blank descriptions')).toBeInTheDocument();
     expect(screen.getByText('Verification did not pass: BALANCE_CHAIN')).toBeInTheDocument();
+    expect(screen.getByText('Seen as a different bank or account type')).toBeInTheDocument();
     expect(screen.getByText('SA-000001')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Needs review \(1\)/ })).toBeInTheDocument();
   });
@@ -264,9 +265,9 @@ describe('LayoutIntelligence — layout review queue and profiles', () => {
   it('lists profiles with their layouts in version order and adds a layout as the next version', async () => {
     mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE']);
     const profile: LayoutProfileView = {
-      id: 'p-1', name: 'Sample Bank Credit Card',
+      id: 'p-1', name: 'Sample Bank Credit Card', automatic: true,
       versions: [
-        entry({ fingerprint: 'FP-1-OLD00001', profileId: 'p-1', profileName: 'Sample Bank Credit Card', profileVersion: 1, name: 'Old table' }),
+        entry({ fingerprint: 'FP-1-OLD00001', profileId: 'p-1', profileName: 'Sample Bank Credit Card', profileVersion: 1, name: 'Old table', profileLinkSource: 'AUTO' }),
         entry({ fingerprint: 'FP-1-NEW00002', profileId: 'p-1', profileName: 'Sample Bank Credit Card', profileVersion: 2 }),
       ],
     };
@@ -282,6 +283,7 @@ describe('LayoutIntelligence — layout review queue and profiles', () => {
     const versions = screen.getAllByText(/^v\d$/).map((el) => el.textContent);
     expect(versions).toEqual(['v1', 'v2']);
     expect(screen.getByText('Old table')).toBeInTheDocument();
+    expect(screen.getByText('auto')).toBeInTheDocument();
 
     await user.selectOptions(await screen.findByLabelText('Add a layout to Sample Bank Credit Card'), 'FP-1-LOOSE003');
     await waitFor(() => expect(adminLayoutRegistryApi.linkToProfile).toHaveBeenCalledWith('FP-1-LOOSE003', 'p-1'));
@@ -289,7 +291,7 @@ describe('LayoutIntelligence — layout review queue and profiles', () => {
 
   it('creates a profile', async () => {
     mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE']);
-    vi.mocked(adminLayoutRegistryApi.createProfile).mockResolvedValue({ id: 'p-2', name: 'New Profile', versions: [] });
+    vi.mocked(adminLayoutRegistryApi.createProfile).mockResolvedValue({ id: 'p-2', name: 'New Profile', automatic: false, versions: [] });
     const user = userEvent.setup();
     renderPage();
 
@@ -303,7 +305,7 @@ describe('LayoutIntelligence — layout review queue and profiles', () => {
 
   it('renames a profile in place', async () => {
     mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE']);
-    vi.mocked(adminLayoutRegistryApi.profiles).mockResolvedValue([{ id: 'p-1', name: 'Old Name', versions: [] }]);
+    vi.mocked(adminLayoutRegistryApi.profiles).mockResolvedValue([{ id: 'p-1', name: 'Old Name', automatic: false, versions: [] }]);
     vi.mocked(adminLayoutRegistryApi.renameProfile).mockResolvedValue(undefined as never);
     const user = userEvent.setup();
     renderPage();

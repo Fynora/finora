@@ -28,6 +28,11 @@ public class LayoutProfile {
     @Column(nullable = false)
     private String name;
 
+    /** The automatic grouping key this profile answers to (V244), e.g. "KOTAK|CREDIT_CARD"; null
+     *  for a profile only an operator uses. Written only by LayoutProfileAutoLinker. */
+    @Column(name = "auto_key", length = 96, insertable = false, updatable = false)
+    private String autoKey;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
@@ -48,6 +53,7 @@ public class LayoutProfile {
 
     public UUID getId() { return id; }
     public String getName() { return name; }
+    public String getAutoKey() { return autoKey; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 }

@@ -41,7 +41,11 @@ import java.util.TreeSet;
  *       the Kotak symptom. Half, not "any": a genuine statement can carry the odd blank narration
  *       (a reversal line, a bare charge), and flagging every such file would bury the real ones.</li>
  *   <li>{@link Reason#STAGING_FAILED} -- the parser located a table (so a fingerprint exists) but
- *       staging still failed.</li>
+ *       staging still failed on our side (see {@link #isParserSideFailure}); a deliberate refusal
+ *       such as "no activity in this period" does not flag.</li>
+ *   <li>{@link Reason#IDENTITY_CONFLICT} -- this layout was grouped automatically under one bank and
+ *       account family, and a later statement of it was detected as another. See
+ *       {@link LayoutProfileAutoLinker}.</li>
  * </ul>
  *
  * <p><b>Documents with no recognised column headers are skipped.</b> Every such document -- a
@@ -66,33 +70,55 @@ public class LayoutReviewService {
 
     private static final Logger log = LoggerFactory.getLogger(LayoutReviewService.class);
 
-    public enum Reason { NEW_LAYOUT, VERIFICATION_NOT_PASSED, BLANK_DESCRIPTIONS, STAGING_FAILED }
+    public enum Reason { NEW_LAYOUT, VERIFICATION_NOT_PASSED, BLANK_DESCRIPTIONS, STAGING_FAILED, IDENTITY_CONFLICT }
 
     private final JdbcTemplate jdbc;
     private final TransactionTemplate ownTransaction;
     private final LayoutReviewAlertService alertService;
+    private final LayoutProfileAutoLinker autoLinker;
 
     public LayoutReviewService(JdbcTemplate jdbc, PlatformTransactionManager transactionManager,
-                               LayoutReviewAlertService alertService) {
+                               LayoutReviewAlertService alertService, LayoutProfileAutoLinker autoLinker) {
         this.jdbc = jdbc;
+        this.autoLinker = autoLinker;
         this.ownTransaction = new TransactionTemplate(transactionManager);
         this.ownTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.alertService = alertService;
     }
 
     /** A staging run that produced rows. {@code reports} holds one verification report per section
-     *  (entries may be null -- "not checked"). */
+     *  (entries may be null -- "not checked"); {@code identity} is the statement's confident bank
+     *  and account family, or null, and places the layout in its profile automatically. */
     public void onStaged(String fingerprint, String sourceFormat, List<StagedRow> rows,
-                         List<VerificationReport> reports, String analysisReference) {
+                         List<VerificationReport> reports, String analysisReference, LayoutIdentity identity) {
         Set<String> reasons = new TreeSet<>();
         for (String rule : rulesNotPassed(reports)) reasons.add(Reason.VERIFICATION_NOT_PASSED.name() + ":" + rule);
         if (mostlyBlankDescriptions(rows)) reasons.add(Reason.BLANK_DESCRIPTIONS.name());
-        record(fingerprint, sourceFormat, reasons, analysisReference);
+        record(fingerprint, sourceFormat, reasons, analysisReference, identity);
     }
 
-    /** A staging run that failed after the document's layout was fingerprinted. */
-    public void onStagingFailed(String fingerprint, String sourceFormat, String analysisReference) {
-        record(fingerprint, sourceFormat, Set.of(Reason.STAGING_FAILED.name()), analysisReference);
+    /** A staging run that failed after the document's layout was fingerprinted. Flags the layout
+     *  only for a failure on our side -- see {@link #isParserSideFailure}. The layout is still
+     *  registered and counted either way. */
+    public void onStagingFailed(String fingerprint, String sourceFormat, String analysisReference,
+                                RuntimeException failure) {
+        Set<String> reasons = isParserSideFailure(failure) ? Set.of(Reason.STAGING_FAILED.name()) : Set.of();
+        record(fingerprint, sourceFormat, reasons, analysisReference, null);
+    }
+
+    /**
+     * Whether a staging failure is a gap on our side rather than a deliberate refusal. Measured on
+     * the real corpus: a statement whose own summary shows no activity ({@code
+     * IMPORT_NO_ACTIVITY_IN_PERIOD}) and a payment-app history ({@code IMPORT_PAYMENT_APP_HISTORY})
+     * both fail staging on purpose, with a message telling the user what to do -- flagging them
+     * would email an admin about Finora working as designed. Same line ImportJobWorker's held-imports
+     * triage draws: only an unexpected exception, or "no table" / "no rows" on a document that got
+     * far enough to be fingerprinted, is a parser problem.
+     */
+    static boolean isParserSideFailure(RuntimeException failure) {
+        if (!(failure instanceof com.finora.exception.ApiException api)) return failure != null;
+        return api.getCode() == com.finora.exception.ErrorCode.IMPORT_NO_HEADER_DETECTED
+                || api.getCode() == com.finora.exception.ErrorCode.IMPORT_NO_TRANSACTIONS_FOUND;
     }
 
     /** The rules that reported WARNING or FAILED in any section, by name. */
@@ -117,13 +143,14 @@ public class LayoutReviewService {
         return blank * 2 > rows.size();
     }
 
-    private void record(String fingerprint, String sourceFormat, Set<String> reasons, String analysisReference) {
+    private void record(String fingerprint, String sourceFormat, Set<String> reasons, String analysisReference,
+                        LayoutIdentity identity) {
         if (fingerprint == null || fingerprint.isBlank()) return;
         Flagged flagged;
         try {
             if (isHeaderlessFingerprint(fingerprint, sourceFormat)) return;
             flagged = ownTransaction.execute(status -> recordInTransaction(
-                    fingerprint, sourceFormat, new TreeSet<>(reasons), analysisReference));
+                    fingerprint, sourceFormat, new TreeSet<>(reasons), analysisReference, identity));
         } catch (RuntimeException e) {
             log.warn("Could not record layout review state for {}; the upload is unaffected.", fingerprint, e);
             return;
@@ -141,7 +168,7 @@ public class LayoutReviewService {
     record Flagged(boolean newlyRaised, List<String> reasons) {}
 
     private Flagged recordInTransaction(String fingerprint, String sourceFormat, Set<String> reasons,
-                                        String analysisReference) {
+                                        String analysisReference, LayoutIdentity identity) {
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         // One statement for the insert-or-count, for the same race reason
         // RegisteredLayoutRepository.observe gives: two first uploads of an unseen layout must not
@@ -159,6 +186,11 @@ public class LayoutReviewService {
                 RETURNING (xmax = 0)
                 """, Boolean.class, fingerprint, sourceFormat, now, now);
         if (Boolean.TRUE.equals(inserted)) reasons.add(Reason.NEW_LAYOUT.name());
+        // Grouped before the flag is decided, so a clean staging of a known layout still joins its
+        // profile -- and a conflicting identity becomes a reason like any other.
+        if (autoLinker.link(fingerprint, identity) == LayoutProfileAutoLinker.Outcome.CONFLICT) {
+            reasons.add(Reason.IDENTITY_CONFLICT.name());
+        }
         if (reasons.isEmpty()) return null;
 
         // Locked read of the current flag, so the "was it clear before" answer and the update are

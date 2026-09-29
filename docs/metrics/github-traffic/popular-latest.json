@@ -3,7 +3,7 @@
     {
       "path": "/Fynora/finora/actions",
       "title": "/actions",
-      "count": 878,
+      "count": 664,
       "uniques": 1
     },
     {
@@ -13,57 +13,62 @@
       "uniques": 1
     },
     {
-      "path": "/Fynora/finora/security",
-      "title": "/security",
-      "count": 17,
+      "path": "/Fynora/finora/security/code-scanning",
+      "title": "/security/code-scanning",
+      "count": 12,
       "uniques": 1
     },
     {
       "path": "/Fynora/finora",
       "title": "Overview",
-      "count": 15,
+      "count": 11,
       "uniques": 4
     },
     {
-      "path": "/Fynora/finora/security/code-scanning",
-      "title": "/security/code-scanning",
-      "count": 15,
-      "uniques": 1
-    },
-    {
-      "path": "/Fynora/finora/issues",
-      "title": "/issues",
-      "count": 8,
+      "path": "/Fynora/finora/security",
+      "title": "/security",
+      "count": 11,
       "uniques": 1
     },
     {
       "path": "/Fynora/finora/tree/main/docs",
       "title": "/tree/main/docs",
-      "count": 6,
+      "count": 7,
       "uniques": 2
+    },
+    {
+      "path": "/Fynora/finora/actions/runs/35964738957",
+      "title": "/actions/runs/35964738957",
+      "count": 6,
+      "uniques": 1
+    },
+    {
+      "path": "/Fynora/finora/actions/runs/36312679932",
+      "title": "/actions/runs/36312679932",
+      "count": 6,
+      "uniques": 1
+    },
+    {
+      "path": "/Fynora/finora/issues",
+      "title": "/issues",
+      "count": 6,
+      "uniques": 1
     },
     {
       "path": "/Fynora/finora/pull/1647",
       "title": "/pull/1647",
       "count": 6,
       "uniques": 1
-    },
-    {
-      "path": "/Fynora/finora/actions/runs/35389206708",
-      "title": "/actions/runs/35389206708",
-      "count": 5,
-      "uniques": 1
-    },
-    {
-      "path": "/Fynora/finora/tree/main/docs/operations",
-      "title": "/tree/main/docs/operations",
-      "count": 4,
-      "uniques": 2
     }
   ],
   "referrers": [
     {
       "referrer": "github.com",
+      "count": 3,
+      "uniques": 1
+    },
+    {
+      "referrer": "app.cloudsek.com",
       "count": 1,
       "uniques": 1
     }

@@ -34,8 +34,11 @@ public final class TransactionTableDateRangeExtractor {
     // Narrow to the one real observed phrasing (see the class doc comment) rather than broadened to
     // a generic "from X to Y" -- a genuine transaction narration could otherwise coincidentally
     // contain that shape (e.g. "transferred from A/c X to Y").
+    // "Transactions" as well as "Transaction": a newer Kotak credit-card layout prints the heading
+    // above its table as "Transactions Details from <date> to <date>", and the singular-
+    // only pattern left that statement with no period at all.
     private static final Pattern TRANSACTION_DETAILS_RANGE = Pattern.compile(
-            "(?i)transaction\\s+details\\s+from\\s+(\\S+)\\s+to\\s+(\\S+)");
+            "(?i)transactions?\\s+details\\s+from\\s+(\\S+)\\s+to\\s+(\\S+)");
 
     // Bug fix: only formats a \S+-captured token can ever satisfy -- group(1)/group(2) above stop at
     // the first whitespace character by construction, so a space-separated shape like "16 Feb, 2026"

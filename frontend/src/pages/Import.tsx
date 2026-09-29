@@ -2273,6 +2273,14 @@ function TransactionPreviewTable({
                   onChange={(e) => setChosenCategory((arr) => arr.map((v, j) => (j === i ? e.target.value : v)))}
                   className="bg-card text-ink border border-border rounded px-1 py-0.5 text-xs"
                 >
+                  {/* A staged category that is not one of the user's own (a CSV's Category column
+                      can name anything) is still what confirm will save -- as a new category. With
+                      no option for it the browser showed the list's FIRST category instead, so the
+                      screen and the saved result disagreed; a real statement showed "Salary" on
+                      every row that way. */}
+                  {chosenCategory[i] && categories.length > 0 && !categories.includes(chosenCategory[i]) && (
+                    <option value={chosenCategory[i]}>{chosenCategory[i]} (new category)</option>
+                  )}
                   {categories.map((c) => (
                     <option key={c} value={c}>{c}</option>
                   ))}

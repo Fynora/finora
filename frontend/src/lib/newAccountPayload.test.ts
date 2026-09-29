@@ -59,6 +59,16 @@ describe('estimateOpeningBalanceFromTotalDue', () => {
     expect(estimateOpeningBalanceFromTotalDue([row()], 'INVESTMENT', 2000)).toBeNull();
   });
 
+  it('rounds to paise, so floating-point residue never reaches the editable field', () => {
+    // Unrounded, 500.4 - (10.1 + 20.2) is 470.09999999999997 -- the same residue a real
+    // statement's estimate showed in the Opening balance box.
+    const rows = [row({ type: 'EXPENSE', amount: 10.1 }), row({ type: 'EXPENSE', amount: 20.2 })];
+
+    const estimated = estimateOpeningBalanceFromTotalDue(rows, 'CREDIT_CARD', 500.4);
+
+    expect(String(estimated)).toBe('470.1');
+  });
+
   it('handles an empty row list -- opening balance equals the total outright', () => {
     expect(estimateOpeningBalanceFromTotalDue([], 'CREDIT_CARD', 2000)).toBe(2000);
   });

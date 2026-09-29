@@ -680,6 +680,45 @@ describe('Import — detected merchant on the review screen', () => {
   });
 });
 
+describe('Import — category picker on the review screen', () => {
+  beforeEach(() => {
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue(
+      [{ name: 'Salary' }, { name: 'Shopping' }] as never);
+    vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
+  });
+
+  it('shows a staged category that is not one of the user\'s own, not the first category in the list', async () => {
+    vi.mocked(importApi.stagePdf).mockReset().mockResolvedValue({
+      sessionId: 'session-1', multiAccount: false, sections: null,
+      staging: {
+        rows: [
+          {
+            date: '2026-07-10', description: 'SOME SHOP', amount: 350, type: 'EXPENSE',
+            suggestedCategory: 'Label From File', categorySource: 'file', ruleId: null, likelyDuplicate: false,
+            referenceNumber: null, balanceAfter: null, duplicateMatch: null,
+            merchant: null, merchantConfidence: null,
+          },
+          {
+            date: '2026-07-11', description: 'ANOTHER SHOP', amount: 120, type: 'EXPENSE',
+            suggestedCategory: 'Shopping', categorySource: 'rule', ruleId: null, likelyDuplicate: false,
+            referenceNumber: null, balanceAfter: null, duplicateMatch: null,
+            merchant: null, merchantConfidence: null,
+          },
+        ],
+        totalParsed: 2, flaggedDuplicates: 0, unparseableRows: [], detectedAccount,
+      },
+    } as never);
+    const user = userEvent.setup();
+    renderImport();
+
+    await pickAndUploadPdf(user);
+
+    expect(await screen.findByDisplayValue('Label From File (new category)')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('Shopping')).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('Salary')).not.toBeInTheDocument();
+  });
+});
+
 describe('Import — international rows on the review screen', () => {
   beforeEach(() => {
     vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);

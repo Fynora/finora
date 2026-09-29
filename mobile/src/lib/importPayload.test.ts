@@ -370,7 +370,8 @@ describe('initial review state', () => {
       rows,
     );
 
-    expect(out.openingBalance).toBe(String(27665.16 - 17583.17));
+    // Rounded to paise -- the raw difference is 10081.990000000002.
+    expect(out.openingBalance).toBe('10081.99');
   });
 
   it('leaves opening balance blank for a credit card with neither a detected opening balance nor '
@@ -409,6 +410,16 @@ describe('estimateOpeningBalanceFromTotalDue', () => {
     const rows = [row({ type: 'EXPENSE', amount: 1000 }), row({ type: 'INCOME', amount: 400 })];
 
     expect(estimateOpeningBalanceFromTotalDue(rows, 'CREDIT_CARD', 2000)).toBeCloseTo(1400, 5);
+  });
+
+  it('rounds to paise, so floating-point residue never reaches the editable field', () => {
+    // Unrounded, 500.4 - (10.1 + 20.2) is 470.09999999999997 -- the same residue a real
+    // statement's estimate showed in the Opening balance box.
+    const rows = [row({ type: 'EXPENSE', amount: 10.1 }), row({ type: 'EXPENSE', amount: 20.2 })];
+
+    const estimated = estimateOpeningBalanceFromTotalDue(rows, 'CREDIT_CARD', 500.4);
+
+    expect(String(estimated)).toBe('470.1');
   });
 
   it('is null when nothing states a total amount due', () => {

@@ -498,6 +498,9 @@ public class PdfPreviewGenerator {
         // Same reasoning again, for the Tier-2 AI-fallback cache check -- see ResolutionIndex's
         // own doc comment.
         ResolutionIndex resolutionIndex = transactionNormalizer.resolutionIndexFor(userId);
+        // A category a statement prints is the bank's own label, so it is only kept when it names
+        // one of the user's categories -- see the normalize overload that takes this.
+        Map<String, String> existingCategoryNames = transactionNormalizer.categoryNamesFor(userId);
         List<Map<String, String>> sectionRows = section.rows();
         // Checked once, up front, against the RAW located rows -- before the loop below decides
         // what any of them mean transactionally. A row can state the statement's own zero-activity
@@ -527,7 +530,7 @@ public class PdfPreviewGenerator {
             // 1-based, within this section -- same convention as PreviewGenerator's CSV path.
             int rowPosition = i + 1;
             StagedRow parsed = transactionNormalizer.normalize(userId, row, ctx, rules, duplicateIndex, merchantIndex,
-                    resolutionIndex);
+                    resolutionIndex, existingCategoryNames);
             if (parsed == null) {
                 unparseable.add(new UnparseableRow(row, transactionNormalizer.explainFailure(row)));
                 continue;

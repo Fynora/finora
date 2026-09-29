@@ -810,4 +810,42 @@ class CreditCardSummaryExtractorTest {
 
         assertThat(summary.totalAmountDue()).isNull();
     }
+
+    /**
+     * A newer Kotak credit-card layout: its billing summary prints each label with its value on the
+     * same line ("Purchases made in this cycle", "Other fees & charges", "Payments and Other
+     * Credits"), and further down a rewards-points grid whose first column is headed "Opening
+     * balance". Geometry follows that statement; every figure is synthetic.
+     */
+    @Test
+    void readsTheSameLineSummary_andNeverTheRewardsPointsGridsOpeningBalance() {
+        List<PositionedText> runs = List.of(
+                run("Previous statement dues", 38f, 106.6f, 339f),
+                run("10,000.00", 241.1f, 41.4f, 339f),
+                run("Total Amount Due", 299.5f, 77.6f, 339f),
+                run("9,618.00", 515.6f, 41.4f, 339f),
+                run("Purchases made in this cycle", 38f, 122.8f, 355f),
+                run("9,500.00", 241.1f, 41.4f, 355f),
+                run("Other fees & charges", 38f, 88.4f, 372f),
+                run("118.00", 259.2f, 23.3f, 372f),
+                run("Payments and Other Credits", 38f, 120.8f, 389f),
+                run("10,000.00", 241.1f, 41.4f, 389f),
+                run("Opening balance", 45f, 60f, 480f),
+                run("Points earned", 180f, 55f, 480f),
+                run("Points redeemed", 300f, 65f, 480f),
+                run("Points available", 430f, 65f, 480f),
+                run("1,234", 55f, 25f, 500f),
+                run("56", 190f, 12f, 500f),
+                run("0", 320f, 6f, 500f),
+                run("1,290", 445f, 25f, 500f));
+
+        var summary = CreditCardSummaryExtractor.extract(runs);
+
+        assertThat(summary.conflictingFields()).isEmpty();
+        assertThat(summary.previousBalance()).isEqualByComparingTo("10000.00");
+        assertThat(summary.purchases()).isEqualByComparingTo("9500.00");
+        assertThat(summary.fees()).isEqualByComparingTo("118.00");
+        assertThat(summary.paymentsAndCredits()).isEqualByComparingTo("10000.00");
+        assertThat(summary.totalAmountDue()).isEqualByComparingTo("9618.00");
+    }
 }

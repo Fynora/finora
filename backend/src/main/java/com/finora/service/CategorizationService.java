@@ -162,6 +162,12 @@ public class CategorizationService {
         return fynCategorizationFallbackService.indexFor(userId);
     }
 
+    /** The names of every category the user has, loaded once -- see
+     *  {@code TransactionNormalizer.categoryNamesFor}, which is the only caller. */
+    public List<String> categoryNamesFor(UUID userId) {
+        return categoryRepository.findByUserId(userId).stream().map(Category::getName).toList();
+    }
+
     /**
      * Whether a category decision still needs a human's attention.
      *

@@ -1136,4 +1136,60 @@ class TransactionNormalizerTest {
         assertThat(row.merchant()).isNull();
         assertThat(row.merchantConfidence()).isNull();
     }
+
+    // --- Kotak "Description Spends" header and printed categories ---
+
+    @Test
+    void normalize_readsTheDescriptionFromAMergedDescriptionSpendsHeader() {
+        StagedRow row = normalizer.normalize(userId, rowOf(
+                "Date", "15-Jan-2026", "Description Spends", "UPI-K-000000000001-SAMPLE STORE",
+                "Amount (₹)", "245.00"));
+
+        assertThat(row).isNotNull();
+        assertThat(row.description()).isEqualTo("UPI-K-000000000001-SAMPLE STORE");
+    }
+
+    @Test
+    void normalize_keepsAPrintedCategoryOnlyWhenItNamesOneOfTheUsersCategories() {
+        Map<String, String> userCategories = normalizerCategoryNames("Shopping", "Food");
+
+        StagedRow matching = normalizer.normalize(userId, rowOf(
+                "Date", "15-Jan-2026", "Description", "SAMPLE STORE", "Category", "shopping",
+                "Amount", "100.00"), null, List.of(), null, null, null, userCategories);
+        StagedRow bankLabel = normalizer.normalize(userId, rowOf(
+                "Date", "15-Jan-2026", "Description", "SAMPLE STORE", "Category", "Departmental Store",
+                "Amount", "100.00"), null, List.of(), null, null, null, userCategories);
+
+        // The user's own spelling, not the file's, so the review screen's picker shows it selected.
+        assertThat(matching.suggestedCategory()).isEqualTo("Shopping");
+        assertThat(matching.categorySource()).isEqualTo("file");
+        // A bank's own label is not a category the user has: categorized as if no column existed.
+        assertThat(bankLabel.suggestedCategory()).isEqualTo("Other");
+        assertThat(bankLabel.categorySource()).isEqualTo("default");
+    }
+
+    @Test
+    void normalize_withoutACategoryNameIndex_keepsAPrintedCategoryAsPrinted() {
+        // The CSV path passes no index: a Category column there is something a person wrote.
+        StagedRow row = normalizer.normalize(userId, rowOf(
+                "Date", "15-Jan-2026", "Description", "SAMPLE STORE", "Category", "My Own Label",
+                "Amount", "100.00"));
+
+        assertThat(row.suggestedCategory()).isEqualTo("My Own Label");
+        assertThat(row.categorySource()).isEqualTo("file");
+    }
+
+    @Test
+    void categoryNamesFor_keysTheUsersCategoriesCaseInsensitively() {
+        when(categorizationService.categoryNamesFor(userId)).thenReturn(List.of("Shopping", " Food "));
+
+        Map<String, String> names = normalizer.categoryNamesFor(userId);
+
+        assertThat(names).containsEntry("shopping", "Shopping").containsEntry("food", " Food ");
+    }
+
+    private Map<String, String> normalizerCategoryNames(String... names) {
+        when(categorizationService.categoryNamesFor(userId)).thenReturn(List.of(names));
+        return normalizer.categoryNamesFor(userId);
+    }
 }

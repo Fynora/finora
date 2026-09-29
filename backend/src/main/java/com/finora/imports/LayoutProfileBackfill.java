@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.UUID;
 
 /**
  * Groups the layouts the registry already holds into automatic profiles (V244), from evidence
@@ -120,7 +121,7 @@ public class LayoutProfileBackfill {
      * should not have to wait for the next upload or restart. The caller holds the layout's row
      * lock and has already cleared its profile and link source.
      */
-    public LayoutProfileAutoLinker.Outcome regroup(String fingerprint, String sourceFormat) {
+    public LayoutProfileAutoLinker.Outcome regroup(String fingerprint, String sourceFormat, UUID actingAdminId) {
         if (sourceFormat != null && LayoutReviewService.isHeaderlessFingerprint(fingerprint, sourceFormat)) {
             return LayoutProfileAutoLinker.Outcome.NO_IDENTITY;
         }
@@ -134,7 +135,8 @@ public class LayoutProfileBackfill {
             flagConflict(fingerprint);
             return LayoutProfileAutoLinker.Outcome.CONFLICT;
         }
-        LayoutProfileAutoLinker.Outcome outcome = linker.link(fingerprint, identityByKey.get(keys.iterator().next()));
+        LayoutProfileAutoLinker.Outcome outcome =
+                linker.link(fingerprint, identityByKey.get(keys.iterator().next()), actingAdminId);
         if (outcome == LayoutProfileAutoLinker.Outcome.CONFLICT) flagConflict(fingerprint);
         return outcome;
     }

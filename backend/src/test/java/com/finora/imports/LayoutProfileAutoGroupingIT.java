@@ -148,6 +148,30 @@ class LayoutProfileAutoGroupingIT extends AbstractIntegrationTest {
         assertThat(layout(c).getProfileVersion()).isEqualTo(3);
     }
 
+    /** Found in a browser check: removing v1 and returning it shifted v2 to v3 for nothing. A free
+     *  number is filled instead. */
+    @Test
+    void aReturningLayoutRefillsItsFreeNumberWithoutMovingAnyone() {
+        UUID admin = admin();
+        String bankId = "TEST" + UUID.randomUUID().toString().substring(0, 6).toUpperCase();
+        LayoutIdentity identity = new LayoutIdentity(bankId, "Test Bank " + bankId, Set.of("CREDIT_CARD"));
+        Instant now = Instant.now();
+        String older = fingerprint();
+        String newer = fingerprint();
+        registeredEarlier(older, now.minus(90, ChronoUnit.DAYS));
+        registeredEarlier(newer, now.minus(5, ChronoUnit.DAYS));
+        stage(older, identity);
+        stage(newer, identity);
+        curationService.unlinkFromProfile(admin, older);
+
+        UUID profileId = layout(newer).getProfileId();
+        curationService.linkToProfile(admin, older, profileId);
+
+        assertThat(layout(older).getProfileVersion()).isEqualTo(1);
+        assertThat(layout(newer).getProfileVersion()).isEqualTo(2);
+        assertThat(layout(newer).getPreviousProfileVersion()).isNull();
+    }
+
     @Test
     void aVersionMoveIsRecordedOnTheRowAndAudited() {
         String bankId = "TEST" + UUID.randomUUID().toString().substring(0, 6).toUpperCase();
@@ -192,6 +216,43 @@ class LayoutProfileAutoGroupingIT extends AbstractIntegrationTest {
         assertThat(entry.profileId()).isEqualTo(kotakProfile);
         assertThat(entry.profileLinkSource()).isEqualTo("AUTO");
         assertThat(layout(fp).getProfileLinkSource()).isEqualTo("AUTO");
+    }
+
+    /** Found in a browser check: a renumbering caused by an admin's "return to automatic" was
+     *  audited with no actor. */
+    @Test
+    void aRenumberingCausedByAnAdminsReturnIsAuditedWithThatAdmin() {
+        UUID admin = admin();
+        User user = new User();
+        user.setEmail("layout-return-actor-" + UUID.randomUUID() + "@example.com");
+        user.setPasswordHash("irrelevant-for-this-test");
+        user.setFullName("Return Actor User");
+        UUID userId = userRepository.save(user).getId();
+        // A real registered bank (backfill evidence maps bank names through BankRegistry) and a
+        // family no other test uses, so this profile's numbering is this test's alone.
+        LayoutIdentity identity = new LayoutIdentity("FEDERAL", "Federal Bank", Set.of("WALLET"));
+        Instant now = Instant.now();
+        String older = fingerprint();
+        String newer = fingerprint();
+        registeredEarlier(older, now.minus(90, ChronoUnit.DAYS));
+        registeredEarlier(newer, now.minus(5, ChronoUnit.DAYS));
+        stage(older, identity);
+        curationService.unlinkFromProfile(admin, older);
+        stage(newer, identity); // the older layout is out of the profile, so the newer one takes its place
+        analysisRecorder.recordParsed(userId, StatementAnalysisSession.Source.CUSTOMER_IMPORT, "x.pdf", "PDF", 1L,
+                older, 1, 1L, ParseDiagnostics.of(1, Map.of())
+                        .withIdentity(new DocumentIdentity(true, "Federal Bank", "WALLET")));
+
+        curationService.returnToAutomatic(admin, older);
+
+        UUID profileId = layout(newer).getProfileId();
+        assertThat(layout(older).getProfileId()).isEqualTo(profileId);
+        assertThat(layout(older).getProfileVersion()).isLessThan(layout(newer).getProfileVersion());
+        assertThat(layout(newer).getPreviousProfileVersion()).isNotNull();
+        assertThat(auditLogRepository.findAll()).filteredOn(a -> profileId.equals(a.getEntityId())
+                        && "LAYOUT_PROFILE_VERSIONS_SHIFTED".equals(a.getAction()))
+                .isNotEmpty()
+                .allMatch(a -> admin.equals(a.getUserId()));
     }
 
     @Test

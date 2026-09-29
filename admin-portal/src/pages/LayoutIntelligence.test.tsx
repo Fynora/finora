@@ -368,4 +368,23 @@ describe('LayoutIntelligence — layout review queue and profiles', () => {
     expect(await screen.findByText(/Removed from grouping by an admin/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /to automatic grouping/ })).not.toBeInTheDocument();
   });
+
+  it('lists layouts an admin removed from grouping on the Profiles tab, with a way back', async () => {
+    mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE']);
+    vi.mocked(adminLayoutRegistryApi.registry).mockResolvedValue([
+      entry({ fingerprint: 'FP-1-REMOVED01', needsReview: false, profileLinkSource: 'MANUAL' }),
+      entry({ fingerprint: 'FP-1-UNDECIDE1', needsReview: false, profileLinkSource: null }),
+    ]);
+    vi.mocked(adminLayoutRegistryApi.returnToAutomatic).mockResolvedValue(entry({ profileLinkSource: 'AUTO' }));
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole('button', { name: /Profiles/ }));
+
+    expect(await screen.findByText('Removed from grouping by an admin')).toBeInTheDocument();
+    expect(screen.getByText('FP-1-REMOVED01')).toBeInTheDocument();
+    expect(screen.queryByText('FP-1-UNDECIDE1')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Return FP-1-REMOVED01 to automatic grouping' }));
+    await waitFor(() => expect(adminLayoutRegistryApi.returnToAutomatic).toHaveBeenCalled());
+  });
 });

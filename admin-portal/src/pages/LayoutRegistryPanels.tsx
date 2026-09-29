@@ -136,7 +136,7 @@ function ProfilePicker({ entry, profiles, disabled, onLink, onReturn }: {
 }) {
   if (entry.profileId) {
     return (
-      <span className="text-xs text-ink">
+      <span className="text-xs text-ink inline-block min-w-[14rem]">
         {entry.profileName} · v{entry.profileVersion}
         {entry.previousProfileVersion != null && (
           <span className="ml-1 text-muted">(was v{entry.previousProfileVersion})</span>
@@ -210,7 +210,7 @@ export function ReviewQueuePanel() {
             <tbody>
               {queue.map((entry) => (
                 <tr key={entry.fingerprint} className="border-b border-border last:border-0 align-top">
-                  <td className="p-3 font-mono text-xs text-ink">{entry.fingerprint}</td>
+                  <td className="p-3 font-mono text-xs text-ink whitespace-nowrap">{entry.fingerprint}</td>
                   <td className="p-3"><ReasonChips reasons={entry.reviewReasons} /></td>
                   <td className="p-3 text-xs text-muted">{formatWhen(entry.reviewFlaggedAt)}</td>
                   <td className="p-3 font-mono text-xs text-muted">{entry.reviewAnalysisReference ?? '—'}</td>
@@ -275,7 +275,8 @@ function ProfileNameField({ profile, onSave }: { profile: LayoutProfileView; onS
       onChange={(e) => setValue(e.target.value)}
       onBlur={save}
       onKeyDown={(e) => { if (e.key === 'Enter') save(); }}
-      className="bg-transparent text-sm font-semibold text-ink border border-transparent hover:border-border focus:border-border rounded px-1 py-0.5"
+      size={Math.max(value.length + 2, 16)}
+      className="bg-transparent text-sm font-semibold text-ink border border-transparent hover:border-border focus:border-border rounded px-1 py-0.5 max-w-full"
     />
   );
 }
@@ -289,6 +290,9 @@ export function ProfilesPanel() {
   const registryQ = useQuery({ queryKey: ['layout-registry'], queryFn: adminLayoutRegistryApi.registry });
   const m = useRegistryMutations(setActionError);
   const unassigned = (registryQ.data ?? []).filter((e) => !e.profileId);
+  // Layouts an admin took out of grouping: listed here so they can be handed back even when they
+  // are not in the review queue.
+  const removedByAdmin = unassigned.filter((e) => e.profileLinkSource === 'MANUAL');
 
   return (
     <div>
@@ -322,6 +326,28 @@ export function ProfilesPanel() {
             <Plus size={14} /> Create profile
           </button>
         </form>
+      )}
+      {removedByAdmin.length > 0 && (
+        <div className="bg-card border border-border rounded-xl2 p-3 mb-3">
+          <h3 className="text-sm font-semibold text-ink mb-1">Removed from grouping by an admin</h3>
+          <p className="text-xs text-muted mb-2">
+            Automatic grouping leaves these alone until they are returned to it.
+          </p>
+          <table className="w-full text-sm">
+            <tbody>
+              {removedByAdmin.map((e) => (
+                <tr key={e.fingerprint} className="border-t border-border">
+                  <td className="py-1.5 pr-3 font-mono text-xs text-ink whitespace-nowrap">{e.fingerprint}</td>
+                  <td className="py-1.5 pr-3 text-xs text-ink">{e.name ?? <span className="text-muted">Unnamed</span>}</td>
+                  <td className="py-1.5 text-right">
+                    <ReturnToAutomatic entry={e} disabled={!canManage}
+                      onReturn={() => m.returnToAutomatic.mutate(e.fingerprint)} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       {profilesQ.isLoading ? (
         <p className="text-sm text-muted">Loading…</p>
@@ -378,7 +404,7 @@ export function ProfilesPanel() {
                           <ReturnToAutomatic entry={v} disabled={!canManage}
                             onReturn={() => m.returnToAutomatic.mutate(v.fingerprint)} />
                         </td>
-                        <td className="py-1.5 pr-3 font-mono text-xs text-ink">{v.fingerprint}</td>
+                        <td className="py-1.5 pr-3 font-mono text-xs text-ink whitespace-nowrap">{v.fingerprint}</td>
                         <td className="py-1.5 pr-3 text-xs text-ink">{v.name ?? <span className="text-muted">Unnamed</span>}</td>
                         <td className="py-1.5 pr-3 text-xs text-muted">{v.status}</td>
                         <td className="py-1.5 pr-3 text-xs text-muted">Last seen {formatWhen(v.lastSeen)}</td>

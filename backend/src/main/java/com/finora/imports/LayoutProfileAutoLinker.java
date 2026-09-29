@@ -48,6 +48,12 @@ public class LayoutProfileAutoLinker {
     }
 
     public Outcome link(String fingerprint, LayoutIdentity identity) {
+        return link(fingerprint, identity, null);
+    }
+
+    /** As above, attributed to the operator whose action caused it (returning a layout to
+     *  automatic grouping), so any renumbering it causes is audited with that actor. */
+    public Outcome link(String fingerprint, LayoutIdentity identity, UUID actingAdminId) {
         if (identity == null) return Outcome.NO_IDENTITY;
         List<Map<String, Object>> rows = jdbc.queryForList("""
                 SELECT r.profile_id, r.profile_link_source, p.auto_key
@@ -64,7 +70,7 @@ public class LayoutProfileAutoLinker {
 
         UUID profileId = profileFor(identity);
         if (profileId == null) return Outcome.CONFLICT;
-        place(fingerprint, profileId, "AUTO", null);
+        place(fingerprint, profileId, "AUTO", actingAdminId);
         return Outcome.LINKED;
     }
 
@@ -95,16 +101,23 @@ public class LayoutProfileAutoLinker {
                 WHERE profile_id = ? AND (first_seen < ? OR (first_seen = ? AND fingerprint < ?))
                 """, Integer.class, profileId, firstSeen, firstSeen, fingerprint);
         int version = before == null ? 1 : before + 1;
-        List<Map<String, Object>> moving = jdbc.queryForList(
+        // Only when that number is taken do the later members move; a gap left by an earlier
+        // removal is simply filled, so nobody is renumbered for nothing.
+        Integer taken = jdbc.queryForObject(
+                "SELECT count(*) FROM layout_registry WHERE profile_id = ? AND profile_version = ?",
+                Integer.class, profileId, version);
+        List<Map<String, Object>> moving = taken == null || taken == 0 ? List.of() : jdbc.queryForList(
                 "SELECT fingerprint, profile_version FROM layout_registry WHERE profile_id = ? AND profile_version >= ? "
                         + "ORDER BY profile_version", profileId, version);
-        jdbc.update("UPDATE layout_registry SET profile_version = profile_version + " + SHIFT_OFFSET
-                + " WHERE profile_id = ? AND profile_version >= ?", profileId, version);
-        // Each moved layout keeps the number it had, so the admin screen can say "was v2" (V245).
-        jdbc.update("UPDATE layout_registry SET previous_profile_version = profile_version - " + SHIFT_OFFSET
-                + ", profile_version = profile_version - " + (SHIFT_OFFSET - 1)
-                + ", profile_version_changed_at = now(), updated_at = now()"
-                + " WHERE profile_id = ? AND profile_version >= ?", profileId, SHIFT_OFFSET);
+        if (!moving.isEmpty()) {
+            jdbc.update("UPDATE layout_registry SET profile_version = profile_version + " + SHIFT_OFFSET
+                    + " WHERE profile_id = ? AND profile_version >= ?", profileId, version);
+            // Each moved layout keeps the number it had, so the admin screen can say "was v2" (V245).
+            jdbc.update("UPDATE layout_registry SET previous_profile_version = profile_version - " + SHIFT_OFFSET
+                    + ", profile_version = profile_version - " + (SHIFT_OFFSET - 1)
+                    + ", profile_version_changed_at = now(), updated_at = now()"
+                    + " WHERE profile_id = ? AND profile_version >= ?", profileId, SHIFT_OFFSET);
+        }
         jdbc.update("""
                 UPDATE layout_registry
                 SET profile_id = ?, profile_version = ?, profile_link_source = ?,

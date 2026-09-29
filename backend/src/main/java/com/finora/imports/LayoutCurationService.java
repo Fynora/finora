@@ -234,7 +234,7 @@ public class LayoutCurationService {
         }
         layout.returnToAutomatic();
         layoutRepository.flush();
-        LayoutProfileAutoLinker.Outcome outcome = backfill.regroup(fingerprint, layout.getSourceFormat());
+        LayoutProfileAutoLinker.Outcome outcome = backfill.regroup(fingerprint, layout.getSourceFormat(), actingAdminId);
         entityManager.refresh(layout);
         metadata.put("outcome", outcome.name());
         audit(actingAdminId, "LAYOUT_RETURNED_TO_AUTOMATIC", layout, metadata);

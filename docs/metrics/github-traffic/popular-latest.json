@@ -3,19 +3,13 @@
     {
       "path": "/Fynora/finora/actions",
       "title": "/actions",
-      "count": 602,
+      "count": 553,
       "uniques": 1
     },
     {
       "path": "/Fynora/finora/pulls",
       "title": "/pulls",
-      "count": 148,
-      "uniques": 1
-    },
-    {
-      "path": "/Fynora/finora/security/code-scanning",
-      "title": "/security/code-scanning",
-      "count": 11,
+      "count": 136,
       "uniques": 1
     },
     {
@@ -25,14 +19,14 @@
       "uniques": 4
     },
     {
-      "path": "/Fynora/finora/security",
-      "title": "/security",
-      "count": 9,
+      "path": "/Fynora/finora/security/code-scanning",
+      "title": "/security/code-scanning",
+      "count": 10,
       "uniques": 1
     },
     {
-      "path": "/Fynora/finora/issues",
-      "title": "/issues",
+      "path": "/Fynora/finora/security",
+      "title": "/security",
       "count": 7,
       "uniques": 1
     },
@@ -45,6 +39,12 @@
     {
       "path": "/Fynora/finora/actions/runs/36312679932",
       "title": "/actions/runs/36312679932",
+      "count": 6,
+      "uniques": 1
+    },
+    {
+      "path": "/Fynora/finora/issues",
+      "title": "/issues",
       "count": 6,
       "uniques": 1
     },

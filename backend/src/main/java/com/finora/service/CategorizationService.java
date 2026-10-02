@@ -199,8 +199,10 @@ public class CategorizationService {
     }
 
     /** Rule engine (user rules, then global rules) > learned distribution (real evidence) >
-     *  keyword rules (including a merchant-canonical-name retry) > structural person-to-person
-     *  transfer detection > "Other". See docs/rule-engine-relationship-engine-eds.md §4 and
+     *  keyword rules (including a merchant-canonical-name retry) > shared corpus > AI cache > a
+     *  shop's trade word (ShopTradeCategory) > structural person-to-person transfer detection >
+     *  the bank's own activity (BankActivityCategory) > "Other". See
+     *  docs/rule-engine-relationship-engine-eds.md §4 and
      *  docs/superpowers/specs/2026-09-01-transaction-categorization-design.md §2. */
     public Suggestion suggest(UUID userId, String description) {
         // No direction available at this call's shape -- shared-corpus/AI-fallback lookups
@@ -265,6 +267,13 @@ public class CategorizationService {
                     Transaction.DecisionSource.AI_FALLBACK, null, ConfidenceEngine.INITIAL_AI_FALLBACK_CONFIDENCE);
         }
 
+        // A shop whose payee name says what it sells -- see ShopTradeCategory. In place of "Other"
+        // only, and before the person rule: a shop's name often reads as a person's.
+        Optional<String> shopTrade = com.finora.util.ShopTradeCategory.of(description, direction);
+        if (shopTrade.isPresent()) {
+            return new Suggestion(shopTrade.get(), "rule", merchant.getId(), Transaction.DecisionSource.KEYWORD_MATCH, null,
+                    ConfidenceEngine.INITIAL_RULE_CONFIDENCE);
+        }
         if (PersonToPersonTransferDetector.isNamedIndividualTransfer(description)) {
             return new Suggestion(P2P_CATEGORY, STRUCTURAL_P2P_SOURCE, merchant.getId(),
                     Transaction.DecisionSource.STRUCTURAL_P2P, null, ConfidenceEngine.INITIAL_STRUCTURAL_CONFIDENCE);
@@ -435,6 +444,13 @@ public class CategorizationService {
                     Transaction.DecisionSource.AI_FALLBACK, null, ConfidenceEngine.INITIAL_AI_FALLBACK_CONFIDENCE);
         }
 
+        // A shop whose payee name says what it sells -- see ShopTradeCategory. In place of "Other"
+        // only, and before the person rule: a shop's name often reads as a person's.
+        Optional<String> shopTrade = com.finora.util.ShopTradeCategory.of(description, direction);
+        if (shopTrade.isPresent()) {
+            return new Suggestion(shopTrade.get(), "rule", merchantId, Transaction.DecisionSource.KEYWORD_MATCH, null,
+                    ConfidenceEngine.INITIAL_RULE_CONFIDENCE);
+        }
         if (PersonToPersonTransferDetector.isNamedIndividualTransfer(description)) {
             return new Suggestion(P2P_CATEGORY, STRUCTURAL_P2P_SOURCE, merchantId,
                     Transaction.DecisionSource.STRUCTURAL_P2P, null, ConfidenceEngine.INITIAL_STRUCTURAL_CONFIDENCE);
@@ -528,6 +544,26 @@ public class CategorizationService {
         if (!ruleCat.equals("Other")) return ruleCat;
         if (trustedMerchantName == null || trustedMerchantName.isBlank()) return ruleCat;
         return CategoryRules.suggestCategory(trustedMerchantName);
+    }
+
+    /**
+     * Whether a suggestion is the shop-trade step's guess (see {@link com.finora.util.ShopTradeCategory})
+     * -- the one engine answer a card statement's printed merchant category still outranks: a trade
+     * word in a payee's name is weaker evidence than the card network's own label for the shop
+     * ("HOTEL ..." printed as lodging was a stay, not a meal). See TransactionNormalizer.
+     *
+     * <p>Recomputed from the description because a Suggestion names no step: "rule" is shared with
+     * the keyword table and bank activity. The trade guess is the "rule" answer the keyword table
+     * did not give for this description and the trade words did. When an approved merchant's name
+     * matched the keyword table with the same category the trade words give, this also says yes;
+     * the printed label then decides, which is the same evidence ordering one step removed.
+     */
+    public static boolean isShopTradeGuess(Suggestion suggestion, String description, Transaction.Type direction) {
+        if (suggestion == null || !"rule".equals(suggestion.source())) return false;
+        if (!"Other".equals(CategoryRules.suggestCategory(description))) return false;
+        return com.finora.util.ShopTradeCategory.of(description, direction)
+                .filter(trade -> trade.equals(suggestion.category()))
+                .isPresent();
     }
 
     /** Whether the AI fallback may be consulted for this narration. Its understanding and

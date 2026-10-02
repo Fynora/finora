@@ -290,6 +290,74 @@ class CategorizationServiceTest {
         assertThat(suggestion.source()).isEqualTo("learned");
     }
 
+    // --- Shop trade words in the payee name (ShopTradeCategory) ---
+
+    @Test
+    void suggest_namesAShopByItsTrade_inPlaceOfOther() {
+        UUID merchantId = UUID.randomUUID();
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
+
+        var suggestion = categorizationService.suggest(userId,
+                "UPI-SAMPLE MEDICAL-Q000000000@YBL-YESB0XXXXXX-000000000000-PAYMENT FROM PHONE",
+                null, null, Transaction.Type.EXPENSE);
+
+        assertThat(suggestion.category()).isEqualTo("Health");
+        assertThat(suggestion.source()).isEqualTo("rule");
+        assertThat(suggestion.decisionSource()).isEqualTo(Transaction.DecisionSource.KEYWORD_MATCH);
+    }
+
+    /** Measured shape: a salon's name reads as a person's to the person-transfer rule. */
+    @Test
+    void suggestReadOnly_aShopWhoseNameReadsAsAPerson_isNamedByItsTrade() {
+        String description = "UPI-ANITA HAIR STUDIO-00000000@IDFCBANK-IDFB0XXXXXX-000000000000-UPI";
+        assertThat(com.finora.util.PersonToPersonTransferDetector.isNamedIndividualTransfer(description))
+                .as("precondition: the person rule alone would call this a personal transfer").isTrue();
+
+        var suggestion = categorizationService.suggestReadOnly(List.of(), userId, description, null, null, null,
+                Transaction.Type.EXPENSE, null);
+
+        assertThat(suggestion.category()).isEqualTo("Personal Care");
+        assertThat(suggestion.source()).isEqualTo("rule");
+    }
+
+    @Test
+    void suggestReadOnly_theKeywordTableStillWinsOverATradeWord() {
+        var suggestion = categorizationService.suggestReadOnly(List.of(), userId,
+                "UPI-SAMPLE HOTEL BOOKING-Q000000000@YBL-YESB0XXXXXX-000000000000-PAYMENT FROM PHONE",
+                null, null, null, Transaction.Type.EXPENSE, null);
+
+        assertThat(suggestion.category()).isEqualTo("Travel");
+    }
+
+    @Test
+    void isShopTradeGuess_tellsTheTradeStepFromTheOtherRuleSteps() {
+        String shop = "UPI-HOTEL SAMPLE-Q000000000@YBL-YESB0XXXXXX-000000000000-PAYMENT FROM PHONE";
+        var trade = new CategorizationService.Suggestion("Dining", "rule", null, null, null);
+        assertThat(CategorizationService.isShopTradeGuess(trade, shop, Transaction.Type.EXPENSE)).isTrue();
+
+        // The keyword table's own answer.
+        var keyword = new CategorizationService.Suggestion("Dining", "rule", null, null, null);
+        assertThat(CategorizationService.isShopTradeGuess(keyword, "SWIGGY ORDER 000000", Transaction.Type.EXPENSE))
+                .isFalse();
+        // Bank activity, which also says "rule".
+        var gst = new CategorizationService.Suggestion("Taxes", "rule", null, null, null);
+        assertThat(CategorizationService.isShopTradeGuess(gst, "GST ON CHARGES", Transaction.Type.EXPENSE)).isFalse();
+        // A learned or user-rule answer that happens to agree with the trade words.
+        var learned = new CategorizationService.Suggestion("Dining", "learned", null, null, null);
+        assertThat(CategorizationService.isShopTradeGuess(learned, shop, Transaction.Type.EXPENSE)).isFalse();
+        assertThat(CategorizationService.isShopTradeGuess(null, shop, Transaction.Type.EXPENSE)).isFalse();
+    }
+
+    @Test
+    void suggestReadOnly_moneyFromAShop_isNotNamedByItsTrade() {
+        var suggestion = categorizationService.suggestReadOnly(List.of(), userId,
+                "UPI-SAMPLE MEDICAL-Q000000000@YBL-YESB0XXXXXX-000000000000-REFUND",
+                null, null, null, Transaction.Type.INCOME, null);
+
+        assertThat(suggestion.category()).isNotEqualTo("Health");
+    }
+
     @Test
     void decisionSourceFor_mapsStructuralP2pString() {
         assertThat(CategorizationService.decisionSourceFor("structural_p2p"))

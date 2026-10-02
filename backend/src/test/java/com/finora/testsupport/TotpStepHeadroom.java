@@ -15,9 +15,13 @@ import java.time.Instant;
  * {@code AdminMfaReplayIT.claimStepOnlyMovesForward}'s intermittent failure on main (2026-09-23),
  * reproduced on demand by starting the test 100 ms before a boundary.
  *
- * <p>Waiting until at least {@link #HEADROOM_MILLIS} remain in the current step before a test
- * starts makes that impossible: every test in these classes finishes its clock-sensitive calls
- * well inside that margin (measured: under one second).
+ * <p>Waiting until at least {@link #HEADROOM_MILLIS} remain in the current step makes that
+ * impossible, but only if nothing slow sits between the wait and the request that checks the
+ * code. Call it immediately before computing the code, not at the start of a test that then makes
+ * other requests first. A password sign-in hashes the password, and on a heavily loaded machine
+ * a user save plus a sign-in took 9.4 seconds (measured, 2026-10-03), which is how
+ * {@code AdminMfaReplayIT} still failed in full-suite runs while it waited only in
+ * {@code @BeforeEach}. The confirm request itself took under 60 ms under the same load.
  */
 public final class TotpStepHeadroom {
 

@@ -5,6 +5,8 @@ import com.finora.entity.CategoryRule;
 import com.finora.entity.RecurringDismissal;
 import com.finora.entity.Transaction;
 import com.finora.repository.AccountRepository;
+import com.finora.repository.CategoryRepository;
+import com.finora.repository.CategoryRuleRepository;
 import com.finora.repository.RecurringDismissalRepository;
 import com.finora.repository.TransactionRepository;
 import org.springframework.stereotype.Service;
@@ -71,17 +73,22 @@ public class RecurringService {
     private final AuditService auditService;
     private final FeatureFlagService featureFlagService;
     private final RecurringDismissalRepository recurringDismissalRepository;
+    private final CategoryRuleRepository categoryRuleRepository;
+    private final CategoryRepository categoryRepository;
 
     public RecurringService(TransactionRepository transactionRepository, AccountRepository accountRepository,
                              RuleEngineService ruleEngineService,
                              AuditService auditService, FeatureFlagService featureFlagService,
-                             RecurringDismissalRepository recurringDismissalRepository) {
+                             RecurringDismissalRepository recurringDismissalRepository,
+                             CategoryRuleRepository categoryRuleRepository, CategoryRepository categoryRepository) {
         this.transactionRepository = transactionRepository;
         this.accountRepository = accountRepository;
         this.ruleEngineService = ruleEngineService;
         this.auditService = auditService;
         this.featureFlagService = featureFlagService;
         this.recurringDismissalRepository = recurringDismissalRepository;
+        this.categoryRuleRepository = categoryRuleRepository;
+        this.categoryRepository = categoryRepository;
     }
 
     /**
@@ -97,6 +104,9 @@ public class RecurringService {
     @Transactional
     public void dismiss(UUID userId, String merchant) {
         recurringDismissalRepository.insertIfAbsent(userId, merchant);
+        // Telemetry for the recurring-payment question: how often a group is dismissed rather than
+        // answered (see the spec's Telemetry section).
+        auditService.record(userId, "RECURRING_DISMISSED", "Transaction", null, Map.of("merchant", merchant));
     }
 
     /**
@@ -108,6 +118,54 @@ public class RecurringService {
     @Transactional
     public void confirm(UUID userId, String merchant) {
         auditService.record(userId, "RECURRING_CONFIRMED", "Transaction", null, Map.of("merchant", merchant));
+    }
+
+    /** The payee labels this user dismissed from the recurring list, as stored. */
+    public Set<String> dismissedPayees(UUID userId) {
+        return recurringDismissalRepository.findByUserId(userId).stream()
+                .map(RecurringDismissal::getMerchant).collect(java.util.stream.Collectors.toSet());
+    }
+
+    /**
+     * The recurring-payment question's state for one detected group. A saved answer (any category,
+     * including "Other") stops the question; it is ANSWERED while its range covers the latest
+     * payment the user did not file by hand ({@code latest}, null when they filed every one) and
+     * AMOUNT_CHANGED once it does not. Without one, the group is asked about only when every
+     * payment is still an unconfirmed engine guess.
+     */
+    private static RecurringDto.QuestionState questionState(List<Transaction> group, Transaction latest,
+                                                            CategoryRule answer, Map<UUID, String> categoryNames) {
+        if (answer != null) {
+            return latest == null || withinBounds(answer, latest.getAmount())
+                    ? RecurringDto.QuestionState.ANSWERED : RecurringDto.QuestionState.AMOUNT_CHANGED;
+        }
+        return group.stream().allMatch(t -> isUnconfirmedGuess(t, categoryNames))
+                ? RecurringDto.QuestionState.NEEDS_ANSWER : RecurringDto.QuestionState.NONE;
+    }
+
+    /** "Other", or a "Personal Transfer" the person-transfer rule guessed -- and never a row the user set. */
+    private static boolean isUnconfirmedGuess(Transaction t, Map<UUID, String> categoryNames) {
+        if (t.isCategoryManuallySet()) return false;
+        String name = categoryNames.get(t.getCategoryId());
+        if ("Other".equals(name)) return true;
+        return CategorizationService.P2P_CATEGORY.equals(name)
+                && t.getDecisionSource() == Transaction.DecisionSource.STRUCTURAL_P2P;
+    }
+
+    /** The same inclusive bounds RuleEngineService applies; a null bound is open on that side. */
+    private static boolean withinBounds(CategoryRule rule, BigDecimal amount) {
+        if (amount == null) return rule.getAmountMin() == null && rule.getAmountMax() == null;
+        if (rule.getAmountMin() != null && amount.compareTo(rule.getAmountMin()) < 0) return false;
+        return rule.getAmountMax() == null || amount.compareTo(rule.getAmountMax()) <= 0;
+    }
+
+    private static String mostCommonCategory(List<Transaction> group, Map<UUID, String> categoryNames) {
+        Map<String, Long> counts = new LinkedHashMap<>();
+        for (Transaction t : group) {
+            String name = categoryNames.get(t.getCategoryId());
+            if (name != null) counts.merge(name, 1L, Long::sum);
+        }
+        return counts.entrySet().stream().max(Map.Entry.comparingByValue()).map(Map.Entry::getKey).orElse(null);
     }
 
     @Transactional
@@ -149,6 +207,15 @@ public class RecurringService {
         Map<UUID, Boolean> desiredRecurring = new HashMap<>();
         active.forEach(t -> desiredRecurring.put(t.getId(), false));
 
+        // Loaded once per call, for the recurring-payment question's state on each group: the user's
+        // category names (to tell "Other" and a guessed "Personal Transfer" from a real category)
+        // and their saved answers (USER-scope PAYEE rules), keyed by lower-cased payee label.
+        Map<UUID, String> categoryNames = new HashMap<>();
+        categoryRepository.findByUserId(userId).forEach(c -> categoryNames.put(c.getId(), c.getName()));
+        Map<String, CategoryRule> answers = new HashMap<>();
+        categoryRuleRepository.findUserPayeeRules(userId).forEach(r ->
+                answers.putIfAbsent(r.getComparisonValue().trim().toLowerCase(Locale.ROOT), r));
+
         List<RecurringDto> results = new ArrayList<>();
         for (var entry : byMerchant.entrySet()) {
             List<Transaction> group = entry.getValue();
@@ -181,8 +248,20 @@ public class RecurringService {
                 // decision about what counts as "regular," not something this fix should invent.
                 String label = avgGap < 10 ? "Weekly" : avgGap < 20 ? "Biweekly" : avgGap < 40 ? "Monthly" : "Quarterly";
                 LocalDate lastDate = group.get(group.size() - 1).getTxnDate();
+                // The payment the question is about: the latest one the user did not file by hand. A
+                // payment they filed themselves (a one-off deposit moved to its own category) is
+                // already decided, so it neither makes a saved answer "amount changed" nor is shown.
+                Transaction latest = null;
+                for (int i = group.size() - 1; i >= 0 && latest == null; i--) {
+                    if (!group.get(i).isCategoryManuallySet()) latest = group.get(i);
+                }
+                CategoryRule answer = answers.get(entry.getKey().trim().toLowerCase(Locale.ROOT));
                 results.add(new RecurringDto(entry.getKey(), label, avgAmount, group.size(),
-                        lastDate, lastDate.plusDays(Math.round(avgGap))));
+                        lastDate, lastDate.plusDays(Math.round(avgGap)),
+                        mostCommonCategory(group, categoryNames),
+                        (latest != null ? latest : group.get(group.size() - 1)).getAmount(),
+                        answer == null ? null : answer.getActionValue(),
+                        questionState(group, latest, answer, categoryNames)));
             }
         }
 
@@ -248,8 +327,7 @@ public class RecurringService {
         // Applied to the DETECTION results only, after the write path above -- a dismissed group's
         // transactions still get their Transaction.recurring flag maintained normally (see dismiss's
         // own doc comment), this just keeps it out of what the caller sees.
-        Set<String> dismissedMerchants = recurringDismissalRepository.findByUserId(userId).stream()
-                .map(RecurringDismissal::getMerchant).collect(java.util.stream.Collectors.toSet());
+        Set<String> dismissedMerchants = dismissedPayees(userId);
         results.removeIf(r -> dismissedMerchants.contains(r.merchant()));
 
         results.sort(Comparator.comparing(RecurringDto::nextEstimate));

@@ -884,6 +884,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/recurring/categorize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["categorize"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/phone/verify": {
         parameters: {
             query?: never;
@@ -3316,6 +3332,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/recurring/changed-amounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["changedAmounts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/onboarding/status": {
         parameters: {
             query?: never;
@@ -5481,6 +5513,8 @@ export interface components {
             matchCount?: number;
             /** Format: date-time */
             lastMatchedAt?: string;
+            amountMin?: number;
+            amountMax?: number;
         };
         ApiResponseRelationshipDto: {
             success?: boolean;
@@ -6439,6 +6473,10 @@ export interface components {
         ConfirmRecurringRequest: {
             merchant: string;
         };
+        CategorizeRecurringRequest: {
+            merchant: string;
+            category: string;
+        };
         VerifyPhoneRequest: {
             firebaseIdToken: string;
         };
@@ -7158,6 +7196,9 @@ export interface components {
             sampleAmount?: number;
             sampleMerchant?: string;
             sampleAccountType?: string;
+            sampleDirection?: string;
+            amountMin?: number;
+            amountMax?: number;
         };
         ApiResponseTestResult: {
             success?: boolean;
@@ -8313,6 +8354,32 @@ export interface components {
             lastDate?: string;
             /** Format: date */
             nextEstimate?: string;
+            category?: string;
+            latestAmount?: number;
+            answer?: string;
+            /** @enum {string} */
+            state?: "NEEDS_ANSWER" | "ANSWERED" | "AMOUNT_CHANGED" | "NONE";
+        };
+        ApiResponseListChangedAmountDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["ChangedAmountDto"][];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        ChangedAmountDto: {
+            merchant?: string;
+            category?: string;
+            latestAmount?: number;
+            /** Format: date */
+            latestDate?: string;
+            amountMin?: number;
+            amountMax?: number;
         };
         ApiResponseChecklistResponse: {
             success?: boolean;
@@ -12544,6 +12611,30 @@ export interface operations {
             };
         };
     };
+    categorize: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CategorizeRecurringRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
     verify: {
         parameters: {
             query?: never;
@@ -16677,6 +16768,26 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseListRecurringDto"];
+                };
+            };
+        };
+    };
+    changedAmounts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListChangedAmountDto"];
                 };
             };
         };

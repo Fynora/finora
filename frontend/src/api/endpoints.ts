@@ -860,6 +860,7 @@ export interface InsightsData {
   biggestCategory?: CategoryHighlight | null;
   topMerchant?: MerchantHighlight | null;
 }
+export type RecurringQuestionState = 'NEEDS_ANSWER' | 'ANSWERED' | 'AMOUNT_CHANGED' | 'NONE';
 export interface RecurringItem {
   merchant: string;
   label: string;
@@ -867,6 +868,20 @@ export interface RecurringItem {
   occurrences: number;
   lastDate: string;
   nextEstimate: string;
+  // The recurring-payment question (backend RecurringDto). Optional: an older backend omits them.
+  category?: string | null;
+  latestAmount?: number | null;
+  answer?: string | null;
+  state?: RecurringQuestionState;
+}
+/** A saved answer whose payee's latest payment left the saved range (backend ChangedAmountDto). */
+export interface ChangedAmountItem {
+  merchant: string;
+  category: string;
+  latestAmount: number;
+  latestDate: string;
+  amountMin: number | null;
+  amountMax: number | null;
 }
 export const recurringApi = {
   list: () => api.get<RecurringItem[]>('/recurring').then((r) => r.data),
@@ -878,6 +893,11 @@ export const recurringApi = {
   // own doc comment) -- this exists purely to give the "Fynora will remember this" reinforcement
   // copy a real action to fire on.
   confirm: (merchant: string) => api.post<void>('/recurring/confirm', { merchant }).then((r) => r.data),
+  // The recurring-payment question: what this repeating payment is for. Saved as the user's rule
+  // for the payee and a similar amount; past payments in that range are re-filed.
+  categorize: (merchant: string, category: string) =>
+    api.post<void>('/recurring/categorize', { merchant, category }).then((r) => r.data),
+  changedAmounts: () => api.get<ChangedAmountItem[]>('/recurring/changed-amounts').then((r) => r.data),
 };
 
 export const insightsApi = {

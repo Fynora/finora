@@ -9,7 +9,6 @@ import com.finora.repository.AdminTotpCredentialRepository;
 import com.finora.repository.UserRepository;
 import com.finora.security.mfa.TotpGenerator;
 import com.finora.testsupport.TotpStepHeadroom;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -51,13 +50,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 @TestPropertySource(properties = {"app.admin-mfa.enabled=true", "app.admin-mfa.enforced=true"})
 class AdminMfaReplayIT extends AbstractIntegrationTest {
 
-    /** Every code these tests compute is checked by the server a few HTTP calls later -- see
-     *  TotpStepHeadroom for why a step boundary in between made them fail intermittently. */
-    @BeforeEach
-    void clearOfAStepBoundary() throws InterruptedException {
-        TotpStepHeadroom.await();
-    }
-
     private static final String PASSWORD = "Replay-Test-Pass-77-Fixture";
 
     /** A step comfortably later than any the enrolment or a sign-in in these tests can record
@@ -74,8 +66,12 @@ class AdminMfaReplayIT extends AbstractIntegrationTest {
 
     private final ObjectMapper mapper = new ObjectMapper();
 
-    /** An admin who has finished enrolment, with the secret their "authenticator app" holds. */
-    private record Admin(UUID id, String email, String secret) {}
+    /** Enrolment uses the previous step's code, so the current step is still free for a sign-in. */
+    private static final long PREVIOUS_STEP = -30L;
+
+    /** An admin who has finished enrolment, with the secret their "authenticator app" holds and
+     *  the moment whose code completed the enrolment. */
+    private record Admin(UUID id, String email, String secret, Instant enrolCodeAt) {}
 
     private HttpHeaders json() {
         HttpHeaders headers = new HttpHeaders();
@@ -92,8 +88,8 @@ class AdminMfaReplayIT extends AbstractIntegrationTest {
     }
 
     /** Creates an admin, signs in (allowed while unenrolled), and enrols using the code for
-     *  {@code enrolCodeAt}. */
-    private Admin enrolledAdmin(Instant enrolCodeAt) throws Exception {
+     *  {@code offsetSeconds} from the moment the code is sent. */
+    private Admin enrolledAdmin(long offsetSeconds) throws Exception {
         User user = new User();
         user.setEmail("mfa-replay-it-" + UUID.randomUUID() + "@example.test");
         user.setPasswordHash(passwordEncoder.encode(PASSWORD));
@@ -110,10 +106,19 @@ class AdminMfaReplayIT extends AbstractIntegrationTest {
 
         String secret = mapper.readTree(post(session, "/api/v1/admin-mfa/enroll", null).getBody())
                 .at("/data/secret").asText();
+
+        // The code is computed here, immediately before the request that checks it, not before
+        // the user save and password login above. Both of those hash a password, and on a heavily
+        // loaded machine they took 9.4 seconds between them (measured, 2026-10-03): long enough
+        // for a "previous step" code computed up front to be two steps old by the time the server
+        // read its clock, which the +/-1 step window refuses with 401. See TotpStepHeadroom.
+        TotpStepHeadroom.await();
+        Instant enrolCodeAt = Instant.now().plusSeconds(offsetSeconds);
         ResponseEntity<String> confirm = post(session, "/api/v1/admin-mfa/confirm",
                 "{\"code\":\"" + TotpGenerator.codeAt(secret, enrolCodeAt) + "\"}");
-        assertThat(confirm.getStatusCode()).isEqualTo(HttpStatus.OK);
-        return new Admin(user.getId(), user.getEmail(), secret);
+        assertThat(confirm.getStatusCode()).as("enrolment confirm: %s", confirm.getBody())
+                .isEqualTo(HttpStatus.OK);
+        return new Admin(user.getId(), user.getEmail(), secret, enrolCodeAt);
     }
 
     /** A fresh password sign-in for an enrolled admin, which stops at the code prompt. */
@@ -146,7 +151,7 @@ class AdminMfaReplayIT extends AbstractIntegrationTest {
     @Test
     @DisplayName("a code that has signed someone in cannot sign anyone in again")
     void aCodeWorksOnce() throws Exception {
-        Admin admin = enrolledAdmin(Instant.now().minusSeconds(30));
+        Admin admin = enrolledAdmin(PREVIOUS_STEP);
         Instant at = Instant.now();
         String code = TotpGenerator.codeAt(admin.secret(), at);
 
@@ -169,16 +174,16 @@ class AdminMfaReplayIT extends AbstractIntegrationTest {
     @Test
     @DisplayName("the code typed to finish enrolment cannot also open the very next sign-in")
     void theEnrolmentCodeCountsAsUsed() throws Exception {
-        Instant at = Instant.now();
-        Admin admin = enrolledAdmin(at);
+        Admin admin = enrolledAdmin(0);
 
-        assertRefusedAsInvalidCode(verify(challengeFor(admin), TotpGenerator.codeAt(admin.secret(), at)));
+        assertRefusedAsInvalidCode(verify(challengeFor(admin),
+                TotpGenerator.codeAt(admin.secret(), admin.enrolCodeAt())));
     }
 
     @Test
     @DisplayName("two requests carrying the same fresh code at the same moment: exactly one gets in")
     void simultaneousRequestsWithTheSameCodeAreSerialised() throws Exception {
-        Admin admin = enrolledAdmin(Instant.now().minusSeconds(30));
+        Admin admin = enrolledAdmin(PREVIOUS_STEP);
         String code = TotpGenerator.currentCode(admin.secret());
         String challengeA = challengeFor(admin);
         String challengeB = challengeFor(admin);
@@ -203,7 +208,7 @@ class AdminMfaReplayIT extends AbstractIntegrationTest {
     @Test
     @DisplayName("claiming a step is atomic: under contention exactly one caller wins, every round")
     void claimStepHasExactlyOneWinnerUnderContention() throws Exception {
-        Admin admin = enrolledAdmin(Instant.now().minusSeconds(30));
+        Admin admin = enrolledAdmin(PREVIOUS_STEP);
         int threads = 8;
         ExecutorService pool = Executors.newFixedThreadPool(threads);
         try {
@@ -234,7 +239,7 @@ class AdminMfaReplayIT extends AbstractIntegrationTest {
     @Test
     @DisplayName("a step at or below the recorded one can never be claimed, only a later one")
     void claimStepOnlyMovesForward() throws Exception {
-        Admin admin = enrolledAdmin(Instant.now().minusSeconds(30));
+        Admin admin = enrolledAdmin(PREVIOUS_STEP);
 
         long step = FUTURE_STEP.getAsLong();
 
@@ -248,7 +253,7 @@ class AdminMfaReplayIT extends AbstractIntegrationTest {
     @Test
     @DisplayName("an ordinary save of a stale copy of the row cannot overwrite a claimed step")
     void aStaleEntityCannotWriteBackAnOlderStep() throws Exception {
-        Admin admin = enrolledAdmin(Instant.now().minusSeconds(30));
+        Admin admin = enrolledAdmin(PREVIOUS_STEP);
         // A copy read before another request claims a step, then saved after: the shape of the
         // overwrite the read-only column mapping exists to prevent.
         AdminTotpCredential stale = credentials.findByUserId(admin.id()).orElseThrow();

@@ -2653,6 +2653,36 @@
                 }
             }
         },
+        "/api/v1/recurring/categorize": {
+            "post": {
+                "tags": [
+                    "recurring-controller"
+                ],
+                "operationId": "categorize",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CategorizeRecurringRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/phone/verify": {
             "post": {
                 "tags": [
@@ -8231,6 +8261,26 @@
                 }
             }
         },
+        "/api/v1/recurring/changed-amounts": {
+            "get": {
+                "tags": [
+                    "recurring-controller"
+                ],
+                "operationId": "changedAmounts",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseListChangedAmountDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/onboarding/status": {
             "get": {
                 "tags": [
@@ -12442,6 +12492,12 @@
                     "lastMatchedAt": {
                         "type": "string",
                         "format": "date-time"
+                    },
+                    "amountMin": {
+                        "type": "number"
+                    },
+                    "amountMax": {
+                        "type": "number"
                     }
                 }
             },
@@ -15040,6 +15096,25 @@
                     "merchant"
                 ]
             },
+            "CategorizeRecurringRequest": {
+                "type": "object",
+                "properties": {
+                    "merchant": {
+                        "type": "string",
+                        "maxLength": 255,
+                        "minLength": 0
+                    },
+                    "category": {
+                        "type": "string",
+                        "maxLength": 100,
+                        "minLength": 0
+                    }
+                },
+                "required": [
+                    "category",
+                    "merchant"
+                ]
+            },
             "VerifyPhoneRequest": {
                 "type": "object",
                 "properties": {
@@ -16994,6 +17069,15 @@
                     },
                     "sampleAccountType": {
                         "type": "string"
+                    },
+                    "sampleDirection": {
+                        "type": "string"
+                    },
+                    "amountMin": {
+                        "type": "number"
+                    },
+                    "amountMax": {
+                        "type": "number"
                     }
                 },
                 "required": [
@@ -19957,6 +20041,79 @@
                     "nextEstimate": {
                         "type": "string",
                         "format": "date"
+                    },
+                    "category": {
+                        "type": "string"
+                    },
+                    "latestAmount": {
+                        "type": "number"
+                    },
+                    "answer": {
+                        "type": "string"
+                    },
+                    "state": {
+                        "type": "string",
+                        "enum": [
+                            "NEEDS_ANSWER",
+                            "ANSWERED",
+                            "AMOUNT_CHANGED",
+                            "NONE"
+                        ]
+                    }
+                }
+            },
+            "ApiResponseListChangedAmountDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ChangedAmountDto"
+                        }
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "ChangedAmountDto": {
+                "type": "object",
+                "properties": {
+                    "merchant": {
+                        "type": "string"
+                    },
+                    "category": {
+                        "type": "string"
+                    },
+                    "latestAmount": {
+                        "type": "number"
+                    },
+                    "latestDate": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "amountMin": {
+                        "type": "number"
+                    },
+                    "amountMax": {
+                        "type": "number"
                     }
                 }
             },

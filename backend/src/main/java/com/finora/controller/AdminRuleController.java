@@ -68,7 +68,8 @@ public class AdminRuleController {
     public ApiResponse<RuleDto.TestResult> test(@Valid @RequestBody RuleDto.TestRequest request) {
         boolean matches = ruleEngineService.testMatch(
                 request.field(), request.operator(), request.comparisonValue(),
-                request.sampleDescription(), request.sampleAmount(), request.sampleMerchant(), request.sampleAccountType());
+                request.sampleDescription(), request.sampleAmount(), request.sampleMerchant(), request.sampleAccountType(),
+                request.sampleDirection(), request.amountMin(), request.amountMax());
         return ApiResponse.ok(new RuleDto.TestResult(matches));
     }
 }

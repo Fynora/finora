@@ -3,6 +3,21 @@ spring:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:finora_test}
   jpa:
     show-sql: false
+  # Test profile only; production stays at application.yml's deliberate 200ms. Lettuce uses this
+  # same value as its connection-initialization (handshake) deadline, and the timer starts as soon
+  # as the channel registers. In a fresh Spring context the first Redis call is
+  # AbstractIntegrationTest.resetRedisBackedLimiterState(). On a machine running several
+  # Testcontainers suites at once, that first handshake overran 200ms and errored a test with
+  # "Connection initialization timed out after 200 millisecond(s)" (AuthFlowIT and
+  # PasswordChangeFlowIT, 2026-10-02). Measured under synthetic CPU load inside the Docker VM and
+  # on the host: the first connection in a fresh JVM failed this way in 4 of 6 runs at 200ms (one
+  # more failed a PING at 200ms instead) and in 0 of 6 runs at 1000ms. Every handshake failure was
+  # on the JVM's first connection. connect-timeout stays at 200ms: no failure involved it.
+  # Cost: tests that cut the connection through Toxiproxy wait this long for each Redis call they
+  # make during the cut, so do not raise it further without measuring that.
+  data:
+    redis:
+      timeout: 1000ms
 
 logging:
   level:

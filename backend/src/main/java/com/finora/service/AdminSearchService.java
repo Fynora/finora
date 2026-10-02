@@ -59,16 +59,17 @@ public class AdminSearchService {
     public List<SearchResultDto> search(String rawQuery) {
         String trimmed = rawQuery == null ? "" : rawQuery.trim();
         if (trimmed.isEmpty()) return List.of();
-        // Escaped once here rather than in each searchX() below -- all three repository queries
-        // this fans out to bind the term into a LIKE, where % and _ are wildcards even inside a
-        // bound parameter. See LikePatterns.
+        // Escaped once here rather than in each searchX() below -- the three repository queries
+        // bind the term into a LIKE, where % and _ are wildcards even inside a bound parameter.
+        // See LikePatterns. Global Rules is filtered in memory with String.contains instead, so it
+        // takes the raw term: the escape backslashes would be literal characters there.
         String q = LikePatterns.escape(trimmed);
 
         List<SearchResultDto> results = new ArrayList<>();
         results.addAll(searchUsers(q));
         results.addAll(searchMerchants(q));
         results.addAll(searchBanks(q));
-        results.addAll(searchGlobalRules(q));
+        results.addAll(searchGlobalRules(trimmed));
         return results;
     }
 
@@ -91,8 +92,8 @@ public class AdminSearchService {
                 .toList();
     }
 
-    private List<SearchResultDto> searchGlobalRules(String q) {
-        String needle = q.toLowerCase(Locale.ROOT);
+    private List<SearchResultDto> searchGlobalRules(String rawTerm) {
+        String needle = rawTerm.toLowerCase(Locale.ROOT);
         // A total order, so with more hits than PER_TYPE_LIMIT the same five are shown every time:
         // the earliest by priority, then comparison value, then id.
         return categoryRuleRepository.findByScopeOrderByPriorityAscComparisonValueAscIdAsc(CategoryRule.Scope.GLOBAL).stream()

@@ -24,12 +24,22 @@ import java.util.Map;
  * like "AMAZON SELLER SERVICES", "Amazon Pay", and "Amazon Marketplace" under one identity.
  *
  * Exact alias matching (same normalized description seen before) always wins first. For a
- * genuinely new description, grouping is done by the FIRST significant token of the normalized
- * text ("amazon" from all three examples above) — a deliberately simple heuristic, not fuzzy
- * matching or NLP. It correctly groups the common case (a brand name as the first word) and
- * will miss less obvious cases (e.g. a payment processor's legal name that doesn't share a
- * token with the brand it processes for) — those are exactly what the manual "merge merchants"
- * feature exists to fix by hand, rather than trying to make the heuristic itself smarter.
+ * genuinely new description there are two matches, in this order (see {@link #groupingKey}):
+ *
+ * <ol>
+ *   <li>the FIRST TWO significant tokens of the payee, against every merchant's canonical name
+ *       reduced the same way -- "rajesh tea" for "UPI/.../RAJESH TEA CAFE";</li>
+ *   <li>the first significant token alone, but only against an APPROVED merchant whose canonical
+ *       name is that one word -- the curated brands {@link MerchantSeedService} gives every user
+ *       ("amazon" from all three examples above), or a merchant a person has confirmed.</li>
+ * </ol>
+ *
+ * A deliberately simple heuristic, not fuzzy matching or NLP. Two spellings of an unseeded brand
+ * that differ in their second word ("zepto" and "zepto marketplace") stay two merchants; that is
+ * what the manual "merge merchants" feature exists to fix by hand, and it is the failure this
+ * class can afford. The opposite failure -- two unrelated payees pooled into one merchant -- is
+ * not, because a merchant's learned category is then applied to both. See {@link #groupingKey}
+ * for what the first-token-only key it replaced did on the real corpus.
  *
  * <h2>The N+1 that used to be here, and why the decision to keep it was reversed (Bug 35)</h2>
  *
@@ -66,9 +76,9 @@ import java.util.Map;
  *       500 loads became 1, with no behavioural change: same rows, same comparison, same first
  *       winner.</li>
  *
- *   <li><b>Persist the normalised first token as an indexed column.</b> Still the most principled
- *       fix and still not done, for the reason recorded before: the token is computed by
- *       {@code CategoryRules.normalize} + {@code firstSignificantToken} in Java, so the column
+ *   <li><b>Persist the normalised grouping key as an indexed column.</b> Still the most principled
+ *       fix and still not done, for the reason recorded before: the key is computed by
+ *       {@code CategoryRules.normalize} + {@code groupingKey} in Java, so the column
  *       needs a backfill reproducing that logic in SQL exactly, plus a standing obligation to
  *       recompute it wherever a canonical name changes (admin rename and merge). A backfill that
  *       is subtly different silently stops matching merchants that used to match. Revisit if one
@@ -156,16 +166,12 @@ public class MerchantNormalizationEngine {
             return repointDanglingAlias(userId, description, existingAlias.get());
         }
 
-        // extractMerchant, not the raw normalised alias -- see firstSignificantToken for why the
-        // two sides of this comparison must be reduced by the same rule, and what breaks when
-        // they are not.
-        String firstToken = firstSignificantToken(CategoryRules.extractMerchant(description));
-        if (firstToken != null) {
-            var candidate = merchantsByFirstToken(userId).get(firstToken);
-            if (candidate != null) {
-                addAlias(candidate.getId(), userId, normalizedAlias);
-                return candidate;
-            }
+        // extractMerchant, not the raw normalised alias -- see groupingKey for why the two sides
+        // of this comparison must be reduced by the same rule, and what breaks when they are not.
+        var candidate = merchantsByGroupingKey(userId).match(CategoryRules.extractMerchant(description));
+        if (candidate != null) {
+            addAlias(candidate.getId(), userId, normalizedAlias);
+            return candidate;
         }
 
         Merchant created = createMerchantAndAlias(userId, description, normalizedAlias);
@@ -178,7 +184,7 @@ public class MerchantNormalizationEngine {
     }
 
     /**
-     * The user's merchants indexed by first significant token, loaded at most once per transaction.
+     * The user's merchants indexed for {@link Grouping#match}, loaded at most once per transaction.
      *
      * <p><b>Bug 35.</b> This lookup used to be
      * {@code merchantRepository.findByUserId(userId).stream().filter(...)} — a full load of every
@@ -190,12 +196,11 @@ public class MerchantNormalizationEngine {
      * and permitted 10 MB uploads never completing.
      *
      * <p>Memoized per transaction rather than indexed by a stored column. An indexed lookup would
-     * be faster still, but the token is computed by {@code CategoryRules.normalize} +
-     * {@link #firstSignificantToken} in Java, so a column would need a backfill that reproduces
-     * that logic in SQL exactly — and a backfill that is subtly different silently stops matching
-     * merchants that used to match. Memoizing changes no behaviour at all: the same rows, the same
-     * comparison, the same first winner. It only stops asking the database the identical question
-     * once per row.
+     * be faster still, but the key is computed by {@code CategoryRules.normalize} +
+     * {@link #groupingKey} in Java, so a column would need a backfill that reproduces that logic in
+     * SQL exactly — and a backfill that is subtly different silently stops matching merchants that
+     * used to match. Memoizing changes no behaviour at all: the same rows, the same comparison, the
+     * same first winner. It only stops asking the database the identical question once per row.
      *
      * <p>Scoped to the transaction, not to the bean, deliberately. A longer-lived cache would go
      * stale against other users' writes and would need invalidation this class has no way to
@@ -205,16 +210,15 @@ public class MerchantNormalizationEngine {
      * being transactional.
      *
      * <p>First match wins, matching the previous {@code findFirst()} on an unordered query. The
-     * memo therefore keeps the FIRST merchant seen for a token rather than the last.
+     * memo therefore keeps the FIRST merchant seen for a key rather than the last.
      */
-    private Map<String, Merchant> merchantsByFirstToken(UUID userId) {
+    private Grouping merchantsByGroupingKey(UUID userId) {
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            return indexByFirstToken(merchantRepository.findByUserId(userId));
+            return Grouping.of(merchantRepository.findByUserId(userId));
         }
 
         @SuppressWarnings("unchecked")
-        Map<UUID, Map<String, Merchant>> perUser =
-                (Map<UUID, Map<String, Merchant>>) TransactionSynchronizationManager.getResource(MEMO_KEY);
+        Map<UUID, Grouping> perUser = (Map<UUID, Grouping>) TransactionSynchronizationManager.getResource(MEMO_KEY);
         if (perUser == null) {
             perUser = new HashMap<>();
             TransactionSynchronizationManager.bindResource(MEMO_KEY, perUser);
@@ -227,36 +231,89 @@ public class MerchantNormalizationEngine {
                 }
             });
         }
-        return perUser.computeIfAbsent(userId,
-                id -> indexByFirstToken(merchantRepository.findByUserId(id)));
-    }
-
-    private Map<String, Merchant> indexByFirstToken(List<Merchant> merchants) {
-        Map<String, Merchant> byToken = new HashMap<>();
-        for (Merchant merchant : merchants) {
-            String token = firstSignificantToken(CategoryRules.normalize(merchant.getCanonicalName()));
-            // putIfAbsent: first match wins, which is what findFirst() did.
-            if (token != null) byToken.putIfAbsent(token, merchant);
-        }
-        return byToken;
+        return perUser.computeIfAbsent(userId, id -> Grouping.of(merchantRepository.findByUserId(id)));
     }
 
     private void rememberInMemo(UUID userId, Merchant created) {
         if (!TransactionSynchronizationManager.isSynchronizationActive()) return;
         @SuppressWarnings("unchecked")
-        Map<UUID, Map<String, Merchant>> perUser =
-                (Map<UUID, Map<String, Merchant>>) TransactionSynchronizationManager.getResource(MEMO_KEY);
+        Map<UUID, Grouping> perUser = (Map<UUID, Grouping>) TransactionSynchronizationManager.getResource(MEMO_KEY);
         if (perUser == null) return;
-        Map<String, Merchant> byToken = perUser.get(userId);
-        if (byToken == null) return;
-        String token = firstSignificantToken(CategoryRules.normalize(created.getCanonicalName()));
-        if (token != null) byToken.putIfAbsent(token, created);
+        Grouping grouping = perUser.get(userId);
+        if (grouping != null) grouping.add(created);
+    }
+
+    /**
+     * A user's merchants keyed both ways {@link MerchantNormalizationEngine#match} looks them up.
+     * {@link MerchantNormalizationEngine#indexFor} builds the same thing for a staging pass, so staging and confirm reduce
+     * canonical names by one rule and cannot disagree about which merchant a row belongs to.
+     */
+    private static final class Grouping {
+        private final Map<String, Merchant> byKey = new HashMap<>();
+        private final Map<String, Merchant> byBrand = new HashMap<>();
+
+        static Grouping of(List<Merchant> merchants) {
+            Grouping grouping = new Grouping();
+            merchants.forEach(grouping::add);
+            return grouping;
+        }
+
+        void add(Merchant merchant) {
+            String reduced = CategoryRules.normalize(merchant.getCanonicalName());
+            String key = groupingKey(reduced);
+            // putIfAbsent: first match wins, which is what findFirst() did.
+            if (key != null) byKey.putIfAbsent(key, merchant);
+            String brand = brandToken(merchant, reduced);
+            if (brand != null) byBrand.putIfAbsent(brand, merchant);
+        }
+
+        Merchant match(String extractedMerchant) {
+            return MerchantNormalizationEngine.match(extractedMerchant, byKey::get, byBrand::get);
+        }
+    }
+
+    /**
+     * The one matching rule, shared by the memo above and {@link com.finora.imports.MerchantIndex}:
+     * the two-token {@link #groupingKey} first, then the first significant token against a
+     * one-word APPROVED merchant (see {@link #brandToken} for why only those).
+     */
+    private static Merchant match(String extractedMerchant,
+                                  java.util.function.Function<String, Merchant> byKey,
+                                  java.util.function.Function<String, Merchant> byBrand) {
+        String key = groupingKey(extractedMerchant);
+        if (key == null) return null;
+        Merchant exact = byKey.apply(key);
+        if (exact != null) return exact;
+        List<String> significant = significantTokens(extractedMerchant);
+        return significant.isEmpty() ? null : byBrand.apply(significant.get(0));
+    }
+
+    /**
+     * The one word a merchant answers to on its own, or null when it answers only to its full
+     * {@link #groupingKey}.
+     *
+     * <p>Only an APPROVED merchant whose canonical name is a single significant word qualifies:
+     * the curated brands {@link MerchantSeedService} gives every user ("Swiggy", "Zepto"), or a
+     * merchant a person has approved, renamed or merged in the Merchant Review Center. A brand's
+     * narrations rarely agree past the first word -- "SWIGGY BANGALORE", "SWIGGY INSTAMART",
+     * "ZEPTO MARKETPLACE PR" -- and these merchants exist precisely to catch all of them.
+     *
+     * <p>A TEMPORARY merchant never qualifies, even when its name is one word. The engine created
+     * it from one narration, and one word of a narration is exactly the key that pooled unrelated
+     * payees before (see {@link #groupingKey}). On the real corpus one row's payee reduced to the
+     * single common word that a clearing house, a railway ticket counter and a food stall share; a
+     * TEMPORARY merchant named that word would have absorbed all three again.
+     */
+    private static String brandToken(Merchant merchant, String reducedCanonicalName) {
+        if (merchant.getLifecycleStatus() != Merchant.Lifecycle.APPROVED) return null;
+        List<String> significant = significantTokens(reducedCanonicalName);
+        return significant.size() == 1 ? significant.get(0) : null;
     }
 
     /**
      * Resolves a description to an existing merchant WITHOUT creating or writing anything (WI3).
      *
-     * <p>Same matching as {@link #resolve} — exact alias first, then first-significant-token — and
+     * <p>Same matching as {@link #resolve} — exact alias first, then the grouping key — and
      * deliberately the same order, so a staged preview shows the merchant a confirm would actually
      * pick. What it does not do is the three writes {@code resolve} performs on a miss: no
      * {@code Merchant} row, no {@code MerchantAlias} row, no alias added to a token match.
@@ -296,9 +353,8 @@ public class MerchantNormalizationEngine {
         // Identical reduction to resolve()'s, deliberately. This method exists so a staged preview
         // shows the merchant a confirm would actually pick; tokenising different text here than
         // resolve() does would break exactly that guarantee.
-        String firstToken = firstSignificantToken(CategoryRules.extractMerchant(description));
-        if (firstToken == null) return java.util.Optional.empty();
-        return java.util.Optional.ofNullable(merchantsByFirstToken(userId).get(firstToken));
+        return java.util.Optional.ofNullable(
+                merchantsByGroupingKey(userId).match(CategoryRules.extractMerchant(description)));
     }
 
     /**
@@ -310,13 +366,11 @@ public class MerchantNormalizationEngine {
      */
     public com.finora.imports.MerchantIndex indexFor(UUID userId) {
         Map<UUID, Merchant> merchantsById = new HashMap<>();
-        Map<String, Merchant> byFirstToken = new HashMap<>();
-        for (Merchant merchant : merchantRepository.findByUserId(userId)) {
-            merchantsById.put(merchant.getId(), merchant);
-            String token = firstSignificantToken(CategoryRules.normalize(merchant.getCanonicalName()));
-            // putIfAbsent: first match wins, matching indexByFirstToken's own tiebreak.
-            if (token != null) byFirstToken.putIfAbsent(token, merchant);
-        }
+        List<Merchant> merchants = merchantRepository.findByUserId(userId);
+        for (Merchant merchant : merchants) merchantsById.put(merchant.getId(), merchant);
+        // The memo's own Grouping, not a second copy of its keying: same keys, same first-wins
+        // tiebreak, so a staged preview cannot pick a different merchant than the confirm will.
+        Grouping grouping = Grouping.of(merchants);
         Map<String, Merchant> byNormalizedAlias = new HashMap<>();
         for (MerchantAlias alias : merchantAliasRepository.findByUserId(userId)) {
             Merchant merchant = merchantsById.get(alias.getMerchantId());
@@ -324,14 +378,14 @@ public class MerchantNormalizationEngine {
             // the same as resolveReadOnly's findByIdAndUserId would.
             if (merchant != null) byNormalizedAlias.put(alias.getNormalizedAlias(), merchant);
         }
-        return new com.finora.imports.MerchantIndex(byNormalizedAlias, byFirstToken);
+        return new com.finora.imports.MerchantIndex(byNormalizedAlias, grouping::match);
     }
 
     /**
      * Same reduction and precedence as {@link #resolveReadOnly(UUID, String)} -- exact alias first,
-     * then first-significant-token -- but against an {@link com.finora.imports.MerchantIndex} the
-     * caller built once for the whole statement via {@link #indexFor}, so this issues no database
-     * queries at all.
+     * then the grouping key -- but against an {@link com.finora.imports.MerchantIndex} the caller
+     * built once for the whole statement via {@link #indexFor}, so this issues no database queries
+     * at all.
      */
     public java.util.Optional<Merchant> resolveReadOnly(UUID userId, String description,
                                                           com.finora.imports.MerchantIndex index) {
@@ -339,9 +393,7 @@ public class MerchantNormalizationEngine {
         Merchant aliased = index.byNormalizedAlias(normalizedAlias);
         if (aliased != null) return java.util.Optional.of(aliased);
 
-        String firstToken = firstSignificantToken(CategoryRules.extractMerchant(description));
-        if (firstToken == null) return java.util.Optional.empty();
-        return java.util.Optional.ofNullable(index.byFirstToken(firstToken));
+        return java.util.Optional.ofNullable(index.byGrouping(CategoryRules.extractMerchant(description)));
     }
 
     private Merchant createMerchantAndAlias(UUID userId, String description, String normalizedAlias) {
@@ -370,7 +422,7 @@ public class MerchantNormalizationEngine {
         // rollback one insert further down rather than removing it.
         merchant.setCanonicalName(fitToColumn(toDisplayName(CategoryRules.extractMerchant(description))));
         // TEMPORARY, because this is a GUESS. Everything reaching this line is a description the
-        // engine has never seen, resolved by a first-significant-token heuristic its own class doc
+        // engine has never seen, resolved by a grouping-key heuristic its own class doc
         // describes as "deliberately simple ... not fuzzy matching or NLP". Marking it says so, and
         // is what lets the Merchant Review Center show an operator the engine's guesses without
         // also showing them every merchant the user has genuinely transacted with.
@@ -495,19 +547,57 @@ public class MerchantNormalizationEngine {
      * rail and reference ("UPI 12345") has no counterparty to group by, and inventing one would be
      * the original bug in miniature. A null key means "create this merchant on its own" — a
      * duplicate the user can merge, which is the failure direction this class can afford.
+     *
+     * <h2>Then: two words, not one</h2>
+     *
+     * <p>The key used to be the first significant word alone. Measured on the real corpus (29
+     * statements, 1,688 rows, each confirmed and then re-suggested once the learning queue had
+     * drained), 94 merchants held more than one payee and 37 rows had their category replaced by
+     * a pooled merchant's learned one -- 31 of them wrongly, because a learned category outranks
+     * the keyword table and the person-transfer rule alike. The first word was often not a name at
+     * all: a narration format whose payee field opens with a preposition pooled six people with a
+     * phone company, and a card's glued direction codes pooled nine unrelated payees. Elsewhere it
+     * was a common word that a clearing house, a railway ticket counter and a food stall all begin
+     * with; or a first name shared by a person and a shop, which had not misfired yet only because
+     * neither side had taught a category. Keying on the first two significant words left none of
+     * the 31.
+     *
+     * <p>What it costs: a brand's narrations stop collapsing when they differ in the second word.
+     * {@link #brandToken} gives that back for the merchants that exist to catch every spelling of a
+     * brand, and nowhere else.
      */
-    private String firstSignificantToken(String normalized) {
-        if (normalized == null || normalized.isBlank()) return null;
-        String[] tokens = normalized.split(" ");
-        for (String t : tokens) {
-            if (t.length() > 2 && !PaymentRailTokens.isRailToken(t)) return t;
-        }
+    private static String groupingKey(String reduced) {
+        if (reduced == null || reduced.isBlank()) return null;
+        List<String> significant = significantTokens(reduced);
+        if (!significant.isEmpty()) return String.join(" ", significant.subList(0, Math.min(2, significant.size())));
         // Preserves the pre-existing short-token fallback (a merchant genuinely named "HP" still
         // groups) while keeping rails excluded, so this only ever narrows what may become a key.
-        for (String t : tokens) {
+        for (String t : reduced.split(" ")) {
             if (!t.isBlank() && !PaymentRailTokens.isRailToken(t)) return t;
         }
         return null;
+    }
+
+    /**
+     * The words of a reduced name that can name a counterparty: longer than two characters, not a
+     * payment rail, and not digits alone. In order.
+     *
+     * <p>Digits alone, because {@code extractMerchant} strips only references of four digits or
+     * more. A shorter one survives ("SWIGGY REF 447" reduces to "swiggy ref 447", and "ref" is a
+     * rail word), and as the second word of a key it would give every row of one payee a merchant
+     * of its own. Five rows of the real corpus carried one there. No first-word key on the corpus
+     * was digits alone, and a name made only of digits still keys through {@link #groupingKey}'s
+     * fallback, as it did before.
+     */
+    private static List<String> significantTokens(String reduced) {
+        if (reduced == null || reduced.isBlank()) return List.of();
+        List<String> significant = new java.util.ArrayList<>();
+        for (String t : reduced.split(" ")) {
+            if (t.length() > 2 && !PaymentRailTokens.isRailToken(t) && !t.chars().allMatch(Character::isDigit)) {
+                significant.add(t);
+            }
+        }
+        return significant;
     }
 
     private String toDisplayName(String extractedMerchant) {

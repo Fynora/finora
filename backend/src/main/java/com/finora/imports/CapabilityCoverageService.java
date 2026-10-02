@@ -322,6 +322,11 @@ public class CapabilityCoverageService {
             // relationship to the title (see StatementTitleDateRangeExtractor's own doc comment
             // for why this is not a general bare-date-range pattern).
             "PRINTED_TITLE_ADJACENT_DATE_RANGE",
+            // A credit-card payment summary whose box labels extract as nothing (fonts the PDF does
+            // not embed -- the real HSBC card statements): the payment due date and credit limit
+            // read by their place relative to the fixed cheque-instruction line. See
+            // UnlabelledCardPaymentSummaryExtractor.
+            "CARD_PAYMENT_SUMMARY_UNLABELLED_VALUES",
             // Real Axis Bank and SBI credit-card statements each print their payment due date as
             // one column of a dense multi-column "Payment Summary" grid -- confirmed the label
             // text is dropped/detached from its value once PdfTableLocator's line-based

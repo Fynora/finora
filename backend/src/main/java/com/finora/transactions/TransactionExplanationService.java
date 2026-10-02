@@ -191,6 +191,10 @@ public class TransactionExplanationService {
                     String who = "PAYEE".equals(reason.get("direction")) ? "payee" : "sender";
                     yield "Money moved between your own accounts: the " + who + " on this payment is you.";
                 }
+                if ("OWN_ACCOUNT_PHONE".equals(reason.get("rule"))) {
+                    String who = "PAYEE".equals(reason.get("direction")) ? "paid to" : "sent from";
+                    yield "Money moved between your own accounts: it was " + who + " your own UPI ID, your mobile number.";
+                }
                 Object days = reason.get("dateDifferenceDays");
                 String apart = days != null ? ", " + days + " day(s) apart" : "";
                 if (reason.get("sharedReference") != null) {
@@ -232,6 +236,9 @@ public class TransactionExplanationService {
                 if ("OWN_ACCOUNT_NAME".equals(reason.get("rule"))) {
                     yield List.of("Name on the payment: " + reason.getOrDefault("nameOnPayment", "?"),
                             "Your account holder name: " + reason.getOrDefault("holderName", "?"));
+                }
+                if ("OWN_ACCOUNT_PHONE".equals(reason.get("rule"))) {
+                    yield List.of("UPI ID on the payment: your mobile number, ending " + reason.getOrDefault("phoneLast4", "?"));
                 }
                 List<String> lines = new java.util.ArrayList<>(List.of(
                         "Opposite direction: " + reason.getOrDefault("oppositeDirection", "?"),

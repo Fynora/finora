@@ -499,14 +499,14 @@ public class CategorizationService {
      *       cases.</li>
      *   <li><b>It stops a merchant-grouping guess from silently choosing a category.</b>
      *       {@code MerchantNormalizationEngine} groups an unseen description onto an existing
-     *       merchant by first significant token -- "a deliberately simple heuristic, not fuzzy
-     *       matching or NLP", by its own class doc, whose misses "are exactly what the manual
-     *       'merge merchants' feature exists to fix by hand". Until this method existed, that
-     *       over-grouping only cost display and learning quality. Retrying keywords against a
-     *       TEMPORARY (engine-guessed) canonical name would have promoted it into the category
-     *       decision itself: a merchant created from "UPI/RAJESH TEA CAFE/..." groups a later
-     *       "UPI/RAJESH KUMAR/..." onto itself by the token {@code rajesh}, and the retry would
-     *       then file a person-to-person transfer as Dining at rule-grade confidence, unflagged.
+     *       merchant by a grouping key -- "a deliberately simple heuristic, not fuzzy matching or
+     *       NLP", by its own class doc. Until this method existed, over-grouping only cost display
+     *       and learning quality. Retrying keywords against a TEMPORARY (engine-guessed) canonical
+     *       name would have promoted it into the category decision itself: when the key was the
+     *       first significant word alone, a merchant created from "UPI/RAJESH TEA CAFE/..." grouped
+     *       a later "UPI/RAJESH KUMAR/..." onto itself by the token {@code rajesh}, and the retry
+     *       would then have filed a person-to-person transfer as Dining at rule-grade confidence,
+     *       unflagged. The two-word key no longer pools that pair, but any key can still mis-group.
      *       {@code Merchant.Lifecycle.APPROVED} means "confirmed by a person" -- the only state in
      *       which the canonical name is evidence rather than a guess.</li>
      * </ol>
@@ -530,7 +530,7 @@ public class CategorizationService {
      * <p>Nor can the gate simply be dropped, because this retry's value and its risk are the same
      * mechanism: it only helps when a narration lacking a brand token was grouped onto a merchant
      * whose canonical name has one, and that grouping is {@code MerchantNormalizationEngine}'s
-     * first-significant-token heuristic -- which is also exactly how it mis-groups. {@code APPROVED}
+     * grouping-key heuristic -- which is also exactly how it mis-groups. {@code APPROVED}
      * is the only thing separating the win case from the failure case.
      *
      * <p>Widening it therefore needs a confirmation of merchant <b>identity</b> -- a user-facing

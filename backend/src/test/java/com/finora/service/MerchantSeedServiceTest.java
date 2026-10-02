@@ -37,8 +37,12 @@ class MerchantSeedServiceTest {
             assertThat(m.getLifecycleStatus()).isEqualTo(Merchant.Lifecycle.APPROVED);
             assertThat(m.getCanonicalName()).isNotBlank();
         });
+        // One word each, longer than two characters: MerchantNormalizationEngine matches a
+        // narration to an APPROVED merchant by its first word alone only when the merchant's name
+        // is one such word. A two-word seed would catch only narrations sharing both words.
+        assertThat(saved).allSatisfy(m -> assertThat(m.getCanonicalName()).matches("[A-Za-z]{3,}"));
         // No duplicate names -- each seeded merchant should be its own row, not two aliases of
-        // the same brand fighting over first-token matching.
+        // the same brand fighting over the same match.
         assertThat(saved.stream().map(Merchant::getCanonicalName).distinct().count())
                 .isEqualTo(saved.size());
     }

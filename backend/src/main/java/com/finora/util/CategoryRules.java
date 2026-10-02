@@ -239,7 +239,7 @@ public final class CategoryRules {
      * (Transaction.merchant) the UI shows and looks up on Logo.dev by name.
      *
      * extractMerchant()'s raw output must stay untouched for its other callers, which reduce both
-     * sides of a comparison the same way (see MerchantNormalizationEngine.firstSignificantToken,
+     * sides of a comparison the same way (see MerchantNormalizationEngine.groupingKey,
      * which already skips {@link PaymentRailTokens} for that grouping key) -- changing what
      * extractMerchant itself returns for a bare rail narration would change that grouping key too
      * and defeat the deliberate null-means-"don't group" behavior documented there.

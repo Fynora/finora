@@ -24,7 +24,7 @@ import java.util.UUID;
  * The Merchant Review Center (WI4).
  *
  * <p>An operator's queue of merchants the normalization engine invented. The engine resolves an
- * unseen description by first-significant-token match — a heuristic its own class doc calls
+ * unseen description by a grouping-key match — a heuristic its own class doc calls
  * "deliberately simple ... not fuzzy matching or NLP" — so its output is a guess, and this is where
  * a person confirms, corrects or discards it.
  *

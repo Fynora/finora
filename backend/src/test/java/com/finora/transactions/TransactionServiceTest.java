@@ -1123,13 +1123,184 @@ class TransactionServiceTest {
     void updateCategory_manualCorrection_pinsResolution() {
         UUID txnId = UUID.randomUUID();
         Transaction existing = ownedTransaction(txnId, userId);
+        existing.setCounterpartyKey("vpa:samplecafe");
         when(transactionRepository.findById(txnId)).thenReturn(Optional.of(existing));
         when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Dining"))).thenReturn(dummyCategory);
 
         transactionService.updateCategory(userId, txnId, "Dining");
 
-        verify(userMerchantCategoryResolutionService).pin(eq(userId), eq(existing.getCounterpartyKey()),
+        verify(userMerchantCategoryResolutionService).pin(eq(userId), eq("vpa:samplecafe"),
                 eq(existing.getTxnType()), eq(dummyCategory.getId()));
+    }
+
+    // --- "apply to all similar" / "only this one" ---
+
+    private final UUID liveAccountId = UUID.randomUUID();
+
+    private Transaction fromPayee(String key, Transaction.Type type) {
+        Transaction t = ownedTransaction(UUID.randomUUID(), userId);
+        t.setAccountId(liveAccountId);
+        t.setCounterpartyKey(key);
+        t.setTxnType(type);
+        t.setNeedsCategoryReview(true);
+        return t;
+    }
+
+    /** The user's live accounts, as the similar-rows lookup reads them. */
+    private void liveAccounts() {
+        when(accountRepository.findByUserId(userId))
+                .thenReturn(List.of(account(liveAccountId, Account.Type.SAVINGS, BigDecimal.ZERO)));
+    }
+
+    private void samePayee(Transaction chosen, Transaction... others) {
+        liveAccounts();
+        when(transactionRepository.findByUserIdAndCounterpartyKeyAndTxnTypeAndIdNotAndAccountIdIn(
+                userId, chosen.getCounterpartyKey(), chosen.getTxnType(), chosen.getId(), List.of(liveAccountId)))
+                .thenReturn(List.of(others));
+    }
+
+    @Test
+    void updateCategory_similar_changesTheOtherRowsFromThePayee_butNotOnesTheUserSetByHand() {
+        Transaction chosen = fromPayee("vpa:metro", Transaction.Type.EXPENSE);
+        Transaction sameGuessed = fromPayee("vpa:metro", Transaction.Type.EXPENSE);
+        Transaction sameSetByHand = fromPayee("vpa:metro", Transaction.Type.EXPENSE);
+        UUID handPicked = UUID.randomUUID();
+        sameSetByHand.setCategoryId(handPicked);
+        sameSetByHand.setCategoryManuallySet(true);
+        when(transactionRepository.findById(chosen.getId())).thenReturn(Optional.of(chosen));
+        samePayee(chosen, sameGuessed, sameSetByHand);
+        when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Travel"))).thenReturn(dummyCategory);
+
+        transactionService.updateCategory(userId, chosen.getId(), "Travel", TransactionDto.CategoryScope.SIMILAR);
+
+        assertThat(chosen.getCategoryId()).isEqualTo(dummyCategory.getId());
+        assertThat(sameGuessed.getCategoryId()).isEqualTo(dummyCategory.getId());
+        assertThat(sameGuessed.isCategoryManuallySet()).isTrue();
+        assertThat(sameGuessed.isNeedsCategoryReview()).isFalse();
+        assertThat(sameGuessed.getDecisionSource()).isEqualTo(Transaction.DecisionSource.MANUAL);
+        assertThat(sameSetByHand.getCategoryId()).isEqualTo(handPicked);
+        verify(transactionRepository).saveAll(List.of(sameGuessed));
+        // Learned once, from the row the user chose on -- not once per similar row.
+        verify(categorizationService, times(1)).learn(any(), any(), any());
+        verify(userMerchantCategoryResolutionService).pin(userId, "vpa:metro", Transaction.Type.EXPENSE, dummyCategory.getId());
+    }
+
+    @Test
+    void updateCategory_onlyThis_changesOneRow_andLearnsNothing() {
+        Transaction chosen = fromPayee("vpa:friend", Transaction.Type.INCOME);
+        when(transactionRepository.findById(chosen.getId())).thenReturn(Optional.of(chosen));
+        when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Gifts"))).thenReturn(dummyCategory);
+
+        transactionService.updateCategory(userId, chosen.getId(), "Gifts", TransactionDto.CategoryScope.ONLY_THIS);
+
+        assertThat(chosen.getCategoryId()).isEqualTo(dummyCategory.getId());
+        assertThat(chosen.isCategoryManuallySet()).isTrue();
+        assertThat(chosen.isNeedsCategoryReview()).isFalse();
+        verify(categorizationService, never()).learn(any(), any(), any());
+        verify(userMerchantCategoryResolutionService, never()).pin(any(), any(), any(), any());
+        verify(transactionRepository, never()).findByUserIdAndCounterpartyKeyAndTxnTypeAndIdNotAndAccountIdIn(any(), any(), any(), any(), any());
+        verify(transactionRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void updateCategory_withoutAScope_keepsTheOldBehaviour_oneRowAndRemembered() {
+        Transaction chosen = fromPayee("vpa:metro", Transaction.Type.EXPENSE);
+        when(transactionRepository.findById(chosen.getId())).thenReturn(Optional.of(chosen));
+        when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Travel"))).thenReturn(dummyCategory);
+
+        transactionService.updateCategory(userId, chosen.getId(), "Travel");
+
+        verify(userMerchantCategoryResolutionService).pin(userId, "vpa:metro", Transaction.Type.EXPENSE, dummyCategory.getId());
+        verify(transactionRepository, never()).findByUserIdAndCounterpartyKeyAndTxnTypeAndIdNotAndAccountIdIn(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void updateCategory_similar_withNoKnownPayee_changesOnlyThisRow() {
+        Transaction chosen = fromPayee(null, Transaction.Type.EXPENSE);
+        when(transactionRepository.findById(chosen.getId())).thenReturn(Optional.of(chosen));
+        when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Travel"))).thenReturn(dummyCategory);
+
+        transactionService.updateCategory(userId, chosen.getId(), "Travel", TransactionDto.CategoryScope.SIMILAR);
+
+        assertThat(chosen.getCategoryId()).isEqualTo(dummyCategory.getId());
+        verify(transactionRepository, never()).findByUserIdAndCounterpartyKeyAndTxnTypeAndIdNotAndAccountIdIn(any(), any(), any(), any(), any());
+        verify(transactionRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void update_withACategoryAndSimilar_changesTheOtherRowsToo() {
+        Transaction chosen = fromPayee("vpa:metro", Transaction.Type.EXPENSE);
+        Transaction same = fromPayee("vpa:metro", Transaction.Type.EXPENSE);
+        when(transactionRepository.findById(chosen.getId())).thenReturn(Optional.of(chosen));
+        samePayee(chosen, same);
+        when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Travel"))).thenReturn(dummyCategory);
+
+        transactionService.update(userId, chosen.getId(), new TransactionDto.UpdateRequest(
+                null, null, null, null, null, "Travel", null, null, TransactionDto.CategoryScope.SIMILAR));
+
+        assertThat(same.getCategoryId()).isEqualTo(dummyCategory.getId());
+        verify(transactionRepository).saveAll(List.of(same));
+    }
+
+    @Test
+    void similarSummary_countsWhatWouldChange_andWhatTheUserSetByHand() {
+        Transaction chosen = fromPayee("vpa:metro", Transaction.Type.EXPENSE);
+        Transaction guessed = fromPayee("vpa:metro", Transaction.Type.EXPENSE);
+        Transaction setByHand = fromPayee("vpa:metro", Transaction.Type.EXPENSE);
+        setByHand.setCategoryManuallySet(true);
+        when(transactionRepository.findById(chosen.getId())).thenReturn(Optional.of(chosen));
+        samePayee(chosen, guessed, setByHand);
+
+        assertThat(transactionService.similarSummary(userId, chosen.getId()))
+                .isEqualTo(new TransactionDto.SimilarSummary(1, 1));
+    }
+
+    @Test
+    void similarSummary_isEmpty_whenThePayeeIsNotKnown() {
+        Transaction chosen = fromPayee(" ", Transaction.Type.EXPENSE);
+        when(transactionRepository.findById(chosen.getId())).thenReturn(Optional.of(chosen));
+
+        assertThat(transactionService.similarSummary(userId, chosen.getId()))
+                .isEqualTo(new TransactionDto.SimilarSummary(0, 0));
+    }
+
+    @Test
+    void similar_neverReachesRowsThroughAKeyThatDoesNotNameOnePayee() {
+        // A masked UPI id ends the same for strangers; "Pay via Razorpay" never printed the payee.
+        for (String key : List.of("masked:.payu@hdfcbank", "name:via razorpay", "name:upiintent")) {
+            Transaction chosen = fromPayee(key, Transaction.Type.EXPENSE);
+            when(transactionRepository.findById(chosen.getId())).thenReturn(Optional.of(chosen));
+            when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Travel"))).thenReturn(dummyCategory);
+
+            assertThat(transactionService.similarSummary(userId, chosen.getId()))
+                    .as(key).isEqualTo(new TransactionDto.SimilarSummary(0, 0));
+            transactionService.updateCategory(userId, chosen.getId(), "Travel", TransactionDto.CategoryScope.SIMILAR);
+            assertThat(chosen.getCategoryId()).as(key).isEqualTo(dummyCategory.getId());
+        }
+        verify(transactionRepository, never()).findByUserIdAndCounterpartyKeyAndTxnTypeAndIdNotAndAccountIdIn(any(), any(), any(), any(), any());
+        verify(transactionRepository, never()).saveAll(any());
+        // Nor remembered for the key: it would file a stranger's future payment under this choice.
+        verify(userMerchantCategoryResolutionService, never()).pin(any(), any(), any(), any());
+    }
+
+    @Test
+    void similar_isEmpty_whenTheUserHasNoLiveAccount() {
+        Transaction chosen = fromPayee("vpa:metro", Transaction.Type.EXPENSE);
+        when(transactionRepository.findById(chosen.getId())).thenReturn(Optional.of(chosen));
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of());
+
+        assertThat(transactionService.similarSummary(userId, chosen.getId()))
+                .isEqualTo(new TransactionDto.SimilarSummary(0, 0));
+        verify(transactionRepository, never()).findByUserIdAndCounterpartyKeyAndTxnTypeAndIdNotAndAccountIdIn(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void similarSummary_refusesAnotherUsersTransaction() {
+        Transaction someoneElses = ownedTransaction(UUID.randomUUID(), UUID.randomUUID());
+        when(transactionRepository.findById(someoneElses.getId())).thenReturn(Optional.of(someoneElses));
+
+        assertThatThrownBy(() -> transactionService.similarSummary(userId, someoneElses.getId()))
+                .isInstanceOf(ApiException.class);
     }
 
     // --- confirmMerchantCategory (spec §5.5) ---

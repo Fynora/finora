@@ -5,6 +5,7 @@ import { HelpCircle, Check, ChevronLeft, ChevronRight } from 'lucide-react';
 import { transactionsApi } from '../api/endpoints';
 import { CategoryCombobox } from './CategoryCombobox';
 import { CategoryCreateEditPanel } from './CategoryCreateEditPanel';
+import { useCategoryScopePrompt } from './CategoryScopePrompt';
 import { ReviewCardSkeleton } from './ReviewCardSkeleton';
 import type { Transaction } from '../types';
 
@@ -31,6 +32,7 @@ export function AskOnceCard() {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const { ask, prompt } = useCategoryScopePrompt();
 
   function load() {
     setLoading(true);
@@ -62,13 +64,19 @@ export function AskOnceCard() {
   async function resolve(id: string) {
     const category = picks[id];
     if (!category) return;
+    // Asked before the optimistic removal: the row stays put while the question is open.
+    const scope = await ask(id);
+    if (scope === null) return;
     const index = items.findIndex((t) => t.id === id);
     if (index === -1) return;
     const removed = items[index];
     setError(null);
     setItems((prev) => prev.filter((t) => t.id !== id));
     try {
-      await transactionsApi.updateCategory(id, category);
+      await transactionsApi.updateCategory(id, category, scope);
+      // Other rows from the same payee may have left the queue with this one. Refetched quietly,
+      // without the skeleton: the rest of the queue is already on screen.
+      if (scope === 'SIMILAR') transactionsApi.needsReview().then(setItems).catch(() => {});
       // This card now lives on the Transactions page (Ledger.tsx), directly above the table
       // showing the very row just re-categorized — without this, the table keeps its stale
       // TanStack Query cache (old category, "needs review" badge still on) until some unrelated
@@ -183,6 +191,7 @@ export function AskOnceCard() {
           )}
         </>
       )}
+      {prompt}
     </div>
   );
 }

@@ -47,6 +47,38 @@ class RowAccountingValidatorTest {
         assertThat(finding.outcome()).isEqualTo("NOT_APPLICABLE");
     }
 
+    /** A real IndusInd card: the line that opens its legend block ("Effective <date>, there will be
+     *  changes ...") has a date and an amount, and is recorded so nothing is lost -- but it matched a
+     *  known legend pattern, so it is explained, not an unaccounted row. */
+    @Test
+    void verifiesWhenTheOnlyDroppedRowIsAKnownLegendLine() {
+        List<DroppedCandidateRow> dropped = List.of(
+                new DroppedCandidateRow("PAGE_LEGEND_BLOCK_SUPPRESSED", Set.of("DATE_PRESENT", "AMOUNT_PRESENT")));
+
+        var finding = validator.check(List.of(row("Coffee Shop", "50.00")), List.of(), dropped, 2);
+
+        assertThat(finding.outcome()).isEqualTo("VERIFIED");
+        assertThat(finding.details()).containsEntry("droppedTransactionCandidateCount", 1);
+        // The breakdown is still recorded in full -- the admin held-statement page and the stored
+        // verification read it -- only the outcome changes.
+        assertThat(finding.details().get("droppedTransactionCandidateReasons").toString())
+                .contains("PAGE_LEGEND_BLOCK_SUPPRESSED=1");
+    }
+
+    @Test
+    void stillWarnsWhenALegendLineSitsBesideAnUnexplainedDrop() {
+        List<DroppedCandidateRow> dropped = List.of(
+                new DroppedCandidateRow("PAGE_LEGEND_BLOCK_SUPPRESSED", Set.of("DATE_PRESENT", "AMOUNT_PRESENT")),
+                new DroppedCandidateRow("BUCKET_EMPTY", Set.of("DATE_PRESENT", "AMOUNT_PRESENT")));
+
+        var finding = validator.check(List.of(row("Coffee Shop", "50.00")), List.of(), dropped, 3);
+
+        assertThat(finding.outcome()).isEqualTo("WARNING");
+        assertThat(finding.details().get("explanation").toString()).startsWith("1 row ");
+        assertThat(finding.details().get("droppedTransactionCandidateReasons").toString())
+                .contains("PAGE_LEGEND_BLOCK_SUPPRESSED=1").contains("BUCKET_EMPTY=1");
+    }
+
     @Test
     void reportsWarningWhenTransactionShapedRowsWereDropped() {
         List<DroppedCandidateRow> dropped = List.of(

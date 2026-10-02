@@ -6,6 +6,7 @@ import com.finora.dto.ImportDto.UnparseableRow;
 import com.finora.imports.pdf.PdfTableLocator.DroppedCandidateRow;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +41,11 @@ public class RowAccountingValidator {
 
     /** Stable machine identifier — clients group and explain by it, so it must not track wording. */
     public static final String RULE = "ROW_ACCOUNTING";
+
+    /** Drop reasons that name a recognised boilerplate pattern -- see the comment in check(). Only
+     *  the legend block today: the one real case measured. A page footer or closing marker still
+     *  warns, as its own tests pin. */
+    static final java.util.Set<String> EXPLAINED_REASONS = java.util.Set.of("PAGE_LEGEND_BLOCK_SUPPRESSED");
 
     /**
      * @param locatedRowCount rows the parser found in the table before normalisation -- same
@@ -84,22 +90,34 @@ public class RowAccountingValidator {
         // more defensible signal. See PRE_HEADER_ACTIVITY_CANDIDATE's own doc comment (on
         // PdfTableLocator's looksLikeFinancialActivityCandidate) for the follow-up mechanism that
         // targets pre-header rows specifically, without this false-positive class.
-        if (dropped.isEmpty()) {
+        // A row dropped because it matched a KNOWN boilerplate pattern is explained, even when it
+        // has a date and an amount: it is recorded so nothing is lost, not because its fate is
+        // unknown. A real IndusInd card's legend block opens with "Effective <date>, there will be
+        // changes ..." -- date- and amount-shaped -- and raised this warning on a statement whose
+        // every transaction was read. Explained rows stay in the breakdown below; they just do not warn.
+        // TreeMap for a stable, alphabetical iteration order in the details payload -- a Map keyed
+        // by reason code has no natural order of its own, and an unstable one would make two runs
+        // over the identical document produce a different-looking (if equal) finding. Every reason,
+        // explained ones included: the stored verification and the admin held-statement page read
+        // this breakdown, and a count with no reasons beside it would explain nothing.
+        Map<String, Long> reasonCounts = new TreeMap<>();
+        List<DroppedCandidateRow> unexplained = new ArrayList<>();
+        for (DroppedCandidateRow row : dropped) {
+            if (!EXPLAINED_REASONS.contains(row.reason())) unexplained.add(row);
+        }
+        if (!dropped.isEmpty()) {
+            for (DroppedCandidateRow row : dropped) reasonCounts.merge(row.reason(), 1L, Long::sum);
+            details.put("droppedTransactionCandidateReasons", reasonCounts);
+        }
+
+        if (unexplained.isEmpty()) {
             details.put("explanation", "Every row this parser located has an accounted-for fate.");
             return new ImportDto.VerificationFinding(RULE, "VERIFIED", details);
         }
 
-        // TreeMap for a stable, alphabetical iteration order in the details payload -- a Map keyed
-        // by reason code has no natural order of its own, and an unstable one would make two runs
-        // over the identical document produce a different-looking (if equal) finding.
-        Map<String, Long> reasonCounts = new TreeMap<>();
-        for (DroppedCandidateRow row : dropped) {
-            reasonCounts.merge(row.reason(), 1L, Long::sum);
-        }
-        details.put("droppedTransactionCandidateReasons", reasonCounts);
         // "Candidate"/"discarded"/"require review" throughout -- never "missing transactions".
         // This rule only ever sees a row's SHAPE, never confirms it was really a transaction.
-        details.put("explanation", dropped.size() + " row" + (dropped.size() == 1 ? "" : "s") + " outside "
+        details.put("explanation", unexplained.size() + " row" + (unexplained.size() == 1 ? "" : "s") + " outside "
                 + "the recognized transaction table had the shape of a transaction candidate (a date and "
                 + "an amount on the same line) and were discarded. Nothing here says they were "
                 + "transactions -- only that they were never explained, and require review.");

@@ -90,6 +90,16 @@ public interface CategoryRuleRepository extends JpaRepository<CategoryRule, UUID
      *
      * @return 1 when a row was inserted, 0 when one already existed
      */
+    /**
+     * Serialises answers for one user and payee until the calling transaction ends (a Postgres
+     * transaction-scoped advisory lock). Two answers at once -- a double tap, two open tabs -- both
+     * re-file the same transactions; without this the second fails on their versions. Taken first,
+     * before anything is read, so the second answer reads what the first committed.
+     */
+    @Query(value = "SELECT 1 FROM (SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))) AS locked",
+            nativeQuery = true)
+    int lockPayeeAnswer(@Param("key") String key);
+
     @Modifying
     @Query(value = "INSERT INTO category_rules (id, user_id, scope, field, operator, comparison_value,"
             + " action_type, action_value, amount_min, amount_max)"

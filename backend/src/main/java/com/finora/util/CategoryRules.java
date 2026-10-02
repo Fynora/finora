@@ -81,7 +81,12 @@ public final class CategoryRules {
         // expansion.md Task 1). Kept as the full two-word phrase, not a bare "indian": a bare
         // keyword would misfire on real "INDIAN CLEARING CORP" settlement narrations seen in the
         // same corpus (guarded by suggestCategory_indianClearingCorpIsNotMisclassifiedAsTransport).
-        RULES.put("Transport", List.of("uber", "ola", "rapido", "irctc", "petrol", "fuel", "metro", "fastag", "parking", "indian railways"));
+        // "pune metro" and, below, "apple services" (2026-10-02) name an operator rather than add a
+        // word: "metro" already files the fare. A bank that cuts the payee's name to eight
+        // characters and its UPI id before the "@" leaves only the id ("punemetrocc...",
+        // "appleservices..."), which MerchantIdentityLookup.handleNamesKnownMerchant reads against
+        // these names; without them a tester's metro fares and app-store charges typed as people.
+        RULES.put("Transport", List.of("uber", "ola", "rapido", "irctc", "petrol", "fuel", "metro", "fastag", "parking", "indian railways", "pune metro"));
         RULES.put("Utilities", List.of("electricity", "power bill", "water bill", "gas bill", "broadband", "airtel", "jio", "recharge"));
         // "pureplay" (Pureplay Skin Sciences, a real D2C skincare/personal-care e-commerce brand)
         // added after checking this project's own real bank-statement corpus (docs/superpowers/
@@ -197,7 +202,7 @@ public final class CategoryRules {
         // requires (see RULE_PATTERNS below) has nothing plausible to misfire against.
         RULES.put("Cash Withdrawal", List.of("atm withdrawal", "atm wdl", "cash withdrawal", "cash wdl", "nwd"));
         RULES.put("Travel", List.of("makemytrip", "goibibo", "yatra", "airbnb", "oyo", "indigo", "spicejet", "vistara", "hotel booking"));
-        RULES.put("Subscriptions", List.of("google one", "icloud", "adobe", "microsoft 365", "linkedin premium"));
+        RULES.put("Subscriptions", List.of("google one", "icloud", "adobe", "microsoft 365", "linkedin premium", "apple services"));
         RULES.put("Education", List.of("udemy", "coursera", "byjus", "tuition fee", "school fee", "college fee"));
         RULES.put("Gifts & Donations", List.of("donation", "charity", "ngo donation", "gift"));
     }

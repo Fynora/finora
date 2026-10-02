@@ -5,6 +5,7 @@ import com.finora.entity.SharedMerchantCategory;
 import com.finora.entity.Transaction;
 import com.finora.repository.CounterpartyCategoryObservationRepository;
 import com.finora.repository.SharedMerchantCategoryRepository;
+import com.finora.util.CounterpartyIdentity;
 import com.finora.util.CounterpartyType;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -42,9 +43,12 @@ public class SharedCorpusService {
     }
 
     /** Spec §3's write-time invariant. Static so Task 5/6/9 can check eligibility without a
-     *  service instance where that's more convenient. */
+     *  service instance where that's more convenient. A UPI id that a bank cut to a payment brand's
+     *  partner prefix is shared by every shop under that partner, so it is never one merchant to
+     *  vote on (see {@link CounterpartyIdentity#identifiesOnePayee}). */
     public static boolean isEligible(String counterpartyKey, CounterpartyType counterpartyType) {
         return counterpartyKey != null && counterpartyKey.startsWith("vpa:")
+                && CounterpartyIdentity.identifiesOnePayee(counterpartyKey)
                 && (counterpartyType == CounterpartyType.BUSINESS
                     || counterpartyType == CounterpartyType.FINANCIAL_INSTITUTION);
     }

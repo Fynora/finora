@@ -710,14 +710,32 @@ public class ImportDto {
             // later is legitimate and must keep working -- see V133's own comment). Null from an
             // older client and on every first-time-import confirm, both of which are unaffected:
             // that path is already protected by ImportSession.claimForConfirmation.
-            String idempotencyKey
+            String idempotencyKey,
+            // "This is my account" on the ownership warning: the statement prints a different
+            // holder, and the user says the account is theirs anyway. persistSection then saves the
+            // user's own profile name as the account's holder. Null or false keeps whatever the
+            // statement printed -- the "Continue anyway" answer, for a family member's statement.
+            Boolean holderIsMine
     ) {
+        /** Pre-existing arity, from before {@code holderIsMine}: that field defaults to null. */
+        public ConfirmRequest(UUID sessionId, List<ConfirmedRow> rows, UUID existingAccountId,
+                               NewAccountRequest newAccount, BigDecimal statementOpeningBalance,
+                               BigDecimal statementClosingBalance, String password,
+                               LocalDate statementPeriodStart, LocalDate statementPeriodEnd,
+                               BigDecimal totalAmountDue, LocalDate paymentDueDate,
+                               Boolean userConfirmedContinue, String idempotencyKey) {
+            this(sessionId, rows, existingAccountId, newAccount, statementOpeningBalance,
+                    statementClosingBalance, password, statementPeriodStart, statementPeriodEnd,
+                    totalAmountDue, paymentDueDate, userConfirmedContinue, idempotencyKey, null);
+        }
+
         /** The same request with {@code rows} replaced -- see
          *  {@code ConfirmedRowIntegrity.withStatementFacts}. */
         public ConfirmRequest withRows(List<ConfirmedRow> replacement) {
             return new ConfirmRequest(sessionId, replacement, existingAccountId, newAccount,
                     statementOpeningBalance, statementClosingBalance, password, statementPeriodStart,
-                    statementPeriodEnd, totalAmountDue, paymentDueDate, userConfirmedContinue, idempotencyKey);
+                    statementPeriodEnd, totalAmountDue, paymentDueDate, userConfirmedContinue, idempotencyKey,
+                    holderIsMine);
         }
 
         /** Pre-existing arity. Kept so the many call sites that construct a request with no printed

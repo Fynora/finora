@@ -37,6 +37,12 @@ public class OwnershipMatchService {
      * {@code NO_HOLDER_FOUND}, which specifically means the STATEMENT had nothing extracted, not
      * that the profile side of the comparison was unavailable.
      */
+    /** The name the user's own profile carries, or null when it has none -- what "This is my
+     *  account" saves as the account's holder. */
+    public String profileName(UUID userId) {
+        return userRepository.findById(userId).map(User::getFullName).orElse(null);
+    }
+
     public StatementImport.OwnershipMatchStatus evaluate(UUID userId, UUID accountId, String extractedHolderName) {
         if (statementImportRepository.countByUserIdAndAccountId(userId, accountId) > 0) {
             return StatementImport.OwnershipMatchStatus.SKIPPED_EXISTING_ACCOUNT;

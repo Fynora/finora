@@ -934,7 +934,7 @@ public class PdfPreviewGenerator {
         boolean anyHolder = sections.stream().anyMatch(s -> s.detectedAccount() != null
                 && s.detectedAccount().accountHolderName() != null);
         if (anyHolder) return sections;
-        String holder = LeadingNameRunExtractor.extract(positioned, ctx);
+        String holder = com.finora.imports.ownership.HolderNameSanity.orNull(LeadingNameRunExtractor.extract(positioned, ctx));
         if (holder == null) return sections;
         List<StagedAccountSection> revised = new ArrayList<>(sections.size());
         for (StagedAccountSection s : sections) {

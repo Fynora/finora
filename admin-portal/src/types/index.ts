@@ -1428,7 +1428,7 @@ export interface LayoutSummary {
 /** Why the engine flagged a layout for review at staging time (V243). A verification reason
  *  carries the rule that did not pass: `VERIFICATION_NOT_PASSED:<RULE>`. */
 export type LayoutReviewReason =
-  | 'NEW_LAYOUT' | 'BLANK_DESCRIPTIONS' | 'STAGING_FAILED' | 'IDENTITY_CONFLICT'
+  | 'NEW_LAYOUT' | 'BLANK_DESCRIPTIONS' | 'STAGING_FAILED' | 'IDENTITY_CONFLICT' | 'HOLDER_NAME_UNREADABLE'
   | `VERIFICATION_NOT_PASSED:${string}`;
 
 export type LayoutStatus = 'OBSERVED' | 'UNDER_REVIEW' | 'SUPPORTED' | 'UNSUPPORTED';

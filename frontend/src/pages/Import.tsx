@@ -262,6 +262,9 @@ export default function Import() {
   // session gets its own check.
   const [ownershipWarningOpen, setOwnershipWarningOpen] = useState(false);
   const [ownershipWarningAcknowledged, setOwnershipWarningAcknowledged] = useState(false);
+  // "This is my account" on that dialog: the confirm asks the server to save the user's own profile
+  // name as the account's holder. "Continue anyway" leaves this false, keeping the printed name.
+  const [holderIsMine, setHolderIsMine] = useState(false);
 
   // Set only for a multi-account PDF upload (see SectionState above) -- null the rest of the
   // time, and the single flat rows/detectedAccount/etc. state above is what's used instead.
@@ -756,12 +759,14 @@ export default function Import() {
   }
 
   // ownershipAcknowledgedNow is an explicit override, not just a read of ownershipWarningAcknowledged
-  // state -- the dialog's own "Continue Import" handler calls this function again immediately after
-  // setting that state, and a React state update isn't visible in the same render's closure yet. The
-  // override sidesteps that; the state still exists for the payload sent to the backend below.
-  async function confirmImport(ownershipAcknowledgedNow = false) {
+  // state -- the dialog's own answer handlers call this function again immediately after setting
+  // that state, and a React state update isn't visible in the same render's closure yet. The
+  // overrides (and holderIsMineNow, for "This is my account") sidestep that; the state still exists
+  // for the payload sent to the backend below.
+  async function confirmImport(ownershipAcknowledgedNow = false, holderIsMineNow = false) {
     if (!reimportState && !sessionId) return;
     const ownershipAcknowledged = ownershipWarningAcknowledged || ownershipAcknowledgedNow;
+    const mine = holderIsMine || holderIsMineNow;
     if (!ownershipAcknowledged && ownershipNameMismatch()) {
       setOwnershipWarningOpen(true);
       return;
@@ -795,6 +800,7 @@ export default function Import() {
             paymentDueDate: detectedAccount?.paymentDueDate ?? null,
             password: reimportState.password,
             userConfirmedContinue: ownershipAcknowledged ? true : undefined,
+            holderIsMine: mine ? true : undefined,
             // Re-import only. Minted once per confirm attempt and reused across retries of that
             // attempt, so a retry whose predecessor already committed is refused by the server
             // (V133) instead of posting the whole statement's transactions a second time. The
@@ -814,6 +820,7 @@ export default function Import() {
             totalAmountDue: detectedAccount?.totalAmountDue ?? null,
             paymentDueDate: detectedAccount?.paymentDueDate ?? null,
             userConfirmedContinue: ownershipAcknowledged ? true : undefined,
+            holderIsMine: mine ? true : undefined,
           });
       // Only on success: a failed attempt keeps its key so a retry is recognised as the SAME
       // attempt rather than becoming a second one the server would happily import.
@@ -913,6 +920,7 @@ export default function Import() {
     setPasswordState(null);
     setOwnershipWarningOpen(false);
     setOwnershipWarningAcknowledged(false);
+    setHolderIsMine(false);
     // Same reset the line above does for the ownership dialog, which this one was missing. Before
     // Phase 4b the omission was invisible -- the summary step early-returned above this dialog's
     // render, so a left-open flag could never resurface. Now that every step shares one tree, a
@@ -1804,10 +1812,17 @@ export default function Import() {
       {step === 'review' && ownershipWarningOpen && (
         <ConfirmDialog
           title="Statement Check"
-          message={`The statement holder name ("${detectedAccount?.accountHolderName}") differs from your Finora profile name ("${fullName}"). Please confirm you've selected the correct statement before continuing.`}
-          confirmLabel="Continue Import"
+          message={`The statement holder name ("${detectedAccount?.accountHolderName}") differs from your Finora profile name ("${fullName}"). If this is your account, Finora will save your name on it. If it belongs to someone else, continue anyway and the printed name is kept.`}
+          confirmLabel="This is my account"
+          secondaryLabel="Continue anyway"
           cancelLabel="Upload Different Statement"
           onConfirm={() => {
+            setOwnershipWarningOpen(false);
+            setOwnershipWarningAcknowledged(true);
+            setHolderIsMine(true);
+            void confirmImport(true, true);
+          }}
+          onSecondary={() => {
             setOwnershipWarningOpen(false);
             setOwnershipWarningAcknowledged(true);
             void confirmImport(true);

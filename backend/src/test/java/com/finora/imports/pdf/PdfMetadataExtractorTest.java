@@ -1591,4 +1591,34 @@ class PdfMetadataExtractorTest {
 
         assertThat(metadata.creditLimit()).isEqualByComparingTo("50000.00");
     }
+
+    // Measured on a tester's card statements (2026-10-02): the holder's name opens the page, and a
+    // footer sentence about the "Cardholder's name" wraps so that a line begins "name." or
+    // "name/ Place of Supply and GST code details visit ...". The bare "Name" label matched those
+    // lines, outranked the leading name, and "." or the footer sentence became the holder.
+    @Test
+    void aWrappedSentenceEndingInNameNeverReplacesTheLeadingHolder() {
+        for (String footer : List.of(
+                "name.",
+                "name/ Place of Supply and GST code details visit example.bank/gst  * Please refer")) {
+            var metadata = extractor.extract(List.of(
+                    "Sample Credit Card Statement",
+                    "RAVI   KUMAR",                                  // synthetic-ok
+                    "12 SAMPLE STREET,",
+                    "SAMPLE CITY 400001",
+                    "PAYMENT SUMMARY",
+                    "amount against any deposits or accounts held in the Cardholder's",
+                    footer));
+
+            assertThat(metadata.accountHolderName()).as(footer).isEqualTo("RAVI   KUMAR"); // synthetic-ok
+        }
+    }
+
+    @Test
+    void aLabelledValueThatCannotBeANameLeavesNoHolder() {
+        assertThat(extractor.extract(List.of("Name: .")).accountHolderName()).isNull();
+        assertThat(extractor.extract(List.of("Name: Previous Balance")).accountHolderName()).isNull();
+        // A real labelled name is unchanged.
+        assertThat(extractor.extract(List.of("Name: RAVI KUMAR")).accountHolderName()).isEqualTo("RAVI KUMAR"); // synthetic-ok
+    }
 }

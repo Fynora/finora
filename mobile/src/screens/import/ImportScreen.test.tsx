@@ -1384,19 +1384,36 @@ describe('ImportScreen — holder-name mismatch warning (Phase 4)', () => {
     alertSpy.mockRestore();
   });
 
-  it('sends userConfirmedContinue only after "Continue Import" is pressed', async () => {
+  it('sends userConfirmedContinue, keeping the printed holder, after "Continue anyway" is pressed', async () => {
     const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     arriveWithHolderName('Sunil Verma');
     render(tree());
 
     fireEvent.press(await screen.findByText(/^Import \d+ transaction/));
     await settle();
-    await act(async () => { pressAlertButton(alertSpy, 'Continue Import'); });
+    await act(async () => { pressAlertButton(alertSpy, 'Continue anyway'); });
     await settle();
 
     expect(api.statements.confirmReimport).toHaveBeenCalledTimes(1);
     const [, payload] = api.statements.confirmReimport.mock.calls[0];
     expect(payload).toMatchObject({ userConfirmedContinue: true });
+    expect(payload.holderIsMine).toBeUndefined();
+    alertSpy.mockRestore();
+  });
+
+  it('asks the server to save the profile name as holder after "This is my account" is pressed', async () => {
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
+    arriveWithHolderName('Sunil Verma');
+    render(tree());
+
+    fireEvent.press(await screen.findByText(/^Import \d+ transaction/));
+    await settle();
+    await act(async () => { pressAlertButton(alertSpy, 'This is my account'); });
+    await settle();
+
+    expect(api.statements.confirmReimport).toHaveBeenCalledTimes(1);
+    const [, payload] = api.statements.confirmReimport.mock.calls[0];
+    expect(payload).toMatchObject({ userConfirmedContinue: true, holderIsMine: true });
     alertSpy.mockRestore();
   });
 

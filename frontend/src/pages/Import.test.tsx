@@ -3008,7 +3008,7 @@ describe('Import — ownership name-mismatch warning', () => {
     expect(importApi.confirm).not.toHaveBeenCalled();
   });
 
-  it('confirms with userConfirmedContinue once the user clicks Continue Import', async () => {
+  it('confirms with userConfirmedContinue, keeping the printed holder, once the user clicks Continue anyway', async () => {
     stageWithHolder('Sunil Verma');
     const user = userEvent.setup();
     renderImport();
@@ -3019,11 +3019,27 @@ describe('Import — ownership name-mismatch warning', () => {
     // Import.tsx) before the step actually advances.
     await user.click(await screen.findByRole('button', { name: /confirm import/i }));
     await screen.findByText('Statement Check');
-    await user.click(screen.getByRole('button', { name: 'Continue Import' }));
+    await user.click(screen.getByRole('button', { name: 'Continue anyway' }));
+
+    await waitFor(() => expect(importApi.confirm).toHaveBeenCalledTimes(1));
+    const payload = vi.mocked(importApi.confirm).mock.calls[0][0];
+    expect(payload.userConfirmedContinue).toBe(true);
+    expect(payload.holderIsMine).toBeUndefined();
+  });
+
+  it('asks the server to save the profile name as holder when the user clicks This is my account', async () => {
+    stageWithHolder('Sunil Verma');
+    const user = userEvent.setup();
+    renderImport();
+
+    await pickAndUploadPdf(user);
+    await user.click(await screen.findByRole('button', { name: /confirm import/i }));
+    await screen.findByText('Statement Check');
+    await user.click(screen.getByRole('button', { name: 'This is my account' }));
 
     await waitFor(() => expect(importApi.confirm).toHaveBeenCalledTimes(1));
     expect(importApi.confirm).toHaveBeenCalledWith(
-      expect.objectContaining({ userConfirmedContinue: true }),
+      expect.objectContaining({ userConfirmedContinue: true, holderIsMine: true }),
     );
   });
 

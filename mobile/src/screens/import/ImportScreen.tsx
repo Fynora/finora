@@ -156,6 +156,9 @@ export function ImportScreen() {
   // starts (resetToUpload, a new reimport arrival) -- an acknowledgment must not silently carry
   // over to a different statement.
   const ownershipAcknowledged = useRef(false);
+  // "This is my account" on the same warning: the confirm asks the server to save the user's own
+  // profile name as the account's holder. Reset wherever ownershipAcknowledged is.
+  const holderIsMine = useRef(false);
   // Aborts the in-flight staging upload. Held in a ref, not state: the Cancel button must reach the
   // CURRENT controller synchronously, and a re-render between press and abort would be enough to
   // send the signal to a stale one.
@@ -285,6 +288,7 @@ export function ImportScreen() {
     // key for the attempt it belongs to.
     attemptKey.current = null;
     ownershipAcknowledged.current = false;
+    holderIsMine.current = false;
     setFileFormat(null);
     setSessionId(null);
     setRows(reimportParam.staging.rows);
@@ -334,6 +338,7 @@ export function ImportScreen() {
     // A new import is a new attempt, never a retry of the last one.
     attemptKey.current = null;
     ownershipAcknowledged.current = false;
+    holderIsMine.current = false;
     // Cancels whatever this screen was doing before -- unlike the two setters around it, this one
     // actually has a side effect to undo. Without the abort() call, a reset that lands while a
     // request is still in flight (e.g. an AsyncStorage-recovered shared statement racing a live
@@ -694,13 +699,21 @@ export function ImportScreen() {
     AppAlert.alert(
       'Statement Check',
       `The statement holder name ("${detected?.accountHolderName}") differs from your Finora ` +
-        `profile name ("${fullName}"). Please confirm you've selected the correct statement ` +
-        'before continuing.',
+        `profile name ("${fullName}"). If this is your account, Finora will save your name on it. ` +
+        'If it belongs to someone else, continue anyway and the printed name is kept.',
       [
         { text: 'Upload Different Statement', style: 'cancel', onPress: () => resetToUpload() },
         {
-          text: 'Continue Import',
+          text: 'Continue anyway',
           onPress: () => { ownershipAcknowledged.current = true; void confirmImport(); },
+        },
+        {
+          text: 'This is my account',
+          onPress: () => {
+            ownershipAcknowledged.current = true;
+            holderIsMine.current = true;
+            void confirmImport();
+          },
         },
       ]
     );
@@ -744,6 +757,7 @@ export function ImportScreen() {
             password: reimport.password,
             idempotencyKey: attemptKey.current ?? undefined,
             userConfirmedContinue: ownershipAcknowledged.current ? true : undefined,
+            holderIsMine: holderIsMine.current ? true : undefined,
           })
         : await importApi.confirm({
             sessionId: sessionId!,
@@ -763,6 +777,7 @@ export function ImportScreen() {
             totalAmountDue: detected?.totalAmountDue ?? null,
             paymentDueDate: detected?.paymentDueDate ?? null,
             userConfirmedContinue: ownershipAcknowledged.current ? true : undefined,
+            holderIsMine: holderIsMine.current ? true : undefined,
           });
       setSummary(result);
       setStep('summary');

@@ -116,8 +116,7 @@ class ImportServiceStorageDualWriteTest {
                 new ImportVerifier(new BalanceChainValidator(), new StatementTotalsValidator(),
                         new SummaryTotalsValidator(), new ColumnAmbiguityValidator(), new RowAccountingValidator(), new com.finora.imports.CreditCardStatementTotalsValidator(), new com.finora.imports.CreditCardFlowReconciliationValidator(), new com.finora.imports.DescriptionCorruptionValidator()),
                 TestRuleEngines.empty());
-        ImportRuleLearningService ruleLearningService = new ImportRuleLearningService(categorizationService,
-                mock(com.finora.service.SharedCorpusService.class),
+        ImportRuleLearningService ruleLearningService = new ImportRuleLearningService(mock(com.finora.service.SharedCorpusService.class),
                 mock(com.finora.repository.SharedMerchantCategoryAiSuggestionRepository.class));
         var productIdentityResolver = new com.finora.imports.product.ProductIdentityResolver(accountRepository, mock(com.finora.service.AuditService.class));
 

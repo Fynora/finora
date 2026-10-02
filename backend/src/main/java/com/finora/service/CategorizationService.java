@@ -736,6 +736,16 @@ public class CategorizationService {
      * "SIP" should always land in Investments, not whatever the keyword table's Other/default
      * fallback would have guessed).
      *
+     * Except where that category is the user's own: no MARK_INVESTMENT rule replaces a category
+     * the user chose, a GLOBAL one does not replace one their own rule assigned, and when both a
+     * personal and a global MARK_INVESTMENT rule match, only the personal one applies -- the same
+     * "a user can always override a system default" precedence RuleEngineService gives
+     * ASSIGN_CATEGORY. When a MARK_INVESTMENT rule does set the category, it becomes the recorded
+     * decision (source, rule id, confidence) and the row leaves the review queue. See
+     * {@link #investmentRuleToApply}. Measured before this guard: a global rule turned a category
+     * the user had typed, and one their own rule had set, into "Investments", and beat their own
+     * MARK_INVESTMENT rule, because every match was applied in turn and the global ones come last.
+     *
      * MARK_SUBSCRIPTION is intentionally NOT applied here. RecurringService fully recomputes
      * every active transaction's `recurring` flag from scratch (reset-then-recompute) on every
      * call -- see that class's own doc comment -- so a write-time isRecurring=true set here would
@@ -779,24 +789,41 @@ public class CategorizationService {
         // already-resolved `category` variable (used for tally/response display) in sync with
         // what actually landed on the transaction, rather than a repeat categoryId->name lookup.
         Category newCategory = null;
+        CategoryRule investmentRule = investmentRuleToApply(matches,
+                t.isCategoryManuallySet() || t.getDecisionSource() == Transaction.DecisionSource.MANUAL,
+                t.getDecisionSource()).map(RuleEngineService.RuleMatch::rule).orElse(null);
 
         for (RuleEngineService.RuleMatch match : matches) {
             CategoryRule rule = match.rule();
-            // Safe to record here unconditionally (unlike ASSIGN_CATEGORY, see recordRuleMatch's
-            // doc comment) -- applySideEffectRules() has exactly two callers, both at actual
-            // write time (TransactionService.create(), CsvImportService.confirm()), never at
-            // staging/preview.
-            ruleEngineService.recordMatch(rule.getId());
+            // At most one MARK_INVESTMENT rule decides the category; the others did nothing to
+            // this transaction, so they are neither applied nor recorded as having fired.
+            if (rule.getActionType() == CategoryRule.ActionType.MARK_INVESTMENT && rule != investmentRule) continue;
+            // Safe to record here (unlike ASSIGN_CATEGORY, see recordRuleMatch's doc comment) --
+            // every caller is at actual write time, never at staging/preview. Except a
+            // MARK_INVESTMENT rule that is already the decision: the import preview chose it
+            // (investmentRuleFor), and the confirm path counts the staged rule once already.
+            boolean alreadyTheDecision = rule.getActionType() == CategoryRule.ActionType.MARK_INVESTMENT
+                    && rule.getId() != null && rule.getId().equals(t.getDecisionRuleId());
+            if (!alreadyTheDecision) ruleEngineService.recordMatch(rule.getId());
             switch (rule.getActionType()) {
                 case MARK_TRANSFER -> {
                     t.setTransfer(true);
                     t.setReconciliationStatus(Transaction.ReconciliationStatus.TRANSFER);
                 }
                 case MARK_INVESTMENT -> {
-                    String categoryName = (rule.getActionValue() != null && !rule.getActionValue().isBlank())
-                            ? rule.getActionValue() : "Investments";
-                    newCategory = resolveOrCreateCategory(userId, categoryName);
+                    newCategory = resolveOrCreateCategory(userId, investmentCategoryName(rule));
                     t.setCategoryId(newCategory.getId());
+                    // The category now comes from this rule, so the decision record says so -- the
+                    // "why this category?" panel (TransactionExplanationService) and FlowClassifier
+                    // read it. Left as it was, a row a keyword or the AI guessed still claimed that
+                    // source, and one a user rule set named a rule that no longer decided it. A rule
+                    // decision is never an unconfirmed guess (isUnconfirmedGuess), so it leaves the
+                    // review queue the same way an ASSIGN_CATEGORY rule match never enters it.
+                    t.setDecisionSource(match.isUserScope()
+                            ? Transaction.DecisionSource.USER_RULE : Transaction.DecisionSource.GLOBAL_RULE);
+                    t.setDecisionRuleId(rule.getId());
+                    t.setDecisionConfidence(ConfidenceEngine.INITIAL_RULE_CONFIDENCE);
+                    t.setNeedsCategoryReview(false);
                 }
                 case ADD_TAG -> {
                     if (rule.getActionValue() != null && !rule.getActionValue().isBlank()) {
@@ -814,6 +841,68 @@ public class CategorizationService {
             }
         }
         return newCategory;
+    }
+
+    /** What a MARK_INVESTMENT rule will make of a staged row: the category, the rule, and the
+     *  categorySource string ({@code "user_rule"}/{@code "global_rule"}) the review screen and
+     *  {@link #decisionSourceFor} already understand. */
+    public record InvestmentDecision(String categoryName, UUID ruleId, boolean userScope) {
+        public String source() { return userScope ? "user_rule" : "global_rule"; }
+    }
+
+    /**
+     * The import preview's view of {@link #applySideEffectRules}: which MARK_INVESTMENT rule, if
+     * any, confirm will let set this row's category, given the decision staging already made
+     * ({@code current}, from {@link #decisionSourceFor}). Read-only -- no match is counted and no
+     * category is created.
+     *
+     * <p>Exists because staging never applied these rules: the review screen showed the keyword,
+     * learned or file category, and confirm then stored the investment one -- a category the user
+     * was never shown and could not correct. Now the row arrives on the review screen already
+     * showing it, and a change there is the user's choice (MANUAL), which no investment rule
+     * replaces. Same selection as confirm ({@link #investmentRuleToApply}); confirm still runs
+     * the rules itself, so an older staged session is decided correctly too.
+     */
+    public Optional<InvestmentDecision> investmentRuleFor(List<CategoryRule> rules, Transaction.DecisionSource current,
+                                                          String description, BigDecimal amount, String merchantName) {
+        if (rules == null || rules.isEmpty()) return Optional.empty();
+        List<RuleEngineService.RuleMatch> matches =
+                ruleEngineService.evaluateSideEffectRules(rules, description, amount, merchantName, null);
+        return investmentRuleToApply(matches, current == Transaction.DecisionSource.MANUAL, current)
+                .map(m -> new InvestmentDecision(investmentCategoryName(m.rule()), m.rule().getId(), m.isUserScope()));
+    }
+
+    /** The category a MARK_INVESTMENT rule files a transaction under: its action value, or
+     *  "Investments" when that is blank. Shared with TransactionExplanationService, which names
+     *  the category the deciding rule assigned. */
+    public static String investmentCategoryName(CategoryRule rule) {
+        String value = rule.getActionValue();
+        return value != null && !value.isBlank() ? value : "Investments";
+    }
+
+    /**
+     * The one MARK_INVESTMENT match allowed to set a transaction's category, or empty for none --
+     * shared by {@link #applySideEffectRules} (confirm/create) and {@link #investmentRuleFor}
+     * (staging), so the review screen and the stored row cannot disagree. A category the user chose
+     * ({@code chosenByUser}: {@code categoryManuallySet}, or a MANUAL decision) is never replaced,
+     * not even by their own rule -- a choice made by hand is the most explicit decision there is.
+     * Otherwise the user's own highest-priority match wins outright, and failing that the
+     * highest-priority global match applies, unless one of the user's rules assigned the category
+     * already there ({@code current} USER_RULE). Chosen by scope rather than list position, so it
+     * does not depend on the caller passing a rule set in RuleEngineService.ruleSet's
+     * USER-then-GLOBAL order.
+     */
+    private static Optional<RuleEngineService.RuleMatch> investmentRuleToApply(
+            List<RuleEngineService.RuleMatch> matches, boolean chosenByUser, Transaction.DecisionSource current) {
+        if (chosenByUser) return Optional.empty();
+        RuleEngineService.RuleMatch firstGlobal = null;
+        for (RuleEngineService.RuleMatch match : matches) {
+            if (match.rule().getActionType() != CategoryRule.ActionType.MARK_INVESTMENT) continue;
+            if (match.isUserScope()) return Optional.of(match);
+            if (firstGlobal == null) firstGlobal = match;
+        }
+        if (firstGlobal == null || current == Transaction.DecisionSource.USER_RULE) return Optional.empty();
+        return Optional.of(firstGlobal);
     }
 
     // categories.name is VARCHAR(80) NOT NULL (V1__init_schema.sql). ImportService's confirm path

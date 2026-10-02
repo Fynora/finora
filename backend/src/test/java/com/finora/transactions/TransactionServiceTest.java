@@ -542,6 +542,31 @@ class TransactionServiceTest {
     }
 
     @Test
+    void create_aCategoryRuleAnInvestmentRuleThenReplaced_isNotRecordedAsAMatch() {
+        // The suggestion's rule did not decide the stored category: applySideEffectRules replaced
+        // it and recorded the investment rule as the decision (and counted that one itself).
+        UUID assignRuleId = UUID.randomUUID();
+        UUID investmentRuleId = UUID.randomUUID();
+        var suggestion = new CategorizationService.Suggestion("Shopping", "global_rule", UUID.randomUUID(),
+                Transaction.DecisionSource.GLOBAL_RULE, assignRuleId);
+        when(categorizationService.suggest(eq(userId), anyString(), any(), any(), any())).thenReturn(suggestion);
+        when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Shopping"))).thenReturn(dummyCategory);
+        Category investments = new Category();
+        ReflectionTestUtils.setField(investments, "id", UUID.randomUUID());
+        investments.setName("Investments");
+        when(categorizationService.applySideEffectRules(eq(userId), any(Transaction.class))).thenAnswer(inv -> {
+            Transaction t = inv.getArgument(1);
+            t.setDecisionRuleId(investmentRuleId);
+            return investments;
+        });
+
+        transactionService.create(userId, new TransactionDto.CreateRequest(UUID.randomUUID(), null, LocalDate.now(),
+                "SIP MUTUAL FUND DEDUCTION", BigDecimal.valueOf(5000), "EXPENSE", List.of()));
+
+        verify(categorizationService, never()).recordRuleMatch(assignRuleId);
+    }
+
+    @Test
     void create_noRuleMatch_recordsNothing() {
         var suggestion = new CategorizationService.Suggestion("Other", "default", UUID.randomUUID(), Transaction.DecisionSource.MERCHANT_DEFAULT, null);
         when(categorizationService.suggest(eq(userId), anyString(), any(), any(), any())).thenReturn(suggestion);

@@ -1287,6 +1287,14 @@ public class ImportService {
                 // the import summary against the transaction it just created.
                 t.setCategoryId(category.getId());
             }
+            // This IS the actual write, unlike staging (a preview, possibly never confirmed) --
+            // row.ruleId() is the rule staging resolved, carried through review unchanged (a row
+            // the user re-categorised carries none, see ConfirmedRow.withCategoryDecidedBy).
+            // Counted only if it is still the decision: one a MARK_INVESTMENT rule replaced did
+            // not decide what is stored (applySideEffectRules counts the rule that did).
+            if (java.util.Objects.equals(t.getDecisionRuleId(), row.ruleId())) {
+                categorizationService.recordRuleMatch(row.ruleId());
+            }
             toInsert.add(t);
 
             categoryTally.merge(category.getName(), 1, Integer::sum);

@@ -808,6 +808,24 @@ public class TransactionNormalizer {
             }
         }
 
+        // A MARK_INVESTMENT rule replaces the category at confirm (CategorizationService
+        // .applySideEffectRules), whichever of the file, the bank's printed label or the engine
+        // decided it above. Staging never applied it, so the review screen showed a category that
+        // was not the one stored, and the user could not correct what they were never shown. The
+        // same decision is made here, with the merchant name resolved just above, so the row
+        // arrives showing what confirm will store; a change made on the review screen is then the
+        // user's choice, which no investment rule replaces.
+        if (categorizationService != null && rules != null) {
+            var investment = categorizationService.investmentRuleFor(rules,
+                    CategorizationService.decisionSourceFor(source), description, amount, merchant);
+            if (investment.isPresent()) {
+                suggestedCategory = investment.get().categoryName();
+                source = investment.get().source();
+                ruleId = investment.get().ruleId();
+                categoryConfidence = com.finora.service.ConfidenceEngine.INITIAL_RULE_CONFIDENCE;
+            }
+        }
+
         // Read from the SAME cell the amount came from, so a foreign amount is only ever attached to
         // the rupee amount it was printed beside -- see CsvParser.ForeignCurrencyPrefix.
         CsvParser.ForeignCurrencyPrefix foreign = CsvParser.foreignCurrencyPrefix(amountRaw);

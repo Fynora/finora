@@ -1103,7 +1103,7 @@ describe('Import — Free-tier entitlement gates show an upgrade prompt', () => 
 
   it.each([
     [ACCOUNT_LIMIT_REACHED, 'Free plan is limited to 2 accounts. Upgrade to Plus for unlimited accounts.'],
-    [STATEMENT_PERIOD_TOO_LONG, 'Free plan statements can cover at most 31 days. Upgrade to Plus to import longer statement periods.'],
+    [STATEMENT_PERIOD_TOO_LONG, 'Free plan statements can cover at most one month. Upgrade to Plus to import longer statement periods.'],
   ])('shows the server message and a "See Plus plans" link for %s', async (errorCode, message) => {
     stageRows();
     vi.mocked(importApi.confirm).mockReset().mockRejectedValue({

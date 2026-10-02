@@ -195,8 +195,8 @@ public class AnalyticsService {
 
         SpendRows spend = activeSpend(userId, month);
         Map<UUID, List<Transaction>> byCategory = spend.rows().stream()
-                .filter(t -> t.getCategoryId() != null)
-                .collect(Collectors.groupingBy(Transaction::getCategoryId));
+                .filter(t -> spend.netting().spendCategoryOf(t) != null)
+                .collect(Collectors.groupingBy(spend.netting()::spendCategoryOf));
 
         return byCategory.entrySet().stream()
                 .map(e -> new AnalyticsDto.TopCategory(
@@ -229,8 +229,8 @@ public class AnalyticsService {
 
         SpendRows spend = activeSpend(userId, month);
         Map<String, List<Transaction>> byName = spend.rows().stream()
-                .collect(Collectors.groupingBy(t -> t.getCategoryId() == null ? UNCATEGORIZED
-                        : categoryNames.getOrDefault(t.getCategoryId(), UNCATEGORIZED)));
+                .collect(Collectors.groupingBy(t -> spend.netting().spendCategoryOf(t) == null ? UNCATEGORIZED
+                        : categoryNames.getOrDefault(spend.netting().spendCategoryOf(t), UNCATEGORIZED)));
 
         return byName.entrySet().stream()
                 .map(e -> new AnalyticsDto.CategorySpend(
@@ -418,7 +418,7 @@ public class AnalyticsService {
         UUID uncategorised = new UUID(0L, 0L);
         for (Transaction t : txns) {
             YearMonth m = YearMonth.from(t.getTxnDate());
-            UUID category = t.getCategoryId() == null ? uncategorised : t.getCategoryId();
+            UUID category = refunds.spendCategoryOf(t) == null ? uncategorised : refunds.spendCategoryOf(t);
             // spendAmount: an unlinked refund in a spend list counts negative; any other row, as
             // reportableAmount always priced it -- so this stays right for the income series too.
             byMonthAndCategory.computeIfAbsent(m, k -> new HashMap<>()).merge(category, refunds.spendAmount(t), BigDecimal::add);
@@ -540,10 +540,11 @@ public class AnalyticsService {
         // month -> categoryId -> total.
         Map<YearMonth, Map<UUID, BigDecimal>> byMonthAndCategory = new HashMap<>();
         for (Transaction t : txns) {
-            if (t.getCategoryId() == null) continue;
+            UUID category = refunds.spendCategoryOf(t);
+            if (category == null) continue;
             YearMonth m = YearMonth.from(t.getTxnDate());
             byMonthAndCategory.computeIfAbsent(m, k -> new HashMap<>())
-                    .merge(t.getCategoryId(), refunds.spendAmount(t), BigDecimal::add);
+                    .merge(category, refunds.spendAmount(t), BigDecimal::add);
         }
 
         List<AnalyticsDto.MultiYearCategoryPoint> fullYears = MultiYearCoverage.yearCoverages(firstDataMonth, currentMonth, gaps)

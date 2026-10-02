@@ -1426,8 +1426,32 @@ class DashboardServiceTest {
         DashboardSummaryDto summary = dashboardService.summarize(userId);
 
         assertThat(summary.monthlyIncome()).isEqualByComparingTo("0");
-        assertThat(summary.savingsRatePct()).isEqualByComparingTo("0");
+        // No income counted: withheld with a reason rather than shown as 0%.
+        assertThat(summary.savingsRatePct()).isNull();
+        assertThat(summary.savingsRateGateReason()).isEqualTo(SavingsRate.NO_INCOME);
         assertThat(summary.monthlyExpense()).isEqualByComparingTo("15000.00"); // spend unchanged by Plan 1
+    }
+
+    @Test
+    void summarize_unclassifiedMoneyBeyondIncome_withholdsTheSavingsRate() {
+        LocalDate july = LocalDate.of(2026, 7, 15);
+        Transaction interest = txn(new BigDecimal("200.00"), Transaction.Type.INCOME, july, Transaction.ReconciliationStatus.OK);
+        interest.setAccountId(savings.getId());
+        interest.setDescription("SB INT CREDIT");
+        Transaction fromPerson = txn(new BigDecimal("30000.00"), Transaction.Type.INCOME, july, Transaction.ReconciliationStatus.OK);
+        fromPerson.setAccountId(savings.getId());
+        fromPerson.setDescription("UPI-SUNIL VERMA-sampleuser@ybl-REF3");
+        fromPerson.setCounterpartyType(com.finora.util.CounterpartyType.PERSON);
+        fromPerson.setSource(Transaction.Source.CSV_IMPORT);
+        Transaction rent = txn(new BigDecimal("15000.00"), Transaction.Type.EXPENSE, july, Transaction.ReconciliationStatus.OK);
+        rent.setAccountId(savings.getId());
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(interest, fromPerson, rent));
+
+        DashboardSummaryDto summary = dashboardService.summarize(userId);
+
+        assertThat(summary.monthlyIncome()).isEqualByComparingTo("200.00");
+        assertThat(summary.savingsRatePct()).isNull();
+        assertThat(summary.savingsRateGateReason()).isEqualTo(SavingsRate.UNRESOLVED_EXCEEDS_INCOME);
     }
 
     @Test

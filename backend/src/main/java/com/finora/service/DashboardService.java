@@ -184,9 +184,8 @@ public class DashboardService {
         Double expenseDeltaPct = pct(expenseCur, expensePrior, priorMonthReliable);
         Double incomeDeltaPct = pct(incomeCur, incomePrior, priorMonthReliable);
 
-        BigDecimal savingsRate = incomeCur.compareTo(BigDecimal.ZERO) > 0
-                ? netCur.divide(incomeCur, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100))
-                : BigDecimal.ZERO;
+        SavingsRate.Reading savingsReading = SavingsRate.of(incomeCur, expenseCur, unresolvedCur);
+        BigDecimal savingsRate = savingsReading.pct();
 
         var health = computeHealthScore(accounts, activeForTotals, months, liquid, spend, flow);
 
@@ -295,9 +294,9 @@ public class DashboardService {
         // now agrees with.
         Map<UUID, BigDecimal> spendByCategoryId = RefundNetting.withoutNegativeSpend(active.stream()
                 .filter(t -> spend.countsAsSpend(t)
-                        && t.getCategoryId() != null
+                        && spend.spendCategoryOf(t) != null
                         && Objects.equals(YearMonth.from(t.getTxnDate()).toString(), period.calendarMonth()))
-                .collect(Collectors.groupingBy(Transaction::getCategoryId,
+                .collect(Collectors.groupingBy(spend::spendCategoryOf,
                         Collectors.reducing(BigDecimal.ZERO, spend::spendAmount, BigDecimal::add))));
         List<Budget> budgets = budgetRepository.findByUserId(userId);
         Optional<User> user = userRepository.findById(userId);
@@ -368,7 +367,8 @@ public class DashboardService {
                 duplicates.size(), detectedDuplicates,
                 categorizationConfidenceScore, categorizationConfidenceTransactionCount, MIN_TRANSACTIONS_FOR_CONFIDENCE_SCORE,
                 incomeDeltaPct != null ? priorMonth : null, incomeDeltaPct != null ? incomePrior : null,
-                unresolvedCur, unresolvedCountCur, unresolvedTopReason == null ? null : unresolvedTopReason.name()
+                unresolvedCur, unresolvedCountCur, unresolvedTopReason == null ? null : unresolvedTopReason.name(),
+                savingsReading.gateReason()
         );
     }
 
@@ -446,7 +446,7 @@ public class DashboardService {
                 .filter(t -> refunds.countsAsSpend(t)
                         && Objects.equals(YearMonth.from(t.getTxnDate()).toString(), month))
                 .collect(Collectors.collectingAndThen(Collectors.groupingBy(
-                        t -> categoriesById.getOrDefault(t.getCategoryId(), unknownCategory()).getName(),
+                        t -> categoriesById.getOrDefault(refunds.spendCategoryOf(t), unknownCategory()).getName(),
                         Collectors.reducing(BigDecimal.ZERO, refunds::spendAmount, BigDecimal::add)),
                         RefundNetting::withoutNegativeSpend));
     }
@@ -685,8 +685,17 @@ public class DashboardService {
         // is composed server-side where scripts/check-reporting-period-labels.py -- which only
         // scans frontend .tsx files -- can't catch a hardcoded period claim. Every other entry in
         // this map already avoids asserting a period for the same reason; this one now matches.
-        breakdownDetail.put("Savings Rate", String.format(Locale.ENGLISH,
-                "Your savings rate was %.1f%%.", savingsRate));
+        // The score above is unchanged; only the sentence follows SavingsRate's gate, so it never
+        // prints a percentage the dashboard itself withholds.
+        String latestMonth = last6.isEmpty() ? null : last6.get(last6.size() - 1);
+        BigDecimal unresolvedLatest = latestMonth == null ? BigDecimal.ZERO : FlowTotals.unresolvedInflow(active.stream()
+                .filter(t -> YearMonth.from(t.getTxnDate()).toString().equals(latestMonth)).toList(), flow);
+        String savingsGate = SavingsRate.of(incomeCur, expenseCur, unresolvedLatest).gateReason();
+        breakdownDetail.put("Savings Rate", savingsGate == null
+                ? String.format(Locale.ENGLISH, "Your savings rate was %.1f%%.", savingsRate)
+                : SavingsRate.NO_INCOME.equals(savingsGate)
+                        ? "No income was counted, so there is no savings rate to measure yet."
+                        : "Most money that came in is not classified yet, so a savings rate would not mean much.");
         breakdownDetail.put("Debt Score", cards.isEmpty()
                 ? "You have no credit cards on file."
                 : String.format(Locale.ENGLISH, "Your average credit utilization is %.0f%% across %d card%s.",

@@ -263,7 +263,7 @@ public class InsightsService {
         return RefundNetting.withoutNegativeSpend(txns.stream()
                 .filter(t -> YearMonth.from(t.getTxnDate()).toString().equals(month))
                 .collect(Collectors.groupingBy(
-                        t -> categoriesById.containsKey(t.getCategoryId()) ? categoriesById.get(t.getCategoryId()).getName() : "Uncategorized",
+                        t -> categoriesById.containsKey(refunds.spendCategoryOf(t)) ? categoriesById.get(refunds.spendCategoryOf(t)).getName() : "Uncategorized",
                         Collectors.reducing(BigDecimal.ZERO, refunds::spendAmount, BigDecimal::add))));
     }
 

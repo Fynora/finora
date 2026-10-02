@@ -28,20 +28,37 @@ public final class FlowTotals {
     /** What the classifier needs about the user beyond the row itself: each account's type (a card
      *  credit is never income), which category ids are the user's Salary category, and the user's
      *  inflow kinds (Plan 2). Production code builds this through InflowChoiceService.contextFor. */
-    public record Context(Map<UUID, Account.Type> accountTypes, Set<UUID> salaryCategoryIds, InflowChoices choices) {}
+    public record Context(Map<UUID, Account.Type> accountTypes, Set<UUID> salaryCategoryIds, InflowChoices choices,
+                          Set<UUID> repaymentCategoryIds, UUID personTransferCategoryId) {
+
+        /** No repayment or person-transfer category -- for callers that predate them. */
+        public Context(Map<UUID, Account.Type> accountTypes, Set<UUID> salaryCategoryIds, InflowChoices choices) {
+            this(accountTypes, salaryCategoryIds, choices, Set.of(), null);
+        }
+    }
+
+    /** The seeded category a credit is filed under when a person paid the user back (AuthService). */
+    static final String REPAYMENT_CATEGORY = "Friend Repayment";
 
     public static Context context(Collection<Account> accounts, Collection<Category> categories, InflowChoices choices) {
         Map<UUID, Account.Type> types = new HashMap<>();
         for (Account a : accounts) {
             if (a.getId() != null && a.getAccountType() != null) types.put(a.getId(), a.getAccountType());
         }
-        // By name, case-insensitively: "Salary" is the seeded system category (AuthService), and a
-        // user who deleted and recreated it still means the same thing.
+        // By name, case-insensitively: these are seeded system categories (AuthService), and a user
+        // who deleted and recreated one still means the same thing.
         Set<UUID> salary = new HashSet<>();
+        Set<UUID> repayment = new HashSet<>();
+        UUID personTransfer = null;
         for (Category c : categories) {
-            if (c.getId() != null && c.getName() != null && c.getName().trim().equalsIgnoreCase("Salary")) salary.add(c.getId());
+            if (c.getId() == null || c.getName() == null) continue;
+            String name = c.getName().trim();
+            if (name.equalsIgnoreCase("Salary")) salary.add(c.getId());
+            if (name.equalsIgnoreCase(REPAYMENT_CATEGORY)) repayment.add(c.getId());
+            // Names are unique per user case-insensitively (uq_categories_user_name_ci), so one at most.
+            if (name.equalsIgnoreCase(CategorizationService.P2P_CATEGORY)) personTransfer = c.getId();
         }
-        return new Context(types, salary, choices);
+        return new Context(types, salary, choices, repayment, personTransfer);
     }
 
     public static boolean countsAsIncome(Transaction t, Context ctx) {
@@ -69,7 +86,19 @@ public final class FlowTotals {
         FlowClassifier.FlowReason reason = decision(t, ctx).reason();
         return reason == FlowClassifier.FlowReason.UNLINKED_REFUND
                 || reason == FlowClassifier.FlowReason.REVERSAL
-                || reason == FlowClassifier.FlowReason.CARD_ADJUSTMENT;
+                || reason == FlowClassifier.FlowReason.CARD_ADJUSTMENT
+                || reason == FlowClassifier.FlowReason.PAID_BACK;
+    }
+
+    /**
+     * The category an offset gives spend back in, when it is not the row's own. Money a person paid
+     * back is filed under Friend Repayment, where nothing was spent, so in its own category it would
+     * lower nothing; the lending it settles sits in Personal Transfer, which is where it lands.
+     * Null means the row's own category -- including when the user has no Personal Transfer category.
+     */
+    public static UUID offsetCategoryOverride(Transaction t, Context ctx) {
+        if (ctx.personTransferCategoryId() == null) return null;
+        return decision(t, ctx).reason() == FlowClassifier.FlowReason.PAID_BACK ? ctx.personTransferCategoryId() : null;
     }
 
     /** Money that came in and that Fynora cannot yet say is income -- shown beside income, never in it. */
@@ -108,8 +137,16 @@ public final class FlowTotals {
         InflowChoices.Chosen chosen = ctx.choices().chosenFor(t);
         return FlowClassifier.classify(t,
                 t.getAccountId() == null ? null : ctx.accountTypes().get(t.getAccountId()),
-                t.getCategoryId() != null && ctx.salaryCategoryIds().contains(t.getCategoryId()),
+                categoryRole(t, ctx),
                 chosen == null ? null : chosen.kind());
+    }
+
+    private static FlowClassifier.CategoryRole categoryRole(Transaction t, Context ctx) {
+        UUID id = t.getCategoryId();
+        if (id == null) return FlowClassifier.CategoryRole.NONE;
+        if (ctx.salaryCategoryIds().contains(id)) return FlowClassifier.CategoryRole.SALARY;
+        if (ctx.repaymentCategoryIds().contains(id)) return FlowClassifier.CategoryRole.REPAYMENT;
+        return FlowClassifier.CategoryRole.NONE;
     }
 
     /** The user's kind for this row (its own, else its sender's), or null. */

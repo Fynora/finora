@@ -64,14 +64,22 @@ public final class RefundNetting {
     private final Set<UUID> offsetIds;
     private final Set<Transaction> offsetRows;
 
+    /** Offsets that give spend back in a category other than their own (FlowTotals.offsetCategoryOverride),
+     *  by id and by identity for the same reason as the offset sets above. */
+    private final Map<UUID, UUID> spendCategoryById;
+    private final Map<Transaction, UUID> spendCategoryByRow;
+
     private RefundNetting(Map<UUID, BigDecimal> refundedByExpenseId) {
-        this(refundedByExpenseId, Set.of(), Set.of());
+        this(refundedByExpenseId, Set.of(), Set.of(), Map.of(), Map.of());
     }
 
-    private RefundNetting(Map<UUID, BigDecimal> refundedByExpenseId, Set<UUID> offsetIds, Set<Transaction> offsetRows) {
+    private RefundNetting(Map<UUID, BigDecimal> refundedByExpenseId, Set<UUID> offsetIds, Set<Transaction> offsetRows,
+                          Map<UUID, UUID> spendCategoryById, Map<Transaction, UUID> spendCategoryByRow) {
         this.refundedByExpenseId = refundedByExpenseId;
         this.offsetIds = offsetIds;
         this.offsetRows = offsetRows;
+        this.spendCategoryById = spendCategoryById;
+        this.spendCategoryByRow = spendCategoryByRow;
     }
 
     /**
@@ -87,16 +95,45 @@ public final class RefundNetting {
      * <p>Only the spend TOTALS and category spend read this ({@link #countsAsSpend},
      * {@link #spendAmount}). Transaction counts, merchant rankings and foreign-currency sums keep
      * reading expense rows alone: a refund is not a purchase, and its foreign amount is not spend.
+     *
+     * <p>One kind of offset lands outside its own category: money a person paid back, which gives
+     * spend back in Personal Transfer -- see {@link FlowTotals#offsetCategoryOverride} and
+     * {@link #spendCategoryOf}.
      */
     public RefundNetting withUnlinkedOffsets(Collection<Transaction> rows, FlowTotals.Context flow) {
         Set<UUID> ids = new java.util.HashSet<>();
         Set<Transaction> identity = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        Map<UUID, UUID> categoryById = new HashMap<>();
+        Map<Transaction, UUID> categoryByRow = new java.util.IdentityHashMap<>();
         for (Transaction t : rows) {
             if (!FlowTotals.offsetsSpend(t, flow)) continue;
             identity.add(t);
             if (t.getId() != null) ids.add(t.getId());
+            UUID override = FlowTotals.offsetCategoryOverride(t, flow);
+            if (override != null) {
+                categoryByRow.put(t, override);
+                if (t.getId() != null) categoryById.put(t.getId(), override);
+            }
         }
-        return identity.isEmpty() ? this : new RefundNetting(refundedByExpenseId, ids, identity);
+        return identity.isEmpty() ? this
+                : new RefundNetting(refundedByExpenseId, ids, identity, categoryById, categoryByRow);
+    }
+
+    /**
+     * The category this row's spend is counted under: its own, except for an offset that gives spend
+     * back elsewhere. Every spend-by-category grouping reads this instead of {@code getCategoryId()},
+     * so a period's total stays the sum of its categories.
+     */
+    public UUID spendCategoryOf(Transaction t) {
+        if (!spendCategoryByRow.isEmpty()) {
+            UUID byRow = spendCategoryByRow.get(t);
+            if (byRow != null) return byRow;
+            if (t.getId() != null) {
+                UUID byId = spendCategoryById.get(t.getId());
+                if (byId != null) return byId;
+            }
+        }
+        return t.getCategoryId();
     }
 
     /** Whether this row takes part in a spend total: every expense, plus the unlinked offsets. */
@@ -133,8 +170,9 @@ public final class RefundNetting {
         BigDecimal uncategorised = BigDecimal.ZERO;
         for (Transaction t : rows) {
             if (!countsAsSpend(t)) continue;
-            if (t.getCategoryId() == null) uncategorised = uncategorised.add(spendAmount(t));
-            else byCategory.merge(t.getCategoryId(), spendAmount(t), BigDecimal::add);
+            UUID category = spendCategoryOf(t);
+            if (category == null) uncategorised = uncategorised.add(spendAmount(t));
+            else byCategory.merge(category, spendAmount(t), BigDecimal::add);
         }
         BigDecimal total = floorAtZero(uncategorised);
         for (BigDecimal v : byCategory.values()) total = total.add(floorAtZero(v));

@@ -1013,7 +1013,8 @@ function LedgerMonthSummary({ kpis, deltaLabel }: { kpis: KpiItem[]; deltaLabel:
     return (
       <View style={styles.monthCol}>
         <Text style={[styles.monthLabel, { color: c.mutedInk }]}>{kpi.label}</Text>
-        <AnimatedNumber testID={`kpi-${kpi.label}`} value={kpi.value} style={[styles.monthValue, { color: c.ink }]} />
+        {/* Income and Expenses only, which are always a number -- only Savings Rate can be null. */}
+        <AnimatedNumber testID={`kpi-${kpi.label}`} value={kpi.value ?? 0} style={[styles.monthValue, { color: c.ink }]} />
         {kpi.delta !== null && kpi.delta !== undefined ? (
           <Text style={[styles.monthDelta, { color: (kpi.invert ? kpi.delta < 0 : kpi.delta >= 0) ? c.success : c.danger }]}>
             {kpi.delta >= 0 ? '▲' : '▼'} {Math.abs(kpi.delta).toFixed(1)}% {deltaLabel}

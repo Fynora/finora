@@ -378,4 +378,34 @@ class CounterpartyIdentityTest {
         assertThat(CounterpartyIdentity.identifiesOnePayee("vpa:")).isFalse();
         assertThat(CounterpartyIdentity.identifiesOnePayee("name:")).isFalse();
     }
+
+    @Test
+    void aPaymentBrandsPartnerPrefixAloneIdentifiesNoOne_itsFullMerchantIdDoes() {
+        // Cut to the partner's digits, one key joins every shop under that partner.
+        assertThat(CounterpartyIdentity.identifiesOnePayee(
+                CounterpartyIdentity.keyOf("UPI/DR/100000000001/SAMPLE E/INDB/bajajpay.100000/"))).isFalse(); // synthetic-ok
+        assertThat(CounterpartyIdentity.identifiesOnePayee(
+                CounterpartyIdentity.keyOf("UPI/DR/100000000002/Ramesh/INDB/bajajpay.100 000/S"))).isFalse(); // synthetic-ok
+        // Printed whole, the merchant part names one shop.
+        assertThat(CounterpartyIdentity.identifiesOnePayee("vpa:bajajpay.1000000.dep1000000")).isTrue();
+        assertThat(CounterpartyIdentity.identifiesOnePayee("vpa:punemetroabcde")).isTrue();
+    }
+
+    @Test
+    void payeeHandle_readsTheIdSlotEvenInCapitals_butNeverANote() {
+        // keyOf leaves a capitalised id slot to the name fallback; as evidence of who was paid it counts.
+        assertThat(CounterpartyIdentity.payeeHandle("UPI/DR/100000000001/BHARTI A/AIRP/airtelprepaidXY/"))  // synthetic-ok
+                .isEqualTo("airtelprepaidxy");
+        assertThat(CounterpartyIdentity.payeeHandle("UPI/DR/100000000002/SAMPLE E/INDB/bajajpay.100 000/S")) // synthetic-ok
+                .isEqualTo("bajajpay.100000");
+        assertThat(CounterpartyIdentity.payeeHandle("UPI/DR/100000000003/RAVI KUM/SBIN/ravi.k@okaxis/UPI"))   // synthetic-ok
+                .isEqualTo("ravi.k");
+        // A capitalised slot with a space is a note.
+        assertThat(CounterpartyIdentity.payeeHandle("UPI/DR/100000000004/RAVI KUM/SBIN/Rent June/")).isEmpty(); // synthetic-ok
+        // Other layouts: the VPA's local part, or nothing.
+        assertThat(CounterpartyIdentity.payeeHandle("UPI-SUNIL VERMA-sunil.verma@icici-XXXX0001234-REF32-UPI"))  // synthetic-ok
+                .isEqualTo("sunil.verma");
+        assertThat(CounterpartyIdentity.payeeHandle("NEFT ACME TECHNOLOGIES PVT LTD REF23")).isEmpty();
+        assertThat(CounterpartyIdentity.payeeHandle(null)).isEmpty();
+    }
 }

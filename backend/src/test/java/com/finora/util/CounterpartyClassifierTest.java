@@ -290,4 +290,53 @@ class CounterpartyClassifierTest {
         assertThat(CounterpartyClassifier.classify("SentIMPS100000000001SAMPLE TRADERS PVT LTD/HDFC0XXXXXX/Last Thin"))
                 .isEqualTo(CounterpartyType.BUSINESS);
     }
+
+    // Measured on a tester's statement (2026-10-02): one bank prints "UPI/<DR|CR>/<ref>/<name>/<bank>/<id>/"
+    // with the name cut to eight characters and the id cut before its "@". A metro operator, an app
+    // store and a phone company then carry no merchant evidence but a cut name that reads as two
+    // words, and typed PERSON. The values below are invented in the same shapes.
+    @Test
+    void aShopWhoseNameTheBankCutIsReadFromItsUpiId() {
+        for (String shop : new String[] {
+                "UPI/DR/100000000001/PUNE MET/HDFC/punemetroabcde/",      // synthetic-ok
+                "UPI/CR/100000000002/PUNE MET/HDFC/punemetroabcde/",      // synthetic-ok
+                "UPI/DR/100000000003/APPLE ME/HDFC/appleservices.x/",     // synthetic-ok
+                "UPI/DR/100000000004/Www Airt/HDFC/airtelautopay.x/",     // synthetic-ok
+                "UPI/DR/100000000005/BHARTI A/AIRP/airtelprepaidXY/"}) {  // synthetic-ok
+            assertThat(CounterpartyClassifier.classify(shop)).as(shop).isEqualTo(CounterpartyType.BUSINESS);
+            assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(shop)).as(shop).isFalse();
+        }
+    }
+
+    @Test
+    void aPersonWhoseUpiIdSpellsTheirOwnNameIsStillAPerson() {
+        // The counterweight: people name their ids after themselves, so the id only counts when it
+        // begins with a known brand -- never because it repeats the name beside it.
+        assertThat(CounterpartyClassifier.classify("UPI/CR/100000000006/RAVI KUM/SBIN/ravikumar.x/"))  // synthetic-ok
+                .isEqualTo(CounterpartyType.PERSON);
+        // A brand shorter than five letters is too short to tell from the start of a name.
+        assertThat(CounterpartyClassifier.classify("UPI/DR/100000000007/OLAF SEN/SBIN/olafsen12/"))    // synthetic-ok
+                .isEqualTo(CounterpartyType.PERSON);
+    }
+
+    @Test
+    void paymentBrandMerchantIdsAreABusiness_whoeverTheBankNamesAsThePayee() {
+        for (String shop : new String[] {
+                // A payments brand printed as the one-word payee of its own numbered id, both ways.
+                "UPI/DR/100000000009/autope/INDB/autope-10000001/",                          // synthetic-ok
+                "UPI/CR/100000000010/autope/INDB/autope-10000001/PA",                        // synthetic-ok
+                // One partner prefix, paid under a trade's cut name and under a first name.
+                "UPI/DR/100000000011/SAMPLE E/INDB/bajajpay.100000/",                        // synthetic-ok
+                "UPI/DR/100000000012/Ramesh/INDB/bajajpay.100 000/S",                        // synthetic-ok
+                // The same family in HDFC's layout, through a merchant pseudo-branch.
+                "UPI-ASHA RANI GUPTA-BAJAJPAY.1000000.DEP1000000@INDUS-XXXX0MERCHA-REF41-UPI", // synthetic-ok
+                // A card-machine provider's terminal id beside the shop owner's full name.
+                "UPI/ASHA RANI GUPTA/10000000001.PAYSWIFF@SAMPLE/REF42"}) {                  // synthetic-ok
+            assertThat(CounterpartyClassifier.classify(shop)).as(shop).isEqualTo(CounterpartyType.BUSINESS);
+            assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(shop)).as(shop).isFalse();
+        }
+        // The brand word alone, without a numbered id, is not a rail.
+        assertThat(PersonToPersonTransferDetector.hasMerchantAcquirerMarker("UPI/DR/100000000013/RAVI KUM/SBIN/bajajpay/"))  // synthetic-ok
+                .isFalse();
+    }
 }

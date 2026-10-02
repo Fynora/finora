@@ -28,9 +28,9 @@ import com.finora.util.LikePatterns;
  * Merchant needed one new LIKE-based method each (BankRepository.searchByName,
  * MerchantRepository.searchDistinctCanonicalNames). Global Rules is small enough (platform-wide,
  * not per-user -- typically a handful to a few dozen rows) that an in-memory filter over the
- * existing findByScopeOrderByPriorityAsc list is the right level of effort, the same "simple
- * indexed counts/lists, not a new reporting subsystem" discipline AdminStatsService documents for
- * the rest of this admin surface.
+ * existing findByScopeOrderByPriorityAscComparisonValueAscIdAsc list is the right level of
+ * effort, the same "simple indexed counts/lists, not a new reporting subsystem" discipline
+ * AdminStatsService documents for the rest of this admin surface.
  *
  * Merchant results have no single canonical entity id (see MerchantRepository's class comment --
  * there is no shared/canonical merchant table, only per-user rows that happen to share a name),
@@ -94,7 +94,9 @@ public class AdminSearchService {
 
     private List<SearchResultDto> searchGlobalRules(String rawTerm) {
         String needle = rawTerm.toLowerCase(Locale.ROOT);
-        return categoryRuleRepository.findByScopeOrderByPriorityAsc(CategoryRule.Scope.GLOBAL).stream()
+        // A total order, so with more hits than PER_TYPE_LIMIT the same five are shown every time:
+        // the earliest by priority, then comparison value, then id.
+        return categoryRuleRepository.findByScopeOrderByPriorityAscComparisonValueAscIdAsc(CategoryRule.Scope.GLOBAL).stream()
                 .filter(r -> matchesRule(r, needle))
                 .limit(PER_TYPE_LIMIT)
                 .map(r -> new SearchResultDto("rule", r.getId().toString(),

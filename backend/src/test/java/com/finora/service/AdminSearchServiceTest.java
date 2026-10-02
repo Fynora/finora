@@ -90,7 +90,7 @@ class AdminSearchServiceTest {
         when(userRepository.search(eq("amazon"), isNull(), any())).thenReturn(userPage);
         when(merchantRepository.searchDistinctCanonicalNames(eq("amazon"), any())).thenReturn(List.of("Amazon"));
         when(bankRepository.searchByName(eq("amazon"), any())).thenReturn(List.of());
-        when(categoryRuleRepository.findByScopeOrderByPriorityAsc(CategoryRule.Scope.GLOBAL))
+        when(categoryRuleRepository.findByScopeOrderByPriorityAscComparisonValueAscIdAsc(CategoryRule.Scope.GLOBAL))
                 .thenReturn(List.of(rule("amazon", "Shopping"), rule("uber", "Transport")));
 
         List<SearchResultDto> results = service.search("amazon");
@@ -114,7 +114,7 @@ class AdminSearchServiceTest {
         when(userRepository.search(anyString(), isNull(), any())).thenReturn(Page.empty());
         when(merchantRepository.searchDistinctCanonicalNames(anyString(), any())).thenReturn(List.of());
         when(bankRepository.searchByName(eq("hdfc"), any())).thenReturn(List.of(bank("hdfc", "HDFC Bank Ltd", "HDFC")));
-        when(categoryRuleRepository.findByScopeOrderByPriorityAsc(CategoryRule.Scope.GLOBAL)).thenReturn(List.of());
+        when(categoryRuleRepository.findByScopeOrderByPriorityAscComparisonValueAscIdAsc(CategoryRule.Scope.GLOBAL)).thenReturn(List.of());
 
         List<SearchResultDto> results = service.search("hdfc");
 
@@ -129,7 +129,7 @@ class AdminSearchServiceTest {
         when(userRepository.search(anyString(), isNull(), any())).thenReturn(Page.empty());
         when(merchantRepository.searchDistinctCanonicalNames(anyString(), any())).thenReturn(List.of());
         when(bankRepository.searchByName(anyString(), any())).thenReturn(List.of());
-        when(categoryRuleRepository.findByScopeOrderByPriorityAsc(CategoryRule.Scope.GLOBAL))
+        when(categoryRuleRepository.findByScopeOrderByPriorityAscComparisonValueAscIdAsc(CategoryRule.Scope.GLOBAL))
                 .thenReturn(List.of(rule("some description", "Groceries"), rule("other description", "Transport")));
 
         List<SearchResultDto> results = service.search("GROCER");

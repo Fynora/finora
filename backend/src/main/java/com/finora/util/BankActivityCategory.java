@@ -22,8 +22,10 @@ import java.util.regex.Pattern;
  * Categories decided by Sid on 2026-10-02: money the bank pays you is "Interest & Cashback" (a new
  * default category, V246), and government fees are "Taxes".
  *
- * <p>Runs after the user's rules, learned categories and the keyword table, so all three still
- * win; a null direction (a caller with no direction to give) decides nothing.
+ * <p>Runs last, only in place of "Other": the user's rules, learned categories, the keyword table,
+ * the shared corpus, the AI cache and the person-transfer rule all still win. A row whose payee is
+ * a person is never decided here, and a null direction (a caller with no direction to give)
+ * decides nothing.
  */
 public final class BankActivityCategory {
 
@@ -50,6 +52,10 @@ public final class BankActivityCategory {
 
     public static Optional<String> of(String description, Transaction.Type direction) {
         if (description == null || description.isBlank() || direction == null) return Optional.empty();
+        // A person is never the bank: a friend's note ("INTEREST PAID", "GST") is their own words
+        // about a transfer, not the bank's activity.
+        CounterpartyType counterparty = CounterpartyTyping.of(description).type();
+        if (counterparty == CounterpartyType.PERSON) return Optional.empty();
         String text = CategoryRules.normalize(description);
         if (direction == Transaction.Type.INCOME) {
             if (EARNED.matcher(text).find()) return Optional.of(INTEREST_AND_CASHBACK);
@@ -60,7 +66,7 @@ public final class BankActivityCategory {
         if (CHARGED.matcher(text).find()) return Optional.of("Fees/Interest");
         if (RECURRING_DEPOSIT.matcher(text).find()) return Optional.of("Investments");
         if (GST.matcher(text).find()) return Optional.of("Taxes");
-        if (CounterpartyTyping.of(description).type() == CounterpartyType.GOVERNMENT) return Optional.of("Taxes");
+        if (counterparty == CounterpartyType.GOVERNMENT) return Optional.of("Taxes");
         return Optional.empty();
     }
 

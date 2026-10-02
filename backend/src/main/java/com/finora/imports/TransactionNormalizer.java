@@ -503,15 +503,21 @@ public class TransactionNormalizer {
 
     /**
      * The row's printed merchant category as one of the user's categories, in the user's own
-     * spelling, or null. With a category-name index (the PDF path), a mapped category the user no
-     * longer has is not used -- a bank's label must not bring back a category someone deleted.
-     * Without one, the mapped default name is used as is, exactly as a printed Category column is.
+     * spelling, or null. Read from a merchant-category column (Axis, IndusInd), else from a plain
+     * Category column holding the bank's own label (a real Kotak card statement prints "Departmental
+     * Store" there) -- {@code categoryColumnLabel} is that column's raw value.
+     *
+     * <p>PDF path only ({@code existingCategoryNames} non-null). A mapped category the user no longer
+     * has is not used -- a bank's label must not bring back a category someone deleted -- and the
+     * CSV path has no list of the user's categories to check that against, so it reads nothing here.
      */
-    private static String printedMerchantCategory(Map<String, String> row, Map<String, String> existingCategoryNames) {
+    private static String printedMerchantCategory(Map<String, String> row, String categoryColumnLabel,
+                                                  Map<String, String> existingCategoryNames) {
+        if (existingCategoryNames == null) return null;
         String label = CsvParser.firstNonBlank(row, MERCHANT_CATEGORY_HINTS);
+        if (label == null) label = categoryColumnLabel;
         String mapped = com.finora.util.PrintedMerchantCategory.toCategory(label).orElse(null);
-        if (mapped == null || existingCategoryNames == null) return mapped;
-        return existingCategoryNames.get(categoryNameKey(mapped));
+        return mapped == null ? null : existingCategoryNames.get(categoryNameKey(mapped));
     }
 
     /**
@@ -654,6 +660,9 @@ public class TransactionNormalizer {
         // (Ledger.tsx falls back to `t.merchant` when `t.description` is empty).
         String description = Optional.ofNullable(CsvParser.firstNonBlank(row, DESCRIPTION_HINTS)).orElse("");
         String fileCategory = CsvParser.firstNonBlank(row, CATEGORY_HINTS);
+        // Kept for printedMerchantCategory: on the PDF path a Category column can hold the bank's own
+        // label rather than one of the user's categories (a real Kotak card statement).
+        String printedCategoryLabel = fileCategory;
         if (fileCategory != null && existingCategoryNames != null) {
             fileCategory = existingCategoryNames.get(categoryNameKey(fileCategory));
         }
@@ -703,7 +712,7 @@ public class TransactionNormalizer {
             // Money going out only: a real Axis refund credit printed a purchase label (MOTO)
             // beside it, and money coming in is not a purchase.
             String printed = "default".equals(source) && !isIncome
-                    ? printedMerchantCategory(row, existingCategoryNames) : null;
+                    ? printedMerchantCategory(row, printedCategoryLabel, existingCategoryNames) : null;
             if (printed != null) {
                 suggestedCategory = printed;
                 source = "file";

@@ -101,6 +101,16 @@ class BankActivityCategoryTest {
         assertThat(of("BBPS SAMPLE ELECTRICITY BOARD", EXPENSE)).isNull();
     }
 
+    // --- A person is never the bank ---
+
+    /** A payer's own note on a transfer from a friend is not the bank's activity. */
+    @Test
+    void aPersonsPaymentWhoseNoteNamesBankActivity_isLeftAlone() {
+        assertThat(of("UPI-AMIT KUMAR-amitkumar@okaxis-HDFC0000000-000000000000-INTEREST PAID", INCOME)).isNull();
+        assertThat(of("UPI-AMIT KUMAR-amitkumar@okaxis-HDFC0000000-000000000000-CASHBACK", INCOME)).isNull();
+        assertThat(of("UPI-AMIT KUMAR-amitkumar@okaxis-HDFC0000000-000000000000-GST", EXPENSE)).isNull();
+    }
+
     // --- Everything else is left to the rest of the engine ---
 
     @Test

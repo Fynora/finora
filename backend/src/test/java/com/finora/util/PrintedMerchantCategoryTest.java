@@ -31,6 +31,14 @@ class PrintedMerchantCategoryTest {
         assertThat(of("COMPUTERS")).isEqualTo("Shopping");
     }
 
+    /** The singular labels a real Kotak card statement prints in its Category column. */
+    @Test
+    void singularStoreLabels_areShoppingToo() {
+        assertThat(of("Departmental Store")).isEqualTo("Shopping");
+        assertThat(of("Computer")).isEqualTo("Shopping");
+        assertThat(of("Other Merchants")).isNull();
+    }
+
     @Test
     void foodBoughtToCook_isGroceries() {
         assertThat(of("GROCERY & SUPERMARKETS")).isEqualTo("Groceries");
@@ -42,7 +50,6 @@ class PrintedMerchantCategoryTest {
         assertThat(of("FUEL")).isEqualTo("Transport");
         assertThat(of("PETROL")).isEqualTo("Transport");
         assertThat(of("AUTO SERVICES")).isEqualTo("Transport");
-        assertThat(of("MOTO")).isEqualTo("Transport");
     }
 
     @Test
@@ -55,11 +62,14 @@ class PrintedMerchantCategoryTest {
         assertThat(of("GST")).isEqualTo("Taxes");
     }
 
-    /** Labels that say nothing about what was bought stay unmapped -- the row stays "Other". */
+    /** Labels that say nothing about what was bought stay unmapped -- the row stays "Other".
+     *  "MOTO" is the card industry's mail/telephone-order marker (on the corpus it sits beside an
+     *  online refund), a way of paying, not a kind of shop. */
     @Test
     void labelsThatNameNoKindOfSpending_areNotMapped() {
         assertThat(of("SERVICES")).isNull();
         assertThat(of("MISCELLANEOUS")).isNull();
+        assertThat(of("MOTO")).isNull();
     }
 
     /** A credit row can carry its own narration in this column on a real card statement. */

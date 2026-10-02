@@ -250,11 +250,6 @@ public class CategorizationService {
             return new Suggestion(ruleCat, "rule", merchant.getId(), Transaction.DecisionSource.KEYWORD_MATCH, null,
                     ConfidenceEngine.INITIAL_RULE_CONFIDENCE);
         }
-        Optional<String> bankActivity = com.finora.util.BankActivityCategory.of(description, direction);
-        if (bankActivity.isPresent()) {
-            return new Suggestion(bankActivity.get(), "rule", merchant.getId(), Transaction.DecisionSource.KEYWORD_MATCH, null,
-                    ConfidenceEngine.INITIAL_RULE_CONFIDENCE);
-        }
 
         com.finora.util.CounterpartyTyping typing = com.finora.util.CounterpartyTyping.of(description);
         Optional<String> corpusMatch = direction == null ? Optional.empty()
@@ -273,6 +268,13 @@ public class CategorizationService {
         if (PersonToPersonTransferDetector.isNamedIndividualTransfer(description)) {
             return new Suggestion(P2P_CATEGORY, STRUCTURAL_P2P_SOURCE, merchant.getId(),
                     Transaction.DecisionSource.STRUCTURAL_P2P, null, ConfidenceEngine.INITIAL_STRUCTURAL_CONFIDENCE);
+        }
+        // The bank's own activity, which only its words AND the direction settle together -- see
+        // BankActivityCategory. Last, in place of "Other" only: every step above still wins.
+        Optional<String> bankActivity = com.finora.util.BankActivityCategory.of(description, direction);
+        if (bankActivity.isPresent()) {
+            return new Suggestion(bankActivity.get(), "rule", merchant.getId(), Transaction.DecisionSource.KEYWORD_MATCH, null,
+                    ConfidenceEngine.INITIAL_RULE_CONFIDENCE);
         }
         return new Suggestion("Other", "default", merchant.getId(), Transaction.DecisionSource.MERCHANT_DEFAULT, null,
                 ConfidenceEngine.INITIAL_DEFAULT_CONFIDENCE);
@@ -414,13 +416,6 @@ public class CategorizationService {
             return new Suggestion(ruleCat, "rule", merchantId, Transaction.DecisionSource.KEYWORD_MATCH, null,
                     ConfidenceEngine.INITIAL_RULE_CONFIDENCE);
         }
-        // The bank's own activity, which only its words AND the direction settle together -- see
-        // BankActivityCategory. After the keyword table, so that table still wins on any overlap.
-        Optional<String> bankActivity = com.finora.util.BankActivityCategory.of(description, direction);
-        if (bankActivity.isPresent()) {
-            return new Suggestion(bankActivity.get(), "rule", merchantId, Transaction.DecisionSource.KEYWORD_MATCH, null,
-                    ConfidenceEngine.INITIAL_RULE_CONFIDENCE);
-        }
 
         com.finora.util.CounterpartyTyping typing = com.finora.util.CounterpartyTyping.of(description);
         Optional<String> corpusMatch = direction == null ? Optional.empty()
@@ -443,6 +438,13 @@ public class CategorizationService {
         if (PersonToPersonTransferDetector.isNamedIndividualTransfer(description)) {
             return new Suggestion(P2P_CATEGORY, STRUCTURAL_P2P_SOURCE, merchantId,
                     Transaction.DecisionSource.STRUCTURAL_P2P, null, ConfidenceEngine.INITIAL_STRUCTURAL_CONFIDENCE);
+        }
+        // The bank's own activity, which only its words AND the direction settle together -- see
+        // BankActivityCategory. Last, in place of "Other" only: every step above still wins.
+        Optional<String> bankActivity = com.finora.util.BankActivityCategory.of(description, direction);
+        if (bankActivity.isPresent()) {
+            return new Suggestion(bankActivity.get(), "rule", merchantId, Transaction.DecisionSource.KEYWORD_MATCH, null,
+                    ConfidenceEngine.INITIAL_RULE_CONFIDENCE);
         }
         return new Suggestion("Other", "default", merchantId, Transaction.DecisionSource.MERCHANT_DEFAULT, null,
                 ConfidenceEngine.INITIAL_DEFAULT_CONFIDENCE);

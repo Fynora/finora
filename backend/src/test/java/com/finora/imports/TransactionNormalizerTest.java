@@ -1157,7 +1157,7 @@ class TransactionNormalizerTest {
                 "Date", "15-Jan-2026", "Description", "SAMPLE STORE", "Category", "shopping",
                 "Amount", "100.00"), null, List.of(), null, null, null, userCategories);
         StagedRow bankLabel = normalizer.normalize(userId, rowOf(
-                "Date", "15-Jan-2026", "Description", "SAMPLE STORE", "Category", "Departmental Store",
+                "Date", "15-Jan-2026", "Description", "SAMPLE STORE", "Category", "Other Merchants",
                 "Amount", "100.00"), null, List.of(), null, null, null, userCategories);
 
         // The user's own spelling, not the file's, so the review screen's picker shows it selected.
@@ -1252,6 +1252,33 @@ class TransactionNormalizerTest {
 
         assertThat(row.type()).isEqualTo("INCOME");
         assertThat(row.suggestedCategory()).isEqualTo("Other");
+    }
+
+    /** A real Kotak card prints its own labels in a plain "Category" column. A label that is not one
+     *  of the user's categories is still the bank's evidence, read the same way as a merchant
+     *  category column once the engine has nothing. */
+    @Test
+    void normalize_readsABankLabelInACategoryColumn_whenItIsNotOneOfTheUsersCategories() {
+        Map<String, String> userCategories = normalizerCategoryNames("Shopping", "Food");
+
+        StagedRow row = normalizer.normalize(userId, rowOf(
+                "Date", "15-Jan-2026", "Description", "SAMPLE STORE", "Category", "Departmental Store",
+                "Amount", "100.00"), null, List.of(), null, null, null, userCategories);
+
+        assertThat(row.suggestedCategory()).isEqualTo("Shopping");
+        assertThat(row.categorySource()).isEqualTo("file");
+    }
+
+    /** The CSV path has no list of the user's categories to check a mapped name against, so a
+     *  bank label there could recreate a category the user deleted: not read on that path. */
+    @Test
+    void normalize_withoutACategoryNameIndex_doesNotReadThePrintedMerchantCategory() {
+        StagedRow row = normalizer.normalize(userId, rowOf(
+                "DATE", "15/01/2026", "TRANSACTION DETAILS", "UPI/SAMPLE CORNER/PAYTMQR000000@PAYTM/000000",
+                "MERCHANT CATEGORY", "RESTAURANTS", "AMOUNT (Rs.)", "120.00 Dr"));
+
+        assertThat(row.suggestedCategory()).isEqualTo("Other");
+        assertThat(row.categorySource()).isEqualTo("default");
     }
 
     /** A category the user deleted is not brought back by a bank's label. */

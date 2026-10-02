@@ -19,7 +19,8 @@ import java.util.regex.Pattern;
  * <p>Sid, 2026-10-02: this is used only when the engine would otherwise say "Other" -- our own
  * keyword guess wins when the two disagree (see TransactionNormalizer). A label that names no kind
  * of spending ("SERVICES", "MISCELLANEOUS") maps to nothing, and so does a narration printed in
- * this column on a credit row: neither is evidence of what was bought.
+ * this column on a credit row: neither is evidence of what was bought. Nor is "MOTO", the card
+ * industry's mail/telephone-order marker.
  */
 public final class PrintedMerchantCategory {
 
@@ -30,15 +31,19 @@ public final class PrintedMerchantCategory {
     static {
         WORDS.put(words("restaurant", "restaurants", "eating places", "fast food", "bakeries"), "Dining");
         WORDS.put(words("grocery", "groceries", "supermarket", "supermarkets", "food products"), "Groceries");
+        // Not "moto": the card industry's mail/telephone-order marker, a way of paying -- on the
+        // corpus it sits beside an online refund -- not a kind of shop.
         WORDS.put(words("fuel", "petrol", "service station", "service stations", "auto services",
-                "automotive", "moto"), "Transport");
+                "automotive"), "Transport");
         WORDS.put(words("airline", "airlines", "air travel", "hotels", "lodging", "travel agencies"), "Travel");
         WORDS.put(words("medical", "pharmacy", "pharmacies", "drug stores", "hospital", "hospitals"), "Health");
         WORDS.put(words("utilities", "utility", "telecommunications", "telecom"), "Utilities");
         WORDS.put(words("home furnishing", "home furnishings", "furniture"), "Home & Furnishing");
-        WORDS.put(words("dept stores", "dept store", "departmental stores", "department stores",
-                "retail stores", "retail store", "misc store", "merchandise", "electronics", "computers",
-                "apparel", "clothing"), "Shopping");
+        // Singular "Departmental Store" and "Computer" are the labels a real Kotak card statement
+        // prints in its plain Category column.
+        WORDS.put(words("dept stores", "dept store", "departmental stores", "departmental store",
+                "department stores", "department store", "retail stores", "retail store", "misc store",
+                "merchandise", "electronics", "computers", "computer", "apparel", "clothing"), "Shopping");
         WORDS.put(words("gst"), "Taxes");
     }
 

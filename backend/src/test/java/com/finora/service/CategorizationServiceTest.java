@@ -258,6 +258,18 @@ class CategorizationServiceTest {
         assertThat(suggestion.source()).isEqualTo("rule");
     }
 
+    /** Measured shape: on the slash UPI layout a friend's transfer whose note says "cashback" is
+     *  typed as a bank. Bank activity only ever replaces "Other", so the person rule still wins. */
+    @Test
+    void suggestReadOnly_aPersonsTransferWithACashbackNote_staysAPersonalTransfer() {
+        var suggestion = categorizationService.suggestReadOnly(List.of(), userId,
+                "UPI/000000000000/CR/AMIT KUMAR/SBIN/amitkumar@okaxis/cashback", null, null, null,
+                Transaction.Type.INCOME, null);
+
+        assertThat(suggestion.category()).isEqualTo(CategorizationService.P2P_CATEGORY);
+        assertThat(suggestion.source()).isEqualTo("structural_p2p");
+    }
+
     @Test
     void suggest_aLearnedCategoryStillWinsOverBankActivity() {
         UUID merchantId = UUID.randomUUID();

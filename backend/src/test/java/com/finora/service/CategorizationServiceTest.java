@@ -451,15 +451,11 @@ class CategorizationServiceTest {
     }
 
     /** Measured shapes of a person payment the classifier does not type PERSON: a spaced
-     *  "UPI NAME number" narration (UNKNOWN), and one naming the payer's own bank
-     *  (FINANCIAL_INSTITUTION). Only a business-typed narration may reach the model. */
+     *  "UPI NAME number" narration (UNKNOWN) and one naming the payer's own bank
+     *  (FINANCIAL_INSTITUTION). Both go to the model only with the names masked -- and the first,
+     *  which is nothing but a name and a reference, does not go at all. */
     @Test
-    void suggest_aPersonPaymentTheClassifierDoesNotTypeAPerson_neverReachesTheAiFallback() {
-        UUID merchantId = UUID.randomUUID();
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
-        when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
-        when(sharedCorpusService.findTrustedSuggestion(any(), any(), any())).thenReturn(Optional.empty());
-        when(fynCategorizationFallbackService.suggest(any(), any(), any(), any())).thenReturn(Optional.of("Dining"));
+    void narrationForModel_masksThePersonPaymentsTheClassifierMistypes() {
         String spaced = "UPI RAVI SHANKAR KUMAR 412345678901"; // synthetic-ok
         String namesPayerBank = "RAVI K UPI/RAVI K/ravik@okicici/Payment fr/ICICI Bank/412345678901/UPI"; // synthetic-ok
         assertThat(com.finora.util.CounterpartyTyping.of(spaced).type())
@@ -467,8 +463,20 @@ class CategorizationServiceTest {
         assertThat(com.finora.util.CounterpartyTyping.of(namesPayerBank).type())
                 .as("precondition").isEqualTo(com.finora.util.CounterpartyType.FINANCIAL_INSTITUTION);
 
-        categorizationService.suggest(userId, spaced, null, null, Transaction.Type.EXPENSE);
-        categorizationService.suggest(userId, namesPayerBank, null, null, Transaction.Type.EXPENSE);
+        assertThat(CategorizationService.narrationForModel(spaced)).isEmpty();
+        assertThat(CategorizationService.narrationForModel(namesPayerBank))
+                .contains("[name] UPI/[name]/[redacted-id]/Payment fr/ICICI Bank/[redacted-number]/UPI");
+    }
+
+    @Test
+    void suggest_aNarrationWithNothingLeftOnceNamesAreMasked_neverReachesTheAiFallback() {
+        UUID merchantId = UUID.randomUUID();
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
+        when(sharedCorpusService.findTrustedSuggestion(any(), any(), any())).thenReturn(Optional.empty());
+        when(fynCategorizationFallbackService.suggest(any(), any(), any(), any())).thenReturn(Optional.of("Dining"));
+
+        categorizationService.suggest(userId, "UPI RAVI SHANKAR KUMAR 412345678901", null, null, Transaction.Type.EXPENSE); // synthetic-ok
 
         verify(fynCategorizationFallbackService, never()).suggest(any(), any(), any(), any());
     }

@@ -579,20 +579,32 @@ public class CategorizationService {
         return counterpartyKey != null && !counterpartyKey.isBlank();
     }
 
-    /** Whether a narration may go to the AI fallback, which sends it to a third party: only when
-     *  its counterparty is typed a business and the person-transfer rule does not read it as a
-     *  named individual. Anything else may be a private person's name -- the classifier types
-     *  some person payments UNKNOWN (a "UPI NAME number" shape it does not recognise) and some
-     *  FINANCIAL_INSTITUTION (the payer's own bank is named in the narration), measured on the
-     *  real corpus. The cost: a merchant the classifier does not type a business gets no AI
-     *  answer and falls through to the rules below. A payment to a merchant QR stays allowed:
-     *  it is typed a business, and its name, though often the owner's, is the shop's trading
-     *  name. Checked here and again by {@link UserMerchantCategoryResolutionService#resolve}, the
-     *  one entry into the model calls, so a future caller cannot skip it. {@link
-     *  #suggestReadOnly}'s fallback reads its own cache and never calls the model. */
+    /** Whether a narration may go to the AI fallback -- see {@link #narrationForModel}. */
     static boolean mayGoToModel(String description) {
-        return com.finora.util.CounterpartyClassifier.classify(description) == com.finora.util.CounterpartyType.BUSINESS
-                && !PersonToPersonTransferDetector.isNamedIndividualTransfer(description);
+        return narrationForModel(description).isPresent();
+    }
+
+    /**
+     * What the AI fallback may send to the model for this narration, which leaves Finora for a
+     * third party; empty when nothing may go. A transfer to a named individual never goes. Any
+     * other narration goes with every name-shaped part masked ({@link
+     * PersonToPersonTransferDetector#maskPersonNames}) -- a person's name tells the model nothing
+     * about what kind of business was paid, and the classifier types some person payments UNKNOWN
+     * or FINANCIAL_INSTITUTION and owner-named shops BUSINESS, all measured on the real corpus --
+     * and with its UPI ids, account and reference numbers and IFSC codes replaced ({@link
+     * FynOcrRedactor#redactNarration}). Nothing goes when masking leaves no word a model could
+     * recognise. Used here and by {@link UserMerchantCategoryResolutionService#resolve}, the one
+     * entry into the model calls, so a future caller cannot skip it. {@link #suggestReadOnly}'s
+     * fallback reads its own cache and never calls the model.
+     */
+    static Optional<String> narrationForModel(String description) {
+        if (description == null || description.isBlank()) return Optional.empty();
+        if (com.finora.util.CounterpartyClassifier.classify(description) == com.finora.util.CounterpartyType.PERSON
+                || PersonToPersonTransferDetector.isNamedIndividualTransfer(description)) {
+            return Optional.empty();
+        }
+        String prepared = FynOcrRedactor.redactNarration(PersonToPersonTransferDetector.maskPersonNames(description));
+        return PersonToPersonTransferDetector.hasRecognisableWords(prepared) ? Optional.of(prepared) : Optional.empty();
     }
 
     /** The canonical name only if a person has confirmed this merchant's identity -- see

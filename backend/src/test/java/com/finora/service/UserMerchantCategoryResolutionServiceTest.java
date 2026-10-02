@@ -25,6 +25,7 @@ class UserMerchantCategoryResolutionServiceTest {
     private UserMerchantCategoryResolutionRepository resolutionRepository;
     private CategoryRepository categoryRepository;
     private CategorizationService categorizationService;
+    private com.finora.repository.UserRepository userRepository;
     private UserMerchantCategoryResolutionService service;
     private final UUID userId = UUID.randomUUID();
 
@@ -37,8 +38,10 @@ class UserMerchantCategoryResolutionServiceTest {
         resolutionRepository = mock(UserMerchantCategoryResolutionRepository.class);
         categoryRepository = mock(CategoryRepository.class);
         categorizationService = mock(CategorizationService.class);
+        userRepository = mock(com.finora.repository.UserRepository.class);
         service = new UserMerchantCategoryResolutionService(understandingService, availabilityGuard,
-                llmClient, aiAuditLogRepository, resolutionRepository, categoryRepository, categorizationService);
+                llmClient, aiAuditLogRepository, resolutionRepository, categoryRepository, categorizationService,
+                userRepository);
         when(availabilityGuard.categorizationAvailableFor(userId)).thenReturn(true);
     }
 
@@ -99,6 +102,38 @@ class UserMerchantCategoryResolutionServiceTest {
                 com.finora.integrations.anthropic.LlmClient.LlmRequest.class);
         verify(llmClient).complete(requestCaptor.capture());
         assertThat(requestCaptor.getValue().messages().get(0).content()).isEqualTo(redacted);
+    }
+
+    /** A shop QR registered under its owner's name: the name is masked before either call. */
+    @Test
+    void resolve_cacheMiss_sendsTheNarrationWithNamesMasked() {
+        when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(any(), any(), any())).thenReturn(Optional.empty());
+        when(understandingService.understand(any(), any(), any(), any())).thenReturn(Optional.of("A tea stall"));
+        when(categoryRepository.findByUserId(userId)).thenReturn(List.of());
+        when(llmClient.complete(any())).thenReturn(new LlmCompletion(null, List.of(),
+                "claude-haiku-4-5-20251001", 60, 8, "end_turn"));
+
+        service.resolve(userId, "vpa:paytmqr12345", Transaction.Type.EXPENSE,
+                "UPI-PRIYA SHARMA-paytmqr12345@paytm-UTIB0XXXXXX-123456789012-TEA STALL"); // synthetic-ok
+
+        verify(understandingService).understand(userId, "vpa:paytmqr12345", Transaction.Type.EXPENSE,
+                "UPI-[name]-[redacted-id]-[redacted-ifsc]-[redacted-number]-TEA STALL");
+    }
+
+    /** The account holder's own name, here glued into a remark, is masked from what the profile says. */
+    @Test
+    void resolve_cacheMiss_masksTheAccountHoldersOwnName() {
+        when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(any(), any(), any())).thenReturn(Optional.empty());
+        when(understandingService.understand(any(), any(), any(), any())).thenReturn(Optional.empty());
+        User holder = new User();
+        holder.setFullName("Tanvi Sharma");
+        when(userRepository.findById(userId)).thenReturn(Optional.of(holder));
+
+        service.resolve(userId, "vpa:acmefoods", Transaction.Type.EXPENSE,
+                "UPI/ACME FOODS/acmefoods@okaxis/THSHARMA114");
+
+        verify(understandingService).understand(userId, "vpa:acmefoods", Transaction.Type.EXPENSE,
+                "UPI/ACME FOODS/[redacted-id]/TH[name]114");
     }
 
     /** The gate at the one entry into the model calls, not only at today's caller. */

@@ -9,6 +9,8 @@ import com.finora.integrations.anthropic.LlmClient.*;
 import com.finora.repository.AiAuditLogRepository;
 import com.finora.repository.CategoryRepository;
 import com.finora.repository.UserMerchantCategoryResolutionRepository;
+import com.finora.repository.UserRepository;
+import com.finora.util.PersonToPersonTransferDetector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
@@ -66,6 +68,7 @@ public class UserMerchantCategoryResolutionService {
     private final UserMerchantCategoryResolutionRepository resolutionRepository;
     private final CategoryRepository categoryRepository;
     private final CategorizationService categorizationService;
+    private final UserRepository userRepository;
 
     // @Lazy breaks a real circular bean dependency: CategorizationService depends on
     // FynCategorizationFallbackService (existing), which (Task 5) now depends on this service,
@@ -79,7 +82,8 @@ public class UserMerchantCategoryResolutionService {
                                                   AiAuditLogRepository aiAuditLogRepository,
                                                   UserMerchantCategoryResolutionRepository resolutionRepository,
                                                   CategoryRepository categoryRepository,
-                                                  @Lazy CategorizationService categorizationService) {
+                                                  @Lazy CategorizationService categorizationService,
+                                                  UserRepository userRepository) {
         this.understandingService = understandingService;
         this.availabilityGuard = availabilityGuard;
         this.llmClient = llmClient;
@@ -87,6 +91,7 @@ public class UserMerchantCategoryResolutionService {
         this.resolutionRepository = resolutionRepository;
         this.categoryRepository = categoryRepository;
         this.categorizationService = categorizationService;
+        this.userRepository = userRepository;
     }
 
     /**
@@ -151,13 +156,20 @@ public class UserMerchantCategoryResolutionService {
             return cached;
         }
 
-        // Both model calls below send the narration to a third party: only a business's narration
-        // goes (CategorizationService.mayGoToModel), and it goes with its UPI ids, account and
-        // reference numbers and IFSC codes replaced (FynOcrRedactor.redactNarration).
-        if (description == null || !CategorizationService.mayGoToModel(description)) {
+        // Both model calls below send the narration to a third party, so they get only what
+        // CategorizationService.narrationForModel allows: no person's transfer, names masked,
+        // identifiers redacted.
+        // The account holder's own name is masked too: it shows up in remarks, handles and payer
+        // lines in shapes no rule can see, and here it is known.
+        Optional<String> prepared = CategorizationService.narrationForModel(description);
+        if (prepared.isEmpty()) {
             return Optional.empty();
         }
-        String forModel = FynOcrRedactor.redactNarration(description);
+        String holderName = userRepository.findById(userId).map(com.finora.entity.User::getFullName).orElse(null);
+        String forModel = PersonToPersonTransferDetector.maskHolderName(prepared.get(), holderName);
+        if (!PersonToPersonTransferDetector.hasRecognisableWords(forModel)) {
+            return Optional.empty();
+        }
         Optional<String> understanding = understandingService.understand(userId, counterpartyKey, direction, forModel);
         if (understanding.isEmpty()) {
             return Optional.empty();

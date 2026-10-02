@@ -169,11 +169,34 @@ class FynOcrRedactorTest {
     }
 
     @Test
-    void redactNarration_anIdWithItsOwnHyphen_redactsFromTheHyphenThroughTheHandle() {
-        // Documented limitation: the delimiter that bounds a field also splits such an id.
-        String result = FynOcrRedactor.redactNarration("UPI-SHOP-ab-cd@okaxis-UPI"); // synthetic-ok
+    void redactNarration_anIdWithItsOwnHyphen_isRedactedWhole() {
+        assertThat(FynOcrRedactor.redactNarration("UPI-SHOP-ab-cd@okaxis-UPI")) // synthetic-ok
+                .isEqualTo("UPI-SHOP-[redacted-id]-UPI");
+        assertThat(FynOcrRedactor.redactNarration("UPI/[redacted-number]/UPI/priya-sharma@okicici/Payment")) // synthetic-ok
+                .isEqualTo("UPI/[redacted-number]/UPI/[redacted-id]/Payment");
+        assertThat(FynOcrRedactor.redactNarration("UPI/RAVI SHANKAR/9876543210-2@ybl/UPI")) // synthetic-ok
+                .isEqualTo("UPI/RAVI SHANKAR/[redacted-id]/UPI");
+    }
 
-        assertThat(result).isEqualTo("UPI-SHOP-ab-[redacted-id]-UPI");
+    @Test
+    void redactNarration_aDashLayoutPayeeKeepsItsLastWordBeforeAHyphenatedId() {
+        assertThat(FynOcrRedactor.redactNarration("UPI-SHOP NAME-paytm-12345@ptys-UPI")) // synthetic-ok
+                .isEqualTo("UPI-SHOP NAME-[redacted-id]-UPI");
+    }
+
+    @Test
+    void redactNarration_theSlotAfterTheBankCodeGoesEvenWithoutAnAt() {
+        // A cut-off id of letters only: its position after the bank code is the evidence.
+        assertThat(FynOcrRedactor.redactNarration("UPI/CR/[redacted-number]/MR RAVI/SCBL/ravishankar-1/"))
+                .isEqualTo("UPI/CR/[redacted-number]/MR RAVI/SCBL/[redacted-id]/");
+        assertThat(FynOcrRedactor.redactNarration("UPIAR/[redacted-number]/DR/PRIYA/HDFC/priyasharma"))
+                .isEqualTo("UPIAR/[redacted-number]/DR/PRIYA/HDFC/[redacted-id]");
+    }
+
+    @Test
+    void redactNarration_anUppercaseWordAfterAFourLetterRailStays() {
+        assertThat(FynOcrRedactor.redactNarration("NEFT/IMPS/ACME TRADERS/UPI"))
+                .isEqualTo("NEFT/IMPS/ACME TRADERS/UPI");
     }
 
     @Test
@@ -221,8 +244,12 @@ class FynOcrRedactorTest {
     void redactNarration_aGlueDigitsFieldBeforeAWrappedIdKeepsItsDelimiter() {
         assertThat(FynOcrRedactor.redactNarration("UPI-SHOP NAME-GPAY-11223344556 shopname@okaxis-UPI")) // synthetic-ok
                 .isEqualTo("UPI-SHOP NAME-GPAY-[redacted-id]-UPI");
+        // An uppercase code before a wrapped id is not taken as the id's first half (a dash-layout field
+        // would keep it); here the slot after the bank code goes whole anyway, by position.
+        assertThat(FynOcrRedactor.redactNarration("UPI-SHOP-DEUT2 shop@okaxis-UPI"))
+                .isEqualTo("UPI-SHOP-DEUT2 [redacted-id]-UPI");
         assertThat(FynOcrRedactor.redactNarration("UPI/CR/[redacted-number]/SHOP/DEUT/DEUT2 shop@okaxis/"))
-                .isEqualTo("UPI/CR/[redacted-number]/SHOP/DEUT/DEUT2 [redacted-id]/");
+                .isEqualTo("UPI/CR/[redacted-number]/SHOP/DEUT/[redacted-id] [redacted-id]/");
     }
 
     /** The understanding call redacts again what resolve already redacted, so a second pass must

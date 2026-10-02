@@ -514,6 +514,234 @@ public final class PersonToPersonTransferDetector {
         return out.append(text.substring(kept)).toString();
     }
 
+    // ---- Masking names before a narration leaves Finora ------------------------------------------
+    //
+    // The AI categorisation fallback sends a narration to a third party. A person's name tells the
+    // model nothing about what kind of business was paid, so every name-shaped part is replaced
+    // with NAME_MASK first -- a payee slot that reads as a name (a lone first name included: the
+    // slot's position is the evidence, as in looksLikeSlotName), and anywhere else a segment that
+    // reads as a full name (2-4 words). This covers the shops whose merchant QR is registered under
+    // the owner's own name ("<FIRST> <LAST>" with a QR handle), which the classifier rightly types a
+    // business. A known merchant, or a segment holding a business, protocol or brand word, is kept.
+    // These patterns are for masking only; classification above reads its own.
+
+    public static final String NAME_MASK = "[name]";
+
+    /** The payee slots this masking reads, measured on the real corpus. Group 1 is the slot. */
+    private static final List<Pattern> MASK_SLOTS = List.of(
+            DASH_UPI_PAYEE_SLOT,
+            // Slash layouts, "UPIAR"/"UPIAB" included: the payee sits right before a 3-4 letter
+            // bank code ("UPIAR/<ref>/DR/<name>/<BANK>/..."), which a bank may pad ("/YES /").
+            Pattern.compile("(?i)\\bUPI(?:A[BR])?/(?:(?:CR|DR)/)?[^/]*?/(?:(?:CR|DR)/)?([^/]{2,60})/[A-Z]{3,4}\\s*/"),
+            // "<NAME> UPI/<NAME>/<handle>/...": the payee stated twice. The second copy first -- once
+            // the leading copy is masked, the pattern for the second no longer finds its anchor.
+            Pattern.compile("(?i)^\\s*[A-Za-z][A-Za-z .]{0,40}?\\s+UPI/([A-Za-z][A-Za-z .]{0,40}?)/"),
+            Pattern.compile("(?i)^\\s*([A-Za-z][A-Za-z .]{0,40}?)\\s+UPI/"),
+            // "UPI <NAME> <ref>", "UPI/<NAME>/<ref>/..." and "UPI/<NAME>/<handle>@...": a payee
+            // followed by a bare reference or by its own handle.
+            Pattern.compile("(?i)^\\s*UPI\\s+([A-Za-z][A-Za-z .]{0,60}?)\\s+\\d"),
+            Pattern.compile("(?i)^\\s*UPI/([A-Za-z][A-Za-z .]{0,60}?)/\\d"),
+            Pattern.compile("(?i)^\\s*UPI/([A-Za-z][A-Za-z .]{0,60}?)/[^/]*@"),
+            // The layout that repeats its reference: "UPI/<ref>/ <NAME>/<handle>/...".
+            Pattern.compile("(?i)^\\s*UPI/\\d+/\\s*([A-Za-z][A-Za-z .]{0,60}?)\\s*/"),
+            // A remark naming whom the payer paid: "PAY TO <NAME>".
+            Pattern.compile("(?i)\\bPAY(?:MENT)?\\s+TO\\s+([A-Za-z][A-Za-z .]{0,40}?)\\s*(?=[-/|]|$)"),
+            // "UPI-<name>" and nothing else, or "UPI-<ref>-<name>": the bank cut the narration after
+            // the payee.
+            Pattern.compile("(?i)^\\s*UPI-([A-Za-z][A-Za-z .]{0,60}?)\\s*$"),
+            Pattern.compile("(?i)^\\s*UPI-\\d[\\d ]*-([A-Za-z][A-Za-z .]{0,60}?)\\s*$"),
+            UNDERSCORE_NAME_TAIL);
+
+    private static final Pattern MASK_SEGMENT_DELIMITERS = Pattern.compile("[\\-/_|*]");
+
+    // Words that read as name-shaped to the token checks but are not a name: a bank's own wording
+    // ("RD INSTALLMENT", "CC BillPay", "Self", measured as masked on the real corpus) and everyday
+    // trade words, so a shop called by what it sells keeps its name. Masking only: classification
+    // keeps its own, evidence-gated vocabulary, which these would loosen.
+    private static final Set<String> MASK_KEEP_TOKENS = Set.of(
+            "INSTALLMENT", "INSTALLMENTS", "INSTALMENT", "BILLPAY", "BIL", "SELF", "EMI",
+            "SALARY", "REFUND", "INTEREST", "CHARGES", "FEE", "FEES", "TAX", "RD", "FD",
+            "GST", "CGST", "SGST", "IGST", "ASSESSMENT", "SMS", "CHRG", "CHRGS", "ALERT", "ANNUAL",
+            "SAVING", "SAVINGS", "SENT", "ORDER", "RECHARGE", "BILL", "RENT", "MANDATE",
+            "COFFEE", "ROASTERS", "TEA", "STALL", "PIZZA", "FOOD", "JUICE", "CHICKEN", "MUTTON",
+            "FISH", "MEAT", "FRUITS", "VEGETABLES", "FLOWERS", "HEALTH", "CARE", "DENTAL", "EYE",
+            "CHEMIST", "DRUGS", "BEAUTY", "SKIN", "SPA", "FITNESS", "GYM", "YOGA", "STUDIO",
+            "FASHION", "GARMENTS", "CLOTHING", "FOOTWEAR", "BOOKS", "TOYS", "SPORTS", "GIFTS",
+            "GARDEN", "PETROLEUM", "PETROL", "FUEL", "GAS", "PUMP", "TRADING", "SALES",
+            "TRAVEL", "CABS", "TAXI", "PARKING", "TOLL", "RAILWAY", "RAILWAYS", "METRO",
+            "AIRLINE", "AIRLINES", "AIRWAYS", "CINEMA", "CINEMAS", "MOVIES", "LOUNGE", "BAR",
+            "PUB", "WINE", "LIQUOR", "MILK", "SABJI", "KIRANA", "GENERAL", "CENTRE", "POINT", "CLIENT");
+
+    /** A masking verdict reads the candidate's words; a word split by the statement's line wrap
+     *  ("R EFUND", "U PIINTENT") reads as an initial plus a word. Rejoined, the candidate holds a
+     *  keep or boilerplate word of 5+ letters -- the wrap, not a name. */
+    private static boolean holdsSplitBoilerplate(String candidate) {
+        String compact = NON_LETTERS.matcher(candidate.toUpperCase(Locale.ROOT)).replaceAll("");
+        for (Set<String> words : List.of(MASK_KEEP_TOKENS, PROTOCOL_AND_BOILERPLATE_TOKENS, BUSINESS_SUFFIX_TOKENS)) {
+            for (String word : words) {
+                if (word.length() >= 5 && compact.contains(word)) return true;
+            }
+        }
+        return false;
+    }
+
+    // A field that opens with a name and then carries a reference or more ("<FIRST> <LAST> S
+    // <ref> AT <branch>"): the opening run of 2-4 name words, ended by a token with a digit or a
+    // placeholder. Only the opening run, so a merchant's longer description stays.
+    private static final Pattern FIELD_OPENING_NAME_RUN = Pattern.compile(
+            "^(\\s*)((?:[A-Za-z]{1,15}\\s+){1,7}?)(?=(?:\\S*\\d|\\[))");
+
+    /**
+     * {@code description} with every name-shaped part replaced by {@link #NAME_MASK}; see the
+     * comment above. Null-safe. Idempotent: the mask is never itself name-shaped.
+     */
+    public static String maskPersonNames(String description) {
+        if (description == null || description.isBlank()) return description;
+        String text = description;
+        for (Pattern slot : MASK_SLOTS) {
+            Matcher m = slot.matcher(text);
+            StringBuilder out = new StringBuilder();
+            int kept = 0;
+            while (m.find()) {
+                String content = m.group(1);
+                if (content == null || isKeptForMasking(content)) continue;
+                String slotName = LEADING_HONORIFICS.matcher(withoutCareOf(content).trim()).replaceFirst("");
+                if (!looksLikeSlotName(slotName) && !GLUED_NAME.matcher(slotName).matches()) continue;
+                out.append(text, kept, m.start(1)).append(NAME_MASK);
+                kept = m.end(1);
+            }
+            text = out.append(text.substring(kept)).toString();
+        }
+        StringBuilder out = new StringBuilder();
+        Matcher delimiter = MASK_SEGMENT_DELIMITERS.matcher(text);
+        int segmentStart = 0;
+        while (true) {
+            boolean found = delimiter.find();
+            int segmentEnd = found ? delimiter.start() : text.length();
+            String segment = text.substring(segmentStart, segmentEnd);
+            String candidate = withoutCareOf(segment).trim();
+            if (isMaskableName(candidate)) {
+                out.append(NAME_MASK);
+            } else {
+                Matcher run = FIELD_OPENING_NAME_RUN.matcher(segment);
+                if (run.find() && isMaskableName(run.group(2).trim())) {
+                    out.append(run.group(1)).append(NAME_MASK).append(' ').append(segment.substring(run.end()));
+                } else {
+                    out.append(withOwnerNameAfterBusinessWordMasked(segment));
+                }
+            }
+            if (!found) break;
+            out.append(delimiter.group());
+            segmentStart = delimiter.end();
+        }
+        return out.toString();
+    }
+
+    // Courtesy titles before a name. DR also means "debit" to the token checks, which made "DR
+    // <FIRST> <LAST>" read as boilerplate rather than a doctor's name.
+    private static final Pattern LEADING_HONORIFICS = Pattern.compile(
+            "(?i)^(?:(?:MR|MRS|MS|DR|SHRI|SMT|KUM)\\.?\\s+)+");
+
+    // A payee slot holding one token of letters longer than a name word, glued from a full name
+    // ("<FIRST><MIDDLE><LAST>" as one word). Up to 40 letters; a known merchant or a keep word was
+    // already excluded before this is asked.
+    private static final Pattern GLUED_NAME = Pattern.compile("[A-Za-z]{16,40}");
+
+    // A business suffix that a proprietor's name is appended to ("<SHOP> ENTERPRISES <SURNAME>
+    // <FIRST> <FATHER>"); AND and CO are excluded, since they join two parts of one business name.
+    private static final Pattern WORD = Pattern.compile("[A-Za-z]+");
+
+    /** {@code segment} with a 2-4 word name masked when it follows a business suffix and ends the
+     *  segment -- the owner's name the shop's QR is registered with. Measured on the corpus. */
+    private static String withOwnerNameAfterBusinessWordMasked(String segment) {
+        Matcher word = WORD.matcher(segment);
+        while (word.find()) {
+            String token = word.group().toUpperCase(Locale.ROOT);
+            if (!BUSINESS_SUFFIX_TOKENS.contains(token) || token.equals("AND") || token.equals("CO")) continue;
+            String tail = segment.substring(word.end()).trim();
+            // Every word 3+ letters: a card descriptor's "<CITY> IN" or a cut "PTE LT" is not a name.
+            if (tail.isEmpty() || isKeptForMasking(tail) || !looksLikePersonName(tail)
+                    || java.util.Arrays.stream(tail.split("\\s+")).anyMatch(w -> w.length() < 3)) continue;
+            int tailStart = segment.indexOf(tail, word.end());
+            return segment.substring(0, tailStart) + NAME_MASK + segment.substring(tailStart + tail.length());
+        }
+        return segment;
+    }
+
+    private static boolean isMaskableName(String candidate) {
+        if (isKeptForMasking(candidate)) return false;
+        String name = LEADING_HONORIFICS.matcher(candidate).replaceFirst("");
+        return looksLikePersonName(name) || isOneNameWithInitials(name);
+    }
+
+    /** "<NAME> S M": one name word and at least one initial -- the shape banks print for an account
+     *  holder. The plain segment check wants two name words, so it let these through. */
+    private static boolean isOneNameWithInitials(String segment) {
+        int names = 0, initials = 0;
+        for (String w : segment.trim().split("\\s+")) {
+            if (w.isEmpty()) continue;
+            if (w.length() == 1 && Character.isLetter(w.charAt(0))) { initials++; continue; }
+            if (!NAME_TOKEN.matcher(w).matches() || NON_NAME_TOKENS.contains(w.toUpperCase(Locale.ROOT))) return false;
+            names++;
+        }
+        return names == 1 && initials >= 1;
+    }
+
+    /** A known merchant, whole or cut short ("Domino s", "Indian R"), a keep word, or a wrapped
+     *  boilerplate word -- never masked. */
+    private static boolean isKeptForMasking(String candidate) {
+        return MerchantIdentityLookup.namesKnownMerchant(candidate) || isTruncatedKnownMerchant(candidate)
+                || hasMaskKeepToken(candidate) || holdsSplitBoilerplate(candidate);
+    }
+
+    private static boolean hasMaskKeepToken(String text) {
+        for (String token : NON_LETTERS.split(text.toUpperCase(Locale.ROOT))) {
+            if (MASK_KEEP_TOKENS.contains(token)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * {@code text} with the account holder's own name masked wherever it appears -- in a remark, a
+     * handle or a credit's payer line, whole, cut short ("TIWAR") or glued to other characters
+     * ("THTIWARI114"), all measured on the real corpus. Shape rules cannot see these; the holder's
+     * name is known, so it is matched directly. A word of 4+ letters is matched anywhere, down to
+     * all but its last two letters (a statement's truncation); a shorter word only as a whole word,
+     * so a 3-letter name does not eat the middle of a merchant's. Null-safe.
+     */
+    public static String maskHolderName(String text, String holderFullName) {
+        if (text == null || holderFullName == null || holderFullName.isBlank()) return text;
+        String masked = text;
+        for (String word : NON_LETTERS.split(holderFullName)) {
+            if (word.length() < 3) continue;
+            String quoted = Pattern.quote(word);
+            Pattern p;
+            if (word.length() < 4) {
+                p = Pattern.compile("(?i)(?<![A-Za-z])" + quoted + "(?![A-Za-z])");
+            } else {
+                int required = Math.max(4, word.length() - 2);
+                StringBuilder optional = new StringBuilder();
+                for (int i = word.length() - 1; i >= required; i--) {
+                    optional.insert(0, "(?:" + Pattern.quote(String.valueOf(word.charAt(i)))).append(")?");
+                }
+                p = Pattern.compile("(?i)" + Pattern.quote(word.substring(0, required)) + optional);
+            }
+            masked = p.matcher(masked).replaceAll(Matcher.quoteReplacement(NAME_MASK));
+        }
+        return masked;
+    }
+
+    /** Whether a masked, redacted narration still names something a model could recognise: a word of
+     *  3+ letters that is not a placeholder or protocol boilerplate. */
+    public static boolean hasRecognisableWords(String maskedNarration) {
+        if (maskedNarration == null) return false;
+        String stripped = maskedNarration.replaceAll("\\[(?:name|redacted-[a-z]+)\\]", " ");
+        for (String token : NON_LETTERS.split(stripped.toUpperCase(Locale.ROOT))) {
+            if (token.length() >= 3 && !PROTOCOL_AND_BOILERPLATE_TOKENS.contains(token)) return true;
+        }
+        return false;
+    }
+
     /** Google Pay's consumer handles; its business handles are {@code @okbiz...} instead. */
     private static final Pattern GPAY_CONSUMER_HANDLE = Pattern.compile(
             "(?i)@ok(?:axis|sbi|icici|hdfcbank)\\b");

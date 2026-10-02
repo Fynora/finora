@@ -111,9 +111,12 @@ final class FynOcrRedactor {
     // A bank narration joins its fields with '-', '/' or '|' ("UPI-SHOP NAME-shop@okaxis-REF"), and
     // ID_LIKE allows '-' on both sides of the '@', so on a narration it swallows the neighbouring
     // fields too -- the merchant name included, which is the one thing the model is sent the
-    // narration for. Here an id is the single field holding the '@', ended by those delimiters
-    // or whitespace. A UPI id with a '-' of its own keeps the part before that '-'; every
-    // character from the '-' through the handle is still redacted.
+    // narration for. Here an id is the field holding the '@', ended by those delimiters or
+    // whitespace -- and, leftwards, any lowercase-and-digit chunks the id joins with its own '-'
+    // ("first-last@bank", "paytm-12345@ptys", "<phone>-2@ybl"; 49 such ids on the corpus outside
+    // the dash layout alone). Only lowercase chunks, starting at a field boundary: UPI ids print in
+    // lowercase, a bank's own fields in uppercase, so a dash layout's payee ("SHOP NAME-shop@x")
+    // keeps its last word.
     //
     // Either side of the '@' may be empty, but not both: statements cut a long id off right after
     // its '@' (seen on 7 corpus rows), and that leftover local part is
@@ -127,7 +130,16 @@ final class FynOcrRedactor {
     // pattern rather than a second pass over the placeholder, which keeps redactNarration
     // idempotent: the understanding call redacts again what resolve already redacted.
     private static final Pattern NARRATION_ID = Pattern.compile(
-            "(?:(?<![^\\s/|\\-])[a-z0-9._][a-z0-9._\\-]* +)?[^\\s/|\\-]+@[^\\s/|\\-]*|@[^\\s/|\\-]+");
+            "(?:(?<![^\\s/|\\-])[a-z0-9._][a-z0-9._\\-]* +)?(?:(?<![^\\s/|\\-])(?:[a-z0-9._*]+-)+)?"
+            + "[^\\s/|\\-]+@[^\\s/|\\-]*|@[^\\s/|\\-]+");
+
+    // In a slash layout the UPI id sits right after the 4-letter bank code
+    // ("/<payee>/<BANK>/<id>/"), and statements cut it short, sometimes before its '@' --
+    // letters only ("/SCBL/<first><last>-1/"), which no shape rule can tell from a word. Its
+    // POSITION is the evidence, so the whole slot goes, whatever is left in it: a slot holding a
+    // lowercase letter or a digit, as an id does; an uppercase word after "/IMPS/" stays.
+    private static final Pattern SLOT_AFTER_BANK_CODE = Pattern.compile(
+            "(?<=/[A-Za-z]{4}/)(?=[^/\\s\\[]*[a-z0-9])[^/\\s\\[]+");
 
     // A UPI id cut off before its '@' leaves a bare lowercase token of letters and digits
     // ("name1234"). Six or more characters, both letters and digits, no uppercase: the shape of an
@@ -144,6 +156,7 @@ final class FynOcrRedactor {
             return null;
         }
         String redacted = redactNumbers(NARRATION_ID.matcher(value).replaceAll("[redacted-id]"));
+        redacted = SLOT_AFTER_BANK_CODE.matcher(redacted).replaceAll("[redacted-id]");
         return LOWERCASE_ALNUM_ID.matcher(redacted).replaceAll("[redacted-id]");
     }
 

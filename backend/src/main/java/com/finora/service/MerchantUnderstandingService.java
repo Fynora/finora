@@ -75,7 +75,7 @@ public class MerchantUnderstandingService {
 
         // The narration leaves Finora here, so its structural identifiers (UPI ids, account and
         // reference numbers, IFSC codes) are stripped first; the merchant words the model needs
-        // stay. Only a business's narration gets this far (CategorizationService.mayGoToModel).
+        // stay. Names are masked before this (CategorizationService.narrationForModel).
         LlmRequest request = LlmRequest.withTools(SYSTEM_PROMPT, List.of(LlmMessage.user(FynOcrRedactor.redactNarration(description))),
                 MAX_TOKENS, List.of(TOOL));
         long startedAt = System.currentTimeMillis();

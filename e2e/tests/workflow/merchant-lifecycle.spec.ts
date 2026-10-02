@@ -41,9 +41,18 @@ const UNKNOWN: Row[] = [
   { date: '2026-06-04', description: 'AIRTEL RECHARGE 88817', amount: 300.0, type: 'DEBIT' },
 ];
 
-/** Descriptions nothing can categorise -- used only where "the engine had to guess" is the point. */
+/**
+ * Descriptions nothing can categorise -- used only where "the engine had to guess" is the point.
+ *
+ * Deliberately meaningless words. This used to read "KIRANA STORE MG ROAD", and failed the nightly
+ * from 2026-10-02: "kirana" became a shop trade word (ShopTradeCategory, #1885), so that row now
+ * resolves to Groceries and is correctly NOT flagged for review. A fixture for "nothing can
+ * categorise this" must not contain any word a rule, the trade table or the bank-activity table
+ * knows, so it stays true as that vocabulary grows. Checked against CategoryRules,
+ * ShopTradeCategory and BankActivityCategory directly: all three answer "no match".
+ */
 const UNCATEGORISABLE: Row[] = [
-  { date: '2026-06-05', description: 'KIRANA STORE MG ROAD', amount: 640.0, type: 'DEBIT' },
+  { date: '2026-06-05', description: 'XQZV QWRT MG ROAD', amount: 640.0, type: 'DEBIT' },
 ];
 
 test.describe('Phase 9 — temporary merchant lifecycle', () => {

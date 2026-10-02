@@ -99,7 +99,14 @@ public final class CounterpartyClassifier {
     //    slot, never its free-text note. Measured on the corpus: 37 keys change and 13 rows move
     //    UNKNOWN -> PERSON (one payee, whose 14th row a name-like note had already typed PERSON);
     //    every one read.
-    public static final short VERSION = 7;
+    // 8: the counterparty KEY changed again (CounterpartyIdentity, 2026-10-02): the id slot of the
+    //    standard "UPI/<DR|CR>/<ref>/<name>/<bank>/<id>" layout is read even when cut before the "@",
+    //    a line wrap anywhere inside an id is rejoined (not only a scrap of three characters), a
+    //    linked-account "-1" suffix is dropped, and a hyphen inside a "/"-separated id is kept.
+    //    Measured on the corpus (1,936 rows): 182 keys change (101 name -> id, 75 fragment -> whole
+    //    id, 4 none -> id, 2 name -> masked), no type changes; every distinct change read. 13 keys
+    //    now join rows of one person or shop that had two keys; none joins two different payees.
+    public static final short VERSION = 8;
 
     /**
      * Bank-generated activity, where the counterparty is the institution itself. These words are

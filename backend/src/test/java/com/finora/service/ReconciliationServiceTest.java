@@ -48,6 +48,7 @@ class ReconciliationServiceTest {
     // name is the one that counts; `investmentsCategories` backs the repository lookup, and a test
     // can replace its contents (empty = a user with no Investments category at all).
     private com.finora.repository.CategoryRepository categoryRepository;
+    private com.finora.repository.UserRepository userRepository;
     private final UUID investmentsCategoryId = UUID.randomUUID();
     private final UUID groceriesCategoryId = UUID.randomUUID();
     private List<com.finora.entity.Category> investmentsCategories;
@@ -83,9 +84,13 @@ class ReconciliationServiceTest {
         when(categoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc(userId, "Investments"))
                 .thenAnswer(inv -> new ArrayList<>(investmentsCategories));
 
+        // Unstubbed by default -- findById returns Optional.empty(), so no user has a phone number
+        // and the own-UPI-id rule (2a') never fires. The dedicated tests below stub it.
+        userRepository = mock(com.finora.repository.UserRepository.class);
+
         reconciliationService = new ReconciliationService(transactionRepository, accountRepository, relationshipService, auditService,
                 transactionGraphService, gmailReconciliationMatcher, statementImportRepository, reconciliationMetrics,
-                categoryRepository);
+                categoryRepository, userRepository);
     }
 
     private com.finora.entity.Category category(UUID id, String name) {
@@ -1169,6 +1174,120 @@ class ReconciliationServiceTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> reason = (Map<String, Object>) out.getReconciliationExplanation().get("reason");
         assertThat(reason).containsEntry("direction", "PAYEE");
+    }
+
+    // --- rule 2a': the user's own UPI id is their registered mobile number ---
+
+    private void phone(String number) {
+        com.finora.entity.User user = new com.finora.entity.User();
+        user.setPhoneNumber(number);
+        when(userRepository.findById(userId)).thenReturn(java.util.Optional.of(user));
+    }
+
+    @Test
+    void reconcileForUser_aPaymentToTheUsersOwnPhoneUpiIdIsAOneSidedTransfer() {
+        // The holder name is cut and reordered by the bank ("Samplena") so the name rule misses it;
+        // the id is the user's own mobile number, split by a line wrap.
+        UUID savings = UUID.randomUUID();
+        Transaction out = ownRow(savings, "5000.00", Transaction.Type.EXPENSE,
+                "UPI/DR/111111111111/Samplena/BDBL/911111111 1@ptye/");
+        holder(savings, "ASHA VERMA");
+        phone("+919111111111");
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(out));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(out.isTransfer()).isTrue();
+        assertThat(out.getTransferPairId()).isNull();
+        assertThat(out.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.TRANSFER);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> reason = (Map<String, Object>) out.getReconciliationExplanation().get("reason");
+        assertThat(reason).containsEntry("rule", "OWN_ACCOUNT_PHONE").containsEntry("direction", "PAYEE")
+                .containsEntry("phoneLast4", "1111");
+        // Never the whole number in an explanation that is shown back and exported.
+        assertThat(reason.toString()).doesNotContain("9111111111");
+    }
+
+    @Test
+    void reconcileForUser_moneyFromTheUsersOwnPhoneUpiIdWithALinkedAccountSuffixIsATransfer() {
+        UUID savings = UUID.randomUUID();
+        Transaction in = ownRow(savings, "15000.00", Transaction.Type.INCOME,
+                "UPI-SAMPLE NAME-9111111111-2@ybl-HDFC0XXXXXX-111111111111-UPI");
+        phone("+919111111111");
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(in));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(in.isTransfer()).isTrue();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> reason = (Map<String, Object>) in.getReconciliationExplanation().get("reason");
+        assertThat(reason).containsEntry("rule", "OWN_ACCOUNT_PHONE").containsEntry("direction", "SENDER");
+    }
+
+    @Test
+    void reconcileForUser_someoneElsesPhoneUpiIdIsNotATransfer() {
+        UUID savings = UUID.randomUUID();
+        Transaction out = ownRow(savings, "500.00", Transaction.Type.EXPENSE,
+                "UPI/DR/111111111111/SAMPLENA/SBIN/9222222222@ybl/");
+        phone("+919111111111");
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(out));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(out.isTransfer()).isFalse();
+    }
+
+    @Test
+    void reconcileForUser_aPhoneNumberThatOnlyEndsLikeTheUsersIsNotATransfer() {
+        UUID savings = UUID.randomUUID();
+        Transaction out = ownRow(savings, "500.00", Transaction.Type.EXPENSE,
+                "UPI/DR/111111111111/SAMPLENA/SBIN/1111@ybl/");
+        phone("+919111111111");
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(out));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(out.isTransfer()).isFalse();
+    }
+
+    @Test
+    void reconcileForUser_withNoRegisteredPhoneTheRuleNeverFires() {
+        UUID savings = UUID.randomUUID();
+        Transaction out = ownRow(savings, "500.00", Transaction.Type.EXPENSE,
+                "UPI/DR/111111111111/SAMPLENA/SBIN/9111111111@ybl/");
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(out));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(out.isTransfer()).isFalse();
+    }
+
+    @Test
+    void reconcileForUser_aUserWhoRejectedTheTransferKeepsTheirAnswer() {
+        UUID savings = UUID.randomUUID();
+        Transaction out = ownRow(savings, "500.00", Transaction.Type.EXPENSE,
+                "UPI/DR/111111111111/SAMPLENA/SBIN/9111111111@ybl/");
+        out.setTransferRejectedAt(Instant.now());
+        phone("+919111111111");
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(out));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(out.isTransfer()).isFalse();
+    }
+
+    @Test
+    void reconcileForUser_aCardCreditFromTheUsersOwnPhoneIdIsLeftToTheCardRules() {
+        UUID card = UUID.randomUUID();
+        Transaction in = ownRow(card, "2000.00", Transaction.Type.INCOME,
+                "UPI/CR/111111111111/SAMPLENA/SBIN/9111111111@ybl/");
+        typed(card, Account.Type.CREDIT_CARD);
+        phone("+919111111111");
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(in));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(in.isTransfer()).isFalse();
     }
 
     @Test

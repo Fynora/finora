@@ -176,11 +176,15 @@ class CounterpartyIdentityTest {
         // every row of their statement, so keying on them would merge unrelated payees.
         assertThat(CounterpartyIdentity.keyOf("111111111-UPI-111111111111 Value Dt 10/07/2026 Ref 1111111111111111"))
                 .isEmpty();
+        // These three used to be unreadable (a wrapped id, a linked-account suffix) and were pinned
+        // empty so the fallback could not key on their handle. Since 2026-10-02 the id itself is
+        // read -- whole, and without the suffix -- which is the identity they always carried.
         assertThat(CounterpartyIdentity.keyOf("UPI/111111111111/02:44:32/UPI/paytm.s11a11 p@pty/U"))
-                .isEmpty();
+                .isEqualTo("vpa:paytm.s11a11p");
         assertThat(CounterpartyIdentity.keyOf("UPI/111111111111/ALPHABRAVO1111-1@OKAXIS/UPI/111111111111/HDFC BANK/"))
-                .isEmpty();
-        assertThat(CounterpartyIdentity.keyOf("UPI/111111111111/17:29:53/UPI/9111111111-3@ybl/Pa")).isEmpty();
+                .isEqualTo("vpa:alphabravo1111");
+        assertThat(CounterpartyIdentity.keyOf("UPI/111111111111/17:29:53/UPI/9111111111-3@ybl/Pa"))
+                .isEqualTo("vpa:9111111111");
     }
 
     @Test
@@ -221,7 +225,9 @@ class CounterpartyIdentityTest {
 
     @Test
     void aShortVpaLocalPartWithNothingBeforeItIsKeptAsItIs() {
-        assertThat(CounterpartyIdentity.keyOf("UPI/SAMPLE STORE/1111-01@JIOPAY/222")).isEqualTo("vpa:01");
+        // Since 2026-10-02 the hyphenated id in a "/" field is read whole: "01" alone was shared by
+        // every store whose id ends that way.
+        assertThat(CounterpartyIdentity.keyOf("UPI/SAMPLE STORE/1111-01@JIOPAY/222")).isEqualTo("vpa:1111-01");
         assertThat(CounterpartyIdentity.keyOf("ab@ybl")).isEqualTo("vpa:ab");
     }
 
@@ -229,5 +235,113 @@ class CounterpartyIdentityTest {
     @Test
     void aUpiIntentBoilerplateNarrationHasNoKey() {
         assertThat(CounterpartyIdentity.keyOf("UPI/RRN 100000000001/Pay for Intent")).isEmpty();
+    }
+
+    // ---- 2026-10-02: one person, one key, across the shapes the corpus measured ----
+
+    @Test
+    void aSecondAccountSuffixIsTheSamePerson() {
+        // A UPI app adds "-1", "-2" when the same person links another bank account. Measured on
+        // nine corpus statements (HDFC, PNB, SC, Canara, ICICI, BOB): with the suffix the id was
+        // not read at all and the row fell to a weak name key, splitting one person in two.
+        String plain = CounterpartyIdentity.keyOf("UPI/CR/111111111111/AMAN KUM/SBIN/samplefriend47@oksbi/");
+        String suffixed = CounterpartyIdentity.keyOf("UPI/DR/111111111112/Mr AMAN/CBIN/samplefriend47-1@oki/U");
+        assertThat(plain).isEqualTo("vpa:samplefriend47");
+        assertThat(suffixed).isEqualTo(plain);
+        assertThat(CounterpartyIdentity.keyOf("UPI-SAMPLE NAME-9111111111-3@ybl-REF1")).isEqualTo("vpa:9111111111");
+    }
+
+    @Test
+    void aMultiDigitSuffixIsPartOfTheIdNotASecondAccount() {
+        // Only a single 1-9 digit is a linked-account suffix; anything else may be a different id.
+        assertThat(CounterpartyIdentity.keyOf("UPI-SHOPCO-shopco.store-12@okbank-REF1")).isNotEqualTo("vpa:shopco.store");
+    }
+
+    @Test
+    void aLineWrapInsideTheIdIsRejoinedWhole_neverCutToItsLastPiece() {
+        // Measured: a wrap left "...MARKETPLAC EPRIVA.PAYU@..." and the key was the scrap after the
+        // space, so different shops whose wrapped ids end alike shared one key (an over-merge).
+        assertThat(CounterpartyIdentity.keyOf(
+                "UPI-SHOPCO MARKETPLACE PR-SHOPCOMARKETPLAC EPRIVA.PAYU@MAIRTEL-AIRP0XXXXXX-111111111111-UPI"))
+                .isEqualTo("vpa:shopcomarketplacepriva.payu");
+        assertThat(CounterpartyIdentity.keyOf("UPI/111111111111/03:50:05/UPI/samplejudoka 407@ok"))
+                .isEqualTo("vpa:samplejudoka407");
+        // Two different merchants whose wrapped ids end in the same four digits stay apart.
+        assertThat(CounterpartyIdentity.keyOf("UPI/111111111111/21:34:04/UPI/gpay-1111111 1801@ok"))
+                .isNotEqualTo(CounterpartyIdentity.keyOf("UPI/111111111112/21:35:04/UPI/gpay-2222222 1801@ok"));
+    }
+
+    @Test
+    void aHyphenInsideASlashSeparatedIdIsPartOfTheId() {
+        assertThat(CounterpartyIdentity.keyOf("UPI/111111111111/13:14:05/UPI/goog-payment s@axisb"))
+                .isEqualTo("vpa:goog-payments");
+        assertThat(CounterpartyIdentity.keyOf("UPI/111111111111/21:34:04/UPI/gpay-1111111 1801@ok"))
+                .isEqualTo("vpa:gpay-11111111801");
+        // A hyphen-delimited narration still stops at the hyphen: there it separates fields.
+        assertThat(CounterpartyIdentity.keyOf("UPI-SUNIL VERMA-sampleuser@ybl-REF1")).isEqualTo("vpa:sampleuser");
+    }
+
+    @Test
+    void aWrappedPhoneNumberIdIsRejoinedWhole() {
+        assertThat(CounterpartyIdentity.keyOf("UPI/DR/111111111111/Samplena/BDBL/911111111 1@ptye/"))
+                .isEqualTo("vpa:9111111111");
+        assertThat(CounterpartyIdentity.keyOf("UPI/DR/111111111111/SAMPLENA/SBIN/911111 1111@ibl/U"))
+                .isEqualTo("vpa:9111111111");
+    }
+
+    @Test
+    void aNameWordBeforeTheIdIsNeverGluedOn() {
+        // Only a piece that starts right after a field separator is a wrapped part of the id.
+        assertThat(CounterpartyIdentity.keyOf("UPI-SUNIL VERMA sampleuser@ybl-REF1")).isEqualTo("vpa:sampleuser");
+    }
+
+    @Test
+    void theStandardUpiLayoutsIdSlotIsReadEvenWhenTheBankCutItBeforeTheAt() {
+        // "UPI/<DR|CR>/<ref>/<name>/<bank>/<id>/...": some banks print about 16 characters of the id,
+        // so the "@" is often gone. The slot is still the id, cut at the same width every time.
+        assertThat(CounterpartyIdentity.keyOf("UPI/CR/111111111111/SAMPLENA/BARB/samplen ame.dadas/"))
+                .isEqualTo("vpa:samplename.dadas");
+        assertThat(CounterpartyIdentity.keyOf("UPI/CR/111111111111/SAMPLE N/HDFC/samplename18/U"))
+                .isEqualTo("vpa:samplename18");
+        assertThat(CounterpartyIdentity.keyOf("UPI/CR/111111111111/MR SAMPL/SCBL/samplefriend-1/"))
+                .isEqualTo("vpa:samplefriend");
+        assertThat(CounterpartyIdentity.keyOf("UPI/DR/111111111111/CHAND DI/KJSB/samplefriend1831@/"))
+                .isEqualTo("vpa:samplefriend1831");
+    }
+
+    @Test
+    void theIdSlotIsNotReadWhenItHoldsWordsRatherThanAnId() {
+        assertThat(CounterpartyIdentity.keyOf("UPI/DR/111111111111/SAMPLENA/SBIN/Payment for rent/"))
+                .doesNotStartWith("vpa:");
+        assertThat(CounterpartyIdentity.keyOf("UPI/DR/111111111111/SAMPLENA/SBIN/Rent June/"))
+                .doesNotStartWith("vpa:");
+        // A masked id is still the weak masked key, not a slot read.
+        assertThat(CounterpartyIdentity.keyOf("UPI/DR/111111111111/SAMPLE N/CNRB/**1111-1@ybl//X"))
+                .startsWith("masked:");
+    }
+
+    @Test
+    void aCapitalisedNoteWithADigitInTheIdSlotIsNotAnId() {
+        assertThat(CounterpartyIdentity.keyOf("UPI/DR/111111111111/SAMPLENA/SBIN/Rent June2026/"))
+                .doesNotStartWith("vpa:");
+        assertThat(CounterpartyIdentity.keyOf("UPI/CR/111111111111/SAMPLECO/DEUT/DEUT2 111111111@/"))
+                .isEqualTo("vpa:deut2111111111"); // an "@" vouches for it whatever the case
+    }
+
+    @Test
+    void aTimeOrAReferenceBeforeTheIdIsNeverGluedOn() {
+        assertThat(CounterpartyIdentity.keyOf("UPI/111111111111/03:50:05 sampleuser@okbank/X"))
+                .isEqualTo("vpa:sampleuser");
+        assertThat(CounterpartyIdentity.keyOf("UPI/111111111111 sampleuser@okbank/X"))
+                .isEqualTo("vpa:sampleuser");
+        // A phone number split by a wrap is ten digits, and is still rejoined.
+        assertThat(CounterpartyIdentity.keyOf("UPI/111111111111/12:00:00/UPI/911111111 1@ybl/"))
+                .isEqualTo("vpa:9111111111");
+    }
+
+    @Test
+    void theSameIdPrintedWholeAndCutGetsOneKey() {
+        assertThat(CounterpartyIdentity.keyOf("UPI/DR/111111111111/SAMPLE S/HSBC/9111111111@ybl/UPI"))
+                .isEqualTo(CounterpartyIdentity.keyOf("UPI/DR/111111111112/Samplena/BDBL/911111111 1@ptye/"));
     }
 }

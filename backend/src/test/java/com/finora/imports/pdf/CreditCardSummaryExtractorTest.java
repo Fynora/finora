@@ -444,6 +444,60 @@ class CreditCardSummaryExtractorTest {
                 .containsExactly("totalAmountDue");
     }
 
+    /** Real shape, both Axis statements: page 1 carries the statement's own total due (GRID); a
+     *  later page carries the card's printed worked example of how interest is charged, whose
+     *  "Total Amount Due" and purchase figures the INLINE strategy reads. Two readings from
+     *  different pages are not two readings of one panel, so they are not a conflict: the earlier
+     *  page's reading is the statement's. Invented figures. */
+    @Test
+    void aReadingFromALaterPage_isNotAConflictWithThePagesBefore() {
+        List<PositionedText> runs = new ArrayList<>(List.of(
+                runOnPage("Total Payment Due", 50f, 70f, 220f, 0),
+                runOnPage("Minimum Payment Due", 160f, 80f, 220f, 0),
+                runOnPage("27,000.00 Dr", 50f, 60f, 232f, 0),
+                runOnPage("1,400.00 Dr", 160f, 50f, 232f, 0),
+                runOnPage("Purchases", 190f, 40f, 560f, 2),
+                runOnPage("5,000.00", 290f, 30f, 560.2f, 2),
+                runOnPage("Total Amount Due", 198f, 61f, 588f, 2),
+                runOnPage("8,000.00", 290f, 30f, 588.2f, 2)));
+
+        var summary = CreditCardSummaryExtractor.extract(runs);
+
+        assertThat(summary.conflictingFields()).isEmpty();
+        assertThat(summary.totalAmountDue()).isEqualByComparingTo("27000.00");
+        assertThat(summary.purchases()).as("the later page's example figures are not this statement's").isNull();
+    }
+
+    /** Only the measured shape is resolved silently: GRID on the earlier page, INLINE later. The
+     *  reverse has never been seen on a real statement, and INLINE's page-wide search is the one
+     *  that latches onto unrelated text -- so there the old behaviour stands: GRID's reading is
+     *  used and the disagreement is still flagged for review, never settled by a guess. */
+    @Test
+    void anEarlierPageInlineReading_againstALaterPageGrid_isStillFlagged() {
+        List<PositionedText> runs = new ArrayList<>(List.of(
+                runOnPage("Opening balance", 355f, 70f, 229.6f, 0),
+                runOnPage("4,000.00", 518f, 46f, 228.2f, 0),
+                runOnPage("Total spends", 355f, 53f, 250.9f, 0),
+                runOnPage("600.00", 523f, 41f, 249.4f, 0),
+                runOnPage("Payments & Refunds", 355f, 86f, 272.1f, 0),
+                runOnPage("4,400.00", 518f, 46f, 270.7f, 0),
+                runOnPage("Total amount due", 355f, 74f, 363.2f, 0),
+                runOnPage("200.00", 523f, 41f, 363.5f, 0),
+                runOnPage("Previous Balance", 50f, 90f, 300f, 3),
+                runOnPage("Purchases", 150f, 60f, 300f, 3),
+                runOnPage("Payments / Credits", 220f, 90f, 300f, 3),
+                runOnPage("Total Amount Due", 320f, 90f, 300f, 3),
+                runOnPage("9,000.00", 55f, 40f, 330f, 3),
+                runOnPage("1,000.00", 155f, 40f, 330f, 3),
+                runOnPage("0.00", 230f, 20f, 330f, 3),
+                runOnPage("10,000.00", 325f, 40f, 330f, 3)));
+
+        var summary = CreditCardSummaryExtractor.extract(runs);
+
+        assertThat(summary.conflictingFields()).contains("totalAmountDue");
+        assertThat(summary.totalAmountDue()).isEqualByComparingTo("10000.00");
+    }
+
     // --- Page-region selection: real shape found verifying against the actual corpus for BOTH AU
     // and Axis -- in both cases the confounding duplicate/unrelated match was on a DIFFERENT page
     // than the real summary, not just elsewhere on the same page. ---
@@ -569,9 +623,11 @@ class CreditCardSummaryExtractorTest {
         assertThat(summary.totalAmountDue())
                 .as("GRID's reading wins a genuine disagreement")
                 .isEqualByComparingTo("13100.00");
-        assertThat(summary.conflictingFields())
-                .as("still flagged as disputed, even though GRID's value is what surfaces")
-                .contains("totalAmountDue");
+        // Changed with F-14: a reading from a LATER page is not a second reading of this page's
+        // panel, so it is no longer reported as a dispute -- that report put "review recommended" on
+        // both real Axis statements. Disagreement on the SAME page is still flagged; see
+        // flagsAConflictWhenTheTwoStrategiesDisagreeOnTheSameField.
+        assertThat(summary.conflictingFields()).isEmpty();
     }
 
     @Test

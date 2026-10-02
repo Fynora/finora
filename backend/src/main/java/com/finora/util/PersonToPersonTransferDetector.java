@@ -247,6 +247,14 @@ public final class PersonToPersonTransferDetector {
      * <p>Excludes PhonePe's general {@code YBLUPI} IFSC and the bare PSP brand names, which carry
      * no merchant/person distinction: both appear on ordinary personal transfers too.
      */
+    /** {@link #VPA_BUSINESS_QR}, run only when the text holds both a "qr" and an '@' -- it cannot
+     *  match otherwise, and its leading run backtracks over every id-like stretch of a long
+     *  narration that has neither (measured as the slowest single pattern here). */
+    private static boolean hasQrHandle(String text) {
+        if (text == null || text.indexOf('@') < 0 || !text.toLowerCase(Locale.ROOT).contains("qr")) return false;
+        return VPA_BUSINESS_QR.matcher(text).find();
+    }
+
     private static final Pattern MERCHANT_ACQUIRER_MARKER = Pattern.compile(
             "(?i)"
             + "\\bQ\\d{6,}@"                      // PhonePe merchant Q-VPA: Q710750321@ybl
@@ -346,7 +354,7 @@ public final class PersonToPersonTransferDetector {
         // Every veto and the segment scan read only the counterparty's part of the narration; the
         // slot rules below read the original, since they need its structure.
         String text = counterpartyText(description);
-        if (VPA_BUSINESS_QR.matcher(text).find()) return false;
+        if (hasQrHandle(text)) return false;
         if (MERCHANT_ACQUIRER_MARKER.matcher(text).find()) return false;
         // A fee paid to the state, however person-shaped its payee line (a portal's own 3-word name).
         if (CounterpartyClassifier.namesGovernmentBody(text)) return false;
@@ -591,11 +599,38 @@ public final class PersonToPersonTransferDetector {
     private static final Pattern FIELD_OPENING_NAME_RUN = Pattern.compile(
             "^(\\s*)((?:[A-Za-z]{1,15}\\s+){1,7}?)(?=(?:\\S*\\d|\\[))");
 
+    /** The names in a narration's payee slots only -- the position a bank prints the counterparty
+     *  in -- never a remark or any other segment. What a narration says about who was paid, for
+     *  learning a user's people's names, where a remark ("HAPPY BIRTHDAY") would teach a non-name. */
+    public static List<String> payeeSlotNames(String description) {
+        List<String> names = new java.util.ArrayList<>();
+        if (description == null || description.isBlank()) return names;
+        for (Pattern slot : MASK_SLOTS) {
+            Matcher m = slot.matcher(description);
+            while (m.find()) {
+                String content = m.group(1);
+                if (content == null || isKeptForMasking(content)) continue;
+                String slotName = LEADING_HONORIFICS.matcher(withoutCareOf(content).trim()).replaceFirst("");
+                if (looksLikeSlotName(slotName)) names.add(slotName.trim());
+            }
+        }
+        return names;
+    }
+
     /**
      * {@code description} with every name-shaped part replaced by {@link #NAME_MASK}; see the
      * comment above. Null-safe. Idempotent: the mask is never itself name-shaped.
      */
     public static String maskPersonNames(String description) {
+        return maskPersonNames(description, span -> NAME_MASK);
+    }
+
+    /**
+     * {@link #maskPersonNames(String)} with each masked span replaced by what {@code replacement}
+     * returns for it -- the original text of the span goes in, so a caller can map it to a token
+     * and restore it later (see {@code FynNameShield}).
+     */
+    public static String maskPersonNames(String description, java.util.function.UnaryOperator<String> replacement) {
         if (description == null || description.isBlank()) return description;
         String text = description;
         for (Pattern slot : MASK_SLOTS) {
@@ -608,7 +643,7 @@ public final class PersonToPersonTransferDetector {
                 String slotName = LEADING_HONORIFICS.matcher(withoutCareOf(content).trim()).replaceFirst("");
                 if (!looksLikeSlotName(slotName) && !GLUED_NAME.matcher(slotName).matches()) continue;
                 if (isKeptForMasking(content)) continue;
-                out.append(text, kept, m.start(1)).append(NAME_MASK);
+                out.append(text, kept, m.start(1)).append(replacement.apply(m.group(1)));
                 kept = m.end(1);
             }
             text = out.append(text.substring(kept)).toString();
@@ -622,13 +657,14 @@ public final class PersonToPersonTransferDetector {
             String segment = text.substring(segmentStart, segmentEnd);
             String candidate = withoutCareOf(segment).trim();
             if (isMaskableName(candidate)) {
-                out.append(NAME_MASK);
+                out.append(replacement.apply(segment.trim()));
             } else {
                 Matcher run = FIELD_OPENING_NAME_RUN.matcher(segment);
                 if (run.find() && isMaskableName(run.group(2).trim())) {
-                    out.append(run.group(1)).append(NAME_MASK).append(' ').append(segment.substring(run.end()));
+                    out.append(run.group(1)).append(replacement.apply(run.group(2).trim())).append(' ')
+                            .append(segment.substring(run.end()));
                 } else {
-                    out.append(withOwnerNameAfterBusinessWordMasked(segment));
+                    out.append(withOwnerNameAfterBusinessWordMasked(segment, replacement));
                 }
             }
             if (!found) break;
@@ -641,7 +677,7 @@ public final class PersonToPersonTransferDetector {
     // Courtesy titles before a name. DR also means "debit" to the token checks, which made "DR
     // <FIRST> <LAST>" read as boilerplate rather than a doctor's name.
     private static final Pattern LEADING_HONORIFICS = Pattern.compile(
-            "(?i)^(?:(?:MR|MRS|MS|DR|SHRI|SMT|KUM)\\.?\\s+)+");
+            "(?i)^(?:(?:MR|MRS|MS|MISS|DR|SHRI|SMT|KUM)\\.?\\s+)+");
 
     // A payee slot holding one token of letters longer than a name word, glued from a full name
     // ("<FIRST><MIDDLE><LAST>" as one word). Up to 40 letters; a known merchant or a keep word was
@@ -654,7 +690,8 @@ public final class PersonToPersonTransferDetector {
 
     /** {@code segment} with a 2-4 word name masked when it follows a business suffix and ends the
      *  segment -- the owner's name the shop's QR is registered with. Measured on the corpus. */
-    private static String withOwnerNameAfterBusinessWordMasked(String segment) {
+    private static String withOwnerNameAfterBusinessWordMasked(String segment,
+                                                              java.util.function.UnaryOperator<String> replacement) {
         Matcher word = WORD.matcher(segment);
         while (word.find()) {
             String token = word.group().toUpperCase(Locale.ROOT);
@@ -665,7 +702,7 @@ public final class PersonToPersonTransferDetector {
                     || java.util.Arrays.stream(tail.split("\\s+")).anyMatch(w -> w.length() < 3)
                     || isKeptForMasking(tail)) continue;
             int tailStart = segment.indexOf(tail, word.end());
-            return segment.substring(0, tailStart) + NAME_MASK + segment.substring(tailStart + tail.length());
+            return segment.substring(0, tailStart) + replacement.apply(tail) + segment.substring(tailStart + tail.length());
         }
         return segment;
     }
@@ -713,6 +750,13 @@ public final class PersonToPersonTransferDetector {
      * so a 3-letter name does not eat the middle of a merchant's. Null-safe.
      */
     public static String maskHolderName(String text, String holderFullName) {
+        return maskHolderName(text, holderFullName, span -> NAME_MASK);
+    }
+
+    /** {@link #maskHolderName(String, String)} with each matched span replaced by what
+     *  {@code replacement} returns for it. */
+    public static String maskHolderName(String text, String holderFullName,
+                                        java.util.function.UnaryOperator<String> replacement) {
         if (text == null || holderFullName == null || holderFullName.isBlank()) return text;
         String masked = text;
         for (String word : NON_LETTERS.split(holderFullName)) {
@@ -729,7 +773,7 @@ public final class PersonToPersonTransferDetector {
                 }
                 p = Pattern.compile("(?i)" + Pattern.quote(word.substring(0, required)) + optional);
             }
-            masked = p.matcher(masked).replaceAll(Matcher.quoteReplacement(NAME_MASK));
+            masked = p.matcher(masked).replaceAll(r -> Matcher.quoteReplacement(replacement.apply(r.group())));
         }
         return masked;
     }
@@ -739,7 +783,7 @@ public final class PersonToPersonTransferDetector {
      *  the money moved, not what it paid for -- "UPI-[name]-GPAY-..." is a paid call for nothing). */
     public static boolean hasRecognisableWords(String maskedNarration) {
         if (maskedNarration == null) return false;
-        String stripped = maskedNarration.replaceAll("\\[(?:name|redacted-[a-z]+)\\]", " ");
+        String stripped = maskedNarration.replaceAll("\\[(?:name(?:-\\d+)?|redacted-[a-z]+)\\]", " ");
         for (String token : NON_LETTERS.split(stripped.toUpperCase(Locale.ROOT))) {
             if (token.length() >= 3 && !PROTOCOL_AND_BOILERPLATE_TOKENS.contains(token)
                     && !PSP_BRAND_TOKENS.contains(token)) return true;

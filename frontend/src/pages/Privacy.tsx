@@ -6,7 +6,7 @@ export default function Privacy() {
   return (
     <PublicLayout
       title="Privacy Policy"
-      subtitle="Last updated: September 2026. This explains what Fynora collects, why, and the rights you have over it under India's Digital Personal Data Protection Act, 2023 (DPDP Act)."
+      subtitle="Last updated: October 2026. This explains what Fynora collects, why, and the rights you have over it under India's Digital Personal Data Protection Act, 2023 (DPDP Act)."
     >
       <PublicSection title="Who We Are & Your Consent">
         <p>
@@ -108,14 +108,32 @@ export default function Privacy() {
           which lookup was used and how it performed.
         </p>
         <p>
-          Anthropic's service is also used in one other place. If you add a transaction by hand without
+          If you attach a screenshot to a question, Fynora reads its text on its own servers and sends that
+          text, not the image. Account numbers, card numbers, UPI IDs, IFSC codes and phone numbers in it are
+          replaced with placeholders before it is sent.
+        </p>
+        <p>
+          Anthropic's service is also used in two other places. On the Insights page, Fyn writes a short
+          summary of your month from category-level totals and your category names; it is never sent your
+          transactions, merchant names or account details. And if you add a transaction by hand without
           choosing a category, and Fynora cannot work out a category from your own rules and corrections, its
           built-in rules, or a shared suggestion (see "Learning From Corrections Across Users" below), the
-          description you typed may be sent to the same Anthropic service so it can suggest a category. Only the
-          description text you entered is sent, not your amount, account details or user ID. The description is
-          free text and may contain personal information if you type it, so avoid typing anything sensitive into
-          it. Importing a statement does not do this. The short description returned by the service is stored
-          against the payee ID so it can be reused for later transactions with the same payee.
+          description you typed and the names of your categories may be sent so it can suggest a category. A
+          description that is a payment to a person is never sent, and in any description that is sent, UPI
+          IDs, account and reference numbers and IFSC codes are removed first. Your amount, account details
+          and user ID are never sent. The description is free text and may contain personal information if you
+          type it; anything in it Fynora does not recognise as a name or an identifier is sent as written, so
+          avoid typing anything sensitive into it. Importing a statement does not do this. The short description returned
+          by the service is stored against the payee ID so it can be reused for later transactions with the
+          same payee.
+        </p>
+        <p>
+          In all of these uses, Fynora hides the names of people it can recognise before anything is sent:
+          the names on your profile and on your accounts, the people you have paid or been paid by, and names
+          in a screenshot's text. Each is replaced with a placeholder such as [name-1], and Fynora puts the
+          real name back into the answer before you see it, so Anthropic receives the placeholder, never the
+          name. A name Fynora cannot recognise is sent as written, for example the name of someone you have
+          never paid, or a surname on its own, typed into a question.
         </p>
       </PublicSection>
 
@@ -139,7 +157,7 @@ export default function Privacy() {
       <PublicSection title="Data Usage">
         <p>
           Your data is used to: provide the core features you sign up for; generate categorization suggestions
-          and financial insights (via Fynora's own rule-based logic, except for the two uses of an AI service
+          and financial insights (via Fynora's own rule-based logic, except for the three uses of an AI service
           described under "Ask Fyn (AI Assistant)" above); detect duplicate or transfer transactions; and secure your account
           (fraud/lockout detection on repeated failed logins).
         </p>
@@ -182,7 +200,7 @@ export default function Privacy() {
           <li><strong className="text-ink">Cloudflare</strong> — frontend/website hosting and edge security.</li>
           <li><strong className="text-ink">Resend</strong> — transactional email delivery (verification, password reset, notifications).</li>
           <li><strong className="text-ink">TwoFactor</strong> — SMS/OTP delivery for phone verification.</li>
-          <li><strong className="text-ink">Anthropic</strong> — the AI service behind Ask Fyn and behind category suggestions for hand-typed transactions, as described above.</li>
+          <li><strong className="text-ink">Anthropic</strong> — the AI service behind Ask Fyn, the Insights summary and category suggestions for hand-typed transactions, as described above.</li>
           <li><strong className="text-ink">Firebase Cloud Messaging</strong> (Google) — delivery of push notifications to the mobile app, using a device token for your phone.</li>
           <li><strong className="text-ink">Sentry</strong> — crash and error reporting for our apps and servers. Reports carry technical details of the error; the web and mobile apps remove form contents, your account identity and the identifying parts of page addresses before a report is sent. Session replay and performance tracing are switched off.</li>
           <li><strong className="text-ink">Razorpay</strong> — payment processing for subscriptions bought on the web. Your card, UPI or bank details are entered into Razorpay's checkout, not into Fynora. Fynora keeps only what Razorpay reports back to show on your Billing page — for a card, its network and last four digits — never the full number.</li>

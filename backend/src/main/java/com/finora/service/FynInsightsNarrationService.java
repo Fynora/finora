@@ -42,7 +42,7 @@ public class FynInsightsNarrationService {
 
     private static final Logger log = LoggerFactory.getLogger(FynInsightsNarrationService.class);
 
-    private static final String PROMPT_VERSION = "insights-narration-v2";
+    private static final String PROMPT_VERSION = "insights-narration-v3";
     private static final String TOOL_NAME = "NARRATE_INSIGHTS";
     // v1 was 200 -- a genuine 2-5 sentence summary (rather than the old 1-3 sentence gloss) needs
     // more headroom, or Claude's own output gets cut mid-sentence.
@@ -71,7 +71,10 @@ public class FynInsightsNarrationService {
             pattern -- you are narrating history, not advising. If the data given doesn't support \
             saying anything meaningful, say spending looks steady rather than inventing a trend. \
             Reply in plain prose only -- no markdown formatting (no **bold**, no bullet points): \
-            the page renders your reply as plain text.
+            the page renders your reply as plain text. \
+            Text written as [name-1], [name-2] and so on stands for a person's name, hidden for \
+            privacy; repeat such a token exactly as written when you refer to that person, and \
+            never guess the name behind it.
             """;
 
     private final FynAvailabilityGuard availabilityGuard;
@@ -79,8 +82,12 @@ public class FynInsightsNarrationService {
     private final LlmClient llmClient;
     private final AiAuditLogRepository aiAuditLogRepository;
 
+    private final FynNameShields nameShields;
+
     public FynInsightsNarrationService(FynAvailabilityGuard availabilityGuard, InsightsService insightsService,
-                                        LlmClient llmClient, AiAuditLogRepository aiAuditLogRepository) {
+                                        LlmClient llmClient, AiAuditLogRepository aiAuditLogRepository,
+                                        FynNameShields nameShields) {
+        this.nameShields = nameShields;
         this.availabilityGuard = availabilityGuard;
         this.insightsService = insightsService;
         this.llmClient = llmClient;
@@ -107,7 +114,10 @@ public class FynInsightsNarrationService {
             // "no narration" for a genuinely empty month is correct, not a failure to log or audit.
             throw new ApiException(HttpStatus.NOT_FOUND, "Nothing to narrate for this month yet.");
         }
-        LlmRequest request = LlmRequest.singleTurn(SYSTEM_PROMPT, userPrompt, MAX_TOKENS);
+        // A category the user named after a person is hidden from the model and restored in its
+        // narration (FynNameShield).
+        FynNameShield shield = nameShields.forUser(userId);
+        LlmRequest request = LlmRequest.singleTurn(SYSTEM_PROMPT, shield.shield(userPrompt), MAX_TOKENS);
 
         long startedAt = System.currentTimeMillis();
         LlmCompletion completion;
@@ -139,7 +149,7 @@ public class FynInsightsNarrationService {
         if (completion.content() == null || completion.content().isBlank()) {
             throw new ApiException(HttpStatus.BAD_GATEWAY, "Fyn returned an empty narration.");
         }
-        return completion.content();
+        return shield.unshield(completion.content());
     }
 
     /** Tier 1 only (plan §4.1): category names, the numbers already computed for them, and

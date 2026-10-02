@@ -69,31 +69,32 @@ public final class MerchantIdentityLookup {
             "petrol", "fuel", "metro", "parking",
             "electricity", "power bill", "water bill", "gas bill", "broadband");
 
-    private static final Set<Pattern> ENTITY_PATTERNS;
+    private static final Pattern ENTITY_PATTERN;
     private static final Set<String> ENTITY_TERMS;
 
     static {
         Set<String> entities = new HashSet<>(CategoryRules.allKeywords());
         entities.removeAll(NON_ENTITY_TERMS);
         ENTITY_TERMS = Collections.unmodifiableSet(entities);
-        Set<Pattern> patterns = new HashSet<>();
-        for (String term : entities) {
-            // Same word-boundary discipline CategoryRules itself uses -- naive substring matching
-            // makes "ola" match inside "cola", which that class documents as a real, evidenced
-            // false positive rather than a hypothetical one.
-            patterns.add(Pattern.compile("(?<![a-z0-9])" + Pattern.quote(term) + "(?![a-z0-9])"));
-        }
-        ENTITY_PATTERNS = Collections.unmodifiableSet(patterns);
+        // One alternation, not one pattern per term: the per-term loop scanned the narration once
+        // for each of the vocabulary's terms, which measured as the classifier's costliest step on
+        // a long narration. The answer is the same -- some term occurs between the boundaries --
+        // since a failed boundary check after one alternative backtracks into the next. Longest
+        // terms first, so the engine tries the specific ones before their prefixes.
+        // Same word-boundary discipline CategoryRules itself uses -- naive substring matching
+        // makes "ola" match inside "cola", which that class documents as a real, evidenced false
+        // positive rather than a hypothetical one.
+        String alternation = entities.stream()
+                .sorted(java.util.Comparator.comparingInt(String::length).reversed().thenComparing(t -> t))
+                .map(Pattern::quote)
+                .collect(java.util.stream.Collectors.joining("|"));
+        ENTITY_PATTERN = Pattern.compile("(?<![a-z0-9])(?:" + alternation + ")(?![a-z0-9])");
     }
 
     /** Whether a known merchant entity is named in this narration. */
     public static boolean namesKnownMerchant(String description) {
         if (description == null || description.isBlank()) return false;
-        String normalized = CategoryRules.normalize(description);
-        for (Pattern p : ENTITY_PATTERNS) {
-            if (p.matcher(normalized).find()) return true;
-        }
-        return false;
+        return ENTITY_PATTERN.matcher(CategoryRules.normalize(description)).find();
     }
 
     /** The entity vocabulary this lookup currently knows. Exposed for tests and diagnostics. */

@@ -9,8 +9,6 @@ import com.finora.integrations.anthropic.LlmClient.*;
 import com.finora.repository.AiAuditLogRepository;
 import com.finora.repository.CategoryRepository;
 import com.finora.repository.UserMerchantCategoryResolutionRepository;
-import com.finora.repository.AccountRepository;
-import com.finora.repository.UserRepository;
 import com.finora.util.PersonToPersonTransferDetector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,7 +36,7 @@ public class UserMerchantCategoryResolutionService {
 
     private static final Logger log = LoggerFactory.getLogger(UserMerchantCategoryResolutionService.class);
 
-    private static final String PROMPT_VERSION = "user-category-resolution-v2";
+    private static final String PROMPT_VERSION = "user-category-resolution-v3";
     private static final String TOOL_NAME = "RESOLVE_CATEGORY";
     private static final int MAX_TOKENS = 60;
     private static final int MAX_CATEGORIES_SENT = 100;
@@ -51,7 +49,10 @@ public class UserMerchantCategoryResolutionService {
 
             Call the resolve_category tool. If one of the user's existing categories fits, reply \
             with that EXACT name and no reason. If none fit, reply with a new, short category \
-            name and a brief reason why it doesn't match any existing one.
+            name and a brief reason why it doesn't match any existing one. \
+            Text written as [name-1], [name-2] and so on stands for a person's name, hidden for \
+            privacy; repeat such a token exactly as written when you refer to that person, and \
+            never guess the name behind it.
             """;
 
     private static final LlmTool TOOL = new LlmTool(TOOL_NAME,
@@ -69,8 +70,7 @@ public class UserMerchantCategoryResolutionService {
     private final UserMerchantCategoryResolutionRepository resolutionRepository;
     private final CategoryRepository categoryRepository;
     private final CategorizationService categorizationService;
-    private final UserRepository userRepository;
-    private final AccountRepository accountRepository;
+    private final FynNameShields nameShields;
 
     // @Lazy breaks a real circular bean dependency: CategorizationService depends on
     // FynCategorizationFallbackService (existing), which (Task 5) now depends on this service,
@@ -85,8 +85,7 @@ public class UserMerchantCategoryResolutionService {
                                                   UserMerchantCategoryResolutionRepository resolutionRepository,
                                                   CategoryRepository categoryRepository,
                                                   @Lazy CategorizationService categorizationService,
-                                                  UserRepository userRepository,
-                                                  AccountRepository accountRepository) {
+                                                  FynNameShields nameShields) {
         this.understandingService = understandingService;
         this.availabilityGuard = availabilityGuard;
         this.llmClient = llmClient;
@@ -94,8 +93,7 @@ public class UserMerchantCategoryResolutionService {
         this.resolutionRepository = resolutionRepository;
         this.categoryRepository = categoryRepository;
         this.categorizationService = categorizationService;
-        this.userRepository = userRepository;
-        this.accountRepository = accountRepository;
+        this.nameShields = nameShields;
     }
 
     /**
@@ -171,10 +169,11 @@ public class UserMerchantCategoryResolutionService {
         if (prepared.isEmpty()) {
             return Optional.empty();
         }
-        String forModel = prepared.get();
-        for (String holderName : holderNames(userId)) {
-            forModel = PersonToPersonTransferDetector.maskHolderName(forModel, holderName);
-        }
+        // The narration goes with names as a plain "[name]": the understanding call's answer is
+        // cached for every user, and a numbered token in it would mean someone else's name to the
+        // next user's shield. Only the category list, below, needs tokens it can map back.
+        FynNameShield shield = nameShields.forUser(userId);
+        String forModel = shield.shield(prepared.get()).replaceAll("\\[name-\\d+]", PersonToPersonTransferDetector.NAME_MASK);
         if (!PersonToPersonTransferDetector.hasRecognisableWords(forModel)) {
             return Optional.empty();
         }
@@ -194,8 +193,10 @@ public class UserMerchantCategoryResolutionService {
                 .sorted()
                 .limit(MAX_CATEGORIES_SENT)
                 .collect(Collectors.joining(", "));
+        // A category the user named after a person reaches the model as a token; the name the
+        // model picks is unshielded below before it is looked up.
         String systemPrompt = String.format(SYSTEM_PROMPT_TEMPLATE, understanding.get(),
-                categoryList.isBlank() ? "(none yet)" : categoryList);
+                categoryList.isBlank() ? "(none yet)" : shield.shield(categoryList));
 
         LlmRequest request = LlmRequest.withTools(systemPrompt, List.of(LlmMessage.user(forModel)),
                 MAX_TOKENS, List.of(TOOL));
@@ -226,24 +227,15 @@ public class UserMerchantCategoryResolutionService {
         }
         Map<String, Object> input = completion.toolUses().get(0).input();
         Object rawCategory = input.get("category");
-        if (!(rawCategory instanceof String categoryName) || categoryName.isBlank()) {
+        if (!(rawCategory instanceof String shieldedName) || shieldedName.isBlank()) {
             return Optional.empty();
         }
-        String reason = input.get("reason") instanceof String r && !r.isBlank() ? r : null;
+        String categoryName = shield.unshield(shieldedName);
+        String reason = input.get("reason") instanceof String r && !r.isBlank() ? shield.unshield(r) : null;
 
         Category resolved = categorizationService.resolveOrCreateCategory(userId, categoryName, reason);
         resolutionRepository.insertIfAbsent(userId, counterpartyKey, direction.name(), resolved.getId(), Instant.now());
         return Optional.of(resolved.getName());
-    }
-
-    private List<String> holderNames(UUID userId) {
-        List<String> names = new java.util.ArrayList<>();
-        userRepository.findById(userId).map(com.finora.entity.User::getFullName).ifPresent(names::add);
-        for (com.finora.entity.Account account : accountRepository.findByUserId(userId)) {
-            String holder = account.getAccountHolderName();
-            if (holder != null && !holder.isBlank() && !names.contains(holder)) names.add(holder);
-        }
-        return names;
     }
 
     /** Human override (spec §8), called from Task 7's wiring whenever a user manually sets or

@@ -14,6 +14,7 @@ import java.util.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 class UserMerchantCategoryResolutionServiceTest {
@@ -27,6 +28,7 @@ class UserMerchantCategoryResolutionServiceTest {
     private CategorizationService categorizationService;
     private com.finora.repository.UserRepository userRepository;
     private com.finora.repository.AccountRepository accountRepository;
+    private com.finora.repository.TransactionRepository transactionRepository;
     private UserMerchantCategoryResolutionService service;
     private final UUID userId = UUID.randomUUID();
 
@@ -41,9 +43,10 @@ class UserMerchantCategoryResolutionServiceTest {
         categorizationService = mock(CategorizationService.class);
         userRepository = mock(com.finora.repository.UserRepository.class);
         accountRepository = mock(com.finora.repository.AccountRepository.class);
+        transactionRepository = mock(com.finora.repository.TransactionRepository.class);
         service = new UserMerchantCategoryResolutionService(understandingService, availabilityGuard,
                 llmClient, aiAuditLogRepository, resolutionRepository, categoryRepository, categorizationService,
-                userRepository, accountRepository);
+                new FynNameShields(userRepository, accountRepository, transactionRepository));
         when(availabilityGuard.categorizationAvailableFor(userId)).thenReturn(true);
     }
 
@@ -155,6 +158,40 @@ class UserMerchantCategoryResolutionServiceTest {
 
         verify(understandingService).understand(userId, "vpa:acmefoods", Transaction.Type.EXPENSE,
                 "UPI/ACME FOODS/[redacted-id]/[name][name]22");
+    }
+
+    /** A category the user named after a person reaches the model as a token, and the token the
+     *  model picks is mapped back to the real category before it is looked up. */
+    @Test
+    void resolve_aCategoryNamedAfterAPerson_isShieldedAndTheModelsPickIsRestored() {
+        when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(any(), any(), any())).thenReturn(Optional.empty());
+        when(understandingService.understand(any(), any(), any(), any())).thenReturn(Optional.of("A tea stall"));
+        Category personal = new Category();
+        personal.setUserId(userId);
+        personal.setName("Priya Sharma");
+        Category dining = new Category();
+        dining.setUserId(userId);
+        dining.setName("Dining");
+        when(categoryRepository.findByUserId(userId)).thenReturn(List.of(personal, dining));
+        when(transactionRepository.findPersonPaymentDescriptions(eq(userId), any()))
+                .thenReturn(List.of("UPI-PRIYA SHARMA-priyasharma@okicici-UPI")); // synthetic-ok
+        ToolUse toolUse = new ToolUse("t1", "RESOLVE_CATEGORY", Map.of("category", "[name-1]"));
+        when(llmClient.complete(any())).thenReturn(new LlmCompletion(null, List.of(toolUse),
+                "claude-haiku-4-5-20251001", 60, 8, "tool_use"));
+        when(categorizationService.resolveOrCreateCategory(userId, "Priya Sharma", null)).thenReturn(personal);
+        when(resolutionRepository.insertIfAbsent(any(), any(), any(), any(), any())).thenReturn(1);
+
+        Optional<String> result = service.resolve(userId, "vpa:acmeteashop", Transaction.Type.EXPENSE,
+                "UPI-ACME TEA SHOP-acmeteashop@okaxis-UPI");
+
+        var captor = org.mockito.ArgumentCaptor.forClass(LlmClient.LlmRequest.class);
+        verify(llmClient).complete(captor.capture());
+        assertThat(captor.getValue().systemPrompt()).contains("Dining, [name-1]").doesNotContain("Priya");
+        assertThat(result).contains("Priya Sharma");
+        verify(categorizationService).resolveOrCreateCategory(userId, "Priya Sharma", null);
+        // The understanding call's answer is cached for every user: no numbered token may reach it.
+        verify(understandingService).understand(eq(userId), eq("vpa:acmeteashop"), eq(Transaction.Type.EXPENSE),
+                org.mockito.ArgumentMatchers.argThat(text -> !text.matches("(?s).*\\[name-\\d+].*")));
     }
 
     /** The gate at the one entry into the model calls, not only at today's caller. */

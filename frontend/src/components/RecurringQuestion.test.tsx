@@ -94,6 +94,32 @@ describe('RecurringQuestion', () => {
     expect(await screen.findByRole('button', { name: 'Loan EMI' })).toBeInTheDocument();
   });
 
+  it('Change can be cancelled, back to the saved answer', async () => {
+    renderQuestion({ state: 'ANSWERED', answer: 'Rent' });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Change' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+
+    expect(screen.getByText('Rent')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Loan EMI' })).not.toBeInTheDocument();
+  });
+
+  it('Change on "still X?" can be cancelled, back to the question', async () => {
+    renderQuestion({ state: 'AMOUNT_CHANGED', answer: 'Rent', amount: 12500 });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Change' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+
+    expect(screen.getByText('₹12,500 to sample owner — still Rent?')).toBeInTheDocument();
+  });
+
+  it('a first question has nothing to cancel', async () => {
+    renderQuestion();
+
+    expect(await screen.findByRole('button', { name: 'Rent' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
+  });
+
   it('asks again when the amount moved out of the saved range', async () => {
     vi.mocked(recurringApi.categorize).mockResolvedValue(undefined as any);
     renderQuestion({ state: 'AMOUNT_CHANGED', answer: 'Rent', amount: 12500 });

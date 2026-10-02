@@ -101,6 +101,18 @@ describe('Insights — section-scoped loading', () => {
     expect(await screen.findByText('What is this ₹10,000 monthly payment?')).toBeInTheDocument();
   });
 
+  it('still asks "still Rent?" for a payee whose amount moved when no group is detected at all', async () => {
+    vi.mocked(insightsApi.get).mockReturnValue(pending<InsightsData>());
+    vi.mocked(recurringApi.list).mockResolvedValue([]);
+    vi.mocked(recurringApi.changedAmounts).mockResolvedValueOnce([
+      { merchant: 'sample owner', category: 'Rent', latestAmount: 12500, latestDate: '2026-07-03', amountMin: 7999, amountMax: 12001 },
+    ]);
+
+    renderInsights();
+
+    expect(await screen.findByText('₹12,500 to sample owner — still Rent?')).toBeInTheDocument();
+  });
+
   it('renders Observations and Movers as soon as /insights resolves, without waiting on /recurring', async () => {
     vi.mocked(insightsApi.get).mockResolvedValue(insights());
     vi.mocked(recurringApi.list).mockReturnValue(pending<RecurringItem[]>());

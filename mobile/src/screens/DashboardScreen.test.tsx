@@ -1377,6 +1377,34 @@ describe('Subscriptions & Recurring Payments widget (Phase 4)', () => {
     expect(screen.getByText('₹499')).toBeTruthy();
   });
 
+  it('still asks "still Rent?" for a payee whose amount moved when no group is detected at all', async () => {
+    recurring.list.mockResolvedValue([]);
+    jest.mocked(recurringApi.changedAmounts).mockResolvedValueOnce([
+      { merchant: 'sample owner', category: 'Rent', latestAmount: 12500, latestDate: '2026-07-03', amountMin: 7999, amountMax: 12001 },
+    ]);
+
+    renderScreen();
+
+    expect(await screen.findByText('₹12,500 to sample owner — still Rent?')).toBeOnTheScreen();
+  });
+
+  it('asks about a payment beyond the five soonest, without showing the rest', async () => {
+    const item = (merchant: string, days: number, state: 'NEEDS_ANSWER' | 'NONE') => recurringItem({
+      merchant, label: 'Monthly', averageAmount: 500, nextEstimate: inLocalDays(days), state, answer: null,
+      latestAmount: 500, category: state === 'NONE' ? 'Dining' : 'Other',
+    });
+    recurring.list.mockResolvedValue([
+      item('sample one', 1, 'NONE'), item('sample two', 2, 'NONE'), item('sample three', 3, 'NONE'),
+      item('sample four', 4, 'NONE'), item('sample five', 5, 'NONE'),
+      item('sample sixth', 6, 'NEEDS_ANSWER'), item('sample seventh', 7, 'NONE'),
+    ]);
+
+    renderScreen();
+
+    expect(await screen.findByText('What is this ₹500 monthly payment?')).toBeOnTheScreen();
+    expect(screen.queryByText('sample seventh')).not.toBeOnTheScreen();
+  });
+
   it('asks what an unanswered repeating payment is, under its row', async () => {
     recurring.list.mockResolvedValue([recurringItem({
       merchant: 'sample owner', label: 'Monthly', averageAmount: 10000, state: 'NEEDS_ANSWER', answer: null,

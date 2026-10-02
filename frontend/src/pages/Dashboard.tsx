@@ -425,13 +425,19 @@ export default function Dashboard() {
   const sentences = insightsQ.data?.sentences ?? [];
   const movers = (insightsQ.data?.movers ?? []).filter((m) => m.pctChange !== null).slice(0, 2);
   // RecurringDto already arrives sorted by nextEstimate (RecurringService's own doc comment) --
-  // taking the first few is "soonest due", not an arbitrary truncation.
-  const upcomingRecurring = (recurringQ.data ?? []).slice(0, 5);
+  // taking the first few is "soonest due", not an arbitrary truncation. A payment further down
+  // that the recurring-payment question is waiting on is shown too: the card is where it is asked.
+  const allRecurring = recurringQ.data ?? [];
+  const upcomingRecurring = [
+    ...allRecurring.slice(0, 5),
+    ...allRecurring.slice(5).filter((r) => r.state === 'NEEDS_ANSWER' || r.state === 'AMOUNT_CHANGED'),
+  ];
   // Saved recurring answers whose payee's amount moved out of range, for payees no longer detected:
   // extra "still X?" rows in the recurring card. An older backend lacks the endpoint; the query fails quietly.
   const changedAmountsQ = useQuery({
     queryKey: ['recurring-changed-amounts'], queryFn: () => recurringApi.changedAmounts(), retry: false,
   });
+  const changedAmounts = changedAmountsQ.data ?? [];
 
   if (blockingLoading) return showPageSkeleton ? <DashboardSkeleton /> : null;
   if (hasError || !summary) {
@@ -1565,7 +1571,9 @@ export default function Dashboard() {
           consumed by nothing until now: the Ledger/Reports "recurring" badge is the only place
           this data ever reached a screen. Read-only surfacing, same as Financial Health Score and
           AI Insights above -- no new detection logic, just showing what already exists. */}
-      {upcomingRecurring.length > 0 && (
+      {/* A "still X?" row is shown even with nothing detected: an amount that moved past the range is
+          exactly what stops the detector grouping the payee, so it may be the only row. */}
+      {(upcomingRecurring.length > 0 || changedAmounts.length > 0) && (
         <FinoraCard padding="none" className="mb-6 overflow-hidden">
           <div className="flex items-center gap-2 px-6 pt-5 pb-4">
             <div className="w-8 h-8 rounded-full bg-primary-light flex items-center justify-center">
@@ -1617,7 +1625,7 @@ export default function Dashboard() {
                 />
               </li>
             ))}
-            {(changedAmountsQ.data ?? []).map((c) => (
+            {changedAmounts.map((c) => (
               <li key={`changed-${c.merchant}`} className="text-sm">
                 <RecurringQuestion merchant={c.merchant} state="AMOUNT_CHANGED" answer={c.category} amount={c.latestAmount} />
               </li>

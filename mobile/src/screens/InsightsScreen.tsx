@@ -598,7 +598,7 @@ export function InsightsScreen() {
                   <Text style={[styles.error, { color: c.danger }]}>
                     Couldn&apos;t load recurring payments — pull down to try again.
                   </Text>
-                ) : recurring.length === 0 ? (
+                ) : recurring.length === 0 && (changedAmountsQ.data ?? []).length === 0 ? (
                   <EmptyState message="No recurring payments detected yet — this needs at least 2 charges from the same merchant on a regular interval to spot a pattern." />
                 ) : (
                   recurring.map((r) => (

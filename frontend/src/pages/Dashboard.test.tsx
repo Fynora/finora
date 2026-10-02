@@ -1169,6 +1169,33 @@ describe('Dashboard — Subscriptions & Recurring Payments', () => {
     expect(await screen.findByText('What is this ₹10,000 monthly payment?')).toBeInTheDocument();
   });
 
+  it('still asks "still Rent?" for a payee whose amount moved when no group is detected at all', async () => {
+    vi.mocked(recurringApi.list).mockResolvedValue([]);
+    vi.mocked(recurringApi.changedAmounts).mockResolvedValueOnce([
+      { merchant: 'sample owner', category: 'Rent', latestAmount: 12500, latestDate: '2026-07-03', amountMin: 7999, amountMax: 12001 },
+    ]);
+    renderDashboard();
+
+    expect(await screen.findByText('₹12,500 to sample owner — still Rent?')).toBeInTheDocument();
+  });
+
+  it('asks about a payment beyond the five soonest, without showing the rest', async () => {
+    const item = (merchant: string, days: number, state: 'NEEDS_ANSWER' | 'NONE') => ({
+      merchant, label: 'Monthly', averageAmount: 500, occurrences: 3, lastDate: '2026-07-24',
+      nextEstimate: daysFromNow(days), state, answer: null, latestAmount: 500, category: state === 'NONE' ? 'Dining' : 'Other',
+    });
+    vi.mocked(recurringApi.list).mockResolvedValue([
+      item('sample one', 1, 'NONE'), item('sample two', 2, 'NONE'), item('sample three', 3, 'NONE'),
+      item('sample four', 4, 'NONE'), item('sample five', 5, 'NONE'),
+      item('sample sixth', 6, 'NEEDS_ANSWER'), item('sample seventh', 7, 'NONE'),
+    ]);
+    renderDashboard();
+
+    expect(await screen.findByText('sample sixth')).toBeInTheDocument();
+    expect(screen.getByText('What is this ₹500 monthly payment?')).toBeInTheDocument();
+    expect(screen.queryByText('sample seventh')).not.toBeInTheDocument();
+  });
+
   it('shows no card at all when nothing is recurring, rather than an empty section', async () => {
     vi.mocked(recurringApi.list).mockResolvedValue([]);
     renderDashboard();

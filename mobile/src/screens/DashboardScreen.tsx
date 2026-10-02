@@ -327,12 +327,19 @@ export function DashboardScreen() {
   const budgets = (budgetsQ.data ?? []).slice(0, 3);
   // RecurringItem[] already arrives sorted by nextEstimate (RecurringService's own doc comment) --
   // slicing is enough, no client-side sort needed.
-  const upcomingRecurring = (recurringQ.data ?? []).slice(0, 5);
+  // A payment further down that the recurring-payment question is waiting on is shown too: the
+  // card is where it is asked.
+  const allRecurring = recurringQ.data ?? [];
+  const upcomingRecurring = [
+    ...allRecurring.slice(0, 5),
+    ...allRecurring.slice(5).filter((r) => r.state === 'NEEDS_ANSWER' || r.state === 'AMOUNT_CHANGED'),
+  ];
   // Saved recurring answers whose payee's amount moved out of range, for payees no longer detected:
   // extra "still X?" rows in the Upcoming card. An older backend lacks the endpoint; the query fails quietly.
   const changedAmountsQ = useQuery({
     queryKey: ['recurring-changed-amounts'], queryFn: () => recurringApi.changedAmounts(), retry: false,
   });
+  const changedAmounts = changedAmountsQ.data ?? [];
   const coverageCaveat = insightsQ.data?.coverageCaveat ?? null;
   // The coverage-caveat sentence (Track C/C2) is promoted to its own banner below rather than said
   // twice -- filtered out of the bullet list by the one fixed, always-English substring
@@ -734,7 +741,9 @@ export function DashboardScreen() {
           always fed. Hidden entirely when there's nothing detected: "no recurring payments found"
           isn't information worth a card of its own the way "no budgets set yet" is, since this
           isn't a feature the user set up themselves. */}
-      {upcomingRecurring.length > 0 ? (
+      {/* A "still X?" row shows even with nothing detected: an amount that moved past the range is
+          exactly what stops the detector grouping the payee, so it may be the only row. */}
+      {upcomingRecurring.length > 0 || changedAmounts.length > 0 ? (
         <Card style={styles.section}>
           <SectionHeading title="Upcoming" />
           {upcomingRecurring.map((r) => (
@@ -790,7 +799,7 @@ export function DashboardScreen() {
             />
             </View>
           ))}
-          {(changedAmountsQ.data ?? []).map((ca) => (
+          {changedAmounts.map((ca) => (
             <View key={`changed-${ca.merchant}`} style={[styles.recurringItem, { borderBottomColor: c.border }]}>
               <RecurringQuestion merchant={ca.merchant} state="AMOUNT_CHANGED" answer={ca.category} amount={ca.latestAmount} />
             </View>

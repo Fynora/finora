@@ -93,6 +93,34 @@ describe('RecurringQuestion', () => {
     await waitFor(() => expect(recurringApi.categorize).toHaveBeenCalledWith('sample owner', 'Dining'));
   });
 
+  it('"Something else" closes the picker once a category is chosen, so an error is not hidden behind it', async () => {
+    jest.mocked(recurringApi.categorize).mockRejectedValue(new Error('offline'));
+    renderQuestion();
+
+    fireEvent.press(await screen.findByRole('button', { name: 'Something else' }));
+    fireEvent.press(screen.getByRole('button', { name: 'Pick Dining' }));
+
+    expect(screen.queryByRole('button', { name: 'Pick Dining' })).not.toBeOnTheScreen();
+    expect(await screen.findByText("Couldn't save — try again.")).toBeOnTheScreen();
+  });
+
+  it('Change can be cancelled, back to the saved answer', async () => {
+    renderQuestion({ state: 'ANSWERED', answer: 'Rent' });
+
+    fireEvent.press(screen.getByRole('button', { name: 'Change' }));
+    fireEvent.press(await screen.findByRole('button', { name: 'Cancel' }));
+
+    expect(screen.getByText('Rent')).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: 'Loan EMI' })).not.toBeOnTheScreen();
+  });
+
+  it('a first question has nothing to cancel', async () => {
+    renderQuestion();
+
+    expect(await screen.findByRole('button', { name: 'Rent' })).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeOnTheScreen();
+  });
+
   it('shows the answer with a way to change it', async () => {
     renderQuestion({ state: 'ANSWERED', answer: 'Rent' });
 

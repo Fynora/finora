@@ -105,6 +105,16 @@ export function RecurringQuestion({ merchant, state, answer, amount, label = 'Mo
         >
           Something else
         </button>
+        {changing && (
+          <button
+            type="button"
+            disabled={save.isPending}
+            onClick={() => { setChanging(false); setOther(false); }}
+            className="px-2 py-1 text-xs underline text-muted hover:text-ink disabled:opacity-50"
+          >
+            Cancel
+          </button>
+        )}
       </div>
       {other && (
         <div className="flex items-center gap-2">

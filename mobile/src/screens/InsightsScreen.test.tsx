@@ -93,6 +93,18 @@ describe('InsightsScreen', () => {
     await waitFor(() => expect(screen.queryByText('netflix')).toBeNull());
   });
 
+  it('a "still Rent?" row replaces the nothing-detected message when no group is detected', async () => {
+    recurring.list.mockReset().mockResolvedValue([]);
+    jest.mocked(recurringApi.changedAmounts).mockResolvedValueOnce([
+      { merchant: 'sample owner', category: 'Rent', latestAmount: 12500, latestDate: '2026-07-03', amountMin: 7999, amountMax: 12001 },
+    ]);
+    renderScreen();
+    fireEvent.press(await screen.findByText('Spending'));
+
+    expect(await screen.findByText('₹12,500 to sample owner — still Rent?')).toBeOnTheScreen();
+    expect(screen.queryByText(/No recurring payments detected yet/)).not.toBeOnTheScreen();
+  });
+
   it('asks what an unanswered repeating payment is, under its row on the Spending tab', async () => {
     recurring.list.mockReset().mockResolvedValue([
       {

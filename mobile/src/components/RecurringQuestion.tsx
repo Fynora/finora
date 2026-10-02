@@ -107,6 +107,16 @@ export function RecurringQuestion({ merchant, state, answer, amount, label = 'Mo
         >
           <Text style={chipText}>Something else</Text>
         </Pressable>
+        {changing ? (
+          <Pressable
+            accessibilityRole="button"
+            disabled={save.isPending}
+            onPress={() => setChanging(false)}
+            style={styles.link}
+          >
+            <Text style={[styles.linkText, { color: c.primary }]}>Cancel</Text>
+          </Pressable>
+        ) : null}
       </View>
       {save.isError ? <Text style={[styles.text, { color: c.danger }]}>Couldn't save — try again.</Text> : null}
       <CategoryPickerModal
@@ -114,7 +124,11 @@ export function RecurringQuestion({ merchant, state, answer, amount, label = 'Mo
         selectedName={null}
         allowManage={false}
         title="What is this payment?"
-        onSelect={(category) => save.mutate(category.name)}
+        // Closed on pick, so the saving state and any error show on the card rather than behind the sheet.
+        onSelect={(category) => {
+          setPicking(false);
+          save.mutate(category.name);
+        }}
         onClose={() => setPicking(false)}
       />
     </View>

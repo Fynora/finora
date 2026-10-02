@@ -292,7 +292,7 @@ export default function Insights() {
           </Skeleton.Region>
         ) : recurringError ? (
           <p className="text-muted text-sm">Couldn't load your recurring payments — please try again later.</p>
-        ) : recurring.length === 0 ? (
+        ) : recurring.length === 0 && (changedAmountsQ.data ?? []).length === 0 ? (
           <EmptyState
             icon={Repeat}
             iconBg="bg-primary-light"

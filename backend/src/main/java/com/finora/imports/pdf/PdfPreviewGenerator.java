@@ -290,6 +290,25 @@ public class PdfPreviewGenerator {
         // itself: the same real Axis/SBI "Payment Summary" grid scrambles "Credit Limit" away from
         // its own value too -- see CreditLimitGridExtractor's own doc comment.
         BigDecimal gridCreditLimit = CreditLimitGridExtractor.extract(positioned, ctx);
+        // A payment summary whose box labels extract as nothing at all (a real HSBC card: fonts the
+        // PDF does not embed), read by place relative to a fixed line of boilerplate -- see
+        // UnlabelledCardPaymentSummaryExtractor. Only where the labelled grid found nothing. With no
+        // label on the page, the line-based metadata has nothing of its own to read for these
+        // fields there; the due date still yields to it, exactly as the grid's does.
+        if (gridPaymentDueDate == null || gridCreditLimit == null) {
+            UnlabelledCardPaymentSummaryExtractor.CardPaymentSummary unlabelled =
+                    UnlabelledCardPaymentSummaryExtractor.extract(positioned, ctx);
+            boolean used = false;
+            if (gridPaymentDueDate == null && unlabelled.paymentDueDate() != null) {
+                gridPaymentDueDate = unlabelled.paymentDueDate();
+                used = true;
+            }
+            if (gridCreditLimit == null && unlabelled.creditLimit() != null) {
+                gridCreditLimit = unlabelled.creditLimit();
+                used = true;
+            }
+            if (used && ctx != null) ctx.record("CARD_PAYMENT_SUMMARY_UNLABELLED_VALUES");
+        }
         // Same reasoning, same document-wide/ungated-on-section-count scope, for the account/card
         // number itself: a real Axis credit-card statement's own "Credit Card Number" field is
         // scrambled the same way its Payment Due Date is -- see AccountNumberGridExtractor's own

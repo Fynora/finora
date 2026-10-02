@@ -238,10 +238,13 @@ class CreditCardSummaryExtractorTest {
         // never be, and no real document has evidenced this shape. "SOME LABEL" also keeps this
         // row unrecoverable regardless, so this specifically pins the "-" exclusion rather than
         // relying on the other token to fail the row.
+        // The "-" sits in the label's own column, just before the figure -- where a sign would be --
+        // so neither the row nor the column can tell a negative total from a stray glyph.
         List<PositionedText> runs = new ArrayList<>(List.of(
                 run("Total Amount Due", 50f, 90f, 224f),
-                run("-", 150f, 10f, 236.5f),
-                run("34,521.90", 55f, 40f, 238.0f)));
+                run("-", 55f, 6f, 236.5f),
+                run("SOME LABEL", 250f, 60f, 236.6f),
+                run("34,521.90", 65f, 40f, 238.0f)));
 
         assertThat(CreditCardSummaryExtractor.extract(runs).totalAmountDue()).isNull();
     }
@@ -540,10 +543,11 @@ class CreditCardSummaryExtractorTest {
                 .as("the total's own value row is reached and correctly parsed despite the "
                         + "backtick Rupee-glyph substitute")
                 .isEqualByComparingTo("7362.70");
-        assertThat(summary.previousBalance())
-                .as("known, documented limitation: the other fields' value row is never reached "
-                        + "once the total's own row already satisfied valueRowWithinGap")
-                .isNull();
+        // This was a documented limitation: the other fields' value row was never reached once the
+        // total's own row satisfied valueRowWithinGap. Reading each label's own column reaches them.
+        assertThat(summary.previousBalance()).isEqualByComparingTo("0.00");
+        assertThat(summary.purchases()).isEqualByComparingTo("7362.70");
+        assertThat(summary.paymentsAndCredits()).isEqualByComparingTo("0.00");
     }
 
     @Test
@@ -735,31 +739,120 @@ class CreditCardSummaryExtractorTest {
     }
 
     @Test
-    void refusesRatherThanGuessesWhenTheGenuineValueRowFailsAndAnUnrelatedFieldsRowQualifiesLater() {
-        // Real, previously-shipped bug found verifying against a real IndusInd statement: its
-        // "Total Amount Due" value ("1,285.00 DR") merges with an unrelated promotional line on
-        // the same row and correctly fails to recover -- but the OLD valueRowWithinGap then kept
-        // scanning past that row and landed on "Minimum Amount Due"'s own value two rows later
-        // (a clean, lone "100.00"), returning a confidently WRONG total rather than refusing.
-        // Invented labels/text below reproduce the SHAPE: a row with a real amount merged with
-        // unrelated prose (refuses, correctly), followed by a clean but UNRELATED field's value
-        // within the same gap (must never be picked up as if it were this label's own answer).
+    void readsTheValueInTheLabelsOwnColumn_whenUnrelatedProseMergesIntoItsRow_neverTheNextFieldsValue() {
+        // Real shape, a real IndusInd statement: its "Total Amount Due" value merges, by y, with an
+        // unrelated promotional line printed in a column to its LEFT. The whole merged row cannot be
+        // trusted as a value row (the prose is neither date- nor operator-shaped), and an earlier
+        // fix stopped the scan there so it could never run on to "Minimum Amount Due"'s own clean
+        // value two rows later -- which had been read as the total. Refusing was safe, but it left
+        // the total empty on every IndusInd statement. Read straight down the label's own column
+        // instead: the first thing under it is its value, and the prose never overlaps the label.
+        // Invented labels and figures; the shape is the real one.
         List<PositionedText> runs = new ArrayList<>(List.of(
                 run("Total Amount Due", 440f, 90f, 200f),
-                // The real value, corrupted by an unrelated merged sentence -- refuses to recover,
-                // same as doesNotRecoverAValueFromARowWithUnclassifiableContentAlongsideAnAmount.
-                run("1,285.00", 445f, 60f, 214f),
+                run("1,250.00", 445f, 60f, 214f),
                 run("Some unrelated promotional sentence continues here", 30f, 220f, 214.5f),
-                // A DIFFERENT field's own clean value, further down but still within the gap --
-                // must never be mistaken for Total Amount Due's own answer.
                 run("Minimum Amount Due", 440f, 90f, 234f),
                 run("100.00", 460f, 40f, 245f)));
 
         assertThat(CreditCardSummaryExtractor.extract(runs).totalAmountDue())
-                .as("the real value is unrecoverable (corrupted by merged unrelated text) -- "
-                        + "refusing is correct; silently substituting a different field's value "
-                        + "is the actual bug")
-                .isNull();
+                .as("the label's own column holds its value; another field's value is never used")
+                .isEqualByComparingTo("1250.00");
+    }
+
+    @Test
+    void refusesWhenTheFirstThingUnderTheLabelIsAnotherLabel_ratherThanReadingThatLabelsValue() {
+        // The total's own value is missing; the next thing in its column is the next field's label.
+        List<PositionedText> runs = new ArrayList<>(List.of(
+                run("Total Amount Due", 440f, 90f, 200f),
+                run("Some unrelated promotional sentence continues here", 30f, 220f, 214.5f),
+                run("Minimum Amount Due", 440f, 90f, 224f),
+                run("100.00", 460f, 40f, 236f)));
+
+        assertThat(CreditCardSummaryExtractor.extract(runs).totalAmountDue()).isNull();
+    }
+
+    @Test
+    void refusesWhenTwoItemsSitUnderTheLabel_inItsOwnColumn() {
+        List<PositionedText> runs = new ArrayList<>(List.of(
+                run("Total Amount Due", 440f, 90f, 200f),
+                run("1,250.00", 442f, 40f, 214f),
+                run("100.00", 488f, 40f, 214f),
+                run("Some unrelated promotional sentence continues here", 30f, 220f, 214.5f)));
+
+        assertThat(CreditCardSummaryExtractor.extract(runs).totalAmountDue()).isNull();
+    }
+
+    /** Real shape, a real HDFC card: some labels wrap onto a second line ("RECEIVED",
+     *  "(Current Billing Cycle)") printed straight under them, above the value row. That second
+     *  line is part of the label, not something else sitting in its column. */
+    @Test
+    void aLabelsOwnSecondLine_doesNotHideTheValueUnderIt() {
+        List<PositionedText> runs = new ArrayList<>(List.of(
+                run("PREVIOUS STATEMENT DUES", 40f, 84f, 226.5f),
+                run("PAYMENTS/CREDITS", 156f, 60f, 222.3f),
+                run("RECEIVED", 171f, 28f, 230.8f),
+                run("PURCHASES/DEBIT", 258f, 55f, 222.3f),
+                run("(Current Billing Cycle)", 254f, 63f, 230.8f),
+                run("TOTAL AMOUNT DUE", 446f, 62f, 227.1f),
+                run("500.00", 68f, 26f, 250.2f),
+                run("500.00", 172f, 26f, 250.2f),
+                run("+", 233f, 5f, 249.8f),
+                run("2,000.00", 270f, 32f, 250.2f),
+                run("=", 424f, 5f, 249.8f),
+                run("2,000.00", 446f, 61f, 250.2f)));
+
+        var summary = CreditCardSummaryExtractor.extract(runs);
+
+        assertThat(summary.previousBalance()).isEqualByComparingTo("500.00");
+        assertThat(summary.paymentsAndCredits()).isEqualByComparingTo("500.00");
+        assertThat(summary.purchases()).isEqualByComparingTo("2000.00");
+        assertThat(summary.totalAmountDue()).isEqualByComparingTo("2000.00");
+    }
+
+    /** A tightly stacked panel: the next field's label within a line of this one, with this
+     *  field's own value missing. That label is not this label's second line, so its value is
+     *  never read as this one's. */
+    @Test
+    void aCloseNextFieldLabel_isNotTakenForThisLabelsSecondLine() {
+        List<PositionedText> runs = new ArrayList<>(List.of(
+                run("Total Amount Due", 440f, 90f, 200f),
+                run("Minimum Amount Due", 440f, 90f, 210f),
+                run("100.00", 460f, 40f, 222f)));
+
+        assertThat(CreditCardSummaryExtractor.extract(runs).totalAmountDue()).isNull();
+    }
+
+    /** The whole IndusInd-shaped panel: each field's label stacked in a right-hand column with its
+     *  value under it, a prose column to the left whose lines merge with the values by y, and the
+     *  panel's own wording ("Purchases & Other Charges", "Payments & Other Credits"). */
+    @Test
+    void readsAStackedSidePanel_whoseValuesMergeWithAProseColumnToTheLeft() {
+        List<PositionedText> runs = new ArrayList<>(List.of(
+                run("Previous Balance", 470f, 60f, 100f),
+                run("Notice text line one about charges", 30f, 170f, 112f),
+                run("1,000.00 DR", 480f, 45f, 112.5f),
+                run("Purchases & Other Charges", 460f, 85f, 140f),
+                run("Notice text line two about fees", 30f, 170f, 152f),
+                run("2,500.00", 485f, 35f, 152.5f),
+                run("Cash Advance", 475f, 50f, 180f),
+                run("0.00", 495f, 15f, 192f),
+                run("Payments & Other Credits", 462f, 82f, 220f),
+                run("Notice text line three", 30f, 170f, 232f),
+                run("1,000.00", 485f, 35f, 232.5f),
+                run("Total Amount Due", 468f, 70f, 260f),
+                run("Notice text line four about rates", 30f, 170f, 272f),
+                run("2,500.00 DR", 480f, 45f, 272.5f),
+                run("Minimum Amount Due", 460f, 86f, 300f),
+                run("125.00", 490f, 25f, 312f)));
+
+        var summary = CreditCardSummaryExtractor.extract(runs);
+
+        assertThat(summary.previousBalance()).isEqualByComparingTo("1000.00");
+        assertThat(summary.purchases()).isEqualByComparingTo("2500.00");
+        assertThat(summary.cashAdvances()).isEqualByComparingTo("0.00");
+        assertThat(summary.paymentsAndCredits()).isEqualByComparingTo("1000.00");
+        assertThat(summary.totalAmountDue()).isEqualByComparingTo("2500.00");
     }
 
     // ------------------------------------------------- multi-run label joining (Phase 5, task 5)

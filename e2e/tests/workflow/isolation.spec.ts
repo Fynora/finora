@@ -202,6 +202,14 @@ test.describe('Phase 10 — one user cannot see or shape another', () => {
     for (const table of ['password_history', 'password_change_sessions', 'category_rules', 'relationships']) {
       await query(`delete from ${table} where user_id = $1`, [doomed.id]);
     }
+    // A different case from those four, and cleared for the same honest reason. This table (V214)
+    // has NO foreign key on user_id at all, so deleting the user never reaches its rows, while its
+    // category_id does reference categories with no cascade -- so the user's categories, which DO
+    // cascade from the user, cannot be deleted while a resolution row still points at one. Failed
+    // the nightly from 2026-09-28. The product's real deletion path
+    // (AccountPurgeSweepService.purgeOne) removes these rows first, in that order, so this is a
+    // property of a raw `delete from users`, which the app never issues.
+    await query('delete from user_merchant_category_resolution where user_id = $1', [doomed.id]);
     await query('delete from users where id = $1', [doomed.id]);
 
     for (const [label, table] of [

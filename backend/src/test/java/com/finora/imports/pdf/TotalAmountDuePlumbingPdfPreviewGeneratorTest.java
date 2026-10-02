@@ -82,4 +82,52 @@ class TotalAmountDuePlumbingPdfPreviewGeneratorTest {
         assertThat(response.detectedAccount().suggestedAccountType()).isEqualTo("SAVINGS");
         assertThat(response.detectedAccount().totalAmountDue()).isNull();
     }
+
+    // --- A card's opening balance ---
+
+    @Test
+    void aCardWhoseRowsCarryThePreviousBalanceToTheTotalDue_opensAtThePrintedPreviousBalance() throws Exception {
+        PdfPreviewGenerator.PdfGenerationResult result = realGenerator().generateSectionsWithContext(
+                UUID.randomUUID(), "card.pdf", PdfFixtureBuilder.buildCreditCardStatementWhoseRowsReconcileSample());
+
+        var detected = result.sections().get(0).detectedAccount();
+        assertThat(detected.suggestedAccountType()).isEqualTo("CREDIT_CARD");
+        assertThat(result.sections().get(0).rows()).hasSize(3);
+        assertThat(detected.openingBalance()).isEqualByComparingTo("20000.00");
+        assertThat(result.documentContext().capabilities()).extracting(c -> c.capability())
+                .contains("PRINTED_PREVIOUS_BALANCE_USED_AS_CARD_OPENING");
+    }
+
+    @Test
+    void aCardWhoseRowsDoNotReachTheTotalDue_leavesTheOpeningBalanceToTheReviewScreen() throws Exception {
+        // One purchase against a summary that moved by far more: the rows are not the whole cycle.
+        PdfPreviewGenerator.PdfGenerationResult result = realGenerator().generateSectionsWithContext(
+                UUID.randomUUID(), "card.pdf", PdfFixtureBuilder.buildCreditCardTotalDueGridSample());
+
+        assertThat(result.sections().get(0).detectedAccount().openingBalance()).isNull();
+        assertThat(result.documentContext().capabilities()).extracting(c -> c.capability())
+                .doesNotContain("PRINTED_PREVIOUS_BALANCE_USED_AS_CARD_OPENING");
+    }
+
+    // --- HSBC's payment box ---
+
+    @Test
+    void theUnlabelledPaymentBoxsTotal_isTheTotalAmountDue_notTheNetOutstandingBalance() throws Exception {
+        PdfPreviewGenerator.PdfGenerationResult result = realGenerator().generateSectionsWithContext(
+                UUID.randomUUID(), "card.pdf", PdfFixtureBuilder.buildCardWithUnlabelledPaymentBoxSample(true));
+
+        // Only the box's geometry is reproduced here, not every signal the real statement uses to
+        // name its product, so the account type is not what this test checks.
+        assertThat(result.sections().get(0).detectedAccount().totalAmountDue()).isEqualByComparingTo("6000.00");
+        assertThat(result.documentContext().capabilities()).extracting(c -> c.capability())
+                .contains("CARD_PAYMENT_SUMMARY_UNLABELLED_VALUES");
+    }
+
+    @Test
+    void withoutThePaymentBox_theNetOutstandingBalanceStaysTheFallback() throws Exception {
+        PdfPreviewGenerator.PdfGenerationResult result = realGenerator().generateSectionsWithContext(
+                UUID.randomUUID(), "card.pdf", PdfFixtureBuilder.buildCardWithUnlabelledPaymentBoxSample(false));
+
+        assertThat(result.sections().get(0).detectedAccount().totalAmountDue()).isEqualByComparingTo("9000.00");
+    }
 }

@@ -410,6 +410,38 @@ describe('ImportScreen — new-account credit limit and due date fields', () => 
     await screen.findByText(/^Import \d+ transaction/);
   }
 
+  function stageCard(openingBalance: number | null) {
+    api.import.stageCsv.mockReset().mockResolvedValue({
+      sessionId: 'session-1',
+      multiAccount: false,
+      sections: null,
+      staging: {
+        rows: [stagedRow('Coffee')], totalParsed: 1, flaggedDuplicates: 0,
+        detectedAccount: {
+          ...detectedWithBank, suggestedAccountType: 'CREDIT_CARD', totalAmountDue: 2001, openingBalance,
+        } as DetectedAccountInfo,
+        unparseableRows: [],
+      },
+    } as never);
+  }
+
+  it("opens a new card account at the statement's printed previous balance when the server read one", async () => {
+    stageCard(2000.4);
+    await reachReview();
+
+    expect(screen.getByLabelText('Opening balance').props.value).toBe('2000.4');
+    expect(screen.queryByText(/estimated from total due/)).toBeNull();
+    expect(screen.queryByText(/worked backwards/)).toBeNull();
+  });
+
+  it('says why a card opening balance was worked backwards from the total due', async () => {
+    stageCard(null);
+    await reachReview();
+
+    expect(screen.getByText(/estimated from total due/)).toBeOnTheScreen();
+    expect(screen.getByText(/previous balance wasn't read, or didn't add up with these/)).toBeOnTheScreen();
+  });
+
   it('hides credit limit and due date fields for the default (non-credit-card) account type', async () => {
     await reachReview();
 

@@ -60,8 +60,11 @@ class PrintedBalancePdfPreviewGeneratorTest {
                 .contains("PRINTED_OPENING_CLOSING_BALANCE", "PRINTED_BALANCE_USED_AS_OPENING", "PRINTED_BALANCE_USED_AS_CLOSING");
     }
 
+    /** A card's opening balance comes only from its billing-summary panel, cross-checked against
+     *  its rows (CardStatementBalances); the ledger-style printed-balance reader never supplies it.
+     *  This fixture's panel is too sparse for CreditCardSummaryExtractor to read, so it stays null. */
     @Test
-    void aCardStatement_neverTakesItsPreviousBalanceAsAnOpeningBalance() throws Exception {
+    void aCardStatement_neverTakesALedgerStylePrintedBalanceAsItsOpeningBalance() throws Exception {
         PdfPreviewGenerator.PdfGenerationResult result = realGenerator().generateSectionsWithContext(
                 UUID.randomUUID(), "card.pdf", PdfFixtureBuilder.buildCardStatementWithPrintedOpeningBalanceSample());
 

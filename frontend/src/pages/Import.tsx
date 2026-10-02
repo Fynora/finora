@@ -2115,8 +2115,8 @@ function AccountChoiceFields({
             <input id={`${idPrefix}-opening-balance`} type="number" value={newOpeningBalance} onChange={(e) => setNewOpeningBalance(e.target.value)} className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full" />
             {detectedAccount?.openingBalance == null && newType === 'CREDIT_CARD' && detectedAccount?.totalAmountDue != null && (
               <p className="text-xs text-muted mt-1">
-                The statement's summary panel didn't print its own previous balance, so this is
-                worked backwards from the detected total amount due ({fmt(detectedAccount.totalAmountDue)})
+                The statement's own previous balance wasn't read, or didn't add up with these transactions,
+                so this is worked backwards from the detected total amount due ({fmt(detectedAccount.totalAmountDue)})
                 minus these transactions. Check it against the statement before confirming.
               </p>
             )}

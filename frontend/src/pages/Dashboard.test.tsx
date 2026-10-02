@@ -63,7 +63,7 @@ vi.mock('../api/endpoints', () => ({
   userApi: { get: vi.fn() },
   budgetsApi: { list: vi.fn() },
   reportsApi: { availableMonths: vi.fn(), forMonth: vi.fn() },
-  recurringApi: { list: vi.fn(), dismiss: vi.fn() },
+  recurringApi: { list: vi.fn(), dismiss: vi.fn(), categorize: vi.fn(), changedAmounts: vi.fn().mockResolvedValue([]) },
   // ChecklistWidget (mounted on Dashboard, D-onboarding) fetches this on every render -- default
   // to "already 6/6" so it renders nothing and every existing test below, none of which cares
   // about onboarding, keeps seeing exactly the Dashboard content it did before this widget
@@ -1157,6 +1157,16 @@ describe('Dashboard — Subscriptions & Recurring Payments', () => {
     expect(screen.getByText('Monthly')).toBeInTheDocument();
     expect(screen.getByText('₹649')).toBeInTheDocument();
     expect(screen.getByText(/expected in 5 days/)).toBeInTheDocument();
+  });
+
+  it('asks what an unanswered repeating payment is, under its row', async () => {
+    vi.mocked(recurringApi.list).mockResolvedValue([
+      { merchant: 'sample owner', label: 'Monthly', averageAmount: 10000, occurrences: 3, lastDate: '2026-07-24',
+        nextEstimate: daysFromNow(5), state: 'NEEDS_ANSWER', answer: null, latestAmount: 10000, category: 'Other' },
+    ]);
+    renderDashboard();
+
+    expect(await screen.findByText('What is this ₹10,000 monthly payment?')).toBeInTheDocument();
   });
 
   it('shows no card at all when nothing is recurring, rather than an empty section', async () => {

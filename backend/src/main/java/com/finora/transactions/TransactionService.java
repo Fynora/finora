@@ -309,6 +309,7 @@ public class TransactionService {
 
         String categoryName = req.categoryName();
         Category category;
+        CategorizationService.Suggestion suggestion = null;
         if (categoryName != null) {
             // An explicit category from the caller is a real decision — resolve it, learn from
             // it, and mark it manually set so the UI never shows it as an engine guess.
@@ -326,7 +327,7 @@ public class TransactionService {
             // "Ask Once" review queue instead of silently learning a non-decision -- unless the
             // user's own auto-apply confidence threshold says otherwise; see
             // CategorizationService.needsCategoryReview's own doc comment.
-            var suggestion = categorizationService.suggest(userId, req.description(), req.amount(), null, t.getTxnType());
+            suggestion = categorizationService.suggest(userId, req.description(), req.amount(), null, t.getTxnType());
             t.setMerchantId(suggestion.merchantId()); // already resolved as part of suggest() — no need to resolve twice
             category = categorizationService.resolveOrCreateCategory(userId, suggestion.category());
             t.setNeedsCategoryReview(categorizationService.needsCategoryReview(
@@ -336,9 +337,6 @@ public class TransactionService {
             t.setDecisionSource(suggestion.decisionSource());
             t.setDecisionRuleId(suggestion.ruleId());
             t.setDecisionConfidence(suggestion.confidence());
-            // create() is always a real write (unlike CsvImportService, there's no staging/
-            // preview step in between) -- safe to record the match right here.
-            categorizationService.recordRuleMatch(suggestion.ruleId());
         }
         t.setCategoryId(category.getId());
         // MARK_TRANSFER/MARK_INVESTMENT/ADD_TAG rules -- see CategorizationService.applySideEffectRules's
@@ -356,6 +354,14 @@ public class TransactionService {
             // CsvImportService.confirm()'s equivalent side-effect-rule override -- see that
             // method's own comment on this exact pattern.
             t.setCategoryId(category.getId());
+        }
+        // create() is always a real write (unlike CsvImportService, there's no staging/preview
+        // step in between) -- safe to record the suggestion's rule match here. Only once side
+        // effects have run, and only if that rule is still the decision: a MARK_INVESTMENT rule
+        // that replaced the category is the decision now (applySideEffectRules counts that one),
+        // and the rule it replaced did not decide what was stored.
+        if (suggestion != null && java.util.Objects.equals(t.getDecisionRuleId(), suggestion.ruleId())) {
+            categorizationService.recordRuleMatch(suggestion.ruleId());
         }
 
         // A transaction dated on or before the day the balance is already known as of is inside that

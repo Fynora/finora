@@ -1308,6 +1308,53 @@ class CategorizationServiceTest {
     }
 
     @Test
+    void applySideEffectRules_anInvestmentRuleAlreadyTheStagedDecision_isNotCountedASecondTime() {
+        // The import preview already chose this rule (decisionRuleId carried from staging), and
+        // ImportService counts the staged rule once. Counting it here as well would make one
+        // confirmed row two matches.
+        CategoryRule global = sideEffectRule(CategoryRule.ActionType.MARK_INVESTMENT, null);
+        sideEffectMatches(global);
+        Category investments = categoryNamed("Investments");
+        Transaction t = txnFor("SIP MUTUAL FUND DEDUCTION");
+        t.setCategoryId(investments.getId());
+        t.setDecisionSource(Transaction.DecisionSource.GLOBAL_RULE);
+        t.setDecisionRuleId(global.getId());
+
+        assertThat(categorizationService.applySideEffectRules(userId, t)).isEqualTo(investments);
+        verify(ruleEngineService, never()).recordMatch(global.getId());
+    }
+
+    @Test
+    void investmentRuleFor_previewsTheSameDecisionApplySideEffectRulesMakes() {
+        CategoryRule global = sideEffectRule(CategoryRule.ActionType.MARK_INVESTMENT, null);
+        CategoryRule personal = userInvestmentRule("SIP Mine");
+        List<CategoryRule> rules = List.of(personal, global);
+
+        when(ruleEngineService.evaluateSideEffectRules(eq(rules), anyString(), any(), any(), any()))
+                .thenReturn(List.of(new RuleEngineService.RuleMatch(global)));
+        var globalOnly = categorizationService.investmentRuleFor(rules, Transaction.DecisionSource.KEYWORD_MATCH,
+                "SIP", java.math.BigDecimal.TEN, null);
+        assertThat(globalOnly).isPresent();
+        assertThat(globalOnly.get().categoryName()).isEqualTo("Investments");
+        assertThat(globalOnly.get().source()).isEqualTo("global_rule");
+        assertThat(globalOnly.get().ruleId()).isEqualTo(global.getId());
+        // Held back from a category the user's own rule set, as at confirm.
+        assertThat(categorizationService.investmentRuleFor(rules, Transaction.DecisionSource.USER_RULE,
+                "SIP", java.math.BigDecimal.TEN, null)).isEmpty();
+
+        when(ruleEngineService.evaluateSideEffectRules(eq(rules), anyString(), any(), any(), any()))
+                .thenReturn(List.of(new RuleEngineService.RuleMatch(global), new RuleEngineService.RuleMatch(personal)));
+        var both = categorizationService.investmentRuleFor(rules, Transaction.DecisionSource.USER_RULE,
+                "SIP", java.math.BigDecimal.TEN, null);
+        assertThat(both).isPresent();
+        assertThat(both.get().categoryName()).isEqualTo("SIP Mine");
+        assertThat(both.get().source()).isEqualTo("user_rule");
+        // Read-only: a preview never counts a match or creates a category.
+        verify(ruleEngineService, never()).recordMatch(any());
+        verify(categoryRepository, never()).save(any());
+    }
+
+    @Test
     void investmentCategoryName_usesTheActionValue_orInvestmentsWhenBlank() {
         assertThat(CategorizationService.investmentCategoryName(
                 sideEffectRule(CategoryRule.ActionType.MARK_INVESTMENT, "SIP - Equity"))).isEqualTo("SIP - Equity");

@@ -28,14 +28,11 @@ import java.util.Optional;
 @Component
 public class ImportRuleLearningService {
 
-    private final CategorizationService categorizationService;
     private final SharedCorpusService sharedCorpusService;
     private final SharedMerchantCategoryAiSuggestionRepository aiSuggestionRepository;
 
-    public ImportRuleLearningService(CategorizationService categorizationService,
-                                      SharedCorpusService sharedCorpusService,
+    public ImportRuleLearningService(SharedCorpusService sharedCorpusService,
                                       SharedMerchantCategoryAiSuggestionRepository aiSuggestionRepository) {
-        this.categorizationService = categorizationService;
         this.sharedCorpusService = sharedCorpusService;
         this.aiSuggestionRepository = aiSuggestionRepository;
     }
@@ -99,11 +96,9 @@ public class ImportRuleLearningService {
     public Decision recordDecision(ConfirmedRow row) {
         boolean isUnresolvedGuess = isUnconfirmedGuess(row);
 
-        // This IS the actual write, unlike the suggest() call at staging time (preview, possibly
-        // never confirmed) -- row.ruleId() is the same ASSIGN_CATEGORY rule id resolved there and
-        // carried through review unchanged, so it's recorded here rather than by re-evaluating
-        // rules against the confirmed row.
-        categorizationService.recordRuleMatch(row.ruleId());
+        // The staged rule's match (row.ruleId()) is no longer recorded here: ImportService counts
+        // it after side-effect rules have run, and only if that rule is still the decision -- a
+        // MARK_INVESTMENT rule can replace the category it assigned.
 
         return new Decision(isUnresolvedGuess, !isUnresolvedGuess && !isUntouchedShopTradeGuess(row));
     }

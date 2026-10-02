@@ -53,6 +53,7 @@ class InvestmentRulePrecedenceIT extends AbstractIntegrationTest {
     @Autowired private TransactionExplanationService explanationService;
     @Autowired private ImportService importService;
     @Autowired private ImportSessionService importSessionService;
+    @Autowired private PreviewGenerator previewGenerator;
     @Autowired private AccountRepository accountRepository;
     @Autowired private CategoryRepository categoryRepository;
     @Autowired private CategoryRuleRepository ruleRepository;
@@ -244,6 +245,113 @@ class InvestmentRulePrecedenceIT extends AbstractIntegrationTest {
                 .findFirst().orElseThrow();
         assertThat(ownRuleRow.getDecisionSource()).isEqualTo(Transaction.DecisionSource.USER_RULE);
         assertThat(ownRuleRow.getDecisionRuleId()).isEqualTo(own.getId());
+    }
+
+    // --- Match counts: a rule is counted only when it decided the stored category ---
+
+    private long matchCountOf(CategoryRule rule) {
+        return ruleRepository.findById(rule.getId()).orElseThrow().getMatchCount();
+    }
+
+    @Test
+    void create_aCategoryRuleAnInvestmentRuleReplaced_isNotCountedAsAMatch() {
+        Fixture f = fixture();
+        CategoryRule assign = rule(null, CategoryRule.ActionType.ASSIGN_CATEGORY, "Shopping", f.token());
+        CategoryRule investment = rule(null, CategoryRule.ActionType.MARK_INVESTMENT, null, f.token());
+
+        assertThat(create(f, null).categoryName()).isEqualTo("Investments");
+
+        assertThat(matchCountOf(assign)).isZero();
+        assertThat(matchCountOf(investment)).isEqualTo(1);
+    }
+
+    @Test
+    void create_aCategoryRuleThatDecided_isStillCountedOnce() {
+        Fixture f = fixture();
+        CategoryRule assign = rule(null, CategoryRule.ActionType.ASSIGN_CATEGORY, "Shopping", f.token());
+
+        assertThat(create(f, null).categoryName()).isEqualTo("Shopping");
+
+        assertThat(matchCountOf(assign)).isEqualTo(1);
+    }
+
+    @Test
+    void importConfirm_aStagedCategoryRuleAnInvestmentRuleReplaced_isNotCountedAsAMatch() {
+        // A row staged before the preview applied investment rules (or by an older client) still
+        // carries the category rule; confirm replaces it, so that rule did not decide anything.
+        Fixture f = fixture();
+        CategoryRule assign = rule(null, CategoryRule.ActionType.ASSIGN_CATEGORY, "Shopping", f.token());
+        CategoryRule investment = rule(null, CategoryRule.ActionType.MARK_INVESTMENT, null, f.token());
+        StagedRow row = staged("SIP " + f.token(), "Shopping", "global_rule", assign.getId(), 0);
+        ImportSession session = importSessionService.createSession(f.userId(), "statement.csv",
+                ("Date,Description,Amount,Type\n2026-07-01,SIP " + f.token() + ",500.00,DEBIT\n")
+                        .getBytes(StandardCharsets.UTF_8), List.of(row), null);
+
+        importService.confirmSession(f.userId(), new ConfirmRequest(session.getId(),
+                List.of(confirmed(row, "Shopping")), f.accountId(), null, null, null, null));
+
+        assertThat(categoryOf(transactionRepository.findByUserId(f.userId()), f, "")).isEqualTo("Investments");
+        assertThat(matchCountOf(assign)).isZero();
+        assertThat(matchCountOf(investment)).isEqualTo(1);
+    }
+
+    // --- Preview: the review screen shows the category confirm will store ---
+
+    private List<StagedRow> preview(Fixture f, String... descriptions) throws Exception {
+        StringBuilder csv = new StringBuilder("Date,Description,Amount,Type\n");
+        for (String d : descriptions) csv.append("2026-07-01,").append(d).append(",500.00,DEBIT\n");
+        return previewGenerator.generate(f.userId(), "statement.csv",
+                new java.io.ByteArrayInputStream(csv.toString().getBytes(StandardCharsets.UTF_8))).rows();
+    }
+
+    @Test
+    void preview_showsTheCategoryAGlobalInvestmentRuleWillStore() throws Exception {
+        Fixture f = fixture();
+        CategoryRule investment = rule(null, CategoryRule.ActionType.MARK_INVESTMENT, null, f.token());
+
+        StagedRow row = preview(f, "PAY " + f.token()).get(0);
+
+        assertThat(row.suggestedCategory()).isEqualTo("Investments");
+        assertThat(row.categorySource()).isEqualTo("global_rule");
+        assertThat(row.ruleId()).isEqualTo(investment.getId());
+    }
+
+    @Test
+    void preview_keepsTheCategoryTheUsersOwnRuleSet_andShowsTheirOwnInvestmentRule() throws Exception {
+        Fixture f = fixture();
+        CategoryRule own = rule(f.userId(), CategoryRule.ActionType.ASSIGN_CATEGORY, "Dining", f.token() + "A");
+        rule(null, CategoryRule.ActionType.MARK_INVESTMENT, null, f.token());
+        CategoryRule ownInvestment = rule(f.userId(), CategoryRule.ActionType.MARK_INVESTMENT, "SIP Mine", f.token() + "B");
+
+        List<StagedRow> rows = preview(f, "PAY " + f.token() + "A", "PAY " + f.token() + "B");
+
+        assertThat(rows.get(0).suggestedCategory()).isEqualTo("Dining");
+        assertThat(rows.get(0).ruleId()).isEqualTo(own.getId());
+        assertThat(rows.get(1).suggestedCategory()).isEqualTo("SIP Mine");
+        assertThat(rows.get(1).categorySource()).isEqualTo("user_rule");
+        assertThat(rows.get(1).ruleId()).isEqualTo(ownInvestment.getId());
+    }
+
+    @Test
+    void previewThenConfirmUntouched_storesWhatWasShown_andCountsTheRuleOnce() throws Exception {
+        Fixture f = fixture();
+        CategoryRule investment = rule(null, CategoryRule.ActionType.MARK_INVESTMENT, null, f.token());
+        String csv = "Date,Description,Amount,Type\n2026-07-01,PAY " + f.token() + ",500.00,DEBIT\n";
+        List<StagedRow> rows = previewGenerator.generate(f.userId(), "statement.csv",
+                new java.io.ByteArrayInputStream(csv.getBytes(StandardCharsets.UTF_8))).rows();
+        StagedRow shown = rows.get(0).withRowPosition(0);
+        ImportSession session = importSessionService.createSession(f.userId(), "statement.csv",
+                csv.getBytes(StandardCharsets.UTF_8), List.of(shown), null);
+
+        importService.confirmSession(f.userId(), new ConfirmRequest(session.getId(),
+                List.of(confirmed(shown, shown.suggestedCategory())), f.accountId(), null, null, null, null));
+
+        Transaction stored = transactionRepository.findByUserId(f.userId()).get(0);
+        assertThat(categoryRepository.findById(stored.getCategoryId()).orElseThrow().getName())
+                .isEqualTo(shown.suggestedCategory()).isEqualTo("Investments");
+        assertThat(stored.getDecisionSource()).isEqualTo(Transaction.DecisionSource.GLOBAL_RULE);
+        assertThat(stored.isCategoryManuallySet()).isFalse();
+        assertThat(matchCountOf(investment)).isEqualTo(1);
     }
 
     private String categoryOf(List<Transaction> rows, Fixture f, String suffix) {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Repeat, TrendingUp, X, Check, Trophy } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import {
@@ -10,6 +10,7 @@ import { FinoraCard, EmptyState, SectionHeader, Skeleton, Badge } from '../desig
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
 import { useMemoryReinforcement } from '../hooks/useMemoryReinforcement';
 import { MemoryReinforcementToast } from '../components/MemoryReinforcementToast';
+import { RecurringQuestion } from '../components/RecurringQuestion';
 import { ICON_COMPONENTS, COLOR_HEX } from '../lib/categoryIcons';
 
 function fmt(n: number) {
@@ -138,6 +139,17 @@ export default function Insights() {
     }, 1500);
     return () => clearTimeout(timer);
   }, []);
+
+  // Saved answers whose payee's amount moved out of range, for payees no longer detected -- shown as
+  // extra "still X?" rows in the recurring card. Absent on an older backend: the query just fails.
+  const changedAmountsQ = useQuery({
+    queryKey: ['recurring-changed-amounts'], queryFn: () => recurringApi.changedAmounts(), retry: false,
+  });
+  // The recurring list lives in local state here (see the split-loading comment above), so an
+  // answer reloads it directly; React Query invalidation alone would not reach it.
+  const reloadRecurring = () => {
+    recurringApi.list().then(setRecurring).catch(() => {});
+  };
 
   useEffect(() => {
     insightsApi.get()
@@ -280,7 +292,7 @@ export default function Insights() {
           </Skeleton.Region>
         ) : recurringError ? (
           <p className="text-muted text-sm">Couldn't load your recurring payments — please try again later.</p>
-        ) : recurring.length === 0 ? (
+        ) : recurring.length === 0 && (changedAmountsQ.data ?? []).length === 0 ? (
           <EmptyState
             icon={Repeat}
             iconBg="bg-primary-light"
@@ -291,7 +303,8 @@ export default function Insights() {
         ) : (
           <div className="space-y-2">
             {recurring.map((r) => (
-              <div key={r.merchant} className="flex items-center gap-3 text-sm border-b border-dashed py-2">
+              <div key={r.merchant} className="border-b border-dashed py-2">
+              <div className="flex items-center gap-3 text-sm">
                 <CategoryIcon icon={Repeat} color={COLOR_HEX.blue} />
                 <span className="flex-1 min-w-0 capitalize truncate">{r.merchant} <Badge label={r.label} className="ml-1" /></span>
                 <span className="flex items-center gap-3 text-xs text-muted flex-shrink-0">
@@ -317,6 +330,25 @@ export default function Insights() {
                     <X size={13} />
                   </button>
                 </span>
+              </div>
+              <div className="pl-9">
+                <RecurringQuestion
+                  merchant={r.merchant}
+                  state={r.state ?? 'NONE'}
+                  answer={r.answer ?? null}
+                  amount={r.state === 'NEEDS_ANSWER' ? r.averageAmount : (r.latestAmount ?? r.averageAmount)}
+                  label={r.label}
+                  onSaved={reloadRecurring}
+                />
+              </div>
+              </div>
+            ))}
+            {(changedAmountsQ.data ?? []).map((c) => (
+              <div key={`changed-${c.merchant}`} className="border-b border-dashed py-2 pl-9">
+                <RecurringQuestion
+                  merchant={c.merchant} state="AMOUNT_CHANGED" answer={c.category} amount={c.latestAmount}
+                  onSaved={reloadRecurring}
+                />
               </div>
             ))}
           </div>

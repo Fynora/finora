@@ -12,7 +12,7 @@ vi.mock('../api/endpoints', () => ({
   // throw on the unmocked call; vi.clearAllMocks() below clears call history, not this resolved
   // value, so it stays the default for every test that doesn't override it.
   insightsApi: { get: vi.fn(), narration: vi.fn().mockResolvedValue('') },
-  recurringApi: { list: vi.fn(), dismiss: vi.fn(), confirm: vi.fn() },
+  recurringApi: { list: vi.fn(), dismiss: vi.fn(), confirm: vi.fn(), categorize: vi.fn(), changedAmounts: vi.fn().mockResolvedValue([]) },
   // Getting-started checklist dwell timer (D-onboarding) -- default to "no VIEW_INSIGHTS item in
   // the response" so it never fires in tests that don't care about it; the dwell-timer's own
   // tests override this.
@@ -88,6 +88,29 @@ describe('Insights — section-scoped loading', () => {
     // ...while the other two cards are still, correctly, loading.
     expect(screen.getByText("Loading this month's observations")).toBeInTheDocument();
     expect(screen.getByText('Loading category movers')).toBeInTheDocument();
+  });
+
+  it('asks what an unanswered repeating payment is, under its row', async () => {
+    vi.mocked(insightsApi.get).mockReturnValue(pending<InsightsData>());
+    vi.mocked(recurringApi.list).mockResolvedValue([recurringItem({
+      merchant: 'sample owner', averageAmount: 10000, state: 'NEEDS_ANSWER', answer: null, latestAmount: 10000,
+    })]);
+
+    renderInsights();
+
+    expect(await screen.findByText('What is this ₹10,000 monthly payment?')).toBeInTheDocument();
+  });
+
+  it('still asks "still Rent?" for a payee whose amount moved when no group is detected at all', async () => {
+    vi.mocked(insightsApi.get).mockReturnValue(pending<InsightsData>());
+    vi.mocked(recurringApi.list).mockResolvedValue([]);
+    vi.mocked(recurringApi.changedAmounts).mockResolvedValueOnce([
+      { merchant: 'sample owner', category: 'Rent', latestAmount: 12500, latestDate: '2026-07-03', amountMin: 7999, amountMax: 12001 },
+    ]);
+
+    renderInsights();
+
+    expect(await screen.findByText('₹12,500 to sample owner — still Rent?')).toBeInTheDocument();
   });
 
   it('renders Observations and Movers as soon as /insights resolves, without waiting on /recurring', async () => {

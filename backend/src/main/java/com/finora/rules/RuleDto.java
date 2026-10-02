@@ -19,7 +19,9 @@ import java.util.UUID;
 public record RuleDto(
         UUID id, String scope, String field, String operator, String comparisonValue,
         String actionType, String actionValue, int priority, boolean enabled,
-        long matchCount, Instant lastMatchedAt
+        long matchCount, Instant lastMatchedAt,
+        // Optional bounds on the transaction amount, inclusive (V248); null when unbounded.
+        BigDecimal amountMin, BigDecimal amountMax
 ) {
     /** Bug fix (Phase C review): RuleService.toDto and DataExportService's own rule-export mapping
      *  used to each hand-write this same 11-argument construction independently -- a field added to
@@ -29,7 +31,7 @@ public record RuleDto(
     public static RuleDto from(CategoryRule r) {
         return new RuleDto(r.getId(), r.getScope().name(), r.getField().name(), r.getOperator().name(),
                 r.getComparisonValue(), r.getActionType().name(), r.getActionValue(), r.getPriority(), r.isEnabled(),
-                r.getMatchCount(), r.getLastMatchedAt());
+                r.getMatchCount(), r.getLastMatchedAt(), r.getAmountMin(), r.getAmountMax());
     }
 
     // Always creates a USER-scope rule — see RuleService.create(). GLOBAL rules are seed data
@@ -40,7 +42,9 @@ public record RuleDto(
             @NotBlank(message = "Comparison value is required") String comparisonValue,
             @NotNull(message = "Action type is required") String actionType,
             String actionValue,
-            Integer priority
+            Integer priority,
+            BigDecimal amountMin,
+            BigDecimal amountMax
     ) {}
 
     /** Every field optional -- only supplied ones change, same partial-update convention as
@@ -55,7 +59,8 @@ public record RuleDto(
      *  relying on that manual checking staying correct through a future refactor. */
     public record UpdateRequest(
             @Size(max = 20) String field, @Size(max = 20) String operator, String comparisonValue,
-            @Size(max = 20) String actionType, String actionValue, Integer priority, Boolean enabled
+            @Size(max = 20) String actionType, String actionValue, Integer priority, Boolean enabled,
+            BigDecimal amountMin, BigDecimal amountMax
     ) {}
 
     /** Admin Rule Engine module -- "would this rule match?" against sample transaction fields,
@@ -71,7 +76,12 @@ public record RuleDto(
             String sampleDescription,
             BigDecimal sampleAmount,
             String sampleMerchant,
-            String sampleAccountType
+            String sampleAccountType,
+            // Optional: EXPENSE or INCOME. A payee rule matches money going out only; the tester's
+            // samples are spending examples, so a missing direction means EXPENSE.
+            String sampleDirection,
+            BigDecimal amountMin,
+            BigDecimal amountMax
     ) {}
 
     public record TestResult(boolean matches) {}

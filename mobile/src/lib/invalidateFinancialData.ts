@@ -27,6 +27,9 @@ export const FINANCIAL_QUERY_KEYS = [
   // until their caches age out on their own.
   'networth',
   'recurring',
+  // The recurring-payment question's "still X?" rows: an import or an answer can move a payee's
+  // latest amount in or out of its saved range.
+  'recurring-changed-amounts',
   // Settings' Data section: statements imported, transactions imported/skipped, last import.
   // Every one of those is a direct count of the thing an import or a statement deletion changes.
   'import-statistics',

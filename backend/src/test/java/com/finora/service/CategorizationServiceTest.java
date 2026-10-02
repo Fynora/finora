@@ -432,6 +432,24 @@ class CategorizationServiceTest {
         assertThat(suggestion.confidence()).isEqualTo(ConfidenceEngine.INITIAL_AI_FALLBACK_CONFIDENCE);
     }
 
+    /** A payment to a named individual carries that person's name, and usually their UPI id, in
+     *  its narration. The AI fallback sends the narration to a third party, so a person-shaped
+     *  row must never reach it, even when it would have answered. */
+    @Test
+    void suggest_namedIndividualTransfer_neverReachesTheAiFallback() {
+        UUID merchantId = UUID.randomUUID();
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
+        when(sharedCorpusService.findTrustedSuggestion(any(), any(), any())).thenReturn(Optional.empty());
+        when(fynCategorizationFallbackService.suggest(any(), any(), any(), any())).thenReturn(Optional.of("Dining"));
+
+        var suggestion = categorizationService.suggest(userId,
+                "UPI-RAJESH KUMAR-sampleuser@ybl-REF881234", null, null, Transaction.Type.EXPENSE);
+
+        verify(fynCategorizationFallbackService, never()).suggest(any(), any(), any(), any());
+        assertThat(suggestion.decisionSource()).isEqualTo(Transaction.DecisionSource.STRUCTURAL_P2P);
+    }
+
     @Test
     void suggest_noCorpusEntryAndNoAiAnswer_fallsThroughToStructuralP2pThenOther() {
         UUID merchantId = UUID.randomUUID();

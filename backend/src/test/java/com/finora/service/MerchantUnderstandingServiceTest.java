@@ -67,6 +67,27 @@ class MerchantUnderstandingServiceTest {
         verify(aiAuditLogRepository).save(any(AiAuditLog.class));
     }
 
+    /** The narration leaves Finora for a third party here, so the structural identifiers in it
+     *  (UPI id, account number, reference number, IFSC) are stripped first. The merchant words
+     *  the model needs survive. */
+    @Test
+    void understand_cacheMiss_sendsTheNarrationWithItsIdentifiersRedacted() {
+        when(understandingRepository.findByCounterpartyKeyAndDirection(any(), any())).thenReturn(Optional.empty());
+        ToolUse toolUse = new ToolUse("t1", "UNDERSTAND_MERCHANT", Map.of("understanding", "A pet supplies retailer"));
+        when(llmClient.complete(any())).thenReturn(new LlmCompletion(null, List.of(toolUse),
+                "claude-haiku-4-5-20251001", 40, 10, "tool_use"));
+        var captor = org.mockito.ArgumentCaptor.forClass(LlmClient.LlmRequest.class);
+
+        service.understand(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE,
+                "UPI-PAWS AND CLAWS STORE-pawsclawsstore@okaxis-UTIB0XXXXXX-123456789012-A/C 00001234567890");   // synthetic-ok: invented placeholder identifiers
+
+        verify(llmClient).complete(captor.capture());
+        String sent = captor.getValue().messages().get(0).content();
+        assertThat(sent).contains("PAWS AND CLAWS STORE");
+        assertThat(sent).doesNotContain("pawsclawsstore@okaxis").doesNotContain("UTIB0XXXXXX")
+                .doesNotContain("123456789012").doesNotContain("00001234567890"); // synthetic-ok
+    }
+
     @Test
     void understand_notAvailable_returnsEmptyWithoutCallingLlm() {
         when(availabilityGuard.categorizationAvailableFor(userId)).thenReturn(false);

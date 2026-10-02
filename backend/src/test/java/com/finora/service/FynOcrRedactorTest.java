@@ -142,4 +142,58 @@ class FynOcrRedactorTest {
         assertThat(result).contains("499");
         assertThat(result).contains("HDFC Bank");
     }
+
+    // --- redactNarration: a transaction narration, whose fields are joined by '-', '/' or '|' ---
+
+    @Test
+    void redactNarration_keepsTheMerchantFieldNextToTheUpiId() {
+        String result = FynOcrRedactor.redactNarration(
+                "UPI-PAWS AND CLAWS STORE-pawsclawsstore@okaxis-UTIB0XXXXXX-123456789012-UPI"); // synthetic-ok
+
+        assertThat(result).isEqualTo("UPI-PAWS AND CLAWS STORE-[redacted-id]-[redacted-ifsc]-[redacted-number]-UPI");
+    }
+
+    @Test
+    void redactNarration_slashDelimitedNarration() {
+        String result = FynOcrRedactor.redactNarration(
+                "UPI/DR/412345678901/BLUE TOKAI/q123456789@ybl/Payment"); // synthetic-ok
+
+        assertThat(result).isEqualTo("UPI/DR/[redacted-number]/BLUE TOKAI/[redacted-id]/Payment");
+    }
+
+    @Test
+    void redactNarration_pipeDelimitedAndDottedId() {
+        String result = FynOcrRedactor.redactNarration("NEFT|ACME TRADERS|acme.traders@icici|REF"); // synthetic-ok
+
+        assertThat(result).isEqualTo("NEFT|ACME TRADERS|[redacted-id]|REF");
+    }
+
+    @Test
+    void redactNarration_anIdWithItsOwnHyphen_redactsFromTheHyphenThroughTheHandle() {
+        // Documented limitation: the delimiter that bounds a field also splits such an id.
+        String result = FynOcrRedactor.redactNarration("UPI-SHOP-ab-cd@okaxis-UPI"); // synthetic-ok
+
+        assertThat(result).isEqualTo("UPI-SHOP-ab-[redacted-id]-UPI");
+    }
+
+    @Test
+    void redactNarration_leavesAShortAmountAndPlainWordsAlone() {
+        assertThat(FynOcrRedactor.redactNarration("POS 499 SWIGGY BANGALORE")).isEqualTo("POS 499 SWIGGY BANGALORE");
+    }
+
+    @Test
+    void redactNarration_anIdCutOffAfterItsAt_isStillRedacted() {
+        assertThat(FynOcrRedactor.redactNarration("UPI/DR/[redacted-number]/SOMEONE/someone.name@"))
+                .isEqualTo("UPI/DR/[redacted-number]/SOMEONE/[redacted-id]");
+    }
+
+    @Test
+    void redactNarration_aLoneAtSignIsNotAnId() {
+        assertThat(FynOcrRedactor.redactNarration("EMI @ 14.00% INTEREST")).isEqualTo("EMI @ 14.00% INTEREST");
+    }
+
+    @Test
+    void redactNarration_isNullSafe() {
+        assertThat(FynOcrRedactor.redactNarration(null)).isNull();
+    }
 }

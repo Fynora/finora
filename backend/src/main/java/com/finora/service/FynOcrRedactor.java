@@ -6,6 +6,10 @@ import java.util.regex.Pattern;
  * Strips structural PII shapes out of a screenshot's OCR'd text before {@link
  * FynScreenshotOcrService} lets it anywhere near a chat turn.
  *
+ * <p>Also applied to a transaction narration before {@link MerchantUnderstandingService} sends it
+ * to the model for an uncategorised merchant -- the same third-party boundary, the same shapes,
+ * through {@link #redactNarration}.
+ *
  * <h2>Why this exists</h2>
  *
  * <p>The Fyn architecture (docs/superpowers/specs/2026-09-13-fino-ai-implementation-plan.md, §3/
@@ -101,8 +105,32 @@ final class FynOcrRedactor {
             return null;
         }
         String redacted = ID_LIKE.matcher(value).replaceAll("[redacted-id]");
-        redacted = IFSC.matcher(redacted).replaceAll("[redacted-ifsc]");
-        redacted = LONG_NUMBER.matcher(redacted).replaceAll("[redacted-number]");
-        return redacted;
+        return redactNumbers(redacted);
+    }
+
+    // A bank narration joins its fields with '-', '/' or '|' ("UPI-SHOP NAME-shop@okaxis-REF"), and
+    // ID_LIKE allows '-' on both sides of the '@', so on a narration it swallows the neighbouring
+    // fields too -- the merchant name included, which is the one thing the model is sent the
+    // narration for. Here an id is the single field holding the '@', ended by those delimiters
+    // or whitespace. A UPI id with a '-' of its own keeps the part before that '-'; every
+    // character from the '-' through the handle is still redacted. Either side may be empty, but
+    // not both: statements cut a long id off right after its '@' (measured on 7 of 1,283
+    // corpus rows that reach the model), and that leftover local part is the identifying half. A
+    // lone '@' ("EMI @ 14.00%") is not an id and stays.
+    private static final Pattern NARRATION_ID =
+            Pattern.compile("[^\\s/|\\-]+@[^\\s/|\\-]*|@[^\\s/|\\-]+");
+
+    /** {@link #redact} for a transaction narration rather than OCR'd text: the same identifier
+     *  shapes, with the id match bounded by the narration's field delimiters. Null-safe. */
+    static String redactNarration(String value) {
+        if (value == null) {
+            return null;
+        }
+        return redactNumbers(NARRATION_ID.matcher(value).replaceAll("[redacted-id]"));
+    }
+
+    private static String redactNumbers(String value) {
+        String redacted = IFSC.matcher(value).replaceAll("[redacted-ifsc]");
+        return LONG_NUMBER.matcher(redacted).replaceAll("[redacted-number]");
     }
 }

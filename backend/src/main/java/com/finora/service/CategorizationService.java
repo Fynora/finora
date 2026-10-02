@@ -260,7 +260,8 @@ public class CategorizationService {
             return new Suggestion(corpusMatch.get(), SHARED_CORPUS_SOURCE, merchant.getId(),
                     Transaction.DecisionSource.SHARED_CORPUS, null, ConfidenceEngine.INITIAL_SHARED_CORPUS_CONFIDENCE);
         }
-        Optional<String> aiMatch = direction == null || !hasCounterpartyKey(typing.key()) ? Optional.empty()
+        Optional<String> aiMatch = direction == null || !hasCounterpartyKey(typing.key())
+                || isPersonShaped(typing, description) ? Optional.empty()
                 : fynCategorizationFallbackService.suggest(userId, typing.key(), direction, description);
         if (aiMatch.isPresent()) {
             return new Suggestion(aiMatch.get(), AI_FALLBACK_SOURCE, merchant.getId(),
@@ -576,6 +577,17 @@ public class CategorizationService {
      *  test, which no narration can reach through {@code CounterpartyTyping.of}. */
     static boolean hasCounterpartyKey(String counterpartyKey) {
         return counterpartyKey != null && !counterpartyKey.isBlank();
+    }
+
+    /** Whether a narration names a private individual. Such a row never goes to the AI fallback:
+     *  that call sends the narration to a third party, and here the narration is a person's name
+     *  and usually their UPI id. Either signal is enough. The cost is that a shop whose payee name
+     *  reads as a person's gets no AI answer; the shop-trade and person-transfer rules below still
+     *  name it. Only {@link #suggest} needs this: {@link #suggestReadOnly}'s fallback reads its own
+     *  cache and never calls the model. */
+    private static boolean isPersonShaped(com.finora.util.CounterpartyTyping typing, String description) {
+        return typing.type() == com.finora.util.CounterpartyType.PERSON
+                || PersonToPersonTransferDetector.isNamedIndividualTransfer(description);
     }
 
     /** The canonical name only if a person has confirmed this merchant's identity -- see

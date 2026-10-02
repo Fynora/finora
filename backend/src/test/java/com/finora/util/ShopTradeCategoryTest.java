@@ -125,6 +125,43 @@ class ShopTradeCategoryTest {
                 .isNull();
     }
 
+    /** A college or school named for its subject is paid fees, not a shop's bill: "MEDICAL COLLEGE"
+     *  is education or a hospital, and the name cannot say which. */
+    @Test
+    void aCollegeOrSchoolNamedForItsSubject_decidesNothing() {
+        assertThat(of(hyphenUpi("SAMPLE MEDICAL COLLEGE"), EXPENSE)).isNull();
+        assertThat(of(hyphenUpi("SAMPLE HOTEL MANAGEMENT ACADEMY"), EXPENSE)).isNull();
+        assertThat(of(hyphenUpi("SAMPLE BEAUTY SCHOOL"), EXPENSE)).isNull();
+        assertThat(of(hyphenUpi("SAMPLE UNIVERSITY MEDICAL"), EXPENSE)).isNull();
+        // Past the payee's first four words, which are all the trade words are read from.
+        assertThat(of(hyphenUpi("SHRI SAMPLE STATE MEDICAL COLLEGE AND HOSPITAL"), EXPENSE)).isNull();
+    }
+
+    /** A supplier of a trade's equipment is not that trade. */
+    @Test
+    void anEquipmentOrApplianceSeller_isNotTheTradeItSupplies() {
+        assertThat(of(hyphenUpi("SAMPLE KITCHEN APPLIANCES"), EXPENSE)).isNull();
+        assertThat(of(hyphenUpi("SAMPLE HOTEL EQUIPMENT"), EXPENSE)).isNull();
+        assertThat(of(hyphenUpi("SAMPLE BAKERY EQUIPMENTS"), EXPENSE)).isNull();
+    }
+
+    /** "Mart" is any kind of shop; only a mart that names no other merchandise reads as a grocer. */
+    @Test
+    void aMartNamedForOtherMerchandise_isNotGroceries() {
+        assertThat(of(hyphenUpi("SAMPLE MOBILE MART"), EXPENSE)).isNull();
+        assertThat(of(hyphenUpi("SAMPLE SHOE MART"), EXPENSE)).isNull();
+        assertThat(of(hyphenUpi("SAMPLE FASHION MART"), EXPENSE)).isNull();
+        assertThat(of(hyphenUpi("SAMPLE ELECTRONICS MART"), EXPENSE)).isNull();
+        assertThat(of(hyphenUpi("SAMPLE MEGA MART"), EXPENSE)).isNull();
+    }
+
+    /** A car or pet "salon" grooms a car or a pet, not a person. */
+    @Test
+    void aCarOrPetSalon_isNotPersonalCare() {
+        assertThat(of(hyphenUpi("SAMPLE CAR SALON"), EXPENSE)).isNull();
+        assertThat(of(hyphenUpi("SAMPLE PET SALON"), EXPENSE)).isNull();
+    }
+
     /** A specific trade decides before the generic "mart". */
     @Test
     void aMartNamedForItsTrade_followsTheTrade() {

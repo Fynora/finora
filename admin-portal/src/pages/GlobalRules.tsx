@@ -10,8 +10,10 @@ import { Pagination } from '../components/Pagination';
 import { useNotify } from '../context/NotificationContext';
 import { adminRulesApi } from '../api/endpoints';
 import type { CreateRuleRequest, RuleDto } from '../types';
+import { ruleAmountRange } from '../lib/ruleAmountRange';
 
-const FIELDS = ['DESCRIPTION', 'AMOUNT', 'MERCHANT', 'ACCOUNT_TYPE'];
+// PAYEE: the payee name, money going out only -- see the backend's RuleEngineService.
+const FIELDS = ['DESCRIPTION', 'AMOUNT', 'MERCHANT', 'ACCOUNT_TYPE', 'PAYEE'];
 const OPERATORS = ['CONTAINS', 'EQUALS', 'STARTS_WITH', 'GT', 'LT', 'BETWEEN'];
 const ACTION_TYPES = ['ASSIGN_CATEGORY', 'MARK_TRANSFER', 'MARK_INVESTMENT', 'MARK_SUBSCRIPTION', 'ADD_TAG'];
 
@@ -281,6 +283,9 @@ function GlobalRulesContent() {
           <ListFilter size={13} className="text-primary flex-shrink-0" />
           <span className="text-ink">
             {rule.field} {rule.operator.replace('_', ' ').toLowerCase()} "{rule.comparisonValue}"
+            {ruleAmountRange(rule.amountMin, rule.amountMax) && (
+              <span className="text-muted"> · amount {ruleAmountRange(rule.amountMin, rule.amountMax)}</span>
+            )}
           </span>
         </div>
       ),

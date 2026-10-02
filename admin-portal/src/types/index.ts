@@ -451,6 +451,9 @@ export interface RuleDto {
   enabled: boolean;
   matchCount: number;
   lastMatchedAt: string | null;
+  /** Optional amount bounds, inclusive (backend V248); null when unbounded. */
+  amountMin?: number | null;
+  amountMax?: number | null;
 }
 
 export interface CreateRuleRequest {
@@ -460,6 +463,8 @@ export interface CreateRuleRequest {
   actionType: string;
   actionValue?: string;
   priority?: number;
+  amountMin?: number | null;
+  amountMax?: number | null;
 }
 
 export interface UpdateRuleRequest {

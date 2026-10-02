@@ -28,20 +28,34 @@ public final class FlowTotals {
     /** What the classifier needs about the user beyond the row itself: each account's type (a card
      *  credit is never income), which category ids are the user's Salary category, and the user's
      *  inflow kinds (Plan 2). Production code builds this through InflowChoiceService.contextFor. */
-    public record Context(Map<UUID, Account.Type> accountTypes, Set<UUID> salaryCategoryIds, InflowChoices choices) {}
+    public record Context(Map<UUID, Account.Type> accountTypes, Set<UUID> salaryCategoryIds, InflowChoices choices,
+                          Set<UUID> repaymentCategoryIds) {
+
+        /** No repayment category -- for callers that predate it. */
+        public Context(Map<UUID, Account.Type> accountTypes, Set<UUID> salaryCategoryIds, InflowChoices choices) {
+            this(accountTypes, salaryCategoryIds, choices, Set.of());
+        }
+    }
+
+    /** The seeded category a credit is filed under when a person paid the user back (AuthService). */
+    static final String REPAYMENT_CATEGORY = "Friend Repayment";
 
     public static Context context(Collection<Account> accounts, Collection<Category> categories, InflowChoices choices) {
         Map<UUID, Account.Type> types = new HashMap<>();
         for (Account a : accounts) {
             if (a.getId() != null && a.getAccountType() != null) types.put(a.getId(), a.getAccountType());
         }
-        // By name, case-insensitively: "Salary" is the seeded system category (AuthService), and a
-        // user who deleted and recreated it still means the same thing.
+        // By name, case-insensitively: these are seeded system categories (AuthService), and a user
+        // who deleted and recreated one still means the same thing.
         Set<UUID> salary = new HashSet<>();
+        Set<UUID> repayment = new HashSet<>();
         for (Category c : categories) {
-            if (c.getId() != null && c.getName() != null && c.getName().trim().equalsIgnoreCase("Salary")) salary.add(c.getId());
+            if (c.getId() == null || c.getName() == null) continue;
+            String name = c.getName().trim();
+            if (name.equalsIgnoreCase("Salary")) salary.add(c.getId());
+            if (name.equalsIgnoreCase(REPAYMENT_CATEGORY)) repayment.add(c.getId());
         }
-        return new Context(types, salary, choices);
+        return new Context(types, salary, choices, repayment);
     }
 
     public static boolean countsAsIncome(Transaction t, Context ctx) {
@@ -70,6 +84,11 @@ public final class FlowTotals {
         return reason == FlowClassifier.FlowReason.UNLINKED_REFUND
                 || reason == FlowClassifier.FlowReason.REVERSAL
                 || reason == FlowClassifier.FlowReason.CARD_ADJUSTMENT;
+        // PAID_BACK is deliberately not here (yet). Money a person paid back is filed under Friend
+        // Repayment, where nothing was spent, and netting it against Personal Transfer as a whole
+        // was measured (2026-10-02) to cancel unrelated spending and to disagree month by month.
+        // It is matched per person to the payments it settles in a follow-up, once a person is
+        // recognised as one counterparty across their payments.
     }
 
     /** Money that came in and that Fynora cannot yet say is income -- shown beside income, never in it. */
@@ -108,8 +127,16 @@ public final class FlowTotals {
         InflowChoices.Chosen chosen = ctx.choices().chosenFor(t);
         return FlowClassifier.classify(t,
                 t.getAccountId() == null ? null : ctx.accountTypes().get(t.getAccountId()),
-                t.getCategoryId() != null && ctx.salaryCategoryIds().contains(t.getCategoryId()),
+                categoryRole(t, ctx),
                 chosen == null ? null : chosen.kind());
+    }
+
+    private static FlowClassifier.CategoryRole categoryRole(Transaction t, Context ctx) {
+        UUID id = t.getCategoryId();
+        if (id == null) return FlowClassifier.CategoryRole.NONE;
+        if (ctx.salaryCategoryIds().contains(id)) return FlowClassifier.CategoryRole.SALARY;
+        if (ctx.repaymentCategoryIds().contains(id)) return FlowClassifier.CategoryRole.REPAYMENT;
+        return FlowClassifier.CategoryRole.NONE;
     }
 
     /** The user's kind for this row (its own, else its sender's), or null. */

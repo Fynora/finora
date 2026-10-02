@@ -127,7 +127,10 @@ public final class CreditCardSummaryExtractor {
             // "Other fees & charges" and "Payments and Other Credits", each with its value on the
             // same line. None was listed, so the panel was never read and the statement's own
             // arithmetic could not be checked.
-            "purchases made in this cycle");
+            "purchases made in this cycle",
+            // A real IndusInd card's summary panel prints "Purchases & Other Charges" and
+            // "Payments & Other Credits", each label stacked over its value in a side column.
+            "purchases & other charges");
     private static final List<String> CASH_ADVANCE_LABELS = List.of(
             "cash advances", "cash advance");
     private static final List<String> FEES_LABELS = List.of(
@@ -135,7 +138,7 @@ public final class CreditCardSummaryExtractor {
             "other fees & charges");
     private static final List<String> PAYMENTS_LABELS = List.of(
             "payments / credits", "payments/credits", "payments and credits", "payments & refunds",
-            "payments and other credits");
+            "payments and other credits", "payments & other credits");
     // "total amount due (payable)" is deliberately not listed here: stripDecoration() strips any
     // trailing parenthetical before this list is consulted, so it would always collapse to the
     // plain "total amount due" entry below anyway -- listing both invited exactly the kind of
@@ -341,25 +344,41 @@ public final class CreditCardSummaryExtractor {
             }
 
             List<PositionedText> valueRow = valueRowWithinGap(rows, i, MAX_VALUE_ROW_GAP);
-            if (valueRow == null) continue;
-
-            boolean allValuesNumeric = valueRow.stream()
-                    .allMatch(t -> CsvParser.parseNumeric(t.text().trim()) != null);
             List<PositionedText> effectiveRow = valueRow;
-            if (!allValuesNumeric) {
-                List<PositionedText> recovered = amountBearingSubset(valueRow);
-                if (recovered == null) continue;
-                effectiveRow = recovered;
+            if (valueRow != null && !valueRow.stream()
+                    .allMatch(t -> CsvParser.parseNumeric(t.text().trim()) != null)) {
+                effectiveRow = amountBearingSubset(valueRow);
             }
 
             int page = labelRow.get(0).pageIndex();
             Map<String, List<PositionedText>> resolvedByKey =
                     resolvedByPageAndKey.computeIfAbsent(page, p -> new LinkedHashMap<>());
             for (PositionedText label : labelRow) {
-                PositionedText value = StatementSummaryExtractor.valueUnder(label, effectiveRow);
-                if (value == null) continue;
                 String key = keyFor(StatementSummaryExtractor.normalize(label.text()));
-                if (key != null) {
+                if (key == null) continue;
+                ColumnHit hit = firstInColumnBelow(rows, i, label, MAX_VALUE_ROW_GAP);
+                List<PositionedText> firstUnder = hit == null ? null : hit.under();
+                PositionedText value = effectiveRow == null ? null
+                        : StatementSummaryExtractor.valueUnder(label, effectiveRow);
+                // The row's value counts only when it is the first thing printed in the label's own
+                // column: anything above it there -- another field's label, another figure -- means
+                // the row belongs to something else. A real shape: a total whose own value is
+                // missing, with "Minimum Amount Due" and its figure next in the column, read the
+                // minimum due as the total.
+                if (value != null && (firstUnder == null || !firstUnder.contains(value))) value = null;
+                // Column fallback, only where the row gave nothing: the first thing straight down
+                // the label's own column, if it is exactly one amount. A real IndusInd panel prints
+                // each value under its label while a prose column to the left lands on the same
+                // row, so the row as a whole is never a value row.
+                // The rest of that row must not look like a transaction: a date, or an amount
+                // beside prose, means the row is a ledger line whose amount merely sits under the
+                // label, and refusing keeps the old whole-row protection for exactly that case.
+                if (value == null && firstUnder != null && firstUnder.size() == 1
+                        && CsvParser.parseNumeric(firstUnder.get(0).text().trim()) != null
+                        && restOfRowIsFiguresOrProseOnly(hit)) {
+                    value = firstUnder.get(0);
+                }
+                if (value != null) {
                     resolvedByKey.computeIfAbsent(key, k -> new ArrayList<>()).add(value);
                 }
             }
@@ -384,11 +403,11 @@ public final class CreditCardSummaryExtractor {
      *
      * <p><b>Stops, rather than skips past, a row that has an amount but did not cleanly
      * qualify.</b> Real bug, found verifying against a real IndusInd statement: its "Total Amount
-     * Due" value ("1,285.00 DR") merges with an unrelated promotional line on the same row and
+     * Due" value merges with an unrelated promotional line on the same row and
      * correctly fails to recover (the promotional text is neither date- nor operator-shaped) —
      * but the OLD behaviour then kept scanning forward within the gap, past that row, and landed
      * on "Minimum Amount Due"'s own value two rows later, which happened to be a clean, lone
-     * numeric cell ("100.00"). That is not a missing value, which refusing is the right answer
+     * numeric cell. That is not a missing value, which refusing is the right answer
      * for — it is the right value sitting right there, corrupted, followed by a WRONG value that
      * merely looks clean. A row containing zero amount-shaped tokens is unambiguously "not the
      * value row, keep looking" (a pure-text marketing column, the shape this method exists to
@@ -415,6 +434,60 @@ public final class CreditCardSummaryExtractor {
             if (hasAnyAmount) return null;
         }
         return null;
+    }
+
+    /** The first row below a label with anything in the label's own column, and what is there. */
+    private record ColumnHit(List<PositionedText> row, List<PositionedText> under) {}
+
+    /**
+     * The first row below the label row, on the same page and within {@code maxGap}, with any run
+     * overlapping the label horizontally -- what is printed straight down the label's own column
+     * before anything else -- or null when nothing is. Rows with nothing in that column are passed
+     * over: text in another column (a prose column to the left) is not part of this one.
+     */
+    private static ColumnHit firstInColumnBelow(List<List<PositionedText>> rows, int i,
+                                                PositionedText label, float maxGap) {
+        int page = label.pageIndex();
+        for (int j = i + 1; j < rows.size(); j++) {
+            List<PositionedText> row = rows.get(j);
+            if (row.get(0).pageIndex() != page) return null;
+            if (row.get(0).y() - label.y() > maxGap) return null;
+            List<PositionedText> under = row.stream()
+                    .filter(t -> Math.min(label.endX(), t.endX()) - Math.max(label.x(), t.x()) > 0)
+                    .toList();
+            if (under.isEmpty()) continue;
+            // A label's own second line ("RECEIVED" under "PAYMENTS/CREDITS" on a real HDFC card,
+            // 8.5pt below it) is part of the label, not something else in its column. A separate
+            // next label sits much further down: 33pt on the real IndusInd panel.
+            // ...but never a line naming a field of its own ("Minimum Amount Due"), which on a tightly
+            // stacked panel can sit just as close.
+            boolean labelContinuation = row.get(0).y() - label.y() <= LABEL_CONTINUATION_GAP
+                    && under.stream().noneMatch(t -> t.text().chars().anyMatch(Character::isDigit)
+                            || FIELD_WORD.matcher(t.text()).find());
+            if (!labelContinuation) return new ColumnHit(row, under);
+        }
+        return null;
+    }
+
+    /** How far under a label a digit-free line still counts as the label's own second line. */
+    private static final float LABEL_CONTINUATION_GAP = 12.0f;
+    /** Words that make a line a field label of its own rather than the line above's continuation.
+     *  The real HDFC continuations ("RECEIVED", "(Current Billing Cycle)") carry none of them. */
+    private static final Pattern FIELD_WORD = Pattern.compile(
+            "(?i)\\b(due|amount|balance|limit|total|minimum|payment|outstanding|date)\\b");
+
+    /**
+     * Whether everything on the hit's row outside the label's column is either all figures (a clean
+     * value row whose other cells belong to other labels) or text with no date and no figure in it
+     * (a prose column beside the panel). Anything else -- a date, or a figure next to text -- is the
+     * shape of a ledger line, and its amount is not the label's value.
+     */
+    private static boolean restOfRowIsFiguresOrProseOnly(ColumnHit hit) {
+        List<PositionedText> others = hit.row().stream().filter(t -> !hit.under().contains(t)).toList();
+        boolean allFigures = others.stream().allMatch(t -> CsvParser.parseNumeric(t.text().trim()) != null);
+        boolean proseOnly = others.stream().noneMatch(t -> CsvParser.parseNumeric(t.text().trim()) != null
+                || DATE_SHAPED.matcher(t.text()).find());
+        return allFigures || proseOnly;
     }
 
     /** A bare arithmetic-equation glyph a credit-card summary sometimes prints standing between its

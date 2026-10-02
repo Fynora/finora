@@ -43,16 +43,30 @@ public final class CounterpartyIdentity {
     private CounterpartyIdentity() {}
 
     /**
-     * Local-part@handle. The local part is what identifies the human; the handle is their PSP.
+     * The "@handle" of a VPA. The local part before it is what identifies the human; the handle is
+     * their PSP. The local part is read backwards from here by {@link #idBefore}.
      *
-     * <p>The charset deliberately EXCLUDES the hyphen even though a real VPA may contain one.
-     * Narrations use "-" as a segment delimiter far more often than a VPA uses it as a character,
-     * so allowing it made the match run backwards over the delimiter and swallow the payee name --
-     * "UPI-SUNIL VERMA-sampleuser@ybl" keyed as {@code vpa:verma-sampleuser}, which is worse than
-     * useless: it re-introduces exactly the name-truncation instability the VPA key exists to
-     * escape. Caught by CounterpartyIdentityTest before this shipped.
+     * <p>The local-part charset deliberately EXCLUDES the hyphen even though a real VPA may contain
+     * one. Narrations use "-" as a segment delimiter far more often than a VPA uses it as a
+     * character, so allowing it made the read run backwards over the delimiter and swallow the payee
+     * name -- "UPI-SUNIL VERMA-sampleuser@ybl" keyed as {@code vpa:verma-sampleuser}, which is worse
+     * than useless: it re-introduces exactly the name-truncation instability the VPA key exists to
+     * escape. Caught by CounterpartyIdentityTest before this shipped. The one hyphen crossed is a
+     * linked-account suffix -- see {@link #idBefore}.
      */
-    private static final Pattern VPA = Pattern.compile("([A-Za-z0-9._]{2,})@([A-Za-z][A-Za-z0-9]{1,})");
+    private static final Pattern AT_HANDLE = Pattern.compile("@([A-Za-z][A-Za-z0-9]{1,})");
+
+    /**
+     * The standard UPI narration many banks print: {@code UPI/<DR|CR>/<ref>/<name>/<bank>/<id>/...}.
+     * The sixth field is the counterparty's id, but some banks print only its first ~16 characters,
+     * so the "@" is often cut off and a line wrap can land inside it. Measured 2026-10-02 on the
+     * corpus: PNB and Canara rows in this layout had the id cut before the "@" on 18 rows, every one
+     * of which fell to a weak name key -- one friend keyed by name on one row and by id on another.
+     */
+    private static final Pattern STANDARD_LAYOUT = Pattern.compile("^UPI/(?:DR|CR)/[A-Za-z]?\\d{6,}/[^/]*/[A-Za-z]{2,5}/([^/]*)");
+
+    /** A linked-account suffix ("-1", "-2") a UPI app adds when one person links another bank. */
+    private static final Pattern LINKED_ACCOUNT_SUFFIX = Pattern.compile("-[1-9]$");
 
     /**
      * Rail words, plumbing and reference noise -- present in nearly every narration, identifying in
@@ -132,27 +146,17 @@ public final class CounterpartyIdentity {
     public static String keyOf(String description) {
         if (description == null || description.isBlank()) return "";
 
-        Matcher vpa = VPA.matcher(description);
-        if (vpa.find()) {
-            String local = vpa.group(1).toLowerCase();
+        String slotId = standardLayoutId(description);
+        if (slotId != null) return cap("vpa:" + slotId);
+
+        Matcher at = AT_HANDLE.matcher(description);
+        while (at.find()) {
+            IdBeforeAt id = idBefore(description, at.start());
+            if (id == null) continue;
             // "**TAIL@HANDLE": the statement printed only the end of the VPA. The tail is shared by
             // strangers, so it is kept with its handle and marked as the weak key it is.
-            if (vpa.start() > 0 && description.charAt(vpa.start() - 1) == '*') {
-                return local.replaceAll("[._-]", "").isEmpty()
-                        ? "" : cap("masked:" + local + "@" + vpa.group(2).toLowerCase());
-            }
-            // F-22, measured on the corpus: a line wrap left a space inside the local part
-            // ("...ELEMEN TS@HDFCBANK"), so only the scrap after it matched, and a scrap of three
-            // characters or fewer keyed strangers together. The run of local-part characters right
-            // before that space is the rest of it.
-            if (local.length() <= 3 && vpa.start() >= 2 && description.charAt(vpa.start() - 1) == ' ') {
-                int from = vpa.start() - 1;
-                while (from > 0 && isLocalPartChar(description.charAt(from - 1))) from--;
-                if (from < vpa.start() - 1) local = description.substring(from, vpa.start() - 1).toLowerCase() + local;
-            }
-            // A bare numeric local part is a phone number, which is a perfectly good identity; a
-            // local part that is only punctuation is not.
-            if (!local.replaceAll("[._-]", "").isEmpty()) return cap("vpa:" + local);
+            if (id.masked()) return cap("masked:" + id.local() + "@" + at.group(1).toLowerCase());
+            return cap("vpa:" + id.local());
         }
 
         // Kotak's IMPS debit glues its payee to the reference, so every segment naming the payee
@@ -224,7 +228,96 @@ public final class CounterpartyIdentity {
         return sb.toString().trim();
     }
 
-    /** The characters of a VPA's local part, as {@link #VPA} reads it. */
+    /**
+     * The id in the sixth field of the standard layout ({@link #STANDARD_LAYOUT}), lower-cased, or
+     * null when the narration is not in that layout or the field does not hold an id.
+     *
+     * <p>Whatever came after an "@" is dropped (the PSP, possibly cut), one line-wrap space is
+     * removed, and a trailing linked-account suffix ("-1", or a lone "-" where the cut fell) goes.
+     * A field with no "@" must still look like an id rather than words: more than one space, or
+     * capitals with no digit ("Rent June"), and it is left to the name fallback.
+     */
+    static String standardLayoutId(String description) {
+        Matcher m = STANDARD_LAYOUT.matcher(description);
+        if (!m.find()) return null;
+        String field = m.group(1).trim();
+        if (field.isEmpty() || field.startsWith("*")) return null; // masked: read by the "@" path
+        boolean hadAt = field.indexOf('@') >= 0;
+        if (hadAt) field = field.substring(0, field.indexOf('@')).trim();
+        int spaces = field.length() - field.replace(" ", "").length();
+        if (spaces > 1) return null;
+        String id = field.replace(" ", "");
+        id = LINKED_ACCOUNT_SUFFIX.matcher(id).replaceFirst("");
+        if (id.endsWith("-")) id = id.substring(0, id.length() - 1);
+        if (!id.matches("[A-Za-z0-9._-]{4,}") || id.replaceAll("[._-]", "").isEmpty()) return null;
+        // With no "@" to vouch for it, only an id-shaped field counts: ids in this slot print lower
+        // case or as digits. Capitals ("Rent June2026") are a note, left to the name fallback.
+        if (!hadAt && !id.equals(id.toLowerCase())) return null;
+        return id.toLowerCase();
+    }
+
+    record IdBeforeAt(String local, boolean masked) {}
+
+    /**
+     * The VPA local part ending right before the "@" at {@code at}, or null when there is none.
+     *
+     * <p>Two repairs, both measured on the corpus (2026-10-02):
+     * <ul>
+     *   <li><b>Linked-account suffix.</b> "friend-1@okbank" is the same person as "friend@oksbi":
+     *       a UPI app adds the digit for a second bank account. A single 1-9 digit after a hyphen is
+     *       dropped and the id before it read instead. 79 rows across nine statements carried one;
+     *       without this the id was not read at all and the row fell to a name key.</li>
+     *   <li><b>Line wrap inside the id.</b> A bank that wraps the narration can leave a space in the
+     *       middle ("SHOPCOMARKETPLAC EPRIVA.PAYU@..."). Only the piece after the space used to be
+     *       read, so different payees whose wrapped ids end alike shared a key -- 46 of 65 wrapped
+     *       rows were keyed on such a fragment. The piece before the space is joined when it starts
+     *       right after a field separator, which a payee's name word does not ("UPI-SUNIL VERMA
+     *       sampleuser@ybl" stays {@code sampleuser}). A scrap of three characters or fewer is
+     *       joined to the piece before it regardless (F-22: "...ELEMEN TS@HDFCBANK").</li>
+     * </ul>
+     */
+    static IdBeforeAt idBefore(String d, int at) {
+        int i = at;
+        while (i > 0 && isLocalPartChar(d.charAt(i - 1))) i--;
+        String run = d.substring(i, at);
+        if (run.length() == 1 && run.charAt(0) >= '1' && run.charAt(0) <= '9'
+                && i >= 2 && d.charAt(i - 1) == '-' && isLocalPartChar(d.charAt(i - 2))) {
+            int end = i - 1;
+            i = end;
+            while (i > 0 && isLocalPartChar(d.charAt(i - 1))) i--;
+            run = d.substring(i, end);
+        }
+        while (i >= 2 && d.charAt(i - 1) == ' ' && isLocalPartChar(d.charAt(i - 2))) {
+            int j = i - 1;
+            while (j > 0 && isLocalPartChar(d.charAt(j - 1))) j--;
+            String before = d.substring(j, i - 1);
+            // A run of 11+ digits is a transaction reference, not part of an id (a phone number is
+            // ten): glued on, it would make every payment its own counterparty. ":" is not a field
+            // separator here -- it is the time printed before the id ("03:50:05 ...").
+            if (before.length() >= 11 && before.chars().allMatch(Character::isDigit)) break;
+            boolean afterSeparator = j == 0 || "/-|".indexOf(d.charAt(j - 1)) >= 0;
+            if (!afterSeparator && run.length() > 3) break;
+            run = d.substring(j, i - 1) + run;
+            i = j;
+            if (!afterSeparator) break;
+        }
+        // In a "/"-separated narration a hyphen inside the field is part of the id
+        // ("/goog-payments@axisb", "/gpay-11111111801@okbizaxis"): stopping at it keyed on the tail
+        // ("vpa:payments"), which other payees' ids end in too. Only when everything back to the "/"
+        // is id characters -- a field holding a name has spaces and is not joined.
+        if (i >= 2 && d.charAt(i - 1) == '-') {
+            int j = i - 1;
+            while (j > 0 && (isLocalPartChar(d.charAt(j - 1)) || d.charAt(j - 1) == '-')) j--;
+            if (j > 0 && d.charAt(j - 1) == '/' && j < i - 1) {
+                run = d.substring(j, i) + run;
+                i = j;
+            }
+        }
+        if (run.length() < 2 || run.replaceAll("[._-]", "").isEmpty()) return null;
+        return new IdBeforeAt(run.toLowerCase(), i > 0 && d.charAt(i - 1) == '*');
+    }
+
+    /** The characters of a VPA's local part, as {@link #idBefore} reads it. */
     private static boolean isLocalPartChar(char c) {
         return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_';
     }

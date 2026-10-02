@@ -310,8 +310,8 @@ class FlowClassifierTest {
         assertThat(chosen(t, null)).isEqualTo(new FlowDecision(FlowClass.UNRESOLVED, FlowReason.PERSON_INFLOW));
     }
 
-    @Test void versionIsSix() {
-        assertThat(FlowClassifier.VERSION).isEqualTo((short) 6);
+    @Test void versionIsSeven() {
+        assertThat(FlowClassifier.VERSION).isEqualTo((short) 7);
     }
 
     // ---- coverage (classifier v6): shapes the corpus showed landing in the wrong class ----
@@ -400,5 +400,74 @@ class FlowClassifierTest {
     @Test void refundWordSplitByAWrap_isARefund() {
         assertThat(savings(credit("UPI/CR/111111111111/SHOPCO/HDFC/**.PAYU@SHOPCOBK/R EFUND//")))
                 .isEqualTo(new FlowDecision(FlowClass.REFUND, FlowReason.UNLINKED_REFUND));
+    }
+
+    // ---- the user's own category answers the inflow question ----
+
+    private static Transaction personCredit() {
+        Transaction t = credit("UPI/CR/111111111111/ASHA VERMA/HDFC/asha@okbank/");
+        t.setCounterpartyType(CounterpartyType.PERSON);
+        return t;
+    }
+
+    private static FlowDecision inCategory(Transaction t, FlowClassifier.CategoryRole role, InflowKind chosen) {
+        return FlowClassifier.classify(t, Account.Type.SAVINGS, role, chosen);
+    }
+
+    @Test void personCreditTheUserFiledAsFriendRepayment_isPaidBack() {
+        Transaction t = personCredit();
+        t.setCategoryManuallySet(true);
+        t.setDecisionSource(Transaction.DecisionSource.MANUAL);
+        assertThat(inCategory(t, FlowClassifier.CategoryRole.REPAYMENT, null))
+                .isEqualTo(new FlowDecision(FlowClass.ADJUSTMENT, FlowReason.PAID_BACK));
+    }
+
+    @Test void repaymentCategoryFromARuleTheUserTaught_isPaidBack() {
+        Transaction t = personCredit();
+        t.setDecisionSource(Transaction.DecisionSource.USER_RULE);
+        assertThat(inCategory(t, FlowClassifier.CategoryRole.REPAYMENT, null).reason()).isEqualTo(FlowReason.PAID_BACK);
+    }
+
+    @Test void repaymentCategoryTheAppGuessed_staysUnresolved() {
+        // Only a category the user chose answers the question, not one Fynora guessed.
+        Transaction t = personCredit();
+        t.setDecisionSource(Transaction.DecisionSource.STRUCTURAL_P2P);
+        assertThat(inCategory(t, FlowClassifier.CategoryRole.REPAYMENT, null))
+                .isEqualTo(new FlowDecision(FlowClass.UNRESOLVED, FlowReason.PERSON_INFLOW));
+    }
+
+    @Test void aChosenInflowKind_outranksTheCategory() {
+        Transaction t = personCredit();
+        t.setCategoryManuallySet(true);
+        assertThat(inCategory(t, FlowClassifier.CategoryRole.REPAYMENT, builtIn(InflowKind.BuiltIn.INCOME)))
+                .isEqualTo(new FlowDecision(FlowClass.INCOME, FlowReason.USER_KIND));
+    }
+
+    @Test void aHandEnteredCreditFiledAsFriendRepayment_isPaidBackNotIncome() {
+        Transaction t = personCredit();
+        t.setSource(Transaction.Source.MANUAL);
+        t.setCategoryManuallySet(true);
+        t.setDecisionSource(Transaction.DecisionSource.MANUAL);
+        assertThat(inCategory(t, FlowClassifier.CategoryRole.REPAYMENT, null).reason()).isEqualTo(FlowReason.PAID_BACK);
+    }
+
+    @Test void aPairedTransfer_outranksTheRepaymentCategory() {
+        Transaction t = personCredit();
+        t.setCategoryManuallySet(true);
+        t.setTransfer(true);
+        assertThat(inCategory(t, FlowClassifier.CategoryRole.REPAYMENT, null).flowClass()).isEqualTo(FlowClass.TRANSFER);
+    }
+
+    @Test void aDebitInTheRepaymentCategory_isStillAnExpense() {
+        Transaction t = debit("UPI/DR/111111111111/ASHA VERMA/HDFC/asha@okbank/");
+        t.setCategoryManuallySet(true);
+        assertThat(inCategory(t, FlowClassifier.CategoryRole.REPAYMENT, null).flowClass()).isEqualTo(FlowClass.EXPENSE);
+    }
+
+    @Test void theSalaryRoleStillMakesAUserChosenPersonCreditIncome() {
+        Transaction t = personCredit();
+        t.setCategoryManuallySet(true);
+        assertThat(inCategory(t, FlowClassifier.CategoryRole.SALARY, null))
+                .isEqualTo(new FlowDecision(FlowClass.INCOME, FlowReason.SALARY));
     }
 }

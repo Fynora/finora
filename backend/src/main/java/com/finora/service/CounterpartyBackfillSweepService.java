@@ -152,6 +152,9 @@ public class CounterpartyBackfillSweepService {
                     String oldKey = row.getCounterpartyKey();
                     if (updated > 0 && oldKey != null && !oldKey.isBlank() && typing.key() != null
                             && !typing.key().equals(oldKey)) {
+                        // A new key can change what reconciliation concludes too: the user's own
+                        // UPI id is only recognised once it is read whole (rule 2a').
+                        retypedUsers.add(row.getUserId());
                         senderInflowRuleRepository.carryToNewKey(row.getUserId(), oldKey, typing.key());
                         // Same for a learned category (a user's correction or the AI resolution
                         // cache): left behind, the sender's next import loses what the user taught.

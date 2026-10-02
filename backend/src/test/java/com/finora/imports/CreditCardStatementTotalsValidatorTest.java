@@ -107,6 +107,51 @@ class CreditCardStatementTotalsValidatorTest {
         assertThat(validator.check(summary).outcome()).isEqualTo("NOT_APPLICABLE");
     }
 
+    // --- A total due printed rounded to whole rupees (a real IndusInd card) ---
+
+    @Test
+    void aTotalDuePrintedInWholeRupees_matchesTheExactFigureRoundedToTheRupee() {
+        // 1000 + 2500.08 - 1000 = 2500.08; the statement prints its total due as 2,500.00.
+        var finding = validator.check(summary("1000.00", "2500.08", "0", null, "1000.00", "2500.00"));
+
+        assertThat(finding.outcome()).isEqualTo("VERIFIED");
+        assertThat(finding.details().get("totalAmountDueRoundedToRupee")).isEqualTo(true);
+    }
+
+    @Test
+    void anExactMatch_isNotReportedAsRounded() {
+        var finding = validator.check(summary("10000", "5000", "0", "100", "2000", "13100"));
+
+        assertThat(finding.details()).doesNotContainKey("totalAmountDueRoundedToRupee");
+    }
+
+    @Test
+    void aTotalDueWithPaise_mustStillMatchExactly() {
+        var finding = validator.check(summary("1000.00", "2500.08", "0", null, "1000.00", "2500.50"));
+
+        assertThat(finding.outcome()).isEqualTo("WARNING");
+    }
+
+    @Test
+    void aWholeRupeeTotalDue_aRupeeOrMoreAway_isStillAWarning() {
+        var finding = validator.check(summary("1000.00", "2500.08", "0", null, "1000.00", "2499.00"));
+
+        assertThat(finding.outcome()).isEqualTo("WARNING");
+    }
+
+    /** The one real example (.08 printed as .00) fits rounding down and rounding to nearest alike,
+     *  so neither direction is assumed: the whole-rupee figure either side of the exact one counts. */
+    @Test
+    void aWholeRupeeTotalDue_eitherSideOfTheExactFigure_matches() {
+        assertThat(validator.check(summary("0", "2500.50", "0", null, "0", "2501.00")).outcome())
+                .isEqualTo("VERIFIED");
+        assertThat(validator.check(summary("0", "2500.50", "0", null, "0", "2500.00")).outcome())
+                .isEqualTo("VERIFIED");
+        assertThat(validator.check(summary("0", "2500.00", "0", null, "0", "2501.00")).outcome())
+                .as("an exact whole-rupee figure leaves nothing to round: a rupee off is a misread")
+                .isEqualTo("WARNING");
+    }
+
     @Test
     void aCrossStrategyConflictOutranksBothNotApplicableAndTheEquationCheck() {
         // A complete, internally-consistent equation (10000 + 5000 - 2000 = 13000) that would

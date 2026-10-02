@@ -48,6 +48,8 @@ public class InflowKindService {
             Map.entry(FlowClassifier.FlowReason.UNLINKED_REFUND, "Refund"),
             Map.entry(FlowClassifier.FlowReason.REVERSAL, "Reversal"),
             Map.entry(FlowClassifier.FlowReason.CARD_ADJUSTMENT, "Card adjustment"),
+            // Reached without a chosen kind only through the Friend Repayment category.
+            Map.entry(FlowClassifier.FlowReason.PAID_BACK, "Paid back to you · filed under Friend Repayment"),
             Map.entry(FlowClassifier.FlowReason.OWN_ACCOUNT_TRANSFER, "Transfer between your accounts"),
             Map.entry(FlowClassifier.FlowReason.CARD_PAYMENT_RECEIVED, "Card bill payment"),
             Map.entry(FlowClassifier.FlowReason.INVESTMENT_WITHDRAWAL, "Money back from an investment"),

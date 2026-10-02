@@ -33,4 +33,18 @@ describe('useDashboardKpis', () => {
     // monthLabel() formats short month + 2-digit year (see mobile/src/lib/format.ts), not "July 2026".
     expect(result.current.deltaLabel).toBe('vs the month before Jul 26');
   });
+
+  const savingsRate = (summary: object) =>
+    renderHook(() => useDashboardKpis(summary as any)).result.current.snapshotKpis.find((k) => k.label === 'Savings Rate');
+
+  it('keeps a real savings rate with its usual caption', () => {
+    expect(savingsRate(BASE_SUMMARY)).toMatchObject({ value: 87, caption: 'Share of income kept' });
+  });
+
+  it('carries a withheld savings rate as null with the reason as its caption', () => {
+    expect(savingsRate({ ...BASE_SUMMARY, savingsRatePct: null, savingsRateGateReason: 'UNRESOLVED_EXCEEDS_INCOME' }))
+      .toMatchObject({ value: null, caption: 'Classify money received to see this' });
+    expect(savingsRate({ ...BASE_SUMMARY, savingsRatePct: null, savingsRateGateReason: 'NO_INCOME' }))
+      .toMatchObject({ value: null, caption: 'No income counted yet' });
+  });
 });

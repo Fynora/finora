@@ -116,6 +116,20 @@ final class ReconciliationExplanation {
     /** One leg of a transfer between the user's own accounts, recognised because the sender (on a
      *  credit) or payee (on a debit) slot names the user. No counterpart row -- the other account
      *  may never be imported. Plan 3, rule 2. */
+    /** {@code reason.rule} of a one-sided transfer found by the user's own UPI id -- see {@link #ownAccountByPhone}. */
+    static final String OWN_ACCOUNT_PHONE_RULE = "OWN_ACCOUNT_PHONE";
+
+    /** A one-sided transfer whose UPI id is the user's own phone number. Only the last four digits
+     *  are recorded: the explanation is shown back and exported, and the full number is not needed
+     *  to say why. */
+    static Map<String, Object> ownAccountByPhone(Transaction self, String ownPhoneDigits) {
+        Map<String, Object> reason = new LinkedHashMap<>();
+        reason.put("rule", OWN_ACCOUNT_PHONE_RULE);
+        reason.put("direction", self.getTxnType() == Transaction.Type.EXPENSE ? "PAYEE" : "SENDER");
+        reason.put("phoneLast4", ownPhoneDigits.substring(ownPhoneDigits.length() - 4));
+        return envelope("TRANSFER", null, reason);
+    }
+
     static Map<String, Object> ownAccountByName(Transaction self, String nameOnPayment, String holderName) {
         Map<String, Object> reason = new LinkedHashMap<>();
         reason.put("rule", OWN_ACCOUNT_NAME_RULE);

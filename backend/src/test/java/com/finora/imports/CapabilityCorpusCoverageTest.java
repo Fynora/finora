@@ -439,6 +439,11 @@ class CapabilityCorpusCoverageTest {
                 "no trace -- only the real Standard Chartered export carries a carriage return inside a text "
                         + "run, and its committed trace (savings-ditto-posting-date-beside-value-date) was captured "
                         + "without it. NarrationLineBreaksTest covers the rule, including a break ending a run.");
+        DECLARED_WITHOUT_A_TRACE.put("CARD_PAYMENT_SUMMARY_UNLABELLED_VALUES",
+                "no trace -- fires only on the HSBC card's cheque-instruction anchor line, and the committed "
+                        + "hsbc-credit-card-yearless-dates trace redacts that line's words, so the anchor cannot match "
+                        + "there. UnlabelledCardPaymentSummaryExtractorTest covers the measured geometry, the address "
+                        + "and state lines sharing rows, and every refusal.");
         DECLARED_WITHOUT_A_TRACE.put("NARRATION_WRAP_JOINED_WITHOUT_PRINTED_SPACE",
                 "no trace -- fires only in a document whose text layer prints its own line ends, which in the "
                         + "corpus is the real Standard Chartered export; its committed trace was captured without "

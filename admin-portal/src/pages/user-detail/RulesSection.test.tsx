@@ -23,4 +23,23 @@ describe('InlineRuleForm', () => {
     expect(screen.getByRole('combobox', { name: 'Operator' })).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Action type' })).toBeInTheDocument();
   });
+
+  it('offers the payee field', () => {
+    render(
+      <InlineRuleForm initial={BLANK} submitting={false} error={null} onCancel={vi.fn()} onSubmit={vi.fn()} />
+    );
+
+    expect(screen.getByRole('option', { name: 'PAYEE' })).toBeInTheDocument();
+  });
+
+  it("shows an existing rule's amount range, read only", () => {
+    render(
+      <InlineRuleForm
+        initial={{ ...BLANK, field: 'PAYEE', operator: 'EQUALS', comparisonValue: 'sample owner', amountMin: 8000, amountMax: 12000 }}
+        submitting={false} error={null} onCancel={vi.fn()} onSubmit={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText(/₹8,000 – ₹12,000/)).toBeInTheDocument();
+  });
 });

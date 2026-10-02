@@ -101,6 +101,65 @@ class TransactionExplanationServiceTest {
         assertThat(result.evidence()).contains("Assigns category: Investments");
     }
 
+    /** A recurring-payment answer applies only within its amount range, so "why this category" says so. */
+    @Test
+    void aBoundedRuleNamesItsAmountRange() {
+        UUID ruleId = UUID.randomUUID();
+        Transaction t = transaction(Transaction.DecisionSource.USER_RULE, ruleId, Transaction.Source.CSV_IMPORT);
+        CategoryRule rule = new CategoryRule();
+        ReflectionTestUtils.setField(rule, "id", ruleId);
+        rule.setField(CategoryRule.Field.PAYEE);
+        rule.setOperator(CategoryRule.Operator.EQUALS);
+        rule.setComparisonValue("sample landlord");
+        rule.setActionValue("Rent");
+        rule.setAmountMin(new java.math.BigDecimal("7999.00"));
+        rule.setAmountMax(new java.math.BigDecimal("12001.00"));
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(t));
+        when(categoryRuleRepository.findById(ruleId)).thenReturn(Optional.of(rule));
+
+        TransactionExplanationDto result = service.explain(userId, txnId);
+
+        assertThat(result.evidence()).contains("Rule condition: payee equals \"sample landlord\", amount ₹7,999 to ₹12,001");
+        assertThat(result.summary()).contains("amount ₹7,999 to ₹12,001 → Rent.");
+    }
+
+    /** Same grouping the apps show (₹1,20,000), not the western 120,000. */
+    @Test
+    void rangeAmountsUseIndianGrouping() {
+        UUID ruleId = UUID.randomUUID();
+        Transaction t = transaction(Transaction.DecisionSource.USER_RULE, ruleId, Transaction.Source.CSV_IMPORT);
+        CategoryRule rule = new CategoryRule();
+        ReflectionTestUtils.setField(rule, "id", ruleId);
+        rule.setField(CategoryRule.Field.PAYEE);
+        rule.setOperator(CategoryRule.Operator.EQUALS);
+        rule.setComparisonValue("sample landlord");
+        rule.setActionValue("Rent");
+        rule.setAmountMax(new java.math.BigDecimal("12345678.00"));
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(t));
+        when(categoryRuleRepository.findById(ruleId)).thenReturn(Optional.of(rule));
+
+        assertThat(service.explain(userId, txnId).evidence())
+                .contains("Rule condition: payee equals \"sample landlord\", amount up to ₹1,23,45,678");
+    }
+
+    @Test
+    void aRuleWithOnlyAMinimumSaysSo() {
+        UUID ruleId = UUID.randomUUID();
+        Transaction t = transaction(Transaction.DecisionSource.USER_RULE, ruleId, Transaction.Source.CSV_IMPORT);
+        CategoryRule rule = new CategoryRule();
+        ReflectionTestUtils.setField(rule, "id", ruleId);
+        rule.setField(CategoryRule.Field.DESCRIPTION);
+        rule.setOperator(CategoryRule.Operator.CONTAINS);
+        rule.setComparisonValue("sample");
+        rule.setActionValue("Rent");
+        rule.setAmountMin(new java.math.BigDecimal("500.50"));
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(t));
+        when(categoryRuleRepository.findById(ruleId)).thenReturn(Optional.of(rule));
+
+        assertThat(service.explain(userId, txnId).evidence())
+                .contains("Rule condition: description contains \"sample\", amount at least ₹500.50");
+    }
+
     @Test
     void aBetweenRuleShowsReadableNumbersNotTheRawStorageEncoding() {
         UUID ruleId = UUID.randomUUID();

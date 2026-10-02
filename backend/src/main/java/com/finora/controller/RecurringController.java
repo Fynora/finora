@@ -1,10 +1,13 @@
 package com.finora.controller;
 
 import com.finora.dto.ApiResponse;
+import com.finora.dto.CategorizeRecurringRequest;
+import com.finora.dto.ChangedAmountDto;
 import com.finora.dto.ConfirmRecurringRequest;
 import com.finora.dto.DismissRecurringRequest;
 import com.finora.dto.RecurringDto;
 import com.finora.security.CurrentUser;
+import com.finora.service.RecurringAnswerService;
 import com.finora.service.RecurringService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,10 +23,13 @@ import java.util.List;
 public class RecurringController {
 
     private final RecurringService recurringService;
+    private final RecurringAnswerService recurringAnswerService;
     private final CurrentUser currentUser;
 
-    public RecurringController(RecurringService recurringService, CurrentUser currentUser) {
+    public RecurringController(RecurringService recurringService, RecurringAnswerService recurringAnswerService,
+                               CurrentUser currentUser) {
         this.recurringService = recurringService;
+        this.recurringAnswerService = recurringAnswerService;
         this.currentUser = currentUser;
     }
 
@@ -48,5 +54,20 @@ public class RecurringController {
     public ApiResponse<Void> confirm(@Valid @RequestBody ConfirmRecurringRequest request) {
         recurringService.confirm(currentUser.id(), request.merchant());
         return ApiResponse.ok(null, "Confirmed");
+    }
+
+    // The recurring-payment question: the user says what a repeating payment is for, once. See
+    // RecurringAnswerService and docs/superpowers/specs/2026-10-02-recurring-payment-answer-design.md.
+    @PostMapping("/categorize")
+    public ApiResponse<Void> categorize(@Valid @RequestBody CategorizeRecurringRequest request) {
+        recurringAnswerService.categorize(currentUser.id(), request.merchant(), request.category());
+        return ApiResponse.ok(null, "Saved");
+    }
+
+    // Saved answers whose payee's latest payment left the saved amount range, for payees the
+    // detector no longer groups -- the "still <category>?" re-ask. Only new app versions call it.
+    @GetMapping("/changed-amounts")
+    public ApiResponse<List<ChangedAmountDto>> changedAmounts() {
+        return ApiResponse.ok(recurringAnswerService.changedAmounts(currentUser.id()));
     }
 }

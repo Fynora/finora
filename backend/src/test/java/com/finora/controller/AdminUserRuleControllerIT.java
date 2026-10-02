@@ -101,6 +101,28 @@ class AdminUserRuleControllerIT extends AbstractIntegrationTest {
         assertThat(deleteResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 
+    /** One payee rule per user and payee (the recurring-payment answer): a second is a 409 saying why. */
+    @Test
+    void aSecondPayeeRuleForTheSamePayee_isAConflict() {
+        User admin = createUser("ADMIN");
+        User target = createUser("USER");
+        HttpHeaders headers = bearerFor(admin);
+        String body = """
+                {"field":"PAYEE","operator":"EQUALS","comparisonValue":"%s",
+                 "actionType":"ASSIGN_CATEGORY","actionValue":"Rent"}
+                """;
+
+        ResponseEntity<String> first = restTemplate.exchange("/api/v1/admin/users/" + target.getId() + "/rules",
+                HttpMethod.POST, new HttpEntity<>(body.formatted("sample landlord"), headers), String.class);
+        ResponseEntity<String> second = restTemplate.exchange("/api/v1/admin/users/" + target.getId() + "/rules",
+                HttpMethod.POST, new HttpEntity<>(body.formatted("SAMPLE LANDLORD"), headers), String.class);
+
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(second.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        // The specific reason, not the generic unique-index "refresh and try again".
+        assertThat(second.getBody()).contains("already has a payee rule for that payee");
+    }
+
     @Test
     void adminActingOnUserA_cannotReachARuleThatBelongsToUserB() throws Exception {
         User admin = createUser("ADMIN");

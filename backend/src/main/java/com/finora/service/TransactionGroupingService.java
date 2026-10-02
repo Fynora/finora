@@ -39,7 +39,7 @@ import java.util.UUID;
  * oversight: a merchant match already implies a strong category guess (a known "Swiggy" merchant
  * all but says "Dining"), while a counterparty only says WHO, not WHAT FOR -- so counterparty
  * grouping earns its keep specifically on the rows merchant grouping cannot reach, the long tail
- * {@code MerchantNormalizationEngine}'s first-token heuristic misses.
+ * {@code MerchantNormalizationEngine}'s grouping-key heuristic misses.
  */
 @Service
 public class TransactionGroupingService {

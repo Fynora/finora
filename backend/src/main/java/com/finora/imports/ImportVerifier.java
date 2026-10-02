@@ -145,7 +145,8 @@ public class ImportVerifier {
         findings.add(summaryTotalsValidator.check(rows, printedSummary, locatedRowCount));
         // The rows BEFORE normalization, which is the only point at which an ambiguous cell is
         // still ambiguous -- every other rule here sees values whose reading is already settled.
-        findings.add(columnAmbiguityValidator.check(rawRows));
+        // unparseableRows too: a row nothing was read from has no reading to be ambiguous about.
+        findings.add(columnAmbiguityValidator.check(rawRows, unparseableRows));
         findings.add(rowAccountingValidator.check(rows, unparseableRows, droppedTransactionCandidates, locatedRowCount));
         // Reads no row at all -- see the validator's own doc comment for why that is the point, not
         // an oversight: a credit-card statement's transaction table can be malformed while its

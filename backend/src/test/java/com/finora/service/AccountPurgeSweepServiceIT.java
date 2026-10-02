@@ -300,6 +300,33 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     }
 
     /**
+     * Runs one sweep and asserts it purged this test's own user, without failing on it.
+     *
+     * <p>Deliberately not on {@code sweep()}'s purged/failed totals. Every integration test shares
+     * one Postgres, and the sweep purges any committed {@code PENDING_DELETION} row past its
+     * 30-minute floor, not only this class's. {@code UserRepositoryIT}'s lost-update test commits
+     * such a row; in a full IT run that reaches this class more than 30 minutes later, every
+     * {@code @Transactional} test here purged it as well (purged was 2, not 1), and then rolled
+     * that purge back, so the row stayed for the next one.
+     *
+     * <p>{@code ACCOUNT_PURGED} is {@code purgeOne}'s last write, after the user row is anonymized,
+     * and {@code ACCOUNT_PURGE_FAILED} is what {@code sweep()} records when {@code purgeOne}
+     * throws; both are keyed by this user's id.
+     */
+    private void sweepAndAssertOwnUserPurged() {
+        service.sweep();
+
+        assertThat(auditLogRepository.findTop50ByUserIdAndActionInOrderByCreatedAtDesc(
+                userId, List.of("ACCOUNT_PURGE_FAILED")))
+                .as("this test's own user must purge without failing")
+                .isEmpty();
+        assertThat(auditLogRepository.findTop50ByUserIdAndActionInOrderByCreatedAtDesc(
+                userId, List.of("ACCOUNT_PURGED")))
+                .as("this test's own user must be purged exactly once")
+                .hasSize(1);
+    }
+
+    /**
      * The self-referential-FK regression this class exists to prove. Two of the user's own
      * transactions point at each other via {@code is_duplicate_of} -- a row-by-row delete loop
      * could trip that constraint depending on iteration order (delete the row still pointed to
@@ -316,10 +343,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         transactionRepository.save(duplicate);
         entityManager.flush();
 
-        AccountPurgeSweepService.Result result = service.sweep();
-
-        assertThat(result.purged()).isEqualTo(1);
-        assertThat(result.failed()).isZero();
+        sweepAndAssertOwnUserPurged();
         entityManager.clear();
         assertThat(transactionRepository.findByUserId(userId)).isEmpty();
     }
@@ -348,10 +372,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         transactionRepository.save(txn);
         entityManager.flush();
 
-        AccountPurgeSweepService.Result result = service.sweep();
-
-        assertThat(result.purged()).isEqualTo(1);
-        assertThat(result.failed()).isZero();
+        sweepAndAssertOwnUserPurged();
         entityManager.clear();
         assertThat(inflowKindRepository.findByUserId(userId)).isEmpty();
         assertThat(senderInflowRuleRepository.findByUserId(userId)).isEmpty();
@@ -595,9 +616,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 "test-consent", java.time.Instant.now()));
         entityManager.flush();
 
-        AccountPurgeSweepService.Result result = service.sweep();
-
-        assertThat(result.purged()).isEqualTo(1);
+        sweepAndAssertOwnUserPurged();
         // The account-anonymize and user-anonymize writes are dirty-checked entity updates, not
         // native/@Modifying statements -- Hibernate won't flush them before a subsequent NATIVE
         // query the way it would before a JPQL one, so the native reads below need this explicit.
@@ -675,9 +694,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
 
         assertThat(realStorage.exists(address)).as("fixture sanity check -- object must exist before the purge").isTrue();
 
-        AccountPurgeSweepService.Result result = service.sweep();
-
-        assertThat(result.purged()).isEqualTo(1);
+        sweepAndAssertOwnUserPurged();
         assertThat(realStorage.exists(address))
                 .as("account deletion must reclaim the object immediately, not leave it for the 90-day sweep")
                 .isFalse();
@@ -711,9 +728,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 .setParameter("userId", userId).getSingleResult();
         assertThat(beforeCount).isEqualTo(1);
 
-        AccountPurgeSweepService.Result result = service.sweep();
-
-        assertThat(result.purged()).isEqualTo(1);
+        sweepAndAssertOwnUserPurged();
         entityManager.flush();
         entityManager.clear();
 
@@ -746,9 +761,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         UUID sessionId = statementAnalysisSessionRepository.save(session).getId();
         entityManager.flush();
 
-        AccountPurgeSweepService.Result result = service.sweep();
-
-        assertThat(result.purged()).isEqualTo(1);
+        sweepAndAssertOwnUserPurged();
         entityManager.flush();
         entityManager.clear();
 
@@ -808,9 +821,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         UUID feedbackId = feedbackEntryRepository.save(feedback).getId();
         entityManager.flush();
 
-        AccountPurgeSweepService.Result result = service.sweep();
-
-        assertThat(result.purged()).isEqualTo(1);
+        sweepAndAssertOwnUserPurged();
         entityManager.flush();
         entityManager.clear();
 
@@ -841,9 +852,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         entityManager.flush();
         assertThat(timelineEventRepository.findByUserIdOrderByOccurredAtDesc(userId)).hasSize(1);
 
-        AccountPurgeSweepService.Result result = service.sweep();
-
-        assertThat(result.purged()).isEqualTo(1);
+        sweepAndAssertOwnUserPurged();
         entityManager.flush();
         entityManager.clear();
         assertThat(timelineEventRepository.findByUserIdOrderByOccurredAtDesc(userId)).isEmpty();
@@ -872,12 +881,8 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         assertThat(inserted).as("fixture sanity check -- the resolution row must exist before the purge").isEqualTo(1);
         entityManager.flush();
 
-        AccountPurgeSweepService.Result result = service.sweep();
-
-        assertThat(result.failed())
-                .as("a category with an AI-resolved mapping must not roll back the whole purge")
-                .isZero();
-        assertThat(result.purged()).isEqualTo(1);
+        // A category with an AI-resolved mapping must not roll back the whole purge.
+        sweepAndAssertOwnUserPurged();
         entityManager.flush();
         entityManager.clear();
 
@@ -913,10 +918,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         transactionRelationshipRepository.save(edge);
         entityManager.flush();
 
-        AccountPurgeSweepService.Result result = service.sweep();
-
-        assertThat(result.purged()).isEqualTo(1);
-        assertThat(result.failed()).isZero();
+        sweepAndAssertOwnUserPurged();
         entityManager.flush();
         entityManager.clear();
 
@@ -1053,10 +1055,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
 
         entityManager.flush();
 
-        AccountPurgeSweepService.Result result = service.sweep();
-
-        assertThat(result.failed()).isZero();
-        assertThat(result.purged()).isEqualTo(1);
+        sweepAndAssertOwnUserPurged();
         entityManager.flush();
         entityManager.clear();
 

@@ -23,7 +23,9 @@ import java.util.UUID;
  * rule-engine-relationship-engine-eds.md §2, §4). USER rules are evaluated first, in full,
  * before any GLOBAL rule is considered -- a user can always override a system default for their
  * own data, which is exactly the precedence the EDS's pipeline diagram specifies. Within a
- * scope, lower `priority` runs first; first match wins.
+ * scope, lower `priority` runs first, then comparison value A-Z, then id; first match wins.
+ *
+ * GLOBAL CONTAINS rules ignore a hit inside a UPI handle -- see {@link #containsOutsideUpiHandle}.
  *
  * Stateless like ConfidenceEngine -- given user id + transaction fields, returns a match or
  * none. Doesn't persist, doesn't decide what to do with the match (that's CategorizationService's
@@ -51,10 +53,10 @@ public class RuleEngineService {
      */
     public Optional<RuleMatch> evaluate(UUID userId, String description, BigDecimal amount,
                                           String merchantName, String accountType) {
-        for (CategoryRule rule : categoryRuleRepository.findByUserIdAndEnabledTrueOrderByPriorityAsc(userId)) {
+        for (CategoryRule rule : categoryRuleRepository.findByUserIdAndEnabledTrueOrderByPriorityAscComparisonValueAscIdAsc(userId)) {
             if (matches(rule, description, amount, merchantName, accountType, null)) return Optional.of(new RuleMatch(rule));
         }
-        for (CategoryRule rule : categoryRuleRepository.findByScopeAndEnabledTrueOrderByPriorityAsc(CategoryRule.Scope.GLOBAL)) {
+        for (CategoryRule rule : categoryRuleRepository.findByScopeAndEnabledTrueOrderByPriorityAscComparisonValueAscIdAsc(CategoryRule.Scope.GLOBAL)) {
             if (matches(rule, description, amount, merchantName, accountType, null)) return Optional.of(new RuleMatch(rule));
         }
         return Optional.empty();
@@ -153,8 +155,8 @@ public class RuleEngineService {
      */
     public List<CategoryRule> ruleSet(UUID userId) {
         List<CategoryRule> rules = new ArrayList<>(
-                categoryRuleRepository.findByUserIdAndEnabledTrueOrderByPriorityAsc(userId));
-        rules.addAll(categoryRuleRepository.findByScopeAndEnabledTrueOrderByPriorityAsc(CategoryRule.Scope.GLOBAL));
+                categoryRuleRepository.findByUserIdAndEnabledTrueOrderByPriorityAscComparisonValueAscIdAsc(userId));
+        rules.addAll(categoryRuleRepository.findByScopeAndEnabledTrueOrderByPriorityAscComparisonValueAscIdAsc(CategoryRule.Scope.GLOBAL));
         return rules;
     }
 
@@ -206,6 +208,9 @@ public class RuleEngineService {
     public boolean testMatch(String field, String operator, String comparisonValue,
                               String description, BigDecimal amount, String merchantName, String accountType) {
         CategoryRule probe = new CategoryRule();
+        // The admin page only authors GLOBAL rules, so test with GLOBAL matching -- otherwise a
+        // keyword that only appears inside a UPI handle would "match" here and never in real use.
+        probe.setScope(CategoryRule.Scope.GLOBAL);
         probe.setField(parseField(field));
         probe.setOperator(parseOperator(operator));
         probe.setComparisonValue(comparisonValue);
@@ -255,7 +260,9 @@ public class RuleEngineService {
         if (actual == null) return false;
 
         return switch (rule.getOperator()) {
-            case CONTAINS -> actual.toLowerCase().contains(rule.getComparisonValue().toLowerCase());
+            case CONTAINS -> rule.getScope() == CategoryRule.Scope.GLOBAL
+                    ? containsOutsideUpiHandle(actual, rule.getComparisonValue())
+                    : actual.toLowerCase().contains(rule.getComparisonValue().toLowerCase());
             // Bug fix: AMOUNT+EQUALS used to fall through to the plain string-equality branch
             // below, comparing amount.toPlainString() (DB-column-scaled, e.g. "1500.00") against
             // whatever an admin/user typed as the comparison value (e.g. "1500") -- a scale-2
@@ -310,6 +317,39 @@ public class RuleEngineService {
         if (amount == null) return false;
         if (rule.getAmountMin() != null && amount.compareTo(rule.getAmountMin()) < 0) return false;
         return rule.getAmountMax() == null || amount.compareTo(rule.getAmountMax()) <= 0;
+    }
+
+    /**
+     * Case-insensitive CONTAINS for GLOBAL rules: true when {@code keyword} occurs somewhere
+     * other than inside a UPI handle -- the part of a VPA after '@', which names the payment app
+     * or bank, never the merchant. Without this, 'airtel' matched the Airtel Payments Bank handle
+     * that many merchants (Zepto and Flipkart among them) are paid through, and those
+     * rows were categorised as Utilities. Measured over the local corpus on 2026-10-02: 30 of 44
+     * 'airtel' hits were inside a handle.
+     *
+     * <p>A handle runs from '@' over letters, digits and dots, so '/', '-', a space or any other
+     * character ends it. Every occurrence is checked, so a keyword printed both as the payee and
+     * inside the handle still matches. A keyword that itself contains '@' was written to target a
+     * handle, so it keeps plain substring matching. USER rules are not routed here: a user's own
+     * rule matches exactly what they typed.
+     */
+    static boolean containsOutsideUpiHandle(String text, String keyword) {
+        String haystack = text.toLowerCase();
+        String needle = keyword.toLowerCase();
+        if (needle.isEmpty() || needle.indexOf('@') >= 0) return haystack.contains(needle);
+        for (int at = haystack.indexOf(needle); at >= 0; at = haystack.indexOf(needle, at + 1)) {
+            if (!insideUpiHandle(haystack, at)) return true;
+        }
+        return false;
+    }
+
+    private static boolean insideUpiHandle(String text, int at) {
+        for (int i = at - 1; i >= 0; i--) {
+            char c = text.charAt(i);
+            if (c == '@') return true;
+            if (!Character.isLetterOrDigit(c) && c != '.') return false;
+        }
+        return false;
     }
 
     /** comparisonValue for BETWEEN is "low,high" -- e.g. "1000,5000". */

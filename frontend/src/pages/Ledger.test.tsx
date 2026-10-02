@@ -16,6 +16,7 @@ vi.mock('../api/endpoints', () => ({
     explanation: vi.fn(),
     remove: vi.fn(),
     update: vi.fn(),
+    similar: vi.fn(),
     markTransfer: vi.fn(),
     unmarkTransfer: vi.fn(),
     acknowledgeBankCorrection: vi.fn(),
@@ -493,6 +494,8 @@ describe('Ledger — edit transaction category picker', () => {
       { id: 'cat-1', name: 'Shopping', isSystem: false, icon: 'tag', color: 'gray' },
       { id: 'cat-2', name: 'Groceries', isSystem: false, icon: 'tag', color: 'gray' },
     ]);
+    // No other row from the payee unless a test says so: then saving asks nothing.
+    vi.mocked(transactionsApi.similar).mockReset().mockResolvedValue({ similar: 0, keptByUser: 0 });
     vi.mocked(categoriesApi.options).mockReset().mockResolvedValue({ icons: [], colors: [] });
     vi.mocked(categoriesApi.create).mockReset();
   });
@@ -516,6 +519,69 @@ describe('Ledger — edit transaction category picker', () => {
       'txn-1',
       expect.objectContaining({ categoryName: 'Groceries' }),
     ));
+  });
+
+  async function pickGroceries(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(await screen.findByTitle('Edit transaction'));
+    const combobox = (await screen.findAllByRole('combobox')).find((el) => el.tagName === 'BUTTON')!;
+    await user.click(combobox);
+    await user.type(await screen.findByPlaceholderText('Search categories'), 'Groceries');
+    await user.click(await screen.findByText('Groceries'));
+  }
+
+  it('asks whether to change the other transactions from the payee, and sends the answer', async () => {
+    const user = userEvent.setup();
+    vi.mocked(transactionsApi.similar).mockResolvedValue({ similar: 3, keptByUser: 0 });
+    renderLedger();
+
+    await pickGroceries(user);
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+    await user.click(await screen.findByRole('button', { name: 'All 4' }));
+
+    await waitFor(() => expect(transactionsApi.update).toHaveBeenCalledWith(
+      'txn-1',
+      expect.objectContaining({ categoryName: 'Groceries', applyTo: 'SIMILAR' }),
+    ));
+  });
+
+  it('does not save when the question is closed', async () => {
+    const user = userEvent.setup();
+    vi.mocked(transactionsApi.similar).mockResolvedValue({ similar: 3, keptByUser: 0 });
+    renderLedger();
+
+    await pickGroceries(user);
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+    await screen.findByTestId('category-scope-dialog');
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => expect(screen.queryByTestId('category-scope-dialog')).not.toBeInTheDocument());
+    expect(transactionsApi.update).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /save changes/i })).toBeEnabled();
+  });
+
+  it('asks nothing when the description changes too, and sends no scope', async () => {
+    const user = userEvent.setup();
+    vi.mocked(transactionsApi.similar).mockResolvedValue({ similar: 3, keptByUser: 0 });
+    renderLedger();
+
+    await pickGroceries(user);
+    await user.type(screen.getByLabelText('Description'), ' edited');
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+    await waitFor(() => expect(transactionsApi.update).toHaveBeenCalled());
+    expect(transactionsApi.similar).not.toHaveBeenCalled();
+    expect(vi.mocked(transactionsApi.update).mock.calls[0][1]).not.toHaveProperty('applyTo');
+  });
+
+  it('asks nothing when the category is unchanged', async () => {
+    const user = userEvent.setup();
+    renderLedger();
+
+    await user.click(await screen.findByTitle('Edit transaction'));
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+    await waitFor(() => expect(transactionsApi.update).toHaveBeenCalled());
+    expect(transactionsApi.similar).not.toHaveBeenCalled();
   });
 
   it('opens the inline create panel for a brand-new category name and selects it once saved', async () => {

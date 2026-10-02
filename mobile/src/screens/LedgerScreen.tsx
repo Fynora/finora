@@ -3,6 +3,7 @@ import {
   ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View
 } from 'react-native';
 import { AppAlert } from '../lib/appAlert';
+import { askCategoryScope } from '../lib/askCategoryScope';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRoute, type RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -412,9 +413,11 @@ export function LedgerScreen() {
     // row. The double-submit it protects against is a non-event anyway -- PATCH .../category sets
     // an explicit category rather than mutating a running value, so applying the same one twice
     // is indistinguishable from applying it once.
+    const scope = await askCategoryScope(t.id);
+    if (scope === null) return;
     const startedAt = requestStartedAt();
     try {
-      await transactionsApi.updateCategory(t.id, categoryName);
+      await transactionsApi.updateCategory(t.id, categoryName, scope);
       hapticSuccess();
       // Not an optimistic edit: the row stays put and only its label changes, so there is no
       // felt latency to hide -- and a category move shifts spend-by-category, budget progress

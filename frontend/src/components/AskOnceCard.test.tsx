@@ -7,9 +7,14 @@ import { transactionsApi, categoriesApi } from '../api/endpoints';
 import type { Transaction } from '../types';
 
 vi.mock('../api/endpoints', () => ({
-  transactionsApi: { needsReview: vi.fn(), updateCategory: vi.fn() },
+  transactionsApi: { needsReview: vi.fn(), updateCategory: vi.fn(), similar: vi.fn() },
   categoriesApi: { list: vi.fn(), options: vi.fn(), create: vi.fn() },
 }));
+
+// No other row from the payee unless a test says so: then saving asks nothing.
+beforeEach(() => {
+  vi.mocked(transactionsApi.similar).mockResolvedValue({ similar: 0, keptByUser: 0 });
+});
 
 function txn(id: string, description: string): Transaction {
   return {
@@ -158,5 +163,73 @@ describe('AskOnceCard resolve (optimistic)', () => {
 
     expect(await screen.findByText('Coffee Shop')).toBeInTheDocument();
     expect(screen.getByRole('combobox')).toHaveTextContent('Transport');
+  });
+});
+
+describe('AskOnceCard: all from this payee, or only this one', () => {
+  beforeEach(() => {
+    vi.mocked(categoriesApi.list).mockResolvedValue([
+      { id: 'cat-1', name: 'Food', isSystem: false, icon: 'tag', color: 'gray' },
+      { id: 'cat-2', name: 'Transport', isSystem: false, icon: 'tag', color: 'gray' },
+    ] as any);
+    vi.mocked(categoriesApi.options).mockResolvedValue({ icons: [], colors: [] } as any);
+    vi.mocked(transactionsApi.updateCategory).mockReset();
+    vi.mocked(transactionsApi.needsReview).mockReset();
+  });
+
+  async function pickAndConfirm(user: ReturnType<typeof userEvent.setup>) {
+    await waitFor(() => expect(screen.getByText('Metro fare 1')).toBeInTheDocument());
+    await user.type(screen.getAllByRole('combobox')[0], 'Transport');
+    await user.click(await screen.findByText('Transport'));
+    await user.click(screen.getAllByRole('button', { name: /confirm/i })[0]);
+  }
+
+  it('changes all of them and drops the others from the queue', async () => {
+    const user = userEvent.setup();
+    vi.mocked(transactionsApi.needsReview)
+      .mockResolvedValueOnce([txn('t1', 'Metro fare 1'), txn('t2', 'Metro fare 2'), txn('t3', 'Coffee')])
+      .mockResolvedValueOnce([txn('t3', 'Coffee')]);
+    vi.mocked(transactionsApi.similar).mockResolvedValue({ similar: 1, keptByUser: 0 });
+    vi.mocked(transactionsApi.updateCategory).mockResolvedValue(txn('t1', 'Metro fare 1'));
+    renderCard();
+
+    await pickAndConfirm(user);
+    // The row stays while the question is open.
+    expect(screen.getByText('Metro fare 1')).toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: 'All 2' }));
+
+    await waitFor(() => expect(transactionsApi.updateCategory).toHaveBeenCalledWith('t1', 'Transport', 'SIMILAR'));
+    await waitFor(() => expect(screen.queryByText('Metro fare 2')).not.toBeInTheDocument());
+    expect(screen.getByText('Coffee')).toBeInTheDocument();
+  });
+
+  it('changes only this one when asked to', async () => {
+    const user = userEvent.setup();
+    vi.mocked(transactionsApi.needsReview).mockResolvedValue([txn('t1', 'Metro fare 1'), txn('t2', 'Metro fare 2')]);
+    vi.mocked(transactionsApi.similar).mockResolvedValue({ similar: 1, keptByUser: 0 });
+    vi.mocked(transactionsApi.updateCategory).mockResolvedValue(txn('t1', 'Metro fare 1'));
+    renderCard();
+
+    await pickAndConfirm(user);
+    await user.click(await screen.findByRole('button', { name: 'Only this one' }));
+
+    await waitFor(() => expect(transactionsApi.updateCategory).toHaveBeenCalledWith('t1', 'Transport', 'ONLY_THIS'));
+    expect(screen.getByText('Metro fare 2')).toBeInTheDocument();
+    expect(transactionsApi.needsReview).toHaveBeenCalledTimes(1);
+  });
+
+  it('saves nothing and keeps the row when the question is closed', async () => {
+    const user = userEvent.setup();
+    vi.mocked(transactionsApi.needsReview).mockResolvedValue([txn('t1', 'Metro fare 1'), txn('t2', 'Metro fare 2')]);
+    vi.mocked(transactionsApi.similar).mockResolvedValue({ similar: 1, keptByUser: 0 });
+    renderCard();
+
+    await pickAndConfirm(user);
+    await screen.findByRole('dialog');
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(transactionsApi.updateCategory).not.toHaveBeenCalled();
+    expect(screen.getByText('Metro fare 1')).toBeInTheDocument();
   });
 });

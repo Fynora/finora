@@ -11,6 +11,8 @@ jest.mock('../api/endpoints', () => ({
     needsReviewGroups: jest.fn(),
     needsReviewByCounterparty: jest.fn(),
     updateCategory: jest.fn(),
+    // No other row from the payee unless a test says so: then a category change asks nothing.
+    similar: jest.fn().mockResolvedValue({ similar: 0, keptByUser: 0 }),
     bulkRecategorize: jest.fn(),
   },
   categoriesApi: { list: jest.fn() },
@@ -178,7 +180,7 @@ describe('resolving a one-off transaction', () => {
     fireEvent.press(await screen.findByText('IMPS transfer to a person'));
     fireEvent.press(await screen.findByText('Food'));
 
-    await waitFor(() => expect(transactions.updateCategory).toHaveBeenCalledWith('t-1', 'Food'));
+    await waitFor(() => expect(transactions.updateCategory).toHaveBeenCalledWith('t-1', 'Food', 'SIMILAR'));
     await waitFor(() => expect(screen.queryByText('IMPS transfer to a person')).toBeNull());
     expect(invalidateFinancialData).toHaveBeenCalled();
   });
@@ -362,7 +364,7 @@ describe('corrections to different rows do not block each other', () => {
     fireEvent.press(await screen.findByText('Second row'));
     fireEvent.press(await screen.findByText('Travel'));
 
-    await waitFor(() => expect(transactions.updateCategory).toHaveBeenCalledWith('t-2', 'Travel'));
+    await waitFor(() => expect(transactions.updateCategory).toHaveBeenCalledWith('t-2', 'Travel', 'SIMILAR'));
 
     releaseFirst({});
 
@@ -430,7 +432,10 @@ describe('the queue survives its own refetches', () => {
 
     fireEvent.press(await screen.findByText('First row'));
     fireEvent.press(await screen.findByText('Food'));
-    await waitFor(() => expect(screen.queryByText('First row')).toBeNull());
+    // not.toBeOnTheScreen, not toBeNull: a failed toBeNull pretty-prints the whole fiber on every
+    // poll, which starves the timers waitFor needs (the row now hides one await later, after the
+    // similar-rows lookup, so this wait takes more than one poll).
+    await waitFor(() => expect(screen.queryByText('First row')).not.toBeOnTheScreen());
 
     // Server has not caught up: needs-review still reports the row just resolved.
     await queryClient.refetchQueries({ queryKey: ['needs-review'] });

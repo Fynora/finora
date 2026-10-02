@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -40,10 +41,16 @@ public class RuleService {
         this.auditService = auditService;
     }
 
+    /** This user's own rules first, then the global ones, because RuleEngineService evaluates
+     *  every USER rule before any GLOBAL rule. This used to be one query
+     *  ordered by priority across both scopes, which listed a personal rule at priority 500 after
+     *  every global rule even though it runs before all of them. */
     @Transactional(readOnly = true)
     public List<RuleDto> listForUser(UUID userId) {
-        return categoryRuleRepository.findByUserIdOrScopeOrderByPriorityAsc(userId, CategoryRule.Scope.GLOBAL)
-                .stream().map(this::toDto).toList();
+        List<CategoryRule> rules = new ArrayList<>(
+                categoryRuleRepository.findByUserIdOrderByPriorityAscComparisonValueAscIdAsc(userId));
+        rules.addAll(categoryRuleRepository.findByScopeOrderByPriorityAscComparisonValueAscIdAsc(CategoryRule.Scope.GLOBAL));
+        return rules.stream().map(this::toDto).toList();
     }
 
     /** Bug fix: this recorded RULE_CREATED against only the target user, with no actingAdminId
@@ -178,12 +185,13 @@ public class RuleService {
 
     /** Admin Portal, Global Rules list. Was an unconditional fetch-all -- seed data alone is
      *  already 46 GLOBAL rules (V19), and admins keep adding more, same reasoning as every other
-     *  page in this pagination rollout. Priority order is preserved page to page (the query is
-     *  still ORDER BY priority ASC), so page 2 continues where page 1 left off rather than
-     *  reordering anything. */
+     *  page in this pagination rollout. Page 2 continues where page 1 left off only because the
+     *  order is total: priority, then comparison value, then id. Ordered by priority alone, the
+     *  46 seeded rules (all priority 100) were listed with repeats and gaps across pages -- see
+     *  CategoryRuleRepository. */
     @Transactional(readOnly = true)
     public PagedResponse<RuleDto> listGlobal(int page, int size) {
-        return PagedResponse.of(categoryRuleRepository.findByScopeOrderByPriorityAsc(CategoryRule.Scope.GLOBAL,
+        return PagedResponse.of(categoryRuleRepository.findByScopeOrderByPriorityAscComparisonValueAscIdAsc(CategoryRule.Scope.GLOBAL,
                 PageRequest.of(PageBounds.safePage(page), PageBounds.safeSize(size))).map(this::toDto));
     }
 

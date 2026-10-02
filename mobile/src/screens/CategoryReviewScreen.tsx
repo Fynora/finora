@@ -11,6 +11,7 @@ import { categoriesApi, transactionsApi } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { fmtCurrency } from '../lib/format';
+import { askCategoryScope } from '../lib/askCategoryScope';
 import { hapticError, hapticSuccess } from '../lib/haptics';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
@@ -138,10 +139,14 @@ export function CategoryReviewScreen() {
     // properly rather than by re-serializing.
     if (chosen.kind === 'single') {
       const id = chosen.txn.id;
+      // Asked before the row is hidden: it stays on screen while the question is open. Other rows
+      // from the payee that SIMILAR changes leave with the refetch invalidateFinancialData starts.
+      const scope = await askCategoryScope(id);
+      if (scope === null) return;
       setResolvedTxnIds((prev) => new Set(prev).add(id));
       const startedAt = requestStartedAt();
       try {
-        await transactionsApi.updateCategory(id, categoryName);
+        await transactionsApi.updateCategory(id, categoryName, scope);
         hapticSuccess();
         invalidateFinancialData(queryClient);
       } catch (e) {

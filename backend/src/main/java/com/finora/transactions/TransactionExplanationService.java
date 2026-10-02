@@ -119,9 +119,14 @@ public class TransactionExplanationService {
         }
         String condition = fieldLabel(rule.getField()) + " " + operatorLabel(rule.getOperator())
                 + " " + comparisonValueLabel(rule);
-        String summary = fallbackSummary + " " + condition + " → " + rule.getActionValue() + ".";
+        // A MARK_INVESTMENT rule can be the deciding rule too (CategorizationService
+        // .applySideEffectRules records it), and a blank action value there means "Investments".
+        String category = rule.getActionType() == CategoryRule.ActionType.MARK_INVESTMENT
+                ? com.finora.service.CategorizationService.investmentCategoryName(rule)
+                : rule.getActionValue();
+        String summary = fallbackSummary + " " + condition + " → " + category + ".";
         return new TransactionExplanationDto(source, summary,
-                List.of("Rule condition: " + condition, "Assigns category: " + rule.getActionValue()),
+                List.of("Rule condition: " + condition, "Assigns category: " + category),
                 confidence, reconciliation);
     }
 

@@ -347,8 +347,13 @@ function GlobalRulesContent() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted max-w-xl">
-          Global rules run auto-categorization for every user, in priority order, before each
-          account's own personal rules. Use sparingly -- these affect everyone.
+          Global rules apply to every user, in priority order, after that user's own personal
+          rules, and a user's own matching rule wins. A global ASSIGN_CATEGORY rule sets the
+          category only when none of theirs match -- and then it takes precedence over what the app
+          has learned from that user's past corrections. A global MARK_INVESTMENT rule never
+          replaces a category the user chose or one their own rule set. MARK_TRANSFER, ADD_TAG and
+          MARK_SUBSCRIPTION apply from every matching rule, personal and global. Use sparingly --
+          these affect everyone.
         </p>
         {!showCreate && (
           <button

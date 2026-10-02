@@ -40,6 +40,8 @@ jest.mock('@react-navigation/native', () => ({
 jest.mock('../api/endpoints', () => ({
   transactionsApi: {
     search: jest.fn(), remove: jest.fn(), updateCategory: jest.fn(), source: jest.fn(),
+    // No other row from the payee unless a test says so: then a category change asks nothing.
+    similar: jest.fn().mockResolvedValue({ similar: 0, keptByUser: 0 }),
     update: jest.fn(), create: jest.fn(), explanation: jest.fn(),
     markTransfer: jest.fn(), unmarkTransfer: jest.fn(),
     acknowledgeBankCorrection: jest.fn(), correctionHistory: jest.fn(),
@@ -697,10 +699,51 @@ describe('correcting a category from the ledger', () => {
     fireEvent.press(await screen.findByTestId('category-button-t-1'));
     fireEvent.press(await screen.findByText('Travel'));
 
-    await waitFor(() => expect(transactions.updateCategory).toHaveBeenCalledWith('t-1', 'Travel'));
+    await waitFor(() => expect(transactions.updateCategory).toHaveBeenCalledWith('t-1', 'Travel', 'SIMILAR'));
     // A category move changes spend-by-category, budget progress and insights -- none of which
     // this screen renders, and all of which would otherwise keep showing pre-edit figures.
     expect(invalidateFinancialData).toHaveBeenCalled();
+  });
+
+  it('asks whether to change the other transactions from the payee, and sends the answer', async () => {
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+    transactions.similar.mockResolvedValueOnce({ similar: 2, keptByUser: 0 });
+    transactions.updateCategory.mockResolvedValue({} as never);
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(await screen.findByTestId('category-button-t-1'));
+    fireEvent.press(await screen.findByText('Travel'));
+
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith(
+      'Change the others from this payee too?', expect.stringContaining('2 other transactions'),
+      expect.anything(), expect.anything()));
+    expect(transactions.updateCategory).not.toHaveBeenCalled();
+    const buttons = alertSpy.mock.calls[0][2]!;
+    await act(async () => { buttons.find((b) => b.text === 'Only this one')!.onPress!(); });
+
+    await waitFor(() => expect(transactions.updateCategory).toHaveBeenCalledWith('t-1', 'Travel', 'ONLY_THIS'));
+    alertSpy.mockRestore();
+  });
+
+  it('saves nothing when the payee question is cancelled', async () => {
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+    transactions.similar.mockResolvedValueOnce({ similar: 2, keptByUser: 0 });
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(await screen.findByTestId('category-button-t-1'));
+    fireEvent.press(await screen.findByText('Travel'));
+
+    await waitFor(() => expect(alertSpy).toHaveBeenCalled());
+    const buttons = alertSpy.mock.calls[0][2]!;
+    await act(async () => { buttons.find((b) => b.text === 'Cancel')!.onPress!(); });
+
+    expect(transactions.updateCategory).not.toHaveBeenCalled();
+    expect(invalidateFinancialData).not.toHaveBeenCalled();
+    alertSpy.mockRestore();
   });
 
   it('does not call the API when the picked category is the one already set', async () => {
@@ -749,7 +792,7 @@ describe('correcting a category from the ledger', () => {
     fireEvent.press(await screen.findByTestId('category-button-t-2'));
     fireEvent.press(await screen.findByText('Food'));
 
-    await waitFor(() => expect(transactions.updateCategory).toHaveBeenCalledWith('t-2', 'Food'));
+    await waitFor(() => expect(transactions.updateCategory).toHaveBeenCalledWith('t-2', 'Food', 'SIMILAR'));
 
     releaseFirst({});
 

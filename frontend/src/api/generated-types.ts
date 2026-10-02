@@ -2868,6 +2868,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/transactions/{id}/similar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["similar"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/transactions/{id}/explanation": {
         parameters: {
             query?: never;
@@ -7771,6 +7787,24 @@ export interface components {
             statementPeriodStart?: string;
             /** Format: date */
             statementPeriodEnd?: string;
+        };
+        ApiResponseSimilarSummary: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["SimilarSummary"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        SimilarSummary: {
+            /** Format: int32 */
+            similar?: number;
+            /** Format: int32 */
+            keptByUser?: number;
         };
         ApiResponseTransactionExplanationDto: {
             success?: boolean;
@@ -16012,6 +16046,28 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseTransactionSourceDto"];
+                };
+            };
+        };
+    };
+    similar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseSimilarSummary"];
                 };
             };
         };

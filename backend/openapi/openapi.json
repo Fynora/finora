@@ -7462,6 +7462,37 @@
                 }
             }
         },
+        "/api/v1/transactions/{id}/similar": {
+            "get": {
+                "tags": [
+                    "transaction-controller"
+                ],
+                "operationId": "similar",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseSimilarSummary"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/transactions/{id}/explanation": {
             "get": {
                 "tags": [
@@ -18578,6 +18609,47 @@
                     "statementPeriodEnd": {
                         "type": "string",
                         "format": "date"
+                    }
+                }
+            },
+            "ApiResponseSimilarSummary": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/SimilarSummary"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "SimilarSummary": {
+                "type": "object",
+                "properties": {
+                    "similar": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "keptByUser": {
+                        "type": "integer",
+                        "format": "int32"
                     }
                 }
             },

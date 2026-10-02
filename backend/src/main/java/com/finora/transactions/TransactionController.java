@@ -98,9 +98,19 @@ public class TransactionController {
         return ResponseEntity.ok(ApiResponse.ok(transactionService.create(currentUser.id(), request), "Transaction created"));
     }
 
+    /** Body: {@code category}, and optionally {@code applyTo} -- see {@link TransactionDto.CategoryScope}. */
     @PatchMapping("/{id}/category")
     public ResponseEntity<ApiResponse<TransactionDto>> updateCategory(@PathVariable UUID id, @RequestBody Map<String, String> body) {
-        return ResponseEntity.ok(ApiResponse.ok(transactionService.updateCategory(currentUser.id(), id, body.get("category")), "Category updated"));
+        TransactionDto.CategoryScope scope = com.finora.util.EnumParsing.parseIfPresent(
+                TransactionDto.CategoryScope.class, body.get("applyTo"), "applyTo");
+        return ResponseEntity.ok(ApiResponse.ok(
+                transactionService.updateCategory(currentUser.id(), id, body.get("category"), scope), "Category updated"));
+    }
+
+    /** What "apply to all similar" would reach from this transaction, asked before the user chooses. */
+    @GetMapping("/{id}/similar")
+    public ApiResponse<TransactionDto.SimilarSummary> similar(@PathVariable UUID id) {
+        return ApiResponse.ok(transactionService.similarSummary(currentUser.id(), id));
     }
 
     /** Full edit — the Transactions page's Edit action. See TransactionDto.UpdateRequest for

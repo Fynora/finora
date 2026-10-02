@@ -46,6 +46,7 @@ import { radius, spacing, useTheme } from '../theme';
 import { trackNavSearch, trackNavigation } from '../lib/trackNavigation';
 import type { AppTabParamList } from '../navigation/types';
 import { StatementRefreshBanner } from '../components/StatementRefreshBanner';
+import { RecurringQuestion } from '../components/RecurringQuestion';
 
 type CashFlowRange = '3M' | '6M' | '12M';
 const RANGE_MONTHS: Record<CashFlowRange, number> = { '3M': 3, '6M': 6, '12M': 12 };
@@ -327,6 +328,11 @@ export function DashboardScreen() {
   // RecurringItem[] already arrives sorted by nextEstimate (RecurringService's own doc comment) --
   // slicing is enough, no client-side sort needed.
   const upcomingRecurring = (recurringQ.data ?? []).slice(0, 5);
+  // Saved recurring answers whose payee's amount moved out of range, for payees no longer detected:
+  // extra "still X?" rows in the Upcoming card. An older backend lacks the endpoint; the query fails quietly.
+  const changedAmountsQ = useQuery({
+    queryKey: ['recurring-changed-amounts'], queryFn: () => recurringApi.changedAmounts(), retry: false,
+  });
   const coverageCaveat = insightsQ.data?.coverageCaveat ?? null;
   // The coverage-caveat sentence (Track C/C2) is promoted to its own banner below rather than said
   // twice -- filtered out of the bullet list by the one fixed, always-English substring
@@ -732,7 +738,8 @@ export function DashboardScreen() {
         <Card style={styles.section}>
           <SectionHeading title="Upcoming" />
           {upcomingRecurring.map((r) => (
-            <View key={r.merchant} style={[styles.recurringRow, { borderBottomColor: c.border }]}>
+            <View key={r.merchant} style={[styles.recurringItem, { borderBottomColor: c.border }]}>
+            <View style={styles.recurringRow}>
               <View style={styles.recurringMain}>
                 <Text style={[styles.recurringMerchant, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
                   {r.merchant}
@@ -773,6 +780,19 @@ export function DashboardScreen() {
               >
                 <Ionicons name="close" size={16} color={c.muted} />
               </Pressable>
+            </View>
+            <RecurringQuestion
+              merchant={r.merchant}
+              state={r.state ?? 'NONE'}
+              answer={r.answer ?? null}
+              amount={r.state === 'NEEDS_ANSWER' ? r.averageAmount : (r.latestAmount ?? r.averageAmount)}
+              label={r.label}
+            />
+            </View>
+          ))}
+          {(changedAmountsQ.data ?? []).map((ca) => (
+            <View key={`changed-${ca.merchant}`} style={[styles.recurringItem, { borderBottomColor: c.border }]}>
+              <RecurringQuestion merchant={ca.merchant} state="AMOUNT_CHANGED" answer={ca.category} amount={ca.latestAmount} />
             </View>
           ))}
         </Card>
@@ -1084,9 +1104,10 @@ const styles = StyleSheet.create({
   // this same file already applies to rangeChip below.
   manageBudgets: { minHeight: 44, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', marginTop: spacing.xs },
   manageBudgetsText: { fontSize: 12, fontWeight: '600' },
+  // One recurring payment: its row plus, under it, the recurring-payment question.
+  recurringItem: { paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth },
   recurringRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, gap: spacing.sm,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm,
   },
   recurringMain: { flex: 1, minWidth: 0 },
   recurringMerchant: { fontSize: 14, fontWeight: '500' },

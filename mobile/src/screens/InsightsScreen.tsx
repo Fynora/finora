@@ -17,6 +17,7 @@ import {
   categoriesApi, dashboardApi, insightsApi, onboardingApi, recurringApi, reportsApi, usageApi, type RecurringItem,
 } from '../api/endpoints';
 import { OptionPickerModal } from '../components/OptionPickerModal';
+import { RecurringQuestion } from '../components/RecurringQuestion';
 import { CHART_PALETTE, bucketTopSlices } from '../lib/chartGeometry';
 import { colorHexFor, iconNameFor } from '../lib/categoryIcons';
 import { fmtCurrency, fmtDate, monthDateRange, monthDayRangeLabel, monthLabel, monthLabelLong } from '../lib/format';
@@ -64,6 +65,11 @@ export function InsightsScreen() {
   // useQueries, not Promise.all: the web page loses BOTH sections when either endpoint fails,
   // because one rejected promise fails the pair. Recurring payments and observations are
   // independent, so one being unavailable shouldn't blank the other.
+  // Saved recurring answers whose payee's amount moved out of range, for payees no longer detected:
+  // extra "still X?" rows in the recurring card. An older backend lacks the endpoint; the query fails quietly.
+  const changedAmountsQ = useQuery({
+    queryKey: ['recurring-changed-amounts'], queryFn: () => recurringApi.changedAmounts(), retry: false,
+  });
   const [insightsQ, recurringQ] = useQueries({
     queries: [
       { queryKey: ['insights'], queryFn: () => insightsApi.get() },
@@ -596,10 +602,12 @@ export function InsightsScreen() {
                   <EmptyState message="No recurring payments detected yet — this needs at least 2 charges from the same merchant on a regular interval to spot a pattern." />
                 ) : (
                   recurring.map((r) => (
-                    // eslint-disable-next-line react-native-a11y/no-nested-touchables
+                    // The question sits beside the row, not inside it: the row is one accessibility
+                    // element (accessible), which would hide the question's buttons from a screen reader.
+                    <View key={r.merchant} style={[styles.recurringItem, { borderBottomColor: c.border }]}>
+                    {/* eslint-disable-next-line react-native-a11y/no-nested-touchables */}
                     <View
-                      key={r.merchant}
-                      style={[styles.row, { borderBottomColor: c.border }]}
+                      style={[styles.row, styles.recurringRowInItem]}
                       accessible
                       accessibilityLabel={`${r.merchant}, ${r.label}. ${fmtCurrency(r.averageAmount)} on average, seen ${
                         r.occurrences
@@ -632,8 +640,21 @@ export function InsightsScreen() {
                         <Ionicons name="close" size={16} color={c.muted} />
                       </Pressable>
                     </View>
+                    <RecurringQuestion
+                      merchant={r.merchant}
+                      state={r.state ?? 'NONE'}
+                      answer={r.answer ?? null}
+                      amount={r.state === 'NEEDS_ANSWER' ? r.averageAmount : (r.latestAmount ?? r.averageAmount)}
+                      label={r.label}
+                    />
+                    </View>
                   ))
                 )}
+                {(changedAmountsQ.data ?? []).map((ca) => (
+                  <View key={`changed-${ca.merchant}`} style={[styles.recurringItem, { borderBottomColor: c.border }]}>
+                    <RecurringQuestion merchant={ca.merchant} state="AMOUNT_CHANGED" answer={ca.category} amount={ca.latestAmount} />
+                  </View>
+                ))}
               </Card>
             </View>
           )}
@@ -860,6 +881,10 @@ const styles = StyleSheet.create({
   },
   bottomBannerText: { flex: 1, fontSize: 13, marginRight: spacing.sm },
   bottomBannerLink: { fontSize: 12, fontWeight: '700' },
+  // One recurring payment: its row plus, under it, the recurring-payment question; the divider moves
+  // from the row to this wrapper so the question sits above it.
+  recurringItem: { borderBottomWidth: StyleSheet.hairlineWidth },
+  recurringRowInItem: { borderBottomWidth: 0 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -9,7 +9,7 @@ import {
 
 jest.mock('../api/endpoints', () => ({
   insightsApi: { get: jest.fn() },
-  recurringApi: { list: jest.fn(), dismiss: jest.fn() },
+  recurringApi: { list: jest.fn(), dismiss: jest.fn(), categorize: jest.fn(), changedAmounts: jest.fn().mockResolvedValue([]) },
   dashboardApi: { summary: jest.fn() },
   categoriesApi: { list: jest.fn() },
   reportsApi: { availableMonths: jest.fn(), incomeTrend: jest.fn() },
@@ -91,6 +91,20 @@ describe('InsightsScreen', () => {
 
     await waitFor(() => expect(recurring.dismiss).toHaveBeenCalledWith('netflix'));
     await waitFor(() => expect(screen.queryByText('netflix')).toBeNull());
+  });
+
+  it('asks what an unanswered repeating payment is, under its row on the Spending tab', async () => {
+    recurring.list.mockReset().mockResolvedValue([
+      {
+        merchant: 'sample owner', label: 'Monthly', averageAmount: 10000, occurrences: 3,
+        lastDate: '2026-07-04', nextEstimate: '2026-08-04', state: 'NEEDS_ANSWER', answer: null,
+        latestAmount: 10000, category: 'Other',
+      },
+    ]);
+    renderScreen();
+    fireEvent.press(await screen.findByText('Spending'));
+
+    expect(await screen.findByText('What is this ₹10,000 monthly payment?')).toBeOnTheScreen();
   });
 
   it('"View Recurring" on Overview switches to Spending and shows the list there', async () => {

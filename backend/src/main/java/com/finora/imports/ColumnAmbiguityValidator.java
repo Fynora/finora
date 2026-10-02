@@ -66,7 +66,28 @@ public class ColumnAmbiguityValidator {
     }
 
     public ImportDto.VerificationFinding check(List<Map<String, String>> rawRows) {
+        return check(rawRows, List.of());
+    }
+
+    /**
+     * @param unparseableRows rows that failed normalisation. Nothing was read from one, so no
+     *                        reading was chosen and there is no guess to report: a real scanned
+     *                        HSBC statement's footer ("... Balance Carried Forward") carries an
+     *                        OCR'd date and several numbers in its withdrawals cell, was set aside
+     *                        unread, and still raised this warning on a statement whose every
+     *                        transaction was correct.
+     */
+    public ImportDto.VerificationFinding check(List<Map<String, String>> rawRows,
+                                               List<ImportDto.UnparseableRow> unparseableRows) {
         Map<String, Object> details = new LinkedHashMap<>();
+        // By value: two rows with identical cells always normalise the same way, so if one was set
+        // aside, so was the other.
+        List<Map<String, String>> setAside = new ArrayList<>();
+        if (unparseableRows != null) {
+            for (ImportDto.UnparseableRow u : unparseableRows) {
+                if (u != null && u.raw() != null) setAside.add(u.raw());
+            }
+        }
 
         if (rawRows == null || rawRows.isEmpty()) {
             details.put("reason", "The rows were not available in their original column form, so "
@@ -86,6 +107,8 @@ public class ColumnAmbiguityValidator {
             // perfectly and watching it report a warning anyway. Mirrors TransactionNormalizer's
             // own gate: no date, no transaction.
             if (!looksLikeATransaction(row)) continue;
+            // Only rows something was read from: see the unparseableRows parameter above.
+            if (setAside.contains(row)) continue;
 
             String creditColumn = null, debitColumn = null;
             BigDecimal credit = null, debit = null;

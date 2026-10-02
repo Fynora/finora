@@ -309,13 +309,15 @@ class RuleServiceTest {
     void listForUser_mapsRepositoryResultsToDtos() {
         CategoryRule userRule = existingUserRule(UUID.randomUUID(), userId, CategoryRule.ActionType.ASSIGN_CATEGORY, "Dining");
         CategoryRule global = globalRule(UUID.randomUUID());
-        when(categoryRuleRepository.findByUserIdOrScopeOrderByPriorityAsc(userId, CategoryRule.Scope.GLOBAL))
-                .thenReturn(List.of(userRule, global));
+        when(categoryRuleRepository.findByUserIdOrderByPriorityAscComparisonValueAscIdAsc(userId))
+                .thenReturn(List.of(userRule));
+        when(categoryRuleRepository.findByScopeOrderByPriorityAscComparisonValueAscIdAsc(CategoryRule.Scope.GLOBAL))
+                .thenReturn(List.of(global));
 
         List<RuleDto> result = ruleService.listForUser(userId);
 
-        assertThat(result).hasSize(2);
-        assertThat(result).extracting(RuleDto::scope).containsExactlyInAnyOrder("USER", "GLOBAL");
+        // The user's own rules first, as evaluation runs them first.
+        assertThat(result).extracting(RuleDto::scope).containsExactly("USER", "GLOBAL");
     }
 
     @Test
@@ -326,7 +328,7 @@ class RuleServiceTest {
         userRule.setMatchCount(7);
         var lastMatched = java.time.Instant.parse("2026-07-20T10:00:00Z");
         userRule.setLastMatchedAt(lastMatched);
-        when(categoryRuleRepository.findByUserIdOrScopeOrderByPriorityAsc(userId, CategoryRule.Scope.GLOBAL))
+        when(categoryRuleRepository.findByUserIdOrderByPriorityAscComparisonValueAscIdAsc(userId))
                 .thenReturn(List.of(userRule));
 
         RuleDto result = ruleService.listForUser(userId).get(0);
@@ -338,7 +340,7 @@ class RuleServiceTest {
     @Test
     void listForUser_neverMatched_matchCountIsZero_lastMatchedAtIsNull() {
         CategoryRule freshRule = existingUserRule(UUID.randomUUID(), userId, CategoryRule.ActionType.ASSIGN_CATEGORY, "Dining");
-        when(categoryRuleRepository.findByUserIdOrScopeOrderByPriorityAsc(userId, CategoryRule.Scope.GLOBAL))
+        when(categoryRuleRepository.findByUserIdOrderByPriorityAscComparisonValueAscIdAsc(userId))
                 .thenReturn(List.of(freshRule));
 
         RuleDto result = ruleService.listForUser(userId).get(0);
@@ -352,7 +354,7 @@ class RuleServiceTest {
     @Test
     void listGlobal_mapsRepositoryResultsToDtos() {
         CategoryRule global = globalRule(UUID.randomUUID());
-        when(categoryRuleRepository.findByScopeOrderByPriorityAsc(CategoryRule.Scope.GLOBAL, PageRequest.of(0, 20)))
+        when(categoryRuleRepository.findByScopeOrderByPriorityAscComparisonValueAscIdAsc(CategoryRule.Scope.GLOBAL, PageRequest.of(0, 20)))
                 .thenReturn(new PageImpl<>(List.of(global)));
 
         PagedResponse<RuleDto> result = ruleService.listGlobal(0, 20);
@@ -365,12 +367,12 @@ class RuleServiceTest {
      *  list page's identical clamp test gives. */
     @Test
     void listGlobal_clampsAnOutOfRangePageAndSize() {
-        when(categoryRuleRepository.findByScopeOrderByPriorityAsc(CategoryRule.Scope.GLOBAL, PageRequest.of(0, 100)))
+        when(categoryRuleRepository.findByScopeOrderByPriorityAscComparisonValueAscIdAsc(CategoryRule.Scope.GLOBAL, PageRequest.of(0, 100)))
                 .thenReturn(new PageImpl<>(List.of()));
 
         PagedResponse<RuleDto> result = ruleService.listGlobal(-5, 500);
 
         assertThat(result.content()).isEmpty();
-        verify(categoryRuleRepository).findByScopeOrderByPriorityAsc(CategoryRule.Scope.GLOBAL, PageRequest.of(0, 100));
+        verify(categoryRuleRepository).findByScopeOrderByPriorityAscComparisonValueAscIdAsc(CategoryRule.Scope.GLOBAL, PageRequest.of(0, 100));
     }
 }

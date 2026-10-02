@@ -77,6 +77,23 @@ describe('GlobalRules', () => {
     expect(screen.getByText("You don't have access to this section")).toBeInTheDocument();
   });
 
+  it('explains that a user\'s own rules run before global rules', async () => {
+    // RuleEngineService evaluates USER rules, then GLOBAL ones. This copy once said the
+    // opposite ("before each account's own personal rules"), which told admins a global rule
+    // would override a user's own -- pin the real order so it cannot drift back.
+    mockAuth(['RULE_MANAGE']);
+    vi.mocked(adminRulesApi.list).mockResolvedValue(pageOf());
+
+    renderPage();
+
+    const copy = await screen.findByText(/after that user's own personal rules/);
+    expect(copy).toHaveTextContent(/a user's own matching rule wins/);
+    expect(copy).toHaveTextContent(/only when none of theirs match/);
+    // CategorizationService.investmentRuleToApply -- see InvestmentRulePrecedenceIT.
+    expect(copy).toHaveTextContent(/MARK_INVESTMENT rule never replaces a category the user chose/);
+    expect(copy).not.toHaveTextContent(/before each account's own personal rules/);
+  });
+
   it('renders an existing global rule', async () => {
     mockAuth(['RULE_MANAGE']);
     vi.mocked(adminRulesApi.list).mockResolvedValue(pageOf({

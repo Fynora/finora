@@ -86,7 +86,7 @@ class RuleServiceTest {
 
     @Test
     void create_persistsAUserScopeRule() {
-        var req = new RuleDto.CreateRequest("DESCRIPTION", "CONTAINS", "swiggy", "ASSIGN_CATEGORY", "Dining", 50);
+        var req = new RuleDto.CreateRequest("DESCRIPTION", "CONTAINS", "swiggy", "ASSIGN_CATEGORY", "Dining", 50, null, null);
 
         RuleDto result = ruleService.create(userId, req, actingAdminId);
 
@@ -98,9 +98,113 @@ class RuleServiceTest {
                 r.getScope() == CategoryRule.Scope.USER && userId.equals(r.getUserId())));
     }
 
+    // --- Payee rules and amount bounds (recurring-payment question) ---
+
+    @Test
+    void create_storesAmountBounds_andReturnsThem() {
+        var req = new RuleDto.CreateRequest("PAYEE", "EQUALS", "sample landlord", "ASSIGN_CATEGORY", "Rent", null,
+                new java.math.BigDecimal("8000.00"), new java.math.BigDecimal("12000.00"));
+
+        RuleDto result = ruleService.create(userId, req, actingAdminId);
+
+        assertThat(result.field()).isEqualTo("PAYEE");
+        assertThat(result.amountMin()).isEqualByComparingTo("8000.00");
+        assertThat(result.amountMax()).isEqualByComparingTo("12000.00");
+        verify(categoryRuleRepository).save(argThat(r -> r.getAmountMin() != null && r.getAmountMax() != null));
+    }
+
+    @Test
+    void create_rejectsAPayeeRuleThatIsNotEquals() {
+        var req = new RuleDto.CreateRequest("PAYEE", "CONTAINS", "sample", "ASSIGN_CATEGORY", "Rent", null, null, null);
+
+        assertThatThrownBy(() -> ruleService.create(userId, req, actingAdminId))
+                .isInstanceOf(ApiException.class).hasMessageContaining("A payee rule must use EQUALS");
+        verify(categoryRuleRepository, never()).save(any());
+    }
+
+    /** Side-effect rules (transfer, investment, subscription) are evaluated with no direction, so a payee one would never match. */
+    @Test
+    void create_rejectsAPayeeRuleThatDoesNotAssignACategory() {
+        var req = new RuleDto.CreateRequest("PAYEE", "EQUALS", "sample landlord", "MARK_TRANSFER", null, null, null, null);
+
+        assertThatThrownBy(() -> ruleService.create(userId, req, actingAdminId))
+                .isInstanceOf(ApiException.class).hasMessageContaining("A payee rule can only assign a category");
+        verify(categoryRuleRepository, never()).save(any());
+    }
+
+    /** One answer per user and payee (uq_category_rules_user_payee): a second is a conflict, not a server error. */
+    @Test
+    void create_rejectsASecondPayeeRuleForTheSamePayee_asAConflict() {
+        CategoryRule existing = existingUserRule(UUID.randomUUID(), userId, CategoryRule.ActionType.ASSIGN_CATEGORY, "Rent");
+        when(categoryRuleRepository.findUserPayeeRule(userId, "Sample Landlord")).thenReturn(java.util.Optional.of(existing));
+        var req = new RuleDto.CreateRequest("PAYEE", "EQUALS", " Sample Landlord ", "ASSIGN_CATEGORY", "Rent", null, null, null);
+
+        assertThatThrownBy(() -> ruleService.create(userId, req, actingAdminId))
+                .isInstanceOf(ApiException.class)
+                .satisfies(e -> assertThat(((ApiException) e).getStatus()).isEqualTo(org.springframework.http.HttpStatus.CONFLICT));
+        verify(categoryRuleRepository, never()).save(any());
+    }
+
+    @Test
+    void update_rejectsRenamingAPayeeRuleOntoAnotherPayeesRule_asAConflict() {
+        UUID ruleId = UUID.randomUUID();
+        CategoryRule mine = existingUserRule(ruleId, userId, CategoryRule.ActionType.ASSIGN_CATEGORY, "Rent");
+        mine.setField(CategoryRule.Field.PAYEE);
+        mine.setOperator(CategoryRule.Operator.EQUALS);
+        mine.setComparisonValue("sample landlord");
+        when(categoryRuleRepository.findById(ruleId)).thenReturn(java.util.Optional.of(mine));
+        CategoryRule other = existingUserRule(UUID.randomUUID(), userId, CategoryRule.ActionType.ASSIGN_CATEGORY, "Loan EMI");
+        when(categoryRuleRepository.findUserPayeeRule(userId, "sample lender")).thenReturn(java.util.Optional.of(other));
+        var req = new RuleDto.UpdateRequest(null, null, "sample lender", null, null, null, null, null, null);
+
+        assertThatThrownBy(() -> ruleService.update(userId, ruleId, req, actingAdminId))
+                .isInstanceOf(ApiException.class)
+                .satisfies(e -> assertThat(((ApiException) e).getStatus()).isEqualTo(org.springframework.http.HttpStatus.CONFLICT));
+    }
+
+    @Test
+    void update_ofAPayeeRuleKeepingItsOwnPayee_isNotAConflict() {
+        UUID ruleId = UUID.randomUUID();
+        CategoryRule mine = existingUserRule(ruleId, userId, CategoryRule.ActionType.ASSIGN_CATEGORY, "Rent");
+        mine.setField(CategoryRule.Field.PAYEE);
+        mine.setOperator(CategoryRule.Operator.EQUALS);
+        mine.setComparisonValue("sample landlord");
+        when(categoryRuleRepository.findById(ruleId)).thenReturn(java.util.Optional.of(mine));
+        when(categoryRuleRepository.findUserPayeeRule(userId, "sample landlord")).thenReturn(java.util.Optional.of(mine));
+        var req = new RuleDto.UpdateRequest(null, null, null, null, "Loan EMI", null, null, null, null);
+
+        assertThat(ruleService.update(userId, ruleId, req, actingAdminId).actionValue()).isEqualTo("Loan EMI");
+    }
+
+    @Test
+    void create_rejectsAMinimumAboveTheMaximum() {
+        var req = new RuleDto.CreateRequest("PAYEE", "EQUALS", "sample landlord", "ASSIGN_CATEGORY", "Rent", null,
+                new java.math.BigDecimal("12000.01"), new java.math.BigDecimal("12000.00"));
+
+        assertThatThrownBy(() -> ruleService.create(userId, req, actingAdminId))
+                .isInstanceOf(ApiException.class).hasMessageContaining("Minimum amount is above maximum");
+    }
+
+    @Test
+    void create_acceptsEqualBounds() {
+        var req = new RuleDto.CreateRequest("PAYEE", "EQUALS", "sample landlord", "ASSIGN_CATEGORY", "Rent", null,
+                new java.math.BigDecimal("12000.00"), new java.math.BigDecimal("12000.00"));
+
+        assertThat(ruleService.create(userId, req, actingAdminId).amountMin()).isEqualByComparingTo("12000.00");
+    }
+
+    @Test
+    void create_rejectsANegativeBound() {
+        var req = new RuleDto.CreateRequest("DESCRIPTION", "CONTAINS", "rent", "ASSIGN_CATEGORY", "Rent", null,
+                new java.math.BigDecimal("-1"), null);
+
+        assertThatThrownBy(() -> ruleService.create(userId, req, actingAdminId))
+                .isInstanceOf(ApiException.class).hasMessageContaining("Amount bounds cannot be negative");
+    }
+
     @Test
     void create_defaultsPriorityTo100_whenNotSupplied() {
-        var req = new RuleDto.CreateRequest("DESCRIPTION", "CONTAINS", "swiggy", "ASSIGN_CATEGORY", "Dining", null);
+        var req = new RuleDto.CreateRequest("DESCRIPTION", "CONTAINS", "swiggy", "ASSIGN_CATEGORY", "Dining", null, null, null);
 
         RuleDto result = ruleService.create(userId, req, actingAdminId);
 
@@ -109,7 +213,7 @@ class RuleServiceTest {
 
     @Test
     void create_rejectsBlankComparisonValue() {
-        var req = new RuleDto.CreateRequest("DESCRIPTION", "CONTAINS", "   ", "ASSIGN_CATEGORY", "Dining", null);
+        var req = new RuleDto.CreateRequest("DESCRIPTION", "CONTAINS", "   ", "ASSIGN_CATEGORY", "Dining", null, null, null);
 
         assertThatThrownBy(() -> ruleService.create(userId, req, actingAdminId))
                 .isInstanceOf(ApiException.class)
@@ -119,7 +223,7 @@ class RuleServiceTest {
 
     @Test
     void create_rejectsAssignCategoryRule_withNullActionValue() {
-        var req = new RuleDto.CreateRequest("DESCRIPTION", "CONTAINS", "swiggy", "ASSIGN_CATEGORY", null, null);
+        var req = new RuleDto.CreateRequest("DESCRIPTION", "CONTAINS", "swiggy", "ASSIGN_CATEGORY", null, null, null, null);
 
         assertThatThrownBy(() -> ruleService.create(userId, req, actingAdminId))
                 .isInstanceOf(ApiException.class)
@@ -129,7 +233,7 @@ class RuleServiceTest {
 
     @Test
     void create_rejectsAssignCategoryRule_withBlankActionValue() {
-        var req = new RuleDto.CreateRequest("DESCRIPTION", "CONTAINS", "swiggy", "ASSIGN_CATEGORY", "   ", null);
+        var req = new RuleDto.CreateRequest("DESCRIPTION", "CONTAINS", "swiggy", "ASSIGN_CATEGORY", "   ", null, null, null);
 
         assertThatThrownBy(() -> ruleService.create(userId, req, actingAdminId))
                 .isInstanceOf(ApiException.class)
@@ -140,7 +244,7 @@ class RuleServiceTest {
     void create_allowsNonCategoryActionType_withNoActionValue() {
         // MARK_TRANSFER (and the other non-category action types) genuinely don't need an
         // actionValue -- only ASSIGN_CATEGORY requires one.
-        var req = new RuleDto.CreateRequest("DESCRIPTION", "CONTAINS", "self transfer", "MARK_TRANSFER", null, null);
+        var req = new RuleDto.CreateRequest("DESCRIPTION", "CONTAINS", "self transfer", "MARK_TRANSFER", null, null, null, null);
 
         RuleDto result = ruleService.create(userId, req, actingAdminId);
 
@@ -155,7 +259,7 @@ class RuleServiceTest {
         // controller), so every call here is in fact an admin acting on a user's behalf, which
         // was previously indistinguishable in the audit trail from the user creating their own
         // rule. Same "actorId" convention as RelationshipServiceTest/MerchantServiceTest.
-        var req = new RuleDto.CreateRequest("DESCRIPTION", "CONTAINS", "swiggy", "ASSIGN_CATEGORY", "Dining", null);
+        var req = new RuleDto.CreateRequest("DESCRIPTION", "CONTAINS", "swiggy", "ASSIGN_CATEGORY", "Dining", null, null, null);
 
         RuleDto result = ruleService.create(userId, req, actingAdminId);
 
@@ -165,7 +269,7 @@ class RuleServiceTest {
 
     @Test
     void create_rejectsUnknownField() {
-        var req = new RuleDto.CreateRequest("NOT_A_REAL_FIELD", "CONTAINS", "swiggy", "ASSIGN_CATEGORY", "Dining", null);
+        var req = new RuleDto.CreateRequest("NOT_A_REAL_FIELD", "CONTAINS", "swiggy", "ASSIGN_CATEGORY", "Dining", null, null, null);
 
         assertThatThrownBy(() -> ruleService.create(userId, req, actingAdminId))
                 .isInstanceOf(ApiException.class)
@@ -180,7 +284,7 @@ class RuleServiceTest {
         CategoryRule existing = existingUserRule(ruleId, userId, CategoryRule.ActionType.ASSIGN_CATEGORY, "Dining");
         when(categoryRuleRepository.findById(ruleId)).thenReturn(Optional.of(existing));
 
-        var req = new RuleDto.UpdateRequest(null, null, null, null, null, 5, null);
+        var req = new RuleDto.UpdateRequest(null, null, null, null, null, 5, null, null, null);
         RuleDto result = ruleService.update(userId, ruleId, req, actingAdminId);
 
         assertThat(result.priority()).isEqualTo(5);
@@ -197,7 +301,7 @@ class RuleServiceTest {
         CategoryRule existing = existingUserRule(ruleId, userId, CategoryRule.ActionType.ASSIGN_CATEGORY, "Dining");
         when(categoryRuleRepository.findById(ruleId)).thenReturn(Optional.of(existing));
 
-        var req = new RuleDto.UpdateRequest(null, null, "", null, null, null, null);
+        var req = new RuleDto.UpdateRequest(null, null, "", null, null, null, null, null, null);
 
         assertThatThrownBy(() -> ruleService.update(userId, ruleId, req, actingAdminId))
                 .isInstanceOf(ApiException.class)
@@ -214,7 +318,7 @@ class RuleServiceTest {
         CategoryRule existing = existingUserRule(ruleId, userId, CategoryRule.ActionType.MARK_TRANSFER, null);
         when(categoryRuleRepository.findById(ruleId)).thenReturn(Optional.of(existing));
 
-        var req = new RuleDto.UpdateRequest(null, null, null, "ASSIGN_CATEGORY", null, null, null);
+        var req = new RuleDto.UpdateRequest(null, null, null, "ASSIGN_CATEGORY", null, null, null, null, null);
 
         assertThatThrownBy(() -> ruleService.update(userId, ruleId, req, actingAdminId))
                 .isInstanceOf(ApiException.class)
@@ -227,7 +331,7 @@ class RuleServiceTest {
         CategoryRule existing = existingUserRule(ruleId, userId, CategoryRule.ActionType.MARK_TRANSFER, null);
         when(categoryRuleRepository.findById(ruleId)).thenReturn(Optional.of(existing));
 
-        var req = new RuleDto.UpdateRequest(null, null, null, "ASSIGN_CATEGORY", "Transfer", null, null);
+        var req = new RuleDto.UpdateRequest(null, null, null, "ASSIGN_CATEGORY", "Transfer", null, null, null, null);
         RuleDto result = ruleService.update(userId, ruleId, req, actingAdminId);
 
         assertThat(result.actionType()).isEqualTo("ASSIGN_CATEGORY");
@@ -240,7 +344,7 @@ class RuleServiceTest {
         CategoryRule existing = existingUserRule(ruleId, userId, CategoryRule.ActionType.ASSIGN_CATEGORY, "Dining");
         when(categoryRuleRepository.findById(ruleId)).thenReturn(Optional.of(existing));
 
-        ruleService.update(userId, ruleId, new RuleDto.UpdateRequest(null, null, null, null, null, 5, null), actingAdminId);
+        ruleService.update(userId, ruleId, new RuleDto.UpdateRequest(null, null, null, null, null, 5, null, null, null), actingAdminId);
 
         verify(auditService).record(eq(userId), eq("RULE_UPDATED"), eq("CategoryRule"), eq(ruleId),
                 argThat(metadata -> actingAdminId.toString().equals(metadata.get("actorId"))));
@@ -251,7 +355,7 @@ class RuleServiceTest {
         UUID ruleId = UUID.randomUUID();
         when(categoryRuleRepository.findById(ruleId)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> ruleService.update(userId, ruleId, new RuleDto.UpdateRequest(null, null, null, null, null, null, null), actingAdminId))
+        assertThatThrownBy(() -> ruleService.update(userId, ruleId, new RuleDto.UpdateRequest(null, null, null, null, null, null, null, null, null), actingAdminId))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("not found");
     }
@@ -261,7 +365,7 @@ class RuleServiceTest {
         UUID ruleId = UUID.randomUUID();
         when(categoryRuleRepository.findById(ruleId)).thenReturn(Optional.of(globalRule(ruleId)));
 
-        assertThatThrownBy(() -> ruleService.update(userId, ruleId, new RuleDto.UpdateRequest(null, null, null, null, null, 1, null), actingAdminId))
+        assertThatThrownBy(() -> ruleService.update(userId, ruleId, new RuleDto.UpdateRequest(null, null, null, null, null, 1, null, null, null), actingAdminId))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("Global rules");
     }
@@ -272,7 +376,7 @@ class RuleServiceTest {
         CategoryRule existing = existingUserRule(ruleId, otherUserId, CategoryRule.ActionType.ASSIGN_CATEGORY, "Dining");
         when(categoryRuleRepository.findById(ruleId)).thenReturn(Optional.of(existing));
 
-        assertThatThrownBy(() -> ruleService.update(userId, ruleId, new RuleDto.UpdateRequest(null, null, null, null, null, 1, null), actingAdminId))
+        assertThatThrownBy(() -> ruleService.update(userId, ruleId, new RuleDto.UpdateRequest(null, null, null, null, null, 1, null, null, null), actingAdminId))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("does not belong to you");
     }

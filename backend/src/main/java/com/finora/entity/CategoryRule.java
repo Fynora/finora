@@ -2,6 +2,7 @@ package com.finora.entity;
 
 import jakarta.persistence.*;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -21,7 +22,9 @@ public class CategoryRule {
     // DESCRIPTION/MERCHANT are string fields (matched via the operator against comparisonValue);
     // AMOUNT is numeric (GT/LT/BETWEEN make sense here, CONTAINS/STARTS_WITH do not);
     // ACCOUNT_TYPE matches Account.Type's name() (SAVINGS/CREDIT_CARD/...).
-    public enum Field { DESCRIPTION, AMOUNT, MERCHANT, ACCOUNT_TYPE }
+    // PAYEE is the payee label (CategoryRules.extractMerchantLabel) and matches money going out
+    // only -- see RuleEngineService.matches. Created by the recurring-payment question (V248).
+    public enum Field { DESCRIPTION, AMOUNT, MERCHANT, ACCOUNT_TYPE, PAYEE }
 
     public enum Operator { CONTAINS, EQUALS, STARTS_WITH, GT, LT, BETWEEN }
 
@@ -88,6 +91,14 @@ public class CategoryRule {
     @Column(name = "last_matched_at")
     private Instant lastMatchedAt;
 
+    // Optional bounds on the transaction amount, inclusive, checked in addition to the rule's own
+    // condition (V248). Null on both sides means no bound, which every rule before V248 has.
+    @Column(name = "amount_min")
+    private BigDecimal amountMin;
+
+    @Column(name = "amount_max")
+    private BigDecimal amountMax;
+
     public UUID getId() { return id; }
     public UUID getUserId() { return userId; }
     public void setUserId(UUID userId) { this.userId = userId; }
@@ -114,4 +125,8 @@ public class CategoryRule {
     public void setMatchCount(long matchCount) { this.matchCount = matchCount; }
     public Instant getLastMatchedAt() { return lastMatchedAt; }
     public void setLastMatchedAt(Instant lastMatchedAt) { this.lastMatchedAt = lastMatchedAt; }
+    public BigDecimal getAmountMin() { return amountMin; }
+    public void setAmountMin(BigDecimal amountMin) { this.amountMin = amountMin; }
+    public BigDecimal getAmountMax() { return amountMax; }
+    public void setAmountMax(BigDecimal amountMax) { this.amountMax = amountMax; }
 }

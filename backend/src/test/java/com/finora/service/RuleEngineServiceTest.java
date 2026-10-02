@@ -427,4 +427,107 @@ class RuleEngineServiceTest {
         assertThatThrownBy(() -> ruleEngineService.testMatch("DESCRIPTION", "NOT_A_REAL_OPERATOR", "x", null, null, null, null))
                 .isInstanceOf(ApiException.class);
     }
+
+    // --- Payee rules and amount bounds (recurring-payment question) ---
+
+    private static final String RENT = "UPI-SAMPLE LANDLORD-sample.landlord@okaxis-YESB0XXXXXX-000000000000-RENT";
+
+    private CategoryRule payeeRule(String label, String min, String max) {
+        CategoryRule r = rule(CategoryRule.Scope.USER, CategoryRule.Field.PAYEE, CategoryRule.Operator.EQUALS,
+                label, CategoryRule.ActionType.ASSIGN_CATEGORY, "Rent", 100);
+        r.setAmountMin(min == null ? null : new BigDecimal(min));
+        r.setAmountMax(max == null ? null : new BigDecimal(max));
+        return r;
+    }
+
+    private boolean matchesOut(List<CategoryRule> rules, String description, String amount) {
+        return ruleEngineService.evaluateCategoryRule(rules, description, amount == null ? null : new BigDecimal(amount),
+                null, null, com.finora.entity.Transaction.Type.EXPENSE).isPresent();
+    }
+
+    @Test
+    void payeeRule_matchesThePayeeLabel_ignoringCase_onMoneyGoingOut() {
+        assertThat(matchesOut(List.of(payeeRule("Sample Landlord", "8000", "12000")), RENT, "10000")).isTrue();
+    }
+
+    @Test
+    void payeeRule_readsThePayeeField_notTheWholeNarration() {
+        // The payee is SAMPLE SHOP; "sample landlord" appears only in the note.
+        String note = "UPI-SAMPLE SHOP-sampleshop@okaxis-YESB0XXXXXX-000000000000-SAMPLE LANDLORD";
+        assertThat(matchesOut(List.of(payeeRule("sample landlord", null, null)), note, "10000")).isFalse();
+    }
+
+    @Test
+    void payeeRule_neverMatchesMoneyComingIn_orAnUnknownDirection() {
+        List<CategoryRule> rules = List.of(payeeRule("sample landlord", "8000", "12000"));
+        assertThat(ruleEngineService.evaluateCategoryRule(rules, RENT, new BigDecimal("10000"), null, null,
+                com.finora.entity.Transaction.Type.INCOME)).isEmpty();
+        assertThat(ruleEngineService.evaluateCategoryRule(rules, RENT, new BigDecimal("10000"), null, null, null)).isEmpty();
+        assertThat(ruleEngineService.evaluateCategoryRule(rules, RENT, new BigDecimal("10000"), null, null)).isEmpty();
+    }
+
+    @Test
+    void amountBounds_areInclusive_andOnePaisaPastEitherEndDoesNotMatch() {
+        List<CategoryRule> rules = List.of(payeeRule("sample landlord", "8000.00", "12000.00"));
+        assertThat(matchesOut(rules, RENT, "8000.00")).isTrue();
+        assertThat(matchesOut(rules, RENT, "12000.00")).isTrue();
+        assertThat(matchesOut(rules, RENT, "7999.99")).isFalse();
+        assertThat(matchesOut(rules, RENT, "12000.01")).isFalse();
+    }
+
+    @Test
+    void oneBoundOnly_boundsThatSideOnly() {
+        assertThat(matchesOut(List.of(payeeRule("sample landlord", "8000", null)), RENT, "999999")).isTrue();
+        assertThat(matchesOut(List.of(payeeRule("sample landlord", "8000", null)), RENT, "7999.99")).isFalse();
+        assertThat(matchesOut(List.of(payeeRule("sample landlord", null, "12000")), RENT, "0.01")).isTrue();
+        assertThat(matchesOut(List.of(payeeRule("sample landlord", null, "12000")), RENT, "12000.01")).isFalse();
+    }
+
+    @Test
+    void aMissingAmount_neverMatchesABoundedRule() {
+        assertThat(matchesOut(List.of(payeeRule("sample landlord", "8000", "12000")), RENT, null)).isFalse();
+    }
+
+    @Test
+    void aNarrationWithNoPayee_neverMatchesAPayeeRule() {
+        assertThat(matchesOut(List.of(payeeRule("upi", null, null)), "UPI/000000000000/UPI", "10")).isFalse();
+    }
+
+    @Test
+    void boundsApplyToEveryField_andOtherFieldsIgnoreDirection() {
+        CategoryRule description = rule(CategoryRule.Scope.USER, CategoryRule.Field.DESCRIPTION, CategoryRule.Operator.CONTAINS,
+                "landlord", CategoryRule.ActionType.ASSIGN_CATEGORY, "Rent", 100);
+        description.setAmountMin(new BigDecimal("8000"));
+        description.setAmountMax(new BigDecimal("12000"));
+        List<CategoryRule> rules = List.of(description);
+        assertThat(ruleEngineService.evaluateCategoryRule(rules, RENT, new BigDecimal("10000"), null, null,
+                com.finora.entity.Transaction.Type.INCOME)).isPresent();
+        assertThat(ruleEngineService.evaluateCategoryRule(rules, RENT, new BigDecimal("20000"), null, null,
+                com.finora.entity.Transaction.Type.INCOME)).isEmpty();
+        // An unbounded rule is untouched by direction and by the new overloads.
+        CategoryRule plain = rule(CategoryRule.Scope.USER, CategoryRule.Field.DESCRIPTION, CategoryRule.Operator.CONTAINS,
+                "landlord", CategoryRule.ActionType.ASSIGN_CATEGORY, "Rent", 100);
+        assertThat(ruleEngineService.evaluateCategoryRule(List.of(plain), RENT, null, null, null, null)).isPresent();
+    }
+
+    @Test
+    void theUserIdOverload_passesTheDirectionThrough() {
+        when(categoryRuleRepository.findByUserIdAndEnabledTrueOrderByPriorityAscComparisonValueAscIdAsc(userId))
+                .thenReturn(List.of(payeeRule("sample landlord", null, null)));
+        when(categoryRuleRepository.findByScopeAndEnabledTrueOrderByPriorityAscComparisonValueAscIdAsc(CategoryRule.Scope.GLOBAL)).thenReturn(List.of());
+        assertThat(ruleEngineService.evaluateCategoryRule(userId, RENT, new BigDecimal("10"), null, null,
+                com.finora.entity.Transaction.Type.EXPENSE)).isPresent();
+    }
+
+    @Test
+    void testMatch_appliesBoundsAndPayee_andDefaultsTheSampleToMoneyGoingOut() {
+        java.math.BigDecimal min = new java.math.BigDecimal("8000");
+        java.math.BigDecimal max = new java.math.BigDecimal("12000");
+        assertThat(ruleEngineService.testMatch("PAYEE", "EQUALS", "sample landlord", RENT, new BigDecimal("10000"),
+                null, null, null, min, max)).isTrue();
+        assertThat(ruleEngineService.testMatch("PAYEE", "EQUALS", "sample landlord", RENT, new BigDecimal("10000"),
+                null, null, "INCOME", min, max)).isFalse();
+        assertThat(ruleEngineService.testMatch("PAYEE", "EQUALS", "sample landlord", RENT, new BigDecimal("13000"),
+                null, null, "EXPENSE", min, max)).isFalse();
+    }
 }

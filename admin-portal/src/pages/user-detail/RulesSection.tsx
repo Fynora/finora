@@ -5,8 +5,10 @@ import { adminUserRulesApi } from '../../api/endpoints';
 import type { CreateRuleRequest, RuleDto, UpdateRuleRequest } from '../../types';
 import { errorMessage } from './errorMessage';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { ruleAmountRange } from '../../lib/ruleAmountRange';
 
-const RULE_FIELDS = ['DESCRIPTION', 'AMOUNT', 'MERCHANT', 'ACCOUNT_TYPE'];
+// PAYEE: the payee name, money going out only -- what the recurring-payment question saves.
+const RULE_FIELDS = ['DESCRIPTION', 'AMOUNT', 'MERCHANT', 'ACCOUNT_TYPE', 'PAYEE'];
 const RULE_OPERATORS = ['CONTAINS', 'EQUALS', 'STARTS_WITH', 'GT', 'LT', 'BETWEEN'];
 const RULE_ACTION_TYPES = ['ASSIGN_CATEGORY', 'MARK_TRANSFER', 'MARK_INVESTMENT', 'MARK_SUBSCRIPTION', 'ADD_TAG'];
 const BLANK_RULE_FORM: CreateRuleRequest = {
@@ -65,6 +67,12 @@ export function InlineRuleForm({
           onChange={(e) => setForm({ ...form, comparisonValue: e.target.value })}
           className="md:col-span-2 bg-card border border-border rounded-lg px-2.5 py-1.5 text-xs"
         />
+        {ruleAmountRange(form.amountMin, form.amountMax) && (
+          // Read only: the user's recurring-payment answer sets it; editing here keeps it as is.
+          <p className="md:col-span-2 text-xs text-muted self-center">
+            Amount {ruleAmountRange(form.amountMin, form.amountMax)} (set from the app)
+          </p>
+        )}
         <select
           aria-label="Action type"
           value={form.actionType}
@@ -144,6 +152,8 @@ function RuleRow({ userId, rule }: { userId: string; rule: RuleDto }) {
             actionType: rule.actionType,
             actionValue: rule.actionValue ?? '',
             priority: rule.priority,
+            amountMin: rule.amountMin ?? null,
+            amountMax: rule.amountMax ?? null,
           }}
           submitting={updateMutation.isPending}
           error={error}
@@ -164,7 +174,9 @@ function RuleRow({ userId, rule }: { userId: string; rule: RuleDto }) {
           {rule.field} {rule.operator.replace('_', ' ').toLowerCase()} "{rule.comparisonValue}"
         </p>
         <p className="text-xs text-muted">
-          {rule.actionType}{rule.actionValue ? `: ${rule.actionValue}` : ''} · priority {rule.priority} · {rule.matchCount} matches
+          {rule.actionType}{rule.actionValue ? `: ${rule.actionValue}` : ''}
+          {ruleAmountRange(rule.amountMin, rule.amountMax) ? ` · amount ${ruleAmountRange(rule.amountMin, rule.amountMax)}` : ''}
+          {' '}· priority {rule.priority} · {rule.matchCount} matches
         </p>
         {error && <p className="text-xs text-danger mt-1">{error}</p>}
       </div>

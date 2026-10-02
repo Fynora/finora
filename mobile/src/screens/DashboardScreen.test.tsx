@@ -8,6 +8,7 @@ import { ToastProvider } from '../context/ToastContext';
 import {
   accountsApi, budgetsApi, dashboardApi, entitlementsApi, goalsApi, insightsApi, recurringApi,
   reportsApi, transactionsApi, userApi,
+  type RecurringItem,
 } from '../api/endpoints';
 import { light } from '../theme/palette';
 import type { DashboardSummary } from '../types';
@@ -92,7 +93,7 @@ jest.mock('../api/endpoints', () => ({
   userApi: { get: jest.fn() },
   reportsApi: { availableMonths: jest.fn(), forMonth: jest.fn() },
   budgetsApi: { list: jest.fn() },
-  recurringApi: { list: jest.fn(), dismiss: jest.fn() },
+  recurringApi: { list: jest.fn(), dismiss: jest.fn(), categorize: jest.fn(), changedAmounts: jest.fn().mockResolvedValue([]) },
   // ChecklistWidget (mounted on DashboardScreen, D-onboarding) fetches this on every render --
   // default to "already 6/6" so it renders nothing and every existing test below, none of which
   // cares about onboarding, keeps seeing exactly the Dashboard content it did before this widget
@@ -1349,10 +1350,7 @@ describe('Subscriptions & Recurring Payments widget (Phase 4)', () => {
     return `${d.getFullYear()}-${month}-${day}`;
   }
 
-  function recurringItem(over: Partial<{
-    merchant: string; label: string; averageAmount: number; occurrences: number;
-    lastDate: string; nextEstimate: string;
-  }> = {}) {
+  function recurringItem(over: Partial<RecurringItem> = {}) {
     return {
       merchant: 'Netflix', label: 'Subscription', averageAmount: 499, occurrences: 6,
       lastDate: inLocalDays(-30), nextEstimate: inLocalDays(5),
@@ -1377,6 +1375,45 @@ describe('Subscriptions & Recurring Payments widget (Phase 4)', () => {
     expect(await screen.findByText('Netflix')).toBeTruthy();
     expect(screen.getByText('Subscription')).toBeTruthy();
     expect(screen.getByText('₹499')).toBeTruthy();
+  });
+
+  it('still asks "still Rent?" for a payee whose amount moved when no group is detected at all', async () => {
+    recurring.list.mockResolvedValue([]);
+    jest.mocked(recurringApi.changedAmounts).mockResolvedValueOnce([
+      { merchant: 'sample owner', category: 'Rent', latestAmount: 12500, latestDate: '2026-07-03', amountMin: 7999, amountMax: 12001 },
+    ]);
+
+    renderScreen();
+
+    expect(await screen.findByText('₹12,500 to sample owner — still Rent?')).toBeOnTheScreen();
+  });
+
+  it('asks about a payment beyond the five soonest, without showing the rest', async () => {
+    const item = (merchant: string, days: number, state: 'NEEDS_ANSWER' | 'NONE') => recurringItem({
+      merchant, label: 'Monthly', averageAmount: 500, nextEstimate: inLocalDays(days), state, answer: null,
+      latestAmount: 500, category: state === 'NONE' ? 'Dining' : 'Other',
+    });
+    recurring.list.mockResolvedValue([
+      item('sample one', 1, 'NONE'), item('sample two', 2, 'NONE'), item('sample three', 3, 'NONE'),
+      item('sample four', 4, 'NONE'), item('sample five', 5, 'NONE'),
+      item('sample sixth', 6, 'NEEDS_ANSWER'), item('sample seventh', 7, 'NONE'),
+    ]);
+
+    renderScreen();
+
+    expect(await screen.findByText('What is this ₹500 monthly payment?')).toBeOnTheScreen();
+    expect(screen.queryByText('sample seventh')).not.toBeOnTheScreen();
+  });
+
+  it('asks what an unanswered repeating payment is, under its row', async () => {
+    recurring.list.mockResolvedValue([recurringItem({
+      merchant: 'sample owner', label: 'Monthly', averageAmount: 10000, state: 'NEEDS_ANSWER', answer: null,
+      latestAmount: 10000, category: 'Other',
+    })]);
+
+    renderScreen();
+
+    expect(await screen.findByText('What is this ₹10,000 monthly payment?')).toBeOnTheScreen();
   });
 
   it('words the projected date as today, tomorrow, or in N days', async () => {

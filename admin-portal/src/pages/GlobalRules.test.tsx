@@ -107,6 +107,19 @@ describe('GlobalRules', () => {
     expect(screen.getByText('Enabled')).toBeInTheDocument();
   });
 
+  it("shows a rule's amount range in the list", async () => {
+    mockAuth(['RULE_MANAGE']);
+    vi.mocked(adminRulesApi.list).mockResolvedValue(pageOf({
+      id: 'rule-2', scope: 'GLOBAL', field: 'DESCRIPTION', operator: 'CONTAINS', comparisonValue: 'Sample Rent',
+      actionType: 'ASSIGN_CATEGORY', actionValue: 'Rent', priority: 100, enabled: true, matchCount: 0, lastMatchedAt: null,
+      amountMin: 8000, amountMax: 12000,
+    }));
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText(/₹8,000 – ₹12,000/)).toBeInTheDocument());
+  });
+
   it('shows the empty message when there are no global rules yet', async () => {
     mockAuth(['RULE_MANAGE']);
     vi.mocked(adminRulesApi.list).mockResolvedValue(pageOf());

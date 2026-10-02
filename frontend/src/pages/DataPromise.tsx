@@ -13,7 +13,7 @@ import { PublicLayout, PublicSection } from '../components/PublicLayout';
 //
 // Deliberately scoped to EXPORT, not to "financial history" in general: plans.ts markets a real
 // Plus/Premium-only "Extended financial history" feature, enforced by ImportService's
-// FREE_STATEMENT_PERIOD_MAX_DAYS (31 days per statement on Free, via the EXTENDED_HISTORY
+// FreeStatementPeriod (one month per statement on Free, via the EXTENDED_HISTORY
 // entitlement). That's a real, shipped, tiered limit on how much history a Free account can bring
 // in per import -- a blanket "your financial history is never leverage" claim would contradict it.
 // The promise here is narrower and still fully true: whatever is already in your account exports

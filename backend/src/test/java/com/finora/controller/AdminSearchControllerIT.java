@@ -4,8 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.AbstractIntegrationTest;
 import com.finora.entity.Bank;
+import com.finora.entity.CategoryRule;
 import com.finora.entity.User;
 import com.finora.repository.BankRepository;
+import com.finora.repository.CategoryRuleRepository;
 import com.finora.repository.RefreshTokenRepository;
 import com.finora.repository.UserRepository;
 import com.finora.security.JwtService;
@@ -15,6 +17,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.*;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,6 +32,7 @@ class AdminSearchControllerIT extends AbstractIntegrationTest {
     @Autowired private TestRestTemplate restTemplate;
     @Autowired private UserRepository userRepository;
     @Autowired private BankRepository bankRepository;
+    @Autowired private CategoryRuleRepository categoryRuleRepository;
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
     private final ObjectMapper mapper = new ObjectMapper();
@@ -142,5 +147,61 @@ class AdminSearchControllerIT extends AbstractIntegrationTest {
         JsonNode data = mapper.readTree(response.getBody()).get("data");
         assertThat(data.isArray()).isTrue();
         assertThat(data).isEmpty();
+    }
+
+    /** One search term carrying a literal underscore, run against real Postgres. The LIKE-backed
+     *  sub-searches must treat _ literally (the decoy bank, whose name differs from the target
+     *  only where the _ sits, must not match), and the in-memory Global Rules filter must still
+     *  find the rule whose comparison value contains the term -- it used to receive the
+     *  LIKE-escaped "zrule\_..." and match nothing. */
+    @Test
+    void search_termWithUnderscore_matchesLiterallyInBanksAndStillFindsGlobalRule() throws Exception {
+        User admin = createUser("ADMIN", "Search Admin Three");
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+
+        Bank target = new Bank();
+        target.setId("zb_" + suffix);
+        target.setOfficialName("Zephyr Underscore Bank");
+        target.setShortName("ZB_" + suffix);
+        Bank decoy = new Bank();
+        decoy.setId("zbx" + suffix);
+        decoy.setOfficialName("Zephyr Decoy Bank");
+        decoy.setShortName("ZBX" + suffix);
+        bankRepository.save(target);
+        bankRepository.save(decoy);
+
+        // Disabled so the rule engine never evaluates it for any other test sharing this database;
+        // admin search lists disabled global rules too (findByScopeOrderByPriorityAsc).
+        CategoryRule rule = new CategoryRule();
+        rule.setScope(CategoryRule.Scope.GLOBAL);
+        rule.setField(CategoryRule.Field.DESCRIPTION);
+        rule.setOperator(CategoryRule.Operator.CONTAINS);
+        rule.setComparisonValue("ZRULE_" + suffix + " transfer");
+        rule.setActionType(CategoryRule.ActionType.ASSIGN_CATEGORY);
+        rule.setActionValue("Transfers");
+        rule.setEnabled(false);
+        rule = categoryRuleRepository.save(rule);
+
+        try {
+            ResponseEntity<String> bankResponse = search("zb_" + suffix, bearerFor(admin));
+            assertThat(bankResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(idsOfType(bankResponse, "bank")).containsExactly(target.getId());
+
+            ResponseEntity<String> ruleResponse = search("zrule_" + suffix, bearerFor(admin));
+            assertThat(ruleResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(idsOfType(ruleResponse, "rule")).containsExactly(rule.getId().toString());
+        } finally {
+            categoryRuleRepository.delete(rule);
+            bankRepository.delete(target);
+            bankRepository.delete(decoy);
+        }
+    }
+
+    private List<String> idsOfType(ResponseEntity<String> response, String type) throws Exception {
+        List<String> ids = new ArrayList<>();
+        for (JsonNode row : mapper.readTree(response.getBody()).get("data")) {
+            if (row.get("type").asText().equals(type)) ids.add(row.get("id").asText());
+        }
+        return ids;
     }
 }

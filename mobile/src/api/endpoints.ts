@@ -213,6 +213,22 @@ export interface UpdateTransactionPayload {
   categoryName?: string | null;
   notes?: string | null;
   tags?: string[] | null;
+  // Which rows a categoryName reaches; ignored without one. See CategoryScope.
+  applyTo?: CategoryScope;
+}
+
+// Mirrors TransactionDto.CategoryScope: which rows a category picked for one transaction reaches.
+// SIMILAR: this row and every other row from the same payee in the same direction, except rows the
+// user categorised by hand, remembered for future imports. ONLY_THIS: this row only, nothing
+// remembered.
+export type CategoryScope = 'SIMILAR' | 'ONLY_THIS';
+
+// Mirrors TransactionDto.SimilarSummary: what SIMILAR would reach from one transaction.
+export interface SimilarSummary {
+  /** Other rows from the same payee in the same direction that would change. */
+  similar: number;
+  /** Rows from that payee and direction the user categorised by hand, which keep their category. */
+  keptByUser: number;
 }
 
 // Mirrors frontend/src/api/endpoints.ts's identical interface -- accountId is required (a
@@ -248,8 +264,13 @@ export const transactionsApi = {
   create: (body: CreateTransactionPayload) => api.post<Transaction>('/transactions', body).then((r) => r.data),
   update: (id: string, body: UpdateTransactionPayload) =>
     api.put<Transaction>(`/transactions/${id}`, body).then((r) => r.data),
-  updateCategory: (id: string, category: string) =>
-    api.patch<Transaction>(`/transactions/${id}/category`, { category }).then((r) => r.data),
+  // applyTo omitted keeps the server's behaviour from before the choice existed (this row only,
+  // remembered for future imports) -- see CategoryScope.
+  updateCategory: (id: string, category: string, applyTo?: CategoryScope) =>
+    api.patch<Transaction>(`/transactions/${id}/category`, applyTo ? { category, applyTo } : { category })
+      .then((r) => r.data),
+  similar: (id: string) =>
+    api.get<SimilarSummary>(`/transactions/${id}/similar`).then((r) => r.data),
   remove: (id: string) => api.delete(`/transactions/${id}`),
   // { ids } rather than a bare array: the endpoint now takes a validated DTO that bounds the
   // list (MAX_BULK_IDS). It previously accepted an unbounded List<UUID> straight off the body.

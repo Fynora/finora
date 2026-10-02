@@ -262,7 +262,9 @@ public final class PersonToPersonTransferDetector {
             // Merchant-UPI IFSC. The BRANCH half is the signal here, unusually: PSPs route
             // merchant collections through dedicated pseudo-branches whose code spells out what
             // they are, so the bank prefix is the part that varies and is deliberately a wildcard.
-            + "|[a-z]{4}0(?:MCHUPI|MERUPI|PTMUPI)"
+            // MERCHA joined later: on the corpus its two payees are a marketplace and a shop whose
+            // owner's full name read as a personal transfer.
+            + "|[a-z]{4}0(?:MCHUPI|MERUPI|PTMUPI|MERCHA)"
             // The same shape on a bank's own merchant handles: DC0099 is not a customer branch
             // number, and on the real corpus only businesses collect through it -- 32 rows, every
             // payee a business or an institution, none a person. Among them a brand whose one-word
@@ -276,6 +278,18 @@ public final class PersonToPersonTransferDetector {
             // remark happened to repeat the brand -- evidence that no longer counts.
             + "|\\bbharatpe"
             + "|\\bvyapar\\."
+            // Bajaj Pay's merchant handles, "bajajpay.<partner>.<merchant>": on the corpus both rows
+            // collect through a merchant pseudo-branch, and on a tester's statement one partner
+            // prefix was paid under an electrician's name and a shopkeeper's first name. Only the
+            // handle's prefix with its digits counts, never the brand word on its own.
+            + "|\\bbajajpay\\.\\d"
+            // A payments brand's numbered ids ("autope-<digits>"). On a tester's statement the bank
+            // printed the brand itself as the payee's name, which the one-word slot rule read as a
+            // first name.
+            + "|\\bautope-\\d"
+            // A card-machine and payment-gateway provider: its ids name the terminal, not a person,
+            // even when the bank prints the shop owner's full name beside it.
+            + "|payswiff"
             // Second wave, mined from the 1,098 rows still landing in "Other" after the first.
             // Two acquirer QR/soundbox families and two payment gateways. A gateway in the
             // narration is as conclusive as a merchant VPA: PayU, Razorpay and Cashfree settle
@@ -356,6 +370,8 @@ public final class PersonToPersonTransferDetector {
         String text = counterpartyText(description);
         if (hasQrHandle(text)) return false;
         if (MERCHANT_ACQUIRER_MARKER.matcher(text).find()) return false;
+        // A UPI id that begins with a known brand's name is that brand's, whatever the cut name says.
+        if (MerchantIdentityLookup.handleNamesKnownMerchant(CounterpartyIdentity.payeeHandle(description))) return false;
         // A fee paid to the state, however person-shaped its payee line (a portal's own 3-word name).
         if (CounterpartyClassifier.namesGovernmentBody(text)) return false;
 

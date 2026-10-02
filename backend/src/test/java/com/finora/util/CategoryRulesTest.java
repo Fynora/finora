@@ -243,6 +243,15 @@ class CategoryRulesTest {
     }
 
     /**
+     * Real corpus finding: "PMSBY" is the same government's Pradhan Mantri Suraksha Bima Yojana
+     * accident-insurance scheme, debited in the same "JNS-" narration shape as PMJJBY.
+     */
+    @Test
+    void suggestCategory_matchesPmsby_governmentInsuranceScheme() {
+        assertThat(CategoryRules.suggestCategory("JNS-PMSBY-26-27-00000000000-000_DAP")).isEqualTo("Insurance");
+    }
+
+    /**
      * Real corpus finding: "NSE MF" is the National Stock Exchange's mutual-fund investment
      * platform -- a real narration uses "MF" rather than the already-seeded "mutual fund"/
      * "mutualfunds" spellings.
@@ -313,6 +322,27 @@ class CategoryRulesTest {
     @Test
     void suggestCategory_indianClearingCorpIsNotMisclassifiedAsTransport() {
         assertThat(CategoryRules.suggestCategory("INDIAN CLEARING CORP SETTLEMENT")).isNotEqualTo("Transport");
+    }
+
+    /**
+     * The clearing house's fund-transfer credits arrive wrapped mid-word: the bank's fixed-width
+     * narration line ends after the "C" of "CLEARING", and the parser rejoins the two lines with a
+     * space it has no evidence to remove. Without the split phrase these rows were "Other".
+     */
+    @Test
+    void suggestCategory_indianClearingCorpSplitByALineWrapIsInvestments() {
+        assertThat(CategoryRules.suggestCategory(
+                "FT- 0000000000-00000000000000 - INDIAN C LEARING CORPORATION LIMITED -"))
+                .isEqualTo("Investments");
+    }
+
+    /** The split phrase is word-boundary matched like every other keyword: a narration that only
+     *  happens to contain the same letters run together, or "learing" without the leading "c",
+     *  is not the clearing house. */
+    @Test
+    void suggestCategory_splitClearingPhraseNeedsTheWholeWrappedPhrase() {
+        assertThat(CategoryRules.suggestCategory("UPI-INDIAN LEARING ACADEMY-REF991021")).isNotEqualTo("Investments");
+        assertThat(CategoryRules.suggestCategory("UPI-INDIANC LEARINGTON STORES-REF991021")).isNotEqualTo("Investments");
     }
 
     /**
@@ -455,6 +485,35 @@ class CategoryRulesTest {
     @Test
     void extractMerchant_aWordContainingRrnIsNotTheLabel() {
         assertThat(CategoryRules.extractMerchant("TERRNOVA SAMPLE STORE")).isEqualTo("terrnova sample store");
+    }
+
+    // --- a UPI handle names the payment app or bank, never the merchant ---
+
+    @Test
+    void suggestCategory_ignoresAKeywordThatIsTheWholeUpiHandle() {
+        assertThat(CategoryRules.suggestCategory("UPI/900011112222/shopname@airtel/payment")).isEqualTo("Other");
+        assertThat(CategoryRules.suggestCategory("UPI-SHOPNAME-shopname@JIO-ZZZZ0000000-900011112222")).isEqualTo("Other");
+    }
+
+    @Test
+    void suggestCategory_stillMatchesTheKeywordOutsideTheHandle() {
+        assertThat(CategoryRules.suggestCategory("UPI/AIRTEL/airtelbill@okzz/900011112222")).isEqualTo("Utilities");
+        assertThat(CategoryRules.suggestCategory("JIO PREPAID RECHARGE")).isEqualTo("Utilities");
+        // Payee AND handle both say airtel: the payee still counts.
+        assertThat(CategoryRules.suggestCategory("UPI/AIRTEL/bill@airtel/900011112222")).isEqualTo("Utilities");
+    }
+
+    @Test
+    void suggestCategory_handleEndsAtTheNextDelimiter() {
+        assertThat(CategoryRules.suggestCategory("UPI/shopname@okzz/airtel recharge")).isEqualTo("Utilities");
+        assertThat(CategoryRules.suggestCategory("UPI-shopname@okzz-ZEPTO")).isEqualTo("Groceries");
+    }
+
+    @Test
+    void suggestCategory_nullAndBlankStillReturnOther() {
+        assertThat(CategoryRules.suggestCategory(null)).isEqualTo("Other");
+        assertThat(CategoryRules.suggestCategory("@")).isEqualTo("Other");
+        assertThat(CategoryRules.suggestCategory("")).isEqualTo("Other");
     }
 }
 

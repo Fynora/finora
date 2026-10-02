@@ -1,5 +1,7 @@
 package com.finora.imports;
 
+import com.finora.dto.ImportDto;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashMap;
@@ -39,6 +41,31 @@ class ColumnAmbiguityValidatorTest {
         assertThat(finding.details().get("ambiguities").toString())
                 .contains("MULTIPLE_AMOUNTS_IN_ONE_COLUMN")
                 .contains("Deposits");
+    }
+
+    /** A real scanned HSBC statement: its footer ("<total>DR As at <OCR noise> Balance Carried
+     *  Forward") carries an OCR'd date and several numbers in the withdrawals cell. Nothing was read
+     *  from it -- the row could not be parsed and was set aside -- so no reading was chosen. */
+    @Test
+    void ignoresARowThatCouldNotBeParsedAtAll() {
+        Map<String, String> footer = row("Date", "05JUN2026", "Details", "Withdrawals Deposits",
+                "Withdrawals", "1,000.00DR As at 10.000.00 Balance Carried Forward", "Balance", "29JUN2026 500.00");
+        var finding = validator.check(List.of(footer),
+                List.of(new ImportDto.UnparseableRow(footer, "Amount value didn't match any known numeric format")));
+
+        assertThat(finding.outcome()).isEqualTo("VERIFIED");
+        assertThat(finding.details()).containsEntry("ambiguousRows", 0);
+    }
+
+    @Test
+    void stillFlagsTheSameShapeWhenTheRowWasStaged() {
+        Map<String, String> staged = row("Txn Date", "10/07/2026", "Narration", "UPI CREDIT", "Deposits", "0.00 25,000.00");
+        Map<String, String> other = row("Txn Date", "11/07/2026", "Narration", "SAMPLE NOTE", "Deposits", "abc");
+        var finding = validator.check(List.of(staged, other),
+                List.of(new ImportDto.UnparseableRow(other, "no amount")));
+
+        assertThat(finding.outcome()).isEqualTo("WARNING");
+        assertThat(finding.details()).containsEntry("ambiguousRows", 1);
     }
 
     @Test

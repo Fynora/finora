@@ -32,6 +32,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -309,6 +310,7 @@ public class TransactionService {
 
         String categoryName = req.categoryName();
         Category category;
+        CategorizationService.Suggestion suggestion = null;
         if (categoryName != null) {
             // An explicit category from the caller is a real decision — resolve it, learn from
             // it, and mark it manually set so the UI never shows it as an engine guess.
@@ -326,7 +328,7 @@ public class TransactionService {
             // "Ask Once" review queue instead of silently learning a non-decision -- unless the
             // user's own auto-apply confidence threshold says otherwise; see
             // CategorizationService.needsCategoryReview's own doc comment.
-            var suggestion = categorizationService.suggest(userId, req.description(), req.amount(), null, t.getTxnType());
+            suggestion = categorizationService.suggest(userId, req.description(), req.amount(), null, t.getTxnType());
             t.setMerchantId(suggestion.merchantId()); // already resolved as part of suggest() — no need to resolve twice
             category = categorizationService.resolveOrCreateCategory(userId, suggestion.category());
             t.setNeedsCategoryReview(categorizationService.needsCategoryReview(
@@ -336,9 +338,6 @@ public class TransactionService {
             t.setDecisionSource(suggestion.decisionSource());
             t.setDecisionRuleId(suggestion.ruleId());
             t.setDecisionConfidence(suggestion.confidence());
-            // create() is always a real write (unlike CsvImportService, there's no staging/
-            // preview step in between) -- safe to record the match right here.
-            categorizationService.recordRuleMatch(suggestion.ruleId());
         }
         t.setCategoryId(category.getId());
         // MARK_TRANSFER/MARK_INVESTMENT/ADD_TAG rules -- see CategorizationService.applySideEffectRules's
@@ -356,6 +355,14 @@ public class TransactionService {
             // CsvImportService.confirm()'s equivalent side-effect-rule override -- see that
             // method's own comment on this exact pattern.
             t.setCategoryId(category.getId());
+        }
+        // create() is always a real write (unlike CsvImportService, there's no staging/preview
+        // step in between) -- safe to record the suggestion's rule match here. Only once side
+        // effects have run, and only if that rule is still the decision: a MARK_INVESTMENT rule
+        // that replaced the category is the decision now (applySideEffectRules counts that one),
+        // and the rule it replaced did not decide what was stored.
+        if (suggestion != null && java.util.Objects.equals(t.getDecisionRuleId(), suggestion.ruleId())) {
+            categorizationService.recordRuleMatch(suggestion.ruleId());
         }
 
         // A transaction dated on or before the day the balance is already known as of is inside that
@@ -589,22 +596,15 @@ public class TransactionService {
         if (req.tags() != null) t.setTags(req.tags());
 
         Category category = null;
+        List<Transaction> similar = List.of();
         if (req.categoryName() != null) {
             category = categorizationService.resolveOrCreateCategory(userId, req.categoryName());
-            t.setCategoryId(category.getId());
-            t.setCategoryManuallySet(true);
-            t.setNeedsCategoryReview(false); // an explicit edit always resolves the review flag, even choosing "Other" on purpose
-            t.setDecisionSource(Transaction.DecisionSource.MANUAL);
-            t.setDecisionRuleId(null);
-            t.setDecisionConfidence(null);
-            categorizationService.learn(userId, t.getDescription(), category.getId());
-        sharedCorpusService.recordObservation(userId, t.getCounterpartyKey(), t.getCounterpartyType(),
-                t.getTxnType(), category.getName());
-        userMerchantCategoryResolutionService.pin(userId, t.getCounterpartyKey(), t.getTxnType(), category.getId());
+            similar = applyChosenCategory(userId, t, category, req.applyTo());
         }
 
         if (req.date() != null) recordManualEntryCoverage(t);
         Transaction saved = transactionRepository.save(t);
+        if (!similar.isEmpty()) transactionRepository.saveAll(similar);
 
         BigDecimal newDelta = balanceOf(saved);
         com.finora.accounts.RowBalanceEffect.Location newLocation = locateEffect(saved);
@@ -663,24 +663,94 @@ public class TransactionService {
 
     @Transactional
     public TransactionDto updateCategory(UUID userId, UUID txnId, String categoryName) {
+        return updateCategory(userId, txnId, categoryName, null);
+    }
+
+    /** @param scope which rows the choice reaches, see {@link TransactionDto.CategoryScope}; null keeps
+     *               the behaviour from before the choice existed */
+    @Transactional
+    public TransactionDto updateCategory(UUID userId, UUID txnId, String categoryName,
+                                         TransactionDto.CategoryScope scope) {
         Transaction t = getOwned(userId, txnId);
         String previousCategoryId = String.valueOf(t.getCategoryId());
         Category category = categorizationService.resolveOrCreateCategory(userId, categoryName);
-        t.setCategoryId(category.getId());
-        t.setNeedsCategoryReview(false); // an explicit choice always resolves the review flag, even if they pick "Other" on purpose
-        t.setCategoryManuallySet(true);
-        t.setDecisionSource(Transaction.DecisionSource.MANUAL);
-        t.setDecisionRuleId(null);
-        t.setDecisionConfidence(null);
+        List<Transaction> similar = applyChosenCategory(userId, t, category, scope);
+        Transaction saved = transactionRepository.save(t);
+        if (!similar.isEmpty()) transactionRepository.saveAll(similar);
+        List<Transaction> edited = new ArrayList<>(similar);
+        edited.add(saved);
+        reconcileIfInvestmentExclusionMayChange(userId, edited, category);
+        auditService.record(userId, "TRANSACTION_CATEGORY_UPDATED", "Transaction", txnId,
+                Map.of("previousCategoryId", previousCategoryId, "newCategory", categoryName,
+                        "scope", scope == null ? "UNSPECIFIED" : scope.name(), "similarChanged", similar.size()));
+        return TransactionDto.from(saved, category.getName());
+    }
+
+    /**
+     * What "apply to all similar" would reach from {@code txnId}: see
+     * {@link TransactionDto.SimilarSummary}. Read-only.
+     */
+    @Transactional(readOnly = true)
+    public TransactionDto.SimilarSummary similarSummary(UUID userId, UUID txnId) {
+        Transaction t = getOwned(userId, txnId);
+        List<Transaction> samePayee = samePayeeRows(userId, t);
+        int kept = (int) samePayee.stream().filter(Transaction::isCategoryManuallySet).count();
+        return new TransactionDto.SimilarSummary(samePayee.size() - kept, kept);
+    }
+
+    /**
+     * Applies a category the user chose for {@code t}, on {@code t} itself and, for
+     * {@link TransactionDto.CategoryScope#SIMILAR}, on every other row from the same payee in the same
+     * direction whose category the user has not set by hand. Returns those other rows, changed and
+     * not yet saved; {@code t} is changed and not saved either.
+     *
+     * <p>Learning happens once, from {@code t}: the other rows share its payee, so learning each
+     * would only repeat the same lesson. {@code ONLY_THIS} learns nothing and remembers nothing --
+     * a one-off must not become the payee's category for every future import.
+     */
+    private List<Transaction> applyChosenCategory(UUID userId, Transaction t, Category category,
+                                                  TransactionDto.CategoryScope scope) {
+        markChosen(t, category);
+        if (scope == TransactionDto.CategoryScope.ONLY_THIS) return List.of();
         categorizationService.learn(userId, t.getDescription(), category.getId());
         sharedCorpusService.recordObservation(userId, t.getCounterpartyKey(), t.getCounterpartyType(),
                 t.getTxnType(), category.getName());
-        userMerchantCategoryResolutionService.pin(userId, t.getCounterpartyKey(), t.getTxnType(), category.getId());
-        Transaction saved = transactionRepository.save(t);
-        reconcileIfInvestmentExclusionMayChange(userId, List.of(saved), category);
-        auditService.record(userId, "TRANSACTION_CATEGORY_UPDATED", "Transaction", txnId,
-                Map.of("previousCategoryId", previousCategoryId, "newCategory", categoryName));
-        return TransactionDto.from(saved, category.getName());
+        // Remembered for the payee only when the key names one: pinned to a masked UPI id or a
+        // gateway-only name, this choice would file every future payment to a stranger on that key.
+        if (com.finora.util.CounterpartyIdentity.identifiesOnePayee(t.getCounterpartyKey())) {
+            userMerchantCategoryResolutionService.pin(userId, t.getCounterpartyKey(), t.getTxnType(), category.getId());
+        }
+        if (scope != TransactionDto.CategoryScope.SIMILAR) return List.of();
+        List<Transaction> similar = samePayeeRows(userId, t).stream()
+                .filter(other -> !other.isCategoryManuallySet())
+                .toList();
+        similar.forEach(other -> markChosen(other, category));
+        return similar;
+    }
+
+    /** The user chose this category: it resolves the review flag, even "Other" picked on purpose. */
+    private static void markChosen(Transaction t, Category category) {
+        t.setCategoryId(category.getId());
+        t.setCategoryManuallySet(true);
+        t.setNeedsCategoryReview(false);
+        t.setDecisionSource(Transaction.DecisionSource.MANUAL);
+        t.setDecisionRuleId(null);
+        t.setDecisionConfidence(null);
+    }
+
+    /**
+     * Other rows with {@code t}'s payee and direction, on the user's live accounts. None when the key
+     * does not identify one payee ({@link com.finora.util.CounterpartyIdentity#identifiesOnePayee}):
+     * a masked UPI id or a gateway-only name joins strangers, and applying a choice across it would
+     * recategorise payments to other people. A deleted account's rows stay out: the user cannot see
+     * them, so they must not be counted in the question or changed by the answer.
+     */
+    private List<Transaction> samePayeeRows(UUID userId, Transaction t) {
+        if (!com.finora.util.CounterpartyIdentity.identifiesOnePayee(t.getCounterpartyKey())) return List.of();
+        List<UUID> liveAccountIds = accountRepository.findByUserId(userId).stream().map(Account::getId).toList();
+        if (liveAccountIds.isEmpty()) return List.of();
+        return transactionRepository.findByUserIdAndCounterpartyKeyAndTxnTypeAndIdNotAndAccountIdIn(
+                userId, t.getCounterpartyKey(), t.getTxnType(), t.getId(), liveAccountIds);
     }
 
     /**

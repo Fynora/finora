@@ -217,8 +217,23 @@ public final class CreditCardSummaryExtractor {
         // Axis statement does exactly this). The two are never merged field-by-field even when
         // picking a winner -- combining fields pulled by two different matching approaches risks
         // attributing one strategy's number to another's row.
-        CreditCardSummaryEvidence grid = tryGrid(runs);
-        CreditCardSummaryEvidence sameRow = trySameRow(runs);
+        Reading gridReading = tryGrid(runs);
+        Reading sameRowReading = trySameRow(runs);
+        // Two readings from DIFFERENT pages are not two readings of one panel. Real case, both Axis
+        // statements: GRID reads the statement's own total due on page 1, INLINE reads the card's
+        // printed worked example of how interest is charged on page 3 (its "Total Amount Due" and
+        // purchase figures). Reported as a conflict, that put "review recommended" on two correct
+        // statements. A statement prints its summary before its terms, and across all 13 real card
+        // statements every summary is on page 1 -- so GRID's earlier-page reading is the
+        // statement's, and INLINE's later-page one is set aside entirely, never mixed in or compared.
+        // Only that measured shape. The reverse (INLINE earlier, GRID later) has never been seen,
+        // and INLINE's page-wide search is the strategy that latches onto unrelated text, so there
+        // the old behaviour stands: GRID wins and the disagreement is still flagged for review.
+        if (gridReading.found() && sameRowReading.found() && gridReading.page() < sameRowReading.page()) {
+            sameRowReading = Reading.NONE;
+        }
+        CreditCardSummaryEvidence grid = gridReading.evidence();
+        CreditCardSummaryEvidence sameRow = sameRowReading.evidence();
         List<String> conflicts = conflictsBetween(grid, sameRow);
 
         CreditCardSummaryEvidence chosen;
@@ -273,9 +288,10 @@ public final class CreditCardSummaryExtractor {
      * GRID wrong, in a genuine conflict), so preferring GRID is the direction the evidence actually
      * points, not an arbitrary pick between two untested options.
      *
-     * <p>This does not silence the disagreement: {@link #conflictsBetween} still reports
-     * {@code totalAmountDue} as a conflicting field regardless of which value wins here, so a
-     * caller reconciling the full billing equation still sees that the two strategies disagreed.
+     * <p>A disagreement between readings of the SAME page is not silenced: {@link #conflictsBetween}
+     * still reports {@code totalAmountDue} as a conflicting field regardless of which value wins
+     * here. A GRID reading with an INLINE reading from a LATER page never reaches this point
+     * together -- {@link #extract} sets the later one aside (F-14: the Axis worked example above).
      */
     private static BigDecimal bestEffortTotalAmountDue(CreditCardSummaryEvidence grid,
                                                          CreditCardSummaryEvidence sameRow) {
@@ -325,7 +341,7 @@ public final class CreditCardSummaryExtractor {
      * ROW on a given page resolves a value for it — see {@link #onlyUnambiguous} — and only the
      * single page covering the most required fields is used at all; see {@link #bestPageEvidence}.
      */
-    private static CreditCardSummaryEvidence tryGrid(List<PositionedText> runs) {
+    private static Reading tryGrid(List<PositionedText> runs) {
         List<List<PositionedText>> rows = StatementSummaryExtractor.groupIntoRows(runs);
         Map<Integer, Map<String, List<PositionedText>>> resolvedByPageAndKey = new TreeMap<>();
 
@@ -550,7 +566,7 @@ public final class CreditCardSummaryExtractor {
      * {@link #bestPageEvidence}. Which occurrence is genuinely this statement's own summary field is
      * not decidable from position alone within a page either, so both safeguards apply together.
      */
-    private static CreditCardSummaryEvidence trySameRow(List<PositionedText> runs) {
+    private static Reading trySameRow(List<PositionedText> runs) {
         Map<Integer, Map<String, List<PositionedText>>> resolvedByPageAndKey = new TreeMap<>();
 
         for (JoinedLabel label : joinedLabelsOnSameRow(runs)) {
@@ -666,26 +682,34 @@ public final class CreditCardSummaryExtractor {
      * that resolved even one required field, on the reasoning that a page contributing zero
      * required fields is not a real competing candidate for the summary at all.
      */
-    private static CreditCardSummaryEvidence bestPageEvidence(
+    private static Reading bestPageEvidence(
             Map<Integer, Map<String, List<PositionedText>>> resolvedByPageAndKey,
             CreditCardSummaryEvidence.ExtractionMethod method) {
         Map<String, PositionedText> best = Map.of();
         int bestScore = 0;
-        for (Map<String, List<PositionedText>> perPage : resolvedByPageAndKey.values()) {
-            Map<String, PositionedText> labelled = onlyUnambiguous(perPage);
+        int bestPage = -1;
+        for (Map.Entry<Integer, Map<String, List<PositionedText>>> perPage : resolvedByPageAndKey.entrySet()) {
+            Map<String, PositionedText> labelled = onlyUnambiguous(perPage.getValue());
             int score = requiredFieldCount(labelled);
             if (score > bestScore) {
                 bestScore = score;
                 best = labelled;
+                bestPage = perPage.getKey();
             }
         }
 
-        if (best.isEmpty()) return CreditCardSummaryEvidence.NONE;
-        return new CreditCardSummaryEvidence(
+        if (best.isEmpty()) return Reading.NONE;
+        return new Reading(new CreditCardSummaryEvidence(
                 amount(best.get("previousBalance")), amount(best.get("purchases")),
                 amount(best.get("cashAdvances")), amount(best.get("fees")),
                 amount(best.get("paymentsAndCredits")), amount(best.get("totalAmountDue")),
-                method, List.of());
+                method, List.of()), bestPage);
+    }
+
+    /** One strategy's evidence and the page it was read from (-1 when it read nothing). */
+    private record Reading(CreditCardSummaryEvidence evidence, int page) {
+        static final Reading NONE = new Reading(CreditCardSummaryEvidence.NONE, -1);
+        boolean found() { return page >= 0; }
     }
 
     private static int requiredFieldCount(Map<String, PositionedText> labelled) {

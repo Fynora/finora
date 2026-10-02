@@ -81,7 +81,12 @@ public final class CategoryRules {
         // expansion.md Task 1). Kept as the full two-word phrase, not a bare "indian": a bare
         // keyword would misfire on real "INDIAN CLEARING CORP" settlement narrations seen in the
         // same corpus (guarded by suggestCategory_indianClearingCorpIsNotMisclassifiedAsTransport).
-        RULES.put("Transport", List.of("uber", "ola", "rapido", "irctc", "petrol", "fuel", "metro", "fastag", "parking", "indian railways"));
+        // "pune metro" and, below, "apple services" (2026-10-02) name an operator rather than add a
+        // word: "metro" already files the fare. A bank that cuts the payee's name to eight
+        // characters and its UPI id before the "@" leaves only the id ("punemetrocc...",
+        // "appleservices..."), which MerchantIdentityLookup.handleNamesKnownMerchant reads against
+        // these names; without them a tester's metro fares and app-store charges typed as people.
+        RULES.put("Transport", List.of("uber", "ola", "rapido", "irctc", "petrol", "fuel", "metro", "fastag", "parking", "indian railways", "pune metro"));
         RULES.put("Utilities", List.of("electricity", "power bill", "water bill", "gas bill", "broadband", "airtel", "jio", "recharge"));
         // "pureplay" (Pureplay Skin Sciences, a real D2C skincare/personal-care e-commerce brand)
         // added after checking this project's own real bank-statement corpus (docs/superpowers/
@@ -113,8 +118,8 @@ public final class CategoryRules {
         //  - Seen on the corpus, previously "Other": "indian clearing" (Indian Clearing Corporation,
         //    the BSE clearing house that collects mutual-fund SIP debits -- 28 outflow rows, mostly
         //    "ACH D- INDIAN CLEARING CORP-..." mandate debits that carry no "mutual fund" word at
-        //    all; 2 further inflow rows stay "Other" because their wrapped narration splits the
-        //    word itself, "INDIAN C LEARING", which no keyword here should try to match),
+        //    all; 2 further inflow rows were left "Other" here because their wrapped narration
+        //    splits the word itself, "INDIAN C LEARING"),
         //    "nextbillion" (the former name of the Groww broker entity, on 4 inflows from its
         //    "client account"),
         //    "nse zerod" (a bank-truncated "NSE ZERODHA"), "hsbc mf", "nippon life asset" (a
@@ -129,8 +134,21 @@ public final class CategoryRules {
         //    name), "ipo" (a remark typed into a person-to-person payment), "nsdl" alone (NSDL also
         //    runs a payments bank), "nippon" alone (also an insurer), "icici prudential" (also an
         //    insurer), a bare "mf", and "capital" (an unidentified payee).
+        //
+        // Third pass (2026-10-02): "indian c learing", the split form of those 2 inflows, after all.
+        // The split is not a misspelling: HDFC prints the narration in fixed 40-character lines and
+        // this fund-transfer format's prefix ("FT- ", a 10-digit reference, a 14-digit number and
+        // " - ") was the same width on both corpus rows, so the wrap landed after the same "C"
+        // both times. The parser keeps
+        // the space at that wrap deliberately (NarrationLineBreaks glues only on a digit or a
+        // separator; two plain words give no evidence either way), so the keyword matches the text
+        // as it arrives. Until #1888 these rows reached Investments only because the clearing
+        // house's merchant also absorbed every other payee whose name began "indian"; the two-word
+        // merchant key ended that, and they fell to "Other". The phrase is word-boundary matched
+        // and cannot plausibly occur in an unrelated narration. A wrap landing anywhere else in
+        // the name is not matched; none was seen on the corpus.
         RULES.put("Investments", List.of("mutual fund", "mutualfunds", "sip", "zerodha", "groww", "upstox", "nps", "ppf", "demat", "nse mf",
-                "indian clearing", "nextbillion", "nse zerod", "hsbc mf", "nippon life asset", "nsdl findiv",
+                "indian clearing", "indian c learing", "nextbillion", "nse zerod", "hsbc mf", "nippon life asset", "nsdl findiv",
                 "angel one", "angelone", "5paisa", "kuvera", "indmoney", "smallcase", "sharekhan",
                 "paytm money", "etmoney", "et money", "motilal oswal",
                 "icici direct", "icicidirect", "hdfc securities", "icici securities", "kotak securities"));
@@ -169,7 +187,12 @@ public final class CategoryRules {
         // insurance scheme) added after checking this project's own real bank-statement corpus --
         // safe as a bare keyword for the same reason "pureplay" above is: a distinctive acronym,
         // not a substring of any other keyword or common narration word.
-        RULES.put("Insurance", List.of("insurance", "lic premium", "policybazaar", "premium payment", "pmjjby"));
+        // "pmsby" (Pradhan Mantri Suraksha Bima Yojana, the same government's accident-insurance
+        // scheme) added on the same evidence: its premium debit sits beside the PMJJBY one on a
+        // real statement, in the identical "JNS-<scheme>-..." narration shape, and stayed "Other"
+        // without it. It reached Insurance before #1888 only because both debits shared one
+        // merchant keyed on their common "jns" prefix.
+        RULES.put("Insurance", List.of("insurance", "lic premium", "policybazaar", "premium payment", "pmjjby", "pmsby"));
         // "nwd" (Non-Home-branch Withdrawal, the standard NPCI/bank narration code for an ATM
         // withdrawal at another bank's machine) added after checking this project's own real
         // bank-statement corpus -- the only real ATM row in it ("NWD-416021XXXXXX5853-...") was
@@ -179,7 +202,7 @@ public final class CategoryRules {
         // requires (see RULE_PATTERNS below) has nothing plausible to misfire against.
         RULES.put("Cash Withdrawal", List.of("atm withdrawal", "atm wdl", "cash withdrawal", "cash wdl", "nwd"));
         RULES.put("Travel", List.of("makemytrip", "goibibo", "yatra", "airbnb", "oyo", "indigo", "spicejet", "vistara", "hotel booking"));
-        RULES.put("Subscriptions", List.of("google one", "icloud", "adobe", "microsoft 365", "linkedin premium"));
+        RULES.put("Subscriptions", List.of("google one", "icloud", "adobe", "microsoft 365", "linkedin premium", "apple services"));
         RULES.put("Education", List.of("udemy", "coursera", "byjus", "tuition fee", "school fee", "college fee"));
         RULES.put("Gifts & Donations", List.of("donation", "charity", "ngo donation", "gift"));
     }
@@ -485,10 +508,18 @@ public final class CategoryRules {
         }
     }
 
+    /** A UPI handle: '@' and the letters, digits and dots after it -- the same span
+     *  RuleEngineService.containsOutsideUpiHandle skips for GLOBAL rules. */
+    private static final Pattern UPI_HANDLE = Pattern.compile("@[\\p{L}\\p{N}.]+");
+
     /** Returns a rule-based category guess, or "Other" if nothing matches. Callers should check
-     *  a per-user learned-mapping table (MerchantCategoryMap) BEFORE falling back to this. */
+     *  a per-user learned-mapping table (MerchantCategoryMap) BEFORE falling back to this.
+     *
+     *  <p>UPI handles are removed before matching. A handle names the payment app or bank, never
+     *  the merchant, and normalize() turns '@' into a space -- so a shop paid through a handle
+     *  named exactly 'airtel' or 'jio' read as the word "airtel" and was filed under Utilities. */
     public static String suggestCategory(String description) {
-        String norm = normalize(description);
+        String norm = normalize(description == null ? null : UPI_HANDLE.matcher(description).replaceAll(" "));
         for (var entry : RULE_PATTERNS.entrySet()) {
             for (Pattern pattern : entry.getValue()) {
                 if (pattern.matcher(norm).find()) return entry.getKey();

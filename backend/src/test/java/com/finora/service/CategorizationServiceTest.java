@@ -1157,6 +1157,290 @@ class CategorizationServiceTest {
         assertThat(result).isNull();
     }
 
+    // --- MARK_INVESTMENT precedence: a user's own rules and choices beat a global rule ---
+
+    private CategoryRule userInvestmentRule(String actionValue) {
+        CategoryRule r = sideEffectRule(CategoryRule.ActionType.MARK_INVESTMENT, actionValue);
+        r.setScope(CategoryRule.Scope.USER);
+        r.setUserId(userId);
+        return r;
+    }
+
+    private Category categoryNamed(String name) {
+        Category c = new Category();
+        ReflectionTestUtils.setField(c, "id", UUID.randomUUID());
+        c.setUserId(userId);
+        c.setName(name);
+        when(categoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc(userId, name)).thenReturn(List.of(c));
+        return c;
+    }
+
+    private void sideEffectMatches(CategoryRule... rules) {
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(UUID.randomUUID()));
+        when(ruleEngineService.evaluateSideEffectRules(eq(userId), anyString(), any(), any(), any()))
+                .thenReturn(java.util.Arrays.stream(rules).map(RuleEngineService.RuleMatch::new).toList());
+    }
+
+    @Test
+    void applySideEffectRules_globalMarkInvestment_doesNotOverrideACategoryFromTheUsersOwnRule() {
+        CategoryRule global = sideEffectRule(CategoryRule.ActionType.MARK_INVESTMENT, null);
+        sideEffectMatches(global);
+        UUID dining = UUID.randomUUID();
+        Transaction t = txnFor("SIP MUTUAL FUND DEDUCTION");
+        t.setCategoryId(dining);
+        t.setDecisionSource(Transaction.DecisionSource.USER_RULE);
+
+        Category result = categorizationService.applySideEffectRules(userId, t);
+
+        assertThat(result).isNull();
+        assertThat(t.getCategoryId()).isEqualTo(dining);
+        verify(ruleEngineService, never()).recordMatch(global.getId());
+    }
+
+    @Test
+    void applySideEffectRules_globalMarkInvestment_doesNotOverrideACategoryTheUserChose() {
+        sideEffectMatches(sideEffectRule(CategoryRule.ActionType.MARK_INVESTMENT, null));
+        UUID groceries = UUID.randomUUID();
+        Transaction t = txnFor("SIP MUTUAL FUND DEDUCTION");
+        t.setCategoryId(groceries);
+        t.setDecisionSource(Transaction.DecisionSource.MANUAL);
+        t.setCategoryManuallySet(true);
+
+        assertThat(categorizationService.applySideEffectRules(userId, t)).isNull();
+        assertThat(t.getCategoryId()).isEqualTo(groceries);
+    }
+
+    @Test
+    void applySideEffectRules_globalMarkInvestment_doesNotOverrideAManuallySetCategory_evenWithoutAManualSource() {
+        // categoryManuallySet alone is the user's decision too (e.g. a row edited on the import
+        // review screen) -- the flag, not only the source label, protects it.
+        sideEffectMatches(sideEffectRule(CategoryRule.ActionType.MARK_INVESTMENT, null));
+        UUID groceries = UUID.randomUUID();
+        Transaction t = txnFor("SIP MUTUAL FUND DEDUCTION");
+        t.setCategoryId(groceries);
+        t.setDecisionSource(Transaction.DecisionSource.KEYWORD_MATCH);
+        t.setCategoryManuallySet(true);
+
+        assertThat(categorizationService.applySideEffectRules(userId, t)).isNull();
+        assertThat(t.getCategoryId()).isEqualTo(groceries);
+    }
+
+    @Test
+    void applySideEffectRules_globalMarkInvestment_stillOverridesAnEngineGuess() {
+        CategoryRule global = sideEffectRule(CategoryRule.ActionType.MARK_INVESTMENT, null);
+        sideEffectMatches(global);
+        Category investments = categoryNamed("Investments");
+        Transaction t = txnFor("SIP MUTUAL FUND DEDUCTION");
+        t.setCategoryId(UUID.randomUUID());
+        t.setDecisionSource(Transaction.DecisionSource.KEYWORD_MATCH);
+
+        assertThat(categorizationService.applySideEffectRules(userId, t)).isEqualTo(investments);
+        assertThat(t.getCategoryId()).isEqualTo(investments.getId());
+        verify(ruleEngineService).recordMatch(global.getId());
+    }
+
+    @Test
+    void applySideEffectRules_globalMarkInvestment_stillOverridesAGlobalCategoryRule() {
+        sideEffectMatches(sideEffectRule(CategoryRule.ActionType.MARK_INVESTMENT, null));
+        Category investments = categoryNamed("Investments");
+        Transaction t = txnFor("SIP MUTUAL FUND DEDUCTION");
+        t.setCategoryId(UUID.randomUUID());
+        t.setDecisionSource(Transaction.DecisionSource.GLOBAL_RULE);
+
+        assertThat(categorizationService.applySideEffectRules(userId, t)).isEqualTo(investments);
+    }
+
+    @Test
+    void applySideEffectRules_personalMarkInvestment_winsOverAGlobalOne_whateverTheMatchOrder() {
+        // Global listed FIRST on purpose: the winner is chosen by scope, not by list position.
+        CategoryRule global = sideEffectRule(CategoryRule.ActionType.MARK_INVESTMENT, "SIP Global");
+        CategoryRule personal = userInvestmentRule("SIP Mine");
+        sideEffectMatches(global, personal);
+        Category mine = categoryNamed("SIP Mine");
+        Transaction t = txnFor("SIP MUTUAL FUND DEDUCTION");
+        t.setDecisionSource(Transaction.DecisionSource.KEYWORD_MATCH);
+
+        assertThat(categorizationService.applySideEffectRules(userId, t)).isEqualTo(mine);
+        assertThat(t.getCategoryId()).isEqualTo(mine.getId());
+        verify(ruleEngineService).recordMatch(personal.getId());
+        verify(ruleEngineService, never()).recordMatch(global.getId());
+        verify(categoryRepository, never()).findByUserIdAndNameIgnoreCaseOrderByIdAsc(userId, "SIP Global");
+    }
+
+    @Test
+    void applySideEffectRules_twoGlobalMarkInvestmentRules_theHigherPriorityOneApplies() {
+        // Matches arrive in priority order (lower number first), as RuleEngineService.ruleSet
+        // builds them -- "first match wins", as for ASSIGN_CATEGORY. Before, every match was
+        // applied in turn, so the LAST (lowest-priority) one ended up as the category.
+        CategoryRule first = sideEffectRule(CategoryRule.ActionType.MARK_INVESTMENT, "SIP - Equity");
+        CategoryRule second = sideEffectRule(CategoryRule.ActionType.MARK_INVESTMENT, "SIP - Debt");
+        sideEffectMatches(first, second);
+        Category equity = categoryNamed("SIP - Equity");
+        Transaction t = txnFor("SIP MUTUAL FUND DEDUCTION");
+
+        assertThat(categorizationService.applySideEffectRules(userId, t)).isEqualTo(equity);
+        verify(ruleEngineService, never()).recordMatch(second.getId());
+    }
+
+    @Test
+    void applySideEffectRules_personalMarkInvestment_stillOverridesTheUsersOwnCategoryRule() {
+        // Both are the user's own rules -- unchanged behaviour: the investment rule applies.
+        sideEffectMatches(userInvestmentRule(null));
+        Category investments = categoryNamed("Investments");
+        Transaction t = txnFor("SIP MUTUAL FUND DEDUCTION");
+        t.setCategoryId(UUID.randomUUID());
+        t.setDecisionSource(Transaction.DecisionSource.USER_RULE);
+
+        assertThat(categorizationService.applySideEffectRules(userId, t)).isEqualTo(investments);
+    }
+
+    @Test
+    void applySideEffectRules_personalMarkInvestment_doesNotOverrideACategoryTheUserChose() {
+        // A category typed by hand is the most explicit decision there is -- not even the user's
+        // own rule replaces it.
+        CategoryRule personal = userInvestmentRule(null);
+        sideEffectMatches(personal);
+        UUID groceries = UUID.randomUUID();
+        Transaction t = txnFor("SIP MUTUAL FUND DEDUCTION");
+        t.setCategoryId(groceries);
+        t.setDecisionSource(Transaction.DecisionSource.MANUAL);
+        t.setCategoryManuallySet(true);
+
+        assertThat(categorizationService.applySideEffectRules(userId, t)).isNull();
+        assertThat(t.getCategoryId()).isEqualTo(groceries);
+        assertThat(t.getDecisionSource()).isEqualTo(Transaction.DecisionSource.MANUAL);
+        verify(ruleEngineService, never()).recordMatch(personal.getId());
+    }
+
+    @Test
+    void applySideEffectRules_globalMarkInvestmentOverride_recordsTheRuleAsTheDecision() {
+        // The category now comes from this rule, so the decision record must say so: the "why this
+        // category?" panel reads decisionSource/decisionRuleId, and a rule decision is never an
+        // unconfirmed guess waiting in the review queue.
+        CategoryRule global = sideEffectRule(CategoryRule.ActionType.MARK_INVESTMENT, null);
+        sideEffectMatches(global);
+        categoryNamed("Investments");
+        Transaction t = txnFor("SIP MUTUAL FUND DEDUCTION");
+        t.setDecisionSource(Transaction.DecisionSource.SHARED_CORPUS);
+        t.setDecisionConfidence(40);
+        t.setNeedsCategoryReview(true);
+
+        categorizationService.applySideEffectRules(userId, t);
+
+        assertThat(t.getDecisionSource()).isEqualTo(Transaction.DecisionSource.GLOBAL_RULE);
+        assertThat(t.getDecisionRuleId()).isEqualTo(global.getId());
+        assertThat(t.getDecisionConfidence()).isEqualTo(ConfidenceEngine.INITIAL_RULE_CONFIDENCE);
+        assertThat(t.isNeedsCategoryReview()).isFalse();
+    }
+
+    @Test
+    void applySideEffectRules_personalMarkInvestmentOverride_recordsAUserRuleDecision() {
+        CategoryRule personal = userInvestmentRule(null);
+        sideEffectMatches(personal);
+        categoryNamed("Investments");
+        UUID assignRuleId = UUID.randomUUID();
+        Transaction t = txnFor("SIP MUTUAL FUND DEDUCTION");
+        t.setDecisionSource(Transaction.DecisionSource.USER_RULE);
+        t.setDecisionRuleId(assignRuleId);
+
+        categorizationService.applySideEffectRules(userId, t);
+
+        assertThat(t.getDecisionSource()).isEqualTo(Transaction.DecisionSource.USER_RULE);
+        assertThat(t.getDecisionRuleId()).isEqualTo(personal.getId());
+    }
+
+    @Test
+    void applySideEffectRules_skippedMarkInvestment_leavesTheDecisionRecordAlone() {
+        sideEffectMatches(sideEffectRule(CategoryRule.ActionType.MARK_INVESTMENT, null));
+        UUID assignRuleId = UUID.randomUUID();
+        Transaction t = txnFor("SIP MUTUAL FUND DEDUCTION");
+        t.setCategoryId(UUID.randomUUID());
+        t.setDecisionSource(Transaction.DecisionSource.USER_RULE);
+        t.setDecisionRuleId(assignRuleId);
+        t.setDecisionConfidence(70);
+
+        categorizationService.applySideEffectRules(userId, t);
+
+        assertThat(t.getDecisionSource()).isEqualTo(Transaction.DecisionSource.USER_RULE);
+        assertThat(t.getDecisionRuleId()).isEqualTo(assignRuleId);
+        assertThat(t.getDecisionConfidence()).isEqualTo(70);
+    }
+
+    @Test
+    void applySideEffectRules_anInvestmentRuleAlreadyTheStagedDecision_isNotCountedASecondTime() {
+        // The import preview already chose this rule (decisionRuleId carried from staging), and
+        // ImportService counts the staged rule once. Counting it here as well would make one
+        // confirmed row two matches.
+        CategoryRule global = sideEffectRule(CategoryRule.ActionType.MARK_INVESTMENT, null);
+        sideEffectMatches(global);
+        Category investments = categoryNamed("Investments");
+        Transaction t = txnFor("SIP MUTUAL FUND DEDUCTION");
+        t.setCategoryId(investments.getId());
+        t.setDecisionSource(Transaction.DecisionSource.GLOBAL_RULE);
+        t.setDecisionRuleId(global.getId());
+
+        assertThat(categorizationService.applySideEffectRules(userId, t)).isEqualTo(investments);
+        verify(ruleEngineService, never()).recordMatch(global.getId());
+    }
+
+    @Test
+    void investmentRuleFor_previewsTheSameDecisionApplySideEffectRulesMakes() {
+        CategoryRule global = sideEffectRule(CategoryRule.ActionType.MARK_INVESTMENT, null);
+        CategoryRule personal = userInvestmentRule("SIP Mine");
+        List<CategoryRule> rules = List.of(personal, global);
+
+        when(ruleEngineService.evaluateSideEffectRules(eq(rules), anyString(), any(), any(), any()))
+                .thenReturn(List.of(new RuleEngineService.RuleMatch(global)));
+        var globalOnly = categorizationService.investmentRuleFor(rules, Transaction.DecisionSource.KEYWORD_MATCH,
+                "SIP", java.math.BigDecimal.TEN, null);
+        assertThat(globalOnly).isPresent();
+        assertThat(globalOnly.get().categoryName()).isEqualTo("Investments");
+        assertThat(globalOnly.get().source()).isEqualTo("global_rule");
+        assertThat(globalOnly.get().ruleId()).isEqualTo(global.getId());
+        // Held back from a category the user's own rule set, as at confirm.
+        assertThat(categorizationService.investmentRuleFor(rules, Transaction.DecisionSource.USER_RULE,
+                "SIP", java.math.BigDecimal.TEN, null)).isEmpty();
+
+        when(ruleEngineService.evaluateSideEffectRules(eq(rules), anyString(), any(), any(), any()))
+                .thenReturn(List.of(new RuleEngineService.RuleMatch(global), new RuleEngineService.RuleMatch(personal)));
+        var both = categorizationService.investmentRuleFor(rules, Transaction.DecisionSource.USER_RULE,
+                "SIP", java.math.BigDecimal.TEN, null);
+        assertThat(both).isPresent();
+        assertThat(both.get().categoryName()).isEqualTo("SIP Mine");
+        assertThat(both.get().source()).isEqualTo("user_rule");
+        // Read-only: a preview never counts a match or creates a category.
+        verify(ruleEngineService, never()).recordMatch(any());
+        verify(categoryRepository, never()).save(any());
+    }
+
+    @Test
+    void investmentCategoryName_usesTheActionValue_orInvestmentsWhenBlank() {
+        assertThat(CategorizationService.investmentCategoryName(
+                sideEffectRule(CategoryRule.ActionType.MARK_INVESTMENT, "SIP - Equity"))).isEqualTo("SIP - Equity");
+        assertThat(CategorizationService.investmentCategoryName(
+                sideEffectRule(CategoryRule.ActionType.MARK_INVESTMENT, null))).isEqualTo("Investments");
+        assertThat(CategorizationService.investmentCategoryName(
+                sideEffectRule(CategoryRule.ActionType.MARK_INVESTMENT, "  "))).isEqualTo("Investments");
+    }
+
+    @Test
+    void applySideEffectRules_skippedGlobalMarkInvestment_doesNotStopOtherGlobalActions() {
+        CategoryRule investment = sideEffectRule(CategoryRule.ActionType.MARK_INVESTMENT, null);
+        CategoryRule tag = sideEffectRule(CategoryRule.ActionType.ADD_TAG, "sip");
+        sideEffectMatches(investment, tag);
+        UUID dining = UUID.randomUUID();
+        Transaction t = txnFor("SIP MUTUAL FUND DEDUCTION");
+        t.setCategoryId(dining);
+        t.setDecisionSource(Transaction.DecisionSource.USER_RULE);
+
+        categorizationService.applySideEffectRules(userId, t);
+
+        assertThat(t.getCategoryId()).isEqualTo(dining);
+        assertThat(t.getTags()).containsExactly("sip");
+        verify(ruleEngineService).recordMatch(tag.getId());
+        verify(ruleEngineService, never()).recordMatch(investment.getId());
+    }
+
     @Test
     void applySideEffectRules_noMatches_leavesTransactionUntouched() {
         when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(UUID.randomUUID()));

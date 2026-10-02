@@ -166,6 +166,14 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
 
     List<Transaction> findByUserId(UUID userId);
 
+    /** Every other row from one payee in one direction, on the given accounts -- what "apply to all
+     *  similar" reaches. Soft-deleted rows are excluded by {@code Transaction}'s
+     *  {@code @SQLRestriction}; a deleted ACCOUNT's rows are not (they keep deleted_at unset, see
+     *  AccountService.delete), which is what {@code accountIds} is for. */
+    List<Transaction> findByUserIdAndCounterpartyKeyAndTxnTypeAndIdNotAndAccountIdIn(
+            UUID userId, String counterpartyKey, Transaction.Type txnType, UUID id,
+            java.util.Collection<UUID> accountIds);
+
     /** Like {@link #findByUserId}, but scoped to a specific set of accounts -- for a caller that
      *  must exclude soft-deleted accounts' transactions rather than every transaction the user has
      *  ever owned (see DashboardService's own doc comment on why {@code findByUserId} alone is

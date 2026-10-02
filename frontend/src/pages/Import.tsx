@@ -1408,7 +1408,7 @@ export default function Import() {
                         <div className="absolute right-0 top-full mt-1.5 w-52 bg-card border border-border rounded-xl2 shadow-soft p-3 z-10">
                           <p className="text-xs font-semibold text-ink mb-1">This is a Plus feature</p>
                           <p className="text-2xs text-muted leading-relaxed mb-2.5">
-                            Free plans are limited to a 31-day statement period. Upgrade to Plus to import longer
+                            Free plans are limited to a one-month statement period. Upgrade to Plus to import longer
                             statements in one go.
                           </p>
                           {/* A real <a> (Link), not a <button> -- Button wraps motion.button, and

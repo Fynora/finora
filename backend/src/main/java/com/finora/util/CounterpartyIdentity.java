@@ -1,5 +1,6 @@
 package com.finora.util;
 
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -218,6 +219,49 @@ public final class CounterpartyIdentity {
         return key != null && key.startsWith("vpa:");
     }
 
+    /**
+     * Words that say how the money moved -- the rail, or a payment gateway that settles to many
+     * businesses -- and never who was paid. A name key made only of these is the same key for every
+     * payee on that rail.
+     *
+     * <p>Measured 2026-10-02 on the corpus (classifier v8): of 83 name keys shared by two or more rows
+     * of one statement, four were made only of these words, and each joined payments to different
+     * payees ("UPI/RRN .../UPIIntent", "Pay via Razorpay", "Pay to BharatPe Merchant", "UPIRET-...").
+     * The gateways are the ones {@code PersonToPersonTransferDetector}'s merchant-acquirer marker
+     * already names as settling only to onboarded businesses.
+     */
+    private static final java.util.Set<String> RAIL_AND_GATEWAY_WORDS = java.util.Set.of(
+            "upiintent", "upiret", "via", "merchant", "razorpay", "rzp", "bharatpe", "payu", "cashfree");
+
+    /**
+     * Bajaj Pay's merchant ids are "bajajpay.&lt;partner&gt;.&lt;merchant&gt;". A bank that cuts the id
+     * to its first characters can leave only "bajajpay.&lt;partner digits&gt;", which every shop under
+     * that partner shares: on a tester's statement one such key joined an electrician and a
+     * shopkeeper. Measured 2026-10-02: no other id in this layout joined two payees on the corpus.
+     */
+    private static final Pattern PARTNER_PREFIX_ONLY = Pattern.compile("vpa:bajajpay\\.\\d+");
+
+    /**
+     * Whether every row carrying this key was paid to (or by) the same payee, so a choice the user
+     * makes for one row can be applied to the others.
+     *
+     * <ul>
+     *   <li>{@code vpa:} -- a full UPI id: yes, unless it is only a payment brand's partner prefix
+     *       (see {@link #PARTNER_PREFIX_ONLY}).</li>
+     *   <li>{@code masked:} -- only the end of a UPI id was printed, and the end is shared by strangers:
+     *       no. Measured on the corpus: {@code masked:.payu@hdfcbank} joined two different shops.</li>
+     *   <li>{@code name:} -- yes, unless every word is a rail or gateway word (see
+     *       {@link #RAIL_AND_GATEWAY_WORDS}), when the payee was never printed at all.</li>
+     * </ul>
+     */
+    public static boolean identifiesOnePayee(String key) {
+        if (key == null || key.isBlank()) return false;
+        if (key.startsWith("vpa:")) return key.length() > "vpa:".length() && !PARTNER_PREFIX_ONLY.matcher(key).matches();
+        if (!key.startsWith("name:")) return false;
+        String[] words = key.substring("name:".length()).trim().split("\\s+");
+        return !java.util.Arrays.stream(words).allMatch(w -> w.isEmpty() || RAIL_AND_GATEWAY_WORDS.contains(w));
+    }
+
     private static String meaningfulPart(String letters) {
         StringBuilder sb = new StringBuilder();
         for (String word : letters.split("\\s+")) {
@@ -226,6 +270,28 @@ public final class CounterpartyIdentity {
             sb.append(word);
         }
         return sb.toString().trim();
+    }
+
+    /**
+     * The counterparty's own UPI id, local part only and lower case, or {@code ""} when the
+     * narration shows none. Unlike {@link #keyOf}, the standard layout's id slot counts in capitals
+     * too ("airtelprepaidUP"), as long as it is one word: a brand's id is evidence of who was paid
+     * even where it is too weak to key on. A capitalised slot with a space in it is a note, not an id.
+     */
+    public static String payeeHandle(String description) {
+        if (description == null || description.isBlank()) return "";
+        Matcher m = STANDARD_LAYOUT.matcher(description);
+        if (m.find()) {
+            String field = m.group(1).trim();
+            int at = field.indexOf('@');
+            if (at >= 0) field = field.substring(0, at).trim();
+            int spaces = field.length() - field.replace(" ", "").length();
+            // One space is a line wrap inside an id; more is words. Capitals with a space are a note.
+            boolean idShaped = at >= 0 || spaces == 0 || (spaces == 1 && field.equals(field.toLowerCase(Locale.ROOT)));
+            if (idShaped && !field.isEmpty() && !field.startsWith("*")) return field.replace(" ", "").toLowerCase(Locale.ROOT);
+        }
+        String key = keyOf(description);
+        return isStrong(key) ? key.substring("vpa:".length()) : "";
     }
 
     /**

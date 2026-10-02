@@ -80,6 +80,28 @@ class TransactionExplanationServiceTest {
     }
 
     @Test
+    void anInvestmentRuleWithNoValueNamesTheCategoryItActuallyAssigned() {
+        // A MARK_INVESTMENT rule with a blank action value files the row under "Investments"
+        // (CategorizationService.investmentCategoryName). Printing the raw action value showed
+        // "→ null." for exactly the rule that decided the category.
+        UUID ruleId = UUID.randomUUID();
+        Transaction t = transaction(Transaction.DecisionSource.GLOBAL_RULE, ruleId, Transaction.Source.CSV_IMPORT);
+        CategoryRule rule = new CategoryRule();
+        ReflectionTestUtils.setField(rule, "id", ruleId);
+        rule.setField(CategoryRule.Field.DESCRIPTION);
+        rule.setOperator(CategoryRule.Operator.CONTAINS);
+        rule.setComparisonValue("SIP");
+        rule.setActionType(CategoryRule.ActionType.MARK_INVESTMENT);
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(t));
+        when(categoryRuleRepository.findById(ruleId)).thenReturn(Optional.of(rule));
+
+        TransactionExplanationDto result = service.explain(userId, txnId);
+
+        assertThat(result.summary()).endsWith("→ Investments.").doesNotContain("null");
+        assertThat(result.evidence()).contains("Assigns category: Investments");
+    }
+
+    @Test
     void aBetweenRuleShowsReadableNumbersNotTheRawStorageEncoding() {
         UUID ruleId = UUID.randomUUID();
         Transaction t = transaction(Transaction.DecisionSource.USER_RULE, ruleId, Transaction.Source.CSV_IMPORT);

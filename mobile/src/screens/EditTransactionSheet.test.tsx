@@ -3,10 +3,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { EditTransactionSheet } from './EditTransactionSheet';
 import { categoriesApi, transactionsApi } from '../api/endpoints';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
+import { AppAlert } from '../lib/appAlert';
 import type { Transaction } from '../types';
 
 jest.mock('../api/endpoints', () => ({
-  transactionsApi: { update: jest.fn() },
+  transactionsApi: { update: jest.fn(), similar: jest.fn() },
   categoriesApi: { list: jest.fn(), options: jest.fn() },
 }));
 
@@ -60,6 +61,8 @@ beforeEach(() => {
   onClose.mockReset();
   onSaved.mockReset();
   transactions.update.mockReset();
+  // No other row from the payee unless a test says so: then a category change asks nothing.
+  transactions.similar.mockReset().mockResolvedValue({ similar: 0, keptByUser: 0 });
   categories.list.mockReset().mockResolvedValue([
     { id: 'c-1', name: 'Food', isSystem: true, icon: 'utensils', color: 'orange' },
     { id: 'c-2', name: 'Travel', isSystem: false, icon: 'plane', color: 'blue' },
@@ -160,6 +163,62 @@ describe('EditTransactionSheet', () => {
 
     expect(await screen.findByText('Amount must be a valid money value.')).toBeTruthy();
     expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  async function pickTravel() {
+    fireEvent.press(screen.getByLabelText('Category'));
+    await settle();
+    fireEvent.press(await screen.findByTestId('category-Travel'));
+    await settle();
+  }
+
+  it('asks whether to change the payee\'s other transactions when only the category changed', async () => {
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
+    transactions.similar.mockResolvedValue({ similar: 1, keptByUser: 0 });
+    transactions.update.mockResolvedValue({ ...TXN, categoryName: 'Travel' });
+    renderSheet();
+
+    await pickTravel();
+    fireEvent.press(screen.getByRole('button', { name: /^Save Changes$/ }));
+    await waitFor(() => expect(alertSpy).toHaveBeenCalled());
+    const buttons = alertSpy.mock.calls[0][2]!;
+    await act(async () => { buttons.find((b) => b.text === 'All 2')!.onPress!(); });
+
+    await waitFor(() => expect(transactions.update).toHaveBeenCalledWith('t-1',
+      expect.objectContaining({ categoryName: 'Travel', applyTo: 'SIMILAR' })));
+    alertSpy.mockRestore();
+  });
+
+  it('keeps the sheet open and saves nothing when the payee question is cancelled', async () => {
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
+    transactions.similar.mockResolvedValue({ similar: 1, keptByUser: 0 });
+    renderSheet();
+
+    await pickTravel();
+    fireEvent.press(screen.getByRole('button', { name: /^Save Changes$/ }));
+    await waitFor(() => expect(alertSpy).toHaveBeenCalled());
+    const buttons = alertSpy.mock.calls[0][2]!;
+    await act(async () => { buttons.find((b) => b.text === 'Cancel')!.onPress!(); });
+
+    expect(transactions.update).not.toHaveBeenCalled();
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /^Save Changes$/ })).toBeEnabled();
+    alertSpy.mockRestore();
+  });
+
+  it('asks nothing when the description changes too, and sends no scope', async () => {
+    transactions.similar.mockResolvedValue({ similar: 3, keptByUser: 0 });
+    transactions.update.mockResolvedValue({ ...TXN, categoryName: 'Travel' });
+    renderSheet();
+
+    await pickTravel();
+    fireEvent.changeText(screen.getByLabelText('Description'), 'Grocery run (updated)');
+    fireEvent.press(screen.getByRole('button', { name: /^Save Changes$/ }));
+    await settle();
+
+    await waitFor(() => expect(transactions.update).toHaveBeenCalled());
+    expect(transactions.similar).not.toHaveBeenCalled();
+    expect(transactions.update.mock.calls[0][1]).not.toHaveProperty('applyTo');
   });
 
   it('updates the category once one is picked from the category picker', async () => {

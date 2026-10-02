@@ -14,27 +14,44 @@ import java.util.UUID;
 
 public interface CategoryRuleRepository extends JpaRepository<CategoryRule, UUID> {
 
-    // Used by RuleEngineService -- enabled-only, priority order, scoped to one user's own rules.
-    List<CategoryRule> findByUserIdAndEnabledTrueOrderByPriorityAsc(UUID userId);
+    // Used by RuleEngineService -- enabled-only, scoped to one user's own rules, in evaluation
+    // order. Rules at the same priority are ordered by comparison value, then id: see the GLOBAL
+    // query just below for why priority alone is not an order.
+    List<CategoryRule> findByUserIdAndEnabledTrueOrderByPriorityAscComparisonValueAscIdAsc(UUID userId);
 
-    // Used by RuleEngineService -- enabled-only global rules, priority order.
-    List<CategoryRule> findByScopeAndEnabledTrueOrderByPriorityAsc(CategoryRule.Scope scope);
+    // Used by RuleEngineService -- enabled-only global rules, in evaluation order. First match
+    // wins, so ties need a fixed order: every rule V19 seeds has priority 100, and ordering by
+    // priority alone left them in whatever order Postgres returned. Once the table has statistics
+    // that is heap order, and recordMatch() rewrites the matched row at the end of the heap -- so
+    // the rule matched last lost the next tie, and one narration matching 'zepto' and 'airtel'
+    // flipped between Groceries and Utilities from one import to the next (GlobalRuleTieOrderIT).
+    // Comparison value, not created_at or id alone: seeded rows share one created_at, and ids are
+    // random per database, so either would pick a different winner in prod than in dev.
+    List<CategoryRule> findByScopeAndEnabledTrueOrderByPriorityAscComparisonValueAscIdAsc(CategoryRule.Scope scope);
 
-    // Used by RuleService for the management API -- every rule a user can see: their own plus
-    // the read-only global set, regardless of enabled state (so a disabled rule is still listed,
-    // just not evaluated).
-    List<CategoryRule> findByUserIdOrScopeOrderByPriorityAsc(UUID userId, CategoryRule.Scope scope);
+    // The management lists below (RuleService, AdminSearchService) order by priority, then
+    // comparison value, then id -- a total order, and the tie order evaluation is meant to use.
+    // Priority alone is not an order: every V19 seed rule has priority 100, and with ties left to
+    // Postgres, paging the 46 seeded rules ten at a time listed 45 distinct rules, and 26 when
+    // matches were recorded between page fetches, since recordMatch() moves the matched row
+    // (measured 2026-10-02 against a freshly migrated, ANALYZEd database; see RuleListOrderIT).
 
-    // Used by AdminSearchService, which needs the FULL global-rule set to search across -- not
-    // paginated, unlike the admin Global Rules page's own overload just below.
-    List<CategoryRule> findByScopeOrderByPriorityAsc(CategoryRule.Scope scope);
+    // Used by RuleService.listForUser -- this user's own rules, regardless of enabled state (so a
+    // disabled rule is still listed, just not evaluated). GLOBAL rows have user_id NULL, so none
+    // are included; RuleService appends them after, as RuleEngineService evaluates them after.
+    List<CategoryRule> findByUserIdOrderByPriorityAscComparisonValueAscIdAsc(UUID userId);
+
+    // Used by RuleService.listForUser and AdminSearchService, which need the FULL global-rule set
+    // -- not paginated, unlike the admin Global Rules page's own overload just below.
+    List<CategoryRule> findByScopeOrderByPriorityAscComparisonValueAscIdAsc(CategoryRule.Scope scope);
 
     // Backs the admin Global Rules page (AdminRuleController), paginated -- every GLOBAL rule
     // regardless of enabled state, same "management view sees everything, evaluation view sees
-    // enabled-only" split findByScopeAndEnabledTrueOrderByPriorityAsc above already establishes.
+    // enabled-only" split findByScopeAndEnabledTrueOrderByPriorityAscComparisonValueAscIdAsc above
+    // already establishes.
     // A Pageable overload of the same derived query just above -- Spring Data lets both coexist,
     // so AdminSearchService keeps its full unpaged list while this page gets real pagination.
-    Page<CategoryRule> findByScopeOrderByPriorityAsc(CategoryRule.Scope scope, Pageable pageable);
+    Page<CategoryRule> findByScopeOrderByPriorityAscComparisonValueAscIdAsc(CategoryRule.Scope scope, Pageable pageable);
 
     /**
      * Financial Intelligence Workspace, Rule Management module -- bulk UPDATE rather than

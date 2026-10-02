@@ -25,12 +25,18 @@ import java.util.UUID;
  * advance could ever exact-match a real one; the roadmap's "curated alias set" was imprecise about
  * what actually helps.
  *
- * <p>What the engine already does on an alias miss is fall through to first-significant-token
- * matching against the user's <em>existing merchant table</em> ({@code
- * merchantsByFirstToken}, keyed on each merchant's own {@code canonicalName}). A pre-seeded
- * {@code Merchant} row named "Swiggy" is exactly what that fallback needs: "SWIGGY*ORDR9182 BLR"
- * normalizes to a first token of "swiggy", matches the seeded merchant, and the engine's own
- * {@code addAlias} records the real alias from there on -- no fabricated alias row required.
+ * <p>What the engine already does on an alias miss is fall through to grouping-key matching
+ * against the user's <em>existing merchant table</em> ({@code merchantsByGroupingKey}, keyed on
+ * each merchant's own {@code canonicalName}). A pre-seeded {@code Merchant} row named "Swiggy" is
+ * exactly what that fallback needs: an APPROVED merchant whose name is one word is matched by the
+ * first significant word of a narration alone, so "SWIGGY*ORDR9182 BLR" and "SWIGGY INSTAMART"
+ * both reach it, and the engine's own {@code addAlias} records the real alias from there on -- no
+ * fabricated alias row required.
+ *
+ * <p><b>Every name below must stay one word.</b> The engine's key is otherwise the first TWO
+ * significant words (see {@code MerchantNormalizationEngine.groupingKey}), so a seeded
+ * "Amazon Pay" would catch only narrations that read "amazon pay ..." and none of the brand's
+ * other spellings.
  *
  * <p>Deliberately no {@code defaultCategoryId} field or seeding here either, despite the roadmap
  * naming one: every merchant below already has real category coverage through {@code
@@ -43,7 +49,7 @@ import java.util.UUID;
 public class MerchantSeedService {
 
     // Canonical names chosen to match CategoryRules' own keyword casing/spelling where a rule
-    // exists for the brand, so a seeded merchant's first-significant-token and the keyword
+    // exists for the brand, so a seeded merchant's one-word brand match and the keyword
     // table's category match are reading the same brand identity, not two independent guesses.
     private static final List<String> CURATED_MERCHANTS = List.of(
             // Dining / Groceries

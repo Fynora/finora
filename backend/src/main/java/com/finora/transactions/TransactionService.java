@@ -1334,8 +1334,8 @@ public class TransactionService {
             // resolve()/createMerchantAndAlias would persist as a real canonical_name -- a person's
             // name and UPI handle fragment, stored and later surfaced as if it were a business.
             // Nothing here sets t.setMerchantId(...), so the ghost merchant is never attached to
-            // THIS row -- but a LATER transaction from the same person, sharing the same first-token
-            // alias, would resolve to it and inherit a learned category "suggestion" from a
+            // THIS row -- but a LATER transaction from the same person, sharing the same grouping
+            // key, would resolve to it and inherit a learned category "suggestion" from a
             // "merchant" that is really just one person's name. That is the exact who/what-for
             // conflation the counterparty layer (CounterpartyClassifier, CounterpartyIdentity) was
             // built to keep apart -- see MerchantIdentityLookup's own doc on why that layer reads

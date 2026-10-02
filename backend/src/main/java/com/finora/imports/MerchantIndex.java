@@ -3,6 +3,7 @@ package com.finora.imports;
 import com.finora.entity.Merchant;
 
 import java.util.Map;
+import java.util.function.Function;
 
 /**
  * Every existing merchant a user owns, pre-indexed for one staging pass, so resolving a row's
@@ -12,7 +13,7 @@ import java.util.Map;
  *
  * <p>{@code MerchantNormalizationEngine.resolveReadOnly(userId, description)} is safe to call once
  * per row only when the caller runs inside a transaction -- its own per-transaction memo
- * ({@code merchantsByFirstToken}) is what turns 500 full-table loads into 1, exactly as
+ * ({@code merchantsByGroupingKey}) is what turns 500 full-table loads into 1, exactly as
  * {@code MerchantNormalizationEngineTest} documents. Transaction Intelligence Phase A's staging path
  * ({@code ImportService.parseAndStageWithSession}) is deliberately NOT wrapped in a transaction --
  * holding a database connection open for the duration of file parsing would reduce pool
@@ -31,26 +32,28 @@ import java.util.Map;
 public final class MerchantIndex {
 
     private final Map<String, Merchant> byNormalizedAlias;
-    private final Map<String, Merchant> byFirstToken;
+    private final Function<String, Merchant> byGrouping;
 
     /**
      * Built only by {@code MerchantNormalizationEngine.indexFor} (a different package from this
      * one), which is why this constructor and the accessors below are public rather than
-     * package-private: the maps' keys are {@code MerchantNormalizationEngine}'s own private
-     * normalization output (a raw description reduced to a normalized alias, or to its first
-     * significant token), and only that class knows how to compute them from a new description --
-     * this class is deliberately just the storage, never the reduction logic.
+     * package-private: the alias keys are {@code MerchantNormalizationEngine}'s own private
+     * normalization output, and {@code byGrouping} is that class's own matcher over the user's
+     * merchants -- only it knows how a description is reduced to a grouping key, and this class is
+     * deliberately just the storage, never the reduction logic.
      */
-    public MerchantIndex(Map<String, Merchant> byNormalizedAlias, Map<String, Merchant> byFirstToken) {
+    public MerchantIndex(Map<String, Merchant> byNormalizedAlias, Function<String, Merchant> byGrouping) {
         this.byNormalizedAlias = byNormalizedAlias;
-        this.byFirstToken = byFirstToken;
+        this.byGrouping = byGrouping;
     }
 
     public Merchant byNormalizedAlias(String normalizedAlias) {
         return byNormalizedAlias.get(normalizedAlias);
     }
 
-    public Merchant byFirstToken(String firstToken) {
-        return byFirstToken.get(firstToken);
+    /** The merchant {@code extractedMerchant} groups onto, or null -- see
+     *  {@code MerchantNormalizationEngine.groupingKey}. */
+    public Merchant byGrouping(String extractedMerchant) {
+        return byGrouping.apply(extractedMerchant);
     }
 }

@@ -262,6 +262,55 @@ class MerchantNormalizationEngineTest {
     }
 
     /**
+     * A narration that names only a merchant QR handle reduces, digits stripped, to the payment
+     * app's own suffix. Keyed on that, every QR payee on a statement was one merchant.
+     */
+    @Test
+    @DisplayName("payees known only by a payment app's QR handle are not grouped by the app's name")
+    void qrHandleOnlyPayeesAreNotGroupedByTheAppName() {
+        Merchant a = engine.resolve(userId, "UPI/000000000001/00:41:30/UPI/q000000001@ybl/UPI");
+        Merchant b = engine.resolve(userId, "UPI/000000000002/16:52:50/UPI/q000000002@ybl/UPI");
+
+        assertThat(b.getId()).isNotEqualTo(a.getId());
+    }
+
+    /** The cross-statement case measured on the corpus: refunds from different shops paid back
+     *  through a payment gateway name only the gateway, and one of them taught a category the
+     *  others then inherited. */
+    @Test
+    @DisplayName("a gateway-only narration does not join another gateway-only narration's merchant")
+    void gatewayOnlyNarrationsAreNotGrouped() {
+        Merchant first = engine.resolve(userId,
+                "UPI-RAZORPAY-GATEWAY.RAZORPAY@EXAMPLEBANK-EXMP0000000-000000000001-SHOPAREFUNDXXXX");
+        Merchant second = engine.resolve(userId,
+                "UPI-RAZORPAY-GATEWAY.RAZORPAY@EXAMPLEBANK-EXMP0000000-000000000002-SHOPBREFUNDXXXX");
+
+        assertThat(second.getId()).isNotEqualTo(first.getId());
+        assertThat(engine.resolveReadOnly(userId,
+                "UPI-RAZORPAY-GATEWAY.RAZORPAY@EXAMPLEBANK-EXMP0000000-000000000003-SHOPCREFUNDXXXX")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a key that pairs a payment app's name with a real word still groups")
+    void appWordBesideARealWordStillGroups() {
+        Merchant a = engine.resolve(userId, "PAYTM MALL ORDER 4471");
+        Merchant b = engine.resolve(userId, "PAYTM MALL ORDER 5512");
+
+        assertThat(b.getId()).isEqualTo(a.getId());
+    }
+
+    /** A structured narration whose payee field names nobody keeps the pre-existing behaviour:
+     *  nothing but rails and a reference, so no key and no grouping. */
+    @Test
+    @DisplayName("a structured narration naming no payee groups exactly as before")
+    void structuredNarrationWithoutAPayeeFallsBack() {
+        Merchant a = engine.resolve(userId, "UPI/RRN 000000000001/UPI");
+        Merchant b = engine.resolve(userId, "UPI/RRN 000000000002/UPI");
+
+        assertThat(b.getId()).isNotEqualTo(a.getId());
+    }
+
+    /**
      * Why the one-word brand match is limited to APPROVED merchants. A TEMPORARY merchant the
      * engine created from a narration that reduced to one common word must not then absorb every
      * payee beginning with that word -- which is the pooling this key exists to stop.

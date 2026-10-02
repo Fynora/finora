@@ -445,6 +445,15 @@ public final class CategoryRules {
         return String.join(" ", chosen.subList(0, Math.min(4, chosen.size())));
     }
 
+    /**
+     * Whether {@code word} (already normalised) is a payment app's name or handle suffix, which
+     * names how the money moved and never who received it. MerchantNormalizationEngine uses this to
+     * refuse a grouping key made of nothing else.
+     */
+    public static boolean isPaymentAppWord(String word) {
+        return word != null && PAYMENT_APP_HANDLE_WORDS.contains(word);
+    }
+
     /** Payment apps whose own name, or QR-code prefix, starts a handle that names no payee. */
     private static final Set<String> PAYMENT_APP_HANDLE_WORDS = Set.of(
             "paytm", "paytmqr", "bharatpe", "gpay", "phonepe", "phonepemerchant", "razorpay", "payu",

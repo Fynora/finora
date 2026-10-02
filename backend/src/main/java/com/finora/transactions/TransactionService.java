@@ -1401,8 +1401,11 @@ public class TransactionService {
             // unconditionally meant every bulk-apply from that card silently created a new Merchant
             // row for a PERSON. Verified concretely, not assumed: extractMerchant("UPI-SUNIL VERMA-
             // sampleuser@ybl-REF61") normalizes to "upi sunil verma sampleuser", which
-            // resolve()/createMerchantAndAlias would persist as a real canonical_name -- a person's
-            // name and UPI handle fragment, stored and later surfaced as if it were a business.
+            // resolve()/createMerchantAndAlias persisted as a real canonical_name -- a person's name
+            // and UPI handle fragment, stored and later surfaced as if it were a business. The engine
+            // now names a new merchant from a structured narration's payee field instead ("Sunil
+            // Verma" here), which drops the handle fragment but is still a person's name stored as a
+            // merchant, so the guard below stands unchanged.
             // Nothing here sets t.setMerchantId(...), so the ghost merchant is never attached to
             // THIS row -- but a LATER transaction from the same person, sharing the same grouping
             // key, would resolve to it and inherit a learned category "suggestion" from a

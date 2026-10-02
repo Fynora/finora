@@ -565,11 +565,28 @@ public class MerchantNormalizationEngine {
      * <p>What it costs: a brand's narrations stop collapsing when they differ in the second word.
      * {@link #brandToken} gives that back for the merchants that exist to catch every spelling of a
      * brand, and nowhere else.
+     *
+     * <h2>Then: a key of nothing but payment-app words is no key</h2>
+     *
+     * <p>A narration that names only a merchant QR handle ("UPI/&lt;ref&gt;/&lt;time&gt;/UPI/
+     * q123@ybl/UPI") reduces, once the handle's digits are stripped, to the app's own suffix --
+     * {@code ybl}, {@code axl}, {@code gpay}, {@code razorpay}. That word says how the money moved,
+     * not who received it, so every such payee on a statement became one merchant. Measured on the
+     * real corpus: eight different PhonePe QR payees under {@code ybl}, three under {@code gpay},
+     * two under {@code axl}; and across one holder's statements a Razorpay payment taught Groceries
+     * by one statement's keyword rule was then suggested Groceries on another statement, where it
+     * named no merchant at all. A key made only of such words ({@code CategoryRules
+     * .isPaymentAppWord}) is therefore null: the row gets a merchant of its own, the recoverable
+     * failure direction described above.
      */
     private static String groupingKey(String reduced) {
         if (reduced == null || reduced.isBlank()) return null;
         List<String> significant = significantTokens(reduced);
-        if (!significant.isEmpty()) return String.join(" ", significant.subList(0, Math.min(2, significant.size())));
+        if (!significant.isEmpty()) {
+            List<String> key = significant.subList(0, Math.min(2, significant.size()));
+            if (key.stream().allMatch(CategoryRules::isPaymentAppWord)) return null;
+            return String.join(" ", key);
+        }
         // Preserves the pre-existing short-token fallback (a merchant genuinely named "HP" still
         // groups) while keeping rails excluded, so this only ever narrows what may become a key.
         for (String t : reduced.split(" ")) {

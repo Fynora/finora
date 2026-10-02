@@ -90,6 +90,8 @@ public class AuthService {
         DEFAULT_CATEGORIES.put("Utilities", new String[]{"zap", "yellow"});
         DEFAULT_CATEGORIES.put("Shopping", new String[]{"shopping-bag", "purple"});
         DEFAULT_CATEGORIES.put("Health", new String[]{"heart-pulse", "red"});
+        // Salons and beauty parlours (V247, Sid 2026-10-02). Routed by ShopTradeCategory.
+        DEFAULT_CATEGORIES.put("Personal Care", new String[]{"scissors", "pink"});
         DEFAULT_CATEGORIES.put("Entertainment", new String[]{"film", "pink"});
         DEFAULT_CATEGORIES.put("Investments", new String[]{"trending-up", "teal"});
         DEFAULT_CATEGORIES.put("Fees/Interest", new String[]{"percent", "gray"});

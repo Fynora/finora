@@ -1,7 +1,7 @@
 import {
   Tag, Home, ShoppingCart, Utensils, Car, Zap, ShoppingBag, HeartPulse, Film, TrendingUp,
   Percent, Repeat, Users, Landmark, Shield, GraduationCap, RefreshCw, Plane, Gift, PawPrint,
-  Sofa, Receipt, Banknote, Briefcase, ArrowDownCircle,
+  Sofa, Receipt, Banknote, Briefcase, ArrowDownCircle, Scissors,
 } from 'lucide-react';
 
 // Maps the curated icon-token vocabulary CategoryPalette.ICONS defines server-side to already-
@@ -15,7 +15,7 @@ export const ICON_COMPONENTS: Record<string, any> = {
   percent: Percent, repeat: Repeat, users: Users, landmark: Landmark, shield: Shield,
   'graduation-cap': GraduationCap, 'refresh-cw': RefreshCw, plane: Plane, gift: Gift,
   'paw-print': PawPrint, sofa: Sofa, receipt: Receipt, banknote: Banknote, briefcase: Briefcase,
-  'arrow-down-circle': ArrowDownCircle,
+  'arrow-down-circle': ArrowDownCircle, scissors: Scissors,
 };
 
 // Same 9 hex values as CategoryPalette.COLORS server-side -- the frontend keeps its own copy

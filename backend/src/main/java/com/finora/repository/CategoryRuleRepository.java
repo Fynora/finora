@@ -8,8 +8,10 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface CategoryRuleRepository extends JpaRepository<CategoryRule, UUID> {
@@ -67,4 +69,34 @@ public interface CategoryRuleRepository extends JpaRepository<CategoryRule, UUID
      *  names, so they never need this cascade. */
     List<CategoryRule> findByUserIdAndActionTypeInAndActionValueIgnoreCase(
             UUID userId, List<CategoryRule.ActionType> actionTypes, String actionValue);
+
+    /** The user's saved answers to the recurring-payment question: their USER-scope PAYEE rules. */
+    @Query("SELECT r FROM CategoryRule r WHERE r.userId = :userId"
+            + " AND r.scope = com.finora.entity.CategoryRule.Scope.USER"
+            + " AND r.field = com.finora.entity.CategoryRule.Field.PAYEE")
+    List<CategoryRule> findUserPayeeRules(@Param("userId") UUID userId);
+
+    /** The user's saved answer for one payee, matched ignoring case like uq_category_rules_user_payee. */
+    @Query("SELECT r FROM CategoryRule r WHERE r.userId = :userId"
+            + " AND r.scope = com.finora.entity.CategoryRule.Scope.USER"
+            + " AND r.field = com.finora.entity.CategoryRule.Field.PAYEE"
+            + " AND lower(r.comparisonValue) = lower(:label)")
+    Optional<CategoryRule> findUserPayeeRule(@Param("userId") UUID userId, @Param("label") String label);
+
+    /**
+     * Inserts a payee rule unless the user already has one for this payee (uq_category_rules_user_payee),
+     * in which case nothing happens. Two concurrent answers for the same payee therefore leave one
+     * rule; the caller loads it with {@link #findUserPayeeRule} and updates it either way.
+     *
+     * @return 1 when a row was inserted, 0 when one already existed
+     */
+    @Modifying
+    @Query(value = "INSERT INTO category_rules (id, user_id, scope, field, operator, comparison_value,"
+            + " action_type, action_value, amount_min, amount_max)"
+            + " VALUES (:id, :userId, 'USER', 'PAYEE', 'EQUALS', :label, 'ASSIGN_CATEGORY', :category, :min, :max)"
+            + " ON CONFLICT (user_id, lower(comparison_value)) WHERE field = 'PAYEE' AND scope = 'USER' DO NOTHING",
+            nativeQuery = true)
+    int insertPayeeRuleIfAbsent(@Param("id") UUID id, @Param("userId") UUID userId, @Param("label") String label,
+                                @Param("category") String category, @Param("min") BigDecimal min,
+                                @Param("max") BigDecimal max);
 }

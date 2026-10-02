@@ -208,6 +208,9 @@ public class RuleEngineService {
             case MERCHANT -> merchantName;
             case ACCOUNT_TYPE -> accountType;
             case AMOUNT -> amount != null ? amount.toPlainString() : null;
+            // Not matched yet: payee rules arrive with the recurring-payment question, which adds
+            // their matching (money going out, payee label) here. Null fails closed.
+            case PAYEE -> null;
         };
         if (actual == null) return false;
 

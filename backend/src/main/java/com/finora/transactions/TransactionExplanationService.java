@@ -294,6 +294,7 @@ public class TransactionExplanationService {
             case MERCHANT -> "merchant";
             case AMOUNT -> "amount";
             case ACCOUNT_TYPE -> "account type";
+            case PAYEE -> "payee";
         };
     }
 

@@ -16,7 +16,7 @@ describe('landing plan data', () => {
   });
 
   it('never sells extended history or long-term trends as Plus features', () => {
-    // The 31-day statement limit is only enforced when a statement carries a detected period, so
+    // The one-month statement limit is only enforced when a statement carries a detected period, so
     // "extended history" is not a benefit we can stand behind. Plus's real, enforced differences are
     // accounts, statement length, Advanced Reports and Ask Fyn.
     const plus = PLANS.find((p) => p.id === 'plus')!;

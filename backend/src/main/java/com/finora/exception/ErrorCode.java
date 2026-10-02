@@ -340,7 +340,7 @@ public enum ErrorCode {
     // .EXTENDED_HISTORY -- seeded since V99, never checked anywhere until this). Same "own code,
     // not the generic one" reasoning as ACCOUNT_LIMIT_REACHED just above.
     STATEMENT_PERIOD_TOO_LONG("ENTITLEMENT_003", HttpStatus.FORBIDDEN,
-            "Free plan statements can cover at most 31 days. Upgrade to Plus to import longer statement periods."),
+            "Free plan statements can cover at most one month. Upgrade to Plus to import longer statement periods."),
 
     // FynChatOrchestrationService's Free-tier daily question cap (2026-09-14 costing decision):
     // Free gets FYN_CHAT itself (V205), just rationed, rather than the all-or-nothing gate every

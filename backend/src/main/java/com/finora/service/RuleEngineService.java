@@ -1,8 +1,10 @@
 package com.finora.service;
 
 import com.finora.entity.CategoryRule;
+import com.finora.entity.Transaction;
 import com.finora.exception.ApiException;
 import com.finora.repository.CategoryRuleRepository;
+import com.finora.util.CategoryRules;
 import com.finora.util.MoneyMath;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -49,10 +51,10 @@ public class RuleEngineService {
     public Optional<RuleMatch> evaluate(UUID userId, String description, BigDecimal amount,
                                           String merchantName, String accountType) {
         for (CategoryRule rule : categoryRuleRepository.findByUserIdAndEnabledTrueOrderByPriorityAsc(userId)) {
-            if (matches(rule, description, amount, merchantName, accountType)) return Optional.of(new RuleMatch(rule));
+            if (matches(rule, description, amount, merchantName, accountType, null)) return Optional.of(new RuleMatch(rule));
         }
         for (CategoryRule rule : categoryRuleRepository.findByScopeAndEnabledTrueOrderByPriorityAsc(CategoryRule.Scope.GLOBAL)) {
-            if (matches(rule, description, amount, merchantName, accountType)) return Optional.of(new RuleMatch(rule));
+            if (matches(rule, description, amount, merchantName, accountType, null)) return Optional.of(new RuleMatch(rule));
         }
         return Optional.empty();
     }
@@ -64,7 +66,15 @@ public class RuleEngineService {
      *  since only one of them decides this transaction's category. */
     public Optional<RuleMatch> evaluateCategoryRule(UUID userId, String description, BigDecimal amount,
                                                        String merchantName, String accountType) {
-        return evaluateCategoryRule(ruleSet(userId), description, amount, merchantName, accountType);
+        return evaluateCategoryRule(userId, description, amount, merchantName, accountType, null);
+    }
+
+    /** As the five-argument form, given the transaction's direction -- which a PAYEE rule needs:
+     *  it matches money going out only, and nothing when the direction is null. */
+    public Optional<RuleMatch> evaluateCategoryRule(UUID userId, String description, BigDecimal amount,
+                                                       String merchantName, String accountType,
+                                                       Transaction.Type direction) {
+        return evaluateCategoryRule(ruleSet(userId), description, amount, merchantName, accountType, direction);
     }
 
     /**
@@ -86,9 +96,18 @@ public class RuleEngineService {
      */
     public Optional<RuleMatch> evaluateCategoryRule(List<CategoryRule> rules, String description, BigDecimal amount,
                                                        String merchantName, String accountType) {
+        return evaluateCategoryRule(rules, description, amount, merchantName, accountType, null);
+    }
+
+    /** As the five-argument form, given the transaction's direction -- see the userId overload. */
+    public Optional<RuleMatch> evaluateCategoryRule(List<CategoryRule> rules, String description, BigDecimal amount,
+                                                       String merchantName, String accountType,
+                                                       Transaction.Type direction) {
         for (CategoryRule rule : rules) {
             if (rule.getActionType() == CategoryRule.ActionType.ASSIGN_CATEGORY
-                    && matches(rule, description, amount, merchantName, accountType)) return Optional.of(new RuleMatch(rule));
+                    && matches(rule, description, amount, merchantName, accountType, direction)) {
+                return Optional.of(new RuleMatch(rule));
+            }
         }
         return Optional.empty();
     }
@@ -146,7 +165,7 @@ public class RuleEngineService {
         List<RuleMatch> matches = new ArrayList<>();
         for (CategoryRule rule : rules) {
             if (rule.getActionType() != CategoryRule.ActionType.ASSIGN_CATEGORY
-                    && matches(rule, description, amount, merchantName, accountType)) {
+                    && matches(rule, description, amount, merchantName, accountType, null)) {
                 matches.add(new RuleMatch(rule));
             }
         }
@@ -189,7 +208,7 @@ public class RuleEngineService {
         probe.setField(parseField(field));
         probe.setOperator(parseOperator(operator));
         probe.setComparisonValue(comparisonValue);
-        return matches(probe, description, amount, merchantName, accountType);
+        return matches(probe, description, amount, merchantName, accountType, null);
     }
 
     private CategoryRule.Field parseField(String v) {
@@ -202,15 +221,16 @@ public class RuleEngineService {
         catch (IllegalArgumentException e) { throw new ApiException(HttpStatus.BAD_REQUEST, "Unknown operator: " + v); }
     }
 
-    private boolean matches(CategoryRule rule, String description, BigDecimal amount, String merchantName, String accountType) {
+    private boolean matches(CategoryRule rule, String description, BigDecimal amount, String merchantName,
+                            String accountType, Transaction.Type direction) {
+        if (!withinBounds(rule, amount)) return false;
+        if (rule.getField() == CategoryRule.Field.PAYEE) return matchesPayee(rule, description, direction);
         String actual = switch (rule.getField()) {
             case DESCRIPTION -> description;
             case MERCHANT -> merchantName;
             case ACCOUNT_TYPE -> accountType;
             case AMOUNT -> amount != null ? amount.toPlainString() : null;
-            // Not matched yet: payee rules arrive with the recurring-payment question, which adds
-            // their matching (money going out, payee label) here. Null fails closed.
-            case PAYEE -> null;
+            case PAYEE -> throw new IllegalStateException("PAYEE is matched by matchesPayee");
         };
         if (actual == null) return false;
 
@@ -245,6 +265,31 @@ public class RuleEngineService {
         } catch (NumberFormatException e) {
             return null;
         }
+    }
+
+    /**
+     * A PAYEE rule: the payee label (CategoryRules.extractMerchantLabel, the same label stored on
+     * Transaction.merchant and grouped by RecurringService) equals the rule's value, ignoring case.
+     * Money going out only: the recurring-payment question that creates these rules is only ever
+     * asked about outgoing payments, and a landlord's deposit return must not be filed as rent. A
+     * caller that gives no direction gets no match (fails closed). Only EQUALS is meaningful;
+     * RuleService rejects any other operator for this field.
+     */
+    private static boolean matchesPayee(CategoryRule rule, String description, Transaction.Type direction) {
+        if (direction != Transaction.Type.EXPENSE || description == null
+                || rule.getOperator() != CategoryRule.Operator.EQUALS || rule.getComparisonValue() == null) {
+            return false;
+        }
+        String payee = CategoryRules.extractMerchantLabel(description);
+        return payee != null && payee.equalsIgnoreCase(rule.getComparisonValue().trim());
+    }
+
+    /** Optional bounds on any rule (V248), inclusive. A bounded rule never matches a missing amount. */
+    private static boolean withinBounds(CategoryRule rule, BigDecimal amount) {
+        if (rule.getAmountMin() == null && rule.getAmountMax() == null) return true;
+        if (amount == null) return false;
+        if (rule.getAmountMin() != null && amount.compareTo(rule.getAmountMin()) < 0) return false;
+        return rule.getAmountMax() == null || amount.compareTo(rule.getAmountMax()) <= 0;
     }
 
     /** comparisonValue for BETWEEN is "low,high" -- e.g. "1000,5000". */

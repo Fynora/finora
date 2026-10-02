@@ -450,6 +450,29 @@ class CategorizationServiceTest {
         assertThat(suggestion.decisionSource()).isEqualTo(Transaction.DecisionSource.STRUCTURAL_P2P);
     }
 
+    /** Measured shapes of a person payment the classifier does not type PERSON: a spaced
+     *  "UPI NAME number" narration (UNKNOWN), and one naming the payer's own bank
+     *  (FINANCIAL_INSTITUTION). Only a business-typed narration may reach the model. */
+    @Test
+    void suggest_aPersonPaymentTheClassifierDoesNotTypeAPerson_neverReachesTheAiFallback() {
+        UUID merchantId = UUID.randomUUID();
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
+        when(sharedCorpusService.findTrustedSuggestion(any(), any(), any())).thenReturn(Optional.empty());
+        when(fynCategorizationFallbackService.suggest(any(), any(), any(), any())).thenReturn(Optional.of("Dining"));
+        String spaced = "UPI RAVI SHANKAR KUMAR 412345678901"; // synthetic-ok
+        String namesPayerBank = "RAVI K UPI/RAVI K/ravik@okicici/Payment fr/ICICI Bank/412345678901/UPI"; // synthetic-ok
+        assertThat(com.finora.util.CounterpartyTyping.of(spaced).type())
+                .as("precondition").isEqualTo(com.finora.util.CounterpartyType.UNKNOWN);
+        assertThat(com.finora.util.CounterpartyTyping.of(namesPayerBank).type())
+                .as("precondition").isEqualTo(com.finora.util.CounterpartyType.FINANCIAL_INSTITUTION);
+
+        categorizationService.suggest(userId, spaced, null, null, Transaction.Type.EXPENSE);
+        categorizationService.suggest(userId, namesPayerBank, null, null, Transaction.Type.EXPENSE);
+
+        verify(fynCategorizationFallbackService, never()).suggest(any(), any(), any(), any());
+    }
+
     @Test
     void suggest_noCorpusEntryAndNoAiAnswer_fallsThroughToStructuralP2pThenOther() {
         UUID merchantId = UUID.randomUUID();

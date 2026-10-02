@@ -35,7 +35,7 @@ public class UserMerchantCategoryResolutionService {
 
     private static final Logger log = LoggerFactory.getLogger(UserMerchantCategoryResolutionService.class);
 
-    private static final String PROMPT_VERSION = "user-category-resolution-v1";
+    private static final String PROMPT_VERSION = "user-category-resolution-v2";
     private static final String TOOL_NAME = "RESOLVE_CATEGORY";
     private static final int MAX_TOKENS = 60;
     private static final int MAX_CATEGORIES_SENT = 100;
@@ -151,7 +151,14 @@ public class UserMerchantCategoryResolutionService {
             return cached;
         }
 
-        Optional<String> understanding = understandingService.understand(userId, counterpartyKey, direction, description);
+        // Both model calls below send the narration to a third party: only a business's narration
+        // goes (CategorizationService.mayGoToModel), and it goes with its UPI ids, account and
+        // reference numbers and IFSC codes replaced (FynOcrRedactor.redactNarration).
+        if (description == null || !CategorizationService.mayGoToModel(description)) {
+            return Optional.empty();
+        }
+        String forModel = FynOcrRedactor.redactNarration(description);
+        Optional<String> understanding = understandingService.understand(userId, counterpartyKey, direction, forModel);
         if (understanding.isEmpty()) {
             return Optional.empty();
         }
@@ -170,7 +177,7 @@ public class UserMerchantCategoryResolutionService {
         String systemPrompt = String.format(SYSTEM_PROMPT_TEMPLATE, understanding.get(),
                 categoryList.isBlank() ? "(none yet)" : categoryList);
 
-        LlmRequest request = LlmRequest.withTools(systemPrompt, List.of(LlmMessage.user(description)),
+        LlmRequest request = LlmRequest.withTools(systemPrompt, List.of(LlmMessage.user(forModel)),
                 MAX_TOKENS, List.of(TOOL));
         long startedAt = System.currentTimeMillis();
         LlmCompletion completion;

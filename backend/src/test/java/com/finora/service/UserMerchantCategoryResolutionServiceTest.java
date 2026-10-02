@@ -53,7 +53,7 @@ class UserMerchantCategoryResolutionServiceTest {
         category.setName("Pet Care");
         when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
 
-        Optional<String> result = service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT/...");
+        Optional<String> result = service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT PET SUPPLIES PVT LTD/...");
 
         assertThat(result).contains("Pet Care");
         verifyNoInteractions(llmClient);
@@ -73,11 +73,44 @@ class UserMerchantCategoryResolutionServiceTest {
         when(categorizationService.resolveOrCreateCategory(userId, "Pet Care", null)).thenReturn(existing);
         when(resolutionRepository.insertIfAbsent(any(), any(), any(), any(), any())).thenReturn(1);
 
-        Optional<String> result = service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT/...");
+        Optional<String> result = service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT PET SUPPLIES PVT LTD/...");
 
         assertThat(result).contains("Pet Care");
         // Model named an EXISTING category, so no reason should be passed through as a create reason.
         verify(categorizationService).resolveOrCreateCategory(userId, "Pet Care", null);
+    }
+
+    /** Both model calls receive the narration, so both receive it redacted -- the category
+     *  resolution call here, and the understanding call it makes first. */
+    @Test
+    void resolve_cacheMiss_bothModelCallsReceiveTheRedactedNarration() {
+        when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(any(), any(), any())).thenReturn(Optional.empty());
+        when(understandingService.understand(any(), any(), any(), any())).thenReturn(Optional.of("A pet supplies retailer"));
+        when(categoryRepository.findByUserId(userId)).thenReturn(List.of());
+        when(llmClient.complete(any())).thenReturn(new LlmCompletion(null, List.of(),
+                "claude-haiku-4-5-20251001", 60, 8, "end_turn"));
+        String narration = "UPI-PAWS AND CLAWS STORE-pawsclawsstore@okaxis-UTIB0XXXXXX-123456789012-UPI"; // synthetic-ok
+
+        service.resolve(userId, "vpa:pawsclawsstore", Transaction.Type.EXPENSE, narration);
+
+        String redacted = "UPI-PAWS AND CLAWS STORE-[redacted-id]-[redacted-ifsc]-[redacted-number]-UPI";
+        verify(understandingService).understand(userId, "vpa:pawsclawsstore", Transaction.Type.EXPENSE, redacted);
+        var requestCaptor = org.mockito.ArgumentCaptor.forClass(
+                com.finora.integrations.anthropic.LlmClient.LlmRequest.class);
+        verify(llmClient).complete(requestCaptor.capture());
+        assertThat(requestCaptor.getValue().messages().get(0).content()).isEqualTo(redacted);
+    }
+
+    /** The gate at the one entry into the model calls, not only at today's caller. */
+    @Test
+    void resolve_aNamedIndividualTransfer_makesNoModelCallAtAll() {
+        when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(any(), any(), any())).thenReturn(Optional.empty());
+
+        Optional<String> result = service.resolve(userId, "vpa:sampleuser", Transaction.Type.EXPENSE,
+                "UPI-RAJESH KUMAR-sampleuser@ybl-REF881234");
+
+        assertThat(result).isEmpty();
+        verifyNoInteractions(understandingService, llmClient);
     }
 
     @Test
@@ -99,7 +132,7 @@ class UserMerchantCategoryResolutionServiceTest {
         when(categorizationService.resolveOrCreateCategory(userId, "Apple Purchases", null)).thenReturn(apple);
         when(resolutionRepository.insertIfAbsent(any(), any(), any(), any(), any())).thenReturn(1);
 
-        service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT/...");
+        service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT PET SUPPLIES PVT LTD/...");
 
         var requestCaptor = org.mockito.ArgumentCaptor.forClass(
                 com.finora.integrations.anthropic.LlmClient.LlmRequest.class);
@@ -125,7 +158,7 @@ class UserMerchantCategoryResolutionServiceTest {
                 .thenAnswer(inv -> { created.setAiCreationReason(inv.getArgument(2)); return created; });
         when(resolutionRepository.insertIfAbsent(any(), any(), any(), any(), any())).thenReturn(1);
 
-        Optional<String> result = service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT/...");
+        Optional<String> result = service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT PET SUPPLIES PVT LTD/...");
 
         assertThat(result).contains("Pet Care");
         verify(categorizationService).resolveOrCreateCategory(userId, "Pet Care", "Pet supplies retailer, no existing match");
@@ -137,7 +170,7 @@ class UserMerchantCategoryResolutionServiceTest {
         when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(any(), any(), any())).thenReturn(Optional.empty());
         when(understandingService.understand(any(), any(), any(), any())).thenReturn(Optional.empty());
 
-        Optional<String> result = service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT/...");
+        Optional<String> result = service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT PET SUPPLIES PVT LTD/...");
 
         assertThat(result).isEmpty();
         verifyNoInteractions(llmClient);
@@ -151,7 +184,7 @@ class UserMerchantCategoryResolutionServiceTest {
         when(categoryRepository.findByUserId(userId)).thenReturn(List.of());
         when(llmClient.complete(any())).thenThrow(new RuntimeException("upstream error"));
 
-        Optional<String> result = service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT/...");
+        Optional<String> result = service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT PET SUPPLIES PVT LTD/...");
 
         assertThat(result).isEmpty();
         verify(aiAuditLogRepository).save(argThat(log -> log.getError() != null));

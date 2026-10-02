@@ -193,6 +193,54 @@ class FynOcrRedactorTest {
     }
 
     @Test
+    void redactNarration_anIdWrappedOntoTwoLines_losesBothHalves() {
+        // The PDF wrapped the id, so a space sits inside it; the half before it is the payee's name.
+        assertThat(FynOcrRedactor.redactNarration("UPI/[redacted-number]/10:20:20/UPI/priyasharma kumar@okhdfcbank"))
+                .isEqualTo("UPI/[redacted-number]/10:20:20/UPI/[redacted-id]");
+    }
+
+    @Test
+    void redactNarration_anUppercaseCodeBeforeTheIdStays() {
+        assertThat(FynOcrRedactor.redactNarration("UPI-METRO RAIL-METRORAILCODE metrorail@okaxis-UPI"))
+                .isEqualTo("UPI-METRO RAIL-METRORAILCODE [redacted-id]-UPI");
+    }
+
+    @Test
+    void redactNarration_anIdCutOffBeforeItsAt_isRedactedWhenItCarriesDigits() {
+        assertThat(FynOcrRedactor.redactNarration("UPIAR/[redacted-number]/DR/PRIYA/HDFC/priyasharma1"))
+                .isEqualTo("UPIAR/[redacted-number]/DR/PRIYA/HDFC/[redacted-id]");
+    }
+
+    @Test
+    void redactNarration_ordinaryLowercaseWordsStay() {
+        assertThat(FynOcrRedactor.redactNarration("UPI/RRN [redacted-number]/Monthly autopay. Cancel anytime"))
+                .isEqualTo("UPI/RRN [redacted-number]/Monthly autopay. Cancel anytime");
+    }
+
+    @Test
+    void redactNarration_aGlueDigitsFieldBeforeAWrappedIdKeepsItsDelimiter() {
+        assertThat(FynOcrRedactor.redactNarration("UPI-SHOP NAME-GPAY-11223344556 shopname@okaxis-UPI")) // synthetic-ok
+                .isEqualTo("UPI-SHOP NAME-GPAY-[redacted-id]-UPI");
+        assertThat(FynOcrRedactor.redactNarration("UPI/CR/[redacted-number]/SHOP/DEUT/DEUT2 shop@okaxis/"))
+                .isEqualTo("UPI/CR/[redacted-number]/SHOP/DEUT/DEUT2 [redacted-id]/");
+    }
+
+    /** The understanding call redacts again what resolve already redacted, so a second pass must
+     *  change nothing -- an earlier draft stripped one more lowercase word on every pass. */
+    @Test
+    void redactNarration_isIdempotent() {
+        for (String narration : java.util.List.of(
+                "UPI/[redacted-number]/10:20:20/UPI/priyasharma kumar@okhdfcbank",
+                "UPI/RRN 123456789012/Monthly autopay. Cancel anytime abc12345", // synthetic-ok
+                "UPI-PAWS AND CLAWS STORE-pawsclawsstore@okaxis-UTIB0XXXXXX-123456789012-UPI", // synthetic-ok
+                "SMS CHRG FOR:01-04-2026to30-06-2026",
+                "pay to someone x@okaxis")) {
+            String once = FynOcrRedactor.redactNarration(narration);
+            assertThat(FynOcrRedactor.redactNarration(once)).as(narration).isEqualTo(once);
+        }
+    }
+
+    @Test
     void redactNarration_isNullSafe() {
         assertThat(FynOcrRedactor.redactNarration(null)).isNull();
     }

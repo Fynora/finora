@@ -261,7 +261,7 @@ public class CategorizationService {
                     Transaction.DecisionSource.SHARED_CORPUS, null, ConfidenceEngine.INITIAL_SHARED_CORPUS_CONFIDENCE);
         }
         Optional<String> aiMatch = direction == null || !hasCounterpartyKey(typing.key())
-                || isPersonShaped(typing, description) ? Optional.empty()
+                || !mayGoToModel(description) ? Optional.empty()
                 : fynCategorizationFallbackService.suggest(userId, typing.key(), direction, description);
         if (aiMatch.isPresent()) {
             return new Suggestion(aiMatch.get(), AI_FALLBACK_SOURCE, merchant.getId(),
@@ -579,15 +579,20 @@ public class CategorizationService {
         return counterpartyKey != null && !counterpartyKey.isBlank();
     }
 
-    /** Whether a narration names a private individual. Such a row never goes to the AI fallback:
-     *  that call sends the narration to a third party, and here the narration is a person's name
-     *  and usually their UPI id. Either signal is enough. The cost is that a shop whose payee name
-     *  reads as a person's gets no AI answer; the shop-trade and person-transfer rules below still
-     *  name it. Only {@link #suggest} needs this: {@link #suggestReadOnly}'s fallback reads its own
-     *  cache and never calls the model. */
-    private static boolean isPersonShaped(com.finora.util.CounterpartyTyping typing, String description) {
-        return typing.type() == com.finora.util.CounterpartyType.PERSON
-                || PersonToPersonTransferDetector.isNamedIndividualTransfer(description);
+    /** Whether a narration may go to the AI fallback, which sends it to a third party: only when
+     *  its counterparty is typed a business and the person-transfer rule does not read it as a
+     *  named individual. Anything else may be a private person's name -- the classifier types
+     *  some person payments UNKNOWN (a "UPI NAME number" shape it does not recognise) and some
+     *  FINANCIAL_INSTITUTION (the payer's own bank is named in the narration), measured on the
+     *  real corpus. The cost: a merchant the classifier does not type a business gets no AI
+     *  answer and falls through to the rules below. A payment to a merchant QR stays allowed:
+     *  it is typed a business, and its name, though often the owner's, is the shop's trading
+     *  name. Checked here and again by {@link UserMerchantCategoryResolutionService#resolve}, the
+     *  one entry into the model calls, so a future caller cannot skip it. {@link
+     *  #suggestReadOnly}'s fallback reads its own cache and never calls the model. */
+    static boolean mayGoToModel(String description) {
+        return com.finora.util.CounterpartyClassifier.classify(description) == com.finora.util.CounterpartyType.BUSINESS
+                && !PersonToPersonTransferDetector.isNamedIndividualTransfer(description);
     }
 
     /** The canonical name only if a person has confirmed this merchant's identity -- see

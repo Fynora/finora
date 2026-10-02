@@ -113,20 +113,38 @@ final class FynOcrRedactor {
     // fields too -- the merchant name included, which is the one thing the model is sent the
     // narration for. Here an id is the single field holding the '@', ended by those delimiters
     // or whitespace. A UPI id with a '-' of its own keeps the part before that '-'; every
-    // character from the '-' through the handle is still redacted. Either side may be empty, but
-    // not both: statements cut a long id off right after its '@' (measured on 7 of 1,283
-    // corpus rows that reach the model), and that leftover local part is the identifying half. A
-    // lone '@' ("EMI @ 14.00%") is not an id and stays.
-    private static final Pattern NARRATION_ID =
-            Pattern.compile("[^\\s/|\\-]+@[^\\s/|\\-]*|@[^\\s/|\\-]+");
+    // character from the '-' through the handle is still redacted.
+    //
+    // Either side of the '@' may be empty, but not both: statements cut a long id off right after
+    // its '@' (seen on 7 corpus rows), and that leftover local part is
+    // the identifying half. A lone '@' ("EMI @ 14.00%") is not an id and stays.
+    //
+    // The optional lead-in is a statement PDF wrapping a long id onto the next line, so a space
+    // sits inside it ("firstpart secondpart@handle") -- the first half is often the payee's own
+    // name (10+ corpus rows). Taken only when it is lowercase, as UPI ids print, while the bank's
+    // own fields are uppercase, so a merchant code there ("SHOPCODE shop@okaxis") stays; and only
+    // when it starts a field, so the tail of an uppercase word ("DEUT2 x@y") is not taken. One
+    // pattern rather than a second pass over the placeholder, which keeps redactNarration
+    // idempotent: the understanding call redacts again what resolve already redacted.
+    private static final Pattern NARRATION_ID = Pattern.compile(
+            "(?:(?<![^\\s/|\\-])[a-z0-9._][a-z0-9._\\-]* +)?[^\\s/|\\-]+@[^\\s/|\\-]*|@[^\\s/|\\-]+");
+
+    // A UPI id cut off before its '@' leaves a bare lowercase token of letters and digits
+    // ("name1234"). Six or more characters, both letters and digits, no uppercase: the shape of an
+    // id, not of a word a bank prints. A truncated id of letters alone is not caught.
+    private static final Pattern LOWERCASE_ALNUM_ID = Pattern.compile(
+            "(?<![A-Za-z0-9._])(?=[a-z0-9._]*\\d)(?=[a-z0-9._]*[a-z])[a-z0-9._]{6,}(?![A-Za-z0-9._])");
 
     /** {@link #redact} for a transaction narration rather than OCR'd text: the same identifier
-     *  shapes, with the id match bounded by the narration's field delimiters. Null-safe. */
+     *  shapes, with the id match bounded by the narration's field delimiters. Null-safe and
+     *  idempotent. Numbers go before the lowercase-id rule, so a date range glued by letters
+     *  ("01-04-2026to30-06-2026") is already two placeholders by then. */
     static String redactNarration(String value) {
         if (value == null) {
             return null;
         }
-        return redactNumbers(NARRATION_ID.matcher(value).replaceAll("[redacted-id]"));
+        String redacted = redactNumbers(NARRATION_ID.matcher(value).replaceAll("[redacted-id]"));
+        return LOWERCASE_ALNUM_ID.matcher(redacted).replaceAll("[redacted-id]");
     }
 
     private static String redactNumbers(String value) {

@@ -75,7 +75,7 @@ public class InsightsExplorerService {
     private InsightsExplorerDto.TopCategory topCategory(List<Transaction> currentMonthTxns,
                                                           Map<UUID, Category> categoriesById, RefundNetting refunds) {
         Map<String, List<Transaction>> byCategory = currentMonthTxns.stream()
-                .collect(Collectors.groupingBy(t -> categoryNameOf(t, categoriesById, refunds)));
+                .collect(Collectors.groupingBy(t -> categoryNameOf(t, categoriesById)));
         Map.Entry<String, List<Transaction>> top = byCategory.entrySet().stream()
                 .filter(e -> sumReportable(e.getValue(), refunds).signum() >= 0)
                 .max(Comparator.comparing(e -> sumReportable(e.getValue(), refunds)))
@@ -105,12 +105,12 @@ public class InsightsExplorerService {
     private Map<String, BigDecimal> spendByCategory(List<Transaction> txns, Map<UUID, Category> categoriesById,
                                                     RefundNetting refunds) {
         return RefundNetting.withoutNegativeSpend(txns.stream().collect(Collectors.groupingBy(
-                t -> categoryNameOf(t, categoriesById, refunds),
+                t -> categoryNameOf(t, categoriesById),
                 Collectors.reducing(BigDecimal.ZERO, refunds::spendAmount, BigDecimal::add))));
     }
 
-    private String categoryNameOf(Transaction t, Map<UUID, Category> categoriesById, RefundNetting refunds) {
-        Category category = categoriesById.get(refunds.spendCategoryOf(t));
+    private String categoryNameOf(Transaction t, Map<UUID, Category> categoriesById) {
+        Category category = categoriesById.get(t.getCategoryId());
         return category != null ? category.getName() : "Uncategorized";
     }
 

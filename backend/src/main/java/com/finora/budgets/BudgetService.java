@@ -94,8 +94,8 @@ public class BudgetService {
                 monthTxns, transactionGraphService.ccPaymentFromTransactionIds(monthTxns));
         RefundNetting spend = withUnlinkedOffsets(userId, refunds, reportable);
         Map<UUID, BigDecimal> spendByCategory = RefundNetting.withoutNegativeSpend(reportable.stream()
-                .filter(t -> spend.countsAsSpend(t) && spend.spendCategoryOf(t) != null)
-                .collect(Collectors.groupingBy(spend::spendCategoryOf,
+                .filter(t -> spend.countsAsSpend(t) && t.getCategoryId() != null)
+                .collect(Collectors.groupingBy(Transaction::getCategoryId,
                         Collectors.reducing(BigDecimal.ZERO, spend::spendAmount, BigDecimal::add))));
 
         return budgetRepository.findByUserId(userId).stream().map(b -> {
@@ -194,7 +194,7 @@ public class BudgetService {
                 monthTxns, transactionGraphService.ccPaymentFromTransactionIds(monthTxns));
         RefundNetting spend = withUnlinkedOffsets(userId, refunds, reportable);
         return RefundNetting.floorAtZero(reportable.stream()
-                .filter(t -> spend.countsAsSpend(t) && categoryId.equals(spend.spendCategoryOf(t)))
+                .filter(t -> spend.countsAsSpend(t) && categoryId.equals(t.getCategoryId()))
                 .map(spend::spendAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add));
     }

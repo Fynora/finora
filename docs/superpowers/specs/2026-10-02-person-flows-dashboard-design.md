@@ -26,7 +26,7 @@ Two mechanisms produce this, traced in `FlowClassifier`:
 
 ## Decisions (Sid, 2026-10-02)
 
-- Money paid back reduces expenses, like a refund.
+- Money paid back reduces expenses, like a refund (delivered by per-person matching, see §2).
 - A category resolves a credit only when the user chose it (manual pick, user rule, learned
   pattern). A category the app guessed does not.
 
@@ -43,24 +43,27 @@ manually set, or decision source MANUAL / USER_RULE / LEARNED_PATTERN):
 | User's category on a credit | Reading |
 |---|---|
 | Salary | INCOME / SALARY (unchanged) |
-| Friend Repayment | ADJUSTMENT / PAID_BACK, offsets spend (below) |
+| Friend Repayment | ADJUSTMENT / PAID_BACK: not income, not unresolved, does not yet lower spend (below) |
 | Any other system category | unchanged (automatic rules decide) |
 | A category the user created | unchanged in this PR; PR 2 asks once "does this count as income?" |
 
 `FlowClassifier.VERSION` 6 -> 7.
 
-### 2. Paid back offsets spend (backend, `FlowTotals` + `RefundNetting`)
+### 2. Paid back lowering spend: deferred to per-person matching
 
-`PAID_BACK` joins `offsetsSpend`, whether it came from the Friend Repayment category or the "Paid
-back to me" kind. A refund lowers spend in its own category; a repayment is filed under Friend
-Repayment, where there is no spend, so it would lower nothing. A repayment therefore lowers spend in
-the user's **Personal Transfer** category (`CategorizationService.P2P_CATEGORY`), where person
-payments land. `RefundNetting.spendCategoryOf(t)` returns that category for a repayment and
-`t.getCategoryId()` otherwise; every spend-by-category consumer (report, dashboard, range,
-analytics, insights, insight explorer, budgets) reads it, so totals still equal the sum of
-categories. Per-category floor at zero is kept: repayments beyond what was paid out in the period
-lower nothing further. With no Personal Transfer category, a repayment offsets only its own category
-(in practice nothing).
+Built first as "a repayment lowers the whole Personal Transfer category", then measured on the
+tester's data and withdrawn before merge:
+
+- Each month floors at zero, so repayments arriving in a later month than the lending lowered the
+  six-month figure but not the monthly ones: the two disagreed by tens of thousands of rupees.
+- Credits from the user's own accounts filed as Friend Repayment would have cancelled real spending.
+- Matching by person was not possible yet: only a small fraction of repayments found a payment to the same
+  counterparty key, because one person was split across several keys (wrapped UPI ids, linked-account
+  suffixes, ids cut before the "@") and the user's own accounts were not recognised.
+
+Sid's decision for the follow-up: match each repayment to payments to and from the same person
+(lending and borrowing, either order), in the payment's own month and category, so monthly and range
+figures agree. It is built on the person-recognition fix (PR #1884).
 
 ### 3. Savings rate only when meaningful (backend DTOs + web + mobile)
 

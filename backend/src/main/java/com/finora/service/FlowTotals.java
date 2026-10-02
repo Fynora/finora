@@ -29,11 +29,11 @@ public final class FlowTotals {
      *  credit is never income), which category ids are the user's Salary category, and the user's
      *  inflow kinds (Plan 2). Production code builds this through InflowChoiceService.contextFor. */
     public record Context(Map<UUID, Account.Type> accountTypes, Set<UUID> salaryCategoryIds, InflowChoices choices,
-                          Set<UUID> repaymentCategoryIds, UUID personTransferCategoryId) {
+                          Set<UUID> repaymentCategoryIds) {
 
-        /** No repayment or person-transfer category -- for callers that predate them. */
+        /** No repayment category -- for callers that predate it. */
         public Context(Map<UUID, Account.Type> accountTypes, Set<UUID> salaryCategoryIds, InflowChoices choices) {
-            this(accountTypes, salaryCategoryIds, choices, Set.of(), null);
+            this(accountTypes, salaryCategoryIds, choices, Set.of());
         }
     }
 
@@ -49,16 +49,13 @@ public final class FlowTotals {
         // who deleted and recreated one still means the same thing.
         Set<UUID> salary = new HashSet<>();
         Set<UUID> repayment = new HashSet<>();
-        UUID personTransfer = null;
         for (Category c : categories) {
             if (c.getId() == null || c.getName() == null) continue;
             String name = c.getName().trim();
             if (name.equalsIgnoreCase("Salary")) salary.add(c.getId());
             if (name.equalsIgnoreCase(REPAYMENT_CATEGORY)) repayment.add(c.getId());
-            // Names are unique per user case-insensitively (uq_categories_user_name_ci), so one at most.
-            if (name.equalsIgnoreCase(CategorizationService.P2P_CATEGORY)) personTransfer = c.getId();
         }
-        return new Context(types, salary, choices, repayment, personTransfer);
+        return new Context(types, salary, choices, repayment);
     }
 
     public static boolean countsAsIncome(Transaction t, Context ctx) {
@@ -86,19 +83,12 @@ public final class FlowTotals {
         FlowClassifier.FlowReason reason = decision(t, ctx).reason();
         return reason == FlowClassifier.FlowReason.UNLINKED_REFUND
                 || reason == FlowClassifier.FlowReason.REVERSAL
-                || reason == FlowClassifier.FlowReason.CARD_ADJUSTMENT
-                || reason == FlowClassifier.FlowReason.PAID_BACK;
-    }
-
-    /**
-     * The category an offset gives spend back in, when it is not the row's own. Money a person paid
-     * back is filed under Friend Repayment, where nothing was spent, so in its own category it would
-     * lower nothing; the lending it settles sits in Personal Transfer, which is where it lands.
-     * Null means the row's own category -- including when the user has no Personal Transfer category.
-     */
-    public static UUID offsetCategoryOverride(Transaction t, Context ctx) {
-        if (ctx.personTransferCategoryId() == null) return null;
-        return decision(t, ctx).reason() == FlowClassifier.FlowReason.PAID_BACK ? ctx.personTransferCategoryId() : null;
+                || reason == FlowClassifier.FlowReason.CARD_ADJUSTMENT;
+        // PAID_BACK is deliberately not here (yet). Money a person paid back is filed under Friend
+        // Repayment, where nothing was spent, and netting it against Personal Transfer as a whole
+        // was measured (2026-10-02) to cancel unrelated spending and to disagree month by month.
+        // It is matched per person to the payments it settles in a follow-up, once a person is
+        // recognised as one counterparty across their payments.
     }
 
     /** Money that came in and that Fynora cannot yet say is income -- shown beside income, never in it. */

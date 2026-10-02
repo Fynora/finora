@@ -294,9 +294,9 @@ public class DashboardService {
         // now agrees with.
         Map<UUID, BigDecimal> spendByCategoryId = RefundNetting.withoutNegativeSpend(active.stream()
                 .filter(t -> spend.countsAsSpend(t)
-                        && spend.spendCategoryOf(t) != null
+                        && t.getCategoryId() != null
                         && Objects.equals(YearMonth.from(t.getTxnDate()).toString(), period.calendarMonth()))
-                .collect(Collectors.groupingBy(spend::spendCategoryOf,
+                .collect(Collectors.groupingBy(Transaction::getCategoryId,
                         Collectors.reducing(BigDecimal.ZERO, spend::spendAmount, BigDecimal::add))));
         List<Budget> budgets = budgetRepository.findByUserId(userId);
         Optional<User> user = userRepository.findById(userId);
@@ -446,7 +446,7 @@ public class DashboardService {
                 .filter(t -> refunds.countsAsSpend(t)
                         && Objects.equals(YearMonth.from(t.getTxnDate()).toString(), month))
                 .collect(Collectors.collectingAndThen(Collectors.groupingBy(
-                        t -> categoriesById.getOrDefault(refunds.spendCategoryOf(t), unknownCategory()).getName(),
+                        t -> categoriesById.getOrDefault(t.getCategoryId(), unknownCategory()).getName(),
                         Collectors.reducing(BigDecimal.ZERO, refunds::spendAmount, BigDecimal::add)),
                         RefundNetting::withoutNegativeSpend));
     }

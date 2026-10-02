@@ -252,7 +252,7 @@ class FlowTotalsTest {
         assertThat(FlowTotals.isUnresolvedInflow(t, ctx)).isFalse();
     }
 
-    // ---- money paid back gives spend back in Personal Transfer ----
+    // ---- money paid back: answered by the category, but not netted against spend yet ----
 
     private static Category category(String name) {
         Category c = new Category();
@@ -277,7 +277,9 @@ class FlowTotalsTest {
         return t;
     }
 
-    @Test void aRepaymentTheUserFiled_offsetsSpendInPersonalTransfer() {
+    @Test void aRepaymentTheUserFiled_isNeitherUnresolvedNorIncome_andDoesNotYetLowerSpend() {
+        // Netting it against Personal Transfer as a whole was measured to cancel unrelated spending;
+        // it is matched per person in a follow-up. Until then it leaves spend exactly as it was.
         Account savings = account(Account.Type.SAVINGS);
         Category personTransfer = category("Personal Transfer");
         Category repayment = category("Friend Repayment");
@@ -287,46 +289,22 @@ class FlowTotalsTest {
 
         assertThat(FlowTotals.isUnresolvedInflow(back, ctx)).isFalse();
         assertThat(FlowTotals.countsAsIncome(back, ctx)).isFalse();
-        assertThat(FlowTotals.offsetsSpend(back, ctx)).isTrue();
-        assertThat(FlowTotals.offsetCategoryOverride(back, ctx)).isEqualTo(personTransfer.getId());
-
-        RefundNetting spend = RefundNetting.NONE.withUnlinkedOffsets(List.of(lent, back), ctx);
-        assertThat(spend.spendCategoryOf(back)).isEqualTo(personTransfer.getId());
-        assertThat(spend.spendCategoryOf(lent)).isEqualTo(personTransfer.getId());
-        assertThat(spend.spendTotal(List.of(lent, back))).isEqualByComparingTo("400.00");
-    }
-
-    @Test void repaymentsBeyondWhatWasLent_lowerPersonalTransferOnlyToZero() {
-        Account savings = account(Account.Type.SAVINGS);
-        Category personTransfer = category("Personal Transfer");
-        Category repayment = category("Friend Repayment");
-        Category dining = category("Dining");
-        FlowTotals.Context ctx = FlowTotals.context(List.of(savings), List.of(personTransfer, repayment, dining), InflowChoices.NONE);
-        Transaction lent = lentTo(savings, "1000.00", personTransfer);
-        Transaction meal = lentTo(savings, "250.00", dining);
-        meal.setCounterpartyType(CounterpartyType.BUSINESS);
-        Transaction back = paidBack(savings, "1500.00", repayment, true);
-
-        RefundNetting spend = RefundNetting.NONE.withUnlinkedOffsets(List.of(lent, meal, back), ctx);
-        // Personal Transfer floors at zero; the extra 500 does not reach Dining.
-        assertThat(spend.spendTotal(List.of(lent, meal, back))).isEqualByComparingTo("250.00");
-    }
-
-    @Test void aRepaymentCategoryTheAppGuessed_offsetsNothingAndStaysUnresolved() {
-        Account savings = account(Account.Type.SAVINGS);
-        Category personTransfer = category("Personal Transfer");
-        Category repayment = category("Friend Repayment");
-        FlowTotals.Context ctx = FlowTotals.context(List.of(savings), List.of(personTransfer, repayment), InflowChoices.NONE);
-        Transaction lent = lentTo(savings, "1000.00", personTransfer);
-        Transaction back = paidBack(savings, "600.00", repayment, false);
-
-        assertThat(FlowTotals.isUnresolvedInflow(back, ctx)).isTrue();
         assertThat(FlowTotals.offsetsSpend(back, ctx)).isFalse();
         assertThat(RefundNetting.NONE.withUnlinkedOffsets(List.of(lent, back), ctx).spendTotal(List.of(lent, back)))
                 .isEqualByComparingTo("1000.00");
     }
 
-    @Test void thePaidBackKind_alsoOffsetsSpendInPersonalTransfer() {
+    @Test void aRepaymentCategoryTheAppGuessed_staysUnresolved() {
+        Account savings = account(Account.Type.SAVINGS);
+        Category repayment = category("Friend Repayment");
+        FlowTotals.Context ctx = FlowTotals.context(List.of(savings), List.of(repayment), InflowChoices.NONE);
+        Transaction back = paidBack(savings, "600.00", repayment, false);
+
+        assertThat(FlowTotals.isUnresolvedInflow(back, ctx)).isTrue();
+        assertThat(FlowTotals.offsetsSpend(back, ctx)).isFalse();
+    }
+
+    @Test void thePaidBackKind_doesNotLowerSpendEither() {
         Account savings = account(Account.Type.SAVINGS);
         Category personTransfer = category("Personal Transfer");
         Transaction lent = lentTo(savings, "1000.00", personTransfer);
@@ -339,29 +317,14 @@ class FlowTotalsTest {
         FlowTotals.Context ctx = FlowTotals.context(List.of(savings), List.of(personTransfer),
                 new InflowChoices(Map.of(paidBackKind.getId(), paidBackKind), Map.of()));
 
+        assertThat(FlowTotals.isUnresolvedInflow(back, ctx)).isFalse();
         assertThat(RefundNetting.NONE.withUnlinkedOffsets(List.of(lent, back), ctx).spendTotal(List.of(lent, back)))
-                .isEqualByComparingTo("700.00");
+                .isEqualByComparingTo("1000.00");
     }
 
-    @Test void withNoPersonalTransferCategory_aRepaymentOffsetsOnlyItsOwnCategory() {
-        Account savings = account(Account.Type.SAVINGS);
-        Category repayment = category("Friend Repayment");
-        Category dining = category("Dining");
-        FlowTotals.Context ctx = FlowTotals.context(List.of(savings), List.of(repayment, dining), InflowChoices.NONE);
-        Transaction meal = lentTo(savings, "250.00", dining);
-        Transaction back = paidBack(savings, "100.00", repayment, true);
-
-        RefundNetting spend = RefundNetting.NONE.withUnlinkedOffsets(List.of(meal, back), ctx);
-        assertThat(FlowTotals.offsetCategoryOverride(back, ctx)).isNull();
-        assertThat(spend.spendCategoryOf(back)).isEqualTo(repayment.getId());
-        assertThat(spend.spendTotal(List.of(meal, back))).isEqualByComparingTo("250.00");
-    }
-
-    @Test void categoryNamesAreMatchedCaseInsensitively() {
-        Category pt = category(" personal transfer ");
-        Category fr = category("FRIEND REPAYMENT");
-        FlowTotals.Context ctx = FlowTotals.context(List.of(), List.of(pt, fr), InflowChoices.NONE);
-        assertThat(ctx.personTransferCategoryId()).isEqualTo(pt.getId());
+    @Test void theRepaymentCategoryIsMatchedCaseInsensitively() {
+        Category fr = category(" FRIEND REPAYMENT ");
+        FlowTotals.Context ctx = FlowTotals.context(List.of(), List.of(fr), InflowChoices.NONE);
         assertThat(ctx.repaymentCategoryIds()).containsExactly(fr.getId());
     }
 }

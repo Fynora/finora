@@ -90,7 +90,7 @@ public class ReportService {
         Map<String, BigDecimal> byCategory = RefundNetting.withoutNegativeSpend(txns.stream()
                 .filter(spend::countsAsSpend)
                 .collect(Collectors.groupingBy(
-                        t -> categoriesById.containsKey(spend.spendCategoryOf(t)) ? categoriesById.get(spend.spendCategoryOf(t)).getName() : "Uncategorized",
+                        t -> categoriesById.containsKey(t.getCategoryId()) ? categoriesById.get(t.getCategoryId()).getName() : "Uncategorized",
                         Collectors.reducing(BigDecimal.ZERO, spend::spendAmount, BigDecimal::add))));
 
         List<ReportDto.CategoryAmount> categories = byCategory.entrySet().stream()

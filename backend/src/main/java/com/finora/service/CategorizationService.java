@@ -736,6 +736,14 @@ public class CategorizationService {
      * "SIP" should always land in Investments, not whatever the keyword table's Other/default
      * fallback would have guessed).
      *
+     * Except where that category is the user's own: a GLOBAL MARK_INVESTMENT rule does not replace
+     * a category the user chose or one their own rule assigned, and when both a personal and a
+     * global MARK_INVESTMENT rule match, only the personal one applies -- the same "a user can
+     * always override a system default" precedence RuleEngineService gives ASSIGN_CATEGORY. See
+     * {@link #investmentRuleToApply}. Measured before this guard: a global rule turned a category
+     * the user had typed, and one their own rule had set, into "Investments", and beat their own
+     * MARK_INVESTMENT rule, because every match was applied in turn and the global ones come last.
+     *
      * MARK_SUBSCRIPTION is intentionally NOT applied here. RecurringService fully recomputes
      * every active transaction's `recurring` flag from scratch (reset-then-recompute) on every
      * call -- see that class's own doc comment -- so a write-time isRecurring=true set here would
@@ -779,9 +787,13 @@ public class CategorizationService {
         // already-resolved `category` variable (used for tally/response display) in sync with
         // what actually landed on the transaction, rather than a repeat categoryId->name lookup.
         Category newCategory = null;
+        CategoryRule investmentRule = investmentRuleToApply(matches, t);
 
         for (RuleEngineService.RuleMatch match : matches) {
             CategoryRule rule = match.rule();
+            // At most one MARK_INVESTMENT rule decides the category; the others did nothing to
+            // this transaction, so they are neither applied nor recorded as having fired.
+            if (rule.getActionType() == CategoryRule.ActionType.MARK_INVESTMENT && rule != investmentRule) continue;
             // Safe to record here unconditionally (unlike ASSIGN_CATEGORY, see recordRuleMatch's
             // doc comment) -- applySideEffectRules() has exactly two callers, both at actual
             // write time (TransactionService.create(), CsvImportService.confirm()), never at
@@ -814,6 +826,28 @@ public class CategorizationService {
             }
         }
         return newCategory;
+    }
+
+    /**
+     * The one MARK_INVESTMENT rule allowed to set this transaction's category, or null for none.
+     * The user's own highest-priority match wins outright. Otherwise the highest-priority global
+     * match applies, unless the category already there is the user's own -- chosen by them
+     * ({@code categoryManuallySet}, or a MANUAL decision) or assigned by one of their rules
+     * (USER_RULE). Chosen by scope rather than list position, so it does not depend on the caller
+     * passing a rule set in RuleEngineService.ruleSet's USER-then-GLOBAL order.
+     */
+    private static CategoryRule investmentRuleToApply(List<RuleEngineService.RuleMatch> matches, Transaction t) {
+        CategoryRule firstGlobal = null;
+        for (RuleEngineService.RuleMatch match : matches) {
+            if (match.rule().getActionType() != CategoryRule.ActionType.MARK_INVESTMENT) continue;
+            if (match.isUserScope()) return match.rule();
+            if (firstGlobal == null) firstGlobal = match.rule();
+        }
+        if (firstGlobal == null) return null;
+        boolean categoryIsUsersOwn = t.isCategoryManuallySet()
+                || t.getDecisionSource() == Transaction.DecisionSource.MANUAL
+                || t.getDecisionSource() == Transaction.DecisionSource.USER_RULE;
+        return categoryIsUsersOwn ? null : firstGlobal;
     }
 
     // categories.name is VARCHAR(80) NOT NULL (V1__init_schema.sql). ImportService's confirm path

@@ -1250,7 +1250,7 @@ describe('Dashboard — per-section empty states', () => {
     const heading = await screen.findByRole('heading', { level: 1 });
     expect(heading.textContent).toMatch(/there/);
     expect(heading.textContent).toMatch(/👋/);
-    expect(screen.getByText('Balance')).toBeInTheDocument();
+    expect(screen.getByText('Net worth')).toBeInTheDocument();
 
     expect(screen.getByText('No data yet')).toBeInTheDocument(); // Cash Flow
     expect(screen.getByText('No spending data yet')).toBeInTheDocument(); // Spending Breakdown
@@ -1575,7 +1575,7 @@ describe('Dashboard — unified date-range picker', () => {
   it('renders the 5 KPI cards from dashboardApi.rangeSummary, labelled with the default Last 6 Months range', async () => {
     renderDashboard();
 
-    expect(await screen.findByText('Balance')).toBeInTheDocument();
+    expect(await screen.findByText('Net worth')).toBeInTheDocument();
     expect(screen.getByText('₹50,000')).toBeInTheDocument();
     expect(screen.getByText('Income (Last 6 Months)')).toBeInTheDocument();
     expect(screen.getByText('₹80,000')).toBeInTheDocument();
@@ -1594,7 +1594,7 @@ describe('Dashboard — unified date-range picker', () => {
     }));
     renderDashboard();
 
-    await screen.findByText('Balance');
+    await screen.findByText('Net worth');
     expect(screen.getByText('vs previous period')).toBeInTheDocument();
     // Income, Expenses, and Net Savings each have a real delta here, so MetricCard renders
     // deltaLabel in its own isolated span (elevated variant, hasDelta branch) -- an exact text
@@ -1622,7 +1622,7 @@ describe('Dashboard — unified date-range picker', () => {
     vi.mocked(dashboardApi.rangeSummary).mockImplementation(async (rangeType) => rangeSummary({ rangeType }));
     const user = userEvent.setup();
     renderDashboard();
-    await screen.findByText('Balance');
+    await screen.findByText('Net worth');
 
     vi.mocked(dashboardApi.rangeSummary).mockClear();
     await user.selectOptions(screen.getByDisplayValue('Last 6 Months'), 'LAST_12_MONTHS');
@@ -1636,7 +1636,7 @@ describe('Dashboard — unified date-range picker', () => {
   it('selecting Custom reveals two date inputs and, once both are filled, fetches rangeSummary with them', async () => {
     const user = userEvent.setup();
     renderDashboard();
-    await screen.findByText('Balance');
+    await screen.findByText('Net worth');
 
     await user.selectOptions(screen.getByDisplayValue('Last 6 Months'), 'CUSTOM');
     const startInput = screen.getByLabelText('Custom range start date');
@@ -1661,7 +1661,7 @@ describe('Dashboard — unified date-range picker', () => {
   it('shows a neutral prompt, not an error, when Custom is selected but no dates are filled in yet', async () => {
     const user = userEvent.setup();
     renderDashboard();
-    await screen.findByText('Balance');
+    await screen.findByText('Net worth');
 
     await user.selectOptions(screen.getByDisplayValue('Last 6 Months'), 'CUSTOM');
 
@@ -1675,7 +1675,7 @@ describe('Dashboard — unified date-range picker', () => {
     }));
     renderDashboard();
 
-    await screen.findByText('Balance');
+    await screen.findByText('Net worth');
     expect(screen.getByText('₹62,000')).toBeInTheDocument();
     expect(screen.getByText('as of Aug 15')).toBeInTheDocument();
   });
@@ -1690,7 +1690,7 @@ describe('Dashboard — unified date-range picker', () => {
     }));
     renderDashboard();
 
-    await screen.findByText('Balance');
+    await screen.findByText('Net worth');
     expect(screen.queryByText('₹0')).not.toBeInTheDocument();
     expect(screen.getByText('—')).toBeInTheDocument();
 
@@ -1705,7 +1705,7 @@ describe('Dashboard — unified date-range picker', () => {
     }));
     const user = userEvent.setup();
     renderDashboard();
-    await screen.findByText('Balance');
+    await screen.findByText('Net worth');
 
     await user.selectOptions(screen.getByDisplayValue('Last 6 Months'), 'CUSTOM');
     fireEvent.change(screen.getByLabelText('Custom range start date'), { target: { value: '2026-03-15' } });
@@ -1724,7 +1724,7 @@ describe('Dashboard — unified date-range picker', () => {
     vi.mocked(reportsApi.availableMonths).mockReset().mockResolvedValue(['2026-06', '2026-07', '2026-08']);
     const user = userEvent.setup();
     renderDashboard();
-    await screen.findByText('Balance');
+    await screen.findByText('Net worth');
 
     await user.selectOptions(screen.getByDisplayValue('Last 6 Months'), 'CUSTOM');
 
@@ -1808,7 +1808,7 @@ describe('Dashboard — design review fixes', () => {
 
   it('gives Income/Expenses KPI icons the app\'s semantic success/danger tokens, not raw un-themed Tailwind colors', async () => {
     renderDashboard();
-    await screen.findByText('Balance');
+    await screen.findByText('Net worth');
 
     const incomeLabel = screen.getByText(/^Income/);
     const incomeIconWrapper = incomeLabel.parentElement?.querySelector('[class*="rounded-xl"]');
@@ -1824,7 +1824,7 @@ describe('Dashboard — design review fixes', () => {
     // through the app's decorative accent-* tokens (see index.css's comment on those) rather than
     // the raw, un-themed Tailwind classes (bg-blue-100 etc.) these used to be, which stayed
     // light-mode pastel even when the rest of the page switched to dark.
-    const balanceLabel = screen.getByText('Balance');
+    const balanceLabel = screen.getByText('Net worth');
     const balanceIconWrapper = balanceLabel.parentElement?.querySelector('[class*="rounded-xl"]');
     expect(balanceIconWrapper?.className).toContain('bg-accent-blue-bg');
     expect(balanceIconWrapper?.querySelector('svg')?.getAttribute('class')).toContain('text-accent-blue');
@@ -1932,6 +1932,28 @@ describe('Dashboard — unresolved inflow banner', () => {
       month: '2026-08', income: 80000, expense: 45000, categories: [],
     });
     vi.mocked(recurringApi.list).mockReset().mockResolvedValue([]);
+  });
+
+  it('shows a dash and the reason instead of a savings rate unclassified money would decide', async () => {
+    vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
+      incomeTotal: 200, expenseTotal: 400000, netSavingsTotal: -399800,
+      savingsRatePct: null, savingsRateGateReason: 'UNRESOLVED_EXCEEDS_INCOME',
+      unresolvedInflow: 450000, unresolvedInflowCount: 80, unresolvedTopReason: 'PERSON_INFLOW',
+    }));
+    renderDashboard();
+
+    expect(await screen.findByText('Classify money received to see this')).toBeInTheDocument();
+    expect(screen.queryByText(/%$/, { selector: 'p' })).not.toBeInTheDocument();
+  });
+
+  it('explains a savings rate withheld for having no income', async () => {
+    vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
+      incomeTotal: 0, expenseTotal: 500, netSavingsTotal: -500,
+      savingsRatePct: null, savingsRateGateReason: 'NO_INCOME',
+    }));
+    renderDashboard();
+
+    expect(await screen.findByText('No income counted yet')).toBeInTheDocument();
   });
 
   it('says how many transactions and how much money are not counted as income', async () => {

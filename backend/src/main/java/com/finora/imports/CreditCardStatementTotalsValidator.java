@@ -97,6 +97,18 @@ public class CreditCardStatementTotalsValidator {
         if (difference.signum() == 0) {
             return new ImportDto.VerificationFinding(RULE, "VERIFIED", details);
         }
+        // A total due printed in whole rupees while the figures it is built from carry paise: a
+        // real IndusInd card prints its total due as the exact figure (also printed there, as
+        // "Total Outstanding") with the paise dropped. That one example fits
+        // rounding down and rounding to the nearest rupee alike, so neither direction is assumed:
+        // the whole rupee on either side of the exact figure counts. An exact figure that is itself
+        // whole has nothing to round, so it must match exactly, and anything a rupee or more away
+        // is still a misread.
+        if (isWholeRupees(summary.totalAmountDue()) && !isWholeRupees(expectedTotalAmountDue)
+                && difference.abs().compareTo(BigDecimal.ONE) < 0) {
+            details.put("totalAmountDueRoundedToRupee", true);
+            return new ImportDto.VerificationFinding(RULE, "VERIFIED", details);
+        }
 
         details.put("explanation", "The previous balance, purchases, cash advances, fees, and "
                 + "payments/credits this statement prints about itself do not add up to its own "
@@ -104,5 +116,9 @@ public class CreditCardStatementTotalsValidator {
                 + "transaction row was read to produce this finding -- it means this extraction "
                 + "misread one of the statement's own summary figures.");
         return new ImportDto.VerificationFinding(RULE, "WARNING", details);
+    }
+
+    private static boolean isWholeRupees(BigDecimal amount) {
+        return amount.stripTrailingZeros().scale() <= 0;
     }
 }

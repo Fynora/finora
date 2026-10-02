@@ -105,7 +105,28 @@ public class ImportRuleLearningService {
         // rules against the confirmed row.
         categorizationService.recordRuleMatch(row.ruleId());
 
-        return new Decision(isUnresolvedGuess, !isUnresolvedGuess);
+        return new Decision(isUnresolvedGuess, !isUnresolvedGuess && !isUntouchedShopTradeGuess(row));
+    }
+
+    /**
+     * A shop-trade guess (ShopTradeCategory) the review left as it was: shown and filed like any
+     * keyword match, so not an unresolved guess, but not a human decision either, so not learned.
+     * Learning it would teach the MERCHANT, and merchants are grouped by the payee's first word --
+     * a small shop's first word is often a common name, so "SAMPLE MEDICAL"'s Health would reach
+     * "SAMPLE TRADERS" ahead of every rule, and the shared corpus would record a guess as a person's
+     * answer. The trade step gives the same answer again on the next import, so nothing is lost. A
+     * category the user changed is no longer the trade guess and is learned as usual.
+     */
+    private static boolean isUntouchedShopTradeGuess(ConfirmedRow row) {
+        Transaction.Type direction;
+        try {
+            direction = EnumParsing.parse(Transaction.Type.class, row.type(), "type");
+        } catch (RuntimeException e) {
+            return false;
+        }
+        return CategorizationService.isShopTradeGuess(
+                new CategorizationService.Suggestion(row.category(), row.categorySource(), null, null, null),
+                row.description(), direction);
     }
 
     private boolean isUnconfirmedGuess(ConfirmedRow row) {

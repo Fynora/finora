@@ -63,6 +63,8 @@ public class RuleService {
         rule.setActionType(parseActionType(req.actionType()));
         rule.setActionValue(req.actionValue());
         rule.setPriority(req.priority() != null ? req.priority() : 100);
+        rule.setAmountMin(req.amountMin());
+        rule.setAmountMax(req.amountMax());
 
         validateRule(rule);
         CategoryRule saved = categoryRuleRepository.save(rule);
@@ -83,6 +85,9 @@ public class RuleService {
         if (req.actionValue() != null) rule.setActionValue(req.actionValue());
         if (req.priority() != null) rule.setPriority(req.priority());
         if (req.enabled() != null) rule.setEnabled(req.enabled());
+        // A non-null bound sets it; clearing a bound through the API is out of scope.
+        if (req.amountMin() != null) rule.setAmountMin(req.amountMin());
+        if (req.amountMax() != null) rule.setAmountMax(req.amountMax());
         rule.setUpdatedAt(Instant.now());
 
         validateRule(rule);
@@ -117,6 +122,19 @@ public class RuleService {
                 && (rule.getActionValue() == null || rule.getActionValue().isBlank())) {
             throw new ApiException(HttpStatus.BAD_REQUEST,
                     "An ASSIGN_CATEGORY rule needs a non-blank actionValue (the category name).");
+        }
+        // A payee is compared whole (RuleEngineService.matchesPayee); any other operator would
+        // never match, silently.
+        if (rule.getField() == CategoryRule.Field.PAYEE && rule.getOperator() != CategoryRule.Operator.EQUALS) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "A payee rule must use EQUALS.");
+        }
+        if ((rule.getAmountMin() != null && rule.getAmountMin().signum() < 0)
+                || (rule.getAmountMax() != null && rule.getAmountMax().signum() < 0)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Amount bounds cannot be negative.");
+        }
+        if (rule.getAmountMin() != null && rule.getAmountMax() != null
+                && rule.getAmountMin().compareTo(rule.getAmountMax()) > 0) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Minimum amount is above maximum.");
         }
     }
 
@@ -184,6 +202,8 @@ public class RuleService {
         rule.setActionType(parseActionType(req.actionType()));
         rule.setActionValue(req.actionValue());
         rule.setPriority(req.priority() != null ? req.priority() : 100);
+        rule.setAmountMin(req.amountMin());
+        rule.setAmountMax(req.amountMax());
 
         validateRule(rule);
         CategoryRule saved = categoryRuleRepository.save(rule);
@@ -202,6 +222,9 @@ public class RuleService {
         if (req.actionValue() != null) rule.setActionValue(req.actionValue());
         if (req.priority() != null) rule.setPriority(req.priority());
         if (req.enabled() != null) rule.setEnabled(req.enabled());
+        // A non-null bound sets it; clearing a bound through the API is out of scope.
+        if (req.amountMin() != null) rule.setAmountMin(req.amountMin());
+        if (req.amountMax() != null) rule.setAmountMax(req.amountMax());
         rule.setUpdatedAt(Instant.now());
 
         validateRule(rule);

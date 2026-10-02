@@ -424,4 +424,16 @@ class RuleEngineServiceTest {
         assertThat(ruleEngineService.evaluateCategoryRule(userId, RENT, new BigDecimal("10"), null, null,
                 com.finora.entity.Transaction.Type.EXPENSE)).isPresent();
     }
+
+    @Test
+    void testMatch_appliesBoundsAndPayee_andDefaultsTheSampleToMoneyGoingOut() {
+        java.math.BigDecimal min = new java.math.BigDecimal("8000");
+        java.math.BigDecimal max = new java.math.BigDecimal("12000");
+        assertThat(ruleEngineService.testMatch("PAYEE", "EQUALS", "sample landlord", RENT, new BigDecimal("10000"),
+                null, null, null, min, max)).isTrue();
+        assertThat(ruleEngineService.testMatch("PAYEE", "EQUALS", "sample landlord", RENT, new BigDecimal("10000"),
+                null, null, "INCOME", min, max)).isFalse();
+        assertThat(ruleEngineService.testMatch("PAYEE", "EQUALS", "sample landlord", RENT, new BigDecimal("13000"),
+                null, null, "EXPENSE", min, max)).isFalse();
+    }
 }

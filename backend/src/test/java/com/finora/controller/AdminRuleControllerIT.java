@@ -137,6 +137,31 @@ class AdminRuleControllerIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void testEndpoint_appliesAPayeeRulesBoundsAndDirection() throws Exception {
+        User admin = createUser("ADMIN");
+        HttpHeaders headers = bearerFor(admin);
+        String body = """
+                {"field":"PAYEE","operator":"EQUALS","comparisonValue":"sample landlord",
+                 "sampleDescription":"UPI-SAMPLE LANDLORD-sample.landlord@okaxis-YESB0XXXXXX-000000000000-RENT",
+                 "sampleAmount":%s,"sampleDirection":"%s","amountMin":8000,"amountMax":12000}
+                """;
+
+        boolean inRangeOut = mapper.readTree(restTemplate.exchange("/api/v1/admin/rules/test", HttpMethod.POST,
+                new HttpEntity<>(body.formatted("10000", "EXPENSE"), headers), String.class).getBody())
+                .get("data").get("matches").asBoolean();
+        boolean inRangeIn = mapper.readTree(restTemplate.exchange("/api/v1/admin/rules/test", HttpMethod.POST,
+                new HttpEntity<>(body.formatted("10000", "INCOME"), headers), String.class).getBody())
+                .get("data").get("matches").asBoolean();
+        boolean outOfRange = mapper.readTree(restTemplate.exchange("/api/v1/admin/rules/test", HttpMethod.POST,
+                new HttpEntity<>(body.formatted("12000.01", "EXPENSE"), headers), String.class).getBody())
+                .get("data").get("matches").asBoolean();
+
+        assertThat(inRangeOut).isTrue();
+        assertThat(inRangeIn).isFalse();
+        assertThat(outOfRange).isFalse();
+    }
+
+    @Test
     void testEndpoint_returnsFalseWhenTheSampleFieldsWouldNotMatch() throws Exception {
         User admin = createUser("ADMIN");
         HttpHeaders headers = bearerFor(admin);

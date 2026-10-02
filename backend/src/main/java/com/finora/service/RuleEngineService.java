@@ -5,6 +5,7 @@ import com.finora.entity.Transaction;
 import com.finora.exception.ApiException;
 import com.finora.repository.CategoryRuleRepository;
 import com.finora.util.CategoryRules;
+import com.finora.util.EnumParsing;
 import com.finora.util.MoneyMath;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -209,6 +210,25 @@ public class RuleEngineService {
         probe.setOperator(parseOperator(operator));
         probe.setComparisonValue(comparisonValue);
         return matches(probe, description, amount, merchantName, accountType, null);
+    }
+
+    /**
+     * As the seven-argument form, with a rule's optional amount bounds and the sample's direction.
+     * The tester's samples are spending examples, so a missing direction means money going out --
+     * the only direction a payee rule ever matches.
+     */
+    public boolean testMatch(String field, String operator, String comparisonValue, String description,
+                             BigDecimal amount, String merchantName, String accountType,
+                             String sampleDirection, BigDecimal amountMin, BigDecimal amountMax) {
+        CategoryRule probe = new CategoryRule();
+        probe.setField(parseField(field));
+        probe.setOperator(parseOperator(operator));
+        probe.setComparisonValue(comparisonValue);
+        probe.setAmountMin(amountMin);
+        probe.setAmountMax(amountMax);
+        Transaction.Type direction = sampleDirection == null ? Transaction.Type.EXPENSE
+                : EnumParsing.parse(Transaction.Type.class, sampleDirection, "sampleDirection");
+        return matches(probe, description, amount, merchantName, accountType, direction);
     }
 
     private CategoryRule.Field parseField(String v) {

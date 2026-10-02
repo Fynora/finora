@@ -485,10 +485,18 @@ public final class CategoryRules {
         }
     }
 
+    /** A UPI handle: '@' and the letters, digits and dots after it -- the same span
+     *  RuleEngineService.containsOutsideUpiHandle skips for GLOBAL rules. */
+    private static final Pattern UPI_HANDLE = Pattern.compile("@[\\p{L}\\p{N}.]+");
+
     /** Returns a rule-based category guess, or "Other" if nothing matches. Callers should check
-     *  a per-user learned-mapping table (MerchantCategoryMap) BEFORE falling back to this. */
+     *  a per-user learned-mapping table (MerchantCategoryMap) BEFORE falling back to this.
+     *
+     *  <p>UPI handles are removed before matching. A handle names the payment app or bank, never
+     *  the merchant, and normalize() turns '@' into a space -- so a shop paid through a handle
+     *  named exactly 'airtel' or 'jio' read as the word "airtel" and was filed under Utilities. */
     public static String suggestCategory(String description) {
-        String norm = normalize(description);
+        String norm = normalize(description == null ? null : UPI_HANDLE.matcher(description).replaceAll(" "));
         for (var entry : RULE_PATTERNS.entrySet()) {
             for (Pattern pattern : entry.getValue()) {
                 if (pattern.matcher(norm).find()) return entry.getKey();

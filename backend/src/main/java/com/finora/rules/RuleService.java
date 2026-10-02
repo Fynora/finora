@@ -74,11 +74,26 @@ public class RuleService {
         rule.setAmountMax(req.amountMax());
 
         validateRule(rule);
+        requireNoOtherPayeeRule(rule);
         CategoryRule saved = categoryRuleRepository.save(rule);
         auditService.record(userId, "RULE_CREATED", "CategoryRule", saved.getId(),
                 Map.of("field", saved.getField().name(), "actionType", saved.getActionType().name(),
                         "actorId", actingAdminId.toString()));
         return toDto(saved);
+    }
+
+    /**
+     * A user has at most one payee rule per payee, ignoring case (uq_category_rules_user_payee) --
+     * it is their answer to the recurring-payment question. A second one is a conflict to report,
+     * not a unique-index violation surfacing as a 500.
+     */
+    private void requireNoOtherPayeeRule(CategoryRule rule) {
+        if (rule.getField() != CategoryRule.Field.PAYEE || rule.getScope() != CategoryRule.Scope.USER) return;
+        categoryRuleRepository.findUserPayeeRule(rule.getUserId(), rule.getComparisonValue().trim())
+                .filter(existing -> !existing.getId().equals(rule.getId()))
+                .ifPresent(existing -> {
+                    throw new ApiException(HttpStatus.CONFLICT, "This user already has a payee rule for that payee.");
+                });
     }
 
     /** Bug fix: same missing-actingAdminId gap as {@link #create} -- see its own doc comment. */
@@ -98,6 +113,7 @@ public class RuleService {
         rule.setUpdatedAt(Instant.now());
 
         validateRule(rule);
+        requireNoOtherPayeeRule(rule);
         CategoryRule saved = categoryRuleRepository.save(rule);
         auditService.record(userId, "RULE_UPDATED", "CategoryRule", ruleId,
                 Map.of("actorId", actingAdminId.toString()));
@@ -134,6 +150,11 @@ public class RuleService {
         // never match, silently.
         if (rule.getField() == CategoryRule.Field.PAYEE && rule.getOperator() != CategoryRule.Operator.EQUALS) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "A payee rule must use EQUALS.");
+        }
+        // Transfer, investment and subscription rules are evaluated without the money's direction,
+        // and a payee rule matches money going out only -- such a rule would silently never match.
+        if (rule.getField() == CategoryRule.Field.PAYEE && rule.getActionType() != CategoryRule.ActionType.ASSIGN_CATEGORY) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "A payee rule can only assign a category.");
         }
         if ((rule.getAmountMin() != null && rule.getAmountMin().signum() < 0)
                 || (rule.getAmountMax() != null && rule.getAmountMax().signum() < 0)) {

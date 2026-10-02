@@ -122,6 +122,60 @@ class RuleServiceTest {
         verify(categoryRuleRepository, never()).save(any());
     }
 
+    /** Side-effect rules (transfer, investment, subscription) are evaluated with no direction, so a payee one would never match. */
+    @Test
+    void create_rejectsAPayeeRuleThatDoesNotAssignACategory() {
+        var req = new RuleDto.CreateRequest("PAYEE", "EQUALS", "sample landlord", "MARK_TRANSFER", null, null, null, null);
+
+        assertThatThrownBy(() -> ruleService.create(userId, req, actingAdminId))
+                .isInstanceOf(ApiException.class).hasMessageContaining("A payee rule can only assign a category");
+        verify(categoryRuleRepository, never()).save(any());
+    }
+
+    /** One answer per user and payee (uq_category_rules_user_payee): a second is a conflict, not a server error. */
+    @Test
+    void create_rejectsASecondPayeeRuleForTheSamePayee_asAConflict() {
+        CategoryRule existing = existingUserRule(UUID.randomUUID(), userId, CategoryRule.ActionType.ASSIGN_CATEGORY, "Rent");
+        when(categoryRuleRepository.findUserPayeeRule(userId, "Sample Landlord")).thenReturn(java.util.Optional.of(existing));
+        var req = new RuleDto.CreateRequest("PAYEE", "EQUALS", " Sample Landlord ", "ASSIGN_CATEGORY", "Rent", null, null, null);
+
+        assertThatThrownBy(() -> ruleService.create(userId, req, actingAdminId))
+                .isInstanceOf(ApiException.class)
+                .satisfies(e -> assertThat(((ApiException) e).getStatus()).isEqualTo(org.springframework.http.HttpStatus.CONFLICT));
+        verify(categoryRuleRepository, never()).save(any());
+    }
+
+    @Test
+    void update_rejectsRenamingAPayeeRuleOntoAnotherPayeesRule_asAConflict() {
+        UUID ruleId = UUID.randomUUID();
+        CategoryRule mine = existingUserRule(ruleId, userId, CategoryRule.ActionType.ASSIGN_CATEGORY, "Rent");
+        mine.setField(CategoryRule.Field.PAYEE);
+        mine.setOperator(CategoryRule.Operator.EQUALS);
+        mine.setComparisonValue("sample landlord");
+        when(categoryRuleRepository.findById(ruleId)).thenReturn(java.util.Optional.of(mine));
+        CategoryRule other = existingUserRule(UUID.randomUUID(), userId, CategoryRule.ActionType.ASSIGN_CATEGORY, "Loan EMI");
+        when(categoryRuleRepository.findUserPayeeRule(userId, "sample lender")).thenReturn(java.util.Optional.of(other));
+        var req = new RuleDto.UpdateRequest(null, null, "sample lender", null, null, null, null, null, null);
+
+        assertThatThrownBy(() -> ruleService.update(userId, ruleId, req, actingAdminId))
+                .isInstanceOf(ApiException.class)
+                .satisfies(e -> assertThat(((ApiException) e).getStatus()).isEqualTo(org.springframework.http.HttpStatus.CONFLICT));
+    }
+
+    @Test
+    void update_ofAPayeeRuleKeepingItsOwnPayee_isNotAConflict() {
+        UUID ruleId = UUID.randomUUID();
+        CategoryRule mine = existingUserRule(ruleId, userId, CategoryRule.ActionType.ASSIGN_CATEGORY, "Rent");
+        mine.setField(CategoryRule.Field.PAYEE);
+        mine.setOperator(CategoryRule.Operator.EQUALS);
+        mine.setComparisonValue("sample landlord");
+        when(categoryRuleRepository.findById(ruleId)).thenReturn(java.util.Optional.of(mine));
+        when(categoryRuleRepository.findUserPayeeRule(userId, "sample landlord")).thenReturn(java.util.Optional.of(mine));
+        var req = new RuleDto.UpdateRequest(null, null, null, null, "Loan EMI", null, null, null, null);
+
+        assertThat(ruleService.update(userId, ruleId, req, actingAdminId).actionValue()).isEqualTo("Loan EMI");
+    }
+
     @Test
     void create_rejectsAMinimumAboveTheMaximum() {
         var req = new RuleDto.CreateRequest("PAYEE", "EQUALS", "sample landlord", "ASSIGN_CATEGORY", "Rent", null,

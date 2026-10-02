@@ -103,9 +103,9 @@ public class RecurringAnswerService {
         if (!featureFlagService.isEnabled(FEATURE_FLAG)) throw notFound();
         String label = merchant.trim();
         // First, before any read: a concurrent answer for the same payee waits here, then sees ours.
-        categoryRuleRepository.lockPayeeAnswer(userId + ":" + label.toLowerCase(Locale.ROOT));
+        categoryRuleRepository.lockPayeeAnswer(userId + ":" + payeeKey(label));
         Optional<RecurringDto> group = recurringService.detectForUser(userId).stream()
-                .filter(r -> r.merchant().equalsIgnoreCase(label))
+                .filter(r -> payeeKey(r.merchant()).equals(payeeKey(label)))
                 .findFirst();
         Optional<CategoryRule> existing = categoryRuleRepository.findUserPayeeRule(userId, label);
         if (group.isEmpty() && existing.isEmpty()) throw notFound();
@@ -179,14 +179,19 @@ public class RecurringAnswerService {
      */
     public List<ChangedAmountDto> changedAmounts(UUID userId) {
         if (!featureFlagService.isEnabled(FEATURE_FLAG)) return List.of();
+        List<CategoryRule> answers = categoryRuleRepository.findUserPayeeRules(userId);
+        if (answers.isEmpty()) return List.of();
         Set<String> detected = recurringService.detectForUser(userId).stream()
-                .map(r -> r.merchant().trim().toLowerCase(Locale.ROOT))
+                .map(r -> payeeKey(r.merchant()))
                 .collect(Collectors.toSet());
+        // Dashboard and Insights call this on every load: read the user's rows once, not once per answer.
+        Map<String, List<Transaction>> rowsByPayee = expenseRowsByPayee(userId);
         List<ChangedAmountDto> changed = new ArrayList<>();
-        for (CategoryRule rule : categoryRuleRepository.findUserPayeeRules(userId)) {
+        for (CategoryRule rule : answers) {
             String label = rule.getComparisonValue().trim();
-            if (detected.contains(label.toLowerCase(Locale.ROOT))) continue;
-            List<Transaction> rows = payeeExpenseRows(userId, label);
+            String key = payeeKey(label);
+            if (detected.contains(key)) continue;
+            List<Transaction> rows = rowsByPayee.getOrDefault(key, List.of());
             if (rows.isEmpty()) continue;
             Transaction latest = rows.get(rows.size() - 1);
             if (new Range(rule.getAmountMin(), rule.getAmountMax()).contains(latest.getAmount())) continue;
@@ -198,13 +203,22 @@ public class RecurringAnswerService {
 
     /** The user's live-account money-out rows whose payee label is {@code label}, oldest first. */
     private List<Transaction> payeeExpenseRows(UUID userId, String label) {
+        return expenseRowsByPayee(userId).getOrDefault(payeeKey(label), List.of());
+    }
+
+    /** The user's live-account money-out rows with a payee label, grouped by that label, each oldest first. */
+    private Map<String, List<Transaction>> expenseRowsByPayee(UUID userId) {
         List<UUID> live = accountRepository.findByUserId(userId).stream().map(Account::getId).toList();
-        if (live.isEmpty()) return List.of();
+        if (live.isEmpty()) return Map.of();
         return transactionRepository.findByUserIdAndAccountIdIn(userId, live).stream()
-                .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE
-                        && t.getMerchant() != null && t.getMerchant().trim().equalsIgnoreCase(label))
+                .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE && t.getMerchant() != null)
                 .sorted(Comparator.comparing(Transaction::getTxnDate))
-                .toList();
+                .collect(Collectors.groupingBy(t -> payeeKey(t.getMerchant())));
+    }
+
+    /** Payee labels compare ignoring case, as the PAYEE rule and its unique index do. */
+    private static String payeeKey(String label) {
+        return label.trim().toLowerCase(Locale.ROOT);
     }
 
     private static ApiException notFound() {

@@ -305,6 +305,23 @@ class RecurringAnswerServiceTest {
         assertThat(c.amountMax()).isEqualByComparingTo("12000.00");
     }
 
+    /** Dashboard and Insights call this on every load: one read of the user's rows, however many answers. */
+    @Test
+    void changedAmounts_readsTheUsersRowsOnce_howeverManyAnswersExist() {
+        when(recurringService.detectForUser(userId)).thenReturn(List.of());
+        List<CategoryRule> answers = new ArrayList<>();
+        for (int i = 0; i < 5; i++) {
+            CategoryRule r = savedRule("Rent", "1.00", "2.00");
+            r.setComparisonValue("sample payee " + i);
+            answers.add(r);
+            row("sample payee " + i, Transaction.Type.EXPENSE, "500", 7);
+        }
+        when(ruleRepository.findUserPayeeRules(userId)).thenReturn(answers);
+
+        assertThat(service.changedAmounts(userId)).hasSize(5);
+        verify(transactionRepository, org.mockito.Mockito.times(1)).findByUserIdAndAccountIdIn(eq(userId), any());
+    }
+
     @Test
     void changedAmounts_isEmptyWhenRecurringDetectionIsSwitchedOff() {
         when(featureFlagService.isEnabled("RECURRING_DETECTION_ENABLED")).thenReturn(false);

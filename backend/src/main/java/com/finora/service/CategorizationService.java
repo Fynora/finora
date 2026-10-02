@@ -250,6 +250,11 @@ public class CategorizationService {
             return new Suggestion(ruleCat, "rule", merchant.getId(), Transaction.DecisionSource.KEYWORD_MATCH, null,
                     ConfidenceEngine.INITIAL_RULE_CONFIDENCE);
         }
+        Optional<String> bankActivity = com.finora.util.BankActivityCategory.of(description, direction);
+        if (bankActivity.isPresent()) {
+            return new Suggestion(bankActivity.get(), "rule", merchant.getId(), Transaction.DecisionSource.KEYWORD_MATCH, null,
+                    ConfidenceEngine.INITIAL_RULE_CONFIDENCE);
+        }
 
         com.finora.util.CounterpartyTyping typing = com.finora.util.CounterpartyTyping.of(description);
         Optional<String> corpusMatch = direction == null ? Optional.empty()
@@ -407,6 +412,13 @@ public class CategorizationService {
         String ruleCat = suggestCategoryWithMerchantFallback(description, trustedNameOf(merchant.orElse(null)));
         if (!ruleCat.equals("Other")) {
             return new Suggestion(ruleCat, "rule", merchantId, Transaction.DecisionSource.KEYWORD_MATCH, null,
+                    ConfidenceEngine.INITIAL_RULE_CONFIDENCE);
+        }
+        // The bank's own activity, which only its words AND the direction settle together -- see
+        // BankActivityCategory. After the keyword table, so that table still wins on any overlap.
+        Optional<String> bankActivity = com.finora.util.BankActivityCategory.of(description, direction);
+        if (bankActivity.isPresent()) {
+            return new Suggestion(bankActivity.get(), "rule", merchantId, Transaction.DecisionSource.KEYWORD_MATCH, null,
                     ConfidenceEngine.INITIAL_RULE_CONFIDENCE);
         }
 

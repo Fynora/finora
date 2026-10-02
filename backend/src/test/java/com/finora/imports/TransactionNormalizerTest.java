@@ -1179,6 +1179,107 @@ class TransactionNormalizerTest {
         assertThat(row.categorySource()).isEqualTo("file");
     }
 
+    // --- A card statement's printed merchant category ---
+
+    @Test
+    void normalize_usesThePrintedMerchantCategory_whenTheEngineHasNothing() {
+        Map<String, String> userCategories = normalizerCategoryNames("Dining", "Shopping");
+
+        StagedRow row = normalizer.normalize(userId, rowOf(
+                "DATE", "15/01/2026", "TRANSACTION DETAILS", "UPI/SAMPLE CORNER/PAYTMQR000000@PAYTM/000000",
+                "MERCHANT CATEGORY", "RESTAURANTS", "AMOUNT (Rs.)", "120.00 Dr"),
+                null, List.of(), null, null, null, userCategories);
+
+        assertThat(row.suggestedCategory()).isEqualTo("Dining");
+        assertThat(row.categorySource()).isEqualTo("file");
+        // Printed by the bank, not estimated -- the same null "file" already carries.
+        assertThat(row.categoryConfidence()).isNull();
+    }
+
+    /** Sid, 2026-10-02: our own keyword guess wins over the bank's printed category. */
+    @Test
+    void normalize_keepsTheEnginesOwnCategory_overThePrintedMerchantCategory() {
+        Map<String, String> userCategories = normalizerCategoryNames("Dining", "Shopping");
+        when(categorizationService.suggestReadOnly(any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(new CategorizationService.Suggestion("Dining", "rule", null, null, null, 70));
+
+        StagedRow row = normalizer.normalize(userId, rowOf(
+                "Date", "15/01/2026", "Transaction Details", "UPI SAMPLE FOOD APP 000000000000",
+                "Merchant Category", "COMPUTERS", "Amount (in `)", "99.00 DR"),
+                null, List.of(), null, null, null, userCategories);
+
+        assertThat(row.suggestedCategory()).isEqualTo("Dining");
+        assertThat(row.categorySource()).isEqualTo("rule");
+    }
+
+    @Test
+    void normalize_keepsAPersonTransfer_overThePrintedMerchantCategory() {
+        Map<String, String> userCategories = normalizerCategoryNames("Dining", "Personal Transfer");
+        when(categorizationService.suggestReadOnly(any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(new CategorizationService.Suggestion("Personal Transfer", "structural_p2p", null, null, null, 50));
+
+        StagedRow row = normalizer.normalize(userId, rowOf(
+                "DATE", "15/01/2026", "TRANSACTION DETAILS", "UPI/SAMPLE PERSON/Q000000000@YBL/000000",
+                "MERCHANT CATEGORY", "RESTAURANTS", "AMOUNT (Rs.)", "120.00 Dr"),
+                null, List.of(), null, null, null, userCategories);
+
+        assertThat(row.suggestedCategory()).isEqualTo("Personal Transfer");
+    }
+
+    @Test
+    void normalize_leavesTheRowOther_whenThePrintedLabelNamesNoKindOfSpending() {
+        Map<String, String> userCategories = normalizerCategoryNames("Dining", "Shopping");
+
+        StagedRow row = normalizer.normalize(userId, rowOf(
+                "DATE", "15/01/2026", "TRANSACTION DETAILS", "UPI/SAMPLE SERVICE/Q000000000@YBL/000000",
+                "MERCHANT CATEGORY", "SERVICES", "AMOUNT (Rs.)", "120.00 Dr"),
+                null, List.of(), null, null, null, userCategories);
+
+        assertThat(row.suggestedCategory()).isEqualTo("Other");
+        assertThat(row.categorySource()).isEqualTo("default");
+    }
+
+    /** Measured on a real Axis card: a refund credit printed MOTO beside it. Money coming in is not
+     *  a purchase, so a purchase category is not read from it. */
+    @Test
+    void normalize_ignoresThePrintedMerchantCategory_onMoneyComingIn() {
+        Map<String, String> userCategories = normalizerCategoryNames("Transport");
+
+        StagedRow row = normalizer.normalize(userId, rowOf(
+                "DATE", "15/01/2026", "TRANSACTION DETAILS", "UPI PAYMENT RECEIVED/SAMPLEREFUND-ONLINE@AXISBANK",
+                "MERCHANT CATEGORY", "MOTO", "AMOUNT (Rs.)", "145.00 Cr"),
+                null, List.of(), null, null, null, userCategories);
+
+        assertThat(row.type()).isEqualTo("INCOME");
+        assertThat(row.suggestedCategory()).isEqualTo("Other");
+    }
+
+    /** A category the user deleted is not brought back by a bank's label. */
+    @Test
+    void normalize_ignoresThePrintedMerchantCategory_whenTheUserNoLongerHasThatCategory() {
+        Map<String, String> userCategories = normalizerCategoryNames("Shopping");
+
+        StagedRow row = normalizer.normalize(userId, rowOf(
+                "DATE", "15/01/2026", "TRANSACTION DETAILS", "UPI/SAMPLE CORNER/PAYTMQR000000@PAYTM/000000",
+                "MERCHANT CATEGORY", "RESTAURANTS", "AMOUNT (Rs.)", "120.00 Dr"),
+                null, List.of(), null, null, null, userCategories);
+
+        assertThat(row.suggestedCategory()).isEqualTo("Other");
+        assertThat(row.categorySource()).isEqualTo("default");
+    }
+
+    @Test
+    void normalize_usesTheUsersOwnSpellingOfTheMappedCategory() {
+        Map<String, String> userCategories = normalizerCategoryNames("dining");
+
+        StagedRow row = normalizer.normalize(userId, rowOf(
+                "DATE", "15/01/2026", "TRANSACTION DETAILS", "UPI/SAMPLE CORNER/PAYTMQR000000@PAYTM/000000",
+                "MERCHANT CATEGORY", "RESTAURANTS", "AMOUNT (Rs.)", "120.00 Dr"),
+                null, List.of(), null, null, null, userCategories);
+
+        assertThat(row.suggestedCategory()).isEqualTo("dining");
+    }
+
     @Test
     void categoryNamesFor_keysTheUsersCategoriesCaseInsensitively() {
         when(categorizationService.categoryNamesFor(userId)).thenReturn(List.of("Shopping", " Food "));

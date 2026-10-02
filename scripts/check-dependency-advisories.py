@@ -104,6 +104,32 @@ ACCEPTED = [
     # useEmailChangeDeepLink.test.ts) and `tsc --noEmit` both passing clean against it -- the same
     # "override + verify, don't just accept" preference the uuid entry above already established
     # for this file.
+    #
+    # Surfaced 2026-10-02, fixed rather than accepted: GHSA-f596-whhp-79r4 and GHSA-m9gg-hp2v-232j
+    # (@grpc/grpc-js: server-side error-message leakage, and getAuthContext reporting unauthorized
+    # certificates as authorized), in all three apps, reached only as firebase ->
+    # @firebase/firestore -> @grpc/grpc-js ~1.9.0. Even the newest @firebase/firestore (4.17.2)
+    # still pins ~1.9.0 and the advisories are fixed only in 1.13.6 / 1.14.5, so no Firebase
+    # upgrade reaches a fix. No app imports firebase/firestore (only firebase/app and
+    # firebase/auth), so grpc-js is never in a bundle either way; an `"overrides":
+    # {"@grpc/grpc-js": "^1.14.5"}` entry in each app's package.json removes the advisory rather
+    # than recording an exception for it. And GHSA-6j4f-fj2g-mc7p / GHSA-q2hr-2g5m-vwhr /
+    # GHSA-qhr7-859c-m2p7 (brace-expansion denial of service) in mobile: a lockfile update to the
+    # patched 5.0.12 / 2.1.7 / 1.1.21 inside each parent's own declared range.
+
+    Accepted(
+        "GHSA-86w9-cpqp-85rv",
+        {"mobile"},
+        "node-forge: RSA PKCS#1 v1.5 signature verification accepts extra nested DigestAlgorithm elements",
+        "Reached only as expo -> @expo/cli and expo-updates -> @expo/code-signing-certificates, and "
+        "inside expo-updates only from its cli/ directory (configureCodeSigningAsync, "
+        "generateCodeSigningAsync): developer-machine commands that create code-signing keys. No "
+        "module the app bundles imports node-forge; the installed app verifies update signatures in "
+        "expo-updates' native code. No patched version exists (affected: <= 1.4.0, the latest).",
+        "When node-forge publishes a release that fixes this, update the lockfile and delete this "
+        "entry. Re-check at once if the app code, or a runtime (non-cli) part of an Expo package, "
+        "starts importing node-forge or @expo/code-signing-certificates.",
+    ),
 ]
 
 ACCEPTED_BY_GHSA = {a.ghsa: a for a in ACCEPTED}

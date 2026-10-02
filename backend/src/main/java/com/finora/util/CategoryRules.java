@@ -182,7 +182,12 @@ public final class CategoryRules {
         // insurance scheme) added after checking this project's own real bank-statement corpus --
         // safe as a bare keyword for the same reason "pureplay" above is: a distinctive acronym,
         // not a substring of any other keyword or common narration word.
-        RULES.put("Insurance", List.of("insurance", "lic premium", "policybazaar", "premium payment", "pmjjby"));
+        // "pmsby" (Pradhan Mantri Suraksha Bima Yojana, the same government's accident-insurance
+        // scheme) added on the same evidence: its premium debit sits beside the PMJJBY one on a
+        // real statement, in the identical "JNS-<scheme>-..." narration shape, and stayed "Other"
+        // without it. It reached Insurance before #1888 only because both debits shared one
+        // merchant keyed on their common "jns" prefix.
+        RULES.put("Insurance", List.of("insurance", "lic premium", "policybazaar", "premium payment", "pmjjby", "pmsby"));
         // "nwd" (Non-Home-branch Withdrawal, the standard NPCI/bank narration code for an ATM
         // withdrawal at another bank's machine) added after checking this project's own real
         // bank-statement corpus -- the only real ATM row in it ("NWD-416021XXXXXX5853-...") was

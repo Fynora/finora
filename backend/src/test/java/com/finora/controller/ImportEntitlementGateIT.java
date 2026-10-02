@@ -34,8 +34,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * plans.ts's "Extended financial history" Plus/Premium promise, enforced -- the second and third
  * FeatureEntitlement keys any endpoint actually checks (after ADVANCED_REPORTS): a Free-plan
- * statement's detected period may not exceed 31 days (ImportService, FeatureEntitlement
- * .EXTENDED_HISTORY) and a Free-plan account may not create a 3rd account (AccountService,
+ * statement's detected period may not exceed one month (ImportService, FreeStatementPeriod,
+ * FeatureEntitlement.EXTENDED_HISTORY) and a Free-plan account may not create a 3rd account (AccountService,
  * FeatureEntitlement.UNLIMITED_ACCOUNTS -- covered separately in AccountServiceTest, a unit test,
  * since that gate needs no HTTP layer to exercise).
  *
@@ -149,7 +149,7 @@ class ImportEntitlementGateIT extends AbstractIntegrationTest {
     // -- Single-account confirm ------------------------------------------------------------------
 
     @Test
-    void csvConfirm_onFreePlan_rejectsAStatementSpanningMoreThanThirtyOneDays() throws Exception {
+    void csvConfirm_onFreePlan_rejectsAStatementSpanningMoreThanOneMonth() throws Exception {
         User user = createUser();
         subscriptionService.provisionFreeSubscription(user.getId());
         LocalDate start = LocalDate.of(2026, 1, 1), end = LocalDate.of(2026, 3, 31);
@@ -162,11 +162,10 @@ class ImportEntitlementGateIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void csvConfirm_onFreePlan_allowsAStatementOfExactlyThirtyOneDays() throws Exception {
+    void csvConfirm_onFreePlan_allowsAWholeCalendarMonth() throws Exception {
         User user = createUser();
         subscriptionService.provisionFreeSubscription(user.getId());
-        // Jan 1 - Jan 31 inclusive is exactly 31 days -- the boundary must be let through, not
-        // treated as "more than 31".
+        // A whole calendar month must be let through.
         LocalDate start = LocalDate.of(2026, 1, 1), end = LocalDate.of(2026, 1, 31);
         UUID sessionId = stageSingleAccountSession(user, start, end);
 
@@ -196,7 +195,22 @@ class ImportEntitlementGateIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void csvConfirm_onFreePlan_rejectsAStatementOfThirtyTwoDays() throws Exception {
+    void csvConfirm_onFreePlan_rejectsAStatementEndingOneDayPastTheSameDateNextMonth() throws Exception {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        LocalDate start = LocalDate.of(2026, 1, 1), end = LocalDate.of(2026, 2, 2);
+        UUID sessionId = stageSingleAccountSession(user, start, end);
+
+        ResponseEntity<String> response = post("/api/v1/import/csv/confirm", user, confirmRequest(sessionId, start, end));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(errorCodeOf(response)).isEqualTo("ENTITLEMENT_003");
+    }
+
+    @Test
+    void csvConfirm_onFreePlan_allowsAStatementEndingOnTheSameDateNextMonth() throws Exception {
+        // 32 days counted inclusively, refused by the old flat 31-day count: an ordinary
+        // one-month statement.
         User user = createUser();
         subscriptionService.provisionFreeSubscription(user.getId());
         LocalDate start = LocalDate.of(2026, 1, 1), end = LocalDate.of(2026, 2, 1);
@@ -204,8 +218,21 @@ class ImportEntitlementGateIT extends AbstractIntegrationTest {
 
         ResponseEntity<String> response = post("/api/v1/import/csv/confirm", user, confirmRequest(sessionId, start, end));
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
-        assertThat(errorCodeOf(response)).isEqualTo("ENTITLEMENT_003");
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void csvConfirm_onFreePlan_allowsAPeriodOpeningOnAMonthsLastDay_toTheNextMonthsLastDay() throws Exception {
+        // Opens on the closing day of a 30-day month and ends on the last day of the next month:
+        // also 32 days counted inclusively, and also one month.
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        LocalDate start = LocalDate.of(2026, 6, 30), end = LocalDate.of(2026, 7, 31);
+        UUID sessionId = stageSingleAccountSession(user, start, end);
+
+        ResponseEntity<String> response = post("/api/v1/import/csv/confirm", user, confirmRequest(sessionId, start, end));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
     @Test
@@ -265,7 +292,7 @@ class ImportEntitlementGateIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void pdfConfirmMulti_onFreePlan_rejectsIfAnySectionExceedsThirtyOneDays() throws Exception {
+    void pdfConfirmMulti_onFreePlan_rejectsIfAnySectionExceedsOneMonth() throws Exception {
         User user = createUser();
         subscriptionService.provisionFreeSubscription(user.getId());
         LocalDate[] withinLimit = {LocalDate.of(2026, 1, 1), LocalDate.of(2026, 1, 31)};

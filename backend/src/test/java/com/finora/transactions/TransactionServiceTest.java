@@ -1740,6 +1740,7 @@ class TransactionServiceTest {
         verify(transactionRepository, never()).save(any());
         verify(accountRepository, never()).save(any());
         verify(reconciliationService, never()).reconcileForUser(any());
+        verify(reconciliationService, never()).reconcileIfInvestmentExclusionMayChange(any(), any(), any());
     }
 
     // --- Idempotency key reused with a different request (gap review of SEC-06: the replay check

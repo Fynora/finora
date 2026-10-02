@@ -4778,4 +4778,36 @@ class ReconciliationServiceTest {
 
         assertThat(superseded.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.SUPERSEDED);
     }
+
+    // --- The investment recount after a category change, shared with RecurringAnswerService ---
+
+    @Test
+    void recountRunsWhenARowMovesIntoInvestments_andNotBetweenTwoOrdinaryCategories() {
+        ReconciliationService spy = org.mockito.Mockito.spy(reconciliationService);
+        org.mockito.Mockito.doNothing().when(spy).reconcileForUser(userId);
+        Transaction row = new Transaction();
+        com.finora.entity.Category investments = new com.finora.entity.Category();
+        investments.setName("Investments");
+        com.finora.entity.Category dining = new com.finora.entity.Category();
+        dining.setName("Dining");
+
+        spy.reconcileIfInvestmentExclusionMayChange(userId, List.of(row), investments);
+        spy.reconcileIfInvestmentExclusionMayChange(userId, List.of(row), dining);
+
+        org.mockito.Mockito.verify(spy, org.mockito.Mockito.times(1)).reconcileForUser(userId);
+    }
+
+    @Test
+    void recountRunsWhenARowCurrentlyExcludedAsAnInvestmentTransferMovesOut() {
+        ReconciliationService spy = org.mockito.Mockito.spy(reconciliationService);
+        org.mockito.Mockito.doNothing().when(spy).reconcileForUser(userId);
+        Transaction row = new Transaction();
+        row.setReconciliationStatus(Transaction.ReconciliationStatus.INVESTMENT_TRANSFER);
+        com.finora.entity.Category dining = new com.finora.entity.Category();
+        dining.setName("Dining");
+
+        spy.reconcileIfInvestmentExclusionMayChange(userId, List.of(row), dining);
+
+        org.mockito.Mockito.verify(spy).reconcileForUser(userId);
+    }
 }

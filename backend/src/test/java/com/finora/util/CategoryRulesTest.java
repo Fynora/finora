@@ -456,5 +456,34 @@ class CategoryRulesTest {
     void extractMerchant_aWordContainingRrnIsNotTheLabel() {
         assertThat(CategoryRules.extractMerchant("TERRNOVA SAMPLE STORE")).isEqualTo("terrnova sample store");
     }
+
+    // --- a UPI handle names the payment app or bank, never the merchant ---
+
+    @Test
+    void suggestCategory_ignoresAKeywordThatIsTheWholeUpiHandle() {
+        assertThat(CategoryRules.suggestCategory("UPI/900011112222/shopname@airtel/payment")).isEqualTo("Other");
+        assertThat(CategoryRules.suggestCategory("UPI-SHOPNAME-shopname@JIO-ZZZZ0000000-900011112222")).isEqualTo("Other");
+    }
+
+    @Test
+    void suggestCategory_stillMatchesTheKeywordOutsideTheHandle() {
+        assertThat(CategoryRules.suggestCategory("UPI/AIRTEL/airtelbill@okzz/900011112222")).isEqualTo("Utilities");
+        assertThat(CategoryRules.suggestCategory("JIO PREPAID RECHARGE")).isEqualTo("Utilities");
+        // Payee AND handle both say airtel: the payee still counts.
+        assertThat(CategoryRules.suggestCategory("UPI/AIRTEL/bill@airtel/900011112222")).isEqualTo("Utilities");
+    }
+
+    @Test
+    void suggestCategory_handleEndsAtTheNextDelimiter() {
+        assertThat(CategoryRules.suggestCategory("UPI/shopname@okzz/airtel recharge")).isEqualTo("Utilities");
+        assertThat(CategoryRules.suggestCategory("UPI-shopname@okzz-ZEPTO")).isEqualTo("Groceries");
+    }
+
+    @Test
+    void suggestCategory_nullAndBlankStillReturnOther() {
+        assertThat(CategoryRules.suggestCategory(null)).isEqualTo("Other");
+        assertThat(CategoryRules.suggestCategory("@")).isEqualTo("Other");
+        assertThat(CategoryRules.suggestCategory("")).isEqualTo("Other");
+    }
 }
 

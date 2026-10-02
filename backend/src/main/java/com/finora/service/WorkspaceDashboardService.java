@@ -97,7 +97,7 @@ public class WorkspaceDashboardService {
                 .collect(Collectors.groupingBy(MerchantCategoryLearning::getMerchantId));
 
         long totalTransactions = transactions.size();
-        long activeRules = categoryRuleRepository.findByUserIdAndEnabledTrueOrderByPriorityAsc(userId).size();
+        long activeRules = categoryRuleRepository.findByUserIdAndEnabledTrueOrderByPriorityAscComparisonValueAscIdAsc(userId).size();
         long learnedMerchants = pairsByMerchant.size(); // merchants with at least one confirmed pair
 
         // Merchants recognized from THIS user's own activity, as opposed to merchants.size(), which

@@ -64,5 +64,21 @@ class MerchantIdentityLookupTest {
     void nullAndBlankAreSafe() {
         assertThat(MerchantIdentityLookup.namesKnownMerchant(null)).isFalse();
         assertThat(MerchantIdentityLookup.namesKnownMerchant("")).isFalse();
+        assertThat(MerchantIdentityLookup.handleNamesKnownMerchant(null)).isFalse();
+        assertThat(MerchantIdentityLookup.handleNamesKnownMerchant("")).isFalse();
+    }
+
+    @Test
+    void aUpiIdThatBeginsWithAKnownBrandNamesThatBrand() {
+        assertThat(MerchantIdentityLookup.handleNamesKnownMerchant("airtelprepaidxy")).isTrue();
+        assertThat(MerchantIdentityLookup.handleNamesKnownMerchant("punemetroabcde")).isTrue();
+        assertThat(MerchantIdentityLookup.handleNamesKnownMerchant("apple.services.x")).isTrue();
+        // A prefix only: a brand somewhere inside an id is not the payee's name.
+        assertThat(MerchantIdentityLookup.handleNamesKnownMerchant("ravi.airtel")).isFalse();
+        // Too short to tell from the start of a name ("ola", "uber").
+        assertThat(MerchantIdentityLookup.handleNamesKnownMerchant("olafsen12")).isFalse();
+        assertThat(MerchantIdentityLookup.handleNamesKnownMerchant("uberto.x")).isFalse();
+        // A mechanism word is not an identity, here as in the narration.
+        assertThat(MerchantIdentityLookup.handleNamesKnownMerchant("salaryacct1")).isFalse();
     }
 }

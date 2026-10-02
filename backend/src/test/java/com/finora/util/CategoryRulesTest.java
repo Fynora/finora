@@ -316,6 +316,27 @@ class CategoryRulesTest {
     }
 
     /**
+     * The clearing house's fund-transfer credits arrive wrapped mid-word: the bank's fixed-width
+     * narration line ends after the "C" of "CLEARING", and the parser rejoins the two lines with a
+     * space it has no evidence to remove. Without the split phrase these rows were "Other".
+     */
+    @Test
+    void suggestCategory_indianClearingCorpSplitByALineWrapIsInvestments() {
+        assertThat(CategoryRules.suggestCategory(
+                "FT- 0000000000-00000000000000 - INDIAN C LEARING CORPORATION LIMITED -"))
+                .isEqualTo("Investments");
+    }
+
+    /** The split phrase is word-boundary matched like every other keyword: a narration that only
+     *  happens to contain the same letters run together, or "learing" without the leading "c",
+     *  is not the clearing house. */
+    @Test
+    void suggestCategory_splitClearingPhraseNeedsTheWholeWrappedPhrase() {
+        assertThat(CategoryRules.suggestCategory("UPI-INDIAN LEARING ACADEMY-REF991021")).isNotEqualTo("Investments");
+        assertThat(CategoryRules.suggestCategory("UPI-INDIANC LEARINGTON STORES-REF991021")).isNotEqualTo("Investments");
+    }
+
+    /**
      * Real corpus finding (2026-09-14 mining pass against the current residual "Other" bucket):
      * "Chinese Factory" is a real Chinese-food restaurant name, appearing across 3 distinct
      * corpus documents.

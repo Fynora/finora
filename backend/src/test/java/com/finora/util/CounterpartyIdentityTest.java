@@ -344,4 +344,38 @@ class CounterpartyIdentityTest {
         assertThat(CounterpartyIdentity.keyOf("UPI/DR/111111111111/SAMPLE S/HSBC/9111111111@ybl/UPI"))
                 .isEqualTo(CounterpartyIdentity.keyOf("UPI/DR/111111111112/Samplena/BDBL/911111111 1@ptye/"));
     }
+
+    // --- identifiesOnePayee: may a choice for one row be applied to the others with this key? ---
+
+    @Test
+    void aFullUpiIdOrARealName_identifiesOnePayee() {
+        assertThat(CounterpartyIdentity.identifiesOnePayee("vpa:metrorail.sample")).isTrue();
+        assertThat(CounterpartyIdentity.identifiesOnePayee("name:sample cafe")).isTrue();
+        // A gateway word alongside the merchant's own name still names the merchant.
+        assertThat(CounterpartyIdentity.identifiesOnePayee("name:samplecanteen payu")).isTrue();
+    }
+
+    @Test
+    void aMaskedUpiId_doesNotIdentifyOnePayee() {
+        // The printed tail is shared by strangers: on the corpus one joined two different shops.
+        assertThat(CounterpartyIdentity.identifiesOnePayee("masked:.payu@hdfcbank")).isFalse();
+        assertThat(CounterpartyIdentity.identifiesOnePayee("masked:5.rzp@rxaxis")).isFalse();
+    }
+
+    @Test
+    void aNameMadeOnlyOfRailAndGatewayWords_doesNotIdentifyOnePayee() {
+        // The keys these real narration shapes produce: the payee was never printed.
+        assertThat(CounterpartyIdentity.identifiesOnePayee(CounterpartyIdentity.keyOf("UPI/RRN 111111111111/UPIIntent"))).isFalse();
+        assertThat(CounterpartyIdentity.identifiesOnePayee(CounterpartyIdentity.keyOf("UPI/RRN 111111111111/Pay via Razorpay"))).isFalse();
+        assertThat(CounterpartyIdentity.identifiesOnePayee(CounterpartyIdentity.keyOf("UPI/RRN 111111111111/Pay to BharatPe Merchant"))).isFalse();
+        assertThat(CounterpartyIdentity.identifiesOnePayee(CounterpartyIdentity.keyOf("UPIRET-20250505-111111111111"))).isFalse();
+    }
+
+    @Test
+    void noKey_identifiesNoOne() {
+        assertThat(CounterpartyIdentity.identifiesOnePayee(null)).isFalse();
+        assertThat(CounterpartyIdentity.identifiesOnePayee("")).isFalse();
+        assertThat(CounterpartyIdentity.identifiesOnePayee("vpa:")).isFalse();
+        assertThat(CounterpartyIdentity.identifiesOnePayee("name:")).isFalse();
+    }
 }

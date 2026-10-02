@@ -132,7 +132,40 @@ public record TransactionDto(
                                  BigDecimal amount, String type, String categoryName,
                                  @Size(max = 5000, message = NOTES_SIZE_MESSAGE) String notes,
                                  @Size(max = 20, message = TAGS_COUNT_MESSAGE)
-                                 List<@Size(max = 255, message = TAG_SIZE_MESSAGE) String> tags) {}
+                                 List<@Size(max = 255, message = TAG_SIZE_MESSAGE) String> tags,
+                                 CategoryScope applyTo) {
+        /** Pre-scope arity: a category change keeps the old behaviour (see {@link CategoryScope}). */
+        public UpdateRequest(LocalDate date, String description, String merchant, BigDecimal amount, String type,
+                             String categoryName, String notes, List<String> tags) {
+            this(date, description, merchant, amount, type, categoryName, notes, tags, null);
+        }
+    }
+
+    /**
+     * Which rows a category the user picks for one transaction reaches.
+     *
+     * <ul>
+     *   <li>{@code SIMILAR}: this row and every other row from the same payee in the same direction
+     *       (same counterparty key, both money out or both money in), except rows whose category the
+     *       user set by hand; the choice is remembered for future imports.</li>
+     *   <li>{@code ONLY_THIS}: this row only, and nothing is learned or remembered from it -- a
+     *       one-off, such as a friend paid back once for a dinner.</li>
+     * </ul>
+     *
+     * <p>Absent (null), as from a client that predates the choice: this row only, and the choice is
+     * remembered for future imports -- the behaviour before the choice existed.
+     */
+    public enum CategoryScope { SIMILAR, ONLY_THIS }
+
+    /**
+     * What {@link CategoryScope#SIMILAR} would reach from one transaction, so a client can ask only
+     * when there is something to ask about.
+     *
+     * @param similar    other rows from the same payee in the same direction that would change
+     * @param keptByUser rows from that payee and direction whose category the user set by hand,
+     *                   which keep it
+     */
+    public record SimilarSummary(int similar, int keptByUser) {}
 
     /** {@code international}: null for no filter, true for only international transactions,
      *  false for only domestic ones. */

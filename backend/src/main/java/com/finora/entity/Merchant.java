@@ -26,7 +26,7 @@ public class Merchant {
     /**
      * Whether a human has confirmed this merchant exists, or the engine merely guessed it.
      *
-     * <p>TEMPORARY is what {@code MerchantNormalizationEngine} creates: a first-significant-token
+     * <p>TEMPORARY is what {@code MerchantNormalizationEngine} creates: a grouping-key
      * guess from a description it had never seen. APPROVED is what a person confirms, and what
      * every merchant pre-dating V64 is backfilled to, since those all came from a confirmed import
      * or an explicit admin action.

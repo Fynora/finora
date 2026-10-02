@@ -7,7 +7,8 @@ import { fonts, spacing, useTheme } from '../../theme';
 
 export interface KpiItem {
   label: string;
-  value: number;
+  /** null only for a percent the backend withheld (Savings Rate) -- shown as a dash with its caption. */
+  value: number | null;
   delta: number | null;
   invert: boolean;
   caption: string | null;
@@ -28,7 +29,8 @@ export function LedgerSnapshotCard({
     <DashboardCard>
       <SectionHeading title="This Month" />
       {kpis.map((k, i) => {
-        const displayValue = k.isPercent ? `${Math.round(k.value)}%` : fmtCurrency(k.value);
+        const displayValue = k.value === null ? '—'
+          : k.isPercent ? `${Math.round(k.value)}%` : fmtCurrency(k.value);
         return (
           <View
             key={k.label}
@@ -44,7 +46,7 @@ export function LedgerSnapshotCard({
           >
             <Text style={[styles.label, { color: c.mutedInk, fontFamily: fonts.body }]}>{k.label}</Text>
             <View style={styles.valueCol}>
-              {k.isPercent ? (
+              {k.isPercent || k.value === null ? (
                 <Text testID={`kpi-${k.label}`} style={[styles.value, { color: c.ink, fontFamily: fonts.displayBold }]}>
                   {displayValue}
                 </Text>

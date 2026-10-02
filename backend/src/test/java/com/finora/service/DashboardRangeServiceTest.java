@@ -134,6 +134,35 @@ class DashboardRangeServiceTest {
     }
 
     @Test
+    void unclassifiedMoneyBeyondIncome_withholdsTheSavingsRate() {
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of(account()));
+        when(transactionRepository.findLatestTxnDate(any(), any())).thenReturn(LocalDate.of(2026, 8, 20));
+        when(transactionRepository.findEarliestTxnDate(any(), any())).thenReturn(LocalDate.of(2020, 1, 1));
+        when(reportService.forRange(eq(userId), any(), any())).thenReturn(new ReportService.RangeTotals(
+                new BigDecimal("200"), new BigDecimal("400000"), 40, new BigDecimal("450000"), 30, "PERSON_INFLOW"));
+
+        DashboardRangeSummaryDto dto = service.summarize(userId, DashboardRangeType.LAST_6_MONTHS, null, null);
+
+        assertThat(dto.savingsRatePct()).isNull();
+        assertThat(dto.savingsRateGateReason()).isEqualTo(SavingsRate.UNRESOLVED_EXCEEDS_INCOME);
+        assertThat(dto.netSavingsTotal()).isEqualByComparingTo("-399800"); // still shown: it is a plain sum
+    }
+
+    @Test
+    void noIncome_withholdsTheSavingsRate() {
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of(account()));
+        when(transactionRepository.findLatestTxnDate(any(), any())).thenReturn(LocalDate.of(2026, 8, 20));
+        when(transactionRepository.findEarliestTxnDate(any(), any())).thenReturn(LocalDate.of(2020, 1, 1));
+        when(reportService.forRange(eq(userId), any(), any()))
+                .thenReturn(new ReportService.RangeTotals(BigDecimal.ZERO, new BigDecimal("500"), 5));
+
+        DashboardRangeSummaryDto dto = service.summarize(userId, DashboardRangeType.LAST_6_MONTHS, null, null);
+
+        assertThat(dto.savingsRatePct()).isNull();
+        assertThat(dto.savingsRateGateReason()).isEqualTo(SavingsRate.NO_INCOME);
+    }
+
+    @Test
     void enoughPriorHistory_computesRealDeltas() {
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(account()));
         when(transactionRepository.findLatestTxnDate(any(), any())).thenReturn(LocalDate.of(2026, 8, 20));

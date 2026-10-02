@@ -8722,6 +8722,7 @@ export interface components {
             /** Format: int32 */
             unresolvedInflowCount?: number;
             unresolvedTopReason?: string;
+            savingsRateGateReason?: string;
         };
         DetectedDuplicate: {
             /** Format: uuid */
@@ -8785,6 +8786,7 @@ export interface components {
             /** Format: int32 */
             unresolvedInflowCount?: number;
             unresolvedTopReason?: string;
+            savingsRateGateReason?: string;
         };
         ApiResponseChangeStampDto: {
             success?: boolean;

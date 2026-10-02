@@ -38,7 +38,9 @@ public final class FlowClassifier {
     // 6: coverage from the corpus -- a cash deposit, a merchant's UPI credit and a UPI credit from an
     //    unrecognised sender are left for the user instead of counted as income; a card "CC PAYMENT"
     //    is a bill payment; a clearing-corporation payout is an investment even when wrapped mid-word.
-    public static final short VERSION = 6;
+    // 7: a credit the user filed under Friend Repayment themselves is money paid back, the same as
+    //    choosing the "Paid back to me" kind.
+    public static final short VERSION = 7;
 
     public enum FlowClass { INCOME, EXPENSE, REFUND, TRANSFER, INVESTMENT, LIABILITY, ADJUSTMENT, UNRESOLVED }
 
@@ -103,8 +105,20 @@ public final class FlowClassifier {
      */
     public static FlowDecision classify(Transaction t, Account.Type accountType, boolean inUsersSalaryCategory,
                                         InflowKind chosen) {
+        return classify(t, accountType, inUsersSalaryCategory ? CategoryRole.SALARY : CategoryRole.NONE, chosen);
+    }
+
+    /**
+     * What the row's category means for a credit. The caller resolves it from the category id, since
+     * this class never loads categories. It only counts when the category is the user's own choice
+     * (see {@link #categoryIsTheUsersChoice}); a category Fynora guessed answers nothing.
+     */
+    public enum CategoryRole { NONE, SALARY, REPAYMENT }
+
+    public static FlowDecision classify(Transaction t, Account.Type accountType, CategoryRole categoryRole,
+                                        InflowKind chosen) {
         return t.getTxnType() == Transaction.Type.EXPENSE
-                ? outflow(t) : inflow(t, accountType, inUsersSalaryCategory, chosen);
+                ? outflow(t) : inflow(t, accountType, categoryRole == null ? CategoryRole.NONE : categoryRole, chosen);
     }
 
     private static FlowDecision outflow(Transaction t) {
@@ -115,7 +129,7 @@ public final class FlowClassifier {
         return of(FlowClass.EXPENSE, FlowReason.PURCHASE);
     }
 
-    private static FlowDecision inflow(Transaction t, Account.Type accountType, boolean inUsersSalaryCategory,
+    private static FlowDecision inflow(Transaction t, Account.Type accountType, CategoryRole categoryRole,
                                        InflowKind chosen) {
         if (t.isTransfer()) return of(FlowClass.TRANSFER, FlowReason.OWN_ACCOUNT_TRANSFER);
         if (t.getReconciliationStatus() == Transaction.ReconciliationStatus.REFUND) {
@@ -127,6 +141,11 @@ public final class FlowClassifier {
         // The user's own answer outranks every rule below -- but not a pairing reconciliation made
         // above, which has its own undo ("not a transfer").
         if (chosen != null) return byKind(chosen);
+        // Filing a credit under Friend Repayment is the same answer as the "Paid back to me" kind,
+        // and it outranks the narration rules below for the same reason the kind does.
+        if (categoryRole == CategoryRole.REPAYMENT && categoryIsTheUsersChoice(t)) {
+            return of(FlowClass.ADJUSTMENT, FlowReason.PAID_BACK);
+        }
 
         String description = t.getDescription();
         String text = " " + CategoryRules.normalize(description) + " ";
@@ -167,7 +186,7 @@ public final class FlowClassifier {
         // typed in by hand, or a person's UPI the user taught Fynora is their salary, would silently
         // leave income because the narration names a person.
         if (t.getSource() == Transaction.Source.MANUAL) return of(FlowClass.INCOME, FlowReason.USER_ENTERED);
-        if (inUsersSalaryCategory && salaryCategoryIsTheUsersChoice(t)) return of(FlowClass.INCOME, FlowReason.SALARY);
+        if (categoryRole == CategoryRole.SALARY && categoryIsTheUsersChoice(t)) return of(FlowClass.INCOME, FlowReason.SALARY);
         if (t.getCounterpartyType() == CounterpartyType.PERSON) return of(FlowClass.UNRESOLVED, FlowReason.PERSON_INFLOW);
         // Below: shapes the corpus showed counted as income with nothing saying they were earned.
         // Each is left for the user to name rather than guessed either way.
@@ -211,9 +230,9 @@ public final class FlowClassifier {
                 || hasAny(" " + CategoryRules.normalize(t.getDescription()) + " ", TAX_REFUND_KEYWORDS);
     }
 
-    /** A person, or a rule or pattern learned from them, put the row in Salary -- not a global rule
-     *  or the AI fallback, which can guess Salary for a person's transfer. */
-    private static boolean salaryCategoryIsTheUsersChoice(Transaction t) {
+    /** A person, or a rule or pattern learned from them, put the row in its category -- not a global
+     *  rule or the AI fallback, which can guess Salary for a person's transfer. */
+    private static boolean categoryIsTheUsersChoice(Transaction t) {
         if (t.isCategoryManuallySet()) return true;
         Transaction.DecisionSource source = t.getDecisionSource();
         return source == Transaction.DecisionSource.MANUAL

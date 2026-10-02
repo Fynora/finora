@@ -260,7 +260,12 @@ export interface DashboardSummary {
   monthlyIncome: number;
   monthlyExpense: number;
   netCashFlow: number;
-  savingsRatePct: number;
+  /**
+   * null (with savingsRateGateReason set) when the backend withholds it: 'NO_INCOME' -- nothing
+   * counted as income; 'UNRESOLVED_EXCEEDS_INCOME' -- more money came in unclassified than income.
+   */
+  savingsRatePct: number | null;
+  savingsRateGateReason?: 'NO_INCOME' | 'UNRESOLVED_EXCEEDS_INCOME' | null;
   incomeDeltaPct: number | null;
   expenseDeltaPct: number | null;
   netDeltaPct: number | null;

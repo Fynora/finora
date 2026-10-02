@@ -29,7 +29,7 @@ import {
   dashboardApi, accountsApi, transactionsApi, categoriesApi, goalsApi, insightsApi, userApi, budgetsApi, reportsApi, recurringApi,
   type CategoryOption, type RecurringItem,
 } from '../api/endpoints';
-import type { DashboardRangeType } from '../types';
+import type { DashboardRangeType, SavingsRateGateReason } from '../types';
 import { trackNavigation } from '../lib/trackNavigation';
 import { StatementRefreshBanner } from '../components/statementRefresh/StatementRefreshBanner';
 
@@ -96,6 +96,13 @@ function scoreLabel(score: number): string {
   if (score >= 60) return 'Good';
   if (score >= 40) return 'Fair';
   return 'Needs Attention';
+}
+
+// The caption under a withheld savings rate (backend SavingsRate gate).
+function savingsRateGateText(reason: SavingsRateGateReason | null | undefined): string | undefined {
+  if (reason === 'NO_INCOME') return 'No income counted yet';
+  if (reason === 'UNRESOLVED_EXCEEDS_INCOME') return 'Classify money received to see this';
+  return undefined;
 }
 
 // Deterministic, per-factor -- never AI-generated prose. Each threshold is the exact 80-point
@@ -511,8 +518,10 @@ export default function Dashboard() {
     // as "a separate, much larger change nobody has asked for yet" -- that change is this one;
     // see the accent-* additions to index.css/tailwind.config.js and their use across the rest of
     // this file and the other pages that had the same bug.
+    // "Net worth", not "Balance": the figure is assets minus card dues (netWorthOf / the net-worth
+    // snapshot), so a user with a card balance read a negative "Balance" as an overdrawn account.
     {
-      label: 'Balance',
+      label: 'Net worth',
       value: rangeSummary.currentBalance !== null ? fmt(rangeSummary.currentBalance) : '—',
       caption: rangeSummary.currentBalanceAsOf ? `as of ${dayLabel(rangeSummary.currentBalanceAsOf)}` : undefined,
       delta: rangeSummary.balanceDeltaPct, deltaLabel: 'vs previous period',
@@ -521,7 +530,12 @@ export default function Dashboard() {
     { label: `Income (${rangeCardSuffix})`, value: fmt(rangeSummary.incomeTotal), delta: rangeSummary.incomeDeltaPct, deltaLabel: rangeComparisonLabel, icon: ArrowDownCircle, iconBg: 'bg-success-bg', iconColor: 'text-success', gateReasonText: rangeGateReasonText },
     { label: `Expenses (${rangeCardSuffix})`, value: fmt(rangeSummary.expenseTotal), delta: rangeSummary.expenseDeltaPct, deltaLabel: rangeComparisonLabel, icon: ArrowUpCircle, iconBg: 'bg-danger-bg', iconColor: 'text-danger', invertDelta: true, gateReasonText: rangeGateReasonText },
     { label: `Net Savings (${rangeCardSuffix})`, value: fmt(rangeSummary.netSavingsTotal), delta: rangeSummary.netDeltaPct, deltaLabel: rangeComparisonLabel, icon: PiggyBank, iconBg: 'bg-primary-light', iconColor: 'text-primary', gateReasonText: rangeGateReasonText },
-    { label: `Savings Rate (${rangeCardSuffix})`, value: rangeSummary.savingsRatePct.toFixed(0) + '%', delta: null as number | null, deltaLabel: rangeComparisonLabel, icon: PieChart, iconBg: 'bg-accent-purple-bg', iconColor: 'text-accent-purple' },
+    {
+      label: `Savings Rate (${rangeCardSuffix})`,
+      value: rangeSummary.savingsRatePct !== null ? rangeSummary.savingsRatePct.toFixed(0) + '%' : '—',
+      caption: rangeSummary.savingsRatePct === null ? savingsRateGateText(rangeSummary.savingsRateGateReason) : undefined,
+      delta: null as number | null, deltaLabel: rangeComparisonLabel, icon: PieChart, iconBg: 'bg-accent-purple-bg', iconColor: 'text-accent-purple',
+    },
   ] : [];
 
   return (

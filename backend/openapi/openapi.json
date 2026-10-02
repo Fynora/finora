@@ -21009,6 +21009,9 @@
                     },
                     "unresolvedTopReason": {
                         "type": "string"
+                    },
+                    "savingsRateGateReason": {
+                        "type": "string"
                     }
                 }
             },
@@ -21156,6 +21159,9 @@
                         "format": "int32"
                     },
                     "unresolvedTopReason": {
+                        "type": "string"
+                    },
+                    "savingsRateGateReason": {
                         "type": "string"
                     }
                 }

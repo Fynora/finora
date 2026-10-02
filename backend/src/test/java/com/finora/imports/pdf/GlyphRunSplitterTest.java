@@ -88,4 +88,104 @@ class GlyphRunSplitterTest {
 
         assertThat(texts(GlyphRunSplitter.split(glyphs))).containsExactly("A", "B");
     }
+
+    // --- A reference printed in its own column, closer than a column gap --------------------------
+    // Shapes measured on a real Indian Overseas Bank statement (values here are synthetic): the
+    // narration's last line and the reference column's value arrived as ONE PDFBox run, with a
+    // 1.63x and a 2.96x font-size jump before the reference -- under the 3x column threshold.
+
+    /** Lays {@code text} out from {@code x}, one 5pt advance per character, at a 9pt font. */
+    private static List<GlyphRunSplitter.Glyph> word(String text, float x) {
+        List<GlyphRunSplitter.Glyph> out = new java.util.ArrayList<>();
+        for (char c : text.toCharArray()) {
+            out.add(glyph(String.valueOf(c), x, x + 5f, 9f));
+            x += 5f;
+        }
+        return out;
+    }
+
+    private static List<GlyphRunSplitter.Glyph> join(List<GlyphRunSplitter.Glyph> a, List<GlyphRunSplitter.Glyph> b) {
+        List<GlyphRunSplitter.Glyph> out = new java.util.ArrayList<>(a);
+        out.addAll(b);
+        return out;
+    }
+
+    @Test
+    void split_separatesATrailingReference_atTheSmallerMeasuredGap() {
+        var head = word("SAMPLE NAME ", 100f);          // ends at x=160
+        var glyphs = join(head, word("S12345678", 160f + 1.63f * 9f));
+
+        assertThat(texts(GlyphRunSplitter.split(glyphs))).containsExactly("SAMPLE NAME", "S12345678");
+    }
+
+    @Test
+    void split_separatesATrailingReference_justUnderTheColumnThreshold() {
+        var head = word("SAMPLE FEE ", 100f);           // ends at x=155
+        var glyphs = join(head, word("S12345678", 155f + 2.96f * 9f));
+
+        assertThat(texts(GlyphRunSplitter.split(glyphs))).containsExactly("SAMPLE FEE", "S12345678");
+    }
+
+    /** The blank printed before the jump belongs to neither piece: left on the narration, it became
+     *  a double space once the narration's next line was joined on with a space of its own. The
+     *  piece's measured right edge moves back to its last inked glyph with it. */
+    @Test
+    void split_dropsTheBlankBeforeAReference_fromTheNarrationPiece() {
+        var glyphs = join(word("SAMPLE FEE ", 100f), word("S12345678", 155f + 2.96f * 9f));
+
+        var narration = GlyphRunSplitter.split(glyphs).get(0);
+
+        assertThat(narration.get(narration.size() - 1).endX()).isEqualTo(150f);
+    }
+
+    /** The 3x column split is unchanged: its pieces keep their glyphs exactly as printed. */
+    @Test
+    void split_keepsTheTrailingBlank_onAColumnSplit() {
+        var glyphs = join(word("SAMPLE ", 100f), word("NEXT", 135f + 3.5f * 9f));
+
+        assertThat(texts(GlyphRunSplitter.split(glyphs))).containsExactly("SAMPLE ", "NEXT");
+    }
+
+    @Test
+    void split_keepsAWordTogether_whenWhatFollowsTheGapIsNotAReference() {
+        var glyphs = join(word("SAMPLE ", 100f), word("PAYMENT", 135f + 1.63f * 9f));
+
+        assertThat(texts(GlyphRunSplitter.split(glyphs))).containsExactly("SAMPLE PAYMENT");
+    }
+
+    @Test
+    void split_keepsTheRunTogether_whenTheReferenceIsNotTheLastWord() {
+        var glyphs = join(word("SAMPLE ", 100f), word("S12345678 FEE", 135f + 1.63f * 9f));
+
+        assertThat(texts(GlyphRunSplitter.split(glyphs))).containsExactly("SAMPLE S12345678 FEE");
+    }
+
+    @Test
+    void split_keepsAReferenceTogether_whenItFollowsAnOrdinarySpace() {
+        var glyphs = word("UPI S12345678", 100f);
+
+        assertThat(texts(GlyphRunSplitter.split(glyphs))).containsExactly("UPI S12345678");
+    }
+
+    /** A gap of exactly one font size does not split; only a wider one does. */
+    @Test
+    void split_keepsAReferenceTogether_atExactlyOneFontSize() {
+        var glyphs = join(word("SAMPLE ", 100f), word("S12345678", 135f + 9f));
+
+        assertThat(texts(GlyphRunSplitter.split(glyphs))).containsExactly("SAMPLE S12345678");
+    }
+
+    @Test
+    void split_keepsATooShortToken_withItsNarration() {
+        var glyphs = join(word("SAMPLE ", 100f), word("S1234", 135f + 1.63f * 9f));
+
+        assertThat(texts(GlyphRunSplitter.split(glyphs))).containsExactly("SAMPLE S1234");
+    }
+
+    @Test
+    void split_keepsAWordWithoutADigit_withItsNarration() {
+        var glyphs = join(word("SAMPLE ", 100f), word("REFERENCE", 135f + 1.63f * 9f));
+
+        assertThat(texts(GlyphRunSplitter.split(glyphs))).containsExactly("SAMPLE REFERENCE");
+    }
 }

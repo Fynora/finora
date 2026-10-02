@@ -86,7 +86,7 @@ abstract class ReconciliationBenchmarkSupport {
         when(accountRepository.findByUserId(userId)).thenAnswer(inv -> new ArrayList<>(liveAccounts));
         reconciliationService = new ReconciliationService(transactionRepository, accountRepository, relationshipService,
                 auditService, transactionGraphService, gmailReconciliationMatcher, statementImportRepository,
-                reconciliationMetrics, categoryRepository);
+                reconciliationMetrics, categoryRepository, mock(com.finora.repository.UserRepository.class));
     }
 
     // --- Fixture builders -----------------------------------------------------------------

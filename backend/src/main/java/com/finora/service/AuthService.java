@@ -79,6 +79,10 @@ public class AuthService {
     private static final Map<String, String[]> DEFAULT_CATEGORIES = new LinkedHashMap<>();
     static {
         DEFAULT_CATEGORIES.put("Salary", new String[]{"arrow-down-circle", "green"});
+        // Money a bank or card pays you -- interest credited, cashback (V246, Sid 2026-10-02). Next
+        // to Salary as the other money-in category; same icon, a different colour so the two stay
+        // tellable apart. Routed by BankActivityCategory.
+        DEFAULT_CATEGORIES.put("Interest & Cashback", new String[]{"arrow-down-circle", "teal"});
         DEFAULT_CATEGORIES.put("Rent", new String[]{"home", "blue"});
         DEFAULT_CATEGORIES.put("Groceries", new String[]{"shopping-cart", "green"});
         DEFAULT_CATEGORIES.put("Dining", new String[]{"utensils", "orange"});

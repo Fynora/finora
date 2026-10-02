@@ -53,5 +53,8 @@
   },
   "allowScripts": {
     "@sentry/cli@2.58.6": true
+  },
+  "overrides": {
+    "@grpc/grpc-js": "^1.14.5"
   }
 }

@@ -120,6 +120,7 @@ public class ReconciliationService {
     private final com.finora.repository.StatementImportRepository statementImportRepository;
     private final com.finora.observability.ReconciliationMetrics reconciliationMetrics;
     private final com.finora.repository.CategoryRepository categoryRepository;
+    private final com.finora.repository.UserRepository userRepository;
 
     /**
      * The category that excludes an EXPENSE row from spend as {@code INVESTMENT_TRANSFER}. It is the
@@ -136,7 +137,9 @@ public class ReconciliationService {
                                   com.finora.integrations.google.merchant.GmailReconciliationMatcher gmailReconciliationMatcher,
                                   com.finora.repository.StatementImportRepository statementImportRepository,
                                   com.finora.observability.ReconciliationMetrics reconciliationMetrics,
-                                  com.finora.repository.CategoryRepository categoryRepository) {
+                                  com.finora.repository.CategoryRepository categoryRepository,
+                                  com.finora.repository.UserRepository userRepository) {
+        this.userRepository = userRepository;
         this.reconciliationMetrics = reconciliationMetrics;
         this.categoryRepository = categoryRepository;
         this.transactionRepository = transactionRepository;
@@ -774,6 +777,31 @@ public class ReconciliationService {
                 t.setTransferPairId(null);
                 t.setReconciliationStatus(Transaction.ReconciliationStatus.TRANSFER);
                 t.setReconciliationExplanation(ReconciliationExplanation.ownAccountByName(t, slot.get(), holder));
+                dirty.add(t);
+                newOwnAccountTransfers++;
+            }
+        }
+
+        // 2a') One-sided own-account transfers by the user's own UPI id: a phone-number UPI id is the
+        // phone number, so money to or from the id equal to the user's registered number is money
+        // between their own accounts. Measured 2026-10-02: the name rule above missed these because
+        // banks cut and reorder the holder's name ("Siddhart", "TIWARI S"), while the id survived.
+        // Every corpus statement prints the OTHER party's id in this slot, never the account owner's
+        // own on every row, so the rule cannot sweep up a statement's ordinary credits.
+        String ownPhoneDigits = ownPhoneDigits(userId);
+        if (ownPhoneDigits != null) {
+            String ownIdKey = "vpa:" + ownPhoneDigits;
+            for (Transaction t : candidates) {
+                if (t.isTransfer() || t.getReconciliationStatus() != Transaction.ReconciliationStatus.OK) continue;
+                if (t.getTransferRejectedAt() != null) continue;
+                if (isCard(t, accountTypes)) continue;
+                if (OwnAccountEvidence.looksLikeCardBill(t.getDescription())) continue;
+                String key = com.finora.util.CounterpartyIdentity.keyOf(t.getDescription());
+                if (!ownIdKey.equals(key) && !("vpa:91" + ownPhoneDigits).equals(key)) continue;
+                t.setTransfer(true);
+                t.setTransferPairId(null);
+                t.setReconciliationStatus(Transaction.ReconciliationStatus.TRANSFER);
+                t.setReconciliationExplanation(ReconciliationExplanation.ownAccountByPhone(t, ownPhoneDigits));
                 dirty.add(t);
                 newOwnAccountTransfers++;
             }
@@ -2315,12 +2343,24 @@ public class ReconciliationService {
         return low;
     }
 
-    /** A one-sided own-account transfer from rule 2: still a candidate for its other leg. */
+    /** A one-sided own-account transfer from rule 2 (by name or by the user's own UPI id): still a
+     *  candidate for its other leg. */
     private static boolean isOneSidedOwnAccountTransfer(Transaction t) {
         if (!t.isTransfer() || t.getTransferPairId() != null) return false;
         Map<String, Object> explanation = t.getReconciliationExplanation();
         Object reason = explanation == null ? null : explanation.get("reason");
-        return reason instanceof Map<?, ?> m && ReconciliationExplanation.OWN_ACCOUNT_NAME_RULE.equals(m.get("rule"));
+        return reason instanceof Map<?, ?> m && (ReconciliationExplanation.OWN_ACCOUNT_NAME_RULE.equals(m.get("rule"))
+                || ReconciliationExplanation.OWN_ACCOUNT_PHONE_RULE.equals(m.get("rule")));
+    }
+
+    /** The user's registered mobile number as its last 10 digits, or null when there is none. A UPI
+     *  id is the bare 10-digit number; the stored number is E.164 (PhoneNumbers.normalize). */
+    private String ownPhoneDigits(UUID userId) {
+        String phone = userRepository.findById(userId).map(com.finora.entity.User::getPhoneNumber).orElse(null);
+        if (phone == null) return null;
+        String digits = phone.replaceAll("[^0-9]", "");
+        if (digits.length() == 12 && digits.startsWith("91")) digits = digits.substring(2);
+        return digits.length() == 10 ? digits : null;
     }
 
     private static String firstShared(Set<String> a, Set<String> b) {

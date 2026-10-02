@@ -53,8 +53,8 @@ class RuleEngineServiceTest {
     }
 
     private void stub(List<CategoryRule> userRules, List<CategoryRule> globalRules) {
-        when(categoryRuleRepository.findByUserIdAndEnabledTrueOrderByPriorityAsc(userId)).thenReturn(userRules);
-        when(categoryRuleRepository.findByScopeAndEnabledTrueOrderByPriorityAsc(CategoryRule.Scope.GLOBAL)).thenReturn(globalRules);
+        when(categoryRuleRepository.findByUserIdAndEnabledTrueOrderByPriorityAscComparisonValueAscIdAsc(userId)).thenReturn(userRules);
+        when(categoryRuleRepository.findByScopeAndEnabledTrueOrderByPriorityAscComparisonValueAscIdAsc(CategoryRule.Scope.GLOBAL)).thenReturn(globalRules);
     }
 
     @Test
@@ -160,6 +160,91 @@ class RuleEngineServiceTest {
 
         assertThat(ruleEngineService.evaluateCategoryRule(userId, "UPI/DR/900077778888/MERCHANT", null, null, null)).isPresent();
         assertThat(ruleEngineService.evaluateCategoryRule(userId, "SOMETHING UPI/DR/ IN THE MIDDLE", null, null, null)).isEmpty();
+    }
+
+    // --- GLOBAL CONTAINS ignores a hit inside a UPI handle (the part of a VPA after '@') ---
+
+    private CategoryRule globalContains(String keyword, String category) {
+        return rule(CategoryRule.Scope.GLOBAL, CategoryRule.Field.DESCRIPTION, CategoryRule.Operator.CONTAINS,
+                keyword, CategoryRule.ActionType.ASSIGN_CATEGORY, category, 100);
+    }
+
+    @Test
+    void globalContains_ignoresAKeywordInsideTheUpiHandle() {
+        stub(List.of(), List.of(globalContains("airtel", "Utilities")));
+
+        assertThat(ruleEngineService.evaluateCategoryRule(userId,
+                "UPI-SHOPNAME-shopname.pay@zzairtel-ZZZZ0000000-900011112222-ORDER", null, null, null)).isEmpty();
+        assertThat(ruleEngineService.evaluateCategoryRule(userId,
+                "UPI/900011112222/shopname@ZZAIRTEL/payment", null, null, null)).isEmpty();
+    }
+
+    @Test
+    void globalContains_ignoresAKeywordAtTheStartOfTheHandle() {
+        stub(List.of(), List.of(globalContains("jio", "Utilities")));
+
+        assertThat(ruleEngineService.evaluateCategoryRule(userId,
+                "UPI/9000/900011112222-01@jiozz/900", null, null, null)).isEmpty();
+    }
+
+    @Test
+    void globalContains_stillMatchesTheKeywordAsPayeeOrInTheVpaUserPart() {
+        stub(List.of(), List.of(globalContains("airtel", "Utilities")));
+
+        assertThat(ruleEngineService.evaluateCategoryRule(userId,
+                "UPI-AIRTEL-PREPAID-RECHARGE", null, null, null)).isPresent();
+        assertThat(ruleEngineService.evaluateCategoryRule(userId,
+                "UPI/900011112222/airtelstore@okzz/bill", null, null, null)).isPresent();
+        // Printed as the payee AND inside the handle: the payee occurrence still counts.
+        assertThat(ruleEngineService.evaluateCategoryRule(userId,
+                "UPI/AIRTEL/airtel.bill@zzairtel/900011112222", null, null, null)).isPresent();
+    }
+
+    @Test
+    void globalContains_handleEndsAtAnyDelimiter_soATokenAfterItStillMatches() {
+        stub(List.of(), List.of(globalContains("airtel", "Utilities")));
+
+        assertThat(ruleEngineService.evaluateCategoryRule(userId,
+                "UPI/shopname@okzz/airtel recharge", null, null, null)).isPresent();
+        assertThat(ruleEngineService.evaluateCategoryRule(userId,
+                "UPI-shopname@okzz-AIRTEL", null, null, null)).isPresent();
+    }
+
+    @Test
+    void globalContains_aKeywordContainingAt_keepsPlainSubstringMatching() {
+        stub(List.of(), List.of(globalContains("@zzairtel", "Payment App")));
+
+        assertThat(ruleEngineService.evaluateCategoryRule(userId,
+                "UPI/shopname@zzairtel/900011112222", null, null, null)).isPresent();
+    }
+
+    @Test
+    void globalContains_merchantKeywordWinsWhenTheOtherRuleOnlyHitsTheHandle() {
+        stub(List.of(), List.of(globalContains("airtel", "Utilities"), globalContains("zepto", "Groceries")));
+
+        var match = ruleEngineService.evaluateCategoryRule(userId,
+                "UPI-ZEPTO-zepto.pay@zzairtel-ZZZZ0000000-900011112222-ORDER", null, null, null);
+
+        assertThat(match).isPresent();
+        assertThat(match.get().rule().getActionValue()).isEqualTo("Groceries");
+    }
+
+    @Test
+    void userContains_isNotRestricted_aUsersRuleMatchesExactlyWhatTheyTyped() {
+        CategoryRule userRule = rule(CategoryRule.Scope.USER, CategoryRule.Field.DESCRIPTION, CategoryRule.Operator.CONTAINS,
+                "zzairtel", CategoryRule.ActionType.ASSIGN_CATEGORY, "Shopping", 100);
+        stub(List.of(userRule), List.of());
+
+        assertThat(ruleEngineService.evaluateCategoryRule(userId,
+                "UPI/shopname@zzairtel/900011112222", null, null, null)).isPresent();
+    }
+
+    @Test
+    void globalContains_emptyText_andEmptyKeyword_behaveLikePlainContains() {
+        assertThat(RuleEngineService.containsOutsideUpiHandle("", "airtel")).isFalse();
+        assertThat(RuleEngineService.containsOutsideUpiHandle("anything", "")).isTrue();
+        assertThat(RuleEngineService.containsOutsideUpiHandle("@", "airtel")).isFalse();
+        assertThat(RuleEngineService.containsOutsideUpiHandle("airtel@", "airtel")).isTrue();
     }
 
     @Test
@@ -302,8 +387,8 @@ class RuleEngineServiceTest {
                 null, null, "Swiggy Bangalore", null);
 
         assertThat(result).isTrue();
-        verify(categoryRuleRepository, never()).findByUserIdAndEnabledTrueOrderByPriorityAsc(any());
-        verify(categoryRuleRepository, never()).findByScopeAndEnabledTrueOrderByPriorityAsc(any());
+        verify(categoryRuleRepository, never()).findByUserIdAndEnabledTrueOrderByPriorityAscComparisonValueAscIdAsc(any());
+        verify(categoryRuleRepository, never()).findByScopeAndEnabledTrueOrderByPriorityAscComparisonValueAscIdAsc(any());
     }
 
     @Test
@@ -312,6 +397,15 @@ class RuleEngineServiceTest {
                 null, null, "Zomato Bangalore", null);
 
         assertThat(result).isFalse();
+    }
+
+    @Test
+    void testMatch_usesGlobalMatching_soAHandleOnlyHitDoesNotMatch() {
+        // The admin page authors GLOBAL rules; its dry run must agree with what saving would do.
+        assertThat(ruleEngineService.testMatch("DESCRIPTION", "CONTAINS", "airtel",
+                "UPI/shopname@zzairtel/900011112222", null, null, null)).isFalse();
+        assertThat(ruleEngineService.testMatch("DESCRIPTION", "CONTAINS", "airtel",
+                "AIRTEL POSTPAID BILL", null, null, null)).isTrue();
     }
 
     @Test

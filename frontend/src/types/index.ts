@@ -152,6 +152,13 @@ export interface HealthScorePoint {
   score: number;
 }
 
+/**
+ * Why a savings rate is withheld (backend SavingsRate): 'NO_INCOME' -- nothing counted as income;
+ * 'UNRESOLVED_EXCEEDS_INCOME' -- more money came in unclassified than was counted as income, so the
+ * percentage would be decided by money not yet classified.
+ */
+export type SavingsRateGateReason = 'NO_INCOME' | 'UNRESOLVED_EXCEEDS_INCOME';
+
 export interface DashboardSummary {
   currentBalance: number;
   totalAssets: number;
@@ -160,7 +167,9 @@ export interface DashboardSummary {
   monthlyIncome: number;
   monthlyExpense: number;
   netCashFlow: number;
-  savingsRatePct: number;
+  /** null (with savingsRateGateReason set) when there is no honest savings rate -- see SavingsRateGateReason. */
+  savingsRatePct: number | null;
+  savingsRateGateReason?: SavingsRateGateReason | null;
   incomeDeltaPct: number | null;
   expenseDeltaPct: number | null;
   netDeltaPct: number | null;
@@ -313,7 +322,9 @@ export interface DashboardRangeSummary {
   incomeTotal: number;
   expenseTotal: number;
   netSavingsTotal: number;
-  savingsRatePct: number;
+  /** null (with savingsRateGateReason set) when there is no honest savings rate. */
+  savingsRatePct: number | null;
+  savingsRateGateReason?: SavingsRateGateReason | null;
 
   incomeDeltaPct: number | null;
   expenseDeltaPct: number | null;

@@ -114,9 +114,8 @@ public class DashboardRangeService {
         BigDecimal incomeTotal = current.income();
         BigDecimal expenseTotal = current.expense();
         BigDecimal netSavingsTotal = incomeTotal.subtract(expenseTotal);
-        BigDecimal savingsRatePct = incomeTotal.compareTo(BigDecimal.ZERO) > 0
-                ? netSavingsTotal.divide(incomeTotal, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100))
-                : BigDecimal.ZERO;
+        SavingsRate.Reading savingsRate = SavingsRate.of(incomeTotal, expenseTotal, current.unresolvedInflow());
+        BigDecimal savingsRatePct = savingsRate.pct();
         BigDecimal netPrevious = previous.income().subtract(previous.expense());
 
         String comparisonGateReason = rangeComparisonGateReason(earliestTxnDate, prevStart, previous.transactionCount());
@@ -176,7 +175,8 @@ public class DashboardRangeService {
                 comparisonGateReason, MIN_TRANSACTIONS_FOR_RANGE_COMPARISON,
                 currentBalance, currentBalanceAsOf, currentBalanceGateReason,
                 previousBalance, previousBalanceAsOf, balanceDeltaPct, balanceGateReason,
-                current.unresolvedInflow(), current.unresolvedInflowCount(), current.unresolvedTopReason()
+                current.unresolvedInflow(), current.unresolvedInflowCount(), current.unresolvedTopReason(),
+                savingsRate.gateReason()
         );
     }
 

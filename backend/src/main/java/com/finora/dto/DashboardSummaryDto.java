@@ -219,7 +219,13 @@ public record DashboardSummaryDto(
          */
         BigDecimal unresolvedInflow,
         int unresolvedInflowCount,
-        String unresolvedTopReason
+        String unresolvedTopReason,
+
+        /*
+         * Why savingsRatePct is null, or null when it is not -- same values and meaning as
+         * DashboardRangeSummaryDto.savingsRateGateReason, over the reporting month.
+         */
+        String savingsRateGateReason
 ) {
     public record CategoryMover(String category, BigDecimal currentAmount, BigDecimal priorAmount, Double pctChange) {}
 

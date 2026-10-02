@@ -33,6 +33,14 @@ describe('LedgerSnapshotCard', () => {
     expect(screen.getByText('42%')).toBeTruthy();
   });
 
+  it('shows a dash and the reason for a withheld savings rate', () => {
+    renderCard([{ label: 'Savings Rate', value: null, delta: null, invert: false,
+      caption: 'Classify money received to see this', isPercent: true }]);
+    expect(screen.getByTestId('kpi-Savings Rate')).toHaveTextContent('—');
+    expect(screen.getByText('Classify money received to see this')).toBeTruthy();
+    expect(screen.getByLabelText('Savings Rate: —, Classify money received to see this')).toBeTruthy();
+  });
+
   it('shows a caption instead of a delta when there is no delta', () => {
     renderCard([{ label: 'Total Balance', value: 100000, delta: null, invert: false, caption: 'As of today', isPercent: false }]);
     expect(screen.getByText('As of today')).toBeTruthy();

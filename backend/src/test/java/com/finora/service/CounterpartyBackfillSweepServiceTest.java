@@ -253,6 +253,23 @@ class CounterpartyBackfillSweepServiceTest {
     }
 
     @Test
+    void aUserWhoseRowsChangedOnlyKeyIsReconciledToo() {
+        // The user's own UPI id is only recognised as an own-account transfer once the id is read
+        // whole; a key change with no type change must still reach reconciliation.
+        UUID user = UUID.randomUUID();
+        String narration = "UPI/DR/111111111111/Samplena/BDBL/911111111 1@ptye/";
+        CounterpartyBackfillRow keyed = row(UUID.randomUUID(), narration, user,
+                com.finora.util.CounterpartyClassifier.classify(narration));
+        when(keyed.getCounterpartyKey()).thenReturn("name:samplena");
+        given(List.of(keyed));
+        when(transactionRepository.applyCounterpartyTyping(any(), any(), any(), anyShort())).thenReturn(1);
+
+        service.sweep();
+
+        verify(reconciliationService, times(1)).reconcileForUser(user);
+    }
+
+    @Test
     void aRowThatVanishedTriggersNoReconciliation() {
         given(List.of(row(UUID.randomUUID(), "NEFT-ACME LTD-REF73", UUID.randomUUID(), CounterpartyType.PERSON)));
         when(transactionRepository.applyCounterpartyTyping(any(), any(), any(), anyShort())).thenReturn(0);

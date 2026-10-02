@@ -40,6 +40,7 @@ export const ICON_NAMES: Record<string, IoniconName> = {
   banknote: 'cash-outline',
   briefcase: 'briefcase-outline',
   'arrow-down-circle': 'arrow-down-circle-outline',
+  scissors: 'cut-outline',
 };
 
 export function iconNameFor(token: string): IoniconName {

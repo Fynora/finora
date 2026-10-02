@@ -700,8 +700,9 @@ public class TransactionNormalizer {
             // resolution below was indexed, which is why ImportQueryCountIT stayed at 2.00
             // queries/row rather than dropping toward zero. resolutionIndex passed through for the
             // same reason -- see ResolutionIndex's own doc comment for the N+1 it fixes.
+            var direction = com.finora.entity.Transaction.Type.valueOf(type);
             var suggestion = categorizationService.suggestReadOnly(rules, userId, description, amount, null,
-                    merchantIndex, com.finora.entity.Transaction.Type.valueOf(type), resolutionIndex);
+                    merchantIndex, direction, resolutionIndex);
             suggestedCategory = suggestion.category();
             source = suggestion.source();
             ruleId = suggestion.ruleId();
@@ -710,8 +711,11 @@ public class TransactionNormalizer {
             // engine found nothing at all -- Sid, 2026-10-02: our own guess wins when the two
             // disagree. See PrintedMerchantCategory for the measured labels and their mapping.
             // Money going out only: a real Axis refund credit printed a purchase label (MOTO)
-            // beside it, and money coming in is not a purchase.
-            String printed = "default".equals(source) && !isIncome
+            // beside it, and money coming in is not a purchase. A shop-trade guess is the one engine
+            // answer the printed label still outranks -- see CategorizationService.isShopTradeGuess.
+            boolean engineHasLittle = "default".equals(source)
+                    || CategorizationService.isShopTradeGuess(suggestion, description, direction);
+            String printed = engineHasLittle && !isIncome
                     ? printedMerchantCategory(row, printedCategoryLabel, existingCategoryNames) : null;
             if (printed != null) {
                 suggestedCategory = printed;

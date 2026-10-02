@@ -41,6 +41,7 @@ public final class CategoryPalette {
         temp.put("banknote", "Cash");
         temp.put("briefcase", "Business");
         temp.put("arrow-down-circle", "Income");
+        temp.put("scissors", "Personal care");
         ICONS = Collections.unmodifiableMap(temp);
     }
 

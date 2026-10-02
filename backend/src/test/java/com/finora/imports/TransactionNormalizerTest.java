@@ -1212,6 +1212,38 @@ class TransactionNormalizerTest {
         assertThat(row.categorySource()).isEqualTo("rule");
     }
 
+    /** A trade word in the payee's name is weaker evidence than the card network's own label: a
+     *  "HOTEL ..." the card prints as lodging was a stay, not a meal. */
+    @Test
+    void normalize_usesThePrintedMerchantCategory_overAShopTradeGuess() {
+        Map<String, String> userCategories = normalizerCategoryNames("Dining", "Travel");
+        when(categorizationService.suggestReadOnly(any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(new CategorizationService.Suggestion("Dining", "rule", null, null, null, 70));
+
+        StagedRow row = normalizer.normalize(userId, rowOf(
+                "DATE", "15/01/2026", "TRANSACTION DETAILS", "HOTEL SAMPLE GRAND MUMBAI",
+                "MERCHANT CATEGORY", "HOTELS", "AMOUNT (Rs.)", "4500.00 Dr"),
+                null, List.of(), null, null, null, userCategories);
+
+        assertThat(row.suggestedCategory()).isEqualTo("Travel");
+        assertThat(row.categorySource()).isEqualTo("file");
+    }
+
+    @Test
+    void normalize_keepsAShopTradeGuess_whenThePrintedLabelNamesNoKindOfSpending() {
+        Map<String, String> userCategories = normalizerCategoryNames("Dining", "Travel");
+        when(categorizationService.suggestReadOnly(any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(new CategorizationService.Suggestion("Dining", "rule", null, null, null, 70));
+
+        StagedRow row = normalizer.normalize(userId, rowOf(
+                "DATE", "15/01/2026", "TRANSACTION DETAILS", "HOTEL SAMPLE GRAND MUMBAI",
+                "MERCHANT CATEGORY", "SERVICES", "AMOUNT (Rs.)", "450.00 Dr"),
+                null, List.of(), null, null, null, userCategories);
+
+        assertThat(row.suggestedCategory()).isEqualTo("Dining");
+        assertThat(row.categorySource()).isEqualTo("rule");
+    }
+
     @Test
     void normalize_keepsAPersonTransfer_overThePrintedMerchantCategory() {
         Map<String, String> userCategories = normalizerCategoryNames("Dining", "Personal Transfer");

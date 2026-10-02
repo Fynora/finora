@@ -339,6 +339,22 @@ class TransactionExplanationServiceTest {
     }
 
     @Test
+    void reconciliationExplainsATransferToTheUsersOwnPhoneUpiId() {
+        Transaction t = transaction(Transaction.DecisionSource.MANUAL, null, Transaction.Source.CSV_IMPORT);
+        t.setReconciliationStatus(Transaction.ReconciliationStatus.TRANSFER);
+        t.setTransfer(true);
+        t.setReconciliationExplanation(java.util.Map.of("type", "TRANSFER", "reason", java.util.Map.of(
+                "rule", "OWN_ACCOUNT_PHONE", "direction", "PAYEE", "phoneLast4", "1111")));
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(t));
+
+        var reconciliation = service.explain(userId, txnId).reconciliation();
+
+        assertThat(reconciliation.summary()).isEqualTo(
+                "Money moved between your own accounts: it was paid to your own UPI ID, your mobile number.");
+        assertThat(reconciliation.evidence()).containsExactly("UPI ID on the payment: your mobile number, ending 1111");
+    }
+
+    @Test
     void reconciliationExplainsADuplicate_withTheOriginalTransactionId() {
         UUID originalId = UUID.randomUUID();
         Transaction t = transaction(Transaction.DecisionSource.MANUAL, null, Transaction.Source.CSV_IMPORT);

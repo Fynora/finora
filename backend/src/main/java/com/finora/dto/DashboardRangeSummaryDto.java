@@ -81,5 +81,13 @@ public record DashboardRangeSummaryDto(
          */
         BigDecimal unresolvedInflow,
         int unresolvedInflowCount,
-        String unresolvedTopReason
+        String unresolvedTopReason,
+
+        /*
+         * Why savingsRatePct is null, or null when it is not: "NO_INCOME" (nothing counted as
+         * income in the range) or "UNRESOLVED_EXCEEDS_INCOME" (more money came in unclassified than
+         * was counted as income, so the figure would be decided by money not yet classified). See
+         * com.finora.service.SavingsRate.
+         */
+        String savingsRateGateReason
 ) {}

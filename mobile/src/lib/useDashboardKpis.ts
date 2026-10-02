@@ -48,7 +48,17 @@ export function useDashboardKpis(summary: DashboardSummary | undefined) {
           // DashboardSummary) -- a static, honest caption instead of a fabricated percentage,
           // same pattern Total Balance's own caption uses for the same reason (a real number isn't
           // available, so the row explains itself in words instead of inventing one).
-          { label: 'Savings Rate', value: summary.savingsRatePct, delta: null as number | null, invert: false, caption: 'Share of income kept', isPercent: true },
+          //
+          // Null when the backend withholds it (SavingsRate): no income, or more money came in
+          // unclassified than was counted as income -- the caption says which, instead of a
+          // six-figure negative percentage.
+          {
+            label: 'Savings Rate', value: summary.savingsRatePct ?? null, delta: null as number | null, invert: false,
+            caption: summary.savingsRatePct != null ? 'Share of income kept'
+              : summary.savingsRateGateReason === 'NO_INCOME' ? 'No income counted yet'
+                : 'Classify money received to see this',
+            isPercent: true,
+          },
         ]
       : [];
 

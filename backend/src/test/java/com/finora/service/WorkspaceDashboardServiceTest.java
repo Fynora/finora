@@ -77,7 +77,7 @@ class WorkspaceDashboardServiceTest {
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(liveAccount));
         when(merchantRepository.findByUserId(userId)).thenReturn(List.of());
         when(learningRepository.findByUserId(userId)).thenReturn(List.of());
-        when(categoryRuleRepository.findByUserIdAndEnabledTrueOrderByPriorityAsc(userId)).thenReturn(List.of());
+        when(categoryRuleRepository.findByUserIdAndEnabledTrueOrderByPriorityAscComparisonValueAscIdAsc(userId)).thenReturn(List.of());
         when(relationshipRepository.findByUserId(userId)).thenReturn(List.of());
         when(statementImportRepository.countByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(0L);
         when(auditLogRepository.findTop5ByUserIdOrderByCreatedAtDesc(userId)).thenReturn(List.of());
@@ -328,7 +328,7 @@ class WorkspaceDashboardServiceTest {
     @Test
     void summarize_activeRulesOnlyCountsEnabledOnes() {
         CategoryRule enabled = new CategoryRule();
-        when(categoryRuleRepository.findByUserIdAndEnabledTrueOrderByPriorityAsc(userId)).thenReturn(List.of(enabled));
+        when(categoryRuleRepository.findByUserIdAndEnabledTrueOrderByPriorityAscComparisonValueAscIdAsc(userId)).thenReturn(List.of(enabled));
 
         var summary = service.summarize(userId);
 
@@ -452,7 +452,7 @@ class WorkspaceDashboardServiceTest {
 
     @Test
     void health_rulesEnabledAndMerchantLearningActive_reflectRealCounts() {
-        when(categoryRuleRepository.findByUserIdAndEnabledTrueOrderByPriorityAsc(userId))
+        when(categoryRuleRepository.findByUserIdAndEnabledTrueOrderByPriorityAscComparisonValueAscIdAsc(userId))
                 .thenReturn(List.of(new CategoryRule()));
         Merchant m = merchant();
         when(merchantRepository.findByUserId(userId)).thenReturn(List.of(m));

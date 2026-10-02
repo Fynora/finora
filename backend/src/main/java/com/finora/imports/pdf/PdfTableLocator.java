@@ -6586,7 +6586,7 @@ public class PdfTableLocator {
 
     /** One token, no blanks, 6 to 30 characters, carrying a digit: a cheque number, a UTR, a bank's
      *  own reference -- not a word of narration. */
-    private static boolean looksLikeReferenceToken(String text) {
+    static boolean looksLikeReferenceToken(String text) {
         String v = text == null ? "" : text.trim();
         return v.length() >= 6 && v.length() <= 30 && !v.contains(" ")
                 && v.matches("[A-Za-z0-9/\\-.]+") && v.chars().anyMatch(Character::isDigit);

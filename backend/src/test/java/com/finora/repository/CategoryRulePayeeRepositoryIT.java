@@ -33,9 +33,9 @@ class CategoryRulePayeeRepositoryIT extends AbstractIntegrationTest {
         UUID userId = newUser();
 
         int first = ruleRepository.insertPayeeRuleIfAbsent(UUID.randomUUID(), userId, "sample landlord", "Rent",
-                new BigDecimal("8000.00"), new BigDecimal("12000.00"));
+                new BigDecimal("8000.00"), new BigDecimal("12000.00"), 50);
         int second = ruleRepository.insertPayeeRuleIfAbsent(UUID.randomUUID(), userId, "SAMPLE LANDLORD", "Loan EMI",
-                new BigDecimal("1.00"), new BigDecimal("2.00"));
+                new BigDecimal("1.00"), new BigDecimal("2.00"), 50);
 
         assertThat(first).isEqualTo(1);
         assertThat(second).isZero();
@@ -54,8 +54,8 @@ class CategoryRulePayeeRepositoryIT extends AbstractIntegrationTest {
     void payeeRulesAreListedPerUser_andOtherRulesAreNot() {
         UUID userId = newUser();
         UUID otherUser = newUser();
-        ruleRepository.insertPayeeRuleIfAbsent(UUID.randomUUID(), userId, "sample landlord", "Rent", null, null);
-        ruleRepository.insertPayeeRuleIfAbsent(UUID.randomUUID(), otherUser, "sample landlord", "Rent", null, null);
+        ruleRepository.insertPayeeRuleIfAbsent(UUID.randomUUID(), userId, "sample landlord", "Rent", null, null, 50);
+        ruleRepository.insertPayeeRuleIfAbsent(UUID.randomUUID(), otherUser, "sample landlord", "Rent", null, null, 50);
         CategoryRule description = new CategoryRule();
         description.setUserId(userId);
         description.setScope(CategoryRule.Scope.USER);

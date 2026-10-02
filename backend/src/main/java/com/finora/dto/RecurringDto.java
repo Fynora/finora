@@ -13,7 +13,7 @@ public record RecurringDto(
         // The recurring-payment question (docs/superpowers/specs/2026-10-02-recurring-payment-answer-design.md).
         // Added after the six fields above, which older app versions read and which keep their meaning.
         String category,          // most common category among the group's rows; null if none
-        BigDecimal latestAmount,  // the most recent payment's amount
+        BigDecimal latestAmount,  // the most recent payment the user did not file by hand (else the most recent)
         String answer,            // the saved answer's category (the user's PAYEE rule), or null
         QuestionState state
 ) {

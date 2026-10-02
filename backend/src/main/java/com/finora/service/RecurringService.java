@@ -120,16 +120,23 @@ public class RecurringService {
         auditService.record(userId, "RECURRING_CONFIRMED", "Transaction", null, Map.of("merchant", merchant));
     }
 
+    /** The payee labels this user dismissed from the recurring list, as stored. */
+    public Set<String> dismissedPayees(UUID userId) {
+        return recurringDismissalRepository.findByUserId(userId).stream()
+                .map(RecurringDismissal::getMerchant).collect(java.util.stream.Collectors.toSet());
+    }
+
     /**
      * The recurring-payment question's state for one detected group. A saved answer (any category,
      * including "Other") stops the question; it is ANSWERED while its range covers the latest
-     * payment and AMOUNT_CHANGED once it does not. Without one, the group is asked about only when
-     * every payment is still an unconfirmed engine guess.
+     * payment the user did not file by hand ({@code latest}, null when they filed every one) and
+     * AMOUNT_CHANGED once it does not. Without one, the group is asked about only when every
+     * payment is still an unconfirmed engine guess.
      */
     private static RecurringDto.QuestionState questionState(List<Transaction> group, Transaction latest,
                                                             CategoryRule answer, Map<UUID, String> categoryNames) {
         if (answer != null) {
-            return withinBounds(answer, latest.getAmount())
+            return latest == null || withinBounds(answer, latest.getAmount())
                     ? RecurringDto.QuestionState.ANSWERED : RecurringDto.QuestionState.AMOUNT_CHANGED;
         }
         return group.stream().allMatch(t -> isUnconfirmedGuess(t, categoryNames))
@@ -241,11 +248,18 @@ public class RecurringService {
                 // decision about what counts as "regular," not something this fix should invent.
                 String label = avgGap < 10 ? "Weekly" : avgGap < 20 ? "Biweekly" : avgGap < 40 ? "Monthly" : "Quarterly";
                 LocalDate lastDate = group.get(group.size() - 1).getTxnDate();
-                Transaction latest = group.get(group.size() - 1);
+                // The payment the question is about: the latest one the user did not file by hand. A
+                // payment they filed themselves (a one-off deposit moved to its own category) is
+                // already decided, so it neither makes a saved answer "amount changed" nor is shown.
+                Transaction latest = null;
+                for (int i = group.size() - 1; i >= 0 && latest == null; i--) {
+                    if (!group.get(i).isCategoryManuallySet()) latest = group.get(i);
+                }
                 CategoryRule answer = answers.get(entry.getKey().trim().toLowerCase(Locale.ROOT));
                 results.add(new RecurringDto(entry.getKey(), label, avgAmount, group.size(),
                         lastDate, lastDate.plusDays(Math.round(avgGap)),
-                        mostCommonCategory(group, categoryNames), latest.getAmount(),
+                        mostCommonCategory(group, categoryNames),
+                        (latest != null ? latest : group.get(group.size() - 1)).getAmount(),
                         answer == null ? null : answer.getActionValue(),
                         questionState(group, latest, answer, categoryNames)));
             }
@@ -313,8 +327,7 @@ public class RecurringService {
         // Applied to the DETECTION results only, after the write path above -- a dismissed group's
         // transactions still get their Transaction.recurring flag maintained normally (see dismiss's
         // own doc comment), this just keeps it out of what the caller sees.
-        Set<String> dismissedMerchants = recurringDismissalRepository.findByUserId(userId).stream()
-                .map(RecurringDismissal::getMerchant).collect(java.util.stream.Collectors.toSet());
+        Set<String> dismissedMerchants = dismissedPayees(userId);
         results.removeIf(r -> dismissedMerchants.contains(r.merchant()));
 
         results.sort(Comparator.comparing(RecurringDto::nextEstimate));

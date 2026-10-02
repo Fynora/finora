@@ -642,6 +642,30 @@ class RecurringServiceTest {
         assertThat(r.latestAmount()).isEqualByComparingTo("10000");
     }
 
+    /** The user filed the latest payment by hand: it is decided, so the answer is judged on the one before. */
+    @Test
+    void aLatestPaymentFiledByHand_doesNotMakeTheAnswerAmountChanged() {
+        stubCategories();
+        when(categoryRuleRepository.findUserPayeeRules(userId)).thenReturn(List.of(answer("sample landlord", "Rent", "8000", "9600")));
+        List<Transaction> txns = landlordPayments("Rent", Transaction.DecisionSource.USER_RULE, "9000", "9500", "10000");
+        txns.get(2).setCategoryManuallySet(true);
+
+        RecurringDto r = onlyGroup(txns);
+
+        assertThat(r.state()).isEqualTo(RecurringDto.QuestionState.ANSWERED);
+        assertThat(r.latestAmount()).isEqualByComparingTo("9500");
+    }
+
+    @Test
+    void everyPaymentFiledByHand_isAnswered() {
+        stubCategories();
+        when(categoryRuleRepository.findUserPayeeRules(userId)).thenReturn(List.of(answer("sample landlord", "Rent", "1", "2")));
+        List<Transaction> txns = landlordPayments("Rent", Transaction.DecisionSource.MANUAL, "9000", "9500", "10000");
+        txns.forEach(t -> t.setCategoryManuallySet(true));
+
+        assertThat(onlyGroup(txns).state()).isEqualTo(RecurringDto.QuestionState.ANSWERED);
+    }
+
     /** Older app versions read these six fields; their values must not change. */
     @Test
     void theOriginalSixFields_keepTheirValues() {

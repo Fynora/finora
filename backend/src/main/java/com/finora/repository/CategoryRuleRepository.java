@@ -101,29 +101,32 @@ public interface CategoryRuleRepository extends JpaRepository<CategoryRule, UUID
     Optional<CategoryRule> findUserPayeeRule(@Param("userId") UUID userId, @Param("label") String label);
 
     /**
+     * Serialises one user's recurring-payment answers until the calling transaction ends (a Postgres
+     * transaction-scoped advisory lock on {@code key}). Two answers at once -- a double tap, two open
+     * tabs -- would otherwise race: on the same payee both re-file the same transactions and the
+     * second fails on their versions; on two payees both may create the same new category and the
+     * second fails on its unique name. Taken first, before anything is read, so the second answer
+     * reads what the first committed.
+     */
+    @Query(value = "SELECT 1 FROM (SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))) AS locked",
+            nativeQuery = true)
+    int lockAnswers(@Param("key") String key);
+
+    /**
      * Inserts a payee rule unless the user already has one for this payee (uq_category_rules_user_payee),
      * in which case nothing happens. Two concurrent answers for the same payee therefore leave one
      * rule; the caller loads it with {@link #findUserPayeeRule} and updates it either way.
      *
      * @return 1 when a row was inserted, 0 when one already existed
      */
-    /**
-     * Serialises answers for one user and payee until the calling transaction ends (a Postgres
-     * transaction-scoped advisory lock). Two answers at once -- a double tap, two open tabs -- both
-     * re-file the same transactions; without this the second fails on their versions. Taken first,
-     * before anything is read, so the second answer reads what the first committed.
-     */
-    @Query(value = "SELECT 1 FROM (SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))) AS locked",
-            nativeQuery = true)
-    int lockPayeeAnswer(@Param("key") String key);
-
     @Modifying
     @Query(value = "INSERT INTO category_rules (id, user_id, scope, field, operator, comparison_value,"
-            + " action_type, action_value, amount_min, amount_max)"
-            + " VALUES (:id, :userId, 'USER', 'PAYEE', 'EQUALS', :label, 'ASSIGN_CATEGORY', :category, :min, :max)"
+            + " action_type, action_value, amount_min, amount_max, priority)"
+            + " VALUES (:id, :userId, 'USER', 'PAYEE', 'EQUALS', :label, 'ASSIGN_CATEGORY', :category, :min, :max,"
+            + " :priority)"
             + " ON CONFLICT (user_id, lower(comparison_value)) WHERE field = 'PAYEE' AND scope = 'USER' DO NOTHING",
             nativeQuery = true)
     int insertPayeeRuleIfAbsent(@Param("id") UUID id, @Param("userId") UUID userId, @Param("label") String label,
                                 @Param("category") String category, @Param("min") BigDecimal min,
-                                @Param("max") BigDecimal max);
+                                @Param("max") BigDecimal max, @Param("priority") int priority);
 }

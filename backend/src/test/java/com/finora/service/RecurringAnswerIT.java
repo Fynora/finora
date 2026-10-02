@@ -52,9 +52,14 @@ class RecurringAnswerIT extends AbstractIntegrationTest {
     @Autowired private AccountRepository accountRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private AuthService authService;
+    @Autowired private com.finora.repository.CategoryRepository categoryRepository;
 
     private static String narration(int n, String note) {
-        return "UPI-SAMPLE OWNER-sample.owner@okaxis-YESB0XXXXXX-00000000000" + n + "-" + note;
+        return narration("SAMPLE OWNER", n, note);
+    }
+
+    private static String narration(String payee, int n, String note) {
+        return "UPI-" + payee + "-" + payee.toLowerCase().replace(' ', '.') + "@okaxis-YESB0XXXXXX-00000000000" + n + "-" + note;
     }
 
     /**
@@ -63,6 +68,11 @@ class RecurringAnswerIT extends AbstractIntegrationTest {
      * as Rent before any rule), so what files the next import is the saved answer.
      */
     private User userWithThreeOtherRentPayments() throws Exception {
+        return userWithThreeOtherMonthlyPayments("SAMPLE OWNER");
+    }
+
+    /** As {@link #userWithThreeOtherRentPayments}, with three monthly "Other" payments to each payee. */
+    private User userWithThreeOtherMonthlyPayments(String... payees) throws Exception {
         User user = new User();
         user.setEmail("recurring-answer-it-" + UUID.randomUUID() + "@example.com");
         user.setPasswordHash("irrelevant-for-this-test");
@@ -77,13 +87,14 @@ class RecurringAnswerIT extends AbstractIntegrationTest {
         account.setBalance(BigDecimal.ZERO);
         account = accountRepository.save(account);
 
-        List<ConfirmedRow> rows = List.of(
-                new ConfirmedRow(LocalDate.of(2026, 5, 3), narration(1, "RENT"), new BigDecimal("10000.00"), "EXPENSE",
-                        "Other", true, "default", null, false, null, null),
-                new ConfirmedRow(LocalDate.of(2026, 6, 3), narration(2, "RENT"), new BigDecimal("10000.00"), "EXPENSE",
-                        "Other", true, "default", null, false, null, null),
-                new ConfirmedRow(LocalDate.of(2026, 7, 3), narration(3, "RENT"), new BigDecimal("10000.00"), "EXPENSE",
-                        "Other", true, "default", null, false, null, null));
+        List<ConfirmedRow> rows = new java.util.ArrayList<>();
+        int n = 0;
+        for (String payee : payees) {
+            for (int month = 5; month <= 7; month++) {
+                rows.add(new ConfirmedRow(LocalDate.of(2026, month, 3), narration(payee, ++n, "RENT"),
+                        new BigDecimal("10000.00"), "EXPENSE", "Other", true, "default", null, false, null, null));
+            }
+        }
         importService.confirm(user.getId(),
                 new MockMultipartFile("file", "statement.csv", "text/csv",
                         "irrelevant-the-rows-are-supplied-directly".getBytes(StandardCharsets.UTF_8)),
@@ -174,5 +185,64 @@ class RecurringAnswerIT extends AbstractIntegrationTest {
         List<CategoryRule> rules = ruleRepository.findUserPayeeRules(userId);
         assertThat(rules).hasSize(1);
         assertThat(rules.get(0).getActionValue()).isEqualTo("Rent");
+    }
+
+    /** Two payees answered at once with the same brand-new category ("Something else"): both save, one category. */
+    @Test
+    void twoAnswersAtOnce_forTwoPayees_creatingTheSameNewCategory_bothSucceed() throws Exception {
+        User user = userWithThreeOtherMonthlyPayments("SAMPLE OWNER", "SAMPLE KEEPER");
+        UUID userId = user.getId();
+        assertThat(recurringService.detectForUser(userId)).as("precondition: both payees are asked about")
+                .filteredOn(r -> r.state() == RecurringDto.QuestionState.NEEDS_ANSWER).hasSize(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<RecurringAnswerService.Result> first = pool.submit(() -> {
+                start.await();
+                return recurringAnswerService.categorize(userId, "sample owner", "Sample Upkeep");
+            });
+            Future<RecurringAnswerService.Result> second = pool.submit(() -> {
+                start.await();
+                return recurringAnswerService.categorize(userId, "sample keeper", "Sample Upkeep");
+            });
+            start.countDown();
+
+            first.get(60, TimeUnit.SECONDS);
+            second.get(60, TimeUnit.SECONDS);
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertThat(ruleRepository.findUserPayeeRules(userId)).hasSize(2)
+                .allSatisfy(r -> assertThat(r.getActionValue()).isEqualTo("Sample Upkeep"));
+        assertThat(categoryRepository.findByUserId(userId))
+                .filteredOn(c -> c.getName().equalsIgnoreCase("Sample Upkeep")).hasSize(1);
+    }
+
+    /**
+     * A rule the user has that also matches the payee (made after the answer, or matching more
+     * broadly) does not override the answer: the answer names this payee and an amount range.
+     */
+    @Test
+    void anAnswerOutranksAnOrdinaryRuleOfTheUsersThatAlsoMatches() throws Exception {
+        User user = userWithThreeOtherRentPayments();
+        recurringAnswerService.categorize(user.getId(), LABEL, "Rent");
+        CategoryRule broad = new CategoryRule();
+        broad.setUserId(user.getId());
+        broad.setScope(CategoryRule.Scope.USER);
+        broad.setField(CategoryRule.Field.DESCRIPTION);
+        broad.setOperator(CategoryRule.Operator.CONTAINS);
+        broad.setComparisonValue("owner");   // sorts before "sample owner" at the same priority
+        broad.setActionType(CategoryRule.ActionType.ASSIGN_CATEGORY);
+        broad.setActionValue("Shopping");
+        broad.setPriority(100);
+        ruleRepository.save(broad);
+
+        String csv = "Date,Description,Amount,Type\n" + "2026-08-03," + narration(4, "RENT") + ",10000.00,DEBIT\n";
+        StagedRow rent = importService.parseAndStage(user.getId(), "next.csv",
+                new ByteArrayInputStream(csv.getBytes(StandardCharsets.UTF_8))).rows().get(0);
+
+        assertThat(rent.suggestedCategory()).isEqualTo("Rent");
+        assertThat(rent.ruleId()).isEqualTo(ruleRepository.findUserPayeeRule(user.getId(), LABEL).orElseThrow().getId());
     }
 }

@@ -136,7 +136,7 @@ class RecurringAnswerServiceTest {
         assertThatThrownBy(() -> service.categorize(userId, LABEL, "Rent"))
                 .isInstanceOf(ApiException.class)
                 .satisfies(e -> assertThat(((ApiException) e).getStatus()).isEqualTo(HttpStatus.NOT_FOUND));
-        verify(ruleRepository, never()).insertPayeeRuleIfAbsent(any(), any(), any(), any(), any(), any());
+        verify(ruleRepository, never()).insertPayeeRuleIfAbsent(any(), any(), any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyInt());
     }
 
     @Test
@@ -159,7 +159,7 @@ class RecurringAnswerServiceTest {
 
         verify(ruleRepository).insertPayeeRuleIfAbsent(any(), eq(userId), eq(LABEL), eq("Rent"),
                 argThat(min -> min.compareTo(new BigDecimal("7999.00")) == 0),
-                argThat(max -> max.compareTo(new BigDecimal("12001.00")) == 0));
+                argThat(max -> max.compareTo(new BigDecimal("12001.00")) == 0), org.mockito.ArgumentMatchers.anyInt());
         assertThat(rule.getActionValue()).isEqualTo("Rent");
         assertThat(rule.getAmountMin()).isEqualByComparingTo("7999.00");
         assertThat(rule.getAmountMax()).isEqualByComparingTo("12001.00");
@@ -222,6 +222,52 @@ class RecurringAnswerServiceTest {
         verify(categorizationService, never()).queueLearning(any(), any(), any());
     }
 
+    /** The question was about the detected group, which never holds a transfer or a hidden duplicate. */
+    @Test
+    void reFiling_leavesTransfersAndDuplicatesAlone_evenInRange() {
+        detected("10000.0000");
+        for (int m = 5; m <= 7; m++) row(LABEL, Transaction.Type.EXPENSE, "10000", m);
+        Transaction transfer = row(LABEL, Transaction.Type.EXPENSE, "10000", 8);
+        transfer.setTransfer(true);
+        Transaction duplicate = row(LABEL, Transaction.Type.EXPENSE, "10000", 9);
+        duplicate.setIsDuplicateOf(UUID.randomUUID());
+        firstAnswerRule();
+        UUID other = category("Other").getId();
+
+        RecurringAnswerService.Result result = service.categorize(userId, LABEL, "Rent");
+
+        assertThat(result.refiled()).isEqualTo(3);
+        assertThat(transfer.getCategoryId()).isEqualTo(other);
+        assertThat(duplicate.getCategoryId()).isEqualTo(other);
+    }
+
+    /** One lock per user, not per payee: two answers creating the same new category must not race. */
+    @Test
+    void answersAreSerialisedPerUser_whateverThePayee() {
+        detected("10000.0000");
+        for (int m = 5; m <= 7; m++) row(LABEL, Transaction.Type.EXPENSE, "10000", m);
+        firstAnswerRule();
+
+        service.categorize(userId, LABEL, "Rent");
+
+        verify(ruleRepository).lockAnswers("recurring-answer:" + userId);
+    }
+
+    /** An answer names one payee and an amount range, so it outranks a broader rule of the user's. */
+    @Test
+    void anAnswerIsSavedAheadOfTheUsersOrdinaryRules() {
+        detected("10000.0000");
+        for (int m = 5; m <= 7; m++) row(LABEL, Transaction.Type.EXPENSE, "10000", m);
+        CategoryRule rule = firstAnswerRule();
+
+        service.categorize(userId, LABEL, "Rent");
+
+        verify(ruleRepository).insertPayeeRuleIfAbsent(any(), eq(userId), eq(LABEL), eq("Rent"), any(), any(),
+                eq(RecurringAnswerService.ANSWER_PRIORITY));
+        assertThat(rule.getPriority()).isEqualTo(RecurringAnswerService.ANSWER_PRIORITY);
+        assertThat(RecurringAnswerService.ANSWER_PRIORITY).isLessThan(100);
+    }
+
     @Test
     void aPaymentOutsideTheDetectedGroup_neverWidensTheRange() {
         detected("10000.0000");
@@ -265,6 +311,25 @@ class RecurringAnswerServiceTest {
         assertThat(latest.getCategoryId()).isEqualTo(category("Rent").getId());
     }
 
+    /** A payment the user already filed by hand (a one-off deposit) is their decision, not the latest rent. */
+    @Test
+    void still_widensToTheLatestPaymentTheUserDidNotFileByHand() {
+        when(recurringService.detectForUser(userId)).thenReturn(List.of());
+        row(LABEL, Transaction.Type.EXPENSE, "10000", 5);
+        row(LABEL, Transaction.Type.EXPENSE, "12500", 6);
+        Transaction deposit = row(LABEL, Transaction.Type.EXPENSE, "50000", 7);
+        deposit.setCategoryManuallySet(true);
+        Transaction transfer = row(LABEL, Transaction.Type.EXPENSE, "70000", 8);
+        transfer.setTransfer(true);
+        CategoryRule existing = savedRule("Rent", "8000.00", "12000.00");
+        when(ruleRepository.findUserPayeeRule(userId, LABEL)).thenReturn(Optional.of(existing));
+
+        service.categorize(userId, LABEL, "Rent");
+
+        assertThat(existing.getAmountMin()).isEqualByComparingTo("8000.00");
+        assertThat(existing.getAmountMax()).isEqualByComparingTo("15001.00");
+    }
+
     @Test
     void aDifferentAnswer_isAChange_andUpdatesTheRulesCategory() {
         detected("10000.0000");
@@ -303,6 +368,33 @@ class RecurringAnswerServiceTest {
         assertThat(c.latestDate()).isEqualTo(LocalDate.of(2026, 7, 3));
         assertThat(c.amountMin()).isEqualByComparingTo("8000.00");
         assertThat(c.amountMax()).isEqualByComparingTo("12000.00");
+    }
+
+    /** "Still Rent?" must not ask about a payment the user filed by hand, nor about a transfer. */
+    @Test
+    void changedAmounts_ignoresALatestPaymentFiledByHandOrMarkedATransfer() {
+        when(recurringService.detectForUser(userId)).thenReturn(List.of());
+        when(ruleRepository.findUserPayeeRules(userId)).thenReturn(List.of(savedRule("Rent", "8000.00", "12000.00")));
+        row(LABEL, Transaction.Type.EXPENSE, "10000", 5);
+        Transaction deposit = row(LABEL, Transaction.Type.EXPENSE, "50000", 6);
+        deposit.setCategoryManuallySet(true);
+        Transaction transfer = row(LABEL, Transaction.Type.EXPENSE, "30000", 7);
+        transfer.setTransfer(true);
+        Transaction duplicate = row(LABEL, Transaction.Type.EXPENSE, "30000", 8);
+        duplicate.setIsDuplicateOf(UUID.randomUUID());
+
+        assertThat(service.changedAmounts(userId)).isEmpty();
+    }
+
+    /** A dismissed payee was the user saying "stop showing me this"; it is not re-asked either. */
+    @Test
+    void changedAmounts_skipsADismissedPayee() {
+        when(recurringService.detectForUser(userId)).thenReturn(List.of());
+        when(recurringService.dismissedPayees(userId)).thenReturn(java.util.Set.of("SAMPLE LANDLORD"));
+        when(ruleRepository.findUserPayeeRules(userId)).thenReturn(List.of(savedRule("Rent", "8000.00", "12000.00")));
+        row(LABEL, Transaction.Type.EXPENSE, "12500", 7);
+
+        assertThat(service.changedAmounts(userId)).isEmpty();
     }
 
     /** Dashboard and Insights call this on every load: one read of the user's rows, however many answers. */

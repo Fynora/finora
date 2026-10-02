@@ -43,6 +43,13 @@ public class RecurringAnswerService {
 
     private static final String FEATURE_FLAG = "RECURRING_DETECTION_ENABLED";
 
+    /**
+     * A saved answer's rule priority: ahead of the user's ordinary rules (100 unless set otherwise;
+     * lower runs first). An answer names one payee and an amount range, and it is the user's latest
+     * word on that payee, so a broader rule of theirs that also matches must not override it.
+     */
+    static final int ANSWER_PRIORITY = 50;
+
     private final RecurringService recurringService;
     private final CategoryRuleRepository categoryRuleRepository;
     private final CategorizationService categorizationService;
@@ -102,8 +109,10 @@ public class RecurringAnswerService {
     public Result categorize(UUID userId, String merchant, String categoryName) {
         if (!featureFlagService.isEnabled(FEATURE_FLAG)) throw notFound();
         String label = merchant.trim();
-        // First, before any read: a concurrent answer for the same payee waits here, then sees ours.
-        categoryRuleRepository.lockPayeeAnswer(userId + ":" + payeeKey(label));
+        // First, before any read: a concurrent answer from this user waits here, then sees ours --
+        // for the same payee (both would re-file the same rows) or another (both could create the
+        // same new category).
+        categoryRuleRepository.lockAnswers("recurring-answer:" + userId);
         Optional<RecurringDto> group = recurringService.detectForUser(userId).stream()
                 .filter(r -> payeeKey(r.merchant()).equals(payeeKey(label)))
                 .findFirst();
@@ -130,9 +139,9 @@ public class RecurringAnswerService {
             Range saved = new Range(existing.get().getAmountMin(), existing.get().getAmountMax());
             range = range == null ? saved : range.union(saved);
             // "Still Rent?" for a payee whose amount moved: the answer now covers the latest payment.
-            if (!payeeRows.isEmpty()) {
-                BigDecimal latest = payeeRows.get(payeeRows.size() - 1).getAmount();
-                range = range.union(Range.around(latest, tolerance(latest)));
+            Optional<Transaction> latest = latestNotFiledByHand(payeeRows);
+            if (latest.isPresent()) {
+                range = range.union(Range.around(latest.get().getAmount(), tolerance(latest.get().getAmount())));
             }
         }
 
@@ -143,11 +152,12 @@ public class RecurringAnswerService {
         // Insert-or-nothing against uq_category_rules_user_payee, then one update path for every
         // answer: a concurrent second answer for the same payee updates the same rule.
         categoryRuleRepository.insertPayeeRuleIfAbsent(UUID.randomUUID(), userId, label, category.getName(),
-                range.min(), range.max());
+                range.min(), range.max(), ANSWER_PRIORITY);
         CategoryRule rule = categoryRuleRepository.findUserPayeeRule(userId, label).orElseThrow();
         rule.setActionValue(category.getName());
         rule.setAmountMin(range.min());
         rule.setAmountMax(range.max());
+        rule.setPriority(ANSWER_PRIORITY);
         rule.setEnabled(true);
         rule.setUpdatedAt(Instant.now());
         categoryRuleRepository.save(rule);
@@ -181,19 +191,21 @@ public class RecurringAnswerService {
         if (!featureFlagService.isEnabled(FEATURE_FLAG)) return List.of();
         List<CategoryRule> answers = categoryRuleRepository.findUserPayeeRules(userId);
         if (answers.isEmpty()) return List.of();
-        Set<String> detected = recurringService.detectForUser(userId).stream()
+        // Detected payees report AMOUNT_CHANGED on their own row; dismissed ones the user asked not to see.
+        Set<String> skip = recurringService.detectForUser(userId).stream()
                 .map(r -> payeeKey(r.merchant()))
-                .collect(Collectors.toSet());
+                .collect(Collectors.toCollection(java.util.HashSet::new));
+        recurringService.dismissedPayees(userId).forEach(m -> skip.add(payeeKey(m)));
         // Dashboard and Insights call this on every load: read the user's rows once, not once per answer.
         Map<String, List<Transaction>> rowsByPayee = expenseRowsByPayee(userId);
         List<ChangedAmountDto> changed = new ArrayList<>();
         for (CategoryRule rule : answers) {
             String label = rule.getComparisonValue().trim();
             String key = payeeKey(label);
-            if (detected.contains(key)) continue;
-            List<Transaction> rows = rowsByPayee.getOrDefault(key, List.of());
-            if (rows.isEmpty()) continue;
-            Transaction latest = rows.get(rows.size() - 1);
+            if (skip.contains(key)) continue;
+            Optional<Transaction> latestRow = latestNotFiledByHand(rowsByPayee.getOrDefault(key, List.of()));
+            if (latestRow.isEmpty()) continue;
+            Transaction latest = latestRow.get();
             if (new Range(rule.getAmountMin(), rule.getAmountMax()).contains(latest.getAmount())) continue;
             changed.add(new ChangedAmountDto(label, rule.getActionValue(), latest.getAmount(), latest.getTxnDate(),
                     rule.getAmountMin(), rule.getAmountMax()));
@@ -201,17 +213,35 @@ public class RecurringAnswerService {
         return changed;
     }
 
-    /** The user's live-account money-out rows whose payee label is {@code label}, oldest first. */
+    /**
+     * The latest of {@code rows} (oldest first) the user did not file by hand. A payment they filed
+     * themselves -- a one-off deposit moved to its own category -- is already decided; asking "still
+     * Rent?" about it, or widening Rent's range over it, would undo that.
+     */
+    private static Optional<Transaction> latestNotFiledByHand(List<Transaction> rows) {
+        for (int i = rows.size() - 1; i >= 0; i--) {
+            if (!rows.get(i).isCategoryManuallySet()) return Optional.of(rows.get(i));
+        }
+        return Optional.empty();
+    }
+
+    /** The payee rows an answer is about (see {@link #expenseRowsByPayee}), oldest first. */
     private List<Transaction> payeeExpenseRows(UUID userId, String label) {
         return expenseRowsByPayee(userId).getOrDefault(payeeKey(label), List.of());
     }
 
-    /** The user's live-account money-out rows with a payee label, grouped by that label, each oldest first. */
+    /**
+     * The user's live-account money-out rows with a payee label, grouped by that label, each oldest
+     * first -- without transfers and hidden duplicates, as RecurringService groups them. The question
+     * is about those payments; an own-account transfer or a duplicate copy that shares the label is
+     * neither re-filed by an answer nor taken as the payee's latest payment.
+     */
     private Map<String, List<Transaction>> expenseRowsByPayee(UUID userId) {
         List<UUID> live = accountRepository.findByUserId(userId).stream().map(Account::getId).toList();
         if (live.isEmpty()) return Map.of();
         return transactionRepository.findByUserIdAndAccountIdIn(userId, live).stream()
-                .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE && t.getMerchant() != null)
+                .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE && t.getMerchant() != null
+                        && !t.isTransfer() && t.getIsDuplicateOf() == null)
                 .sorted(Comparator.comparing(Transaction::getTxnDate))
                 .collect(Collectors.groupingBy(t -> payeeKey(t.getMerchant())));
     }

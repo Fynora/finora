@@ -135,4 +135,14 @@ describe('Privacy policy matches what the product does', () => {
     expect(t).not.toMatch(/Google API Services User Data/i);
   });
 
+  // UserActivityInterceptor writes one user_activity_days row (V249) per user per calendar day,
+  // keyed by user id, and AccountPurgeSweepService deletes them. That is per-user data, so the
+  // "aggregated, non-identifying" analytics sentence alone would understate it.
+  it('discloses the per-account record of which days the app was used, and that it is deleted with the account', () => {
+    const t = policyText();
+    expect(t).toMatch(/record the dates on which you use Fynora/i);
+    expect(t).toMatch(/calendar date only, once per day, not\s+the time or what you did/i);
+    expect(t).toMatch(/linked to your account and are deleted if you delete your account/i);
+  });
+
 });

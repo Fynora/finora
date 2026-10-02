@@ -33,6 +33,7 @@ import com.finora.repository.ChatMessageRepository;
 import com.finora.repository.CounterpartyCategoryObservationRepository;
 import com.finora.repository.EmailChangeSessionRepository;
 import com.finora.repository.FeatureViewCountRepository;
+import com.finora.repository.UserActivityDayRepository;
 import com.finora.repository.FeedbackEntryRepository;
 import com.finora.repository.HealthScoreSnapshotRepository;
 import com.finora.repository.ImportJobRepository;
@@ -246,6 +247,7 @@ public class AccountPurgeSweepService {
     private final UserChecklistEventRepository userChecklistEventRepository;
     private final HealthScoreSnapshotRepository healthScoreSnapshotRepository;
     private final FeatureViewCountRepository featureViewCountRepository;
+    private final UserActivityDayRepository userActivityDayRepository;
     private final RecurringDismissalRepository recurringDismissalRepository;
     private final AccountAggregatorLinkRepository accountAggregatorLinkRepository;
     private final AiAuditLogRepository aiAuditLogRepository;
@@ -316,6 +318,7 @@ public class AccountPurgeSweepService {
                                      UserChecklistEventRepository userChecklistEventRepository,
                                      HealthScoreSnapshotRepository healthScoreSnapshotRepository,
                                      FeatureViewCountRepository featureViewCountRepository,
+                                     UserActivityDayRepository userActivityDayRepository,
                                      RecurringDismissalRepository recurringDismissalRepository,
                                      AccountAggregatorLinkRepository accountAggregatorLinkRepository,
                                      AiAuditLogRepository aiAuditLogRepository,
@@ -385,6 +388,7 @@ public class AccountPurgeSweepService {
         this.userChecklistEventRepository = userChecklistEventRepository;
         this.healthScoreSnapshotRepository = healthScoreSnapshotRepository;
         this.featureViewCountRepository = featureViewCountRepository;
+        this.userActivityDayRepository = userActivityDayRepository;
         this.recurringDismissalRepository = recurringDismissalRepository;
         this.accountAggregatorLinkRepository = accountAggregatorLinkRepository;
         this.aiAuditLogRepository = aiAuditLogRepository;
@@ -790,6 +794,8 @@ public class AccountPurgeSweepService {
             userChecklistEventRepository.deleteByUserId(userId);
             healthScoreSnapshotRepository.deleteByUserId(userId);
             featureViewCountRepository.deleteByUserId(userId);
+            // V249: same anonymize-not-delete trap -- its ON DELETE CASCADE never fires here.
+            userActivityDayRepository.deleteByUserId(userId);
             recurringDismissalRepository.deleteByUserId(userId);
             accountAggregatorLinkRepository.deleteByUserId(userId);
             aiAuditLogRepository.deleteByUserId(userId);

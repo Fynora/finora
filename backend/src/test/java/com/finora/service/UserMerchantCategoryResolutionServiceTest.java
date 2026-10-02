@@ -196,6 +196,67 @@ class UserMerchantCategoryResolutionServiceTest {
         verifyNoInteractions(resolutionRepository);
     }
 
+    // --- keys that do not name one payee: nothing is remembered against them, nothing is served ---
+    // A masked UPI id's printed tail is shared by strangers, and a name made only of gateway words
+    // ("Pay via Razorpay") never printed the payee at all: a category remembered against either would
+    // file payments to different shops the same way. See CounterpartyIdentity.identifiesOnePayee.
+
+    @Test
+    void pin_maskedKey_writesNothing() {
+        service.pin(userId, "masked:tailx@okicici", Transaction.Type.EXPENSE, UUID.randomUUID());
+
+        verifyNoInteractions(resolutionRepository);
+    }
+
+    @Test
+    void pin_gatewayOnlyNameKey_writesNothing() {
+        service.pin(userId, "name:via razorpay", Transaction.Type.EXPENSE, UUID.randomUUID());
+
+        verifyNoInteractions(resolutionRepository);
+    }
+
+    @Test
+    void pin_nameKeyThatNamesThePayee_stillWrites() {
+        UUID categoryId = UUID.randomUUID();
+
+        service.pin(userId, "name:samplecanteen payu", Transaction.Type.EXPENSE, categoryId);
+
+        verify(resolutionRepository).upsertPinned(eq(userId), eq("name:samplecanteen payu"), eq("EXPENSE"), eq(categoryId), any());
+    }
+
+    /** No cache read, no LLM call, no Tier 1 understanding (cached for every user), no row written. */
+    @Test
+    void resolve_weakKey_callsNothingAndCachesNothing() {
+        Optional<String> result = service.resolve(userId, "masked:tailx@okicici", Transaction.Type.EXPENSE,
+                "UPI/DR/111111111111/SAMPLE N/CNRB/**TAILX@OKICICI/UPI");
+
+        assertThat(result).isEmpty();
+        verifyNoInteractions(resolutionRepository, understandingService, llmClient, categorizationService);
+    }
+
+    /** A row stored before the guard existed is not served: the read is guarded too. */
+    @Test
+    void resolveReadOnly_weakKey_ignoresAStoredRow() {
+        UserMerchantCategoryResolution stored = new UserMerchantCategoryResolution();
+        stored.setCategoryId(UUID.randomUUID());
+        when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(any(), any(), any()))
+                .thenReturn(Optional.of(stored));
+
+        assertThat(service.resolveReadOnly(userId, "name:via razorpay", Transaction.Type.EXPENSE)).isEmpty();
+        assertThat(service.resolveReadOnly(userId, "masked:tailx@okicici", Transaction.Type.EXPENSE)).isEmpty();
+    }
+
+    /** Import staging's path: the statement-wide index may hold a row stored before the guard. */
+    @Test
+    void resolveReadOnly_withIndex_weakKey_ignoresAnIndexedRow() {
+        var index = new com.finora.imports.ResolutionIndex(Map.of(Transaction.Type.EXPENSE, Map.of(
+                "name:via razorpay", "Dining", "masked:tailx@okicici", "Dining", "vpa:headsupfortails", "Pet Care")));
+
+        assertThat(service.resolveReadOnly(userId, "name:via razorpay", Transaction.Type.EXPENSE, index)).isEmpty();
+        assertThat(service.resolveReadOnly(userId, "masked:tailx@okicici", Transaction.Type.EXPENSE, index)).isEmpty();
+        assertThat(service.resolveReadOnly(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, index)).contains("Pet Care");
+    }
+
     @Test
     void resolveReadOnly_cacheHit_returnsTheResolvedCategoryName() {
         UUID categoryId = UUID.randomUUID();

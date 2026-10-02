@@ -9,6 +9,7 @@ import com.finora.integrations.anthropic.LlmClient.*;
 import com.finora.repository.AiAuditLogRepository;
 import com.finora.repository.CategoryRepository;
 import com.finora.repository.UserMerchantCategoryResolutionRepository;
+import com.finora.util.CounterpartyIdentity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
@@ -101,6 +102,7 @@ public class UserMerchantCategoryResolutionService {
      * the user actually confirms a transaction for it.
      */
     public Optional<String> resolveReadOnly(UUID userId, String counterpartyKey, Transaction.Type direction) {
+        if (!CounterpartyIdentity.identifiesOnePayee(counterpartyKey)) return Optional.empty();
         return resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(userId, counterpartyKey, direction)
                 .flatMap(cached -> categoryRepository.findById(cached.getCategoryId()).map(Category::getName));
     }
@@ -112,6 +114,7 @@ public class UserMerchantCategoryResolutionService {
      *  hasn't hoisted one. */
     public Optional<String> resolveReadOnly(UUID userId, String counterpartyKey, Transaction.Type direction,
                                              com.finora.imports.ResolutionIndex resolutionIndex) {
+        if (!CounterpartyIdentity.identifiesOnePayee(counterpartyKey)) return Optional.empty();
         if (resolutionIndex != null) {
             return resolutionIndex.categoryNameFor(counterpartyKey, direction);
         }
@@ -146,6 +149,9 @@ public class UserMerchantCategoryResolutionService {
 
     public Optional<String> resolve(UUID userId, String counterpartyKey, Transaction.Type direction,
                                      String description) {
+        // Both tiers cache per key -- Tier 1 for every user, Tier 2 for this one -- so an answer for
+        // a key that joins different payees would be served to all of them. No call, no cache.
+        if (!CounterpartyIdentity.identifiesOnePayee(counterpartyKey)) return Optional.empty();
         Optional<String> cached = resolveReadOnly(userId, counterpartyKey, direction);
         if (cached.isPresent()) {
             return cached;
@@ -224,9 +230,16 @@ public class UserMerchantCategoryResolutionService {
      *  no-identity transaction overwrite the cached resolution for every OTHER no-identity
      *  transaction sharing that same (user, "", direction) row. Skipping both, same defensive
      *  shape as {@code SharedCorpusService.isEligible}'s own null check right before this same
-     *  call site's sibling {@code recordObservation} call. */
+     *  call site's sibling {@code recordObservation} call.
+     *
+     *  <p>The same holds for any key that does not name one payee -- a masked UPI id, or a name made
+     *  only of rail and gateway words (see {@link CounterpartyIdentity#identifiesOnePayee}). One
+     *  "Pay via Razorpay" row categorised by hand must not file every later payment to a different
+     *  shop through Razorpay the same way. This is the one place every write path (manual create,
+     *  category change, merchant confirm, Ask-once at import) reaches, so it is guarded here; the
+     *  reads above are guarded too, which also neutralises rows stored before this guard existed. */
     public void pin(UUID userId, String counterpartyKey, Transaction.Type direction, UUID categoryId) {
-        if (counterpartyKey == null || counterpartyKey.isBlank()) {
+        if (!CounterpartyIdentity.identifiesOnePayee(counterpartyKey)) {
             return;
         }
         resolutionRepository.upsertPinned(userId, counterpartyKey, direction.name(), categoryId, Instant.now());

@@ -142,11 +142,11 @@ class MerchantNormalizationEngineTest {
      * splitting what the learning engine is taught.
      */
     @Test
-    @DisplayName("different spellings sharing a first token collapse onto ONE new merchant")
+    @DisplayName("different spellings sharing the first two words collapse onto ONE new merchant")
     void differentSpellingsOfANewMerchantCollapseOntoOne() {
         Merchant a = engine.resolve(userId, "SWIGGY BANGALORE");
-        Merchant b = engine.resolve(userId, "SWIGGY ORDER 4471");
-        Merchant c = engine.resolve(userId, "SWIGGY INSTAMART");
+        Merchant b = engine.resolve(userId, "SWIGGY BANGALORE 4471");
+        Merchant c = engine.resolve(userId, "SWIGGY*BANGALORE KA");
 
         assertThat(merchants)
                 .as("all three descriptions are the same merchant; creating one row per spelling "
@@ -154,6 +154,136 @@ class MerchantNormalizationEngineTest {
                 .hasSize(1);
         assertThat(b.getId()).isEqualTo(a.getId());
         assertThat(c.getId()).isEqualTo(a.getId());
+    }
+
+    /**
+     * Every spelling of a brand still collapses -- onto the APPROVED one-word merchant
+     * MerchantSeedService gives every user. That merchant exists to catch exactly these.
+     */
+    @Test
+    @DisplayName("every spelling of a seeded brand collapses onto the seeded merchant")
+    void spellingsOfASeededBrandCollapseOntoTheSeed() {
+        Merchant seeded = approvedMerchant("Swiggy");
+
+        assertThat(engine.resolve(userId, "SWIGGY BANGALORE").getId()).isEqualTo(seeded.getId());
+        assertThat(engine.resolve(userId, "SWIGGY ORDER 4471").getId()).isEqualTo(seeded.getId());
+        assertThat(engine.resolve(userId, "UPI/9182736/SWIGGY INSTAMART").getId()).isEqualTo(seeded.getId());
+        assertThat(merchants).hasSize(1);
+    }
+
+    /**
+     * The cost of the two-word key, written down so it is a decision rather than a surprise:
+     * without a seeded or approved merchant to catch them, a brand's spellings that differ in the
+     * second word are separate merchants until someone merges them. The opposite failure -- two
+     * unrelated payees in one merchant -- is the one this key exists to prevent; see the pooling
+     * tests below.
+     */
+    @Test
+    @DisplayName("an unseeded brand's spellings that differ in the second word stay separate")
+    void unseededSpellingsDifferingInTheSecondWordStaySeparate() {
+        engine.resolve(userId, "ACMEMART BANGALORE");
+        engine.resolve(userId, "ACMEMART INSTANT");
+
+        assertThat(merchants).hasSize(2);
+    }
+
+    // ---- pooling: unrelated payees that share a first word ----
+
+    /**
+     * Two shops named after the same person. Grouping on the first word made them one merchant,
+     * and a category taught for one -- a keyword match, or a user's correction -- was then
+     * applied to the other, because a learned category outranks the keyword table.
+     */
+    @Test
+    @DisplayName("two shops sharing a first name are two merchants")
+    void shopsSharingAFirstNameAreSeparate() {
+        Merchant medical = engine.resolve(userId, "UPI/9182736/RAMESH MEDICAL/q111@ybl");
+        Merchant traders = engine.resolve(userId, "UPI/5647382/RAMESH TRADERS/q222@ybl");
+
+        assertThat(traders.getId()).isNotEqualTo(medical.getId());
+    }
+
+    /**
+     * The worst case measured on the real corpus: a narration format whose payee field opens with
+     * a word that is not a name. Its first significant word was the same for every payee, so six
+     * people and a utility shared one merchant, and the utility's category was applied to every
+     * person transfer.
+     */
+    @Test
+    @DisplayName("payees behind a shared non-name opening word are separate merchants")
+    void payeesBehindASharedOpeningWordAreSeparate() {
+        engine.resolve(userId, "UPI PAYMENT FROM ALICE");
+        engine.resolve(userId, "UPI PAYMENT FROM BOBTEL BROADBAND");
+        engine.resolve(userId, "UPI PAYMENT FROM CAROL");
+
+        assertThat(merchants).hasSize(3);
+    }
+
+    /**
+     * Why the one-word brand match is limited to APPROVED merchants. A TEMPORARY merchant the
+     * engine created from a narration that reduced to one common word must not then absorb every
+     * payee beginning with that word -- which is the pooling this key exists to stop.
+     */
+    @Test
+    @DisplayName("a one-word TEMPORARY merchant does not absorb other payees starting with that word")
+    void oneWordTemporaryMerchantDoesNotActAsABrand() {
+        Merchant bare = engine.resolve(userId, "UPI/9182736/NATIONAL");
+        Merchant clearing = engine.resolve(userId, "ACH/5647382/NATIONAL CLEARING CORP");
+        Merchant railways = engine.resolve(userId, "UPI/1122334/NATIONAL RAILWAYS");
+
+        assertThat(bare.getLifecycleStatus()).isEqualTo(Merchant.Lifecycle.TEMPORARY);
+        assertThat(merchants).hasSize(3);
+        assertThat(clearing.getId()).isNotEqualTo(bare.getId());
+        assertThat(railways.getId()).isNotEqualTo(clearing.getId());
+    }
+
+    @Test
+    @DisplayName("an APPROVED merchant named with more than one word is matched by both words only")
+    void multiWordApprovedMerchantIsNotABrand() {
+        Merchant approved = approvedMerchant("National Clearing");
+
+        assertThat(engine.resolve(userId, "ACH/5647382/NATIONAL CLEARING CORP").getId()).isEqualTo(approved.getId());
+        assertThat(engine.resolve(userId, "UPI/1122334/NATIONAL RAILWAYS").getId()).isNotEqualTo(approved.getId());
+    }
+
+    @Test
+    @DisplayName("the two-word key wins over a one-word brand when both match")
+    void twoWordMatchWinsOverBrand() {
+        Merchant brand = approvedMerchant("Acmemart");
+        Merchant specific = merchantNamed("Acmemart Instant");
+
+        assertThat(engine.resolve(userId, "ACMEMART INSTANT 4471").getId()).isEqualTo(specific.getId());
+        assertThat(engine.resolve(userId, "ACMEMART BANGALORE").getId()).isEqualTo(brand.getId());
+    }
+
+    /**
+     * extractMerchant strips references of four digits or more; a shorter one survives, and after
+     * a rail word ("ref") it would be the second word of the key -- one merchant per row.
+     */
+    @Test
+    @DisplayName("a short numeric reference is not part of the key")
+    void shortNumericReferenceIsNotPartOfTheKey() {
+        Merchant a = engine.resolve(userId, "SWIGGY REF 447");
+        Merchant b = engine.resolve(userId, "SWIGGY REF 512");
+
+        assertThat(b.getId()).isEqualTo(a.getId());
+        assertThat(merchants).hasSize(1);
+    }
+
+    private Merchant approvedMerchant(String canonicalName) {
+        Merchant m = merchantNamed(canonicalName);
+        m.setLifecycleStatus(Merchant.Lifecycle.APPROVED);
+        return m;
+    }
+
+    private Merchant merchantNamed(String canonicalName) {
+        Merchant m = new Merchant();
+        m.setUserId(userId);
+        m.setCanonicalName(canonicalName);
+        m.setLifecycleStatus(Merchant.Lifecycle.TEMPORARY);
+        ReflectionTestUtils.setField(m, "id", UUID.randomUUID());
+        merchants.add(m);
+        return m;
     }
 
     @Test
@@ -217,7 +347,7 @@ class MerchantNormalizationEngineTest {
     void sameUpiPayeeAcrossDifferentReferencesStillCollapses() {
         Merchant a = engine.resolve(userId, "UPI/9182736/SWIGGY");
         Merchant b = engine.resolve(userId, "UPI/5647382/SWIGGY");
-        Merchant c = engine.resolve(userId, "SWIGGY ORDER 4471");
+        Merchant c = engine.resolve(userId, "SWIGGY 4471");
 
         assertThat(merchants)
                 .as("stripping the rail must not promote the per-transaction reference into the key")
@@ -403,8 +533,8 @@ class MerchantNormalizationEngineTest {
         TransactionSynchronizationManager.initSynchronization();
         try {
             engine.resolve(userId, "SWIGGY BANGALORE");
-            engine.resolve(userId, "SWIGGY ORDER 4471");
-            engine.resolve(userId, "SWIGGY*BLR 9982");
+            engine.resolve(userId, "SWIGGY BANGALORE 4471");
+            engine.resolve(userId, "SWIGGY*BANGALORE 9982");
 
             assertThat(merchants)
                     .as("all three collapse onto the merchant the first row created")
@@ -473,6 +603,22 @@ class MerchantNormalizationEngineTest {
                         + "the un-indexed path would")
                 .contains(confirmed);
         assertThat(engine.resolveReadOnly(userId, "UPI/1122334/ZOMATO", index)).isEmpty();
+    }
+
+    /** Staging previews through the index; confirm resolves live. Both must take the brand step
+     *  and refuse a one-word TEMPORARY merchant identically, or the review screen shows one
+     *  merchant and the confirm picks another. */
+    @Test
+    @DisplayName("indexed and live resolution agree on the brand step and on its limits")
+    void indexedResolutionAgreesOnTheBrandStep() {
+        Merchant seeded = approvedMerchant("Swiggy");
+        engine.resolve(userId, "UPI/9182736/NATIONAL");
+        com.finora.imports.MerchantIndex index = engine.indexFor(userId);
+
+        assertThat(engine.resolveReadOnly(userId, "SWIGGY INSTAMART 4471", index)).contains(seeded);
+        assertThat(engine.resolveReadOnly(userId, "SWIGGY INSTAMART 4471")).contains(seeded);
+        assertThat(engine.resolveReadOnly(userId, "UPI/1122334/NATIONAL RAILWAYS", index)).isEmpty();
+        assertThat(engine.resolveReadOnly(userId, "UPI/1122334/NATIONAL RAILWAYS")).isEmpty();
     }
 
     @Test

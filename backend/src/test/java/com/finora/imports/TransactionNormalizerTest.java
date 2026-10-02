@@ -1086,7 +1086,7 @@ class TransactionNormalizerTest {
         swiggy.setCanonicalName("SWIGGY");
         com.finora.service.MerchantNormalizationEngine merchantNormalizationEngine =
                 mock(com.finora.service.MerchantNormalizationEngine.class);
-        com.finora.imports.MerchantIndex index = new com.finora.imports.MerchantIndex(Map.of(), Map.of());
+        com.finora.imports.MerchantIndex index = new com.finora.imports.MerchantIndex(Map.of(), extracted -> null);
         when(merchantNormalizationEngine.resolveReadOnly(any(), any(), same(index)))
                 .thenReturn(java.util.Optional.of(swiggy));
 
@@ -1123,7 +1123,7 @@ class TransactionNormalizerTest {
     void normalize_leavesMerchantFieldsNull_whenIndexHasNoMatch() {
         com.finora.service.MerchantNormalizationEngine merchantNormalizationEngine =
                 mock(com.finora.service.MerchantNormalizationEngine.class);
-        com.finora.imports.MerchantIndex index = new com.finora.imports.MerchantIndex(Map.of(), Map.of());
+        com.finora.imports.MerchantIndex index = new com.finora.imports.MerchantIndex(Map.of(), extracted -> null);
         when(merchantNormalizationEngine.resolveReadOnly(any(), any(), same(index)))
                 .thenReturn(java.util.Optional.empty());
 

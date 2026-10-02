@@ -98,7 +98,8 @@ describe('Privacy policy matches what the product does', () => {
     const t = policyText();
     expect(t).toMatch(/Fynora hides the names of people it can recognise before anything is sent/i);
     expect(t).toMatch(/Anthropic receives the placeholder, never the\s+name/i);
-    expect(t).toMatch(/A name Fynora cannot recognise is sent as written/i);
+    expect(t).toMatch(/common first names and\s+surnames from a list built into Fynora, even for someone you have never paid/i);
+    expect(t).toMatch(/A name Fynora cannot recognise is sent\s+as written/i);
   });
 
   // Statement refresh and saved statement passwords (docs: statement refresh design, 2026-09-27).

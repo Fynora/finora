@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.finora.util.PersonNameLexicon;
 import com.finora.util.PersonToPersonTransferDetector;
 
 import java.util.ArrayList;
@@ -23,21 +24,24 @@ import java.util.regex.Pattern;
  *
  * <ul>
  *   <li>the people the user has paid or been paid by, read from the payee slot of their own person
- *       payments ({@link FynNameShields#peopleNames}) -- each full name, and its first name, so
- *       "Priya" alone in a question is hidden too once a payment to "PRIYA SHARMA" is on record;</li>
+ *       payments ({@link FynNameShields#namesIn}) -- each full name, and every word of it, so
+ *       "Priya", "Sharma" or "Raj" alone in a question is hidden too once a payment to them is on
+ *       record;</li>
  *   <li>the account holders' own names -- the profile name and the holder on each of the user's
  *       accounts -- whole, cut short or glued ({@link PersonToPersonTransferDetector#maskHolderName});</li>
  *   <li>inside a screenshot's text block, any line or field that reads as a name
  *       ({@link PersonToPersonTransferDetector#maskPersonNames}), the same rules the narration path
  *       uses;</li>
+ *   <li>common given names and surnames from a bundled list ({@link PersonNameLexicon#isCommonName}),
+ *       for someone the user has never paid;</li>
  *   <li>and every name already found, wherever else it appears in the request.</li>
  * </ul>
  *
  * <p>Labels the user wrote, a category for instance, are matched against those names, never read
  * by shape: the shape rules were built for bank narrations, and on a label they read "Apple
  * Purchases" or "Dining Out" as a person (measured), which would hide real categories from the
- * model. Not caught: the name of someone the user has never paid, typed outside a screenshot or a
- * holder name. The privacy policy says so.
+ * model. Not caught: a name the user has never paid that is not on the bundled list, or is also an
+ * everyday word ("Sunny", "Grace"), typed outside a screenshot. The privacy policy says so.
  */
 public final class FynNameShield {
 
@@ -87,7 +91,43 @@ public final class FynNameShield {
             out = PersonToPersonTransferDetector.maskHolderName(out, holder, this::tokenFor);
         }
         out = shieldScreenshotBlock(out);
-        return replaceKnownNames(out);
+        out = replaceKnownNames(out);
+        return replaceCommonNames(out);
+    }
+
+    /** Common given names and surnames ({@link PersonNameLexicon#isCommonName}) the user has never
+     *  paid, wherever they appear -- "Rahul" or "Verma" typed into a question. A run of them joined
+     *  by spaces ("Rahul Verma") is one name, one token. The words of a token already written are
+     *  never read. */
+    private String replaceCommonNames(String text) {
+        Matcher w = LETTER_RUN.matcher(text);
+        List<int[]> run = new ArrayList<>();
+        StringBuilder out = null;
+        int kept = 0;
+        while (true) {
+            boolean found = w.find();
+            boolean isName = found && !(w.start() > 0 && text.charAt(w.start() - 1) == '[')
+                    && PersonNameLexicon.isCommonName(w.group());
+            boolean joins = isName && !run.isEmpty() && joinedByWhitespace(text, run.get(run.size() - 1)[1], w.start());
+            if (!run.isEmpty() && !joins) {
+                int start = run.get(0)[0], end = run.get(run.size() - 1)[1];
+                if (out == null) out = new StringBuilder(text.length());
+                out.append(text, kept, start).append(tokenFor(text.substring(start, end)));
+                kept = end;
+                run.clear();
+            }
+            if (!found) break;
+            if (isName) run.add(new int[] {w.start(), w.end()});
+        }
+        return out == null ? text : out.append(text, kept, text.length()).toString();
+    }
+
+    private static boolean joinedByWhitespace(String text, int gapStart, int gapEnd) {
+        if (gapEnd == gapStart) return false;
+        for (int c = gapStart; c < gapEnd; c++) {
+            if (!Character.isWhitespace(text.charAt(c))) return false;
+        }
+        return true;
     }
 
     /** Every name found so far, wherever it appears, a full name before a shorter name inside it.
@@ -166,12 +206,7 @@ public final class FynNameShield {
     /** Whether words {@code i} to {@code i + n - 1} have only whitespace between them. */
     private static boolean joinedByWhitespace(String text, List<int[]> words, int i, int n) {
         for (int k = i; k < i + n - 1; k++) {
-            int gapStart = words.get(k)[1];
-            int gapEnd = words.get(k + 1)[0];
-            if (gapEnd == gapStart) return false;
-            for (int c = gapStart; c < gapEnd; c++) {
-                if (!Character.isWhitespace(text.charAt(c))) return false;
-            }
+            if (!joinedByWhitespace(text, words.get(k)[1], words.get(k + 1)[0])) return false;
         }
         return true;
     }

@@ -1,0 +1,51 @@
+# Everyday words that are never treated as a person's name, one per line, any case, several per
+# line allowed. FynNameShields learns every word of the names on a user's person payments; a
+# payee slot also holds words like STATE, NEW or AVENUE (measured on the real corpus), and hiding
+# one of those would hide it in every later question too.
+a about above account accounts across add added address after again against age agency ago agent
+air airport all allowance almost alone along already also always am amount an and annual another
+answer any anything app apple apply april are area arms around arrive art as ask at atm august auto
+avenue away baby back bad bag bakery balance ball bank banking bar base bath bazaar be beauty bed
+been before begin behind being below best better between big bike bill bills birthday black blue
+board boat body book books both bottle box boy branch bread break breakfast bring brother brought
+budget build building bus business but buy by cab cafe cake call came can car card care cards cash
+cashback cat center central centre change charge charges check cheque child children choose city
+class clean clear clinic close clothes club coffee cold college colony come company complex
+corner cost could country course court cover credit cross cup current customer cut daily dairy
+dark data date daughter day days dear december decor deposit design desk did different dinner
+direct do doctor does dog done door down dress drink drive driver due during each early east eat
+education electric electricity else emi end energy enterprise enterprises entertainment even
+evening event every expense expenses export express fair family fancy far farm fast father fee
+fees few field file final finance financial find fine first fish fit five flat floor flower fly
+food for form found four free fresh friday friend friends from front fruit fuel full fund funds fun
+furniture game garden gas gate gave general get gift girl give go gold good got govt great green
+grocery ground group growth guest gym had hair half hall hand happy hard has have he health hello
+help her here hi high him his hold holiday home hospital hostel hot hotel house how hub i ice if in
+income india indian industries info inn insurance interest into invest investment is it item its
+january jewellers jewellery july june just keep kids kind kitchen know lab land large last late
+later law learn least leave left less life light like line little live loan local long look lost lot
+love low lunch made mail main make mall man many march mart market may me meal medical medicine
+meet member men metro mid milk mine mobile monday money month monthly more morning most mother
+motor motors move movie much must my name near need net network never new news next night nine no
+none north not note nothing november now number october of off office oil old on once one online
+only open or order other our out over own paid pan paper park part party pass pay payment
+payments people per person pet petrol pharma pharmacy phone place plan plaza please plus point
+police post power present price print private pro product products property pub public pump
+purchase put quick rail rate read real recharge red refund rent repair rest restaurant return
+right road room run rural safe said salary sale same saturday save savings say school sea second
+security see self sell send sent september service services set seven share she shop shopping
+shops should show side sign silver since sister six small so society some son south special
+spend spent sport sports square staff star state station stay still stock store stores street
+studio study style sub such sugar sunday super supply sure sweet sweets system table take tax
+taxi tea team tech ten than thank thanks that the their them then there these they thing think
+third this those three through thursday ticket time to today together too top total tour tours
+town toy toys trade traders trading train transfer travel travels trip true trust tuesday tv two
+under union unit university until up upi us use used valley very via view village wala wale wali
+want was water way we wear wednesday week weekly well were west what when where which while white
+who why wife will wine with without work world would year yearly yellow yes yet you young your
+# Kinship and address words typed in place of a name; they name no one.
+amma appa aunty anna bhabhi bhai bhaiya bro chacha chachi dada dadi didi ji mama mami mausi mom
+mummy nana nani papa sir madam uncle
+# Shop and trade words found in payee slots of rows typed PERSON on the real corpus.
+brand brands burger canteen club connect eat king limited mad med mobility postpaid petro
+punjab reliance stall tech trader transport transporter transporters urban veg

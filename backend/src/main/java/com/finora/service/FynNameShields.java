@@ -5,6 +5,7 @@ import com.finora.entity.User;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.TransactionRepository;
 import com.finora.repository.UserRepository;
+import com.finora.util.PersonNameLexicon;
 import com.finora.util.PersonToPersonTransferDetector;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
@@ -55,23 +56,38 @@ public class FynNameShields {
         return names;
     }
 
-    /**
-     * The names in the user's person payments: each payee slot's full name, and its first word as a
-     * first name on its own when the name has two words or more and that word has four letters or
-     * more. Only the payee slot is read, never a remark: measured on the real corpus, reading every
-     * name-shaped segment learned "HAPPY BIRTHDAY", "HELLO" and words like PAY, NEW, FIRST, CHECK and
-     * TRANSACTION as names, and every later question using one would have had it hidden. Every word
-     * of a name on its own (a surname, a middle name) was measured the same way and kept STATE, HAD
-     * and NEW; a first name of four letters or more kept almost only real names.
-     */
+    /** The names in the user's person payments -- see {@link #namesIn}. */
     Set<String> peopleNames(UUID userId) {
+        return namesIn(transactionRepository.findPersonPaymentDescriptions(
+                userId, PageRequest.of(0, PERSON_PAYMENTS_READ)));
+    }
+
+    /**
+     * The names in these person-payment narrations: each payee slot's full name, and every word of
+     * it on its own -- a first name, a surname, a middle name -- so "Verma" or "Raj" alone in a
+     * question is hidden too. A word is learned only when it has three letters or more (or is a
+     * common name, "Om"), and nothing is learned from a slot holding an everyday word, a merchant or
+     * a category keyword ({@link PersonNameLexicon#isEverydayWord}). Only the payee slot is read,
+     * never a remark: measured on the real corpus, reading every name-shaped segment learned "HAPPY
+     * BIRTHDAY" and "HELLO", and the payee slots of rows typed PERSON still held shops ("BURGER",
+     * "TRADER", "VEG") and words like STATE, NEW and AVENUE -- every later question using one would
+     * have had it hidden.
+     */
+    static Set<String> namesIn(Iterable<String> descriptions) {
         Set<String> names = new LinkedHashSet<>();
-        for (String description : transactionRepository.findPersonPaymentDescriptions(
-                userId, PageRequest.of(0, PERSON_PAYMENTS_READ))) {
+        for (String description : descriptions) {
             for (String name : PersonToPersonTransferDetector.payeeSlotNames(description)) {
-                names.add(name);
-                String[] words = name.split("[^A-Za-z]+");
-                if (words.length >= 2 && words[0].length() >= 4) names.add(words[0]);
+                String[] words = name.trim().split("[^A-Za-z]+");
+                // A shop the classifier typed PERSON ("<NAME> TEA STALL", "BURGER KING") is not a
+                // person: one everyday word in the slot and none of its words is learned.
+                if (java.util.Arrays.stream(words).anyMatch(PersonNameLexicon::isEverydayWord)) continue;
+                List<String> nameWords = java.util.Arrays.stream(words)
+                        .filter(w -> !w.isEmpty() && (w.length() >= 3 || PersonNameLexicon.isCommonName(w)))
+                        .toList();
+                if (nameWords.isEmpty()) continue;
+                // The full name first, so it gets the lowest token number of the three.
+                if (words.length >= 2) names.add(name.trim());
+                names.addAll(nameWords);
             }
         }
         return names;

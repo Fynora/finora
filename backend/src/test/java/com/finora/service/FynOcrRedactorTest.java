@@ -267,6 +267,16 @@ class FynOcrRedactorTest {
         }
     }
 
+    /** A wallet or merchant id, or a hex reference, printed in mixed case: a lowercase letter and a
+     *  digit in one 6+ character token. Uppercase bank words and mixed-case words keep. */
+    @Test
+    void redactNarration_redactsAMixedCaseIdOrReference_butNotAWord() {
+        assertThat(FynOcrRedactor.redactNarration("QZX Dhaba UPI/QZX Dhaba/qzxb.QZXA12345/Payment fr/PPIW/IBL0a12b34c56d")) // synthetic-ok
+                .isEqualTo("QZX Dhaba UPI/QZX Dhaba/[redacted-id]/Payment fr/PPIW/[redacted-id]");
+        assertThat(FynOcrRedactor.redactNarration("UPI/QZX MEDICAL STORE/Payment from Phone/HDFC"))
+                .isEqualTo("UPI/QZX MEDICAL STORE/Payment from Phone/HDFC");
+    }
+
     @Test
     void redactNarration_isNullSafe() {
         assertThat(FynOcrRedactor.redactNarration(null)).isNull();

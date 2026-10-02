@@ -129,8 +129,36 @@ class FynNameShieldTest {
 
         assertThat(out).doesNotContain("Priya").doesNotContain("Ravi").doesNotContain("Rohan")
                 .doesNotContain("Verma").doesNotContain("Tanvi")
+                // A surname alone is hidden once a payment to that person is on record.
+                .doesNotContain("Mehta")
                 .contains("Dining Out")
-                // A remark is never learned as a name; a surname alone is not learned either.
-                .contains("happy birthday").contains("Mehta");
+                // A remark is never learned as a name.
+                .contains("happy birthday");
+    }
+
+    @Test
+    void everyWordOfAPaidPersonsName_isLearned_butNotAShopTypedAsAPerson() {
+        Set<String> names = FynNameShields.namesIn(List.of(
+                "UPI-QZXAL DEV KORWATI-qzx@okaxis-UPI", // synthetic-ok
+                "UPI-QZX TEA STALL-qzxtea@okaxis-UPI")); // synthetic-ok
+
+        // A surname and a 3-letter first name on their own, never seen elsewhere.
+        assertThat(names).contains("QZXAL DEV KORWATI", "QZXAL", "DEV", "KORWATI");
+        // An everyday word in the slot marks a shop: nothing from it is learned.
+        assertThat(names).noneMatch(n -> n.contains("QZX") && !n.startsWith("QZXAL"));
+    }
+
+    @Test
+    void aCommonNameTheUserHasNeverPaid_isHidden_andEverydayQuestionsAreLeftAlone() {
+        FynNameShield shield = new FynNameShield(List.of());
+
+        assertThat(shield.shield("How much did I pay Rahul Verma? And Raj? And Iyer, and Om?"))
+                .isEqualTo("How much did I pay [name-1]? And [name-2]? And [name-3], and [name-4]?");
+        assertThat(shield.unshield("You paid [name-1] 500.")).isEqualTo("You paid Rahul Verma 500.");
+        // Everyday words and merchants that share a name list's letters are not names.
+        for (String q : List.of("How much did I spend on food and Swiggy last month?",
+                "Did my EMI go out?", "how much did I give to mummy", "Is my insurance due?")) {
+            assertThat(shield.shield(q)).isEqualTo(q);
+        }
     }
 }

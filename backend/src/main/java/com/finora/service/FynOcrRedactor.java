@@ -141,11 +141,14 @@ final class FynOcrRedactor {
     private static final Pattern SLOT_AFTER_BANK_CODE = Pattern.compile(
             "(?<=/[A-Za-z]{4}/)(?=[^/\\s\\[]*[a-z0-9])[^/\\s\\[]+");
 
-    // A UPI id cut off before its '@' leaves a bare lowercase token of letters and digits
-    // ("name1234"). Six or more characters, both letters and digits, no uppercase: the shape of an
-    // id, not of a word a bank prints. A truncated id of letters alone is not caught.
+    // A UPI id cut off before its '@' leaves a bare token of letters and digits ("name1234"), and a
+    // wallet or merchant id or a hex reference can print in mixed case ("<bank>.<CODE>1234",
+    // "<BANK>0b06c9a8..."; both on the corpus, in rows that went to the model). Six or more
+    // characters with a lowercase letter and a digit: a bank prints its own words in uppercase and
+    // a word in mixed case has no digit, so neither is the shape of a word. A truncated id of
+    // letters alone is not caught.
     private static final Pattern LOWERCASE_ALNUM_ID = Pattern.compile(
-            "(?<![A-Za-z0-9._])(?=[a-z0-9._]*\\d)(?=[a-z0-9._]*[a-z])[a-z0-9._]{6,}(?![A-Za-z0-9._])");
+            "(?<![A-Za-z0-9._])(?=[A-Za-z0-9._]*\\d)(?=[A-Za-z0-9._]*[a-z])[A-Za-z0-9._]{6,}(?![A-Za-z0-9._])");
 
     /** {@link #redact} for a transaction narration rather than OCR'd text: the same identifier
      *  shapes, with the id match bounded by the narration's field delimiters. Null-safe and

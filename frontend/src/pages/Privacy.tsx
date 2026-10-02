@@ -129,11 +129,13 @@ export default function Privacy() {
         </p>
         <p>
           In all of these uses, Fynora hides the names of people it can recognise before anything is sent:
-          the names on your profile and on your accounts, the people you have paid or been paid by, and names
-          in a screenshot's text. Each is replaced with a placeholder such as [name-1], and Fynora puts the
-          real name back into the answer before you see it, so Anthropic receives the placeholder, never the
-          name. A name Fynora cannot recognise is sent as written, for example the name of someone you have
-          never paid, or a surname on its own, typed into a question.
+          the names on your profile and on your accounts, the people you have paid or been paid by (their
+          full names, first names and surnames), names in a screenshot's text, and common first names and
+          surnames from a list built into Fynora, even for someone you have never paid. Each is replaced with
+          a placeholder such as [name-1], and Fynora puts the real name back into the answer before you see
+          it, so Anthropic receives the placeholder, never the name. A name Fynora cannot recognise is sent
+          as written: an uncommon name of someone you have never paid, or a name that is also an everyday
+          word, such as Sunny, typed into a question.
         </p>
       </PublicSection>
 

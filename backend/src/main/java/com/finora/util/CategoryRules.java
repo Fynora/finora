@@ -113,8 +113,8 @@ public final class CategoryRules {
         //  - Seen on the corpus, previously "Other": "indian clearing" (Indian Clearing Corporation,
         //    the BSE clearing house that collects mutual-fund SIP debits -- 28 outflow rows, mostly
         //    "ACH D- INDIAN CLEARING CORP-..." mandate debits that carry no "mutual fund" word at
-        //    all; 2 further inflow rows stay "Other" because their wrapped narration splits the
-        //    word itself, "INDIAN C LEARING", which no keyword here should try to match),
+        //    all; 2 further inflow rows were left "Other" here because their wrapped narration
+        //    splits the word itself, "INDIAN C LEARING"),
         //    "nextbillion" (the former name of the Groww broker entity, on 4 inflows from its
         //    "client account"),
         //    "nse zerod" (a bank-truncated "NSE ZERODHA"), "hsbc mf", "nippon life asset" (a
@@ -129,8 +129,21 @@ public final class CategoryRules {
         //    name), "ipo" (a remark typed into a person-to-person payment), "nsdl" alone (NSDL also
         //    runs a payments bank), "nippon" alone (also an insurer), "icici prudential" (also an
         //    insurer), a bare "mf", and "capital" (an unidentified payee).
+        //
+        // Third pass (2026-10-02): "indian c learing", the split form of those 2 inflows, after all.
+        // The split is not a misspelling: HDFC prints the narration in fixed 40-character lines and
+        // this fund-transfer format's prefix ("FT- ", a 10-digit reference, a 14-digit number and
+        // " - ") was the same width on both corpus rows, so the wrap landed after the same "C"
+        // both times. The parser keeps
+        // the space at that wrap deliberately (NarrationLineBreaks glues only on a digit or a
+        // separator; two plain words give no evidence either way), so the keyword matches the text
+        // as it arrives. Until #1888 these rows reached Investments only because the clearing
+        // house's merchant also absorbed every other payee whose name began "indian"; the two-word
+        // merchant key ended that, and they fell to "Other". The phrase is word-boundary matched
+        // and cannot plausibly occur in an unrelated narration. A wrap landing anywhere else in
+        // the name is not matched; none was seen on the corpus.
         RULES.put("Investments", List.of("mutual fund", "mutualfunds", "sip", "zerodha", "groww", "upstox", "nps", "ppf", "demat", "nse mf",
-                "indian clearing", "nextbillion", "nse zerod", "hsbc mf", "nippon life asset", "nsdl findiv",
+                "indian clearing", "indian c learing", "nextbillion", "nse zerod", "hsbc mf", "nippon life asset", "nsdl findiv",
                 "angel one", "angelone", "5paisa", "kuvera", "indmoney", "smallcase", "sharekhan",
                 "paytm money", "etmoney", "et money", "motilal oswal",
                 "icici direct", "icicidirect", "hdfc securities", "icici securities", "kotak securities"));

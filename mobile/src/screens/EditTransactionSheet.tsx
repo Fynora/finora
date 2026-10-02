@@ -9,7 +9,8 @@ import { Button } from '../components/Button';
 import { CategoryPickerModal } from '../components/CategoryPickerModal';
 import { DateField } from '../components/DateField';
 import { TextField } from '../components/TextField';
-import { transactionsApi, type CategoryOption, type UpdateTransactionPayload } from '../api/endpoints';
+import { transactionsApi, type CategoryOption, type CategoryScope, type UpdateTransactionPayload } from '../api/endpoints';
+import { askCategoryScope } from '../lib/askCategoryScope';
 import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
@@ -71,6 +72,17 @@ export function EditTransactionSheet({ transaction, onClose, onSaved }: Props) {
       setSaving(true);
       const startedAt = requestStartedAt();
       try {
+        // Asked only for a category change alone: the similar rows are looked up by the payee and
+        // direction stored now, and an edit to the description or type changes both. Without a
+        // scope the server changes this row only, as before the choice existed.
+        const categoryChanged = category !== null && category !== transaction.categoryName;
+        const payeeUnchanged = description === (transaction.description ?? '') && type === transaction.type;
+        let applyTo: CategoryScope | undefined;
+        if (categoryChanged && payeeUnchanged) {
+          const scope = await askCategoryScope(transaction.id);
+          if (scope === null) return;
+          applyTo = scope;
+        }
         const payload: UpdateTransactionPayload = {
           date,
           description,
@@ -84,6 +96,7 @@ export function EditTransactionSheet({ transaction, onClose, onSaved }: Props) {
           categoryName: category,
           notes: notes.trim(),
           tags: tagsInput.split(',').map((s) => s.trim()).filter(Boolean),
+          ...(applyTo ? { applyTo } : {}),
         };
         await transactionsApi.update(transaction.id, payload);
         // Every screen deriving totals/charts from this transaction (Dashboard, Reports,

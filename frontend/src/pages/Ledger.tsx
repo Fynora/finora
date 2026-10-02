@@ -9,9 +9,10 @@ import {
 import transactionsHero from '../assets/hero/transactions-hero.webp';
 import {
   transactionsApi, categoriesApi, accountsApi, budgetsApi, onboardingApi,
-  type TransactionFilters, type UpdateTransactionPayload, type TransactionExplanation,
+  type TransactionFilters, type UpdateTransactionPayload, type TransactionExplanation, type CategoryScope,
 } from '../api/endpoints';
 import { AskOnceCard } from '../components/AskOnceCard';
+import { useCategoryScopePrompt } from '../components/CategoryScopePrompt';
 import { CategoryCombobox } from '../components/CategoryCombobox';
 import { CategoryCreateEditPanel } from '../components/CategoryCreateEditPanel';
 import { MerchantGroupReviewCard } from '../components/MerchantGroupReviewCard';
@@ -1012,10 +1013,10 @@ export default function Ledger() {
         <EditTransactionModal
           transaction={editing}
           onClose={() => setEditing(null)}
-          onSaved={(categoryChanged) => {
+          onSaved={(remembered) => {
             setEditing(null);
             invalidateEverything();
-            if (categoryChanged) {
+            if (remembered) {
               memoryReinforcement.show('Fynora will remember this — future transactions like this will use the same category.');
             }
           }}
@@ -1366,7 +1367,8 @@ function EditTransactionModal({
 }: {
   transaction: Transaction;
   onClose: () => void;
-  onSaved: (categoryChanged: boolean) => void;
+  /** remembered: the new category will be used for this payee's future transactions too. */
+  onSaved: (remembered: boolean) => void;
 }) {
   const [date, setDate] = useState(transaction.date);
   const [description, setDescription] = useState(transaction.description ?? '');
@@ -1380,10 +1382,23 @@ function EditTransactionModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const { ask, prompt } = useCategoryScopePrompt();
+
   async function save() {
     setSaving(true);
     setError(null);
     try {
+      // Asked only for a category change alone: the similar rows are looked up by the payee and
+      // direction stored now, and an edit to the description or type changes both. Without a
+      // scope the server changes this row only, as before the choice existed.
+      const categoryChanged = category !== transaction.categoryName;
+      const payeeUnchanged = description === (transaction.description ?? '') && type === transaction.type;
+      let applyTo: CategoryScope | undefined;
+      if (categoryChanged && payeeUnchanged) {
+        const scope = await ask(transaction.id);
+        if (scope === null) return;
+        applyTo = scope;
+      }
       const payload: UpdateTransactionPayload = {
         date,
         description,
@@ -1397,9 +1412,10 @@ function EditTransactionModal({
         // empty silently no-op instead of actually clearing them.
         notes: notes.trim(),
         tags: tagsInput.split(',').map((s) => s.trim()).filter(Boolean),
+        ...(applyTo ? { applyTo } : {}),
       };
       await transactionsApi.update(transaction.id, payload);
-      onSaved(category !== transaction.categoryName);
+      onSaved(categoryChanged && applyTo !== 'ONLY_THIS');
     } catch (e: any) {
       setError(e.response?.data?.message ?? 'Could not save these changes.');
     } finally {
@@ -1489,6 +1505,7 @@ function EditTransactionModal({
           </div>
         </div>
       </div>
+      {prompt}
     </>
   );
 }

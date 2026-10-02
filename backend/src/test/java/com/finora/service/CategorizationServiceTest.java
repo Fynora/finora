@@ -358,6 +358,30 @@ class CategorizationServiceTest {
         assertThat(suggestion.category()).isNotEqualTo("Health");
     }
 
+    // --- The rule engine gets the direction (payee rules match money going out only) ---
+
+    @Test
+    void suggest_passesTheDirectionToTheRuleEngine() {
+        UUID merchantId = UUID.randomUUID();
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
+
+        categorizationService.suggest(userId, "UPI-SAMPLE LANDLORD-x", new java.math.BigDecimal("10000"), null,
+                Transaction.Type.EXPENSE);
+
+        verify(ruleEngineService).evaluateCategoryRule(eq(userId), anyString(), any(), any(), any(),
+                eq(Transaction.Type.EXPENSE));
+    }
+
+    @Test
+    void suggestReadOnly_passesTheDirectionToTheRuleEngine() {
+        categorizationService.suggestReadOnly(List.of(), userId, "UPI-SAMPLE LANDLORD-x", new java.math.BigDecimal("10000"),
+                null, null, Transaction.Type.INCOME, null);
+
+        verify(ruleEngineService).evaluateCategoryRule(anyList(), anyString(), any(), any(), any(),
+                eq(Transaction.Type.INCOME));
+    }
+
     @Test
     void decisionSourceFor_mapsStructuralP2pString() {
         assertThat(CategorizationService.decisionSourceFor("structural_p2p"))
@@ -578,7 +602,7 @@ class CategorizationServiceTest {
         rule.setScope(CategoryRule.Scope.USER);
 
         when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
-        when(ruleEngineService.evaluateCategoryRule(eq(userId), anyString(), any(), anyString(), any()))
+        when(ruleEngineService.evaluateCategoryRule(eq(userId), anyString(), any(), anyString(), any(), any()))
                 .thenReturn(Optional.of(new RuleEngineService.RuleMatch(rule)));
 
         var suggestion = categorizationService.suggest(userId, "AMAZON PAY");
@@ -922,7 +946,7 @@ class CategorizationServiceTest {
         UUID merchantId = UUID.randomUUID();
         CategoryRule rule = userRule("Work Expenses");
         when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
-        when(ruleEngineService.evaluateCategoryRule(eq(userId), anyString(), any(), any(), any()))
+        when(ruleEngineService.evaluateCategoryRule(eq(userId), anyString(), any(), any(), any(), any()))
                 .thenReturn(Optional.of(new RuleEngineService.RuleMatch(rule)));
 
         var suggestion = categorizationService.suggest(userId, "AMAZON BUSINESS ORDER");
@@ -941,7 +965,7 @@ class CategorizationServiceTest {
         UUID merchantId = UUID.randomUUID();
         CategoryRule rule = globalRule("Dining");
         when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
-        when(ruleEngineService.evaluateCategoryRule(eq(userId), anyString(), any(), any(), any()))
+        when(ruleEngineService.evaluateCategoryRule(eq(userId), anyString(), any(), any(), any(), any()))
                 .thenReturn(Optional.of(new RuleEngineService.RuleMatch(rule)));
 
         var suggestion = categorizationService.suggest(userId, "SWIGGY ORDER");

@@ -226,7 +226,7 @@ public class CategorizationService {
                                Transaction.Type direction) {
         Merchant merchant = merchantNormalizationEngine.resolve(userId, description);
 
-        var ruleMatch = ruleEngineService.evaluateCategoryRule(userId, description, amount, merchant.getCanonicalName(), accountType);
+        var ruleMatch = ruleEngineService.evaluateCategoryRule(userId, description, amount, merchant.getCanonicalName(), accountType, direction);
         if (ruleMatch.isPresent()) {
             CategoryRule rule = ruleMatch.get().rule();
             boolean isUserRule = ruleMatch.get().isUserScope();
@@ -396,7 +396,7 @@ public class CategorizationService {
         String merchantName = merchant.map(Merchant::getCanonicalName).orElse(null);
         UUID merchantId = merchant.map(Merchant::getId).orElse(null);
 
-        var ruleMatch = ruleEngineService.evaluateCategoryRule(rules, description, amount, merchantName, accountType);
+        var ruleMatch = ruleEngineService.evaluateCategoryRule(rules, description, amount, merchantName, accountType, direction);
         if (ruleMatch.isPresent()) {
             CategoryRule rule = ruleMatch.get().rule();
             boolean isUserRule = ruleMatch.get().isUserScope();

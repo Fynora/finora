@@ -101,6 +101,8 @@ class ImportRuleLookupCountTest {
         // assertion above would still pass if a second code path started calling it.
         verify(ruleEngineService, never())
                 .evaluateCategoryRule(any(UUID.class), any(), any(BigDecimal.class), any(), any());
+        verify(ruleEngineService, never())
+                .evaluateCategoryRule(any(UUID.class), any(), any(BigDecimal.class), any(), any(), any());
     }
 
     @Test

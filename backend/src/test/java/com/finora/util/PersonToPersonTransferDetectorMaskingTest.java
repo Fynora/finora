@@ -109,5 +109,7 @@ class PersonToPersonTransferDetectorMaskingTest {
         assertThat(PersonToPersonTransferDetector.hasRecognisableWords("UPI-[name]-[redacted-id]-[redacted-number]-UPI")).isFalse();
         assertThat(PersonToPersonTransferDetector.hasRecognisableWords("UPI-ZOMATO-[redacted-id]")).isTrue();
         assertThat(PersonToPersonTransferDetector.hasRecognisableWords(null)).isFalse();
+        // A payment app says how the money moved, not what it paid for.
+        assertThat(PersonToPersonTransferDetector.hasRecognisableWords("UPI-[name]-GPAY-[redacted-id]-PAYTM")).isFalse();
     }
 }

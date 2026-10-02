@@ -26,6 +26,7 @@ class UserMerchantCategoryResolutionServiceTest {
     private CategoryRepository categoryRepository;
     private CategorizationService categorizationService;
     private com.finora.repository.UserRepository userRepository;
+    private com.finora.repository.AccountRepository accountRepository;
     private UserMerchantCategoryResolutionService service;
     private final UUID userId = UUID.randomUUID();
 
@@ -39,9 +40,10 @@ class UserMerchantCategoryResolutionServiceTest {
         categoryRepository = mock(CategoryRepository.class);
         categorizationService = mock(CategorizationService.class);
         userRepository = mock(com.finora.repository.UserRepository.class);
+        accountRepository = mock(com.finora.repository.AccountRepository.class);
         service = new UserMerchantCategoryResolutionService(understandingService, availabilityGuard,
                 llmClient, aiAuditLogRepository, resolutionRepository, categoryRepository, categorizationService,
-                userRepository);
+                userRepository, accountRepository);
         when(availabilityGuard.categorizationAvailableFor(userId)).thenReturn(true);
     }
 
@@ -134,6 +136,25 @@ class UserMerchantCategoryResolutionServiceTest {
 
         verify(understandingService).understand(userId, "vpa:acmefoods", Transaction.Type.EXPENSE,
                 "UPI/ACME FOODS/[redacted-id]/TH[name]114");
+    }
+
+    /** A spouse's account the user imported: its holder is not the profile name, and is masked too. */
+    @Test
+    void resolve_cacheMiss_masksTheHolderOfEachOfTheUsersAccounts() {
+        when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(any(), any(), any())).thenReturn(Optional.empty());
+        when(understandingService.understand(any(), any(), any(), any())).thenReturn(Optional.empty());
+        User profile = new User();
+        profile.setFullName("Tanvi Sharma");
+        when(userRepository.findById(userId)).thenReturn(Optional.of(profile));
+        Account spouses = new Account();
+        spouses.setAccountHolderName("ROHAN VERMA");
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of(spouses));
+
+        service.resolve(userId, "vpa:acmefoods", Transaction.Type.EXPENSE,
+                "UPI/ACME FOODS/acmefoods@okaxis/ROHANVERMA22");
+
+        verify(understandingService).understand(userId, "vpa:acmefoods", Transaction.Type.EXPENSE,
+                "UPI/ACME FOODS/[redacted-id]/[name][name]22");
     }
 
     /** The gate at the one entry into the model calls, not only at today's caller. */

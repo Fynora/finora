@@ -579,6 +579,9 @@ public class CategorizationService {
         return counterpartyKey != null && !counterpartyKey.isBlank();
     }
 
+    /** transactions.description's own limit, VARCHAR(500). */
+    static final int MAX_MODEL_NARRATION_LENGTH = 500;
+
     /** Whether a narration may go to the AI fallback -- see {@link #narrationForModel}. */
     static boolean mayGoToModel(String description) {
         return narrationForModel(description).isPresent();
@@ -599,6 +602,11 @@ public class CategorizationService {
      */
     static Optional<String> narrationForModel(String description) {
         if (description == null || description.isBlank()) return Optional.empty();
+        // The masking and redaction patterns cost time that grows faster than the text: a crafted
+        // 6,000-character narration took seconds (measured). A stored narration is at most 500
+        // characters (transactions.description), so anything longer is not a real one; it is not
+        // sent, rather than cut, since a cut could split an identifier and let half of it through.
+        if (description.length() > MAX_MODEL_NARRATION_LENGTH) return Optional.empty();
         if (com.finora.util.CounterpartyClassifier.classify(description) == com.finora.util.CounterpartyType.PERSON
                 || PersonToPersonTransferDetector.isNamedIndividualTransfer(description)) {
             return Optional.empty();

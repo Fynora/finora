@@ -468,6 +468,16 @@ class CategorizationServiceTest {
                 .contains("[name] UPI/[name]/[redacted-id]/Payment fr/ICICI Bank/[redacted-number]/UPI");
     }
 
+    /** Longer than any stored narration: not processed or sent, so a crafted one cannot cost the
+     *  seconds the patterns take on it. */
+    @Test
+    void narrationForModel_aNarrationLongerThanTheColumn_isNotSent() {
+        String atLimit = "UPI-ACME STORE-" + "x".repeat(CategorizationService.MAX_MODEL_NARRATION_LENGTH - 15);
+        assertThat(atLimit).hasSize(CategorizationService.MAX_MODEL_NARRATION_LENGTH);
+        assertThat(CategorizationService.narrationForModel(atLimit)).isPresent();
+        assertThat(CategorizationService.narrationForModel(atLimit + "x")).isEmpty();
+    }
+
     @Test
     void suggest_aNarrationWithNothingLeftOnceNamesAreMasked_neverReachesTheAiFallback() {
         UUID merchantId = UUID.randomUUID();

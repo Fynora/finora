@@ -9,6 +9,7 @@ import com.finora.integrations.anthropic.LlmClient.*;
 import com.finora.repository.AiAuditLogRepository;
 import com.finora.repository.CategoryRepository;
 import com.finora.repository.UserMerchantCategoryResolutionRepository;
+import com.finora.repository.AccountRepository;
 import com.finora.repository.UserRepository;
 import com.finora.util.PersonToPersonTransferDetector;
 import org.slf4j.Logger;
@@ -69,6 +70,7 @@ public class UserMerchantCategoryResolutionService {
     private final CategoryRepository categoryRepository;
     private final CategorizationService categorizationService;
     private final UserRepository userRepository;
+    private final AccountRepository accountRepository;
 
     // @Lazy breaks a real circular bean dependency: CategorizationService depends on
     // FynCategorizationFallbackService (existing), which (Task 5) now depends on this service,
@@ -83,7 +85,8 @@ public class UserMerchantCategoryResolutionService {
                                                   UserMerchantCategoryResolutionRepository resolutionRepository,
                                                   CategoryRepository categoryRepository,
                                                   @Lazy CategorizationService categorizationService,
-                                                  UserRepository userRepository) {
+                                                  UserRepository userRepository,
+                                                  AccountRepository accountRepository) {
         this.understandingService = understandingService;
         this.availabilityGuard = availabilityGuard;
         this.llmClient = llmClient;
@@ -92,6 +95,7 @@ public class UserMerchantCategoryResolutionService {
         this.categoryRepository = categoryRepository;
         this.categorizationService = categorizationService;
         this.userRepository = userRepository;
+        this.accountRepository = accountRepository;
     }
 
     /**
@@ -159,14 +163,18 @@ public class UserMerchantCategoryResolutionService {
         // Both model calls below send the narration to a third party, so they get only what
         // CategorizationService.narrationForModel allows: no person's transfer, names masked,
         // identifiers redacted.
-        // The account holder's own name is masked too: it shows up in remarks, handles and payer
-        // lines in shapes no rule can see, and here it is known.
+        // The account holders' own names are masked too: they show up in remarks, handles and
+        // payer lines in shapes no rule can see, and here they are known -- the profile name, and
+        // the holder printed on each of the user's accounts, which differs for a spouse's or a
+        // joint account the user imports.
         Optional<String> prepared = CategorizationService.narrationForModel(description);
         if (prepared.isEmpty()) {
             return Optional.empty();
         }
-        String holderName = userRepository.findById(userId).map(com.finora.entity.User::getFullName).orElse(null);
-        String forModel = PersonToPersonTransferDetector.maskHolderName(prepared.get(), holderName);
+        String forModel = prepared.get();
+        for (String holderName : holderNames(userId)) {
+            forModel = PersonToPersonTransferDetector.maskHolderName(forModel, holderName);
+        }
         if (!PersonToPersonTransferDetector.hasRecognisableWords(forModel)) {
             return Optional.empty();
         }
@@ -226,6 +234,16 @@ public class UserMerchantCategoryResolutionService {
         Category resolved = categorizationService.resolveOrCreateCategory(userId, categoryName, reason);
         resolutionRepository.insertIfAbsent(userId, counterpartyKey, direction.name(), resolved.getId(), Instant.now());
         return Optional.of(resolved.getName());
+    }
+
+    private List<String> holderNames(UUID userId) {
+        List<String> names = new java.util.ArrayList<>();
+        userRepository.findById(userId).map(com.finora.entity.User::getFullName).ifPresent(names::add);
+        for (com.finora.entity.Account account : accountRepository.findByUserId(userId)) {
+            String holder = account.getAccountHolderName();
+            if (holder != null && !holder.isBlank() && !names.contains(holder)) names.add(holder);
+        }
+        return names;
     }
 
     /** Human override (spec §8), called from Task 7's wiring whenever a user manually sets or

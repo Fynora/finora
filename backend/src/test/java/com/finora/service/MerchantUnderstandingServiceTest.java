@@ -88,6 +88,21 @@ class MerchantUnderstandingServiceTest {
                 .doesNotContain("123456789012").doesNotContain("00001234567890"); // synthetic-ok
     }
 
+    /** A caller that skipped CategorizationService.narrationForModel still sends no name. */
+    @Test
+    void understand_cacheMiss_masksNamesItself() {
+        when(understandingRepository.findByCounterpartyKeyAndDirection(any(), any())).thenReturn(Optional.empty());
+        when(llmClient.complete(any())).thenReturn(new LlmCompletion(null, List.of(),
+                "claude-haiku-4-5-20251001", 40, 10, "end_turn"));
+        var captor = org.mockito.ArgumentCaptor.forClass(LlmClient.LlmRequest.class);
+
+        service.understand(userId, "vpa:paytmqr12345", Transaction.Type.EXPENSE,
+                "UPI-PRIYA SHARMA-paytmqr12345@paytm-UPI");
+
+        verify(llmClient).complete(captor.capture());
+        assertThat(captor.getValue().messages().get(0).content()).isEqualTo("UPI-[name]-[redacted-id]-UPI");
+    }
+
     @Test
     void understand_notAvailable_returnsEmptyWithoutCallingLlm() {
         when(availabilityGuard.categorizationAvailableFor(userId)).thenReturn(false);

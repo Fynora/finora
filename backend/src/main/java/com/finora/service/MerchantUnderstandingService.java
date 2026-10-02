@@ -75,8 +75,14 @@ public class MerchantUnderstandingService {
 
         // The narration leaves Finora here, so its structural identifiers (UPI ids, account and
         // reference numbers, IFSC codes) are stripped first; the merchant words the model needs
-        // stay. Names are masked before this (CategorizationService.narrationForModel).
-        LlmRequest request = LlmRequest.withTools(SYSTEM_PROMPT, List.of(LlmMessage.user(FynOcrRedactor.redactNarration(description))),
+        // stay. Names are masked before this (CategorizationService.narrationForModel) and again
+        // here, so a caller that skipped it still sends none; both steps are idempotent.
+        if (description == null || description.length() > CategorizationService.MAX_MODEL_NARRATION_LENGTH) {
+            return Optional.empty();
+        }
+        String forModel = FynOcrRedactor.redactNarration(
+                com.finora.util.PersonToPersonTransferDetector.maskPersonNames(description));
+        LlmRequest request = LlmRequest.withTools(SYSTEM_PROMPT, List.of(LlmMessage.user(forModel)),
                 MAX_TOKENS, List.of(TOOL));
         long startedAt = System.currentTimeMillis();
         LlmCompletion completion;

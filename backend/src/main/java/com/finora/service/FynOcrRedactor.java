@@ -155,7 +155,9 @@ final class FynOcrRedactor {
         if (value == null) {
             return null;
         }
-        String redacted = redactNumbers(NARRATION_ID.matcher(value).replaceAll("[redacted-id]"));
+        // Skipped without an '@': the id pattern is the costliest one here, and finds nothing then.
+        String ids = value.indexOf('@') < 0 ? value : NARRATION_ID.matcher(value).replaceAll("[redacted-id]");
+        String redacted = redactNumbers(ids);
         redacted = SLOT_AFTER_BANK_CODE.matcher(redacted).replaceAll("[redacted-id]");
         return LOWERCASE_ALNUM_ID.matcher(redacted).replaceAll("[redacted-id]");
     }

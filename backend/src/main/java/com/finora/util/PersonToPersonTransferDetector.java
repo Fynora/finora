@@ -604,9 +604,10 @@ public final class PersonToPersonTransferDetector {
             int kept = 0;
             while (m.find()) {
                 String content = m.group(1);
-                if (content == null || isKeptForMasking(content)) continue;
+                if (content == null) continue;
                 String slotName = LEADING_HONORIFICS.matcher(withoutCareOf(content).trim()).replaceFirst("");
                 if (!looksLikeSlotName(slotName) && !GLUED_NAME.matcher(slotName).matches()) continue;
+                if (isKeptForMasking(content)) continue;
                 out.append(text, kept, m.start(1)).append(NAME_MASK);
                 kept = m.end(1);
             }
@@ -660,8 +661,9 @@ public final class PersonToPersonTransferDetector {
             if (!BUSINESS_SUFFIX_TOKENS.contains(token) || token.equals("AND") || token.equals("CO")) continue;
             String tail = segment.substring(word.end()).trim();
             // Every word 3+ letters: a card descriptor's "<CITY> IN" or a cut "PTE LT" is not a name.
-            if (tail.isEmpty() || isKeptForMasking(tail) || !looksLikePersonName(tail)
-                    || java.util.Arrays.stream(tail.split("\\s+")).anyMatch(w -> w.length() < 3)) continue;
+            if (tail.isEmpty() || !looksLikePersonName(tail)
+                    || java.util.Arrays.stream(tail.split("\\s+")).anyMatch(w -> w.length() < 3)
+                    || isKeptForMasking(tail)) continue;
             int tailStart = segment.indexOf(tail, word.end());
             return segment.substring(0, tailStart) + NAME_MASK + segment.substring(tailStart + tail.length());
         }
@@ -669,9 +671,10 @@ public final class PersonToPersonTransferDetector {
     }
 
     private static boolean isMaskableName(String candidate) {
-        if (isKeptForMasking(candidate)) return false;
+        // The shape first: it is cheap, and most segments fail it. The keep checks walk every known
+        // merchant term.
         String name = LEADING_HONORIFICS.matcher(candidate).replaceFirst("");
-        return looksLikePersonName(name) || isOneNameWithInitials(name);
+        return (looksLikePersonName(name) || isOneNameWithInitials(name)) && !isKeptForMasking(candidate);
     }
 
     /** "<NAME> S M": one name word and at least one initial -- the shape banks print for an account
@@ -732,12 +735,14 @@ public final class PersonToPersonTransferDetector {
     }
 
     /** Whether a masked, redacted narration still names something a model could recognise: a word of
-     *  3+ letters that is not a placeholder or protocol boilerplate. */
+     *  3+ letters that is not a placeholder, protocol boilerplate or a payment app (which says how
+     *  the money moved, not what it paid for -- "UPI-[name]-GPAY-..." is a paid call for nothing). */
     public static boolean hasRecognisableWords(String maskedNarration) {
         if (maskedNarration == null) return false;
         String stripped = maskedNarration.replaceAll("\\[(?:name|redacted-[a-z]+)\\]", " ");
         for (String token : NON_LETTERS.split(stripped.toUpperCase(Locale.ROOT))) {
-            if (token.length() >= 3 && !PROTOCOL_AND_BOILERPLATE_TOKENS.contains(token)) return true;
+            if (token.length() >= 3 && !PROTOCOL_AND_BOILERPLATE_TOKENS.contains(token)
+                    && !PSP_BRAND_TOKENS.contains(token)) return true;
         }
         return false;
     }

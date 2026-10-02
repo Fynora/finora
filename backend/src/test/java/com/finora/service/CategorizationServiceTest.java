@@ -222,6 +222,74 @@ class CategorizationServiceTest {
         assertThat(suggestion.decisionSource()).isEqualTo(Transaction.DecisionSource.KEYWORD_MATCH);
     }
 
+    // --- Bank activity: words AND direction (BankActivityCategory) ---
+
+    @Test
+    void suggest_namesCashbackTheBankPaid_whenTheDirectionIsKnown() {
+        UUID merchantId = UUID.randomUUID();
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
+
+        var suggestion = categorizationService.suggest(userId, "CASHBACK EARNED", null, null, Transaction.Type.INCOME);
+
+        assertThat(suggestion.category()).isEqualTo("Interest & Cashback");
+        assertThat(suggestion.source()).isEqualTo("rule");
+        assertThat(suggestion.decisionSource()).isEqualTo(Transaction.DecisionSource.KEYWORD_MATCH);
+    }
+
+    @Test
+    void suggest_withoutADirection_leavesBankActivityUndecided() {
+        UUID merchantId = UUID.randomUUID();
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
+
+        var suggestion = categorizationService.suggest(userId, "CASHBACK EARNED");
+
+        assertThat(suggestion.category()).isEqualTo("Other");
+    }
+
+    @Test
+    void suggestReadOnly_namesAGovernmentFeeTaxes_atStaging() {
+        var suggestion = categorizationService.suggestReadOnly(List.of(), userId,
+                "UPI/000000000000/19:06:39/UPI/upsc.sbiepaylite@sb", null, null, null,
+                Transaction.Type.EXPENSE, null);
+
+        assertThat(suggestion.category()).isEqualTo("Taxes");
+        assertThat(suggestion.source()).isEqualTo("rule");
+    }
+
+    /** Measured shape: on the slash UPI layout a friend's transfer whose note says "cashback" is
+     *  typed as a bank. Bank activity only ever replaces "Other", so the person rule still wins. */
+    @Test
+    void suggestReadOnly_aPersonsTransferWithACashbackNote_staysAPersonalTransfer() {
+        var suggestion = categorizationService.suggestReadOnly(List.of(), userId,
+                "UPI/000000000000/CR/AMIT KUMAR/SBIN/amitkumar@okaxis/cashback", null, null, null,
+                Transaction.Type.INCOME, null);
+
+        assertThat(suggestion.category()).isEqualTo(CategorizationService.P2P_CATEGORY);
+        assertThat(suggestion.source()).isEqualTo("structural_p2p");
+    }
+
+    @Test
+    void suggest_aLearnedCategoryStillWinsOverBankActivity() {
+        UUID merchantId = UUID.randomUUID();
+        UUID categoryId = UUID.randomUUID();
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        MerchantCategoryLearning learned = new MerchantCategoryLearning();
+        learned.setUserId(userId);
+        learned.setMerchantId(merchantId);
+        learned.setCategoryId(categoryId);
+        when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of(learned));
+        Category salary = new Category();
+        salary.setName("Salary");
+        when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(salary));
+
+        var suggestion = categorizationService.suggest(userId, "CREDIT INTEREST", null, null, Transaction.Type.INCOME);
+
+        assertThat(suggestion.category()).isEqualTo("Salary");
+        assertThat(suggestion.source()).isEqualTo("learned");
+    }
+
     @Test
     void decisionSourceFor_mapsStructuralP2pString() {
         assertThat(CategorizationService.decisionSourceFor("structural_p2p"))

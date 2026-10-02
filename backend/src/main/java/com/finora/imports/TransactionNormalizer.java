@@ -144,6 +144,12 @@ public class TransactionNormalizer {
                     "transaction description", "transaction details", "details", "description spends",
                     "transaction id"};
     private static final String[] CATEGORY_HINTS = {"category"};
+    // The card network's classification of the shop, printed per row by Axis and IndusInd card
+    // statements -- not a category the user chose, so it is read separately from CATEGORY_HINTS and
+    // only as a fallback (see printedMerchantCategory). Deliberately NOT in recognizedColumnNames():
+    // that vocabulary feeds the PDF table locator, and this change is about reading a column the
+    // locator already places, not about locating anything differently.
+    private static final String[] MERCHANT_CATEGORY_HINTS = {"merchant category"};
     // Phase 1 "capture facts" (docs/engineering/financial-document-intelligence-principles.md):
     // evidenced by a real Canara Bank statement's "Reference / Cheque No." column, silently
     // discarded until now even on rows that otherwise parsed successfully -- CsvParser.zipRow and
@@ -496,6 +502,25 @@ public class TransactionNormalizer {
     }
 
     /**
+     * The row's printed merchant category as one of the user's categories, in the user's own
+     * spelling, or null. Read from a merchant-category column (Axis, IndusInd), else from a plain
+     * Category column holding the bank's own label (a real Kotak card statement prints "Departmental
+     * Store" there) -- {@code categoryColumnLabel} is that column's raw value.
+     *
+     * <p>PDF path only ({@code existingCategoryNames} non-null). A mapped category the user no longer
+     * has is not used -- a bank's label must not bring back a category someone deleted -- and the
+     * CSV path has no list of the user's categories to check that against, so it reads nothing here.
+     */
+    private static String printedMerchantCategory(Map<String, String> row, String categoryColumnLabel,
+                                                  Map<String, String> existingCategoryNames) {
+        if (existingCategoryNames == null) return null;
+        String label = CsvParser.firstNonBlank(row, MERCHANT_CATEGORY_HINTS);
+        if (label == null) label = categoryColumnLabel;
+        String mapped = com.finora.util.PrintedMerchantCategory.toCategory(label).orElse(null);
+        return mapped == null ? null : existingCategoryNames.get(categoryNameKey(mapped));
+    }
+
+    /**
      * Same again, against a {@link DuplicateIndex} the caller built once for the whole statement.
      *
      * <p>The duplicate check was the last per-row query in this method after b7aab9d removed the
@@ -635,6 +660,9 @@ public class TransactionNormalizer {
         // (Ledger.tsx falls back to `t.merchant` when `t.description` is empty).
         String description = Optional.ofNullable(CsvParser.firstNonBlank(row, DESCRIPTION_HINTS)).orElse("");
         String fileCategory = CsvParser.firstNonBlank(row, CATEGORY_HINTS);
+        // Kept for printedMerchantCategory: on the PDF path a Category column can hold the bank's own
+        // label rather than one of the user's categories (a real Kotak card statement).
+        String printedCategoryLabel = fileCategory;
         if (fileCategory != null && existingCategoryNames != null) {
             fileCategory = existingCategoryNames.get(categoryNameKey(fileCategory));
         }
@@ -678,6 +706,18 @@ public class TransactionNormalizer {
             source = suggestion.source();
             ruleId = suggestion.ruleId();
             categoryConfidence = suggestion.confidence();
+            // A card statement's printed merchant category (Axis, IndusInd), read only when the
+            // engine found nothing at all -- Sid, 2026-10-02: our own guess wins when the two
+            // disagree. See PrintedMerchantCategory for the measured labels and their mapping.
+            // Money going out only: a real Axis refund credit printed a purchase label (MOTO)
+            // beside it, and money coming in is not a purchase.
+            String printed = "default".equals(source) && !isIncome
+                    ? printedMerchantCategory(row, printedCategoryLabel, existingCategoryNames) : null;
+            if (printed != null) {
+                suggestedCategory = printed;
+                source = "file";
+                categoryConfidence = null;
+            }
         }
 
         // findMatch, not isLikelyDuplicate: one query either way, but it carries the evidence the

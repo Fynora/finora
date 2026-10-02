@@ -166,9 +166,9 @@ public class MerchantNormalizationEngine {
             return repointDanglingAlias(userId, description, existingAlias.get());
         }
 
-        // extractMerchant, not the raw normalised alias -- see groupingKey for why the two sides
-        // of this comparison must be reduced by the same rule, and what breaks when they are not.
-        var candidate = merchantsByGroupingKey(userId).match(CategoryRules.extractMerchant(description));
+        // payeeText, not the raw normalised alias -- see groupingKey for why the two sides of this
+        // comparison must be reduced by the same rule, and what breaks when they are not.
+        var candidate = merchantsByGroupingKey(userId).match(payeeText(description));
         if (candidate != null) {
             addAlias(candidate.getId(), userId, normalizedAlias);
             return candidate;
@@ -354,7 +354,7 @@ public class MerchantNormalizationEngine {
         // shows the merchant a confirm would actually pick; tokenising different text here than
         // resolve() does would break exactly that guarantee.
         return java.util.Optional.ofNullable(
-                merchantsByGroupingKey(userId).match(CategoryRules.extractMerchant(description)));
+                merchantsByGroupingKey(userId).match(payeeText(description)));
     }
 
     /**
@@ -393,7 +393,7 @@ public class MerchantNormalizationEngine {
         Merchant aliased = index.byNormalizedAlias(normalizedAlias);
         if (aliased != null) return java.util.Optional.of(aliased);
 
-        return java.util.Optional.ofNullable(index.byGrouping(CategoryRules.extractMerchant(description)));
+        return java.util.Optional.ofNullable(index.byGrouping(payeeText(description)));
     }
 
     private Merchant createMerchantAndAlias(UUID userId, String description, String normalizedAlias) {
@@ -420,7 +420,7 @@ public class MerchantNormalizationEngine {
         // merchants.canonical_name is VARCHAR(255) too, and is derived from the same description,
         // so it carries the identical hazard. Guarding only the alias would have moved the
         // rollback one insert further down rather than removing it.
-        merchant.setCanonicalName(fitToColumn(toDisplayName(CategoryRules.extractMerchant(description))));
+        merchant.setCanonicalName(fitToColumn(toDisplayName(payeeText(description))));
         // TEMPORARY, because this is a GUESS. Everything reaching this line is a description the
         // engine has never seen, resolved by a grouping-key heuristic its own class doc
         // describes as "deliberately simple ... not fuzzy matching or NLP". Marking it says so, and
@@ -536,12 +536,12 @@ public class MerchantNormalizationEngine {
      * and grouped on {@code 9182736}, a value unique to that one transaction. Every row would have
      * become its own merchant: under-grouping as total as the over-grouping it replaced.
      *
-     * <p>Callers therefore pass {@code CategoryRules.extractMerchant(description)} rather than
-     * {@code CategoryRules.normalize(description)}. {@code extractMerchant} already strips
-     * reference tokens, and it is also what {@code createMerchantAndAlias} builds the canonical
-     * name from — so the incoming description and the stored merchant are reduced by the identical
-     * rule before they are compared, which is what makes the match symmetric by construction
-     * rather than by two lists that have to be kept in step.
+     * <p>Callers therefore pass {@link #payeeText} rather than
+     * {@code CategoryRules.normalize(description)}. Both of its sources already strip reference
+     * tokens, and it is also what {@code createMerchantAndAlias} builds the canonical name from —
+     * so the incoming description and the stored merchant are reduced by the identical rule before
+     * they are compared, which is what makes the match symmetric by construction rather than by
+     * two lists that have to be kept in step.
      *
      * <p>Returning null when nothing survives is deliberate: a description that is nothing but
      * rail and reference ("UPI 12345") has no counterparty to group by, and inventing one would be
@@ -598,6 +598,26 @@ public class MerchantNormalizationEngine {
             }
         }
         return significant;
+    }
+
+    /**
+     * The text a description is grouped by and a new merchant is named after: the payee field of
+     * a structured narration when it names someone, else {@code CategoryRules.extractMerchant}.
+     *
+     * <p>extractMerchant keeps only the first four words. A narration that prints its payee after
+     * a long prefix -- "UPI/RRN &lt;n&gt;/Payment from PhonePe_&lt;NAME&gt;" -- loses the name
+     * entirely, and every payee of that format reduced to the same four words. On the real corpus
+     * six different people were one merchant this way; they had not misfired yet only because
+     * nothing had taught that merchant a category, and one correction on any of them would have
+     * applied it to all six. {@code CategoryRules.structuredPayee} reads the payee field itself --
+     * the same field the transaction's own merchant label already shows.
+     *
+     * <p>A structured narration whose payee field names nobody falls back to extractMerchant, so
+     * it groups exactly as before.
+     */
+    private static String payeeText(String description) {
+        String payee = CategoryRules.structuredPayee(description);
+        return payee != null ? payee : CategoryRules.extractMerchant(description);
     }
 
     private String toDisplayName(String extractedMerchant) {

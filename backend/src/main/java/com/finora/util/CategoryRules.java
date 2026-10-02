@@ -284,6 +284,19 @@ public final class CategoryRules {
         return null;
     }
 
+    /**
+     * The payee field of a structured narration, or null when the narration is not structured or
+     * its payee field names nobody. The same field {@link #extractMerchantLabel} shows; it is also
+     * what MerchantNormalizationEngine groups a new description by, because {@link #extractMerchant}
+     * keeps only the first four words and so drops a payee printed after a long prefix
+     * ("Payment from PhonePe_NAME").
+     */
+    public static String structuredPayee(String desc) {
+        if (desc == null || desc.isBlank()) return null;
+        java.util.Optional<String> structured = payeeOfStructuredNarration(desc);
+        return structured == null ? null : structured.orElse(null);
+    }
+
     // ---- Plan 5, task 1: the payee field of a structured narration -------------------------------
     //
     // Measured on the 33-document corpus: the name used to be the first four words of the

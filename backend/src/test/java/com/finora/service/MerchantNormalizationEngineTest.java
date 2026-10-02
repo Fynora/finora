@@ -220,6 +220,48 @@ class MerchantNormalizationEngineTest {
     }
 
     /**
+     * A narration that prints its payee in a field of its own, after a prefix long enough that
+     * extractMerchant's first four words never reach it. Every payee of this format reduced to
+     * the same words, so different people were one merchant; the payee field tells them apart.
+     */
+    @Test
+    @DisplayName("different payees behind one long structured prefix are different merchants")
+    void payeesAfterALongStructuredPrefixAreSeparate() {
+        Merchant alice = engine.resolve(userId, "UPI/RRN 000000000001/Payment from PhonePe_ALICE");
+        Merchant bob = engine.resolve(userId, "UPI/RRN 000000000002/Payment from PhonePe_BOBBY");
+        Merchant aliceAgain = engine.resolve(userId, "UPI/RRN 000000000003/Payment from PhonePe_ALICE");
+
+        assertThat(bob.getId()).isNotEqualTo(alice.getId());
+        assertThat(aliceAgain.getId())
+                .as("the same payee on another row is still one merchant")
+                .isEqualTo(alice.getId());
+        assertThat(alice.getCanonicalName())
+                .as("the merchant is named after the payee, the same name the grouping key is read from")
+                .isEqualTo("Alice");
+    }
+
+    @Test
+    @DisplayName("a seeded brand in a structured payee field still reaches the seeded merchant")
+    void seededBrandInAStructuredPayeeField() {
+        Merchant seeded = approvedMerchant("Swiggy");
+
+        assertThat(engine.resolve(userId, "UPI/RRN 000000000001/Payment from PhonePe_SWIGGY INSTAMART").getId())
+                .isEqualTo(seeded.getId());
+    }
+
+    @Test
+    @DisplayName("indexed and live resolution read the same payee field")
+    void indexedAndLiveResolutionReadTheSamePayeeField() {
+        Merchant alice = engine.resolve(userId, "UPI/RRN 000000000001/Payment from PhonePe_ALICE");
+        com.finora.imports.MerchantIndex index = engine.indexFor(userId);
+
+        assertThat(engine.resolveReadOnly(userId, "UPI/RRN 000000000009/Payment from PhonePe_ALICE", index)).contains(alice);
+        assertThat(engine.resolveReadOnly(userId, "UPI/RRN 000000000009/Payment from PhonePe_ALICE")).contains(alice);
+        assertThat(engine.resolveReadOnly(userId, "UPI/RRN 000000000009/Payment from PhonePe_BOBBY", index)).isEmpty();
+        assertThat(engine.resolveReadOnly(userId, "UPI/RRN 000000000009/Payment from PhonePe_BOBBY")).isEmpty();
+    }
+
+    /**
      * Why the one-word brand match is limited to APPROVED merchants. A TEMPORARY merchant the
      * engine created from a narration that reduced to one common word must not then absorb every
      * payee beginning with that word -- which is the pooling this key exists to stop.

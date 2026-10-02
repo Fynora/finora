@@ -736,10 +736,12 @@ public class CategorizationService {
      * "SIP" should always land in Investments, not whatever the keyword table's Other/default
      * fallback would have guessed).
      *
-     * Except where that category is the user's own: a GLOBAL MARK_INVESTMENT rule does not replace
-     * a category the user chose or one their own rule assigned, and when both a personal and a
-     * global MARK_INVESTMENT rule match, only the personal one applies -- the same "a user can
-     * always override a system default" precedence RuleEngineService gives ASSIGN_CATEGORY. See
+     * Except where that category is the user's own: no MARK_INVESTMENT rule replaces a category
+     * the user chose, a GLOBAL one does not replace one their own rule assigned, and when both a
+     * personal and a global MARK_INVESTMENT rule match, only the personal one applies -- the same
+     * "a user can always override a system default" precedence RuleEngineService gives
+     * ASSIGN_CATEGORY. When a MARK_INVESTMENT rule does set the category, it becomes the recorded
+     * decision (source, rule id, confidence) and the row leaves the review queue. See
      * {@link #investmentRuleToApply}. Measured before this guard: a global rule turned a category
      * the user had typed, and one their own rule had set, into "Investments", and beat their own
      * MARK_INVESTMENT rule, because every match was applied in turn and the global ones come last.
@@ -805,10 +807,19 @@ public class CategorizationService {
                     t.setReconciliationStatus(Transaction.ReconciliationStatus.TRANSFER);
                 }
                 case MARK_INVESTMENT -> {
-                    String categoryName = (rule.getActionValue() != null && !rule.getActionValue().isBlank())
-                            ? rule.getActionValue() : "Investments";
-                    newCategory = resolveOrCreateCategory(userId, categoryName);
+                    newCategory = resolveOrCreateCategory(userId, investmentCategoryName(rule));
                     t.setCategoryId(newCategory.getId());
+                    // The category now comes from this rule, so the decision record says so -- the
+                    // "why this category?" panel (TransactionExplanationService) and FlowClassifier
+                    // read it. Left as it was, a row a keyword or the AI guessed still claimed that
+                    // source, and one a user rule set named a rule that no longer decided it. A rule
+                    // decision is never an unconfirmed guess (isUnconfirmedGuess), so it leaves the
+                    // review queue the same way an ASSIGN_CATEGORY rule match never enters it.
+                    t.setDecisionSource(match.isUserScope()
+                            ? Transaction.DecisionSource.USER_RULE : Transaction.DecisionSource.GLOBAL_RULE);
+                    t.setDecisionRuleId(rule.getId());
+                    t.setDecisionConfidence(ConfidenceEngine.INITIAL_RULE_CONFIDENCE);
+                    t.setNeedsCategoryReview(false);
                 }
                 case ADD_TAG -> {
                     if (rule.getActionValue() != null && !rule.getActionValue().isBlank()) {
@@ -828,15 +839,25 @@ public class CategorizationService {
         return newCategory;
     }
 
+    /** The category a MARK_INVESTMENT rule files a transaction under: its action value, or
+     *  "Investments" when that is blank. Shared with TransactionExplanationService, which names
+     *  the category the deciding rule assigned. */
+    public static String investmentCategoryName(CategoryRule rule) {
+        String value = rule.getActionValue();
+        return value != null && !value.isBlank() ? value : "Investments";
+    }
+
     /**
      * The one MARK_INVESTMENT rule allowed to set this transaction's category, or null for none.
-     * The user's own highest-priority match wins outright. Otherwise the highest-priority global
-     * match applies, unless the category already there is the user's own -- chosen by them
-     * ({@code categoryManuallySet}, or a MANUAL decision) or assigned by one of their rules
-     * (USER_RULE). Chosen by scope rather than list position, so it does not depend on the caller
-     * passing a rule set in RuleEngineService.ruleSet's USER-then-GLOBAL order.
+     * A category the user chose ({@code categoryManuallySet}, or a MANUAL decision) is never
+     * replaced, not even by their own rule -- a choice made by hand is the most explicit decision
+     * there is. Otherwise the user's own highest-priority match wins outright, and failing that the
+     * highest-priority global match applies, unless one of the user's rules assigned the category
+     * already there (USER_RULE). Chosen by scope rather than list position, so it does not depend
+     * on the caller passing a rule set in RuleEngineService.ruleSet's USER-then-GLOBAL order.
      */
     private static CategoryRule investmentRuleToApply(List<RuleEngineService.RuleMatch> matches, Transaction t) {
+        if (t.isCategoryManuallySet() || t.getDecisionSource() == Transaction.DecisionSource.MANUAL) return null;
         CategoryRule firstGlobal = null;
         for (RuleEngineService.RuleMatch match : matches) {
             if (match.rule().getActionType() != CategoryRule.ActionType.MARK_INVESTMENT) continue;
@@ -844,10 +865,7 @@ public class CategorizationService {
             if (firstGlobal == null) firstGlobal = match.rule();
         }
         if (firstGlobal == null) return null;
-        boolean categoryIsUsersOwn = t.isCategoryManuallySet()
-                || t.getDecisionSource() == Transaction.DecisionSource.MANUAL
-                || t.getDecisionSource() == Transaction.DecisionSource.USER_RULE;
-        return categoryIsUsersOwn ? null : firstGlobal;
+        return t.getDecisionSource() == Transaction.DecisionSource.USER_RULE ? null : firstGlobal;
     }
 
     // categories.name is VARCHAR(80) NOT NULL (V1__init_schema.sql). ImportService's confirm path

@@ -16,6 +16,7 @@ import com.finora.repository.MerchantLearningEventRepository;
 import com.finora.repository.TransactionRepository;
 import com.finora.repository.UserRepository;
 import com.finora.transactions.TransactionDto;
+import com.finora.transactions.TransactionExplanationService;
 import com.finora.transactions.TransactionService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -39,7 +40,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * TransactionService.create: a global rule turned a category the user typed ("Groceries") and one
  * their own ASSIGN_CATEGORY rule set ("Dining") into "Investments", and replaced the category
  * their own MARK_INVESTMENT rule chose with the global rule's. The admin Global Rules page and
- * RuleEngineService both promise the opposite -- a user's own rules run first.
+ * RuleEngineService both promise the opposite -- a user's own rules run first. A category typed by
+ * hand is not replaced even by the user's own MARK_INVESTMENT rule, and when one of these rules
+ * does set the category it becomes the stored decision, which the "why this category?" panel reads.
  *
  * <p>Each test uses its own random description token, so the global rules it inserts match only
  * its own rows; they are deleted afterwards because category_rules is shared by every IT.
@@ -47,6 +50,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class InvestmentRulePrecedenceIT extends AbstractIntegrationTest {
 
     @Autowired private TransactionService transactionService;
+    @Autowired private TransactionExplanationService explanationService;
     @Autowired private ImportService importService;
     @Autowired private ImportSessionService importSessionService;
     @Autowired private AccountRepository accountRepository;
@@ -137,21 +141,47 @@ class InvestmentRulePrecedenceIT extends AbstractIntegrationTest {
     @Test
     void create_theUsersOwnInvestmentRule_beatsAGlobalOne() {
         Fixture f = fixture();
-        rule(f.userId(), CategoryRule.ActionType.MARK_INVESTMENT, "SIP Mine", f.token());
+        CategoryRule own = rule(f.userId(), CategoryRule.ActionType.MARK_INVESTMENT, "SIP Mine", f.token());
         CategoryRule global = rule(null, CategoryRule.ActionType.MARK_INVESTMENT, "SIP Global", f.token());
 
-        assertThat(create(f, null).categoryName()).isEqualTo("SIP Mine");
+        TransactionDto dto = create(f, null);
+        assertThat(dto.categoryName()).isEqualTo("SIP Mine");
+        Transaction stored = transactionRepository.findById(dto.id()).orElseThrow();
+        assertThat(stored.getDecisionSource()).isEqualTo(Transaction.DecisionSource.USER_RULE);
+        assertThat(stored.getDecisionRuleId()).isEqualTo(own.getId());
         // The global rule did nothing, so it neither created its category nor counted a match.
         assertThat(categoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc(f.userId(), "SIP Global")).isEmpty();
         assertThat(ruleRepository.findById(global.getId()).orElseThrow().getMatchCount()).isZero();
     }
 
     @Test
-    void create_aGlobalInvestmentRule_stillReplacesAnEngineGuess() {
+    void create_aGlobalInvestmentRule_stillReplacesAnEngineGuess_andBecomesTheRecordedDecision() {
         Fixture f = fixture();
-        rule(null, CategoryRule.ActionType.MARK_INVESTMENT, null, f.token());
+        CategoryRule global = rule(null, CategoryRule.ActionType.MARK_INVESTMENT, null, f.token());
 
-        assertThat(create(f, null).categoryName()).isEqualTo("Investments");
+        TransactionDto dto = create(f, null);
+
+        assertThat(dto.categoryName()).isEqualTo("Investments");
+        Transaction stored = transactionRepository.findById(dto.id()).orElseThrow();
+        assertThat(stored.getDecisionSource()).isEqualTo(Transaction.DecisionSource.GLOBAL_RULE);
+        assertThat(stored.getDecisionRuleId()).isEqualTo(global.getId());
+        assertThat(stored.isNeedsCategoryReview()).isFalse();
+        var why = explanationService.explain(f.userId(), dto.id());
+        assertThat(why.decisionSource()).isEqualTo("GLOBAL_RULE");
+        assertThat(why.summary()).endsWith("→ Investments.");
+    }
+
+    @Test
+    void create_theUsersOwnInvestmentRule_doesNotReplaceACategoryTheUserTyped() {
+        Fixture f = fixture();
+        CategoryRule own = rule(f.userId(), CategoryRule.ActionType.MARK_INVESTMENT, null, f.token());
+
+        TransactionDto dto = create(f, "Groceries");
+
+        assertThat(dto.categoryName()).isEqualTo("Groceries");
+        Transaction stored = transactionRepository.findById(dto.id()).orElseThrow();
+        assertThat(stored.getDecisionSource()).isEqualTo(Transaction.DecisionSource.MANUAL);
+        assertThat(ruleRepository.findById(own.getId()).orElseThrow().getMatchCount()).isZero();
     }
 
     @Test
@@ -207,6 +237,13 @@ class InvestmentRulePrecedenceIT extends AbstractIntegrationTest {
         assertThat(categoryOf(rows, f, " A")).isEqualTo("Dining");
         assertThat(categoryOf(rows, f, " B")).isEqualTo("Groceries");
         assertThat(categoryOf(rows, f, " C")).isEqualTo("Investments");
+        Transaction guessedRow = rows.stream().filter(r -> ("SIP " + f.token() + " C").equals(r.getDescription()))
+                .findFirst().orElseThrow();
+        assertThat(guessedRow.getDecisionSource()).isEqualTo(Transaction.DecisionSource.GLOBAL_RULE);
+        Transaction ownRuleRow = rows.stream().filter(r -> ("SIP " + f.token() + " A").equals(r.getDescription()))
+                .findFirst().orElseThrow();
+        assertThat(ownRuleRow.getDecisionSource()).isEqualTo(Transaction.DecisionSource.USER_RULE);
+        assertThat(ownRuleRow.getDecisionRuleId()).isEqualTo(own.getId());
     }
 
     private String categoryOf(List<Transaction> rows, Fixture f, String suffix) {

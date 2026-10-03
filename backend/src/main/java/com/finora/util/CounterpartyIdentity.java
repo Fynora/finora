@@ -400,7 +400,7 @@ public final class CounterpartyIdentity {
             if (!afterSeparator) break;
         }
         // In a "/"-separated narration a hyphen inside the field is part of the id
-        // ("/goog-payments@axisb", "/gpay-11111111801@okbizaxis"): stopping at it keyed on the tail
+        // ("/shop-payments@zzbnk", "/gpay-11111111801@okbizaxis"): stopping at it keyed on the tail
         // ("vpa:payments"), which other payees' ids end in too. Only when everything back to the "/"
         // is id characters -- a field holding a name has spaces and is not joined.
         if (i >= 2 && d.charAt(i - 1) == '-') {

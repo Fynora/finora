@@ -61,7 +61,7 @@ export function QuickSortCard() {
   if (!batch || !startTotal) return null;
 
   const current: QuickSortQuestion | undefined = batch.questions[index];
-  const sortedPct = startTotal && startTotal > 0
+  const sortedPct = startTotal > 0
     ? Math.max(0, Math.min(100, Math.floor(((startTotal - batch.waitingTotal + answeredInBatch) / startTotal) * 100)))
     : 0;
 

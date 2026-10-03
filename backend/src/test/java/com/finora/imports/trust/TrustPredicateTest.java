@@ -254,6 +254,44 @@ class TrustPredicateTest {
         assertThat(decision.categories()).containsExactly(TrustPredicate.Category.DESCRIPTION_CORRUPTION);
     }
 
+    // ------------------------------------------- condition 8: card rows disagree with the summary
+
+    /** Sid's decision (2026-10-02): a card statement is held when its own rows, summed by direction,
+     *  disagree with the purchases and payments its summary panel printed -- the rows are what
+     *  reach the ledger, so a disagreement there is evidence a transaction is wrong or missing. */
+    @Test
+    void holdsWhenACardStatementsRowsDisagreeWithItsPrintedTotals() {
+        HoldDecision decision = TrustPredicate.evaluate(
+                List.of(report(new ImportDto.VerificationFinding(
+                        "CREDIT_CARD_FLOW_RECONCILIATION", "WARNING", Map.of()))),
+                List.of(), TODAY);
+
+        assertThat(decision.hold()).isTrue();
+        assertThat(decision.categories()).containsExactly(TrustPredicate.Category.CARD_ROWS_DISAGREE_WITH_SUMMARY);
+        assertThat(decision.summary()).contains("purchases");
+    }
+
+    @Test
+    void doesNotHoldWhenACardStatementsRowsAgreeOrCannotBeChecked() {
+        for (String outcome : List.of("VERIFIED", "NOT_APPLICABLE")) {
+            assertThat(TrustPredicate.evaluate(
+                    List.of(report(new ImportDto.VerificationFinding(
+                            "CREDIT_CARD_FLOW_RECONCILIATION", outcome, Map.of()))),
+                    List.of(), TODAY).hold()).as(outcome).isFalse();
+        }
+    }
+
+    /** The summary disagreeing with ITSELF (previous balance + purchases - payments != total due)
+     *  says nothing about the rows that reach the ledger, so on its own it never holds. */
+    @Test
+    void doesNotHoldWhenOnlyTheCardSummaryDisagreesWithItself() {
+        assertThat(TrustPredicate.evaluate(
+                List.of(report(
+                        new ImportDto.VerificationFinding("CREDIT_CARD_STATEMENT_TOTALS", "WARNING", Map.of()),
+                        new ImportDto.VerificationFinding("CREDIT_CARD_FLOW_RECONCILIATION", "VERIFIED", Map.of()))),
+                List.of(), TODAY).hold()).isFalse();
+    }
+
     // ------------------------------------------------------------------ explicit non-conditions
 
     /** OCR provenance, duplicates and missing account metadata remain deliberately excluded after

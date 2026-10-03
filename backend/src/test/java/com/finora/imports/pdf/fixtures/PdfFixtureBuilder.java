@@ -788,6 +788,73 @@ public final class PdfFixtureBuilder {
         return render(List.of(page));
     }
 
+    /**
+     * A composite statement: a savings ledger and a credit card, with the card's full billing
+     * summary printed once for the document. The card's rows reconcile with that summary (2,000.00
+     * previous + 1,150.00 purchases - 500.00 paid = 2,650.00 due); the savings ledger's rows have
+     * nothing to do with it. Invented figures.
+     */
+    public static byte[] buildSavingsAndCardWithCardSummarySample() throws IOException {
+        float[] summaryCol = {LEFT_MARGIN, 250f};
+        float[] ledgerCol = {LEFT_MARGIN, 130f, 300f, 380f, 460f};
+        float[] cardCol = {LEFT_MARGIN, 110f, 350f};
+        PageBuilder page = new PageBuilder();
+        page.line("Relationship Statement")
+                .line("Credit Card Statement Summary")
+                .row(summaryCol, "Previous Balance", "2,000.00")
+                .row(summaryCol, "Purchases", "1,150.00")
+                .row(summaryCol, "Payments / Credits", "500.00")
+                .row(summaryCol, "Total Amount Due", "2,650.00")
+                .line("Minimum Amount Due 132.50")
+                .blankLine()
+                .line("SAVINGS ACCOUNT  - 10000000000001")
+                .row(ledgerCol, "Date", "Narration", "Withdrawal", "Deposit", "Balance")
+                .row(ledgerCol, "01/06/2026", "Opening Balance", null, null, "7,277.40")
+                .row(ledgerCol, "05/06/2026", "UPI SAMPLE GROCER", "200.00", null, "7,077.40")
+                .row(ledgerCol, "12/06/2026", "SALARY SAMPLE EMPLOYER", null, "1,000.00", "8,077.40")
+                .blankLine()
+                .line("CREDIT CARD  - 123456******7890")
+                .row(cardCol, "DATE", "TRANSACTION DETAILS", "AMOUNT (Rs.)")
+                .row(cardCol, "05/06/2026", "Sample Merchant Purchase", "1,000.00 Dr")
+                .row(cardCol, "12/06/2026", "Payment Received Thank You", "500.00 Cr")
+                .row(cardCol, "24/06/2026", "Sample Store Purchase", "150.00 Dr");
+        return render(List.of(page));
+    }
+
+    /**
+     * {@link #buildCardGridWithSavingsAndUnclassifiedTablesSample} with the card's billing summary
+     * printed too, after the last table: 1,000.00 previous + 2,057.02 purchases - 0.00 paid = 3,057.02 due, which the
+     * unclassified table's two rows carry exactly. Invented figures.
+     */
+    public static byte[] buildCardSummaryWithSavingsAndOneUnclassifiedTableSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 130f, 300f, 380f, 460f};
+        float[] gridCol = {LEFT_MARGIN, 200f, 300f, 430f};
+        float[] summaryCol = {LEFT_MARGIN, 250f};
+        float[] plainCol = {LEFT_MARGIN, 150f, 470f};
+        PageBuilder page = new PageBuilder();
+        page.line("Relationship Summary")
+                .row(gridCol, "Credit Card Number", "Credit Limit", "Available Credit Limit", "Available Cash Limit")
+                .row(gridCol, "123456******7890", "30,000.00", "25,000.00", "5,000.00")
+                .line("Payment Due Date : 20/07/2026")
+                .blankLine()
+                .line("SAVINGS ACCOUNT  - 10000000000001")
+                .row(col, "Date", "Narration", "Withdrawal", "Deposit", "Balance")
+                .row(col, "01/06/2026", "Opening Balance", null, null, "7,277.40")
+                .row(col, "05/06/2026", "UPI SAMPLE GROCER", "200.00", null, "7,077.40")
+                .row(col, "12/06/2026", "SALARY SAMPLE EMPLOYER", null, "1,000.00", "8,077.40")
+                .blankLine()
+                .line("OTHER FACILITY  - 20000000000002")
+                .row(plainCol, "Date", "Details", "Amount")
+                .row(plainCol, "15/06/2026", "SAMPLE RETAILER ONE", "1,817.02")
+                .row(plainCol, "18/06/2026", "SAMPLE RETAILER TWO", "240.00")
+                .blankLine()
+                .row(summaryCol, "Previous Balance", "1,000.00")
+                .row(summaryCol, "Purchases", "2,057.02")
+                .row(summaryCol, "Payments / Credits", "0.00")
+                .row(summaryCol, "Total Amount Due", "3,057.02");
+        return render(List.of(page));
+    }
+
     /** The savings-with-card-grid document again, but the ledger's own banner prints no account
      *  number -- the only shape on which a section could borrow the grid's card number. */
     public static byte[] buildSavingsLedgerWithoutOwnNumberBesideCardGridSample() throws IOException {

@@ -36,7 +36,9 @@ import java.util.TreeSet;
  *   <li>{@link Reason#NEW_LAYOUT} -- the registry had no row for this fingerprint.</li>
  *   <li>{@code VERIFICATION_NOT_PASSED:<RULE>} -- a verification rule reported WARNING or FAILED.
  *       One reason per rule, so acknowledging a layout's routine totals warning (two real Axis
- *       statements always print one) never silences a later balance-chain failure on it.</li>
+ *       statements always print one) never silences a later balance-chain failure on it. A card
+ *       summary disagreeing with itself is left out when the rows agree with it -- see
+ *       {@link #rulesNotPassed}.</li>
  *   <li>{@link Reason#BLANK_DESCRIPTIONS} -- more than half the staged rows have no description,
  *       the Kotak symptom. Half, not "any": a genuine statement can carry the odd blank narration
  *       (a reversal line, a bare charge), and flagging every such file would bury the real ones.</li>
@@ -135,14 +137,26 @@ public class LayoutReviewService {
                 || api.getCode() == com.finora.exception.ErrorCode.IMPORT_NO_TRANSACTIONS_FOUND;
     }
 
-    /** The rules that reported WARNING or FAILED in any section, by name. */
+    /**
+     * The rules that reported WARNING or FAILED in any section, by name -- except a card summary
+     * disagreeing with itself ({@link CreditCardStatementTotalsValidator}) in a section whose rows
+     * agree with that summary's purchases and payments ({@link CreditCardFlowReconciliationValidator}
+     * VERIFIED). Sid's decision (2026-10-02): the rows are what reach the ledger, the import went
+     * through, and calling it "needs review" was wrong. Judged per section: one section agreeing
+     * says nothing about another.
+     */
     static Set<String> rulesNotPassed(List<VerificationReport> reports) {
         Set<String> rules = new TreeSet<>();
         if (reports == null) return rules;
-        reports.stream().filter(Objects::nonNull)
-                .flatMap(r -> r.findings() == null ? java.util.stream.Stream.empty() : r.findings().stream())
-                .filter(f -> "WARNING".equals(f.outcome()) || "FAILED".equals(f.outcome()))
-                .forEach(f -> rules.add(f.rule() == null ? "UNKNOWN_RULE" : f.rule()));
+        for (VerificationReport report : reports) {
+            if (report == null || report.findings() == null) continue;
+            boolean cardRowsAgree = report.findings().stream().filter(Objects::nonNull).anyMatch(f ->
+                    CreditCardFlowReconciliationValidator.RULE.equals(f.rule()) && "VERIFIED".equals(f.outcome()));
+            report.findings().stream().filter(Objects::nonNull)
+                    .filter(f -> "WARNING".equals(f.outcome()) || "FAILED".equals(f.outcome()))
+                    .filter(f -> !(cardRowsAgree && CreditCardStatementTotalsValidator.RULE.equals(f.rule())))
+                    .forEach(f -> rules.add(f.rule() == null ? "UNKNOWN_RULE" : f.rule()));
+        }
         return rules;
     }
 

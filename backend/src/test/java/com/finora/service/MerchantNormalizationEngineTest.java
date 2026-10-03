@@ -220,6 +220,97 @@ class MerchantNormalizationEngineTest {
     }
 
     /**
+     * A narration that prints its payee in a field of its own, after a prefix long enough that
+     * extractMerchant's first four words never reach it. Every payee of this format reduced to
+     * the same words, so different people were one merchant; the payee field tells them apart.
+     */
+    @Test
+    @DisplayName("different payees behind one long structured prefix are different merchants")
+    void payeesAfterALongStructuredPrefixAreSeparate() {
+        Merchant alice = engine.resolve(userId, "UPI/RRN 000000000001/Payment from PhonePe_ALICE");
+        Merchant bob = engine.resolve(userId, "UPI/RRN 000000000002/Payment from PhonePe_BOBBY");
+        Merchant aliceAgain = engine.resolve(userId, "UPI/RRN 000000000003/Payment from PhonePe_ALICE");
+
+        assertThat(bob.getId()).isNotEqualTo(alice.getId());
+        assertThat(aliceAgain.getId())
+                .as("the same payee on another row is still one merchant")
+                .isEqualTo(alice.getId());
+        assertThat(alice.getCanonicalName())
+                .as("the merchant is named after the payee, the same name the grouping key is read from")
+                .isEqualTo("Alice");
+    }
+
+    @Test
+    @DisplayName("a seeded brand in a structured payee field still reaches the seeded merchant")
+    void seededBrandInAStructuredPayeeField() {
+        Merchant seeded = approvedMerchant("Swiggy");
+
+        assertThat(engine.resolve(userId, "UPI/RRN 000000000001/Payment from PhonePe_SWIGGY INSTAMART").getId())
+                .isEqualTo(seeded.getId());
+    }
+
+    @Test
+    @DisplayName("indexed and live resolution read the same payee field")
+    void indexedAndLiveResolutionReadTheSamePayeeField() {
+        Merchant alice = engine.resolve(userId, "UPI/RRN 000000000001/Payment from PhonePe_ALICE");
+        com.finora.imports.MerchantIndex index = engine.indexFor(userId);
+
+        assertThat(engine.resolveReadOnly(userId, "UPI/RRN 000000000009/Payment from PhonePe_ALICE", index)).contains(alice);
+        assertThat(engine.resolveReadOnly(userId, "UPI/RRN 000000000009/Payment from PhonePe_ALICE")).contains(alice);
+        assertThat(engine.resolveReadOnly(userId, "UPI/RRN 000000000009/Payment from PhonePe_BOBBY", index)).isEmpty();
+        assertThat(engine.resolveReadOnly(userId, "UPI/RRN 000000000009/Payment from PhonePe_BOBBY")).isEmpty();
+    }
+
+    /**
+     * A narration that names only a merchant QR handle reduces, digits stripped, to the payment
+     * app's own suffix. Keyed on that, every QR payee on a statement was one merchant.
+     */
+    @Test
+    @DisplayName("payees known only by a payment app's QR handle are not grouped by the app's name")
+    void qrHandleOnlyPayeesAreNotGroupedByTheAppName() {
+        Merchant a = engine.resolve(userId, "UPI/000000000001/00:41:30/UPI/q000000001@ybl/UPI");
+        Merchant b = engine.resolve(userId, "UPI/000000000002/16:52:50/UPI/q000000002@ybl/UPI");
+
+        assertThat(b.getId()).isNotEqualTo(a.getId());
+    }
+
+    /** The cross-statement case measured on the corpus: refunds from different shops paid back
+     *  through a payment gateway name only the gateway, and one of them taught a category the
+     *  others then inherited. */
+    @Test
+    @DisplayName("a gateway-only narration does not join another gateway-only narration's merchant")
+    void gatewayOnlyNarrationsAreNotGrouped() {
+        Merchant first = engine.resolve(userId,
+                "UPI-RAZORPAY-GATEWAY.RAZORPAY@EXAMPLEBANK-EXMP0000000-000000000001-SHOPAREFUNDXXXX");
+        Merchant second = engine.resolve(userId,
+                "UPI-RAZORPAY-GATEWAY.RAZORPAY@EXAMPLEBANK-EXMP0000000-000000000002-SHOPBREFUNDXXXX");
+
+        assertThat(second.getId()).isNotEqualTo(first.getId());
+        assertThat(engine.resolveReadOnly(userId,
+                "UPI-RAZORPAY-GATEWAY.RAZORPAY@EXAMPLEBANK-EXMP0000000-000000000003-SHOPCREFUNDXXXX")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a key that pairs a payment app's name with a real word still groups")
+    void appWordBesideARealWordStillGroups() {
+        Merchant a = engine.resolve(userId, "PAYTM MALL ORDER 4471");
+        Merchant b = engine.resolve(userId, "PAYTM MALL ORDER 5512");
+
+        assertThat(b.getId()).isEqualTo(a.getId());
+    }
+
+    /** A structured narration whose payee field names nobody keeps the pre-existing behaviour:
+     *  nothing but rails and a reference, so no key and no grouping. */
+    @Test
+    @DisplayName("a structured narration naming no payee groups exactly as before")
+    void structuredNarrationWithoutAPayeeFallsBack() {
+        Merchant a = engine.resolve(userId, "UPI/RRN 000000000001/UPI");
+        Merchant b = engine.resolve(userId, "UPI/RRN 000000000002/UPI");
+
+        assertThat(b.getId()).isNotEqualTo(a.getId());
+    }
+
+    /**
      * Why the one-word brand match is limited to APPROVED merchants. A TEMPORARY merchant the
      * engine created from a narration that reduced to one common word must not then absorb every
      * payee beginning with that word -- which is the pooling this key exists to stop.

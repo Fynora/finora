@@ -2,6 +2,7 @@ package com.finora.dto;
 
 import com.finora.entity.ChatConversation;
 import com.finora.entity.ChatMessage;
+import com.finora.entity.FeatureViewCount;
 import com.finora.entity.HealthScoreSnapshot;
 import com.finora.entity.NetWorthSnapshot;
 import com.finora.entity.Merchant;
@@ -216,6 +217,14 @@ public final class DataExportDto {
     public record RecurringDismissalExportDto(String merchant, Instant dismissedAt) {
         public static RecurringDismissalExportDto from(RecurringDismissal d) {
             return new RecurringDismissalExportDto(d.getMerchant(), d.getDismissedAt());
+        }
+    }
+
+    /** One per-feature view counter (V171) -- the running count behind the Billing page's usage
+     *  tile. No {@code id} field: the row's surrogate key means nothing outside this database. */
+    public record FeatureViewExportDto(String feature, int viewCount, Instant lastViewedAt) {
+        public static FeatureViewExportDto from(FeatureViewCount f) {
+            return new FeatureViewExportDto(f.getFeature(), f.getViewCount(), f.getLastViewedAt());
         }
     }
 

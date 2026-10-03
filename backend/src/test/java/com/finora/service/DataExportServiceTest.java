@@ -21,6 +21,7 @@ import com.finora.entity.Merchant;
 import com.finora.entity.NetWorthSnapshot;
 import com.finora.entity.Plan;
 import com.finora.entity.PlanChange;
+import com.finora.entity.FeatureViewCount;
 import com.finora.entity.RecurringDismissal;
 import com.finora.entity.Subscription;
 import com.finora.entity.SupportTicket;
@@ -58,6 +59,7 @@ import com.finora.repository.MerchantRepository;
 import com.finora.repository.NetWorthSnapshotRepository;
 import com.finora.repository.PlanChangeRepository;
 import com.finora.repository.PlanRepository;
+import com.finora.repository.FeatureViewCountRepository;
 import com.finora.repository.RecurringDismissalRepository;
 import com.finora.repository.StatementImportRepository;
 import com.finora.repository.SubscriptionRepository;
@@ -150,6 +152,7 @@ class DataExportServiceTest {
     private RecurringDismissalRepository recurringDismissalRepository;
     private AccountAggregatorLinkRepository accountAggregatorLinkRepository;
     private UserMerchantCategoryResolutionRepository userMerchantCategoryResolutionRepository;
+    private FeatureViewCountRepository featureViewCountRepository;
     private DataExportService service;
     private final UUID userId = UUID.randomUUID();
 
@@ -193,6 +196,7 @@ class DataExportServiceTest {
         recurringDismissalRepository = mock(RecurringDismissalRepository.class);
         accountAggregatorLinkRepository = mock(AccountAggregatorLinkRepository.class);
         userMerchantCategoryResolutionRepository = mock(UserMerchantCategoryResolutionRepository.class);
+        featureViewCountRepository = mock(FeatureViewCountRepository.class);
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.registerModule(new JavaTimeModule());
 
@@ -232,6 +236,7 @@ class DataExportServiceTest {
         when(recurringDismissalRepository.findByUserId(any())).thenReturn(java.util.Set.of());
         when(accountAggregatorLinkRepository.findByUserId(any())).thenReturn(List.of());
         when(userMerchantCategoryResolutionRepository.findAllByUserId(any())).thenReturn(List.of());
+        when(featureViewCountRepository.findByUserIdOrderByFeatureAsc(any())).thenReturn(List.of());
         inflowKindRepository = mock(com.finora.repository.InflowKindRepository.class);
         senderInflowRuleRepository = mock(com.finora.repository.SenderInflowRuleRepository.class);
 
@@ -250,7 +255,7 @@ class DataExportServiceTest {
                 userFinancialFocusRepository, userChecklistEventRepository, recurringDismissalRepository,
                 accountAggregatorLinkRepository, userMerchantCategoryResolutionRepository,
                 inflowKindRepository, senderInflowRuleRepository, objectMapper,
-                mock(com.finora.repository.StatementPasswordRepository.class));
+                mock(com.finora.repository.StatementPasswordRepository.class), featureViewCountRepository);
     }
 
     private User user() {
@@ -285,7 +290,7 @@ class DataExportServiceTest {
                 chatConversationRepository, chatMessageRepository, healthScoreSnapshotRepository,
                 userFinancialFocusRepository, userChecklistEventRepository, recurringDismissalRepository,
                 accountAggregatorLinkRepository, userMerchantCategoryResolutionRepository,
-                inflowKindRepository, senderInflowRuleRepository);
+                inflowKindRepository, senderInflowRuleRepository, featureViewCountRepository);
     }
 
     @Test
@@ -1079,7 +1084,9 @@ class DataExportServiceTest {
                 // this manifest -- the export gave no indication they existed at all.
                 "fyn_chat_conversations.json", "fyn_chat_messages.json", "health_score_history.json",
                 "financial_focus.json", "onboarding_checklist.json", "recurring_dismissals.json",
-                "account_aggregator_links.json", "merchant_category_corrections.json");
+                "account_aggregator_links.json", "merchant_category_corrections.json",
+                // Was in AccountPurgeSweepService's purge scope with no manifest entry either way.
+                "feature_views.json");
         // manifest.json/README.txt describe the archive itself, not one more table in it.
         assertThat(includedNames).doesNotContain("manifest.json", "README.txt");
 
@@ -1178,6 +1185,49 @@ class DataExportServiceTest {
 
         assertThat(bundle.recurringDismissals()).hasSize(1);
         assertThat(bundle.recurringDismissals().get(0).merchant()).isEqualTo("Netflix");
+    }
+
+    /** feature_views.json -- V171's per-feature view counters, in AccountPurgeSweepService's purge
+     *  scope but previously neither exported nor listed as excluded. Asserts the written ZIP entry
+     *  itself and its manifest entry, not just the in-memory bundle. */
+    @Test
+    void writeZip_includesFeatureViewsEntryAndManifestEntry() throws IOException {
+        FeatureViewCount insights = new FeatureViewCount();
+        ReflectionTestUtils.setField(insights, "id", UUID.randomUUID());
+        ReflectionTestUtils.setField(insights, "userId", userId);
+        ReflectionTestUtils.setField(insights, "feature", "INSIGHTS");
+        ReflectionTestUtils.setField(insights, "viewCount", 7);
+        Instant lastViewedAt = Instant.parse("2026-09-30T10:15:30Z");
+        ReflectionTestUtils.setField(insights, "lastViewedAt", lastViewedAt);
+        when(featureViewCountRepository.findByUserIdOrderByFeatureAsc(userId)).thenReturn(List.of(insights));
+
+        DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
+        Map<String, byte[]> entries = writeZipAndReadEntries(bundle);
+
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.registerModule(new JavaTimeModule());
+        JsonNode featureViews = mapper.readTree(entries.get("feature_views.json"));
+        assertThat(featureViews.isArray()).isTrue();
+        assertThat(featureViews).hasSize(1);
+        JsonNode row = featureViews.get(0);
+        assertThat(row.get("feature").asText()).isEqualTo("INSIGHTS");
+        assertThat(row.get("viewCount").asInt()).isEqualTo(7);
+        assertThat(mapper.treeToValue(row.get("lastViewedAt"), Instant.class)).isEqualTo(lastViewedAt);
+        // The row's surrogate key and owner id are not exported.
+        assertThat(row.has("id")).isFalse();
+        assertThat(row.has("userId")).isFalse();
+
+        JsonNode manifest = mapper.readTree(entries.get("manifest.json"));
+        List<JsonNode> featureViewEntries = new ArrayList<>();
+        manifest.get("included").forEach(n -> {
+            if (n.get("name").asText().equals("feature_views.json")) featureViewEntries.add(n);
+        });
+        assertThat(featureViewEntries).hasSize(1);
+        assertThat(featureViewEntries.get(0).get("rowCount").asInt()).isEqualTo(1);
+        assertThat(featureViewEntries.get(0).get("description").asText()).isNotBlank();
+        List<String> excludedNames = new ArrayList<>();
+        manifest.get("excluded").forEach(n -> excludedNames.add(n.get("name").asText()));
+        assertThat(excludedNames).noneSatisfy(n -> assertThat(n).contains("feature_view"));
     }
 
     /** F-03 fix. account_aggregator_links.json -- confirms the three internal-only fields

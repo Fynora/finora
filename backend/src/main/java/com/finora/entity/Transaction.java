@@ -128,6 +128,11 @@ public class Transaction extends BaseEntity {
     @Column(name = "suggestion_version", nullable = false)
     private short suggestionVersion = 0;
 
+    /** When the user answered this row in Quick sort (QuickSortService.answer). Lets the usage
+     *  counters tell an answer the user later changed from any other edit. */
+    @Column(name = "quick_sorted_at")
+    private java.time.Instant quickSortedAt;
+
     @Column(name = "payment_method")
     private String paymentMethod;
 
@@ -396,6 +401,9 @@ public class Transaction extends BaseEntity {
 
     public short getSuggestionVersion() { return suggestionVersion; }
     public void setSuggestionVersion(short suggestionVersion) { this.suggestionVersion = suggestionVersion; }
+
+    public java.time.Instant getQuickSortedAt() { return quickSortedAt; }
+    public void setQuickSortedAt(java.time.Instant quickSortedAt) { this.quickSortedAt = quickSortedAt; }
 
     /**
      * Sets all three counterparty columns from a narration, and is the ONLY way any live write path

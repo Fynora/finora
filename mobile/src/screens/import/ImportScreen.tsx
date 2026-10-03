@@ -8,6 +8,7 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '../../components/Button';
+import { QuickSortCta } from '../../components/QuickSortCta';
 import { Card, SectionHeading } from '../../components/Card';
 import { ImportProgressCard } from '../../components/ImportProgressCard';
 import { OptionPickerModal } from '../../components/OptionPickerModal';
@@ -1106,6 +1107,12 @@ export function ImportScreen() {
               </View>
             ) : null}
             <View style={styles.actions}>
+              <QuickSortCta
+                onPress={() => {
+                  trackNavigation('review-categories', 'contextual');
+                  navigation.navigate('More', { screen: 'CategoryReview' });
+                }}
+              />
               <Button label="Import another" onPress={resetToUpload} />
               {/* Track C/C6. Depended on C4's Ledger filters existing at all -- without them this
                   would land on the whole, unfiltered ledger, no more useful than the Transactions

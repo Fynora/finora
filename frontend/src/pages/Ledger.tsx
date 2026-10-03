@@ -17,6 +17,7 @@ import { CategoryCombobox } from '../components/CategoryCombobox';
 import { CategoryCreateEditPanel } from '../components/CategoryCreateEditPanel';
 import { MerchantGroupReviewCard } from '../components/MerchantGroupReviewCard';
 import { CounterpartyGroupReviewCard } from '../components/CounterpartyGroupReviewCard';
+import { QuickSortCard } from '../components/QuickSortCard';
 import { MerchantLogo } from '../components/MerchantLogo';
 import { BankLogo } from '../components/BankLogo';
 import type { Transaction } from '../types';
@@ -263,6 +264,7 @@ export default function Ledger() {
   // just navigating to an empty ledger.
   const [searchParams] = useSearchParams();
   const [filters, setFilters] = useState<TransactionFilters>({ page: 0, size: 10, sortField: 'date', sortDir: 'desc' });
+  const [showAllWaiting, setShowAllWaiting] = useState(false);
   const [keywordInput, setKeywordInput] = useState(() => searchParams.get('q') ?? '');
   const debouncedKeyword = useDebouncedValue(keywordInput, 300);
   const queryClient = useQueryClient();
@@ -594,9 +596,26 @@ export default function Ledger() {
         </div>
       )}
 
-      <MerchantGroupReviewCard />
-      <CounterpartyGroupReviewCard />
-      <AskOnceCard />
+      {/* Quick sort first: a few payee questions, biggest money first. The full per-row review
+          lists stay one click away, so nothing waiting becomes unreachable. */}
+      <QuickSortCard />
+      <div>
+        <button
+          type="button"
+          className="text-sm text-muted underline"
+          aria-expanded={showAllWaiting}
+          onClick={() => setShowAllWaiting((v) => !v)}
+        >
+          {showAllWaiting ? 'Hide waiting payments' : 'See all waiting payments'}
+        </button>
+      </div>
+      {showAllWaiting && (
+        <>
+          <MerchantGroupReviewCard />
+          <CounterpartyGroupReviewCard />
+          <AskOnceCard />
+        </>
+      )}
 
       {error && <p className="text-danger text-sm">{error}</p>}
 

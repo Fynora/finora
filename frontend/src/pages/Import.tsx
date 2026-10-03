@@ -40,6 +40,7 @@ import {
 import { estimateOpeningBalanceFromTotalDue, toNewAccountPayload } from '../lib/newAccountPayload';
 import { isHeld } from '../lib/importJob';
 import { Button, ConfirmDialog, IconButton, FinoraCard, useDialogA11y } from '../design-system';
+import { QuickSortCta } from '../components/QuickSortCta';
 import type { ImportNavState } from '../lib/importNavState';
 import { useAuth } from '../context/AuthContext';
 import type { Account, AccountStatementGroup, DetectedAccountInfo, VerificationReport, ImportSummary, StagedAccountSection, StagedRow, SupersedeResult, UnparseableRow } from '../types';
@@ -2564,8 +2565,9 @@ function ImportSummaryScreen({
 
       <StatementWarnings summary={summary} />
 
-      <div className="flex gap-3">
-        <Button onClick={onDone}>Go to Dashboard</Button>
+      <div className="flex flex-wrap gap-3">
+        <QuickSortCta />
+        <Button variant="secondary" onClick={onDone}>Go to Dashboard</Button>
         <Button variant="secondary" onClick={onImportAnother}>Import another statement</Button>
       </div>
     </div>
@@ -2647,8 +2649,9 @@ function MultiImportSummaryScreen({
         </p>
       )}
 
-      <div className="flex gap-3">
-        <Button onClick={onDone}>Go to Dashboard</Button>
+      <div className="flex flex-wrap gap-3">
+        <QuickSortCta />
+        <Button variant="secondary" onClick={onDone}>Go to Dashboard</Button>
         <Button variant="secondary" onClick={onImportAnother}>Import another statement</Button>
       </div>
     </div>

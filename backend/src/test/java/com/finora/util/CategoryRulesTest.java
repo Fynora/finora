@@ -561,7 +561,7 @@ class CategoryRulesTest {
 
     @Test
     void suggestCategory_aPaymentsAppBillPaymentIdIsUtilities() {
-        assertThat(CategoryRules.suggestCategory("UPI/DR/900011112206/Google I/UTIB/gpay-utility@ok/")) // synthetic-ok
+        assertThat(CategoryRules.suggestCategory("UPI/DR/900011112206/Google I/UTIB/gpay-utility@zz/")) // synthetic-ok
                 .isEqualTo("Utilities");
     }
 

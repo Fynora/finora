@@ -203,6 +203,21 @@ class QuickSortServiceTest {
     }
 
     @Test
+    void aGuessWhoseCategoryIsGoneIsAskedAsAShop() {
+        // A guess pointing at a category the user deleted has no name to show: "Fynora thinks:"
+        // with nothing after it. Asked as a plain shop question instead.
+        Transaction t = shop("vpa:a", 100);
+        t.setDecisionSource(Transaction.DecisionSource.SHARED_CORPUS);
+        t.setCategoryId(UUID.randomUUID());
+
+        QuickSortDto.Question q = service.batch(userId, 0).questions().get(0);
+
+        assertThat(q.kind()).isEqualTo(QuickSortDto.Kind.SHOP);
+        assertThat(q.currentCategory()).isNull();
+        assertThat(q.answers()).containsExactly("Groceries", "Dining", "Shopping", "Transport", "Health");
+    }
+
+    @Test
     void incomeIsMoneyIn() {
         Transaction t = shop("vpa:a", 100);
         t.setTxnType(Transaction.Type.INCOME);

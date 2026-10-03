@@ -55,7 +55,9 @@ public final class QuickSortDto {
                                 @jakarta.validation.constraints.NotBlank String category,
                                 @jakarta.validation.constraints.NotNull Kind kind) {}
 
-    /** @param filed how many waiting rows the answer filed */
+    /** @param filed how many of the payee's rows the answer filed: the anchor, and for a key that names
+     *               one payee every other row of it the user had not chosen by hand (waiting or not,
+     *               as "apply to all similar" does) */
     public record AnswerResult(int filed) {}
 
     /** "Stop asking about these": the rest's ids from the batch. Capped so one request stays bounded. */

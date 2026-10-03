@@ -155,8 +155,11 @@ public class QuickSortService {
     private QuickSortDto.Question question(UUID userId, Group g, Map<UUID, String> categoryNames,
                                            Map<String, List<String>> ownChoices) {
         Transaction anchor = g.rows.get(0);
-        QuickSortDto.Kind kind = kindOf(anchor);
         String current = categoryNames.get(anchor.getCategoryId());
+        QuickSortDto.Kind kind = kindOf(anchor);
+        // A guess whose category the user has since deleted has nothing to show after "Fynora
+        // thinks:"; asked as a plain shop question instead.
+        if (kind == QuickSortDto.Kind.GUESS && current == null) kind = QuickSortDto.Kind.SHOP;
 
         Set<String> answers = new LinkedHashSet<>();
         if (kind == QuickSortDto.Kind.GUESS && current != null) answers.add(current);

@@ -26,6 +26,7 @@ class IncomeSingleEntryPointTest {
             "AccountBalanceConvention.java",               // the sign of a balance change
             "AccountAggregatorTransactionDiffService.java", // mapping an AA credit/debit onto direction
             "BankActivityCategory.java",                   // a category LABEL from words + direction, never a total
+            "QuickSortService.java",                       // a question's wording (money in vs paid out), never a total
             "Transaction.java");                           // the enum's own declaration
 
     @Test

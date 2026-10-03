@@ -66,6 +66,58 @@ class NarrationLineBreaksTest {
         assertThat(NarrationLineBreaks.glueByEvidence(":", "STATEMENT")).isFalse();
     }
 
+    // ---- An IFSC cut by the wrap: it is never printed with a space inside it ----
+
+    @Test
+    void anIfscSplitAcrossTheBreak_glues() {
+        assertThat(NarrationLineBreaks.glueByEvidence("UPI-Debit-100000000001-SAMPLE STORE-ABCD0X", "XXXXX-sample@okaxis")).isTrue(); // synthetic-ok
+        assertThat(NarrationLineBreaks.glueByEvidence("UPI-SAMPLE PAYEE-ABC", "D0XXXXXX-100000000001")).isTrue();
+        assertThat(NarrationLineBreaks.glueByEvidence("UPI-SAMPLE-ABCD0XXXXX", "X")).isTrue();
+        assertThat(NarrationLineBreaks.glueByEvidence("UPI/SAMPLE/ABCD0", "XXXXXX/REF")).isTrue();
+    }
+
+    @Test
+    void aWholeIfscEndingTheLine_gluesToTheSeparatorThatContinuesIt() {
+        assertThat(NarrationLineBreaks.glueByEvidence("UPI-Debit-100000000001-SAMPLE-ABCD0XXXXXX", "-9000000001@ptsbi")).isTrue(); // synthetic-ok
+        // A different separator than the one that opened the field says nothing.
+        assertThat(NarrationLineBreaks.glueByEvidence("UPI/SAMPLE/ABCD0XXXXXX", "-REF")).isFalse();
+        // A whole IFSC followed by a word keeps its space.
+        assertThat(NarrationLineBreaks.glueByEvidence("UPI-SAMPLE-ABCD0XXXXXX", "PAYMENT")).isFalse();
+    }
+
+    @Test
+    void anIfscShapeNotDelimitedAsAField_keepsTheSpace() {
+        // A word before a number is not an IFSC field unless separators delimit it on both sides.
+        assertThat(NarrationLineBreaks.glueByEvidence("PAID ABCD", "0123456-REF")).isFalse();
+        assertThat(NarrationLineBreaks.glueByEvidence("SAMPLE-ABCD", "0123456 STORE")).isFalse();
+        // One character too many, or lower case, is not an IFSC.
+        assertThat(NarrationLineBreaks.glueByEvidence("SAMPLE-ABCD0X", "XXXXXX-REF")).isFalse();
+        assertThat(NarrationLineBreaks.glueByEvidence("sample-abcd0x", "xxxxx-ref")).isFalse();
+        // The fifth character of an IFSC is always a zero.
+        assertThat(NarrationLineBreaks.glueByEvidence("SAMPLE-ABCD1X", "XXXXX-REF")).isFalse();
+        assertThat(NarrationLineBreaks.glueByEvidence("", "ABCD0XXXXXX")).isFalse();
+    }
+
+    @Test
+    void anIfscSplitWhereTheWidthLayoutReadsAPrintedSpace_stillGlues() {
+        // 39 characters, one short of the width: the width rule alone keeps the space here.
+        List<String> cell = List.of("UPI-SAMPLE PAYEE-900000001@OKSBI-ABCD00", "XXXXX-100000000001-PAYMENT", "SENT"); // synthetic-ok
+        assertThat(cell.get(0).length()).isEqualTo(39);
+        assertThat(NarrationLineBreaks.resolveCell(cell, 40))
+                .isEqualTo("UPI-SAMPLE PAYEE-900000001@OKSBI-ABCD00XXXXX-100000000001-PAYMENT SENT"); // synthetic-ok
+        // And a plain word break at the same place keeps it.
+        assertThat(NarrationLineBreaks.resolveCell(List.of("UPI-SAMPLE PAYEE-900000001@OKSBI-SAMPLE", "STORE-100000000001", "SENT"), 40)) // synthetic-ok
+                .isEqualTo("UPI-SAMPLE PAYEE-900000001@OKSBI-SAMPLE STORE-100000000001 SENT"); // synthetic-ok
+    }
+
+    @Test
+    void resolveAll_recordsAnIfscJoin() {
+        var ctx = new com.finora.imports.DocumentContext("PDF", "test");
+        var out = NarrationLineBreaks.resolveAll(docWith("UPI-Debit-100000000001-SAMPLE-ABCD0\nXXXXXX-sample@apl"), ctx); // synthetic-ok
+        assertThat(narrationOf(out)).isEqualTo("UPI-Debit-100000000001-SAMPLE-ABCD0XXXXXX-sample@apl"); // synthetic-ok
+        assertThat(ctx.capabilities()).extracting(c -> c.capability()).contains("NARRATION_WRAP_JOINED_AT_IFSC");
+    }
+
     @Test
     void aDateThenATimeOnTheNextLine_keepsTheSpace() {
         assertThat(NarrationLineBreaks.glueByEvidence("NACH SAMPLE/18/07/2026", "15:52:30/SAMPLE")).isFalse();
@@ -249,8 +301,9 @@ class NarrationLineBreaksTest {
 
     @Test
     void whereTheTextLayerDoesNotPrintLineEnds_anUnmarkedBreakKeepsItsSpace() {
-        // No "\r" anywhere: a missing blank at a line end says nothing, so nothing changes.
-        assertThat(narrationOf(NarrationLineBreaks.resolveAll(docWith("SAMPLE@OKAXIS/IOB\nA0XXXXXX"), null)))
-                .isEqualTo("SAMPLE@OKAXIS/IOB A0XXXXXX");
+        // No "\r" anywhere: a missing blank at a line end says nothing, so nothing changes. (A split
+        // IFSC would glue here, but by its own rule: see anIfscSplitAcrossTheBreak_glues.)
+        assertThat(narrationOf(NarrationLineBreaks.resolveAll(docWith("SAMPLE@OKAXIS/SAMP\nLE STORE"), null)))
+                .isEqualTo("SAMPLE@OKAXIS/SAMP LE STORE");
     }
 }

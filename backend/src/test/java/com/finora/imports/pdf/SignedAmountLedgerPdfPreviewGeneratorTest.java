@@ -78,6 +78,24 @@ class SignedAmountLedgerPdfPreviewGeneratorTest {
     }
 
     @Test
+    void theSecondPagesBanner_isNoRow_andAWrapThroughAnIfscReadsWhole() throws Exception {
+        var result = realGenerator().generateSectionsWithContext(
+                UUID.randomUUID(), "statement.pdf", PdfFixtureBuilder.buildTwoPageSignedAmountLedgerWithPageBannerSample());
+
+        assertThat(result.sections()).hasSize(1);
+        var section = result.sections().get(0);
+        assertThat(section.rows()).extracting(StagedRow::description).containsExactly(
+                "Account Transfer-Credit-SAMPLE", "Interest Cr. for 15-Sep-2026",
+                "UPI-Debit-SAMPLE-ABCD0XXXXXX-sample@okaxis", "UPI-Debit-SAMPLE STORE"); // synthetic-ok
+        assertThat(section.rows()).extracting(StagedRow::type).containsExactly("INCOME", "INCOME", "EXPENSE", "EXPENSE");
+        // Page 2's period line and "2/2" used to surface together as one unparseable row.
+        assertThat(section.unparseableRows()).isEmpty();
+        assertThat(section.detectedAccount().statementPeriodStart()).isEqualTo(LocalDate.of(2026, 9, 1));
+        assertThat(result.documentContext().capabilities()).extracting(c -> c.capability())
+                .contains("REPEATED_PERIOD_BANNER_DIVERTED", "PAGE_BOUNDARY_ISOLATION", "NARRATION_WRAP_JOINED_AT_IFSC");
+    }
+
+    @Test
     void aCardWithTheSameShapeKeepsItsPurchasesAsExpenses() throws Exception {
         var result = realGenerator().generateSectionsWithContext(
                 UUID.randomUUID(), "card.pdf", PdfFixtureBuilder.buildCardWithSignedAmountAndOutstandingBalanceSample());

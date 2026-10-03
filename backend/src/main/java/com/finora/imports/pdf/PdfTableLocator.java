@@ -273,6 +273,18 @@ public class PdfTableLocator {
             "(?i)^\\s*need\\s+help\\?\\s+contact\\s+our\\s+support\\b"
                     + "|(?i)^\\s*generated\\s+on\\s+\\d{1,2}\\s+[a-z]{3,9}\\s+'?\\d{2,4}\\s*$");
 
+    // Same capability as PAGE_FOOTER (PAGE_BOUNDARY_ISOLATION): a page counter with no word at all.
+    // The real slice small finance bank statement prints "1/2" and "2/2" at the top right of its
+    // pages, under the period line. On page 1 that is above the header; on page 2 it opened the page
+    // ahead of the first transaction and surfaced as an unparseable row. Only the line's WHOLE text,
+    // and only when the first number is the page it is printed on and the second the document's page
+    // count -- see isOwnPageCounter.
+    private static final Pattern PAGE_COUNTER = Pattern.compile("^\\s*(\\d{1,3})\\s*/\\s*(\\d{1,3})\\s*$");
+
+    // REPEATED_PERIOD_BANNER_DIVERTED's line: a statement period and nothing else, two dates around a
+    // spaced separator. See repeatedPeriodBanners.
+    private static final Pattern PERIOD_BANNER_SEPARATOR = Pattern.compile("(?i)\\s+(?:-|–|to)\\s+");
+
     // Same capability as PAGE_FOOTER above (PAGE_BOUNDARY_ISOLATION in the Capability Registry) --
     // a statement-closing marker line, same as a page-number footer, has no date of its own and
     // must never be folded into the last real transaction as if it were a continuation of its
@@ -1171,6 +1183,8 @@ public class PdfTableLocator {
         // own doc comment) -- every call site below reads this rather than recomputing it per row.
         Map<Integer, PageDateEvidence> yearsByPage = yearsByPage(rows);
         Set<String> repeatedFurniture = repeatedPageFurniture(rows);
+        Set<String> repeatedPeriodBanners = repeatedPeriodBanners(rows);
+        int pageCount = lastPageIndex + 1;
 
         List<LocatedSection> sections = new ArrayList<>();
         // The row index of the header that opened the section currently accumulating into
@@ -2034,6 +2048,7 @@ public class PdfTableLocator {
                 }
                 continue;
             } else if (PAGE_FOOTER.matcher(rowLine).find() || PAGE_FOOTER_SENTENCE.matcher(rowLine).find()
+                    || isOwnPageCounter(rowLine, row, pageCount)
                     || STATEMENT_CLOSING_MARKER.matcher(rowLine).find()
                     || PAGE_BANNER.matcher(rowLine).find() || pageNumberBesideTheTable(row, tableRuns)) {
                 if (ctx != null) ctx.record("PAGE_BOUNDARY_ISOLATION");
@@ -2098,6 +2113,15 @@ public class PdfTableLocator {
                         && !hasDateValue(bucketed, yearsByPage.getOrDefault(rowPageIndex, PageDateEvidence.NONE))) {
                     pendingAuxiliary.add(rowLine);
                     if (ctx != null) ctx.record("LEADING_BUFFER_REPEATED_PAGE_FURNITURE_DIVERTED");
+                    continue;
+                }
+                // REPEATED_PERIOD_BANNER_DIVERTED -- see repeatedPeriodBanners. Kept as auxiliary
+                // text, like the furniture above, never merged into a transaction or left standing
+                // as an unparseable row.
+                if (repeatedPeriodBanners.contains(furnitureKey(row))
+                        && !hasDateValue(bucketed, yearsByPage.getOrDefault(rowPageIndex, PageDateEvidence.NONE))) {
+                    pendingAuxiliary.add(rowLine);
+                    if (ctx != null) ctx.record("REPEATED_PERIOD_BANNER_DIVERTED");
                     continue;
                 }
 
@@ -2951,6 +2975,51 @@ public class PdfTableLocator {
         String text = lineOf(row).trim().replaceAll("\\s+", " ");
         if (text.length() < 4) return null;
         return Math.round(row.get(0).y()) + "|" + text;
+    }
+
+    /**
+     * Text-at-height keys of a statement period printed alone ("01 Sep '26 - 30 Sep '26": two dates
+     * around a spaced separator and nothing else) on two or more pages. Page furniture, but
+     * {@link #repeatedPageFurniture} never sees it on a two-page statement, whose "nearly every page"
+     * bar it cannot clear by design. Measured on the real slice small finance bank statement: the
+     * period line tops both pages at one height; on page 1 it is above the header, and on page 2 it
+     * opened the page ahead of the first transaction and surfaced as an unparseable row. Narrow on
+     * purpose: the WHOLE line must be the two dates, the same text at the same height on another
+     * page, and the row must not hold a date in the date column (checked where it is used).
+     */
+    private Set<String> repeatedPeriodBanners(List<List<PositionedText>> rows) {
+        Map<String, Set<Integer>> pagesByKey = new HashMap<>();
+        for (List<PositionedText> row : rows) {
+            if (row.isEmpty() || !isWholePeriod(lineOf(row))) continue;
+            String key = furnitureKey(row);
+            if (key != null) pagesByKey.computeIfAbsent(key, k -> new HashSet<>()).add(row.get(0).pageIndex());
+        }
+        Set<String> out = new HashSet<>();
+        for (Map.Entry<String, Set<Integer>> e : pagesByKey.entrySet()) {
+            if (e.getValue().size() >= 2) out.add(e.getKey());
+        }
+        return out;
+    }
+
+    static boolean isWholePeriod(String line) {
+        String[] sides = PERIOD_BANNER_SEPARATOR.split(line.trim(), -1);
+        return sides.length == 2 && CsvParser.parseDate(sides[0].trim()) != null
+                && CsvParser.parseDate(sides[1].trim()) != null;
+    }
+
+    /** See {@link #PAGE_COUNTER}. A narration line cannot be both its page's own number and the
+     *  document's page count by chance. */
+    static boolean isOwnPageCounter(String rowLine, List<PositionedText> row, int pageCount) {
+        if (row.isEmpty()) return false;
+        Matcher m = PAGE_COUNTER.matcher(rowLine);
+        return m.matches() && Integer.parseInt(m.group(2)) == pageCount
+                && Integer.parseInt(m.group(1)) == row.get(0).pageIndex() + 1;
+    }
+
+    private static int pageCountOf(List<List<PositionedText>> rows) {
+        int last = -1;
+        for (List<PositionedText> row : rows) for (PositionedText t : row) last = Math.max(last, t.pageIndex());
+        return last + 1;
     }
 
     /** The x of this row's leftmost non-blank run, or null for a row with nothing in it. */
@@ -7673,10 +7742,12 @@ public class PdfTableLocator {
         int totalsPairRowIndex = -1;
         List<Float> narrationStarts = new ArrayList<>();
         LedgerLineStarts ledgerLineStarts = new LedgerLineStarts(allRows, yearsByPage);
+        int pageCount = pageCountOf(allRows);
         for (int rowIndex = 0; rowIndex < allRows.size(); rowIndex++) {
             List<PositionedText> row = allRows.get(rowIndex);
             String rowLine = lineOf(row);
-            if (PAGE_FOOTER.matcher(rowLine).find() || PAGE_FOOTER_SENTENCE.matcher(rowLine).find()) continue;
+            if (PAGE_FOOTER.matcher(rowLine).find() || PAGE_FOOTER_SENTENCE.matcher(rowLine).find()
+                    || isOwnPageCounter(rowLine, row, pageCount)) continue;
             // Every TRAILING_CONTENT_TRIGGERS marker, not just STATEMENT_CLOSING_MARKER alone --
             // this headerless path used to check only that one trigger, so a document that falls
             // back to headerless inference (no recognized column vocabulary at all) got none of the
@@ -8501,10 +8572,12 @@ public class PdfTableLocator {
         // used to return List.of() here, which is exactly why a document using it could extract its
         // transactions correctly while still being misclassified as SAVINGS with no account number.
         List<String> auxiliaryText = new ArrayList<>();
+        int pageCount = pageCountOf(rows);
         int rowIndex = 0;
         while (rowIndex < rows.size()) {
             String rowLine = lineOf(rows.get(rowIndex));
             if (PAGE_FOOTER.matcher(rowLine).find() || PAGE_FOOTER_SENTENCE.matcher(rowLine).find()
+                    || isOwnPageCounter(rowLine, rows.get(rowIndex), pageCount)
                     || STATEMENT_CLOSING_MARKER.matcher(rowLine).find()) {
                 rowIndex++;
                 continue;

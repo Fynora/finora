@@ -28,6 +28,15 @@ import java.util.regex.Pattern;
  *   <li><b>Separator</b> -- a line ending in {@code - / . _} and the next line's first token carrying a
  *       digit or {@code @}: a field separator followed by an identifier. It never fired on a break the
  *       text layer shows printed with a space.</li>
+ *   <li><b>IFSC</b> -- the line's last field and the next line's first field together make exactly
+ *       one IFSC (four letters, a zero, six letters or digits), each side delimited by a field
+ *       separator or the cell's edge; or the line ends in a whole IFSC and the next line continues
+ *       with the separator that came before it. An IFSC is never printed with a space inside it, and
+ *       banks that wrap by width cut straight through it: measured on the real slice small finance
+ *       bank statement (a proportional font, so no character width applies), where 9 of its 19
+ *       breaks fall inside or right after an IFSC; and on a real HDFC statement, where 32 IFSCs cut
+ *       after their sixth character were still joined with a space by every other rule here. It
+ *       holds at every break, including one the character-width rule reads as a printed space.</li>
  *   <li><b>Character width</b> -- a document that prints its narration in fixed-width lines (the HDFC
  *       family: 40 characters, splitting words and identifiers alike). Its pieces often arrive cut at a
  *       real space INSIDE a line too, so the width is found by rebuilding lines from piece lengths, and
@@ -68,7 +77,11 @@ final class NarrationLineBreaks {
     private static final Pattern ENDS_WITH_DATE = Pattern.compile(".*\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4}$");
     private static final Pattern STARTS_WITH_TIME = Pattern.compile("^\\d{1,2}:\\d{2}.*");
 
-    enum Rule { HANDLE, SEPARATOR, CHARACTER_WIDTH, WITHOUT_PRINTED_SPACE }
+    enum Rule { HANDLE, SEPARATOR, IFSC, CHARACTER_WIDTH, WITHOUT_PRINTED_SPACE }
+
+    private static final Pattern IFSC = Pattern.compile("[A-Z]{4}0[A-Z0-9]{6}");
+    /** What may stand right before or after an IFSC field: the narration's own field separators. */
+    private static final String IFSC_FIELD_SEPARATORS = "-/";
 
     private enum Boundary { FULL_LINE, SHORT_LINE, INSIDE_LINE }
 
@@ -113,6 +126,7 @@ final class NarrationLineBreaks {
             if (width != null) ctx.record("NARRATION_CHARACTER_WRAP_WIDTH_DETECTED");
             if (fired.contains(Rule.HANDLE)) ctx.record("NARRATION_WRAP_JOINED_AT_HANDLE");
             if (fired.contains(Rule.SEPARATOR)) ctx.record("NARRATION_WRAP_JOINED_AT_SEPARATOR");
+            if (fired.contains(Rule.IFSC)) ctx.record("NARRATION_WRAP_JOINED_AT_IFSC");
             if (fired.contains(Rule.CHARACTER_WIDTH)) ctx.record("NARRATION_WRAP_JOINED_AT_CHARACTER_WIDTH");
             if (fired.contains(Rule.WITHOUT_PRINTED_SPACE)) ctx.record("NARRATION_WRAP_JOINED_WITHOUT_PRINTED_SPACE");
         }
@@ -189,7 +203,7 @@ final class NarrationLineBreaks {
                 while (end > 0 && Character.isWhitespace(out.charAt(end - 1))) end--;
                 out.setLength(end);
                 if (!printedBlank && !line.isEmpty() && !next.isEmpty()) {
-                    Rule rule = evidenceRule(line, next);
+                    Rule rule = handleOrSeparator(line, next);
                     fired.add(rule != null ? rule : Rule.WITHOUT_PRINTED_SPACE);
                 } else {
                     out.append(' ');
@@ -205,7 +219,8 @@ final class NarrationLineBreaks {
                 if (rule == null && glueAtFullLine(line, next)) rule = Rule.CHARACTER_WIDTH;
             }
             // A break the rebuilt lines place inside a line, or at a line one short of the width, was
-            // printed as a space; no rule overrides it.
+            // printed as a space; no rule overrides it except an IFSC, which is never printed with one.
+            if (rule == null && boundaries != null && splitsAnIfsc(line, next)) rule = Rule.IFSC;
             if (rule != null && !line.isEmpty() && !next.isEmpty()) {
                 fired.add(rule);
                 int end = out.length();
@@ -225,6 +240,12 @@ final class NarrationLineBreaks {
     }
 
     private static Rule evidenceRule(String line, String next) {
+        Rule rule = handleOrSeparator(line, next);
+        if (rule != null) return rule;
+        return splitsAnIfsc(line, next) ? Rule.IFSC : null;
+    }
+
+    private static Rule handleOrSeparator(String line, String next) {
         if (line.isEmpty() || next.isEmpty()) return null;
         char last = line.charAt(line.length() - 1);
         char first = next.charAt(0);
@@ -235,6 +256,39 @@ final class NarrationLineBreaks {
             return Rule.SEPARATOR;
         }
         return null;
+    }
+
+    /** See the IFSC rule in the class comment. */
+    static boolean splitsAnIfsc(String line, String next) {
+        if (line.isEmpty() || next.isEmpty()) return false;
+        int tailStart = fieldStart(line);
+        if (tailStart < 0) return false;
+        String tail = line.substring(tailStart);
+        char before = tailStart == 0 ? 0 : line.charAt(tailStart - 1);
+        if (IFSC.matcher(tail).matches()) {
+            // "...-ABCD0XXXXXX" | "-9000..." : the field already ended; the next line carries on with
+            // the separator that opened it.
+            return before != 0 && next.charAt(0) == before;
+        }
+        int headEnd = fieldEnd(next);
+        if (headEnd <= 0) return false;
+        if (!IFSC.matcher(tail + next.substring(0, headEnd)).matches()) return false;
+        return headEnd == next.length() || IFSC_FIELD_SEPARATORS.indexOf(next.charAt(headEnd)) >= 0;
+    }
+
+    /** Where the last field of {@code line} starts, or -1 when the character before it is neither the
+     *  line's start nor a field separator. */
+    private static int fieldStart(String line) {
+        int i = line.length();
+        while (i > 0 && Character.isLetterOrDigit(line.charAt(i - 1))) i--;
+        if (i == line.length()) return -1;
+        return i == 0 || IFSC_FIELD_SEPARATORS.indexOf(line.charAt(i - 1)) >= 0 ? i : -1;
+    }
+
+    private static int fieldEnd(String next) {
+        int i = 0;
+        while (i < next.length() && Character.isLetterOrDigit(next.charAt(i))) i++;
+        return i;
     }
 
     /** G1, at a line the rebuilt layout shows is exactly full. */

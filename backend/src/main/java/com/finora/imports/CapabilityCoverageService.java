@@ -116,6 +116,7 @@ public class CapabilityCoverageService {
             // line a text layer that prints its own line ends shows ending in neither that line end
             // nor a blank. See NarrationLineBreaks.
             "NARRATION_WRAP_JOINED_AT_HANDLE", "NARRATION_WRAP_JOINED_AT_SEPARATOR",
+            "NARRATION_WRAP_JOINED_AT_IFSC",
             "NARRATION_WRAP_JOINED_AT_CHARACTER_WIDTH", "NARRATION_CHARACTER_WRAP_WIDTH_DETECTED",
             "NARRATION_WRAP_JOINED_WITHOUT_PRINTED_SPACE",
             // A line separator inside a PDF text run (a real Standard Chartered export prints its
@@ -125,6 +126,10 @@ public class CapabilityCoverageService {
             // letterhead line) kept out of the rows as page furniture -- the real HDFC bank-name
             // footer and Standard Chartered's footer date. See PdfTableLocator.repeatedPageFurniture.
             "LEADING_BUFFER_REPEATED_PAGE_FURNITURE_DIVERTED",
+            // A statement period printed alone at the same height on two or more pages (the real
+            // slice small finance bank statement's page banner) kept out of the rows, on a statement
+            // too short for the furniture rule above. See PdfTableLocator.repeatedPeriodBanners.
+            "REPEATED_PERIOD_BANNER_DIVERTED",
             // A dateless line whose only text is a totals label ("Total") beside figures in the
             // amount columns -- the real Standard Chartered export's closing column-total line --
             // kept as auxiliary text instead of merged into the last transaction. See

@@ -119,7 +119,11 @@ public final class CounterpartyClassifier {
     //    it, and the start of one payment brand's id is shared by its shops. Measured on the corpus
     //    (1,936 rows): the key changes only on that bank's 17 cut rows (vpa: -> cut:, same text), no
     //    type changes. Bumped so the backfill sweep re-keys stored rows.
-    public static final short VERSION = 10;
+    // 11: new merchant words in CategoryRules (2026-10-03), which MerchantIdentityLookup also reads,
+    //    so a payments app's bill-payment id and an office suite's id now name a merchant. Measured on
+    //    the corpus (1,936 rows): 2 rows UNKNOWN -> BUSINESS, no other change, no key changes; on a
+    //    tester's statements 5 more rows, the same two ids. Bumped so the backfill re-types stored rows.
+    public static final short VERSION = 11;
 
     /**
      * Bank-generated activity, where the counterparty is the institution itself. These words are

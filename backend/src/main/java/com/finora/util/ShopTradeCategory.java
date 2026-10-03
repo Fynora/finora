@@ -54,10 +54,12 @@ public final class ShopTradeCategory {
     private static final Map<Pattern, String> TRADES = new LinkedHashMap<>();
     static {
         TRADES.put(words("medical", "medicals", "medico", "medicos", "chemist", "chemists"), "Health");
+        // "chai" (2026-10-03): a tea shop paid by its Paytm QR on a tester's statement, named with the
+        // Hindi word; a bounded word, so a name such as "Chaitanya" is not one.
         // "hotel": Sid, 2026-10-02 -- a small "HOTEL <name>" paid by shop QR is an eatery. A hotel
         // booking is already Travel in the keyword table, which runs first.
         TRADES.put(words("hotel", "nashta", "dhaba", "caters", "caterers", "snacks", "juice", "kitchen",
-                "bakery", "tea stall", "sweets"), "Dining");
+                "bakery", "tea stall", "sweets", "chai"), "Dining");
         TRADES.put(words("beauty", "salon", "saloon", "hair studio", "hair salon", "haircut", "hair cut"),
                 PERSONAL_CARE);
         // "auto centr": the narration cuts the payee at fifteen characters on one corpus layout.

@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -18,6 +19,9 @@ public interface SubscriptionOrderRepository extends JpaRepository<SubscriptionO
      *  order ever exists for one user, which itself would be its own bug; ordering by
      *  createdAt desc is defensive, not load-bearing. */
     Optional<SubscriptionOrder> findFirstByUserIdAndStatusOrderByCreatedAtDesc(UUID userId, String status);
+
+    /** DataExportService -- every checkout this user started, for {@code subscription_orders.json}. */
+    List<SubscriptionOrder> findByUserIdOrderByCreatedAtDesc(UUID userId);
 
     /** Admin Portal, Subscription Health (Plan 3 review) -- how many checkouts are currently
      *  in-flight platform-wide, not per user. */

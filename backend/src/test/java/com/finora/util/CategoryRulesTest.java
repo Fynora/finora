@@ -571,7 +571,7 @@ class CategoryRulesTest {
                 .isEqualTo("Subscriptions");
         assertThat(CategoryRules.suggestCategory("UPI/DR/900011112208/Google W/UTIB/googleworkspace/")) // synthetic-ok
                 .isEqualTo("Subscriptions");
-        assertThat(CategoryRules.suggestCategory("UPI/DR/900011112209/AWS Indi/YESB/amazonaws@yapl/A")) // synthetic-ok
+        assertThat(CategoryRules.suggestCategory("UPI/DR/900011112209/AWS Indi/YESB/amazonaws@zzzz/A")) // synthetic-ok
                 .isEqualTo("Subscriptions");
     }
 

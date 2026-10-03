@@ -923,10 +923,64 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
 
         DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
 
-        assertThat(bundle.unimportedUploads())
-                .containsExactly(new DataExportService.UnimportedUpload(newestOfTwice.getId(), "twice (1).pdf"));
+        assertThat(bundle.unimportedUploads()).containsExactly(new DataExportService.UnimportedUpload(
+                DataExportService.UnimportedUpload.Source.IMPORT_JOB, newestOfTwice.getId(), "twice (1).pdf"));
         // import_jobs.json itself is untouched by the dedupe -- every job is still listed there.
         assertThat(bundle.importJobs()).hasSize(4);
+    }
+
+    /** Sessions come after statements and jobs: a session holding a document already claimed by
+     *  either is skipped; a session-only document is kept (newest session wins); a pre-V79 session
+     *  with no hash cannot be matched and is kept rather than risk leaving it out. */
+    @Test
+    void buildBundle_unimportedUploads_sessionsOnlyForDocumentsNoStatementOrJobHolds() {
+        ImportJob job = job("job.pdf", "hash-job", "key-job");
+        when(importJobRepository.findByUserIdOrderByCreatedAtDesc(eq(userId), any())).thenReturn(List.of(job));
+        when(statementImportRepository.findContentHashesByUserId(userId)).thenReturn(List.of("hash-imported"));
+        ImportSession ofJob = stagedSession("job.pdf", "hash-job");
+        ImportSession ofStatement = stagedSession("imported.csv", "hash-imported");
+        ImportSession newestOnly = stagedSession("only (1).csv", "hash-only");
+        ImportSession olderOnly = stagedSession("only.csv", "hash-only");
+        ImportSession unhashed = stagedSession("old.csv", null);
+        when(importSessionRepository.findByUserIdOrderByCreatedAtDesc(userId))
+                .thenReturn(List.of(ofJob, ofStatement, newestOnly, olderOnly, unhashed));
+        when(importSessionService.readStagedRows(any())).thenReturn(List.of());
+
+        DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
+
+        assertThat(bundle.unimportedUploads()).containsExactly(
+                new DataExportService.UnimportedUpload(DataExportService.UnimportedUpload.Source.IMPORT_JOB, job.getId(), "job.pdf"),
+                new DataExportService.UnimportedUpload(DataExportService.UnimportedUpload.Source.IMPORT_SESSION, newestOnly.getId(), "only (1).csv"),
+                new DataExportService.UnimportedUpload(DataExportService.UnimportedUpload.Source.IMPORT_SESSION, unhashed.getId(), "old.csv"));
+    }
+
+    /** A session's bytes come from ImportSessionService.readOwnedFileContent, and a session that
+     *  is gone by write time (confirmed and swept, say) becomes a placeholder like any other. */
+    @Test
+    void writeZip_sessionUploads_readThroughImportSessionService_placeholderWhenGone() throws IOException {
+        ImportSession ok = stagedSession("ok.csv", "hash-ok");
+        ImportSession gone = stagedSession("gone.csv", "hash-gone");
+        when(importSessionRepository.findByUserIdOrderByCreatedAtDesc(userId)).thenReturn(List.of(ok, gone));
+        when(importSessionService.readStagedRows(any())).thenReturn(List.of());
+        when(importSessionService.readOwnedFileContent(userId, ok.getId())).thenReturn("staged".getBytes());
+        when(importSessionService.readOwnedFileContent(userId, gone.getId()))
+                .thenThrow(new ApiException(org.springframework.http.HttpStatus.NOT_FOUND, "Import session not found"));
+
+        DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
+        Map<String, byte[]> entries = writeZipAndReadEntries(bundle);
+
+        assertThat(new String(entries.get("imports/" + ok.getId() + "-ok.csv"))).isEqualTo("staged");
+        assertThat(new String(entries.get("imports/" + gone.getId() + "-gone.csv.MISSING.txt"))).contains("ApiException");
+        verifyNoInteractions(statementContentService);
+    }
+
+    private static ImportSession stagedSession(String fileName, String contentHash) {
+        ImportSession session = new ImportSession();
+        ReflectionTestUtils.setField(session, "id", UUID.randomUUID());
+        ReflectionTestUtils.setField(session, "sessionKind", ImportSession.KIND_SINGLE_ACCOUNT);
+        session.setFileName(fileName);
+        session.setContentHash(contentHash);
+        return session;
     }
 
     /** Same "one bad file doesn't sink the export" discipline as statements/: a storage failure,

@@ -7,16 +7,19 @@ import com.finora.AbstractIntegrationTest;
 import com.finora.entity.Account;
 import com.finora.entity.AuditLog;
 import com.finora.entity.ImportJob;
+import com.finora.entity.ImportSession;
 import com.finora.entity.StatementImport;
 import com.finora.entity.User;
 import com.finora.exception.ApiException;
 import com.finora.exception.ErrorCode;
+import com.finora.imports.ImportSessionService;
 import com.finora.imports.StatementUpload;
 import com.finora.imports.jobs.ImportJobService;
 import com.finora.imports.storage.ContentAddress;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.AuditLogRepository;
 import com.finora.repository.ImportJobRepository;
+import com.finora.repository.ImportSessionRepository;
 import com.finora.repository.StatementImportRepository;
 import com.finora.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -70,6 +73,8 @@ class DataExportServiceIT extends AbstractIntegrationTest {
     @Autowired private AuditLogRepository auditLogRepository;
     @Autowired private ImportJobRepository importJobRepository;
     @Autowired private ImportJobService importJobService;
+    @Autowired private ImportSessionService importSessionService;
+    @Autowired private ImportSessionRepository importSessionRepository;
     @Autowired private PasswordEncoder passwordEncoder;
     @Autowired private FeatureUsageService featureUsageService;
     @Autowired private SubscriptionService subscriptionService;
@@ -510,6 +515,46 @@ class DataExportServiceIT extends AbstractIntegrationTest {
 
         assertThat(entries.keySet().stream().filter(name -> name.startsWith("imports/")))
                 .containsExactly("imports/" + second.getId() + "-axis-april _1_.pdf");
+    }
+
+    /**
+     * The synchronous stage path (POST /csv/stage, /pdf/stage) never creates a job: the upload is
+     * held only in its import session's file_content until the user confirms, or until the 48h TTL
+     * sweep removes it. A staged-but-unconfirmed file -- including one past its expiry that the
+     * sweep has not reached yet -- is still held, so it is exported too, read inside a transaction
+     * because file_content is LAZY.
+     */
+    @Test
+    void writeZip_includesStagedSessionUploads_evenPastExpiry() throws Exception {
+        byte[] stagedBytes = "date,narration,amount\n2026-09-02,staged only,25\n".getBytes(StandardCharsets.UTF_8);
+        byte[] expiredBytes = "date,narration,amount\n2026-08-02,expired not swept,30\n".getBytes(StandardCharsets.UTF_8);
+        ImportSession staged = importSessionService.createSession(userId, "yes-june.csv", stagedBytes, List.of(), null);
+        ImportSession expired = importSessionService.createSession(userId, "yes-may.csv", expiredBytes, List.of(), null);
+        expired.setExpiresAt(Instant.now().minusSeconds(3600));
+        importSessionRepository.save(expired);
+
+        Map<String, byte[]> entries = export();
+
+        assertThat(entries.get("imports/" + staged.getId() + "-yes-june.csv")).isEqualTo(stagedBytes);
+        assertThat(entries.get("imports/" + expired.getId() + "-yes-may.csv")).isEqualTo(expiredBytes);
+        assertThat(entries.keySet()).noneMatch(name -> name.contains(".MISSING.txt"));
+    }
+
+    /**
+     * A queued upload's worker stages it into a session holding the same bytes (same content_hash).
+     * That is one document: exported once, from the job, not again from its session.
+     */
+    @Test
+    void writeZip_doesNotRepeatAJobsDocumentFromItsSession() throws Exception {
+        byte[] bytes = "%PDF-1.4 job and its session".getBytes(StandardCharsets.UTF_8);
+        ImportJob job = upload("idfc-march.pdf", bytes, StatementUpload.Format.PDF);
+        ImportSession session = importSessionService.createSession(userId, "idfc-march.pdf", bytes, List.of(), null);
+        assertThat(session.getContentHash()).isEqualTo(job.getContentHash());
+
+        Map<String, byte[]> entries = export();
+
+        assertThat(entries.keySet().stream().filter(name -> name.startsWith("imports/")))
+                .containsExactly("imports/" + job.getId() + "-idfc-march.pdf");
     }
 
     private ImportJob upload(String fileName, byte[] bytes, StatementUpload.Format format) throws Exception {

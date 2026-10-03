@@ -123,9 +123,9 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -195,18 +195,26 @@ import java.util.zip.ZipOutputStream;
  * statementSummaries} below can never pull a user's entire statement history's raw bytes into heap
  * during this transaction, whether or not the LAZY annotation actually does anything.
  *
- * <h2>Uploads that never became a statement ({@code imports/})</h2>
- * {@code statements/} only ever covered {@code statement_imports} rows. An upload that was held
- * for review, is still queued, failed, was cancelled, or was staged and never confirmed has no
- * such row, yet its file is still the user's and still held by Finora -- in object storage, under
- * its {@code import_jobs} row's own address. Those go under {@code imports/}, read through the
- * same {@link StatementContentService#read} path the import worker uses, with the same
- * placeholder-on-failure handling as {@code statements/}. A document already under {@code
- * statements/} is not repeated: matched by {@code content_hash} (the SHA-256 of the original
- * bytes, recorded on both tables), never by {@code object_key} -- a job's object and the confirmed
+ * <h2>Uploads with no live statement ({@code imports/})</h2>
+ * {@code statements/} only ever covered live {@code statement_imports} rows. An upload that was
+ * held for review, is still queued, failed, was cancelled, was staged and never confirmed, or
+ * whose statement was later deleted has no such row, yet Finora still holds its file in one of
+ * two places, both exported under {@code imports/}:
+ * <ul>
+ *   <li>an {@code import_jobs} row's object (the asynchronous upload path), read through the same
+ *       {@link StatementContentService#read} path the import worker uses;</li>
+ *   <li>an {@code import_sessions} row's {@code file_content} (the synchronous stage path, which
+ *       never creates a job), read via {@code ImportSessionService.readOwnedFileContent} -- which,
+ *       unlike {@code getOwnedSession}, does not refuse a session past its expiry that the TTL
+ *       sweep has not removed yet.</li>
+ * </ul>
+ * Same placeholder-on-failure handling as {@code statements/}. Each document appears once, matched
+ * by {@code content_hash} (the SHA-256 of the original bytes, recorded on all three tables): a
+ * document already under {@code statements/} is skipped, then the newest job holding it wins, then
+ * the newest session. Never matched by {@code object_key} -- a job's object and the confirmed
  * statement's object are separate writes, each encrypted under a fresh random IV, so their keys
- * never agree even for identical bytes. The same document uploaded more than once is one entry,
- * from its newest job.
+ * never agree even for identical bytes. A session from before V79 has no hash and so cannot be
+ * matched; it is exported rather than risk leaving it out.
  */
 @Service
 public class DataExportService {
@@ -529,8 +537,8 @@ public class DataExportService {
         // one unrelated, unreadable row. Same "one bad item doesn't sink the batch" discipline the
         // per-statement loop in writeZip already applies -- caught, logged, and that one session
         // dropped from the list rather than aborting everything else.
-        List<ImportSessionSummaryDto> importSessions = importSessionRepository
-                .findByUserIdOrderByCreatedAtDesc(userId).stream()
+        List<ImportSession> importSessionEntities = importSessionRepository.findByUserIdOrderByCreatedAtDesc(userId);
+        List<ImportSessionSummaryDto> importSessions = importSessionEntities.stream()
                 .flatMap(session -> {
                     try {
                         return java.util.stream.Stream.of(toSessionSummary(session));
@@ -547,18 +555,22 @@ public class DataExportService {
                 .map(s -> Summary.from(s, duplicateCounts.getOrDefault(s.getId(), 0)))
                 .toList();
 
-        // imports/ -- see this class's own doc section on it. importJobEntities is newest first, so
-        // putIfAbsent keeps each document's newest job.
-        Set<String> hashesUnderStatements = new HashSet<>(statementImportRepository.findContentHashesByUserId(userId));
-        Map<String, ImportJob> newestUnimportedJobByHash = new LinkedHashMap<>();
+        // imports/ -- see this class's own doc section on it. Both entity lists are newest first,
+        // and a hash is claimed by the first source to add it: statements, then jobs, then sessions.
+        Set<String> claimedHashes = new HashSet<>(statementImportRepository.findContentHashesByUserId(userId));
+        List<UnimportedUpload> unimportedUploads = new ArrayList<>();
         for (ImportJob job : importJobEntities) {
+            // No address means no object to read -- nothing held to export.
             if (job.getContentHash() == null || job.getObjectKey() == null) continue;
-            if (hashesUnderStatements.contains(job.getContentHash())) continue;
-            newestUnimportedJobByHash.putIfAbsent(job.getContentHash(), job);
+            if (claimedHashes.add(job.getContentHash())) {
+                unimportedUploads.add(new UnimportedUpload(UnimportedUpload.Source.IMPORT_JOB, job.getId(), job.getFileName()));
+            }
         }
-        List<UnimportedUpload> unimportedUploads = newestUnimportedJobByHash.values().stream()
-                .map(job -> new UnimportedUpload(job.getId(), job.getFileName()))
-                .toList();
+        for (ImportSession session : importSessionEntities) {
+            if (session.getContentHash() == null || claimedHashes.add(session.getContentHash())) {
+                unimportedUploads.add(new UnimportedUpload(UnimportedUpload.Source.IMPORT_SESSION, session.getId(), session.getFileName()));
+            }
+        }
 
         List<GmailConnectionExportDto> gmailConnections = gmailConnectionRepository
                 .findByUserIdOrderByCreatedAtDesc(userId).stream()
@@ -823,11 +835,16 @@ public class DataExportService {
 
             for (UnimportedUpload upload : bundle.unimportedUploads()) {
                 // Re-fetched here, not carried from buildBundle, for the same reason statements are:
-                // resolved fresh at write time, and a job deleted in between becomes a placeholder.
-                writeStoredFile(zos, "imports/" + upload.jobId() + "-" + sanitize(upload.fileName()),
-                        "import job " + upload.jobId(), userId,
-                        () -> statementContentService.read(importJobRepository.findByIdAndUserId(upload.jobId(), userId)
-                                .orElseThrow(() -> new IllegalStateException("import job no longer exists"))));
+                // resolved fresh at write time, and a row deleted in between (a confirmed or swept
+                // session, say) becomes a placeholder.
+                String entryName = "imports/" + upload.id() + "-" + sanitize(upload.fileName());
+                switch (upload.source()) {
+                    case IMPORT_JOB -> writeStoredFile(zos, entryName, "import job " + upload.id(), userId,
+                            () -> statementContentService.read(importJobRepository.findByIdAndUserId(upload.id(), userId)
+                                    .orElseThrow(() -> new IllegalStateException("import job no longer exists"))));
+                    case IMPORT_SESSION -> writeStoredFile(zos, entryName, "import session " + upload.id(), userId,
+                            () -> importSessionService.readOwnedFileContent(userId, upload.id()));
+                }
             }
         }
     }
@@ -916,7 +933,7 @@ public class DataExportService {
                 new ManifestEntry("import_sessions.json", "Your statement staging session history.", bundle.importSessions().size()),
                 new ManifestEntry("statements.json", "Metadata for every statement you've imported.", bundle.statementSummaries().size()),
                 new ManifestEntry("statements/", "The original statement files you uploaded, where still retrievable.", bundle.statementSummaries().size()),
-                new ManifestEntry("imports/", "Statement files you uploaded that never became an imported statement -- held for review, still processing, failed, cancelled, or never confirmed -- where still retrievable. Each is named after its job in import_jobs.json.", bundle.unimportedUploads().size()),
+                new ManifestEntry("imports/", "Statement files you uploaded that Finora still holds but that are not an imported statement -- held for review, still processing, failed, cancelled, never confirmed, or since deleted -- where still retrievable. Each is named after its entry in import_jobs.json or import_sessions.json.", bundle.unimportedUploads().size()),
                 new ManifestEntry("gmail_connection.json", "Your Gmail connection status, if any (no credentials).", bundle.gmailConnections().size()),
                 new ManifestEntry("account_settings.json", "Your profile and account preferences.", null),
                 new ManifestEntry("workspace_settings.json", "Your categorization workspace preferences.", null),
@@ -1058,7 +1075,9 @@ public class DataExportService {
             List<String> activityDays
     ) {}
 
-    /** An {@code imports/} entry to write: just enough for {@link #writeZip} to re-fetch the job and
-     *  name the file. */
-    public record UnimportedUpload(UUID jobId, String fileName) {}
+    /** An {@code imports/} entry to write: just enough for {@link #writeZip} to re-fetch the row
+     *  holding the file and name it. {@code id} is that row's id. */
+    public record UnimportedUpload(Source source, UUID id, String fileName) {
+        public enum Source { IMPORT_JOB, IMPORT_SESSION }
+    }
 }

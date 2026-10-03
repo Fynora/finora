@@ -225,16 +225,47 @@ class ImportServiceAskOnceTest {
     }
 
     @Test
-    void confirm_learnsFromAnEligibleBusinessCounterparty_recordsSharedCorpusObservation() throws Exception {
+    void confirm_aCategoryTheUserChoseOnReview_recordsSharedCorpusObservation() throws Exception {
         // Synthetic merchant narration, shared with TransactionServiceTest's equivalent test:
-        // BUSINESS-typed and vpa:zeptosample-keyed by the real classifier pipeline.
+        // BUSINESS-typed and vpa:zeptosample-keyed by the real classifier pipeline. "review" is how
+        // every session confirm delivers a row whose category the user changed -- see
+        // ConfirmedRowIntegrity.withStatementFacts.
         var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOSAMPLE@YBL/0000000000@PTAXIS",
-                BigDecimal.valueOf(486), "EXPENSE", "Dining", true, "rule", null, false, null, null);
+                BigDecimal.valueOf(486), "EXPENSE", "Dining", true,
+                com.finora.service.CategorizationService.REVIEW_SOURCE, null, false, null, null);
 
         importService.confirm(userId, dummyFile(), requestWith(row));
 
         verify(sharedCorpusService).recordObservation(eq(userId), eq("vpa:zeptosample"),
                 eq(com.finora.util.CounterpartyType.BUSINESS), eq(Transaction.Type.EXPENSE), eq("Dining"));
+    }
+
+    @Test
+    void confirm_aRuleAnswerLeftAsItWas_isNoSharedCorpusVote_butStillTeachesThisUser() throws Exception {
+        // A keyword rule's answer confirmed without a change is the rule speaking, not the user.
+        // Counted as a vote, three users bulk-confirming one global rule made its answer every
+        // user's trusted suggestion for that payee -- including for a different shop's refund
+        // under the same gateway id. This user's own learning and pin still take it.
+        var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOSAMPLE@YBL/0000000000@PTAXIS",
+                BigDecimal.valueOf(486), "EXPENSE", "Dining", true, "rule", null, false, null, null);
+
+        importService.confirm(userId, dummyFile(), requestWith(row));
+
+        verify(sharedCorpusService, never()).recordObservation(any(), any(), any(), any(), any());
+        verify(learningEventPublisher).enqueue(any(), any(), any(), any(), any());
+        verify(resolutionService).pin(eq(userId), eq("vpa:zeptosample"), eq(Transaction.Type.EXPENSE), any());
+    }
+
+    @Test
+    void confirm_aLearnedOrGlobalRuleAnswerLeftAsItWas_isNoSharedCorpusVote() throws Exception {
+        for (String source : List.of("learned", "user_rule", "global_rule", "file")) {
+            var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOSAMPLE@YBL/0000000000@PTAXIS",
+                    BigDecimal.valueOf(486), "EXPENSE", "Dining", true, source, null, false, null, null);
+
+            importService.confirm(userId, dummyFile(), requestWith(row));
+        }
+
+        verify(sharedCorpusService, never()).recordObservation(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -307,16 +338,12 @@ class ImportServiceAskOnceTest {
 
     @Test
     void confirm_userCorrectsSharedCorpusSuggestion_recordsTheCorrection() throws Exception {
-        // The corpus's OWN current trusted answer for this key is "Shopping" -- the row arrives
-        // staged with categorySource=shared_corpus (so it WAS that suggestion), but review changed
-        // it to "Dining". That's a real correction and must be recorded, not silently dropped --
-        // this is the exact gap ImportRuleLearningService.matchesLiveSuggestion fixes.
-        when(sharedCorpusService.findTrustedSuggestion("vpa:zeptosample",
-                com.finora.util.CounterpartyType.BUSINESS, Transaction.Type.EXPENSE))
-                .thenReturn(java.util.Optional.of("Shopping"));
+        // Staged as the corpus's "Shopping", changed on review to "Dining": the session confirm
+        // relabels it "review" (ConfirmedRowIntegrity.withStatementFacts), and a correction is
+        // exactly the evidence the corpus needs -- recorded, never dropped.
         var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOSAMPLE@YBL/0000000000@PTAXIS",
                 BigDecimal.valueOf(486), "EXPENSE", "Dining", true,
-                com.finora.service.CategorizationService.SHARED_CORPUS_SOURCE, null, false, null, null);
+                com.finora.service.CategorizationService.REVIEW_SOURCE, null, false, null, null);
 
         importService.confirm(userId, dummyFile(), requestWith(row));
 
@@ -342,12 +369,13 @@ class ImportServiceAskOnceTest {
     }
 
     @Test
-    void confirm_userCorrectsAiFallbackSuggestion_recordsTheCorrection() throws Exception {
+    void confirm_aiFallbackAnswerLeftAsItWas_recordsNoObservation() throws Exception {
+        // An AI answer accepted without a change is the model speaking, not the user.
         com.finora.entity.SharedMerchantCategoryAiSuggestion cached =
                 new com.finora.entity.SharedMerchantCategoryAiSuggestion();
         cached.setCounterpartyKey("vpa:zeptosample");
         cached.setDirection(Transaction.Type.EXPENSE);
-        cached.setCategory("Shopping");
+        cached.setCategory("Dining");
         cached.setModel("claude-haiku-4-5-20251001");
         when(aiSuggestionRepository.findByCounterpartyKeyAndDirection("vpa:zeptosample", Transaction.Type.EXPENSE))
                 .thenReturn(java.util.Optional.of(cached));
@@ -357,8 +385,7 @@ class ImportServiceAskOnceTest {
 
         importService.confirm(userId, dummyFile(), requestWith(row));
 
-        verify(sharedCorpusService).recordObservation(eq(userId), eq("vpa:zeptosample"),
-                eq(com.finora.util.CounterpartyType.BUSINESS), eq(Transaction.Type.EXPENSE), eq("Dining"));
+        verify(sharedCorpusService, never()).recordObservation(any(), any(), any(), any(), any());
     }
 
     @Test

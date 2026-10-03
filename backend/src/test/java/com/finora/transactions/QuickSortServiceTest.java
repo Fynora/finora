@@ -60,7 +60,8 @@ class QuickSortServiceTest {
                 "Shopping", "Transport", "Health", "Salary", "Gifts & Donations", "Transfer", "Rent")) {
             category(name);
         }
-        service = new QuickSortService(transactionRepository, accountRepository, categoryRepository);
+        service = new QuickSortService(transactionRepository, accountRepository, categoryRepository,
+                mock(TransactionService.class), mock(com.finora.observability.QuickSortMetrics.class));
         ReflectionTestUtils.setField(service, "coverageTarget", new BigDecimal("0.80"));
         ReflectionTestUtils.setField(service, "maxQuestions", 10);
     }

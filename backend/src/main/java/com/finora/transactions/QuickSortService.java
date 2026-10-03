@@ -5,7 +5,9 @@ import com.finora.entity.Category;
 import com.finora.entity.Transaction;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.CategoryRepository;
+import com.finora.observability.QuickSortMetrics;
 import com.finora.repository.TransactionRepository;
+import com.finora.security.OwnershipGuard;
 import com.finora.util.CounterpartyIdentity;
 import com.finora.util.PayeeLabel;
 import org.springframework.beans.factory.annotation.Value;
@@ -63,12 +65,53 @@ public class QuickSortService {
     private final TransactionRepository transactionRepository;
     private final AccountRepository accountRepository;
     private final CategoryRepository categoryRepository;
+    private final TransactionService transactionService;
+    private final QuickSortMetrics metrics;
 
     public QuickSortService(TransactionRepository transactionRepository, AccountRepository accountRepository,
-                            CategoryRepository categoryRepository) {
+                            CategoryRepository categoryRepository, TransactionService transactionService,
+                            QuickSortMetrics metrics) {
         this.transactionRepository = transactionRepository;
         this.accountRepository = accountRepository;
         this.categoryRepository = categoryRepository;
+        this.transactionService = transactionService;
+        this.metrics = metrics;
+    }
+
+    /**
+     * Files the question's payee with the chosen category: every waiting payment to it when its key
+     * names one payee (the "apply to all similar" path, #1902, which also learns and remembers the
+     * payee), otherwise the one row. Rows the user already chose by hand are left as they are and
+     * not counted. Answering "Personal Transfer" or "Other" on purpose is a choice like any other.
+     */
+    @Transactional
+    public QuickSortDto.AnswerResult answer(UUID userId, QuickSortDto.AnswerRequest req) {
+        Transaction anchor = OwnershipGuard.requireOwned(transactionRepository.findById(req.anchorTransactionId()),
+                Transaction::getUserId, userId, "Transaction");
+        boolean onePayee = CounterpartyIdentity.identifiesOnePayee(anchor.getCounterpartyKey());
+        List<UUID> filed = new ArrayList<>();
+        filed.add(anchor.getId());
+        if (onePayee) {
+            List<UUID> liveAccountIds = accountRepository.findByUserId(userId).stream().map(Account::getId).toList();
+            if (!liveAccountIds.isEmpty()) {
+                transactionRepository.findByUserIdAndCounterpartyKeyAndTxnTypeAndIdNotAndAccountIdIn(userId,
+                                anchor.getCounterpartyKey(), anchor.getTxnType(), anchor.getId(), liveAccountIds)
+                        .stream().filter(t -> !t.isCategoryManuallySet()).forEach(t -> filed.add(t.getId()));
+            }
+        }
+        transactionService.updateCategory(userId, anchor.getId(), req.category(),
+                onePayee ? TransactionDto.CategoryScope.SIMILAR : TransactionDto.CategoryScope.ONLY_THIS);
+        transactionRepository.stampQuickSorted(userId, filed, java.time.Instant.now());
+        metrics.answered(req.kind().name());
+        return new QuickSortDto.AnswerResult(filed.size());
+    }
+
+    /** "Stop asking about these": the rows keep their category and leave the review queue. */
+    @Transactional
+    public QuickSortDto.KeepRestResult keepRest(UUID userId, QuickSortDto.KeepRestRequest req) {
+        int cleared = req.transactionIds().isEmpty() ? 0 : transactionRepository.stopAsking(userId, req.transactionIds());
+        metrics.stopAskingTaken(cleared);
+        return new QuickSortDto.KeepRestResult(cleared);
     }
 
     /** One batch of questions, starting after the first {@code skip} groups (ones the user skipped). */

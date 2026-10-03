@@ -164,6 +164,30 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
                                  @Param("key") String key,
                                  @Param("version") short version);
 
+    /**
+     * Quick sort's "Stop asking about these": the rows keep their category and leave the review
+     * queue. Only the user's own rows still waiting and not chosen by hand change. Bumps
+     * {@code version}: the waiting flag is something the user sees (ChangeStampService).
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            UPDATE Transaction t
+            SET t.needsCategoryReview = false, t.version = t.version + 1
+            WHERE t.userId = :userId AND t.id IN :ids
+              AND t.needsCategoryReview = true AND t.categoryManuallySet = false
+            """)
+    int stopAsking(@Param("userId") UUID userId, @Param("ids") java.util.Collection<UUID> ids);
+
+    /** Marks rows a Quick sort answer filed. Bumps {@code version}, as every bulk write here does. */
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            UPDATE Transaction t
+            SET t.quickSortedAt = :at, t.version = t.version + 1
+            WHERE t.userId = :userId AND t.id IN :ids
+            """)
+    int stampQuickSorted(@Param("userId") UUID userId, @Param("ids") java.util.Collection<UUID> ids,
+                         @Param("at") java.time.Instant at);
+
     /** How often a user chose each category -- see {@link #countManualChoicesByCategory}. */
     interface CategoryCount {
         UUID getCategoryId();

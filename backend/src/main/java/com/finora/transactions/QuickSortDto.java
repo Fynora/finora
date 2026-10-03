@@ -49,4 +49,19 @@ public final class QuickSortDto {
 
     /** @param transactionIds every waiting row in the groups after this batch */
     public record Rest(int questions, int payments, BigDecimal amount, List<UUID> transactionIds) {}
+
+    /** An answer to one question: file the payee (or the one row) from its anchor. */
+    public record AnswerRequest(@jakarta.validation.constraints.NotNull UUID anchorTransactionId,
+                                @jakarta.validation.constraints.NotBlank String category,
+                                @jakarta.validation.constraints.NotNull Kind kind) {}
+
+    /** @param filed how many waiting rows the answer filed */
+    public record AnswerResult(int filed) {}
+
+    /** "Stop asking about these": the rest's ids from the batch. Capped so one request stays bounded. */
+    public record KeepRestRequest(@jakarta.validation.constraints.NotNull
+                                  @jakarta.validation.constraints.Size(max = 2000) List<UUID> transactionIds) {}
+
+    /** @param cleared how many rows left the review queue */
+    public record KeepRestResult(int cleared) {}
 }

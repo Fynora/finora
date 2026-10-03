@@ -43,6 +43,11 @@ import java.util.TreeSet;
  *   <li>{@link Reason#STAGING_FAILED} -- the parser located a table (so a fingerprint exists) but
  *       staging still failed on our side (see {@link #isParserSideFailure}); a deliberate refusal
  *       such as "no activity in this period" does not flag.</li>
+ *   <li>{@link Reason#HOLDER_NAME_UNREADABLE} -- a holder label's value could not be a name and was
+ *       refused (HolderNameSanity), and no holder was found anywhere else. The statement still
+ *       stages, with no holder: its transactions are unaffected, so the upload is not held, but the
+ *       layout's holder rule needs a look. On a tester's Axis card statements a wrapped footer
+ *       sentence ("...Cardholder's" / "name.") was read as the holder.</li>
  *   <li>{@link Reason#IDENTITY_CONFLICT} -- this layout was grouped automatically under one bank and
  *       account family, and a later statement of it was detected as another. See
  *       {@link LayoutProfileAutoLinker}.</li>
@@ -70,7 +75,8 @@ public class LayoutReviewService {
 
     private static final Logger log = LoggerFactory.getLogger(LayoutReviewService.class);
 
-    public enum Reason { NEW_LAYOUT, VERIFICATION_NOT_PASSED, BLANK_DESCRIPTIONS, STAGING_FAILED, IDENTITY_CONFLICT }
+    public enum Reason { NEW_LAYOUT, VERIFICATION_NOT_PASSED, BLANK_DESCRIPTIONS, STAGING_FAILED, IDENTITY_CONFLICT,
+        HOLDER_NAME_UNREADABLE }
 
     private final JdbcTemplate jdbc;
     private final TransactionTemplate ownTransaction;
@@ -91,7 +97,15 @@ public class LayoutReviewService {
      *  and account family, or null, and places the layout in its profile automatically. */
     public void onStaged(String fingerprint, String sourceFormat, List<StagedRow> rows,
                          List<VerificationReport> reports, String analysisReference, LayoutIdentity identity) {
+        onStaged(fingerprint, sourceFormat, rows, reports, analysisReference, identity, false);
+    }
+
+    /** As above; {@code holderUnreadable} raises {@link Reason#HOLDER_NAME_UNREADABLE}. */
+    public void onStaged(String fingerprint, String sourceFormat, List<StagedRow> rows,
+                         List<VerificationReport> reports, String analysisReference, LayoutIdentity identity,
+                         boolean holderUnreadable) {
         Set<String> reasons = new TreeSet<>();
+        if (holderUnreadable) reasons.add(Reason.HOLDER_NAME_UNREADABLE.name());
         for (String rule : rulesNotPassed(reports)) reasons.add(Reason.VERIFICATION_NOT_PASSED.name() + ":" + rule);
         if (mostlyBlankDescriptions(rows)) reasons.add(Reason.BLANK_DESCRIPTIONS.name());
         record(fingerprint, sourceFormat, reasons, analysisReference, identity);

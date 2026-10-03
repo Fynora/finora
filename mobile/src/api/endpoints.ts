@@ -418,6 +418,9 @@ export interface ConfirmPayload {
   // own) -- omitted (not false) otherwise, matching ConfirmRequest's own optional-field contract
   // on the backend.
   userConfirmedContinue?: boolean;
+  // "This is my account" on that warning: the server saves the user's own profile name as the
+  // account's holder. Omitted for "Continue anyway", which keeps the name the statement printed.
+  holderIsMine?: boolean;
 }
 
 interface SectionConfirmPayload {

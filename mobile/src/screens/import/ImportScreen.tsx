@@ -156,6 +156,12 @@ export function ImportScreen() {
   // starts (resetToUpload, a new reimport arrival) -- an acknowledgment must not silently carry
   // over to a different statement.
   const ownershipAcknowledged = useRef(false);
+  // "This is my account" on the same warning: the confirm asks the server to save the user's own
+  // profile name as the account's holder. Reset wherever ownershipAcknowledged is.
+  const holderIsMine = useRef(false);
+  // The same answer when no holder name was read at all (so no warning to answer): a switch on the
+  // review screen's account card. State, not a ref -- it renders. See holderClaimAvailable().
+  const [claimHolder, setClaimHolder] = useState(false);
   // Aborts the in-flight staging upload. Held in a ref, not state: the Cancel button must reach the
   // CURRENT controller synchronously, and a re-render between press and abort would be enough to
   // send the signal to a stale one.
@@ -285,6 +291,8 @@ export function ImportScreen() {
     // key for the attempt it belongs to.
     attemptKey.current = null;
     ownershipAcknowledged.current = false;
+    holderIsMine.current = false;
+    setClaimHolder(false);
     setFileFormat(null);
     setSessionId(null);
     setRows(reimportParam.staging.rows);
@@ -334,6 +342,8 @@ export function ImportScreen() {
     // A new import is a new attempt, never a retry of the last one.
     attemptKey.current = null;
     ownershipAcknowledged.current = false;
+    holderIsMine.current = false;
+    setClaimHolder(false);
     // Cancels whatever this screen was doing before -- unlike the two setters around it, this one
     // actually has a side effect to undo. Without the abort() call, a reset that lands while a
     // request is still in flight (e.g. an AsyncStorage-recovered shared statement racing a live
@@ -690,17 +700,33 @@ export function ImportScreen() {
     return !isLikelyMatch(holder, fullName);
   }
 
+  // "This is my account" with no name read from the statement: offered only when there is a
+  // profile name to save, and never over a holder the chosen existing account already has.
+  function holderClaimAvailable(): boolean {
+    if (reimport || detected?.accountHolderName || !fullName) return false;
+    if (accountChoice !== 'existing') return true;
+    return !existingAccounts.find((a) => a.id === selectedAccountId)?.accountHolderName;
+  }
+
   function confirmOwnershipMismatch() {
     AppAlert.alert(
       'Statement Check',
-      `The statement holder name ("${detected?.accountHolderName}") differs from your Finora ` +
-        `profile name ("${fullName}"). Please confirm you've selected the correct statement ` +
-        'before continuing.',
+      `The statement holder name ("${detected?.accountHolderName}") differs from your Fynora ` +
+        `profile name ("${fullName}"). If this is your account, Fynora will save your name on it. ` +
+        'If it belongs to someone else, continue anyway and the printed name is kept.',
       [
         { text: 'Upload Different Statement', style: 'cancel', onPress: () => resetToUpload() },
         {
-          text: 'Continue Import',
+          text: 'Continue anyway',
           onPress: () => { ownershipAcknowledged.current = true; void confirmImport(); },
+        },
+        {
+          text: 'This is my account',
+          onPress: () => {
+            ownershipAcknowledged.current = true;
+            holderIsMine.current = true;
+            void confirmImport();
+          },
         },
       ]
     );
@@ -744,6 +770,7 @@ export function ImportScreen() {
             password: reimport.password,
             idempotencyKey: attemptKey.current ?? undefined,
             userConfirmedContinue: ownershipAcknowledged.current ? true : undefined,
+            holderIsMine: holderIsMine.current || (claimHolder && holderClaimAvailable()) ? true : undefined,
           })
         : await importApi.confirm({
             sessionId: sessionId!,
@@ -763,6 +790,7 @@ export function ImportScreen() {
             totalAmountDue: detected?.totalAmountDue ?? null,
             paymentDueDate: detected?.paymentDueDate ?? null,
             userConfirmedContinue: ownershipAcknowledged.current ? true : undefined,
+            holderIsMine: holderIsMine.current || (claimHolder && holderClaimAvailable()) ? true : undefined,
           });
       setSummary(result);
       setStep('summary');
@@ -1331,6 +1359,26 @@ export function ImportScreen() {
                   ) : null}
                 </View>
               )}
+              {holderClaimAvailable() ? (
+                <View style={[styles.savePasswordRow, { marginTop: spacing.md }]}>
+                  <View style={styles.savePasswordText}>
+                    <Text style={[styles.fieldLabel, { color: c.ink }]}>
+                      This is my account. Save my name ({fullName}) as the account holder.
+                    </Text>
+                    <Text style={[styles.helpText, { color: c.muted }]}>
+                      Fynora could not read a holder name from this statement.
+                    </Text>
+                  </View>
+                  <Switch
+                    value={claimHolder}
+                    onValueChange={setClaimHolder}
+                    trackColor={{ true: c.primary, false: c.border }}
+                    thumbColor={claimHolder ? c.onPrimary : undefined}
+                    accessibilityLabel="This is my account"
+                    testID="import-claim-holder"
+                  />
+                </View>
+              ) : null}
             </Card>
             )}
 

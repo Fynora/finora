@@ -24,6 +24,7 @@ const REASON_LABELS: Record<string, string> = {
   BLANK_DESCRIPTIONS: 'Mostly blank descriptions',
   STAGING_FAILED: 'Staging failed',
   IDENTITY_CONFLICT: 'Seen as a different bank or account type',
+  HOLDER_NAME_UNREADABLE: "Holder's name could not be read",
 };
 
 /** Plain words for a reason code; a per-rule verification reason names its rule. */

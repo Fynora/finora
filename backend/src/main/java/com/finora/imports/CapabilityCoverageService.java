@@ -409,6 +409,11 @@ public class CapabilityCoverageService {
             // last real transaction's trailing narration before this trigger existed. See
             // PdfTableLocator.TRANSACTION_TIME_FOOTNOTE_MARKER.
             "TRANSACTION_TIME_FOOTNOTE_CLOSED",
+            // A real Union Bank of India statement's in-grid "Summary :" block -- "Total Debits :",
+            // "Closing Balance :", "Total Credits :" -- folded into the last transaction and forming a
+            // phantom one of its own before this trigger existed. See
+            // PdfTableLocator.TABLE_TOTALS_SUMMARY_MARKER.
+            "TABLE_TOTALS_SUMMARY_CLOSED",
             // A real Canara Bank statement's own bare "Chq: <reference>" trailer line, past
             // MAX_TRAILING_CONTINUATION_ROWS's count cap, recovered as trailing content anyway by
             // content shape rather than count -- see PdfTableLocator.CHEQUE_REFERENCE_TRAILER.

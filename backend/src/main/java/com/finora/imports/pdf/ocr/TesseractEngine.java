@@ -103,13 +103,13 @@ public final class TesseractEngine implements OcrEngine {
 
     @Override
     public List<RecognisedText> recognise(byte[] pdf, int dpi) throws IOException {
-        List<RecognisedText> runs = new ArrayList<>();
         Path work = Files.createTempDirectory("tesseract-eval-");
         // finally, not just a trailing call: this now runs against real uploaded statements, and a
         // page that fails to render/recognise must not leave its rasterised image -- a real
         // customer document -- sitting in the temp directory permanently. Under test/evaluation
         // scope this cost was a rare, developer-visible inconvenience; in production it is a
         // silent, unbounded disk and privacy liability.
+        List<PageReadings> pages = new ArrayList<>();
         try (PDDocument in = Loader.loadPDF(pdf)) {
             PDFRenderer renderer = new PDFRenderer(in);
             for (int page = 0; page < in.getNumberOfPages(); page++) {
@@ -119,19 +119,102 @@ public final class TesseractEngine implements OcrEngine {
 
                 PDRectangle size = in.getPage(page).getMediaBox();
                 float scale = size.getWidth() / image.getWidth();
-                runs.addAll(parse(run(png), page, scale));
+                List<RecognisedText> standard = parse(run(png, null), page, scale);
+                List<RecognisedText> sparse = lowConfidenceShare(standard) > SPARSE_RETRY_LOW_CONFIDENCE_SHARE
+                        ? parse(run(png, SPARSE_TEXT_PSM), page, scale)
+                        : null;
+                pages.add(new PageReadings(standard, sparse));
             }
         } finally {
             deleteRecursively(work);
         }
+        return choose(pages);
+    }
+
+    /** One page's default reading, and its sparse-text reading when the default looked unreliable
+     *  enough to ask for one ({@code null} otherwise). */
+    record PageReadings(List<RecognisedText> standard, List<RecognisedText> sparse) {}
+
+    /**
+     * Picks one reading per page.
+     *
+     * <p>Decided across the document, not page by page, because the failure is a property of how the
+     * statement was printed and scanned, and every page shares that. Measured on the Union scan: its
+     * last page carries four transactions above several non-grid summary tables, which dilutes its
+     * low-confidence share until sparse mode is only 1.15x cleaner there -- yet the default reading
+     * still merged those four rows into the summary block. Once any page has shown the document needs
+     * sparse mode, every retried page takes the sparse reading unless it is actually worse.
+     */
+    static List<RecognisedText> choose(List<PageReadings> pages) {
+        boolean documentNeedsSparse = pages.stream().anyMatch(p -> p.sparse() != null
+                && lowConfidenceShare(p.sparse()) * SPARSE_MUST_BE_CLEANER_BY <= lowConfidenceShare(p.standard()));
+        List<RecognisedText> runs = new ArrayList<>();
+        for (int page = 0; page < pages.size(); page++) {
+            PageReadings p = pages.get(page);
+            boolean useSparse = documentNeedsSparse && p.sparse() != null
+                    && lowConfidenceShare(p.sparse()) <= lowConfidenceShare(p.standard());
+            if (p.sparse() != null) {
+                log.info("OCR page {}: low-confidence share {} under default segmentation, {} under "
+                                + "sparse-text; kept {}", page, String.format("%.3f", lowConfidenceShare(p.standard())),
+                        String.format("%.3f", lowConfidenceShare(p.sparse())), useSparse ? "sparse-text" : "default");
+            }
+            runs.addAll(useSparse ? p.sparse() : p.standard());
+        }
         return runs;
     }
 
-    /** {@code tesseract <png> stdout tsv} -- one row per recognised element. */
-    private String run(File png) throws IOException {
+    /**
+     * Share of a page's words Tesseract scored below {@link #LOW_CONFIDENCE}, above which the page
+     * is recognised a second time in sparse-text mode ({@code --psm 11}).
+     *
+     * <p>Measured on the two real scans available, both rendered at 300 DPI by PDFBox exactly as
+     * below. A phone-scanned Union Bank statement -- a gridded table with shaded alternate rows --
+     * scored 5.7-27% low-confidence words on each of its nine transaction pages under the default
+     * layout analysis. That analysis fused each two-line Particulars cell into one oversized "word"
+     * read as noise and merged neighbouring table rows, so a third of the statement's 289
+     * transactions never staged. The HSBC scan in the corpus scored 0.2% and 0.5%. 2% sits between
+     * the two with room on both sides, and keeps a clean page's cost at one recognition pass.
+     */
+    static final double SPARSE_RETRY_LOW_CONFIDENCE_SHARE = 0.02;
+
+    /**
+     * How many times cleaner the sparse-text reading has to be before it replaces the default one.
+     *
+     * <p>Sparse mode is not better everywhere, which is why it is a fallback rather than the
+     * default: forced onto the HSBC scan, it read a date-column prefix into a narration and moved one
+     * row's date from 05 to 02 June. Measured: on every Union transaction page the sparse reading was
+     * at least 3.9x cleaner (default 5.7% vs sparse 1.4% at the closest); on that statement's own
+     * summary page -- no grid, which the default reads fine -- only 1.15x; on both HSBC pages sparse
+     * was worse. 3x keeps the default reading wherever the two are comparable.
+     */
+    static final double SPARSE_MUST_BE_CLEANER_BY = 3.0;
+
+    /** Tesseract confidence (0-1 after {@link #parse}) below which a word counts as unreliable. */
+    static final float LOW_CONFIDENCE = 0.30f;
+
+    /** Tesseract's "sparse text" page segmentation: find as much text as possible, in no order. */
+    private static final String SPARSE_TEXT_PSM = "11";
+
+    /** Words that reported a confidence and scored below {@link #LOW_CONFIDENCE}, as a share of all
+     *  words. Unscored words count in the denominator only -- they are no evidence either way. */
+    static double lowConfidenceShare(List<RecognisedText> runs) {
+        if (runs.isEmpty()) return 0;
+        long low = runs.stream()
+                .filter(r -> r.confidence() != null && r.confidence() < LOW_CONFIDENCE)
+                .count();
+        return (double) low / runs.size();
+    }
+
+    /** {@code tesseract <png> stdout tsv} -- one row per recognised element. {@code psm} null keeps
+     *  Tesseract's default page segmentation, the exact invocation every page got before the sparse
+     *  retry existed. */
+    private String run(File png, String psm) throws IOException {
         String tesseract = RESOLVED_TESSERACT_PATH.orElseThrow(
                 () -> new IOException("tesseract is not on PATH -- callers must check available() first"));
-        Process process = new ProcessBuilder(tesseract, png.getAbsolutePath(), "stdout", "tsv")
+        List<String> command = new ArrayList<>(List.of(tesseract, png.getAbsolutePath(), "stdout"));
+        if (psm != null) command.addAll(List.of("--psm", psm));
+        command.add("tsv");
+        Process process = new ProcessBuilder(command)
                 .redirectErrorStream(false)
                 .start();
         String out = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);

@@ -253,7 +253,15 @@ public class PdfTableLocator {
                     // folded into the last transaction on the page once narration rehoming started
                     // placing text that used to be dropped. Anchored to the WHOLE line, so a
                     // narration that merely mentions a page cannot match.
-                    + "|(?i)^\\s*page\\s*(no\\b[.:\\s]*)?\\d+\\s*$");
+                    + "|(?i)^\\s*page\\s*(no\\b[.:\\s]*)?\\d+\\s*$"
+                    // A footer that numbers the page WITHOUT the word "page": a real Union Bank of
+                    // India statement prints a bare "1 of 10" bottom-right of every page, which OCR
+                    // reads as "1of 10". Folded into the page's last transaction as a continuation
+                    // line, it both polluted that narration and used up the trailing-continuation
+                    // slot, so the next page's first narration line was refused and stood alone.
+                    // The real corpus's HSBC credit-card statements print the same bare "1 of 4".
+                    // Anchored to the WHOLE line: digits either side of "of" and nothing else.
+                    + "|(?i)^\\s*\\d{1,3}\\s*of\\s*\\d{1,3}\\s*$");
 
     // Same capability as PAGE_FOOTER above (PAGE_BOUNDARY_ISOLATION in the Capability Registry) --
     // a statement-closing marker line, same as a page-number footer, has no date of its own and
@@ -691,6 +699,23 @@ public class PdfTableLocator {
     private static final Pattern TRANSACTION_TIME_FOOTNOTE_MARKER = Pattern.compile(
             "(?i)transaction\\s+time\\s+captured\\s+in\\s+ist\\b");
 
+    // TABLE_TOTALS_SUMMARY_CLOSED. A real Union Bank of India savings statement closes its
+    // transaction table with a boxed "Summary :" block inside the table's own grid: "Total Debits :
+    // <amount>", then "Summary :" beside "Closing Balance : <amount>", then "Total Credits :
+    // <amount>". Its first line sits directly beneath the last transaction's wrapped narration, so
+    // without this trigger it was folded into that transaction as a continuation line -- its
+    // amount landing in the Withdrawal column of a row that already had a Deposit (a column
+    // ambiguity) -- and the "Total Credits" line formed a phantom transaction of its own, carrying
+    // the month's aggregate credits as one more withdrawal. Measured on the OCR path of a scanned
+    // copy (Tesseract drops the colon, so it is optional here).
+    //
+    // Anchored to the WHOLE line and to exactly one amount: across the real corpus the phrase
+    // otherwise appears only as one label among several in a summary-grid header row (Bandhan's
+    // "Opening Balance Total Credits Total Debits Closing Balance", SBI's "... Total Debits ( )
+    // Total Credits ( ) ..."), never as a line that starts with it and carries a value.
+    private static final Pattern TABLE_TOTALS_SUMMARY_MARKER = Pattern.compile(
+            "(?i)^\\s*total\\s+debits\\s*:?\\s*[0-9][0-9,]*\\.\\d{2}\\s*$");
+
     /** One row-shaped trigger the trailing-content suppression gate checks for, paired with the
      *  capability name to record when it fires -- see {@link #trailingContentTriggerCapability}. */
     private record TrailingContentTrigger(Pattern pattern, String capability) {}
@@ -711,7 +736,8 @@ public class PdfTableLocator {
                     "SAVINGS_AND_BENEFITS_SECTION_CLOSED"),
             new TrailingContentTrigger(LOAN_SUMMARY_TABLE_MARKER, "LOAN_SUMMARY_TABLE_CLOSED"),
             new TrailingContentTrigger(EMI_BALANCES_TABLE_MARKER, "EMI_BALANCES_TABLE_CLOSED"),
-            new TrailingContentTrigger(TRANSACTION_TIME_FOOTNOTE_MARKER, "TRANSACTION_TIME_FOOTNOTE_CLOSED"));
+            new TrailingContentTrigger(TRANSACTION_TIME_FOOTNOTE_MARKER, "TRANSACTION_TIME_FOOTNOTE_CLOSED"),
+            new TrailingContentTrigger(TABLE_TOTALS_SUMMARY_MARKER, "TABLE_TOTALS_SUMMARY_CLOSED"));
 
     /** The capability name the first matching trigger should record for {@code rowLine}, or null
      *  if none match. */
@@ -747,6 +773,7 @@ public class PdfTableLocator {
             case "LOAN_SUMMARY_TABLE_CLOSED" -> ctx.record("LOAN_SUMMARY_TABLE_CLOSED");
             case "EMI_BALANCES_TABLE_CLOSED" -> ctx.record("EMI_BALANCES_TABLE_CLOSED");
             case "TRANSACTION_TIME_FOOTNOTE_CLOSED" -> ctx.record("TRANSACTION_TIME_FOOTNOTE_CLOSED");
+            case "TABLE_TOTALS_SUMMARY_CLOSED" -> ctx.record("TABLE_TOTALS_SUMMARY_CLOSED");
             default -> throw new IllegalStateException(
                     "Unknown trailing-content trigger capability: " + capability);
         }
@@ -2546,8 +2573,20 @@ public class PdfTableLocator {
                         pendingAuxiliary.add(rowLine);
                         continue;
                     }
+                    // The count cap is also closed, deliberately, behind a row that is not a
+                    // transaction at all -- an "Opening Balance" line, which nothing may trail (see
+                    // the currentRows.isEmpty() branch). That closure says nothing about where the
+                    // next line sits, so it must not also cost this line its proximity reading.
+                    // Measured on a scanned Union Bank of India statement whose narrations print
+                    // their first line 4pt above the date row: the first transaction's first line,
+                    // 13pt below "Opening Balance", read as not-by-proximity, could not be moved
+                    // out of the date column it OCR'd into, and stood alone as an unparseable row.
+                    boolean trailingClosedBehindANonTransaction = !currentRows.isEmpty()
+                            && !hasDateValue(currentRows.get(currentRows.size() - 1),
+                                    yearsByPage.getOrDefault(rowPageIndex, PageDateEvidence.NONE));
                     boolean nearerToTheTransactionBelow =
-                            trailingCountSinceLastAnchor < MAX_TRAILING_CONTINUATION_ROWS
+                            (trailingCountSinceLastAnchor < MAX_TRAILING_CONTINUATION_ROWS
+                                    || trailingClosedBehindANonTransaction)
                                     && isNarrationOnly(bucketed)
                                     && !belongsToTheRowAbove(gapFromPreviousRow, gapToNextRow);
 
@@ -2574,8 +2613,18 @@ public class PdfTableLocator {
                     // because there the two cases are genuinely indistinguishable by geometry.
                     boolean decisivelyBelongsBelow = isNarrationOnly(bucketed)
                             && !belongsToTheRowAbove(gapFromPreviousRow, gapToNextRow);
+                    //
+                    // Same page as the transaction above, too, for the reason the trailing branch
+                    // is gated on samePage: what sits at the top of the next page, above its
+                    // repeated header, is that page's letterhead, not the tail of the previous
+                    // page's last transaction. Measured on a scanned Union Bank of India statement:
+                    // the last page's OCR'd letterhead was buffered, then this split appended it to
+                    // the previous page's last transaction before the repeated header could send it
+                    // to auxiliary text. Rows buffered before this one sit between the last anchor
+                    // and this row, so this row being on the anchor's page puts them there too.
                     if (decisivelyBelongsBelow && pendingLeading != null
-                            && pendingLeadingAllBelongAbove && !pageRepeatSinceLastAnchor && !currentRows.isEmpty()) {
+                            && pendingLeadingAllBelongAbove && !pageRepeatSinceLastAnchor && !currentRows.isEmpty()
+                            && lastAnchorPage != null && lastAnchorPage == rowPageIndex) {
                         appendNarrationTo(currentRows.get(currentRows.size() - 1), pendingLeading,
                                 headerNames);
                         if (ctx != null) ctx.record("LEADING_BUFFER_SPLIT_AT_ITS_OWN_BOUNDARY");

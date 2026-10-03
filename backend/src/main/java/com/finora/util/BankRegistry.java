@@ -76,6 +76,18 @@ public final class BankRegistry {
     private static final java.util.regex.Pattern IFSC_TOKEN =
             java.util.regex.Pattern.compile("\\b([A-Z]{4})0[A-Z0-9]{6}\\b");
 
+    /**
+     * {@link #IFSC_TOKEN} with the reserved fifth character also read as the letter O, which OCR
+     * returns for that zero: a scanned Union Bank of India statement's "IFSC : UBIN0XXXXXX"
+     * recognised as "UBINOXXXXXX", so its own labelled IFSC -- the strongest signal there is --
+     * matched nothing and detection fell through to letterhead text OCR had mangled. The fifth
+     * character is always 0 by RBI's format, so O there carries no other meaning. Used only for the
+     * LABELLED IFSC: an unlabelled 11-letter word with an O fifth ("HDFCONLINE1") is ordinary
+     * narration text, and the label is what says this token is a code.
+     */
+    private static final java.util.regex.Pattern LABELLED_IFSC_TOKEN =
+            java.util.regex.Pattern.compile("\\b([A-Z]{4})[0O][A-Z0-9]{6}\\b");
+
     static {
         // ---------------- Public Sector Banks ----------------
         register("SBI", "State Bank of India", "SBI", "#22409A", "SBI", "sbi",
@@ -401,7 +413,7 @@ public final class BankRegistry {
         for (String hint : extraTextHints) {
             if (hint == null) continue;
             if (requireLabel && !hint.toUpperCase(Locale.ROOT).contains("IFSC")) continue;
-            var matcher = IFSC_TOKEN.matcher(hint);
+            var matcher = (requireLabel ? LABELLED_IFSC_TOKEN : IFSC_TOKEN).matcher(hint);
             while (matcher.find()) {
                 String bankId = IFSC_PREFIX_TO_ID.get(matcher.group(1));
                 if (bankId == null) continue;

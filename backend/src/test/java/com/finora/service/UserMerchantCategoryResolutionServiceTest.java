@@ -363,6 +363,29 @@ class UserMerchantCategoryResolutionServiceTest {
     private static final List<String> KEYS_NAMING_NO_ONE = List.of(
             "masked:.payu@hdfcbank", "cut:sampleqr1111111", "vpa:pg.razorpay", "name:via razorpay");
 
+    /** The positive control for the test below: a gateway word beside the shop's own name still names the shop. */
+    @Test
+    void pin_nameKeyThatNamesThePayee_stillWrites() {
+        UUID categoryId = UUID.randomUUID();
+
+        service.pin(userId, "name:samplecanteen payu", Transaction.Type.EXPENSE, categoryId);
+
+        verify(resolutionRepository).upsertPinned(eq(userId), eq("name:samplecanteen payu"), eq("EXPENSE"), eq(categoryId), any());
+    }
+
+    /** A row saved before such keys stopped being saved is still in the table: the live read must not serve it. */
+    @Test
+    void resolveReadOnly_keyThatNamesNoOnePayee_ignoresARowAlreadyStored() {
+        UserMerchantCategoryResolution stored = new UserMerchantCategoryResolution();
+        stored.setCategoryId(UUID.randomUUID());
+        when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(any(), any(), any()))
+                .thenReturn(Optional.of(stored));
+
+        for (String key : KEYS_NAMING_NO_ONE) {
+            assertThat(service.resolveReadOnly(userId, key, Transaction.Type.EXPENSE)).isEmpty();
+        }
+    }
+
     @Test
     void pin_keyThatNamesNoOnePayee_writesNothing() {
         // Pinned, one choice would file every later payment to a stranger on the same key.

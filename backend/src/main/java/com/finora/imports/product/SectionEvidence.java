@@ -86,6 +86,21 @@ public record SectionEvidence(List<ObservedFact> facts) {
      * amounts against dates and never needs one. Requiring a date, a description and some form of
      * amount together is what no single keyword can fake.
      */
+    /** True when this section shows credit-card payment-summary fields, but only in text that
+     *  describes the document rather than this section -- a card's summary printed above another
+     *  product's banner in a combined statement (see {@code ProductEvidenceCollector#scopedToOwnBanner}). */
+    public boolean cardFieldsAreDocumentLevel() {
+        boolean seen = false;
+        for (ProductSignal field : List.of(ProductSignal.CARD_NUMBER_FIELD, ProductSignal.TOTAL_DUE_FIELD,
+                ProductSignal.MINIMUM_DUE_FIELD, ProductSignal.CREDIT_LIMIT_FIELD)) {
+            Optional<EvidenceSource> source = strongestSourceFor(field);
+            if (source.isEmpty()) continue;
+            if (source.get() != EvidenceSource.DOCUMENT_TEXT) return false;
+            seen = true;
+        }
+        return seen;
+    }
+
     public boolean looksLikeALedger() {
         return has(ProductSignal.DATE_COLUMN)
                 && has(ProductSignal.DESCRIPTION_COLUMN)

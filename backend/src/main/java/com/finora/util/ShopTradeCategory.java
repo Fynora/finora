@@ -49,6 +49,8 @@ public final class ShopTradeCategory {
      * the most general word here, is last.
      */
     private static final Pattern MART = words("mart");
+    // A change here that can move a row off "Other" or "Personal Transfer": raise
+    // CategorizationService.SUGGESTION_VERSION so rows already waiting are re-checked.
     private static final Map<Pattern, String> TRADES = new LinkedHashMap<>();
     static {
         TRADES.put(words("medical", "medicals", "medico", "medicos", "chemist", "chemists"), "Health");

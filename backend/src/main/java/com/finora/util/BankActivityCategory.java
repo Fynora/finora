@@ -37,6 +37,8 @@ public final class BankActivityCategory {
 
     // Each list is matched as whole words over CategoryRules.normalize(), which lowercases and turns
     // every non-alphanumeric into a space ("Int.Pd:01-05" reads "int pd 01 05").
+    // A change here that can move a row off "Other" or "Personal Transfer": raise
+    // CategorizationService.SUGGESTION_VERSION so rows already waiting are re-checked.
     private static final Pattern EARNED = words(
             "cashback", "cash back",
             // The bank's own interest credit, in each spelling measured. Never a bare "interest":

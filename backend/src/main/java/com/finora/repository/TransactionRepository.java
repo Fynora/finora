@@ -197,8 +197,13 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
      * chose, or one answered elsewhere, between discovery and this write is left alone (returns 0).
      * Bumps {@code version}: the category is something the user sees, so another device must learn
      * of it (ChangeStampService).
+     *
+     * <p>{@code flushAutomatically}: the category it points at may have just been created in the
+     * same transaction (CategorizationService.resolveOrCreateCategory), and Hibernate does not flush
+     * a pending insert into {@code categories} before a bulk update on {@code transactions} -- the
+     * update then fails the category foreign key (seen in CategorySuggestionSweepIT).
      */
-    @Modifying
+    @Modifying(flushAutomatically = true)
     @Query("""
             UPDATE Transaction t
             SET t.categoryId = :categoryId,

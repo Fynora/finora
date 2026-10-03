@@ -27,6 +27,8 @@ public final class CategoryRules {
     // matches nothing. Building it from (char) 0x5C removes that ambiguity entirely.
     private static final String WORD_BOUNDARY = String.valueOf((char) 0x5C) + "b";
 
+    // A change here that can move a row off "Other" or "Personal Transfer": raise
+    // CategorizationService.SUGGESTION_VERSION so rows already waiting are re-checked.
     public static final Map<String, List<String>> RULES = new LinkedHashMap<>();
     static {
         // "kronos" (a real workforce-management/payroll platform, now part of UKG) added after

@@ -3,6 +3,7 @@ package com.finora.imports.trust;
 import com.finora.dto.ImportDto;
 import com.finora.imports.BalanceChainValidator;
 import com.finora.imports.ColumnAmbiguityValidator;
+import com.finora.imports.CreditCardFlowReconciliationValidator;
 import com.finora.imports.DescriptionCorruptionValidator;
 import com.finora.imports.RowAccountingValidator;
 import com.finora.imports.SummaryTotalsValidator;
@@ -18,7 +19,7 @@ import java.util.Set;
 /**
  * Decides whether an extraction is trustworthy enough to reach a user's ledger unreviewed.
  *
- * <p>Seven conditions. Each is a signal the pipeline already computes, chosen because it is
+ * <p>Eight conditions. Each is a signal the pipeline already computes, chosen because it is
  * evidence that a specific transaction is <em>wrong, missing, or corrupted</em> rather than
  * evidence that extraction was merely difficult:
  *
@@ -50,6 +51,13 @@ import java.util.Set;
  *       transaction's own description reads as far longer and more prose-shaped than this
  *       document's peers, the shape a page footer or disclaimer takes when it merges into a real
  *       transaction's narration by mistake.</li>
+ *   <li><b>Card rows disagree with the printed totals.</b> See
+ *       {@link CreditCardFlowReconciliationValidator}: a card statement's rows, summed by
+ *       direction, do not match the purchases and payments its own summary panel printed. Sid's
+ *       decision (2026-10-02): this holds, because the rows are what reach the ledger. The summary
+ *       disagreeing with itself ({@code CREDIT_CARD_STATEMENT_TOTALS}) does not: it says nothing
+ *       about the rows. Measured on the real card corpus before this shipped: it fired on none of
+ *       its statements.</li>
  * </ol>
  *
  * <h2>What is still deliberately excluded</h2>
@@ -139,7 +147,7 @@ public final class TrustPredicate {
     public enum Category {
         COUNT_MISMATCH, DROPPED_TRANSACTION, PERIOD_INTEGRITY,
         BALANCE_CHAIN_DISCREPANCY, COLUMN_AMBIGUITY, HEADER_RECONSTRUCTION_UNCERTAIN,
-        DESCRIPTION_CORRUPTION
+        DESCRIPTION_CORRUPTION, CARD_ROWS_DISAGREE_WITH_SUMMARY
     }
 
     /**
@@ -188,6 +196,10 @@ public final class TrustPredicate {
                     descriptionCorruption(finding).ifPresent(r -> {
                         reasons.add(r);
                         categories.add(Category.DESCRIPTION_CORRUPTION);
+                    });
+                    cardRowsDisagreeWithSummary(finding).ifPresent(r -> {
+                        reasons.add(r);
+                        categories.add(Category.CARD_ROWS_DISAGREE_WITH_SUMMARY);
                     });
                 }
             }
@@ -248,6 +260,15 @@ public final class TrustPredicate {
         if (!DescriptionCorruptionValidator.RULE.equals(finding.rule())) return Optional.empty();
         if (!"WARNING".equals(finding.outcome())) return Optional.empty();
         return Optional.of("A transaction's description looks like it absorbed text that was never part of it");
+    }
+
+    /** WARNING is the validator's only disagreeing outcome -- it never says which side is wrong, so
+     *  it never reports FAILED. NOT_APPLICABLE (no purchases/payments printed, or no classified
+     *  rows) is not a disagreement and never holds. */
+    private static Optional<String> cardRowsDisagreeWithSummary(ImportDto.VerificationFinding finding) {
+        if (!CreditCardFlowReconciliationValidator.RULE.equals(finding.rule())) return Optional.empty();
+        if (!"WARNING".equals(finding.outcome())) return Optional.empty();
+        return Optional.of("The card's transactions do not add up to the purchases or payments its summary printed");
     }
 
     private static Optional<String> periodIntegrity(LocalDate[] period, LocalDate today) {

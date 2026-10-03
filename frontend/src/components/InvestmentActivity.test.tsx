@@ -68,7 +68,7 @@ describe('InvestmentActivity', () => {
 
   // Truncated in a narrow column, and the tail is what tells two SIPs from the same payee apart.
   it('gives each truncated description a title with its full text', async () => {
-    const long = 'UPI-GROWW INVEST TECH PV-GROWWNBT.ELEMENTS@HDFCBANK-REF-PAID VIA ELEMENTS';
+    const long = 'UPI-GROWW INVEST TECH PV-GROWWXYZ.ELEMENTS@SHOPCOBK-REF-PAID VIA ELEMENTS';
     vi.mocked(transactionsApi.search).mockResolvedValue(page([txn('a', 100, { description: long })]));
 
     render(<InvestmentActivity />);

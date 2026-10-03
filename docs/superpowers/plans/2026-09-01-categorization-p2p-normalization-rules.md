@@ -349,7 +349,7 @@ class PersonToPersonTransferDetectorTest {
     @Test
     void excludesMerchantQrVpaHandle() {
         assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
-                "UPI-PAYTMQR6NU5UR@PTYS-REF992817"))
+                "UPI-PAYTMQR3QZ8XW@PTYS-REF992817"))
                 .isFalse();
     }
 
@@ -490,7 +490,7 @@ public final class PersonToPersonTransferDetector {
     }
 
     // A VPA-shaped handle whose local part contains "qr" -- a merchant-QR handle (e.g.
-    // "paytmqr6nu5ur@ptys"), never a person's own UPI handle. A structural business signal
+    // "paytmqr3qz8xw@ptys"), never a person's own UPI handle. A structural business signal
     // independent of the word-token checks above.
     private static final Pattern VPA_BUSINESS_QR = Pattern.compile(
             "(?i)[a-z0-9._-]*qr[a-z0-9._-]*@[a-z0-9]+");

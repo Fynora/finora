@@ -219,7 +219,7 @@ public final class PersonToPersonTransferDetector {
     }
 
     // A VPA-shaped handle whose local part contains "qr" -- a merchant-QR handle (e.g.
-    // "paytmqr6nu5ur@ptys"), never a person's own UPI handle. A structural business signal
+    // "paytmqr3qz8xw@ptys"), never a person's own UPI handle. A structural business signal
     // independent of the word-token checks above.
     private static final Pattern VPA_BUSINESS_QR = Pattern.compile(
             "(?i)[a-z0-9._-]*qr[a-z0-9._-]*@[a-z0-9]+");
@@ -258,7 +258,7 @@ public final class PersonToPersonTransferDetector {
     private static final Pattern MERCHANT_ACQUIRER_MARKER = Pattern.compile(
             "(?i)"
             + "\\bQ\\d{6,}@"                      // PhonePe merchant Q-VPA: Q710750321@ybl
-            + "|paytm\\.[sd][a-z0-9]*@"           // Paytm merchant: PAYTM.S25PHA0@pty
+            + "|paytm\\.[sd][a-z0-9]*@"           // Paytm merchant: PAYTM.S70KQZ0@pty
             // Merchant-UPI IFSC. The BRANCH half is the signal here, unusually: PSPs route
             // merchant collections through dedicated pseudo-branches whose code spells out what
             // they are, so the bank prefix is the part that varies and is deliberately a wildcard.

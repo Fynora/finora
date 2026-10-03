@@ -33,7 +33,7 @@ class PersonPaymentDescriptionsIT extends AbstractIntegrationTest {
         UUID otherUserId = newUser();
         save(userId, "UPI-RAVI KUMAR-old@ybl-UPI", CounterpartyType.PERSON, LocalDate.of(2026, 7, 1));
         save(userId, "UPI-PRIYA SHARMA-new@ybl-UPI", CounterpartyType.PERSON, LocalDate.of(2026, 8, 1));
-        save(userId, "UPI-ZOMATO-zomato@hdfcbank-UPI", CounterpartyType.BUSINESS, LocalDate.of(2026, 8, 2));
+        save(userId, "UPI-ZOMATO-zomato@shopcobk-UPI", CounterpartyType.BUSINESS, LocalDate.of(2026, 8, 2));
         save(otherUserId, "UPI-SOMEONE ELSE-x@ybl-UPI", CounterpartyType.PERSON, LocalDate.of(2026, 8, 3));
         Transaction deleted = save(userId, "UPI-GONE PERSON-g@ybl-UPI", CounterpartyType.PERSON, LocalDate.of(2026, 8, 4));
         transactionRepository.delete(deleted);

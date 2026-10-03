@@ -251,7 +251,7 @@ class CategorizationServiceTest {
     @Test
     void suggestReadOnly_namesAGovernmentFeeTaxes_atStaging() {
         var suggestion = categorizationService.suggestReadOnly(List.of(), userId,
-                "UPI/000000000000/19:06:39/UPI/upsc.sbiepaylite@sb", null, null, null,
+                "UPI/000000000000/19:06:39/UPI/upsc.sbiepaylite@zz", null, null, null,
                 Transaction.Type.EXPENSE, null);
 
         assertThat(suggestion.category()).isEqualTo("Taxes");

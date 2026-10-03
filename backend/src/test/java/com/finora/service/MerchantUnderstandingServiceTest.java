@@ -121,7 +121,7 @@ class MerchantUnderstandingServiceTest {
         when(llmClient.complete(any())).thenReturn(new LlmCompletion(null, List.of(toolUse),
                 "claude-haiku-4-5-20251001", 40, 10, "tool_use"));
 
-        for (String key : List.of("vpa:pg.razorpay", "cut:sampleqr1111111", "masked:.payu@hdfcbank")) {
+        for (String key : List.of("vpa:pg.razorpay", "cut:sampleqr1111111", "masked:.payu@shopcobk")) {
             Optional<String> result = service.understand(userId, key, Transaction.Type.INCOME,
                     "UPI-RAZORPAY-PG.RAZORPAY@SAMPLEBANK-SMPL0XXXXXX-111111111111-SAMPLETRAVELREFUNDX1");
             assertThat(result).contains("An online travel agency");

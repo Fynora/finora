@@ -356,7 +356,7 @@ public final class PdfFixtureBuilder {
         PageBuilder page1 = new PageBuilder();
         page1.row(col, "Date", "Transaction Id", "Remarks", "Amount(", ")", "Balance(", ")")
                 .row(col, "01-05-2026", "Y3922031", "Salary Credit", "50000.00(Cr)", "", "58234.84(Cr)", "")
-                .row(col, "01-05-2026", "Y4898201", "UPI Payment", "34000.00(Dr)", "", "24234.84(Cr)", "")
+                .row(col, "01-05-2026", "Y5100207", "UPI Payment", "34000.00(Dr)", "", "24234.84(Cr)", "")
                 .line("Page 1 of 2");
 
         PageBuilder page2 = new PageBuilder();

@@ -615,6 +615,20 @@ class PdfMetadataExtractorTest {
      *  "...for the period <date> to <date>" -- with no parentheses at all, so
      *  STATEMENT_PERIOD_IN_SENTENCE (which requires parens) doesn't match. */
     @Test
+    void extract_readsASlicePeriodLineAndItsAcNumberField() {
+        // A slice small finance bank statement: the period alone on the first line with
+        // apostrophe years and a spaced hyphen, and the account under "A/C number" mid-line.
+        var metadata = extractor.extract(List.of(
+                "01 Sep '26 - 30 Sep '26",
+                "SAMPLE HOLDER",
+                "Phone 0000000000 A/C number 000000001234"));
+
+        assertThat(metadata.statementPeriodStart()).isEqualTo(java.time.LocalDate.of(2026, 9, 1));
+        assertThat(metadata.statementPeriodEnd()).isEqualTo(java.time.LocalDate.of(2026, 9, 30));
+        assertThat(metadata.accountNumberMasked()).endsWith("1234");
+    }
+
+    @Test
     void extract_recognizesAStatementPeriod_statedAsProseWithNoParentheses() {
         var metadata = extractor.extract(List.of(
                 "Statement for A/c XXXXXXXXX1455 for the period 02-Jul-2026 to 01-Aug-2026"));

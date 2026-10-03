@@ -918,6 +918,55 @@ public final class PdfFixtureBuilder {
         return render(List.of(page));
     }
 
+    /** A slice small finance bank savings ledger's shape: the period alone on the first line, dates
+     *  printed "15 Sep '26", one AMOUNT column signed by the bank (debits negative, credits unsigned)
+     *  beside a running BALANCE, and a "Generated on" / "Need help?" footer under the last row.
+     *  Values invented. */
+    public static byte[] buildSignedAmountLedgerWithSupportFooterSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 120f, 330f, 420f, 500f};
+        float[] summaryCol = {LEFT_MARGIN, 160f, 280f, 400f};
+        PageBuilder page = new PageBuilder();
+        page.line("01 Sep '26 - 30 Sep '26")
+                .line("Sample Savings Account Statement")
+                .line("SAMPLE HOLDER")
+                .line("Customer ID 000000000 Account SAVING")
+                .line("Phone 0000000000 A/C number 000000001234")
+                .line("Email sample@example.com IFSC NESF0XXXXXX")
+                .row(summaryCol, "Opening balance", "Total credits", "Total debits", "Closing balance")
+                .blankLine()
+                .row(summaryCol, "18.20", "6,000.87", "2,076.30", "3,942.77")
+                .blankLine()
+                .row(col, "DATE", "DETAILS", "REF NO.", "AMOUNT", "BALANCE")
+                .row(col, "15 Sep '26", "Account Transfer-Credit-SAMPLE", "000000000001", "6,000.00", "6,018.20")
+                .row(col, "16 Sep '26", "Interest Cr. for 15-Sep-2026", "000000000002", "0.87", "6,019.07")
+                .row(col, "16 Sep '26", "UPI-Debit-SAMPLE GROCER", "000000000003", "-1,954.00", "4,065.07")
+                .row(col, "16 Sep '26", "UPI-Debit-SAMPLE STORE", "000000000004", "-122.30", "3,942.77")
+                .blankLine()
+                .line("Generated on 02 Oct '26")
+                .blankLine()
+                .line("Need help? Contact our support team at help@example.com or +91-0000000000");
+        return render(List.of(page));
+    }
+
+    /** The same signed-amount-beside-a-running-balance shape on a CREDIT CARD statement, whose
+     *  balance is the amount OUTSTANDING: purchases printed positive raise it, a refund printed
+     *  negative lowers it. Read "as printed" it reconciles exactly like a savings ledger -- and
+     *  means the opposite. Values invented. */
+    public static byte[] buildCardWithSignedAmountAndOutstandingBalanceSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 130f, 380f, 470f};
+        PageBuilder page = new PageBuilder();
+        page.line("Sample Bank Credit Card Statement")
+                .line("Card Number XXXX XXXX XXXX 1234")
+                .line("Credit Limit 1,00,000.00   Total Amount Due 3,700.00   Minimum Amount Due 185.00")
+                .line("Payment Due Date 20/10/2026")
+                .row(col, "Date", "Transaction Details", "Amount", "Balance")
+                .row(col, "02/09/2026", "SAMPLE ELECTRONICS STORE", "2,500.00", "2,500.00")
+                .row(col, "05/09/2026", "SAMPLE FUEL STATION", "1,500.00", "4,000.00")
+                .row(col, "09/09/2026", "REFUND SAMPLE ELECTRONICS STORE", "-500.00", "3,500.00")
+                .row(col, "12/09/2026", "SAMPLE RESTAURANT", "200.00", "3,700.00");
+        return render(List.of(page));
+    }
+
     /** A savings ledger whose narrations wrap by width through a UPI handle and after a field
      *  separator -- the two wrap shapes that hold on any bank (plan 4, NarrationLineBreaks). */
     public static byte[] buildLedgerWithNarrationsWrappedThroughIdentifiersSample() throws IOException {

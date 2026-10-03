@@ -263,6 +263,16 @@ public class PdfTableLocator {
                     // Anchored to the WHOLE line: digits either side of "of" and nothing else.
                     + "|(?i)^\\s*\\d{1,3}\\s*of\\s*\\d{1,3}\\s*$");
 
+    // Same capability as PAGE_FOOTER (PAGE_BOUNDARY_ISOLATION): a real slice small finance bank
+    // statement ends every page with "Need help? Contact our support team at <email> or <phone>"
+    // beside the bank's name, and its last page with "Generated on <date>" above that. Neither
+    // numbers the page, so PAGE_FOOTER never matched, and on the last page both were appended to the
+    // final transaction's narration -- which then failed DESCRIPTION_CORRUPTION and held the import.
+    // Each alternative is anchored to the START of the line, where no transaction narration begins.
+    private static final Pattern PAGE_FOOTER_SENTENCE = Pattern.compile(
+            "(?i)^\\s*need\\s+help\\?\\s+contact\\s+our\\s+support\\b"
+                    + "|(?i)^\\s*generated\\s+on\\s+\\d{1,2}\\s+[a-z]{3,9}\\s+'?\\d{2,4}\\s*$");
+
     // Same capability as PAGE_FOOTER above (PAGE_BOUNDARY_ISOLATION in the Capability Registry) --
     // a statement-closing marker line, same as a page-number footer, has no date of its own and
     // must never be folded into the last real transaction as if it were a continuation of its
@@ -2023,7 +2033,8 @@ public class PdfTableLocator {
                     pageRepeatSinceLastAnchor = false;
                 }
                 continue;
-            } else if (PAGE_FOOTER.matcher(rowLine).find() || STATEMENT_CLOSING_MARKER.matcher(rowLine).find()
+            } else if (PAGE_FOOTER.matcher(rowLine).find() || PAGE_FOOTER_SENTENCE.matcher(rowLine).find()
+                    || STATEMENT_CLOSING_MARKER.matcher(rowLine).find()
                     || PAGE_BANNER.matcher(rowLine).find() || pageNumberBesideTheTable(row, tableRuns)) {
                 if (ctx != null) ctx.record("PAGE_BOUNDARY_ISOLATION");
                 // Row-accounting evidence: acknowledged, real risk (see this pattern's own doc
@@ -7665,7 +7676,7 @@ public class PdfTableLocator {
         for (int rowIndex = 0; rowIndex < allRows.size(); rowIndex++) {
             List<PositionedText> row = allRows.get(rowIndex);
             String rowLine = lineOf(row);
-            if (PAGE_FOOTER.matcher(rowLine).find()) continue;
+            if (PAGE_FOOTER.matcher(rowLine).find() || PAGE_FOOTER_SENTENCE.matcher(rowLine).find()) continue;
             // Every TRAILING_CONTENT_TRIGGERS marker, not just STATEMENT_CLOSING_MARKER alone --
             // this headerless path used to check only that one trigger, so a document that falls
             // back to headerless inference (no recognized column vocabulary at all) got none of the
@@ -8493,7 +8504,8 @@ public class PdfTableLocator {
         int rowIndex = 0;
         while (rowIndex < rows.size()) {
             String rowLine = lineOf(rows.get(rowIndex));
-            if (PAGE_FOOTER.matcher(rowLine).find() || STATEMENT_CLOSING_MARKER.matcher(rowLine).find()) {
+            if (PAGE_FOOTER.matcher(rowLine).find() || PAGE_FOOTER_SENTENCE.matcher(rowLine).find()
+                    || STATEMENT_CLOSING_MARKER.matcher(rowLine).find()) {
                 rowIndex++;
                 continue;
             }

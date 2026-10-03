@@ -302,6 +302,10 @@ class CapabilityCorpusCoverageTest {
         DECLARED_WITHOUT_A_TRACE.put("TABLE_TOTALS_SUMMARY_CLOSED",
                 "no trace -- the evidencing document is a customer's scanned statement, never captured. "
                         + "Covered by ScannedGridLedgerPdfTableLocatorTest (mutation-checked)." + realCorpusVerified);
+        DECLARED_WITHOUT_A_TRACE.put("SIGNED_AMOUNT_COLUMN",
+                "no trace CAN cover it: it fires in PdfPreviewGenerator, never in PdfTableLocator.locateAll, "
+                        + "and the evidencing slice statement is a customer's, never captured. Covered by "
+                        + "SignedAmountColumnTest (mutation-checked)." + realCorpusVerified);
         DECLARED_WITHOUT_A_TRACE.put("FOREIGN_CURRENCY_AMOUNT",
                 "no trace CAN cover it here: it fires in TransactionNormalizer, never in "
                         + "PdfTableLocator.locateAll, and capture of the evidencing document was refused (see "

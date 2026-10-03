@@ -409,6 +409,10 @@ public class CapabilityCoverageService {
             // last real transaction's trailing narration before this trigger existed. See
             // PdfTableLocator.TRANSACTION_TIME_FOOTNOTE_MARKER.
             "TRANSACTION_TIME_FOOTNOTE_CLOSED",
+            // One AMOUNT column whose sign is the direction ("-₹" debits, unsigned credits), proved
+            // by the statement's own running balance. A real slice small finance bank statement
+            // staged every credit as an expense before it. See SignedAmountColumn.
+            "SIGNED_AMOUNT_COLUMN",
             // A real Union Bank of India statement's in-grid "Summary :" block -- "Total Debits :",
             // "Closing Balance :", "Total Credits :" -- folded into the last transaction and forming a
             // phantom one of its own before this trigger existed. See

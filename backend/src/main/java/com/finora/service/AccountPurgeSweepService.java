@@ -670,6 +670,16 @@ public class AccountPurgeSweepService {
                     }
                 });
 
+        // Before the transaction below hard-deletes this user's import_jobs rows, which are the
+        // only rows naming the objects their uploads wrote -- a confirmed statement's object is a
+        // separate one (see StatementStorageSweepService's "Async uploads" doc). Afterwards nothing
+        // could lead back to those objects and no sweep would ever find them. Outside the
+        // transaction, like the other outbound calls above; unlike them NOT best-effort -- a storage
+        // failure throws here, before any row is deleted, so the purge fails and is retried with
+        // every row still in place. Objects deleted before a later failure are harmless to delete
+        // again on that retry.
+        statementStorageSweepService.reclaimImportJobObjectsOf(userId);
+
         transactionTemplate.executeWithoutResult(tx -> {
             transactionRepository.hardDeleteByUserId(userId);
             // Plan 2 (V233). The purge never deletes the users row, so no ON DELETE CASCADE could

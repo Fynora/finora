@@ -191,6 +191,19 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
     @Column(name = "resolution_message", length = 500)
     private String resolutionMessage;
 
+    /**
+     * When this job stopped holding the object {@link #objectKey} names -- V250. Set only by {@code
+     * StatementStorageSweepService}, for a COMPLETED or CANCELLED job past the retention window,
+     * once the object was deleted or another live row was found naming the same key. Null while
+     * the job still holds it.
+     *
+     * <p>Read-only here ({@code insertable}/{@code updatable} false): the sweep writes it with one
+     * {@code UPDATE}, and an entity loaded before that and saved afterwards must not write the
+     * column back to null and make the job a candidate again.
+     */
+    @Column(name = "object_released_at", insertable = false, updatable = false)
+    private Instant objectReleasedAt;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
@@ -807,6 +820,7 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
     public Instant getCreatedAt() { return createdAt; }
     public Instant getStartedAt() { return startedAt; }
     public Instant getFinishedAt() { return finishedAt; }
+    public Instant getObjectReleasedAt() { return objectReleasedAt; }
 
     /** {@link com.finora.imports.storage.StoredStatement}: always null, see this class's own doc
      *  on why -- a job carries an address, never the bytes. */

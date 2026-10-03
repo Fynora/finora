@@ -425,4 +425,110 @@ class StatementStorageSweepServiceTest {
 
         assertThat(reclaimed).isFalse();
     }
+
+    // --- the import_jobs discovery half --------------------------------------------------------
+
+    private static Object[] jobCandidate(java.util.UUID jobId, String key, Instant finishedAt) {
+        return new Object[]{jobId, key, finishedAt.toEpochMilli()};
+    }
+
+    private void nothingReferences(String key) {
+        when(statementImportRepository.existsByObjectKey(key)).thenReturn(false);
+        when(importSessionRepository.existsByObjectKey(key)).thenReturn(false);
+        when(importJobRepository.existsByObjectKeyAndStatusNotIn(eq(key), any())).thenReturn(false);
+    }
+
+    @Test
+    void sweep_deletesAReleasableJobsObject_andReleasesTheJob() {
+        java.util.UUID jobId = java.util.UUID.randomUUID();
+        when(importJobRepository.findReleasableObjects(any(), anyInt()))
+                .thenReturn(List.<Object[]>of(jobCandidate(jobId, "job-key", Instant.now().minus(120, ChronoUnit.DAYS))));
+        nothingReferences("job-key");
+
+        StatementStorageSweepService.Result result = service.sweep();
+
+        assertThat(result.swept()).isEqualTo(1);
+        verify(storage).delete("job-key");
+        verify(importJobRepository).markObjectReleased(eq(jobId), any());
+    }
+
+    /** Another live row names the key: the object stays, and the job is released all the same --
+     *  that row decides the object's lifecycle now. */
+    @Test
+    void sweep_keepsAJobsObjectAnotherLiveRowNames_butStillReleasesTheJob() {
+        java.util.UUID jobId = java.util.UUID.randomUUID();
+        when(importJobRepository.findReleasableObjects(any(), anyInt()))
+                .thenReturn(List.<Object[]>of(jobCandidate(jobId, "shared-key", Instant.now().minus(120, ChronoUnit.DAYS))));
+        when(statementImportRepository.existsByObjectKey("shared-key")).thenReturn(true);
+
+        StatementStorageSweepService.Result result = service.sweep();
+
+        assertThat(result.skipped()).isEqualTo(1);
+        verify(storage, never()).delete(anyString());
+        verify(importJobRepository).markObjectReleased(eq(jobId), any());
+    }
+
+    /** A failed delete leaves the job unreleased, so the next run tries again. */
+    @Test
+    void sweep_leavesTheJobUnreleased_whenItsObjectFailsToDelete() {
+        java.util.UUID jobId = java.util.UUID.randomUUID();
+        when(importJobRepository.findReleasableObjects(any(), anyInt()))
+                .thenReturn(List.<Object[]>of(jobCandidate(jobId, "job-key", Instant.now().minus(120, ChronoUnit.DAYS))));
+        nothingReferences("job-key");
+        org.mockito.Mockito.doThrow(new StatementStorageException("boom", null)).when(storage).delete("job-key");
+
+        StatementStorageSweepService.Result result = service.sweep();
+
+        assertThat(result.failed()).isEqualTo(1);
+        verify(importJobRepository, never()).markObjectReleased(any(), any());
+    }
+
+    @Test
+    void sweep_passesTheSameCutoffAndBatchSize_toTheImportJobDiscoveryQuery() {
+        service.sweep();
+
+        org.mockito.ArgumentCaptor<Instant> statementCutoff = org.mockito.ArgumentCaptor.forClass(Instant.class);
+        org.mockito.ArgumentCaptor<Instant> jobCutoff = org.mockito.ArgumentCaptor.forClass(Instant.class);
+        verify(statementImportRepository).findObjectsUnreferencedSince(statementCutoff.capture(), eq(200));
+        verify(importJobRepository).findReleasableObjects(jobCutoff.capture(), eq(200));
+        assertThat(jobCutoff.getValue()).isEqualTo(statementCutoff.getValue());
+    }
+
+    // --- reclaimImportJobObjectsOf: account purge, before the job rows go ----------------------
+
+    @Test
+    void reclaimImportJobObjectsOf_deletesEveryObjectNoOtherRowNames_ignoringThisUsersOwnJobs() {
+        java.util.UUID userId = java.util.UUID.randomUUID();
+        when(importJobRepository.findHeldObjectKeysByUserId(userId)).thenReturn(List.of("mine-only", "shared"));
+        when(importJobRepository.existsByObjectKeyAndUserIdNotAndStatusNotIn(eq("shared"), eq(userId), any()))
+                .thenReturn(true);
+
+        int deleted = service.reclaimImportJobObjectsOf(userId);
+
+        assertThat(deleted).isEqualTo(1);
+        verify(storage).delete("mine-only");
+        verify(storage, never()).delete("shared");
+        verify(importJobRepository).existsByObjectKeyAndUserIdNotAndStatusNotIn(
+                "mine-only", userId, StatementStorageSweepService.IMPORT_JOB_EXCLUDED_STATUSES);
+        // The unscoped check would count this user's own, about-to-be-deleted jobs.
+        verify(importJobRepository, never()).existsByObjectKeyAndStatusNotIn(anyString(), any());
+    }
+
+    /** Unlike reclaimIfUnreferenced, a storage failure propagates: after the purge deletes the job
+     *  rows nothing names the object, so the purge has to fail and retry with the rows in place. */
+    @Test
+    void reclaimImportJobObjectsOf_throws_whenADeleteFails() {
+        java.util.UUID userId = java.util.UUID.randomUUID();
+        when(importJobRepository.findHeldObjectKeysByUserId(userId)).thenReturn(List.of("mine-only"));
+        org.mockito.Mockito.doThrow(new StatementStorageException("boom", null)).when(storage).delete("mine-only");
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.reclaimImportJobObjectsOf(userId))
+                .isInstanceOf(StatementStorageException.class);
+    }
+
+    @Test
+    void reclaimImportJobObjectsOf_isANoOp_whenNoStorageProviderIsConfigured() {
+        assertThat(newService(Optional.empty()).reclaimImportJobObjectsOf(java.util.UUID.randomUUID())).isZero();
+        verifyNoInteractions(statementImportRepository, importSessionRepository, importJobRepository);
+    }
 }

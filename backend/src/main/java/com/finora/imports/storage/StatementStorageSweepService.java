@@ -17,6 +17,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * BH-017. Reclaims R2/filesystem objects that no row references, once they have been that way
@@ -51,8 +52,9 @@ import java.util.Set;
  *
  * <p><b>Accepted trade-off: no TTL on FAILED's protection.</b> {@code import_jobs} rows never
  * expire on their own -- see {@link ImportJobRepository#existsByObjectKeyAndStatusNotIn}'s own doc
- * -- so a FAILED job's object is retained for as long as that row exists, which today is
- * indefinitely. This is intentional, not a gap: it means a failed import stays
+ * -- so a FAILED job's object is retained for as long as that row exists, which is until the
+ * account is purged ({@link #reclaimImportJobObjectsOf}) and otherwise indefinitely. This is
+ * intentional, not a gap: it means a failed import stays
  * retryable-without-reupload no matter how old, at the cost of one object per FAILED job ever
  * occurring. Revisit if that cost becomes real -- it would need a bounded window on this check, or
  * a cleanup mechanism for {@code import_jobs} rows themselves, neither of which exists today.
@@ -67,10 +69,16 @@ import java.util.Set;
  * {@code import_sessions}, and {@code import_jobs}, does.
  *
  * <h2>What "eligible" means here</h2>
- * A candidate {@code (content_hash, object_key)} comes from
- * {@link StatementImportRepository#findObjectsUnreferencedSince}: a soft-deleted
- * {@code statement_imports} row whose {@code deleted_at} is older than the retention window. For
- * each candidate, this service re-checks -- fresh, right before acting -- whether ANY row in ANY
+ * A candidate comes from one of two discovery queries:
+ * <ul>
+ *   <li>{@link StatementImportRepository#findObjectsUnreferencedSince}: a soft-deleted
+ *       {@code statement_imports} row whose {@code deleted_at} is older than the retention
+ *       window;</li>
+ *   <li>{@link ImportJobRepository#findReleasableObjects}: a COMPLETED or CANCELLED
+ *       {@code import_jobs} row whose {@code finished_at} is older than the same window and which
+ *       still holds its object -- see "Async uploads" below.</li>
+ * </ul>
+ * For each candidate, this service re-checks -- fresh, right before acting -- whether ANY row in ANY
  * of three tables currently references that key
  * ({@link StatementImportRepository#existsByObjectKey}, which respects the entity's
  * {@code @SQLRestriction} and so only counts LIVE rows, OR'd with
@@ -80,16 +88,44 @@ import java.util.Set;
  * CANCELLED are excluded rather than checked like the others).
  * Only when all three say no does {@link StatementStorage#delete} get called.
  *
+ * <h2>Async uploads: an object only import_jobs ever names</h2>
+ * {@code ImportJobService.accept} stores the upload itself, encrypted under a fresh IV and
+ * uncompressed. Confirming the session the worker staged stores the same bytes again, through
+ * {@link StatementContentService#store} -- compressed, then encrypted under another fresh IV. A key
+ * is the hash of what was stored, so the two keys always differ though both rows carry the same
+ * {@code content_hash}, and the job's object is named by its {@code import_jobs} row and by nothing
+ * else ({@code held_statements.statement_object_key} aside, which is the same key and cascades away
+ * with the job). Discovery from {@code statement_imports} alone never returned it, so every
+ * COMPLETED and CANCELLED job's object was kept forever -- the status set below said they should
+ * not protect their object, but nothing ever asked. {@code ImportJobObjectRetentionIT} proves both
+ * halves against the real upload, worker and confirm paths.
+ *
+ * <p>So import_jobs is the second discovery source. The window runs from {@code finished_at}: a
+ * COMPLETED job's object is a second copy of what a confirmed statement holds in its own object, or
+ * the only copy of a staging the user never confirmed; a CANCELLED job's is an upload the user
+ * stopped. The worker never re-runs a COMPLETED or CANCELLED job. One reader does remain: {@code
+ * HeldStatementService.download} does not refuse a resolved hold, and an approved hold's job is
+ * COMPLETED -- so a reviewer opening an approved hold's document more than the window after
+ * approval gets a storage error, the same as for any other reclaimed object.
+ *
+ * <p>After the re-check the job's {@code object_released_at} (V250) is set, whether the object was
+ * deleted or another live row was found naming the key, so a job is considered once and never
+ * again. Without it the job would stay a candidate after its object was gone and, oldest first
+ * under a batch limit, crowd newer candidates out of every run.
+ *
+ * <p>Account purge hard-deletes every {@code import_jobs} row a user has, and those rows are the
+ * only ones naming their objects. It calls {@link #reclaimImportJobObjectsOf} first.
+ *
  * <h2>A known, deliberate gap</h2>
- * This can only discover candidates that leave a queryable trace, and only
- * {@code statement_imports} does -- its {@code @SQLDelete} soft-delete keeps the row (and its
- * {@code deleted_at}) forever. {@code import_sessions} has no soft delete and {@code ON DELETE
- * CASCADE} is a database-level cascade that bypasses Hibernate entirely, so content whose ONLY
- * reference was ever an abandoned, never-confirmed session, or a since-deleted user's rows, leaves
- * nothing this query -- or any DB query -- can find once that hard delete has run. Closing that
- * would need either object-listing/metadata support added to {@link StatementStorage} (a larger
- * interface change than BH-017 asked for) or a durable tombstone recorded at the moment such a row
- * is hard-deleted (a behavioural change to the existing, well-tested TTL sweep, which BH-017
+ * This can only discover candidates that leave a queryable trace. {@code statement_imports} does --
+ * its {@code @SQLDelete} soft-delete keeps the row (and its {@code deleted_at}) forever -- and so do
+ * {@code import_jobs} rows, which never expire. {@code import_sessions} has no soft delete and
+ * {@code ON DELETE CASCADE} is a database-level cascade that bypasses Hibernate entirely, so
+ * content whose ONLY reference was ever an abandoned, never-confirmed session, or a since-deleted
+ * user's rows, leaves nothing this query -- or any DB query -- can find once that hard delete has
+ * run. Closing that would need either object-listing/metadata support added to {@link
+ * StatementStorage} (a larger interface change than BH-017 asked for) or a durable tombstone
+ * recorded at the moment such a row is hard-deleted (a behavioural change to the existing, well-tested TTL sweep, which BH-017
  * deliberately does not touch). Flagged rather than guessed at -- see the PR description.
  *
  * <h2>Safety margin</h2>
@@ -208,24 +244,83 @@ public class StatementStorageSweepService {
         if (storage.isEmpty()) return Result.EMPTY;
 
         Instant cutoff = Instant.now().minus(effectiveRetention());
-        List<Object[]> candidates = statementImportRepository.findObjectsUnreferencedSince(cutoff, batchSize);
 
         int swept = 0;
         int skipped = 0;
         int failed = 0;
-        for (Object[] row : candidates) {
+        for (Object[] row : statementImportRepository.findObjectsUnreferencedSince(cutoff, batchSize)) {
             String contentHash = (String) row[0];
             String objectKey = (String) row[1];
             Instant lastReferencedAt = Instant.ofEpochMilli((Long) row[2]);
 
-            ReclaimOutcome outcome = reclaim(objectKey, contentHash, lastReferencedAt);
-            switch (outcome) {
+            switch (reclaim(objectKey, contentHash, lastReferencedAt)) {
                 case DELETED -> swept++;
                 case STILL_REFERENCED -> skipped++;
                 case FAILED -> failed++;
             }
         }
+
+        // The import_jobs half -- see this class's "Async uploads" doc section. Same cutoff, same
+        // fresh re-check per object; the job is then marked so no later run considers it again.
+        for (Object[] row : importJobRepository.findReleasableObjects(cutoff, batchSize)) {
+            UUID jobId = (UUID) row[0];
+            String objectKey = (String) row[1];
+            Instant finishedAt = Instant.ofEpochMilli((Long) row[2]);
+
+            ReclaimOutcome outcome = reclaim(objectKey, null, finishedAt);
+            switch (outcome) {
+                case DELETED -> swept++;
+                case STILL_REFERENCED -> skipped++;
+                case FAILED -> failed++;
+            }
+            // STILL_REFERENCED releases the job too: another live row names this key, so that row's
+            // own lifecycle now decides the object's, and this job's claim adds nothing -- the same
+            // reason COMPLETED and CANCELLED are excluded from the re-check. FAILED does not: the
+            // object is still here and this job is still the reason to come back for it.
+            if (outcome != ReclaimOutcome.FAILED) {
+                importJobRepository.markObjectReleased(jobId, Instant.now());
+            }
+        }
         return new Result(swept, skipped, failed);
+    }
+
+    /**
+     * Account purge's half of the import_jobs story. Reclaims every object this user's jobs still
+     * hold -- any status, FAILED and both holds included: their protection exists for the user's
+     * retry and for a reviewer, and the user is leaving -- unless another live row still names it.
+     *
+     * <p>Must run BEFORE {@code ImportJobRepository.deleteByUserId}. Those rows are the only ones
+     * that name a job's object (see "Async uploads" above), so once they are deleted nothing in the
+     * database can lead back to it and the object is kept forever. Which is also why the re-check
+     * here leaves this user's own jobs out ({@code existsByObjectKeyAndUserIdNotAndStatusNotIn}):
+     * they are still present at this point and would otherwise protect every object they name.
+     * Every other user's jobs still count, as do statement_imports and import_sessions rows,
+     * whoever owns them (BH-039).
+     *
+     * <p>Throws on the first storage failure rather than logging it, unlike {@link
+     * #reclaimIfUnreferenced}. That method has the scheduled sweep behind it because a soft-deleted
+     * statement row stays discoverable; a purged job row does not. Failing the purge leaves the
+     * rows in place, and the next purge run retries from the start -- deleting an object twice is
+     * harmless, {@link StatementStorage#delete} is idempotent.
+     *
+     * @return how many objects were deleted
+     * @throws StatementStorageException if any object could not be deleted
+     */
+    public int reclaimImportJobObjectsOf(UUID userId) {
+        if (storage.isEmpty()) return 0;
+        int deleted = 0;
+        for (String objectKey : importJobRepository.findHeldObjectKeysByUserId(userId)) {
+            if (statementImportRepository.existsByObjectKey(objectKey)
+                    || importSessionRepository.existsByObjectKey(objectKey)
+                    || importJobRepository.existsByObjectKeyAndUserIdNotAndStatusNotIn(
+                            objectKey, userId, IMPORT_JOB_EXCLUDED_STATUSES)) {
+                continue;
+            }
+            storage.get().delete(objectKey);
+            log.info("Reclaimed a purged account's import job object: key={} user={}", objectKey, userId);
+            deleted++;
+        }
+        return deleted;
     }
 
     /**

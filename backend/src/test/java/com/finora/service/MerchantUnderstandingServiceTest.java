@@ -114,6 +114,23 @@ class MerchantUnderstandingServiceTest {
     }
 
     @Test
+    void understand_keyThatNamesNoOnePayee_asksButNeverReadsOrWritesTheSharedCache() {
+        // This cache is shared by every user: whichever shop's narration reached it first would
+        // describe the gateway's id, or a cut id, for everyone.
+        ToolUse toolUse = new ToolUse("t1", "UNDERSTAND_MERCHANT", Map.of("understanding", "An online travel agency"));
+        when(llmClient.complete(any())).thenReturn(new LlmCompletion(null, List.of(toolUse),
+                "claude-haiku-4-5-20251001", 40, 10, "tool_use"));
+
+        for (String key : List.of("vpa:pg.razorpay", "cut:sampleqr1111111", "masked:.payu@hdfcbank")) {
+            Optional<String> result = service.understand(userId, key, Transaction.Type.INCOME,
+                    "UPI-RAZORPAY-PG.RAZORPAY@SAMPLEBANK-SMPL0XXXXXX-111111111111-SAMPLETRAVELREFUNDX1");
+            assertThat(result).contains("An online travel agency");
+        }
+        verifyNoInteractions(understandingRepository);
+        verify(aiAuditLogRepository, times(3)).save(any(AiAuditLog.class));
+    }
+
+    @Test
     void understand_llmThrows_writesFailureAuditAndReturnsEmptyWithoutCaching() {
         when(understandingRepository.findByCounterpartyKeyAndDirection(any(), any())).thenReturn(Optional.empty());
         when(llmClient.complete(any())).thenThrow(new RuntimeException("upstream error"));

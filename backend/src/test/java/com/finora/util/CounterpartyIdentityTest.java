@@ -298,15 +298,45 @@ class CounterpartyIdentityTest {
     @Test
     void theStandardUpiLayoutsIdSlotIsReadEvenWhenTheBankCutItBeforeTheAt() {
         // "UPI/<DR|CR>/<ref>/<name>/<bank>/<id>/...": some banks print about 16 characters of the id,
-        // so the "@" is often gone. The slot is still the id, cut at the same width every time.
+        // so the "@" is often gone. The slot is still the id, cut at the same width every time --
+        // but with no "@" its end is not proven, so it is the weak "cut:" key.
         assertThat(CounterpartyIdentity.keyOf("UPI/CR/111111111111/SAMPLENA/BARB/samplen ame.dadas/"))
-                .isEqualTo("vpa:samplename.dadas");
+                .isEqualTo("cut:samplename.dadas");
         assertThat(CounterpartyIdentity.keyOf("UPI/CR/111111111111/SAMPLE N/HDFC/samplename18/U"))
-                .isEqualTo("vpa:samplename18");
+                .isEqualTo("cut:samplename18");
         assertThat(CounterpartyIdentity.keyOf("UPI/CR/111111111111/MR SAMPL/SCBL/samplefriend-1/"))
-                .isEqualTo("vpa:samplefriend");
+                .isEqualTo("cut:samplefriend");
+        // The "@" survived, so the local part before it is whole.
         assertThat(CounterpartyIdentity.keyOf("UPI/DR/111111111111/CHAND DI/KJSB/samplefriend1831@/"))
                 .isEqualTo("vpa:samplefriend1831");
+    }
+
+    @Test
+    void anIdCutBeforeItsAt_groupsItsOwnRows_butIdentifiesNoOne() {
+        // A bank that prints only the first characters of the id cuts every shop under one payment
+        // brand's prefix to the same text: on the corpus one such prefix began five different shops' ids.
+        String one = CounterpartyIdentity.keyOf("UPI/DR/111111111111/SAMPLE S/YESB/sampleqr1111111/");
+        String two = CounterpartyIdentity.keyOf("UPI/DR/111111111112/OTHER SH/YESB/sampleqr1111111/");
+        assertThat(one).isEqualTo("cut:sampleqr1111111").isEqualTo(two);
+        assertThat(CounterpartyIdentity.isStrong(one)).isFalse();
+        assertThat(CounterpartyIdentity.identifiesOnePayee(one)).isFalse();
+    }
+
+    @Test
+    void aPaymentGatewaysOwnId_identifiesNoOne_aShopsIdOnTheGatewayDoes() {
+        // The gateway's own id settles refunds and payments for every shop on it; the shop is at
+        // most in the free-text remark. The key stays, so the rows still group; it just names no one.
+        String refund = CounterpartyIdentity.keyOf(
+                "UPI-RAZORPAY-PG.RAZORPAY@SAMPLEBANK-SMPL0XXXXXX-111111111111-SAMPLESHOPREFUNDX1");
+        assertThat(refund).isEqualTo("vpa:pg.razorpay");
+        assertThat(CounterpartyIdentity.identifiesOnePayee(refund)).isFalse();
+        assertThat(CounterpartyIdentity.identifiesOnePayee(CounterpartyIdentity.keyOf(
+                "UPI-PHONEPE-PHONEPEMERCHANT@SAMPLEBANK-SMPL0XXXXXX-111111111111-R11 PHONEPE REVERS"))).isFalse();
+        assertThat(CounterpartyIdentity.identifiesOnePayee(CounterpartyIdentity.keyOf(
+                "UPI PAYMENT RECEIVED/GPAYREFUND-ONLINE@SAMPLEBANK"))).isFalse();
+        // A shop's own id on a gateway names that shop.
+        assertThat(CounterpartyIdentity.identifiesOnePayee("vpa:sampleshop.rzp")).isTrue();
+        assertThat(CounterpartyIdentity.identifiesOnePayee("vpa:sampleshop.payu")).isTrue();
     }
 
     @Test

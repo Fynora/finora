@@ -33,6 +33,13 @@ interface ImportMetaEnv {
   // plan everywhere. Only the exact string "true" shows it. Build-time (Vite inlines it), so a
   // change needs a redeploy. See lib/premiumVisibility.ts.
   readonly VITE_PREMIUM_PLAN_VISIBLE?: string;
+  // Optional, "unset means off" -- unset (the shipped state) hides the "Open in the Fynora app"
+  // bar on Android phone browsers. Only the exact string "true" shows it. Build-time, so a change
+  // needs a redeploy. See lib/openInApp.ts.
+  readonly VITE_OPEN_IN_APP_ANDROID?: string;
+  // Optional -- the iOS app's App Store id (the digits in its App Store URL). When set, index.html
+  // gets Apple's Smart App Banner tag at build time (vite.config.ts); unset adds nothing.
+  readonly VITE_IOS_APP_STORE_ID?: string;
 }
 
 interface ImportMeta {

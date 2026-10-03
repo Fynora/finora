@@ -1,8 +1,28 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { sentryVitePlugin } from '@sentry/vite-plugin';
 
 import { cloudflare } from "@cloudflare/vite-plugin";
+import { iosSmartAppBannerTag } from './src/lib/openInApp';
+
+/**
+ * Apple's Smart App Banner ("Open" in the Fynora app when installed, "Get" when not) is a <meta>
+ * tag Safari reads from the HTML at load, so it is written into index.html here, at build time,
+ * and only when VITE_IOS_APP_STORE_ID holds an App Store id. Unset, the shipped state while the
+ * app is not on the App Store, leaves index.html untouched. See src/lib/openInApp.ts.
+ */
+function iosSmartAppBanner(): Plugin {
+  let tag: string | null = null;
+  return {
+    name: 'fynora-ios-smart-app-banner',
+    configResolved(config) {
+      tag = iosSmartAppBannerTag(config.env.VITE_IOS_APP_STORE_ID);
+    },
+    transformIndexHtml(html) {
+      return tag ? html.replace('</head>', `    ${tag}\n  </head>`) : html;
+    },
+  };
+}
 
 // Cloudflare Pages sets this in the build environment automatically, for every build (Production
 // and Preview alike) -- no dashboard configuration needed, unlike the SENTRY_* vars below. Reused
@@ -14,6 +34,7 @@ const commitSha = process.env.CF_PAGES_COMMIT_SHA;
 export default defineConfig({
   plugins: [
     react(),
+    iosSmartAppBanner(),
     cloudflare(),
     // Uploads source maps to Sentry so a crash resolves to real file/line numbers instead of
     // minified bundle offsets -- see docs/operations/deployment/deployment-guide.md's Sentry

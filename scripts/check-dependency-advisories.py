@@ -130,6 +130,19 @@ ACCEPTED = [
         "entry. Re-check at once if the app code, or a runtime (non-cli) part of an Expo package, "
         "starts importing node-forge or @expo/code-signing-certificates.",
     ),
+    Accepted(
+        "GHSA-vfj7-8cjw-p6xm",
+        {"mobile"},
+        "braces: stack-exhaustion denial of service through deeply nested brace patterns",
+        "Reached only through micromatch, which only Node tooling depends on: expo -> @expo/cli -> "
+        "@expo/metro-file-map, metro -> metro-file-map (the bundler's file watcher), patch-package, "
+        "and Jest. None of it is in the app bundle and no app module imports micromatch or braces; "
+        "the patterns it expands are the project's own glob configuration, never user input. No "
+        "patched version exists (affected: <= 3.0.3, the latest).",
+        "When braces publishes a release that fixes this, update the lockfile and delete this entry. "
+        "Re-check at once if app code, or a runtime (non-tooling) package, starts importing "
+        "micromatch or braces, or if anything starts expanding a pattern a user supplies.",
+    ),
 ]
 
 ACCEPTED_BY_GHSA = {a.ghsa: a for a in ACCEPTED}

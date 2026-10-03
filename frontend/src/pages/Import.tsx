@@ -1408,7 +1408,7 @@ export default function Import() {
                         <div className="absolute right-0 top-full mt-1.5 w-52 bg-card border border-border rounded-xl2 shadow-soft p-3 z-10">
                           <p className="text-xs font-semibold text-ink mb-1">This is a Plus feature</p>
                           <p className="text-2xs text-muted leading-relaxed mb-2.5">
-                            Free plans are limited to a 31-day statement period. Upgrade to Plus to import longer
+                            Free plans are limited to a one-month statement period. Upgrade to Plus to import longer
                             statements in one go.
                           </p>
                           {/* A real <a> (Link), not a <button> -- Button wraps motion.button, and
@@ -2115,8 +2115,8 @@ function AccountChoiceFields({
             <input id={`${idPrefix}-opening-balance`} type="number" value={newOpeningBalance} onChange={(e) => setNewOpeningBalance(e.target.value)} className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full" />
             {detectedAccount?.openingBalance == null && newType === 'CREDIT_CARD' && detectedAccount?.totalAmountDue != null && (
               <p className="text-xs text-muted mt-1">
-                The statement's summary panel didn't print its own previous balance, so this is
-                worked backwards from the detected total amount due ({fmt(detectedAccount.totalAmountDue)})
+                The statement's own previous balance wasn't read, or didn't add up with these transactions,
+                so this is worked backwards from the detected total amount due ({fmt(detectedAccount.totalAmountDue)})
                 minus these transactions. Check it against the statement before confirming.
               </p>
             )}

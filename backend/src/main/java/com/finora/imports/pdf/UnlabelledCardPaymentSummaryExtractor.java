@@ -65,8 +65,12 @@ public final class UnlabelledCardPaymentSummaryExtractor {
             .appendPattern("d MMM yyyy")
             .toFormatter(Locale.ENGLISH);
 
-    public record CardPaymentSummary(LocalDate paymentDueDate, BigDecimal creditLimit) {
-        public static final CardPaymentSummary NONE = new CardPaymentSummary(null, null);
+    /** {@code totalPaymentDue} is the box's "Total payment due": what the card bills this cycle.
+     *  The same statement's summary table prints a "Net Outstanding Balance" that also counts a
+     *  loan's future instalments, so on a card carrying a loan the two differ by exactly the loan
+     *  still outstanding. */
+    public record CardPaymentSummary(LocalDate paymentDueDate, BigDecimal creditLimit, BigDecimal totalPaymentDue) {
+        public static final CardPaymentSummary NONE = new CardPaymentSummary(null, null, null);
     }
 
     public static CardPaymentSummary extract(List<PositionedText> runs) {
@@ -83,8 +87,9 @@ public final class UnlabelledCardPaymentSummaryExtractor {
             if (anchor == null) continue;
             LocalDate dueDate = dueDateAbove(rows, i, anchor);
             BigDecimal creditLimit = creditLimitBelow(rows, i, anchor);
-            if (dueDate == null && creditLimit == null) continue;
-            return new CardPaymentSummary(dueDate, creditLimit);
+            BigDecimal totalPaymentDue = totalPaymentDueAbove(rows, i, anchor);
+            if (dueDate == null && creditLimit == null && totalPaymentDue == null) continue;
+            return new CardPaymentSummary(dueDate, creditLimit, totalPaymentDue);
         }
         return CardPaymentSummary.NONE;
     }
@@ -112,6 +117,21 @@ public final class UnlabelledCardPaymentSummaryExtractor {
                 if (!side.isEmpty()) return dueDateIn(side, anchor, periodEnd);
             }
             return null;
+        }
+        return null;
+    }
+
+    /** The period row's own third figure: exactly "&lt;date&gt; To", the end date, and one amount on
+     *  the instruction line's side, nothing else. */
+    private static BigDecimal totalPaymentDueAbove(List<List<PositionedText>> rows, int anchorRow, PositionedText anchor) {
+        for (int j = anchorRow - 1; j >= 0; j--) {
+            List<PositionedText> row = rows.get(j);
+            if (!onPageAbove(row, anchor, MAX_GAP_TO_PERIOD_ROW)) return null;
+            if (periodEndIn(row, anchor) == null) continue;
+            List<PositionedText> side = onAnchorsSide(row, anchor);
+            if (side.size() != 3 || !PERIOD_START.matcher(side.get(0).text().trim()).matches()) return null;
+            BigDecimal total = CsvParser.parseNumeric(side.get(2).text().trim());
+            return total == null || total.signum() < 0 ? null : total;
         }
         return null;
     }

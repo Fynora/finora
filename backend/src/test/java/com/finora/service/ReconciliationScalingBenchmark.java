@@ -140,7 +140,8 @@ class ReconciliationScalingBenchmark {
         when(repository.findByUserId(any())).thenReturn(history);
         when(repository.findByUserIdAndAccountIdIn(any(), any())).thenReturn(history);
         return new RecurringService(repository, accountRepositoryFor(history), mock(RuleEngineService.class),
-                mock(AuditService.class), mock(FeatureFlagService.class), mock(RecurringDismissalRepository.class));
+                mock(AuditService.class), mock(FeatureFlagService.class), mock(RecurringDismissalRepository.class),
+                mock(com.finora.repository.CategoryRuleRepository.class), mock(com.finora.repository.CategoryRepository.class));
     }
 
     /**

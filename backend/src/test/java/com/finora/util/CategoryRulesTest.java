@@ -243,6 +243,15 @@ class CategoryRulesTest {
     }
 
     /**
+     * Real corpus finding: "PMSBY" is the same government's Pradhan Mantri Suraksha Bima Yojana
+     * accident-insurance scheme, debited in the same "JNS-" narration shape as PMJJBY.
+     */
+    @Test
+    void suggestCategory_matchesPmsby_governmentInsuranceScheme() {
+        assertThat(CategoryRules.suggestCategory("JNS-PMSBY-26-27-00000000000-000_DAP")).isEqualTo("Insurance");
+    }
+
+    /**
      * Real corpus finding: "NSE MF" is the National Stock Exchange's mutual-fund investment
      * platform -- a real narration uses "MF" rather than the already-seeded "mutual fund"/
      * "mutualfunds" spellings.

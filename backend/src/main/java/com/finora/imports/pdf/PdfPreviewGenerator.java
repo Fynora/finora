@@ -292,23 +292,29 @@ public class PdfPreviewGenerator {
         BigDecimal gridCreditLimit = CreditLimitGridExtractor.extract(positioned, ctx);
         // A payment summary whose box labels extract as nothing at all (a real HSBC card: fonts the
         // PDF does not embed), read by place relative to a fixed line of boilerplate -- see
-        // UnlabelledCardPaymentSummaryExtractor. Only where the labelled grid found nothing. With no
-        // label on the page, the line-based metadata has nothing of its own to read for these
-        // fields there; the due date still yields to it, exactly as the grid's does.
-        if (gridPaymentDueDate == null || gridCreditLimit == null) {
-            UnlabelledCardPaymentSummaryExtractor.CardPaymentSummary unlabelled =
-                    UnlabelledCardPaymentSummaryExtractor.extract(positioned, ctx);
-            boolean used = false;
-            if (gridPaymentDueDate == null && unlabelled.paymentDueDate() != null) {
-                gridPaymentDueDate = unlabelled.paymentDueDate();
-                used = true;
-            }
-            if (gridCreditLimit == null && unlabelled.creditLimit() != null) {
-                gridCreditLimit = unlabelled.creditLimit();
-                used = true;
-            }
-            if (used && ctx != null) ctx.record("CARD_PAYMENT_SUMMARY_UNLABELLED_VALUES");
+        // UnlabelledCardPaymentSummaryExtractor. The due date and credit limit only where the
+        // labelled grid found nothing. With no label on the page, the line-based metadata has
+        // nothing of its own to read for these fields there; the due date still yields to it,
+        // exactly as the grid's does. The box's "Total payment due" wins over the summary table's
+        // total: that table's headline there is "Net Outstanding Balance", which also counts a
+        // loan's future instalments (see CardStatementBalances.withBoxTotalPaymentDue).
+        UnlabelledCardPaymentSummaryExtractor.CardPaymentSummary unlabelled =
+                UnlabelledCardPaymentSummaryExtractor.extract(positioned, ctx);
+        boolean unlabelledUsed = false;
+        if (gridPaymentDueDate == null && unlabelled.paymentDueDate() != null) {
+            gridPaymentDueDate = unlabelled.paymentDueDate();
+            unlabelledUsed = true;
         }
+        if (gridCreditLimit == null && unlabelled.creditLimit() != null) {
+            gridCreditLimit = unlabelled.creditLimit();
+            unlabelledUsed = true;
+        }
+        if (unlabelled.totalPaymentDue() != null) {
+            printedCreditCardSummary = CardStatementBalances.withBoxTotalPaymentDue(
+                    printedCreditCardSummary, unlabelled.totalPaymentDue());
+            unlabelledUsed = true;
+        }
+        if (unlabelledUsed && ctx != null) ctx.record("CARD_PAYMENT_SUMMARY_UNLABELLED_VALUES");
         // Same reasoning, same document-wide/ungated-on-section-count scope, for the account/card
         // number itself: a real Axis credit-card statement's own "Credit Card Number" field is
         // scrambled the same way its Payment Due Date is -- see AccountNumberGridExtractor's own
@@ -631,7 +637,7 @@ public class PdfPreviewGenerator {
         staged.sort(Comparator.comparing(StagedRow::date));
 
         int dupCount = (int) staged.stream().filter(StagedRow::likelyDuplicate).count();
-        DetectedAccountInfo detected = buildDetectedAccountInfo(filename, section, balancePoints, product, ctx,
+        DetectedAccountInfo detected = buildDetectedAccountInfo(filename, section, staged, balancePoints, product, ctx,
                 printedCreditCardSummary, printedDateRange, gridPaymentDueDate, gridCreditLimit,
                 gridAccountNumberMasked, gridAccountNumberIsCardLabelled,
                 // The printed summary belongs to the one ledger that printed it: only a single-
@@ -1025,6 +1031,7 @@ public class PdfPreviewGenerator {
     }
 
     private DetectedAccountInfo buildDetectedAccountInfo(String filename, PdfTableLocator.LocatedSection section,
+                                                           List<StagedRow> stagedRows,
                                                            List<BalancePoint> balancePoints,
                                                            ProductDiscovery.DiscoveredProduct product,
                                                            DocumentContext ctx,
@@ -1083,7 +1090,7 @@ public class PdfPreviewGenerator {
         // The statement's own printed opening/closing balance: the fallback when the chain gave
         // none (a real Bandhan Bank and a real Canara Bank statement), and otherwise a cross-check
         // recorded when it disagrees with the chain. Never for a card: its "opening balance" is the
-        // previous statement's dues, a different concept.
+        // previous statement's dues, read from the card's own summary panel just below instead.
         boolean cardSection = product.type() == FinancialProductType.CREDIT_CARD || facts.creditCardSignals();
         if (!cardSection && printedBalances != null && !printedBalances.isEmpty()) {
             if (openingBalance == null && printedBalances.opening() != null) {
@@ -1099,6 +1106,17 @@ public class PdfPreviewGenerator {
             } else if (closingBalance != null && printedBalances.closing() != null
                     && closingBalance.compareTo(printedBalances.closing()) != 0 && ctx != null) {
                 ctx.record("PRINTED_BALANCE_DISAGREES_WITH_CHAIN");
+            }
+        }
+
+        // A card's opening balance: the previous balance its summary panel printed, when this
+        // section's rows carry it to the total due -- see CardStatementBalances.openingBalance.
+        // Otherwise left null, and the review screen works it backwards from the total due.
+        if (cardSection && openingBalance == null) {
+            BigDecimal printedPrevious = CardStatementBalances.openingBalance(printedCreditCardSummary, stagedRows);
+            if (printedPrevious != null) {
+                openingBalance = printedPrevious;
+                if (ctx != null) ctx.record("PRINTED_PREVIOUS_BALANCE_USED_AS_CARD_OPENING");
             }
         }
 

@@ -42,7 +42,6 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -84,13 +83,6 @@ import java.util.UUID;
 public class ImportService {
 
     private static final Logger log = LoggerFactory.getLogger(ImportService.class);
-
-    // plans.ts's "Extended financial history" Plus/Premium promise: a Free-plan statement's
-    // detected period (start/end, inclusive) may not exceed this many days. Chosen as a flat day
-    // count rather than a calendar-month boundary -- a statement covering Jan 15-Feb 14 is exactly
-    // as long as one covering Jan 1-31 and there is no principled reason to treat them differently.
-    // Moved here from ImportController (bug fix -- see requireStatementPeriodWithinFreeLimit).
-    private static final long FREE_STATEMENT_PERIOD_MAX_DAYS = 31;
 
     /** One merchant-learning confirmation a confirmed row earned, held until the statement import
      *  row exists to attribute it to. Both ids are already resolved by the row loop, so queueing
@@ -503,7 +495,8 @@ public class ImportService {
 
     /**
      * plans.ts's "Extended financial history" Plus/Premium promise, enforced (FeatureEntitlement
-     * .EXTENDED_HISTORY -- seeded since V99). A null start or end is never itself a reason to
+     * .EXTENDED_HISTORY -- seeded since V99): a Free-plan statement may cover at most one month
+     * ({@link FreeStatementPeriod}). A null start or end is never itself a reason to
      * block -- same "carried, not dropped" treatment {@link #periodOf} already gives a statement
      * with no printed period at all.
      *
@@ -521,11 +514,9 @@ public class ImportService {
     private void requireStatementPeriodWithinFreeLimit(UUID userId, LocalDate start, LocalDate end) {
         if (start == null || end == null) return;
         if (entitlementService.hasEntitlement(userId, FeatureEntitlement.EXTENDED_HISTORY)) return;
-        // Math.abs, not the raw difference: a genuine detected period always has end >= start, but
-        // a reversed pair would otherwise compute a negative day count that always slips under the
-        // limit regardless of the statement's real length, silently defeating this whole check.
-        long days = Math.abs(ChronoUnit.DAYS.between(start, end)) + 1;
-        if (days > FREE_STATEMENT_PERIOD_MAX_DAYS) {
+        // One calendar month, not a flat day count -- see FreeStatementPeriod. A reversed pair is
+        // judged by its real length there, so it cannot slip under the limit.
+        if (!FreeStatementPeriod.coversAtMostOneMonth(start, end)) {
             throw new ApiException(ErrorCode.STATEMENT_PERIOD_TOO_LONG);
         }
     }

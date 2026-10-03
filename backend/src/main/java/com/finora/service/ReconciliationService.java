@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.finora.entity.Category;
 import com.finora.entity.StatementImport;
 import com.finora.entity.Transaction;
 import com.finora.entity.TransactionRelationship;
@@ -149,6 +150,27 @@ public class ReconciliationService {
         this.transactionGraphService = transactionGraphService;
         this.gmailReconciliationMatcher = gmailReconciliationMatcher;
         this.statementImportRepository = statementImportRepository;
+    }
+
+    /**
+     * A category edit can change whether a row is excluded from spend as {@code INVESTMENT_TRANSFER}
+     * (see ReconciliationService: the exclusion follows the row's category), in either direction --
+     * a row moved INTO Investments becomes excluded, a row moved OUT of it re-enters spend. Nothing
+     * else about a category edit needs reconciliation, so this re-runs it only when that could
+     * actually happen: the row is currently excluded (it might be released) or the new category is
+     * Investments (it might become excluded). A recategorization between two ordinary categories
+     * keeps its old cost -- no reconciliation pass -- since reconcileForUser scans the whole ledger.
+     *
+     * <p>Shared by every path that changes a row's category in bulk or one at a time:
+     * TransactionService (manual edits) and RecurringAnswerService (the recurring-payment answer).
+     */
+    public void reconcileIfInvestmentExclusionMayChange(UUID userId, List<Transaction> edited, Category newCategory) {
+        boolean movedIntoInvestments = INVESTMENTS_CATEGORY.equalsIgnoreCase(newCategory.getName());
+        boolean anyCurrentlyExcluded = edited.stream().anyMatch(
+                t -> t.getReconciliationStatus() == Transaction.ReconciliationStatus.INVESTMENT_TRANSFER);
+        if (movedIntoInvestments || anyCurrentlyExcluded) {
+            reconcileForUser(userId);
+        }
     }
 
     /**

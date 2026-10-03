@@ -186,7 +186,7 @@ export type LandingCell = boolean | string;
 /**
  * Free vs Plus for the public comparison table. Separate from COMPARISON on purpose: that one is
  * three columns of booleans read by the in-app Billing page. Every row here is enforced in code
- * (AccountService.FREE_ACCOUNT_LIMIT, ImportService.FREE_STATEMENT_PERIOD_MAX_DAYS, the
+ * (AccountService.FREE_ACCOUNT_LIMIT, FreeStatementPeriod, the
  * ADVANCED_REPORTS entitlement, FYN_CHAT via FynChatOrchestrationService). There is no Gmail row:
  * Gmail sync is dropped for v1 (owner, 2026-09-21).
  */

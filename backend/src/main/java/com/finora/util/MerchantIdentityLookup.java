@@ -2,6 +2,8 @@ package com.finora.util;
 
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -69,29 +71,57 @@ public final class MerchantIdentityLookup {
             "petrol", "fuel", "metro", "parking",
             "electricity", "power bill", "water bill", "gas bill", "broadband");
 
-    private static final Set<Pattern> ENTITY_PATTERNS;
+    /** Below this a brand is too short to tell from the start of a person's own id ("ola", "uber"). */
+    private static final int MIN_HANDLE_PREFIX = 5;
+
+    private static final Pattern ENTITY_PATTERN;
     private static final Set<String> ENTITY_TERMS;
+    private static final List<String> HANDLE_PREFIXES;
 
     static {
         Set<String> entities = new HashSet<>(CategoryRules.allKeywords());
         entities.removeAll(NON_ENTITY_TERMS);
         ENTITY_TERMS = Collections.unmodifiableSet(entities);
-        Set<Pattern> patterns = new HashSet<>();
-        for (String term : entities) {
-            // Same word-boundary discipline CategoryRules itself uses -- naive substring matching
-            // makes "ola" match inside "cola", which that class documents as a real, evidenced
-            // false positive rather than a hypothetical one.
-            patterns.add(Pattern.compile("(?<![a-z0-9])" + Pattern.quote(term) + "(?![a-z0-9])"));
-        }
-        ENTITY_PATTERNS = Collections.unmodifiableSet(patterns);
+        // One alternation, not one pattern per term: the per-term loop scanned the narration once
+        // for each of the vocabulary's terms, which measured as the classifier's costliest step on
+        // a long narration. The answer is the same -- some term occurs between the boundaries --
+        // since a failed boundary check after one alternative backtracks into the next. Longest
+        // terms first, so the engine tries the specific ones before their prefixes.
+        // Same word-boundary discipline CategoryRules itself uses -- naive substring matching
+        // makes "ola" match inside "cola", which that class documents as a real, evidenced false
+        // positive rather than a hypothetical one.
+        String alternation = entities.stream()
+                .sorted(java.util.Comparator.comparingInt(String::length).reversed().thenComparing(t -> t))
+                .map(Pattern::quote)
+                .collect(java.util.stream.Collectors.joining("|"));
+        ENTITY_PATTERN = Pattern.compile("(?<![a-z0-9])(?:" + alternation + ")(?![a-z0-9])");
+        HANDLE_PREFIXES = entities.stream()
+                .map(t -> t.replaceAll("[^a-z]", ""))
+                .filter(t -> t.length() >= MIN_HANDLE_PREFIX)
+                .distinct()
+                .toList();
     }
 
     /** Whether a known merchant entity is named in this narration. */
     public static boolean namesKnownMerchant(String description) {
         if (description == null || description.isBlank()) return false;
-        String normalized = CategoryRules.normalize(description);
-        for (Pattern p : ENTITY_PATTERNS) {
-            if (p.matcher(normalized).find()) return true;
+        return ENTITY_PATTERN.matcher(CategoryRules.normalize(description)).find();
+    }
+
+    /**
+     * Whether a payee's UPI id (its local part, before the "@") begins with a known merchant's name:
+     * "airtelprepaid..." or "appleservices...". Some banks print the payee's name cut to eight
+     * characters ("APPLE ME") and the id cut before its "@", so neither the name nor a merchant
+     * handle survives, and the cut name passes as a person's. The id is glued together, so the
+     * word-boundary lookup above cannot see the brand in it; this compares letters only. Only a
+     * prefix counts, and only a brand of 5+ letters.
+     */
+    public static boolean handleNamesKnownMerchant(String handle) {
+        if (handle == null) return false;
+        String letters = handle.replaceAll("[^A-Za-z]", "").toLowerCase(Locale.ROOT);
+        if (letters.length() < MIN_HANDLE_PREFIX) return false;
+        for (String prefix : HANDLE_PREFIXES) {
+            if (letters.startsWith(prefix)) return true;
         }
         return false;
     }

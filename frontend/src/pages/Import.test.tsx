@@ -611,6 +611,46 @@ describe('Import — total amount due on the review screen', () => {
     expect(screen.getByText('₹27,665')).toBeInTheDocument();
   });
 
+  it("opens a new card account at the statement's printed previous balance when the server read one", async () => {
+    vi.mocked(importApi.stagePdf).mockReset().mockResolvedValue({
+      sessionId: 'session-1', multiAccount: false, sections: null,
+      staging: {
+        rows: [], totalParsed: 0, flaggedDuplicates: 0, unparseableRows: [],
+        detectedAccount: {
+          ...detectedAccount, suggestedAccountType: 'CREDIT_CARD', totalAmountDue: 2001, openingBalance: 2000.4,
+        },
+      },
+    });
+    const user = userEvent.setup();
+    renderImport();
+
+    await pickAndUploadPdf(user);
+
+    expect(await screen.findByLabelText(/opening balance/i)).toHaveValue(2000.4);
+    expect(screen.queryByText(/estimated from total due/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/worked backwards/i)).not.toBeInTheDocument();
+  });
+
+  it('says why a card opening balance was worked backwards from the total due', async () => {
+    vi.mocked(importApi.stagePdf).mockReset().mockResolvedValue({
+      sessionId: 'session-1', multiAccount: false, sections: null,
+      staging: {
+        rows: [], totalParsed: 0, flaggedDuplicates: 0, unparseableRows: [],
+        detectedAccount: {
+          ...detectedAccount, suggestedAccountType: 'CREDIT_CARD', totalAmountDue: 2001, openingBalance: null,
+        },
+      },
+    });
+    const user = userEvent.setup();
+    renderImport();
+
+    await pickAndUploadPdf(user);
+
+    expect(await screen.findByText(/estimated from total due/i)).toBeInTheDocument();
+    expect(screen.getByText(/previous balance wasn't read, or didn't add up with these transactions/i))
+      .toBeInTheDocument();
+  });
+
   it('does not show a total amount due row for a savings statement', async () => {
     vi.mocked(importApi.stagePdf).mockReset().mockResolvedValue({
       sessionId: 'session-1', multiAccount: false, sections: null,
@@ -1103,7 +1143,7 @@ describe('Import — Free-tier entitlement gates show an upgrade prompt', () => 
 
   it.each([
     [ACCOUNT_LIMIT_REACHED, 'Free plan is limited to 2 accounts. Upgrade to Plus for unlimited accounts.'],
-    [STATEMENT_PERIOD_TOO_LONG, 'Free plan statements can cover at most 31 days. Upgrade to Plus to import longer statement periods.'],
+    [STATEMENT_PERIOD_TOO_LONG, 'Free plan statements can cover at most one month. Upgrade to Plus to import longer statement periods.'],
   ])('shows the server message and a "See Plus plans" link for %s', async (errorCode, message) => {
     stageRows();
     vi.mocked(importApi.confirm).mockReset().mockRejectedValue({

@@ -142,4 +142,143 @@ class FynOcrRedactorTest {
         assertThat(result).contains("499");
         assertThat(result).contains("HDFC Bank");
     }
+
+    // --- redactNarration: a transaction narration, whose fields are joined by '-', '/' or '|' ---
+
+    @Test
+    void redactNarration_keepsTheMerchantFieldNextToTheUpiId() {
+        String result = FynOcrRedactor.redactNarration(
+                "UPI-PAWS AND CLAWS STORE-pawsclawsstore@okaxis-UTIB0XXXXXX-123456789012-UPI"); // synthetic-ok
+
+        assertThat(result).isEqualTo("UPI-PAWS AND CLAWS STORE-[redacted-id]-[redacted-ifsc]-[redacted-number]-UPI");
+    }
+
+    @Test
+    void redactNarration_slashDelimitedNarration() {
+        String result = FynOcrRedactor.redactNarration(
+                "UPI/DR/412345678901/BLUE TOKAI/q123456789@ybl/Payment"); // synthetic-ok
+
+        assertThat(result).isEqualTo("UPI/DR/[redacted-number]/BLUE TOKAI/[redacted-id]/Payment");
+    }
+
+    @Test
+    void redactNarration_pipeDelimitedAndDottedId() {
+        String result = FynOcrRedactor.redactNarration("NEFT|ACME TRADERS|acme.traders@icici|REF"); // synthetic-ok
+
+        assertThat(result).isEqualTo("NEFT|ACME TRADERS|[redacted-id]|REF");
+    }
+
+    @Test
+    void redactNarration_anIdWithItsOwnHyphen_isRedactedWhole() {
+        assertThat(FynOcrRedactor.redactNarration("UPI-SHOP-ab-cd@okaxis-UPI")) // synthetic-ok
+                .isEqualTo("UPI-SHOP-[redacted-id]-UPI");
+        assertThat(FynOcrRedactor.redactNarration("UPI/[redacted-number]/UPI/priya-sharma@okicici/Payment")) // synthetic-ok
+                .isEqualTo("UPI/[redacted-number]/UPI/[redacted-id]/Payment");
+        assertThat(FynOcrRedactor.redactNarration("UPI/RAVI SHANKAR/9876543210-2@ybl/UPI")) // synthetic-ok
+                .isEqualTo("UPI/RAVI SHANKAR/[redacted-id]/UPI");
+    }
+
+    @Test
+    void redactNarration_aDashLayoutPayeeKeepsItsLastWordBeforeAHyphenatedId() {
+        assertThat(FynOcrRedactor.redactNarration("UPI-SHOP NAME-paytm-12345@ptys-UPI")) // synthetic-ok
+                .isEqualTo("UPI-SHOP NAME-[redacted-id]-UPI");
+    }
+
+    @Test
+    void redactNarration_theSlotAfterTheBankCodeGoesEvenWithoutAnAt() {
+        // A cut-off id of letters only: its position after the bank code is the evidence.
+        assertThat(FynOcrRedactor.redactNarration("UPI/CR/[redacted-number]/MR RAVI/SCBL/ravishankar-1/"))
+                .isEqualTo("UPI/CR/[redacted-number]/MR RAVI/SCBL/[redacted-id]/");
+        assertThat(FynOcrRedactor.redactNarration("UPIAR/[redacted-number]/DR/PRIYA/HDFC/priyasharma"))
+                .isEqualTo("UPIAR/[redacted-number]/DR/PRIYA/HDFC/[redacted-id]");
+    }
+
+    @Test
+    void redactNarration_anUppercaseWordAfterAFourLetterRailStays() {
+        assertThat(FynOcrRedactor.redactNarration("NEFT/IMPS/ACME TRADERS/UPI"))
+                .isEqualTo("NEFT/IMPS/ACME TRADERS/UPI");
+    }
+
+    @Test
+    void redactNarration_leavesAShortAmountAndPlainWordsAlone() {
+        assertThat(FynOcrRedactor.redactNarration("POS 499 SWIGGY BANGALORE")).isEqualTo("POS 499 SWIGGY BANGALORE");
+    }
+
+    @Test
+    void redactNarration_anIdCutOffAfterItsAt_isStillRedacted() {
+        assertThat(FynOcrRedactor.redactNarration("UPI/DR/[redacted-number]/SOMEONE/someone.name@"))
+                .isEqualTo("UPI/DR/[redacted-number]/SOMEONE/[redacted-id]");
+    }
+
+    @Test
+    void redactNarration_aLoneAtSignIsNotAnId() {
+        assertThat(FynOcrRedactor.redactNarration("EMI @ 14.00% INTEREST")).isEqualTo("EMI @ 14.00% INTEREST");
+    }
+
+    @Test
+    void redactNarration_anIdWrappedOntoTwoLines_losesBothHalves() {
+        // The PDF wrapped the id, so a space sits inside it; the half before it is the payee's name.
+        assertThat(FynOcrRedactor.redactNarration("UPI/[redacted-number]/10:20:20/UPI/priyasharma kumar@okhdfcbank"))
+                .isEqualTo("UPI/[redacted-number]/10:20:20/UPI/[redacted-id]");
+    }
+
+    @Test
+    void redactNarration_anUppercaseCodeBeforeTheIdStays() {
+        assertThat(FynOcrRedactor.redactNarration("UPI-METRO RAIL-METRORAILCODE metrorail@okaxis-UPI"))
+                .isEqualTo("UPI-METRO RAIL-METRORAILCODE [redacted-id]-UPI");
+    }
+
+    @Test
+    void redactNarration_anIdCutOffBeforeItsAt_isRedactedWhenItCarriesDigits() {
+        assertThat(FynOcrRedactor.redactNarration("UPIAR/[redacted-number]/DR/PRIYA/HDFC/priyasharma1"))
+                .isEqualTo("UPIAR/[redacted-number]/DR/PRIYA/HDFC/[redacted-id]");
+    }
+
+    @Test
+    void redactNarration_ordinaryLowercaseWordsStay() {
+        assertThat(FynOcrRedactor.redactNarration("UPI/RRN [redacted-number]/Monthly autopay. Cancel anytime"))
+                .isEqualTo("UPI/RRN [redacted-number]/Monthly autopay. Cancel anytime");
+    }
+
+    @Test
+    void redactNarration_aGlueDigitsFieldBeforeAWrappedIdKeepsItsDelimiter() {
+        assertThat(FynOcrRedactor.redactNarration("UPI-SHOP NAME-GPAY-11223344556 shopname@okaxis-UPI")) // synthetic-ok
+                .isEqualTo("UPI-SHOP NAME-GPAY-[redacted-id]-UPI");
+        // An uppercase code before a wrapped id is not taken as the id's first half (a dash-layout field
+        // would keep it); here the slot after the bank code goes whole anyway, by position.
+        assertThat(FynOcrRedactor.redactNarration("UPI-SHOP-DEUT2 shop@okaxis-UPI"))
+                .isEqualTo("UPI-SHOP-DEUT2 [redacted-id]-UPI");
+        assertThat(FynOcrRedactor.redactNarration("UPI/CR/[redacted-number]/SHOP/DEUT/DEUT2 shop@okaxis/"))
+                .isEqualTo("UPI/CR/[redacted-number]/SHOP/DEUT/[redacted-id] [redacted-id]/");
+    }
+
+    /** The understanding call redacts again what resolve already redacted, so a second pass must
+     *  change nothing -- an earlier draft stripped one more lowercase word on every pass. */
+    @Test
+    void redactNarration_isIdempotent() {
+        for (String narration : java.util.List.of(
+                "UPI/[redacted-number]/10:20:20/UPI/priyasharma kumar@okhdfcbank",
+                "UPI/RRN 123456789012/Monthly autopay. Cancel anytime abc12345", // synthetic-ok
+                "UPI-PAWS AND CLAWS STORE-pawsclawsstore@okaxis-UTIB0XXXXXX-123456789012-UPI", // synthetic-ok
+                "SMS CHRG FOR:01-04-2026to30-06-2026",
+                "pay to someone x@okaxis")) {
+            String once = FynOcrRedactor.redactNarration(narration);
+            assertThat(FynOcrRedactor.redactNarration(once)).as(narration).isEqualTo(once);
+        }
+    }
+
+    /** A wallet or merchant id, or a hex reference, printed in mixed case: a lowercase letter and a
+     *  digit in one 6+ character token. Uppercase bank words and mixed-case words keep. */
+    @Test
+    void redactNarration_redactsAMixedCaseIdOrReference_butNotAWord() {
+        assertThat(FynOcrRedactor.redactNarration("QZX Dhaba UPI/QZX Dhaba/qzxb.QZXA12345/Payment fr/PPIW/IBL0a12b34c56d")) // synthetic-ok
+                .isEqualTo("QZX Dhaba UPI/QZX Dhaba/[redacted-id]/Payment fr/PPIW/[redacted-id]");
+        assertThat(FynOcrRedactor.redactNarration("UPI/QZX MEDICAL STORE/Payment from Phone/HDFC"))
+                .isEqualTo("UPI/QZX MEDICAL STORE/Payment from Phone/HDFC");
+    }
+
+    @Test
+    void redactNarration_isNullSafe() {
+        assertThat(FynOcrRedactor.redactNarration(null)).isNull();
+    }
 }

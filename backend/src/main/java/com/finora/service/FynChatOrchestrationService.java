@@ -54,7 +54,7 @@ public class FynChatOrchestrationService {
 
     private static final Logger log = LoggerFactory.getLogger(FynChatOrchestrationService.class);
 
-    private static final String PROMPT_VERSION = "chat-v1";
+    private static final String PROMPT_VERSION = "chat-v2";
     private static final int MAX_TOKENS = 400;
     // Hard bound on real Anthropic calls per single user message -- plan §4.4's per-user daily cap
     // bounds spend across a session, this bounds the worst case for ONE message, so a model stuck
@@ -82,7 +82,10 @@ public class FynChatOrchestrationService {
             user's own historical data. Keep answers short -- a few sentences, not a report. \
             Reply in plain prose only -- no markdown formatting at all (no **bold**, no # headers, \
             no bullet or numbered lists): the chat bubble renders your reply as plain text, so \
-            markdown syntax would show up as literal asterisks and hash marks instead of formatting.
+            markdown syntax would show up as literal asterisks and hash marks instead of formatting. \
+            Text written as [name-1], [name-2] and so on stands for a person's name, hidden for \
+            privacy; repeat such a token exactly as written when you refer to that person, and \
+            never guess the name behind it.
             """;
 
     /**
@@ -116,6 +119,7 @@ public class FynChatOrchestrationService {
     private final List<LlmClient.LlmTool> toolDefinitions;
     private final FynProperties properties;
     private final UserRepository userRepository;
+    private final FynNameShields nameShields;
 
     public FynChatOrchestrationService(FynAvailabilityGuard availabilityGuard,
                                         EntitlementService entitlementService,
@@ -123,7 +127,8 @@ public class FynChatOrchestrationService {
                                         ChatMessageRepository messageRepository,
                                         AiAuditLogRepository aiAuditLogRepository,
                                         LlmClient llmClient, List<FynChatTool> tools,
-                                        FynProperties properties, UserRepository userRepository) {
+                                        FynProperties properties, UserRepository userRepository,
+                                        FynNameShields nameShields) {
         this.availabilityGuard = availabilityGuard;
         this.entitlementService = entitlementService;
         this.conversationRepository = conversationRepository;
@@ -134,6 +139,7 @@ public class FynChatOrchestrationService {
         this.toolDefinitions = tools.stream().map(FynChatTool::toLlmTool).toList();
         this.properties = properties;
         this.userRepository = userRepository;
+        this.nameShields = nameShields;
     }
 
     public record ChatTurnResult(UUID conversationId, String reply, UUID messageId) {}
@@ -244,7 +250,14 @@ public class FynChatOrchestrationService {
         userRow.setContent(userMessage);
         messageRepository.save(userRow);
 
-        List<LlmMessage> history = new ArrayList<>(loadHistory(conversation.getId()));
+        // People's names never reach the model: every text going out is shielded and the reply
+        // coming back unshielded (FynNameShield), so the user still reads the real names.
+        FynNameShield shield = nameShields.forUser(userId);
+        List<LlmMessage> history = new ArrayList<>(loadHistory(conversation.getId()).stream()
+                .map(m -> LlmMessage.ROLE_USER.equals(m.role())
+                        ? LlmMessage.user(shield.shield(m.content()))
+                        : LlmMessage.assistant(shield.shield(m.content())))
+                .toList());
         List<String> toolsUsedThisTurn = new ArrayList<>();
 
         try {
@@ -253,14 +266,15 @@ public class FynChatOrchestrationService {
                 LlmCompletion completion = modelCall.completion();
 
                 if (!completion.requestsToolUse()) {
-                    return finish(conversation, completion.content(), toolsUsedThisTurn);
+                    return finish(conversation, shield.unshield(completion.content()), toolsUsedThisTurn);
                 }
 
                 history.add(LlmMessage.assistantToolUse(completion.toolUses()));
                 List<ToolResult> results = new ArrayList<>();
                 for (ToolUse toolUse : completion.toolUses()) {
                     toolsUsedThisTurn.add(toolUse.name());
-                    results.add(new ToolResult(toolUse.id(), executeToolSafely(userId, toolUse)));
+                    results.add(new ToolResult(toolUse.id(),
+                            shield.shield(executeToolSafely(userId, unshieldInputs(toolUse, shield)))));
                 }
                 history.add(LlmMessage.toolResults(results));
 
@@ -328,6 +342,16 @@ public class FynChatOrchestrationService {
             }
             throw new ApiException(HttpStatus.BAD_GATEWAY, "Fyn could not answer that right now.");
         }
+    }
+
+    /** The model calls a tool with the tokens it was shown ("[name-1]"); the tool looks up the
+     *  real name, so each string argument is unshielded first. */
+    private static ToolUse unshieldInputs(ToolUse toolUse, FynNameShield shield) {
+        if (toolUse.input() == null || toolUse.input().isEmpty()) return toolUse;
+        Map<String, Object> input = new java.util.LinkedHashMap<>();
+        toolUse.input().forEach((key, value) ->
+                input.put(key, value instanceof String text ? shield.unshield(text) : value));
+        return new ToolUse(toolUse.id(), toolUse.name(), input);
     }
 
     /** A tool failure (an unrecognized name, or the wrapped service throwing) becomes a tool_result

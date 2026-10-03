@@ -102,6 +102,9 @@ public class CapabilityCoverageService {
             // with the chain. See PrintedBalanceExtractor and PdfPreviewGenerator.
             "PRINTED_OPENING_CLOSING_BALANCE", "PRINTED_BALANCE_USED_AS_OPENING",
             "PRINTED_BALANCE_USED_AS_CLOSING", "PRINTED_BALANCE_DISAGREES_WITH_CHAIN",
+            // A card's opening balance taken from its summary panel's printed previous balance,
+            // because the section's rows carry it to the total due. See CardStatementBalances.
+            "PRINTED_PREVIOUS_BALANCE_USED_AS_CARD_OPENING",
             // A statement period read after a "STATEMENT DATE :" label followed by the full range
             // (a real Standard Chartered export), or from an unlabelled "<date> To <date>" on an
             // early pre-table line when nothing labelled it (both real HSBC cards); and a card number

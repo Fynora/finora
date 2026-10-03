@@ -61,6 +61,15 @@ class SharedCorpusServiceTest {
     }
 
     @Test
+    void isEligible_aPaymentBrandsPartnerPrefixIsNotOneMerchant() {
+        // A bank that cuts a Bajaj Pay id to "bajajpay.<partner digits>" leaves a key every shop under
+        // that partner shares; one shop's category must never become every user's suggestion for all.
+        assertThat(SharedCorpusService.isEligible("vpa:bajajpay.100000", CounterpartyType.BUSINESS)).isFalse();
+        assertThat(SharedCorpusService.isEligible("vpa:bajajpay.1000000.dep1000000", CounterpartyType.BUSINESS)).isTrue();
+        assertThat(SharedCorpusService.isEligible("vpa:", CounterpartyType.BUSINESS)).isFalse();
+    }
+
+    @Test
     void recordObservation_ineligibleCounterparty_writesNothing() {
         service.recordObservation(UUID.randomUUID(), "name:rahul", CounterpartyType.PERSON,
                 Transaction.Type.EXPENSE, "Dining");

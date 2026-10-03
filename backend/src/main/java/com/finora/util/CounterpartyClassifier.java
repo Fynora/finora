@@ -106,7 +106,15 @@ public final class CounterpartyClassifier {
     //    Measured on the corpus (1,936 rows): 182 keys change (101 name -> id, 75 fragment -> whole
     //    id, 4 none -> id, 2 name -> masked), no type changes; every distinct change read. 13 keys
     //    now join rows of one person or shop that had two keys; none joins two different payees.
-    public static final short VERSION = 8;
+    // 9: shops a bank prints like people (2026-10-02). In "UPI/<DR|CR>/<ref>/<name>/<bank>/<id>" some
+    //    banks cut the name to eight characters and the id before its "@", so a metro operator, an
+    //    app store and a phone company read as two-word names. A UPI id that begins with a known
+    //    merchant's name is now that merchant's, and three merchant id families (two payment
+    //    brands' numbered ids, a card-machine provider) and one more merchant pseudo-branch count as
+    //    a merchant rail. Measured on the corpus (1,936 rows): 2 rows PERSON -> BUSINESS (one shop
+    //    paid under its owner's full name), no other change; on a tester's statement the seven
+    //    payees it typed PERSON read BUSINESS. No key changes.
+    public static final short VERSION = 9;
 
     /**
      * Bank-generated activity, where the counterparty is the institution itself. These words are
@@ -197,6 +205,11 @@ public final class CounterpartyClassifier {
         // category layer while this classifier still answered UNKNOWN -- an incoherent pair of
         // answers about the same row.
         if (MerchantIdentityLookup.namesKnownMerchant(text)) return CounterpartyType.BUSINESS;
+        // The same fact read from the payee's UPI id, for banks that cut the name to eight
+        // characters and the id before its "@" -- see MerchantIdentityLookup.handleNamesKnownMerchant.
+        if (MerchantIdentityLookup.handleNamesKnownMerchant(CounterpartyIdentity.payeeHandle(description))) {
+            return CounterpartyType.BUSINESS;
+        }
 
         if (matchesOutsideIssuerPrefix(CORPORATE_SUFFIX, text, markerStart)) return CounterpartyType.BUSINESS;
 

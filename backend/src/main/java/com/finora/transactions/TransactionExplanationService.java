@@ -118,7 +118,7 @@ public class TransactionExplanationService {
                     confidence, reconciliation);
         }
         String condition = fieldLabel(rule.getField()) + " " + operatorLabel(rule.getOperator())
-                + " " + comparisonValueLabel(rule);
+                + " " + comparisonValueLabel(rule) + amountRangeLabel(rule);
         // A MARK_INVESTMENT rule can be the deciding rule too (CategorizationService
         // .applySideEffectRules records it), and a blank action value there means "Investments".
         String category = rule.getActionType() == CategoryRule.ActionType.MARK_INVESTMENT
@@ -299,6 +299,7 @@ public class TransactionExplanationService {
             case MERCHANT -> "merchant";
             case AMOUNT -> "amount";
             case ACCOUNT_TYPE -> "account type";
+            case PAYEE -> "payee";
         };
     }
 
@@ -311,6 +312,38 @@ public class TransactionExplanationService {
             case LT -> "is less than";
             case BETWEEN -> "is between";
         };
+    }
+
+    /**
+     * A rule's optional amount bounds (V248), inclusive -- a recurring-payment answer applies only to
+     * payments of a similar amount, and the explanation has to say so or a same-payee payment it did
+     * not file looks like the rule failed. Empty for an unbounded rule.
+     */
+    private static String amountRangeLabel(CategoryRule rule) {
+        if (rule.getAmountMin() != null && rule.getAmountMax() != null) {
+            return ", amount " + rupees(rule.getAmountMin()) + " to " + rupees(rule.getAmountMax());
+        }
+        if (rule.getAmountMin() != null) return ", amount at least " + rupees(rule.getAmountMin());
+        if (rule.getAmountMax() != null) return ", amount up to " + rupees(rule.getAmountMax());
+        return "";
+    }
+
+    /**
+     * Indian grouping (₹1,20,000) as the apps show it, paise only when there are any. Built by hand:
+     * the JDK's en-IN number format groups in thousands (measured: 120,000).
+     */
+    private static String rupees(java.math.BigDecimal value) {
+        java.math.BigDecimal v = value.abs();
+        boolean paise = v.stripTrailingZeros().scale() > 0;
+        String plain = v.setScale(paise ? 2 : 0, java.math.RoundingMode.HALF_UP).toPlainString();
+        String whole = paise ? plain.substring(0, plain.indexOf('.')) : plain;
+        StringBuilder grouped = new StringBuilder();
+        int firstGroup = whole.length() <= 3 ? whole.length() : 3;
+        grouped.insert(0, whole.substring(whole.length() - firstGroup));
+        for (int end = whole.length() - firstGroup; end > 0; end -= 2) {
+            grouped.insert(0, whole.substring(Math.max(0, end - 2), end) + ",");
+        }
+        return (value.signum() < 0 ? "-₹" : "₹") + grouped + (paise ? plain.substring(plain.indexOf('.')) : "");
     }
 
     /**

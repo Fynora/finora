@@ -80,6 +80,16 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
 
     /** Backs the Accounts page's "N transactions" card stat (see AccountService.listForUser) --
      *  a single grouped COUNT query instead of loading every transaction just to count them. */
+    /** The narrations of this user's payments to and from people -- where FynNameShield learns
+     *  the names of the people this user deals with. Newest first, capped by {@code page}. */
+    @Query("""
+           SELECT t.description FROM Transaction t
+            WHERE t.userId = :userId AND t.counterpartyType = com.finora.util.CounterpartyType.PERSON
+              AND t.description IS NOT NULL
+            ORDER BY t.txnDate DESC
+           """)
+    List<String> findPersonPaymentDescriptions(@Param("userId") UUID userId, Pageable page);
+
     @Query("SELECT t.accountId AS accountId, COUNT(t) AS count FROM Transaction t WHERE t.userId = :userId GROUP BY t.accountId")
     List<AccountTransactionCount> countByAccountForUser(@Param("userId") UUID userId);
 

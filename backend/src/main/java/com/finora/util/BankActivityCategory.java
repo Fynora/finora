@@ -20,7 +20,8 @@ import java.util.regex.Pattern;
  * "Other": cashback 18 rows, interest credited 9, SMS alert charges 6, EMI interest 2, GST 5,
  * government fees 7, recurring-deposit instalments 7, card bill payments received 11.
  * Categories decided by Sid on 2026-10-02: money the bank pays you is "Interest & Cashback" (a new
- * default category, V246), and government fees are "Taxes".
+ * default category, V246), and government fees are "Taxes". On 2026-10-03 a provident-fund payment
+ * was split out of "Taxes": it is savings ("Investments").
  *
  * <p>Runs last, only in place of "Other": the user's rules, learned categories, the keyword table,
  * the shared corpus, the AI cache and the person-transfer rule all still win. A row whose payee is
@@ -49,6 +50,10 @@ public final class BankActivityCategory {
     private static final Pattern GST = words("gst", "igst", "cgst", "sgst");
     private static final Pattern RECURRING_DEPOSIT = words(
             "rd installment", "rd instalment", "recurring deposit");
+    /** The employees' provident fund. Typed GOVERNMENT by CounterpartyClassifier (it is not a
+     *  person), but money paid into it is retirement savings that comes back to the payer, not a
+     *  tax or a fee. */
+    private static final Pattern PROVIDENT_FUND = words("epfo", "epf");
 
     public static Optional<String> of(String description, Transaction.Type direction) {
         if (description == null || description.isBlank() || direction == null) return Optional.empty();
@@ -65,6 +70,7 @@ public final class BankActivityCategory {
         // Charges first: "SMS CHARGES+GST" is a fee with its tax, and the fee is what was bought.
         if (CHARGED.matcher(text).find()) return Optional.of("Fees/Interest");
         if (RECURRING_DEPOSIT.matcher(text).find()) return Optional.of("Investments");
+        if (PROVIDENT_FUND.matcher(text).find()) return Optional.of("Investments");
         if (GST.matcher(text).find()) return Optional.of("Taxes");
         if (counterparty == CounterpartyType.GOVERNMENT) return Optional.of("Taxes");
         return Optional.empty();

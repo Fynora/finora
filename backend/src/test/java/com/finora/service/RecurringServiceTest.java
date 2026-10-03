@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.finora.dto.RecurringDto;
 import com.finora.entity.Account;
 import com.finora.entity.CategoryRule;
 import com.finora.entity.RecurringDismissal;
@@ -32,6 +33,8 @@ class RecurringServiceTest {
     private AuditService auditService;
     private FeatureFlagService featureFlagService;
     private RecurringDismissalRepository recurringDismissalRepository;
+    private com.finora.repository.CategoryRuleRepository categoryRuleRepository;
+    private com.finora.repository.CategoryRepository categoryRepository;
     private RecurringService recurringService;
     private final UUID userId = UUID.randomUUID();
     private Account liveAccount;
@@ -61,8 +64,12 @@ class RecurringServiceTest {
         liveAccount.setUserId(userId);
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(liveAccount));
 
+        // Unstubbed by default: no categories and no saved answers, so every existing test here sees
+        // the question state NONE and is otherwise unaffected.
+        categoryRuleRepository = mock(com.finora.repository.CategoryRuleRepository.class);
+        categoryRepository = mock(com.finora.repository.CategoryRepository.class);
         recurringService = new RecurringService(transactionRepository, accountRepository, ruleEngineService, auditService,
-                featureFlagService, recurringDismissalRepository);
+                featureFlagService, recurringDismissalRepository, categoryRuleRepository, categoryRepository);
     }
 
     // Deleted-account leak (see DashboardService.summarize for the original fix): a deleted
@@ -502,5 +509,186 @@ class RecurringServiceTest {
 
         assertThat(results).isEmpty();
         assertThat(txns).noneMatch(Transaction::isRecurring);
+    }
+
+    // --- The recurring-payment question (docs/superpowers/specs/2026-10-02-recurring-payment-answer-design.md) ---
+
+    private final java.util.Map<String, com.finora.entity.Category> categories = new java.util.LinkedHashMap<>();
+
+    private com.finora.entity.Category category(String name) {
+        return categories.computeIfAbsent(name, n -> {
+            com.finora.entity.Category c = new com.finora.entity.Category();
+            ReflectionTestUtils.setField(c, "id", UUID.randomUUID());
+            c.setUserId(userId);
+            c.setName(n);
+            return c;
+        });
+    }
+
+    private void stubCategories() {
+        for (String n : List.of("Other", "Personal Transfer", "Rent", "Entertainment")) category(n);
+        when(categoryRepository.findByUserId(userId)).thenReturn(List.copyOf(categories.values()));
+    }
+
+    private List<Transaction> landlordPayments(String categoryName, Transaction.DecisionSource source, String... amounts) {
+        List<Transaction> txns = new java.util.ArrayList<>();
+        for (int i = 0; i < amounts.length; i++) {
+            Transaction t = expense("sample landlord", LocalDate.of(2026, 5 + i, 3), new BigDecimal(amounts[i]));
+            t.setCategoryId(category(categoryName).getId());
+            t.setDecisionSource(source);
+            txns.add(t);
+        }
+        return txns;
+    }
+
+    private com.finora.entity.CategoryRule answer(String label, String category, String min, String max) {
+        com.finora.entity.CategoryRule r = new com.finora.entity.CategoryRule();
+        r.setUserId(userId);
+        r.setScope(com.finora.entity.CategoryRule.Scope.USER);
+        r.setField(com.finora.entity.CategoryRule.Field.PAYEE);
+        r.setOperator(com.finora.entity.CategoryRule.Operator.EQUALS);
+        r.setComparisonValue(label);
+        r.setActionType(com.finora.entity.CategoryRule.ActionType.ASSIGN_CATEGORY);
+        r.setActionValue(category);
+        r.setAmountMin(min == null ? null : new BigDecimal(min));
+        r.setAmountMax(max == null ? null : new BigDecimal(max));
+        return r;
+    }
+
+    private RecurringDto onlyGroup(List<Transaction> txns) {
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(txns);
+        var results = recurringService.detectForUser(userId);
+        assertThat(results).hasSize(1);
+        return results.get(0);
+    }
+
+    @Test
+    void aGroupStillOther_needsAnAnswer() {
+        stubCategories();
+        RecurringDto r = onlyGroup(landlordPayments("Other", Transaction.DecisionSource.MERCHANT_DEFAULT,
+                "10000", "10000", "10000"));
+
+        assertThat(r.state()).isEqualTo(RecurringDto.QuestionState.NEEDS_ANSWER);
+        assertThat(r.category()).isEqualTo("Other");
+        assertThat(r.answer()).isNull();
+        assertThat(r.latestAmount()).isEqualByComparingTo("10000");
+    }
+
+    @Test
+    void aGroupGuessedAsAPersonalTransfer_needsAnAnswer() {
+        stubCategories();
+        RecurringDto r = onlyGroup(landlordPayments("Personal Transfer", Transaction.DecisionSource.STRUCTURAL_P2P,
+                "10000", "10000", "10000"));
+
+        assertThat(r.state()).isEqualTo(RecurringDto.QuestionState.NEEDS_ANSWER);
+    }
+
+    @Test
+    void aPersonalTransferTheUserChoseByRule_isNotAsked() {
+        stubCategories();
+        RecurringDto r = onlyGroup(landlordPayments("Personal Transfer", Transaction.DecisionSource.USER_RULE,
+                "10000", "10000", "10000"));
+
+        assertThat(r.state()).isEqualTo(RecurringDto.QuestionState.NONE);
+    }
+
+    @Test
+    void oneRowSetByHand_meansNoQuestion() {
+        stubCategories();
+        List<Transaction> txns = landlordPayments("Other", Transaction.DecisionSource.MERCHANT_DEFAULT, "10000", "10000", "10000");
+        txns.get(1).setCategoryManuallySet(true);
+
+        assertThat(onlyGroup(txns).state()).isEqualTo(RecurringDto.QuestionState.NONE);
+    }
+
+    @Test
+    void anAlreadyCategorisedGroup_isNotAsked() {
+        stubCategories();
+        RecurringDto r = onlyGroup(landlordPayments("Entertainment", Transaction.DecisionSource.KEYWORD_MATCH,
+                "649", "649", "649"));
+
+        assertThat(r.state()).isEqualTo(RecurringDto.QuestionState.NONE);
+        assertThat(r.category()).isEqualTo("Entertainment");
+    }
+
+    @Test
+    void aSavedAnswerCoveringTheLatestPayment_isAnswered() {
+        stubCategories();
+        when(categoryRuleRepository.findUserPayeeRules(userId)).thenReturn(List.of(answer("Sample Landlord", "Rent", "8000", "12000")));
+        RecurringDto r = onlyGroup(landlordPayments("Rent", Transaction.DecisionSource.USER_RULE, "10000", "10000", "10000"));
+
+        assertThat(r.state()).isEqualTo(RecurringDto.QuestionState.ANSWERED);
+        assertThat(r.answer()).isEqualTo("Rent");
+    }
+
+    @Test
+    void answeringOther_stopsTheQuestion() {
+        stubCategories();
+        when(categoryRuleRepository.findUserPayeeRules(userId)).thenReturn(List.of(answer("sample landlord", "Other", "8000", "12000")));
+        RecurringDto r = onlyGroup(landlordPayments("Other", Transaction.DecisionSource.USER_RULE, "10000", "10000", "10000"));
+
+        assertThat(r.state()).isEqualTo(RecurringDto.QuestionState.ANSWERED);
+        assertThat(r.answer()).isEqualTo("Other");
+    }
+
+    @Test
+    void aLatestPaymentOutsideTheSavedRange_isAmountChanged() {
+        stubCategories();
+        when(categoryRuleRepository.findUserPayeeRules(userId)).thenReturn(List.of(answer("sample landlord", "Rent", "8000", "9000")));
+        RecurringDto r = onlyGroup(landlordPayments("Other", Transaction.DecisionSource.MERCHANT_DEFAULT, "9000", "9500", "10000"));
+
+        assertThat(r.state()).isEqualTo(RecurringDto.QuestionState.AMOUNT_CHANGED);
+        assertThat(r.answer()).isEqualTo("Rent");
+        assertThat(r.latestAmount()).isEqualByComparingTo("10000");
+    }
+
+    /** The user filed the latest payment by hand: it is decided, so the answer is judged on the one before. */
+    @Test
+    void aLatestPaymentFiledByHand_doesNotMakeTheAnswerAmountChanged() {
+        stubCategories();
+        when(categoryRuleRepository.findUserPayeeRules(userId)).thenReturn(List.of(answer("sample landlord", "Rent", "8000", "9600")));
+        List<Transaction> txns = landlordPayments("Rent", Transaction.DecisionSource.USER_RULE, "9000", "9500", "10000");
+        txns.get(2).setCategoryManuallySet(true);
+
+        RecurringDto r = onlyGroup(txns);
+
+        assertThat(r.state()).isEqualTo(RecurringDto.QuestionState.ANSWERED);
+        assertThat(r.latestAmount()).isEqualByComparingTo("9500");
+    }
+
+    @Test
+    void everyPaymentFiledByHand_isAnswered() {
+        stubCategories();
+        when(categoryRuleRepository.findUserPayeeRules(userId)).thenReturn(List.of(answer("sample landlord", "Rent", "1", "2")));
+        List<Transaction> txns = landlordPayments("Rent", Transaction.DecisionSource.MANUAL, "9000", "9500", "10000");
+        txns.forEach(t -> t.setCategoryManuallySet(true));
+
+        assertThat(onlyGroup(txns).state()).isEqualTo(RecurringDto.QuestionState.ANSWERED);
+    }
+
+    /** Older app versions read these six fields; their values must not change. */
+    @Test
+    void theOriginalSixFields_keepTheirValues() {
+        List<Transaction> txns = List.of(
+                expense("netflix", LocalDate.of(2026, 5, 5), BigDecimal.valueOf(649)),
+                expense("netflix", LocalDate.of(2026, 6, 5), BigDecimal.valueOf(649)),
+                expense("netflix", LocalDate.of(2026, 7, 6), BigDecimal.valueOf(649)));
+        RecurringDto r = onlyGroup(txns);
+
+        assertThat(r.merchant()).isEqualTo("netflix");
+        assertThat(r.label()).isEqualTo("Monthly");
+        assertThat(r.averageAmount()).isEqualByComparingTo("649");
+        assertThat(r.occurrences()).isEqualTo(3);
+        assertThat(r.lastDate()).isEqualTo(LocalDate.of(2026, 7, 6));
+        assertThat(r.nextEstimate()).isEqualTo(LocalDate.of(2026, 8, 6));
+        assertThat(r.state()).isEqualTo(RecurringDto.QuestionState.NONE);
+    }
+
+    @Test
+    void dismiss_recordsAnAuditEntry() {
+        recurringService.dismiss(userId, "sample landlord");
+
+        verify(auditService).record(eq(userId), eq("RECURRING_DISMISSED"), eq("Transaction"), eq(null),
+                eq(Map.of("merchant", "sample landlord")));
     }
 }

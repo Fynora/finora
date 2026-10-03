@@ -14,6 +14,7 @@ import java.util.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 class UserMerchantCategoryResolutionServiceTest {
@@ -25,6 +26,9 @@ class UserMerchantCategoryResolutionServiceTest {
     private UserMerchantCategoryResolutionRepository resolutionRepository;
     private CategoryRepository categoryRepository;
     private CategorizationService categorizationService;
+    private com.finora.repository.UserRepository userRepository;
+    private com.finora.repository.AccountRepository accountRepository;
+    private com.finora.repository.TransactionRepository transactionRepository;
     private UserMerchantCategoryResolutionService service;
     private final UUID userId = UUID.randomUUID();
 
@@ -37,8 +41,12 @@ class UserMerchantCategoryResolutionServiceTest {
         resolutionRepository = mock(UserMerchantCategoryResolutionRepository.class);
         categoryRepository = mock(CategoryRepository.class);
         categorizationService = mock(CategorizationService.class);
+        userRepository = mock(com.finora.repository.UserRepository.class);
+        accountRepository = mock(com.finora.repository.AccountRepository.class);
+        transactionRepository = mock(com.finora.repository.TransactionRepository.class);
         service = new UserMerchantCategoryResolutionService(understandingService, availabilityGuard,
-                llmClient, aiAuditLogRepository, resolutionRepository, categoryRepository, categorizationService);
+                llmClient, aiAuditLogRepository, resolutionRepository, categoryRepository, categorizationService,
+                new FynNameShields(userRepository, accountRepository, transactionRepository));
         when(availabilityGuard.categorizationAvailableFor(userId)).thenReturn(true);
     }
 
@@ -53,7 +61,7 @@ class UserMerchantCategoryResolutionServiceTest {
         category.setName("Pet Care");
         when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
 
-        Optional<String> result = service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT/...");
+        Optional<String> result = service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT PET SUPPLIES PVT LTD/...");
 
         assertThat(result).contains("Pet Care");
         verifyNoInteractions(llmClient);
@@ -73,11 +81,165 @@ class UserMerchantCategoryResolutionServiceTest {
         when(categorizationService.resolveOrCreateCategory(userId, "Pet Care", null)).thenReturn(existing);
         when(resolutionRepository.insertIfAbsent(any(), any(), any(), any(), any())).thenReturn(1);
 
-        Optional<String> result = service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT/...");
+        Optional<String> result = service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT PET SUPPLIES PVT LTD/...");
 
         assertThat(result).contains("Pet Care");
         // Model named an EXISTING category, so no reason should be passed through as a create reason.
         verify(categorizationService).resolveOrCreateCategory(userId, "Pet Care", null);
+    }
+
+    /** Both model calls receive the narration, so both receive it redacted -- the category
+     *  resolution call here, and the understanding call it makes first. */
+    @Test
+    void resolve_cacheMiss_bothModelCallsReceiveTheRedactedNarration() {
+        when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(any(), any(), any())).thenReturn(Optional.empty());
+        when(understandingService.understand(any(), any(), any(), any())).thenReturn(Optional.of("A pet supplies retailer"));
+        when(categoryRepository.findByUserId(userId)).thenReturn(List.of());
+        when(llmClient.complete(any())).thenReturn(new LlmCompletion(null, List.of(),
+                "claude-haiku-4-5-20251001", 60, 8, "end_turn"));
+        String narration = "UPI-PAWS AND CLAWS STORE-pawsclawsstore@okaxis-UTIB0XXXXXX-123456789012-UPI"; // synthetic-ok
+
+        service.resolve(userId, "vpa:pawsclawsstore", Transaction.Type.EXPENSE, narration);
+
+        String redacted = "UPI-PAWS AND CLAWS STORE-[redacted-id]-[redacted-ifsc]-[redacted-number]-UPI";
+        verify(understandingService).understand(userId, "vpa:pawsclawsstore", Transaction.Type.EXPENSE, redacted);
+        var requestCaptor = org.mockito.ArgumentCaptor.forClass(
+                com.finora.integrations.anthropic.LlmClient.LlmRequest.class);
+        verify(llmClient).complete(requestCaptor.capture());
+        assertThat(requestCaptor.getValue().messages().get(0).content()).isEqualTo(redacted);
+    }
+
+    /** A shop QR registered under its owner's name: the name is masked before either call. */
+    @Test
+    void resolve_cacheMiss_sendsTheNarrationWithNamesMasked() {
+        when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(any(), any(), any())).thenReturn(Optional.empty());
+        when(understandingService.understand(any(), any(), any(), any())).thenReturn(Optional.of("A tea stall"));
+        when(categoryRepository.findByUserId(userId)).thenReturn(List.of());
+        when(llmClient.complete(any())).thenReturn(new LlmCompletion(null, List.of(),
+                "claude-haiku-4-5-20251001", 60, 8, "end_turn"));
+
+        service.resolve(userId, "vpa:paytmqr12345", Transaction.Type.EXPENSE,
+                "UPI-PRIYA SHARMA-paytmqr12345@paytm-UTIB0XXXXXX-123456789012-TEA STALL"); // synthetic-ok
+
+        verify(understandingService).understand(userId, "vpa:paytmqr12345", Transaction.Type.EXPENSE,
+                "UPI-[name]-[redacted-id]-[redacted-ifsc]-[redacted-number]-TEA STALL");
+    }
+
+    /** The account holder's own name, here glued into a remark, is masked from what the profile says. */
+    @Test
+    void resolve_cacheMiss_masksTheAccountHoldersOwnName() {
+        when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(any(), any(), any())).thenReturn(Optional.empty());
+        when(understandingService.understand(any(), any(), any(), any())).thenReturn(Optional.empty());
+        User holder = new User();
+        holder.setFullName("Tanvi Sharma");
+        when(userRepository.findById(userId)).thenReturn(Optional.of(holder));
+
+        service.resolve(userId, "vpa:acmefoods", Transaction.Type.EXPENSE,
+                "UPI/ACME FOODS/acmefoods@okaxis/THSHARMA114");
+
+        verify(understandingService).understand(userId, "vpa:acmefoods", Transaction.Type.EXPENSE,
+                "UPI/ACME FOODS/[redacted-id]/TH[name]114");
+    }
+
+    /** A spouse's account the user imported: its holder is not the profile name, and is masked too. */
+    @Test
+    void resolve_cacheMiss_masksTheHolderOfEachOfTheUsersAccounts() {
+        when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(any(), any(), any())).thenReturn(Optional.empty());
+        when(understandingService.understand(any(), any(), any(), any())).thenReturn(Optional.empty());
+        User profile = new User();
+        profile.setFullName("Tanvi Sharma");
+        when(userRepository.findById(userId)).thenReturn(Optional.of(profile));
+        Account spouses = new Account();
+        spouses.setAccountHolderName("ROHAN VERMA");
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of(spouses));
+
+        service.resolve(userId, "vpa:acmefoods", Transaction.Type.EXPENSE,
+                "UPI/ACME FOODS/acmefoods@okaxis/ROHANVERMA22");
+
+        verify(understandingService).understand(userId, "vpa:acmefoods", Transaction.Type.EXPENSE,
+                "UPI/ACME FOODS/[redacted-id]/[name][name]22");
+    }
+
+    /** A category the user named after a person reaches the model as a token, and the token the
+     *  model picks is mapped back to the real category before it is looked up. */
+    @Test
+    void resolve_aCategoryNamedAfterAPerson_isShieldedAndTheModelsPickIsRestored() {
+        when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(any(), any(), any())).thenReturn(Optional.empty());
+        when(understandingService.understand(any(), any(), any(), any())).thenReturn(Optional.of("A tea stall"));
+        Category personal = new Category();
+        personal.setUserId(userId);
+        personal.setName("Priya Sharma");
+        Category dining = new Category();
+        dining.setUserId(userId);
+        dining.setName("Dining");
+        when(categoryRepository.findByUserId(userId)).thenReturn(List.of(personal, dining));
+        when(transactionRepository.findPersonPaymentDescriptions(eq(userId), any()))
+                .thenReturn(List.of("UPI-PRIYA SHARMA-priyasharma@okicici-UPI")); // synthetic-ok
+        ToolUse toolUse = new ToolUse("t1", "RESOLVE_CATEGORY", Map.of("category", "[name-1]"));
+        when(llmClient.complete(any())).thenReturn(new LlmCompletion(null, List.of(toolUse),
+                "claude-haiku-4-5-20251001", 60, 8, "tool_use"));
+        when(categorizationService.resolveOrCreateCategory(userId, "Priya Sharma", null)).thenReturn(personal);
+        when(resolutionRepository.insertIfAbsent(any(), any(), any(), any(), any())).thenReturn(1);
+
+        Optional<String> result = service.resolve(userId, "vpa:acmeteashop", Transaction.Type.EXPENSE,
+                "UPI-ACME TEA SHOP-acmeteashop@okaxis-UPI");
+
+        var captor = org.mockito.ArgumentCaptor.forClass(LlmClient.LlmRequest.class);
+        verify(llmClient).complete(captor.capture());
+        assertThat(captor.getValue().systemPrompt()).contains("Dining, [name-1]").doesNotContain("Priya");
+        assertThat(result).contains("Priya Sharma");
+        verify(categorizationService).resolveOrCreateCategory(userId, "Priya Sharma", null);
+        // The understanding call's answer is cached for every user: no numbered token may reach it.
+        verify(understandingService).understand(eq(userId), eq("vpa:acmeteashop"), eq(Transaction.Type.EXPENSE),
+                org.mockito.ArgumentMatchers.argThat(text -> !text.matches("(?s).*\\[name-\\d+].*")));
+    }
+
+    /** The model was shown "[name]" and "[redacted-id]", and could invent "[name-9]": a pick still
+     *  holding one is no pick, never a new category literally named after the placeholder. */
+    @Test
+    void resolve_aPickThatIsAPlaceholder_createsNoCategory() {
+        when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(any(), any(), any())).thenReturn(Optional.empty());
+        when(understandingService.understand(any(), any(), any(), any())).thenReturn(Optional.of("A tea stall"));
+        when(categoryRepository.findByUserId(userId)).thenReturn(List.of());
+        for (String pick : List.of("[name]", "Payments to [name-9]", "[redacted-id]")) {
+            when(llmClient.complete(any())).thenReturn(new LlmCompletion(null,
+                    List.of(new ToolUse("t1", "RESOLVE_CATEGORY", Map.of("category", pick))),
+                    "claude-haiku-4-5-20251001", 60, 8, "tool_use"));
+
+            assertThat(service.resolve(userId, "vpa:acmeteashop", Transaction.Type.EXPENSE,
+                    "UPI-ACME TEA SHOP-acmeteashop@okaxis-UPI")).as(pick).isEmpty();
+        }
+        verify(categorizationService, never()).resolveOrCreateCategory(any(), any(), any());
+    }
+
+    @Test
+    void resolve_aPlaceholderLeftInTheReason_readsAsSomeone() {
+        when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(any(), any(), any())).thenReturn(Optional.empty());
+        when(understandingService.understand(any(), any(), any(), any())).thenReturn(Optional.of("A tea stall"));
+        when(categoryRepository.findByUserId(userId)).thenReturn(List.of());
+        when(llmClient.complete(any())).thenReturn(new LlmCompletion(null,
+                List.of(new ToolUse("t1", "RESOLVE_CATEGORY", Map.of("category", "Tea", "reason", "Tea bought from [name]"))),
+                "claude-haiku-4-5-20251001", 60, 8, "tool_use"));
+        Category tea = new Category();
+        tea.setUserId(userId);
+        tea.setName("Tea");
+        when(categorizationService.resolveOrCreateCategory(userId, "Tea", "Tea bought from someone")).thenReturn(tea);
+        when(resolutionRepository.insertIfAbsent(any(), any(), any(), any(), any())).thenReturn(1);
+
+        assertThat(service.resolve(userId, "vpa:acmeteashop", Transaction.Type.EXPENSE,
+                "UPI-ACME TEA SHOP-acmeteashop@okaxis-UPI")).contains("Tea");
+    }
+
+    /** The gate at the one entry into the model calls, not only at today's caller. */
+    @Test
+    void resolve_aNamedIndividualTransfer_makesNoModelCallAtAll() {
+        when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(any(), any(), any())).thenReturn(Optional.empty());
+
+        Optional<String> result = service.resolve(userId, "vpa:sampleuser", Transaction.Type.EXPENSE,
+                "UPI-RAJESH KUMAR-sampleuser@ybl-REF881234");
+
+        assertThat(result).isEmpty();
+        verifyNoInteractions(understandingService, llmClient);
     }
 
     @Test
@@ -99,7 +261,7 @@ class UserMerchantCategoryResolutionServiceTest {
         when(categorizationService.resolveOrCreateCategory(userId, "Apple Purchases", null)).thenReturn(apple);
         when(resolutionRepository.insertIfAbsent(any(), any(), any(), any(), any())).thenReturn(1);
 
-        service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT/...");
+        service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT PET SUPPLIES PVT LTD/...");
 
         var requestCaptor = org.mockito.ArgumentCaptor.forClass(
                 com.finora.integrations.anthropic.LlmClient.LlmRequest.class);
@@ -125,7 +287,7 @@ class UserMerchantCategoryResolutionServiceTest {
                 .thenAnswer(inv -> { created.setAiCreationReason(inv.getArgument(2)); return created; });
         when(resolutionRepository.insertIfAbsent(any(), any(), any(), any(), any())).thenReturn(1);
 
-        Optional<String> result = service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT/...");
+        Optional<String> result = service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT PET SUPPLIES PVT LTD/...");
 
         assertThat(result).contains("Pet Care");
         verify(categorizationService).resolveOrCreateCategory(userId, "Pet Care", "Pet supplies retailer, no existing match");
@@ -137,7 +299,7 @@ class UserMerchantCategoryResolutionServiceTest {
         when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(any(), any(), any())).thenReturn(Optional.empty());
         when(understandingService.understand(any(), any(), any(), any())).thenReturn(Optional.empty());
 
-        Optional<String> result = service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT/...");
+        Optional<String> result = service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT PET SUPPLIES PVT LTD/...");
 
         assertThat(result).isEmpty();
         verifyNoInteractions(llmClient);
@@ -151,7 +313,7 @@ class UserMerchantCategoryResolutionServiceTest {
         when(categoryRepository.findByUserId(userId)).thenReturn(List.of());
         when(llmClient.complete(any())).thenThrow(new RuntimeException("upstream error"));
 
-        Optional<String> result = service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT/...");
+        Optional<String> result = service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT PET SUPPLIES PVT LTD/...");
 
         assertThat(result).isEmpty();
         verify(aiAuditLogRepository).save(argThat(log -> log.getError() != null));

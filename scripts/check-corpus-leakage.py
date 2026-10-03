@@ -36,10 +36,32 @@ they raise the false-positive rate sharply while display truncation does not pro
 leaked interior fragment is ever found, this comment is where the decision to revisit that should
 start.
 
+CASE-INSENSITIVE, BECAUSE THE SAME HANDLE IS WRITTEN BOTH WAYS
+--------------------------------------------------------------
+A statement prints a UPI handle in capitals, and the code that derives a key from it lowercases it.
+The first version of this sweep matched case-sensitively, so a real gateway handle that had been
+replaced in its printed form survived in five tests and a doc comment as a lowercased `masked:` key.
+Matching is therefore case-insensitive on the repository side.
+
+SEVERAL SOURCES, AND STATEMENTS IT CANNOT READ
+----------------------------------------------
+Statements do not all live in one folder: testers' statements have sat loose at the top of the
+Downloads folder, outside both corpus folders, and a real handle from one of them reached a test
+that every scan of the corpus folders passed. So any number of directories may be given, and each
+one's top-level PDFs and CSV exports are read.
+
+A password-protected PDF cannot be read, and the first version skipped it without a word -- its
+identifiers were simply never checked, and the scan still said "clean". Now an unreadable statement
+fails the run (exit 2) and is named. Supply its password with --passwords FILE, a tab-separated
+`<pdf file name>\t<password>` file kept OUTSIDE this repository; the passwords are handed to the PDF
+reader and never printed. --allow-unreadable downgrades the failure to a warning, for a run where
+the gap is known and accepted.
+
 EXIT CODES, AND ONE WAY TO LOSE THEM
 ------------------------------------
-    0   no corpus identifier occurs in tracked content
+    0   no corpus identifier occurs in tracked content, and every statement was read
     1   at least one does
+    2   none was found, but at least one statement could not be read, so the answer is incomplete
 
 Findings go to stderr and the clean message to stdout, so `... | tail` reports the exit status of
 tail rather than of this script. That is not hypothetical -- it is how the first reading of this
@@ -128,8 +150,18 @@ def _self_test() -> int:
     return 1 if bad else 0
 
 
-def corpus_text(corpus: Path) -> str:
-    """Every statement's text, concatenated. Needs the backend's PDFBox on the classpath."""
+# CSV only: a bank's own export is a statement. A .txt is not -- reading every one in a Downloads
+# folder pulled in a page of the developer's own command notes, whose test-account values then
+# "matched" the e2e fixtures that legitimately use them.
+TEXT_SOURCES = (".csv",)
+
+
+def corpus_text(corpus: Path, passwords: Path = None, unreadable: list = None) -> str:
+    """Every statement's text in one directory, concatenated: its top-level PDFs (through the
+    backend's PDFBox, which must be on the classpath) and its top-level CSV exports.
+
+    A PDF that cannot be read is appended to `unreadable` (file name and exception class only);
+    when no list is passed, the caller has said it does not care, and the skip stays silent."""
     cp_file = REPO_ROOT / "backend" / "target" / "corpus-classpath.txt"
     classes = REPO_ROOT / "backend" / "target" / "classes"
     if not cp_file.is_file():
@@ -137,23 +169,48 @@ def corpus_text(corpus: Path) -> str:
                  "  cd backend && ./mvnw -q -o dependency:build-classpath "
                  "-Dmdep.outputFile=target/corpus-classpath.txt -Dmdep.includeScope=test")
 
+    # The password file is read by the Java side, so a password never passes through this process's
+    # output. Only the exception's class is reported for a skipped file -- PDFBox messages can quote
+    # document content.
     src = REPO_ROOT / "backend" / "target" / "CorpusDump.java"
     src.write_text(
         'import org.apache.pdfbox.Loader; import org.apache.pdfbox.text.PDFTextStripper;\n'
-        'import java.io.File;\n'
+        'import java.io.File; import java.nio.file.Files; import java.util.HashMap;\n'
         'public class CorpusDump { public static void main(String[] a) throws Exception {\n'
+        '  var pw = new HashMap<String, String>();\n'
+        '  if (a.length > 1) for (String l : Files.readAllLines(new File(a[1]).toPath())) {\n'
+        '    int t = l.indexOf(\'\\t\'); if (t > 0) pw.put(l.substring(0, t), l.substring(t + 1)); }\n'
         '  for (File f : new File(a[0]).listFiles((d,n)->n.toLowerCase().endsWith(".pdf"))) {\n'
-        '    try (var d = Loader.loadPDF(f)) { System.out.println(new PDFTextStripper().getText(d)); }\n'
-        '    catch (Exception e) { System.err.println("skip " + f.getName() + ": " + e); } } } }\n')
+        '    String p = pw.get(f.getName());\n'
+        '    try (var d = p == null ? Loader.loadPDF(f) : Loader.loadPDF(f, p)) {\n'
+        '      System.out.println(new PDFTextStripper().getText(d)); }\n'
+        '    catch (Exception e) {\n'
+        '      System.err.println("UNREADABLE\\t" + f.getName() + "\\t" + e.getClass().getSimpleName()); } } } }\n')
     cp = f"{classes}:{cp_file.read_text().strip()}"
     subprocess.run(["javac", "-cp", cp, "-d", str(REPO_ROOT / "backend" / "target" / "corpusdump"),
                     str(src)], check=True, capture_output=True)
+    args = [str(corpus)] + ([str(passwords)] if passwords else [])
     out = subprocess.run(["java", "-cp",
                           f"{REPO_ROOT / 'backend' / 'target' / 'corpusdump'}:{cp}",
-                          "CorpusDump", str(corpus)], capture_output=True, text=True)
-    if not out.stdout.strip():
-        sys.exit(f"no text extracted from any PDF in {corpus}")
-    return out.stdout
+                          "CorpusDump", *args], capture_output=True, text=True)
+    if out.returncode != 0:
+        sys.exit(f"reading the PDFs in {corpus} failed (java exit {out.returncode})")
+    skipped = []
+    for line in out.stderr.splitlines():
+        parts = line.split("\t")
+        if len(parts) == 3 and parts[0] == "UNREADABLE":
+            skipped.append((corpus / parts[1], parts[2]))
+    if unreadable is not None:
+        unreadable.extend(skipped)
+
+    texts = [out.stdout]
+    for f in sorted(corpus.iterdir()):
+        if f.is_file() and f.suffix.lower() in TEXT_SOURCES:
+            texts.append(f.read_text(errors="ignore"))
+    text = "\n".join(texts)
+    if not text.strip() and not skipped:
+        sys.exit(f"no text extracted from any statement in {corpus}")
+    return text
 
 
 def needles(text: str) -> set:
@@ -179,25 +236,42 @@ def needles(text: str) -> set:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("corpus", type=Path, nargs="?",
-                    help="directory of real statements, OUTSIDE this repository")
+    ap.add_argument("corpus", type=Path, nargs="*",
+                    help="one or more directories of real statements, OUTSIDE this repository; "
+                         "each one's top-level PDF and CSV files are read")
+    ap.add_argument("--passwords", type=Path,
+                    help="tab-separated '<pdf file name>\\t<password>' lines for protected statements, "
+                         "kept OUTSIDE this repository")
+    ap.add_argument("--allow-unreadable", action="store_true",
+                    help="warn about statements that could not be read instead of failing (exit 2)")
     ap.add_argument("--self-test", action="store_true",
                     help="verify separator normalisation and its false-positive guards; no corpus needed")
     args = ap.parse_args()
 
     if args.self_test:
         return _self_test()
-    if args.corpus is None:
+    if not args.corpus:
         ap.error("corpus directory required (or pass --self-test)")
 
-    corpus = args.corpus.resolve()
-    if not corpus.is_dir():
-        sys.exit(f"not a directory: {corpus}")
-    # Same refusal as corpus-run.py and trace-capture.sh, for the same reason.
-    if str(corpus).startswith(str(REPO_ROOT)):
-        sys.exit(f"REFUSED: {corpus} is inside the repository.")
+    # Same refusal as corpus-run.py and trace-capture.sh, for the same reason -- and the password
+    # file is held to it too: a statement's password is as much the customer's as the statement.
+    passwords = args.passwords.resolve() if args.passwords else None
+    if passwords is not None:
+        if not passwords.is_file():
+            sys.exit(f"not a file: {passwords}")
+        if str(passwords).startswith(str(REPO_ROOT)):
+            sys.exit(f"REFUSED: {passwords} is inside the repository.")
 
-    ns = needles(corpus_text(corpus))
+    texts, unreadable = [], []
+    for given in args.corpus:
+        corpus = given.resolve()
+        if not corpus.is_dir():
+            sys.exit(f"not a directory: {corpus}")
+        if str(corpus).startswith(str(REPO_ROOT)):
+            sys.exit(f"REFUSED: {corpus} is inside the repository.")
+        texts.append(corpus_text(corpus, passwords, unreadable))
+
+    ns = needles("\n".join(texts))
     print(f"corpus identifiers + prefixes to match: {len(ns)}", file=sys.stderr)
 
     # Patterns go to git grep on STDIN, so the needle list is never written anywhere. An earlier
@@ -206,7 +280,8 @@ def main() -> int:
     # have been committed -- and that is exactly the reasoning this incident exists to reject. The
     # rule is that real customer data must not become a development artefact, not merely that it must
     # not be committed, and a build directory is a development artefact.
-    hits = subprocess.run(["git", "grep", "-nF", "-f", "-", "--", "."],
+    # -i: see "CASE-INSENSITIVE" in the module docstring.
+    hits = subprocess.run(["git", "grep", "-niF", "-f", "-", "--", "."],
                           cwd=REPO_ROOT, input="\n".join(sorted(ns)),
                           capture_output=True, text=True).stdout.splitlines()
     hits = [h for h in hits if not SKIP.match(h.split(":", 1)[0])]
@@ -241,7 +316,20 @@ def main() -> int:
         sys.exit(f"REFUSED: this scan persisted corpus identifiers to {leftover[0]}. "
                  "Needles must stay in memory; see the comment above the git grep call.")
 
+    # NAMES ONLY -- a file name and the exception's class. The statement's content never reaches here.
+    if unreadable:
+        level = "WARNING" if args.allow_unreadable else "INCOMPLETE"
+        print(f"\n{level}: {len(unreadable)} statement(s) could not be read, so their identifiers "
+              "were NOT checked:", file=sys.stderr)
+        for path, why in unreadable:
+            print(f"  {path}  ({why})", file=sys.stderr)
+        print("Supply a protected statement's password with --passwords FILE (see the module "
+              "docstring),\nor pass --allow-unreadable to accept the gap knowingly.", file=sys.stderr)
+
     if not hits:
+        if unreadable and not args.allow_unreadable:
+            print("no corpus identifier found in what was read -- but the scan is INCOMPLETE (see above).")
+            return 2
         print("clean -- no corpus identifier occurs in tracked content.")
         return 0
 

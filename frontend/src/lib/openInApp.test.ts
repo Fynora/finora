@@ -11,6 +11,9 @@ const ANDROID_CHROME =
   'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Mobile Safari/537.36';
 const ANDROID_WEBVIEW =
   'Mozilla/5.0 (Linux; Android 14; Pixel 8; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/129.0 Mobile Safari/537.36';
+const ANDROID_SAMSUNG =
+  'Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/26.0 Chrome/122.0 Mobile Safari/537.36';
+const ANDROID_FIREFOX = 'Mozilla/5.0 (Android 14; Mobile; rv:131.0) Gecko/131.0 Firefox/131.0';
 const IPHONE_SAFARI =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
 const DESKTOP_CHROME =
@@ -30,8 +33,10 @@ describe('openInApp', () => {
     expect(androidOpenInAppEnabled()).toBe(true);
   });
 
-  it('recognises an Android browser, but not an app WebView, an iPhone or a computer', () => {
+  it('recognises a Chromium browser on Android, but not Firefox, an app WebView, an iPhone or a computer', () => {
     expect(isAndroidBrowser(ANDROID_CHROME)).toBe(true);
+    expect(isAndroidBrowser(ANDROID_SAMSUNG)).toBe(true);
+    expect(isAndroidBrowser(ANDROID_FIREFOX)).toBe(false);
     expect(isAndroidBrowser(ANDROID_WEBVIEW)).toBe(false);
     expect(isAndroidBrowser(IPHONE_SAFARI)).toBe(false);
     expect(isAndroidBrowser(DESKTOP_CHROME)).toBe(false);

@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { X } from 'lucide-react';
 import {
   DISMISSED_KEY,
+  NO_PROMPT_PATHS,
   androidOpenAppUrl,
   androidOpenInAppEnabled,
   isAndroidBrowser,
@@ -13,7 +14,8 @@ import { safeStorage } from '../lib/safeStorage';
  * "Open in the Fynora app" bar for a visitor on an Android phone browser -- someone who tapped a
  * shared link and may already have the app. Off unless VITE_OPEN_IN_APP_ANDROID is "true" (see
  * lib/openInApp.ts for why, and for the iPhone side). Shown only on the public pages (landing,
- * sign-in, policies), never under /app, which is where a shared link lands. A strip at the top of
+ * sign-in, policies), which is where a shared link lands: never under /app, and never on a page an
+ * emailed link opens with a one-time token (NO_PROMPT_PATHS). A strip at the top of
  * the page, in its flow, not a fixed bar: the landing page's own phone call-to-action is fixed to
  * the bottom of the screen (seen in the browser), and a fixed bar there covered it. Closing it is
  * remembered on this device.
@@ -23,7 +25,9 @@ export function OpenInAppBanner() {
   const [dismissed, setDismissed] = useState(() => safeStorage.getItem(DISMISSED_KEY) === '1');
 
   if (dismissed || !androidOpenInAppEnabled()) return null;
-  if (pathname === '/app' || pathname.startsWith('/app/')) return null;
+  const path = pathname.replace(/\/+$/, '') || '/';
+  if (path === '/app' || path.startsWith('/app/')) return null;
+  if (NO_PROMPT_PATHS.includes(path)) return null;
   if (typeof navigator === 'undefined' || !isAndroidBrowser(navigator.userAgent)) return null;
 
   const dismiss = () => {

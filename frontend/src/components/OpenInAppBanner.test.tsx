@@ -59,6 +59,17 @@ describe('OpenInAppBanner', () => {
     expect(renderAt('/applications').container).not.toBeEmptyDOMElement();
   });
 
+  it('switched on, shows nothing on a page an emailed link opens with a one-time token', () => {
+    vi.stubEnv('VITE_OPEN_IN_APP_ANDROID', 'true');
+    useUserAgent(ANDROID_CHROME);
+    for (const path of ['/reset-password?token=t', '/verify-email', '/email-change-verify', '/verify-phone', '/reset-password/']) {
+      const { container, unmount } = renderAt(path);
+      expect(container, path).toBeEmptyDOMElement();
+      unmount();
+    }
+    expect(renderAt('/auth').container).not.toBeEmptyDOMElement();
+  });
+
   it('stays closed on this device once closed', () => {
     vi.stubEnv('VITE_OPEN_IN_APP_ANDROID', 'true');
     useUserAgent(ANDROID_CHROME);

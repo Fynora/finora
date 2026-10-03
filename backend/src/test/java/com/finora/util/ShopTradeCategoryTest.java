@@ -30,6 +30,15 @@ class ShopTradeCategoryTest {
     }
 
     @Test
+    void aTeaShopNamedInHindi_isDining() {
+        // The slash layout a Paytm shop QR prints: payee, then the shop's id.
+        assertThat(of("UPI/SAMPLE CHAI CORNER/PAYTM.S1ABCDE@PTY/9000011111-2@", EXPENSE)).isEqualTo("Dining"); // synthetic-ok
+        assertThat(of(hyphenUpi("CHAI SAMPLE"), EXPENSE)).isEqualTo("Dining"); // synthetic-ok
+        // A name that only begins with the word is not a tea shop.
+        assertThat(of(hyphenUpi("CHAITANYA SAMPLE"), EXPENSE)).isNull(); // synthetic-ok
+    }
+
+    @Test
     void anEatery_isDining() {
         assertThat(of(hyphenUpi("SAMPLE NASHTA HOUSE"), EXPENSE)).isEqualTo("Dining");
         assertThat(of(hyphenUpi("SAMPLE DHABA"), EXPENSE)).isEqualTo("Dining");

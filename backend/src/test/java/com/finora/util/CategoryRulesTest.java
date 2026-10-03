@@ -529,6 +529,61 @@ class CategoryRulesTest {
         assertThat(CategoryRules.suggestCategory("UPI-shopname@okzz-ZEPTO")).isEqualTo("Groceries");
     }
 
+    // --- a brand's UPI id, fused into one word and cut at fifteen characters by the bank ---
+    // Shapes measured on a tester's savings statement (2026-10-03): the payee field is cut to eight
+    // characters and the id before "@" to fifteen, so the brand's own words never stand apart.
+
+    @Test
+    void suggestCategory_aMetroIdFusedAndCutIsTransport() {
+        assertThat(CategoryRules.suggestCategory("UPI/DR/900011112201/PUNE MET/HDFC/punemetroccadri/")) // synthetic-ok
+                .isEqualTo("Transport");
+    }
+
+    @Test
+    void suggestCategory_aParkingAppIsTransport() {
+        assertThat(CategoryRules.suggestCategory("UPI/DR/900011112202/PARKPLUS/HDFC/parkpl usio.payu/")) // synthetic-ok
+                .isEqualTo("Transport");
+    }
+
+    @Test
+    void suggestCategory_aFuelPumpCutAtEightCharactersIsTransport() {
+        assertThat(CategoryRules.suggestCategory("UPI/DR/900011112203/HP Petro/YESB/q900011112@ybl/S")) // synthetic-ok
+                .isEqualTo("Transport");
+    }
+
+    @Test
+    void suggestCategory_aTelecomsAutopayOrPrepaidIdIsUtilities() {
+        assertThat(CategoryRules.suggestCategory("UPI/DR/900011112204/Www Airt/HDFC/airtelautopay.p/")) // synthetic-ok
+                .isEqualTo("Utilities");
+        assertThat(CategoryRules.suggestCategory("UPI/DR/900011112205/BHARTI A/AIRP/airtelprepaidUP/")) // synthetic-ok
+                .isEqualTo("Utilities");
+    }
+
+    @Test
+    void suggestCategory_aPaymentsAppBillPaymentIdIsUtilities() {
+        assertThat(CategoryRules.suggestCategory("UPI/DR/900011112206/Google I/UTIB/gpay-utility@ok/")) // synthetic-ok
+                .isEqualTo("Utilities");
+    }
+
+    @Test
+    void suggestCategory_softwareAndCloudSubscriptionIdsAreSubscriptions() {
+        assertThat(CategoryRules.suggestCategory("UPI/DR/900011112207/APPLE ME/HDFC/appleservices.b/")) // synthetic-ok
+                .isEqualTo("Subscriptions");
+        assertThat(CategoryRules.suggestCategory("UPI/DR/900011112208/Google W/UTIB/googleworkspace/")) // synthetic-ok
+                .isEqualTo("Subscriptions");
+        assertThat(CategoryRules.suggestCategory("UPI/DR/900011112209/AWS Indi/YESB/amazonaws@yapl/A")) // synthetic-ok
+                .isEqualTo("Subscriptions");
+    }
+
+    @Test
+    void suggestCategory_theNewWordsNeedTheirOwnWordOrId() {
+        // A person whose name merely begins like a brand, and a handle that is only the brand, stay Other.
+        assertThat(CategoryRules.suggestCategory("UPI/PARKASH PLUSE/900011112210")).isEqualTo("Other"); // synthetic-ok
+        assertThat(CategoryRules.suggestCategory("UPI/SHOPNAME/shopname@punemetro/900011112211")).isEqualTo("Other"); // synthetic-ok
+        // A bare "utility" with no payments-app id is not a bill payment by itself.
+        assertThat(CategoryRules.suggestCategory("UPI/UTILITY TRADERS/900011112212")).isEqualTo("Other"); // synthetic-ok
+    }
+
     @Test
     void suggestCategory_nullAndBlankStillReturnOther() {
         assertThat(CategoryRules.suggestCategory(null)).isEqualTo("Other");

@@ -115,6 +115,20 @@ class CategorySuggestionSweepIT extends AbstractIntegrationTest {
         assertThat(t.getVersion()).isEqualTo(versionBefore);
     }
 
+    @Test
+    void aRowWithNoNarrationIsStampedRatherThanRetriedForever() {
+        // description is a nullable column. A row the waterfall cannot read must not fail, stay
+        // unstamped and be retried (and logged) on every pass for good.
+        UUID id = seed(null, Transaction.Type.EXPENSE, true, false);
+
+        drain();
+
+        Transaction t = reload(id);
+        assertThat(t.getCategoryId()).isEqualTo(otherId);
+        assertThat(t.isNeedsCategoryReview()).isTrue();
+        assertThat(t.getSuggestionVersion()).isEqualTo(CategorizationService.SUGGESTION_VERSION);
+    }
+
     private void drain() {
         for (int pass = 0; pass < 20; pass++) {
             if (sweepService.sweep().drained()) return;

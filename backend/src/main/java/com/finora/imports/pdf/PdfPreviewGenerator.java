@@ -380,7 +380,7 @@ public class PdfPreviewGenerator {
         }
         result = attributePrintedSummary(result, printedSummary);
         result = attachCardGridFactsToTheSoleCandidate(result, doc, gridCreditLimit, gridPaymentDueDate,
-                gridAccountNumberMasked, ctx);
+                gridAccountNumberMasked, printedCreditCardSummary == null ? null : printedCreditCardSummary.totalAmountDue(), ctx);
         result = inheritAccountNumberAcrossSections(result);
         result = fillHolderFromLeadingRun(result, positioned, ctx);
         // One document's worth, across every section -- the DocumentContext is per-file, and a
@@ -637,6 +637,13 @@ public class PdfPreviewGenerator {
         staged.sort(Comparator.comparing(StagedRow::date));
 
         int dupCount = (int) staged.stream().filter(StagedRow::likelyDuplicate).count();
+        // The card's billing summary is read once for the whole document, so it belongs only to a
+        // section that can be the card -- the same rule as the credit limit and due date. Without
+        // this a composite statement's savings ledger was checked against the card's purchases and
+        // payments (and held for disagreeing), and showed the card's total due as its own.
+        boolean cardFactsApply = creditLimitAppliesTo(product, sectionCount);
+        CreditCardSummaryEvidence sectionCardSummary = cardFactsApply && printedCreditCardSummary != null
+                ? printedCreditCardSummary : CreditCardSummaryEvidence.NONE;
         DetectedAccountInfo detected = buildDetectedAccountInfo(filename, section, staged, balancePoints, product, ctx,
                 printedCreditCardSummary, printedDateRange, gridPaymentDueDate, gridCreditLimit,
                 gridAccountNumberMasked, gridAccountNumberIsCardLabelled,
@@ -645,14 +652,14 @@ public class PdfPreviewGenerator {
                 // without the rows condition a composite's zero-row deposit section took its
                 // sibling savings ledger's printed balances.
                 sectionCount == 1 && !section.rows().isEmpty() ? printedBalances : PrintedBalanceExtractor.PrintedBalances.NONE,
-                creditLimitAppliesTo(product, sectionCount));
+                cardFactsApply);
         // Per section rather than per file: a composite statement's sections have separate balance
         // chains, and one can verify while another does not.
         var verification = importVerifier.verify(documentOrder,
                 detected == null ? null : detected.openingBalance(),
                 detected == null ? null : detected.closingBalance(),
                 printedSummary, section.rows(), unparseable, section.evidence().droppedTransactionCandidates(),
-                printedCreditCardSummary,
+                sectionCardSummary,
                 section.evidence().headerReconstructionFindings(), ctx.textSource(), ctx.contentDamage());
         return new StagedAccountSection(detected, staged, staged.size(), dupCount, unparseable, verification);
     }
@@ -866,7 +873,8 @@ public class PdfPreviewGenerator {
      */
     /**
      * Post-pass for a multi-section document whose card section classifies UNKNOWN. Per section,
-     * the document-wide grid facts (credit limit, payment due date, grid card number) attach only
+     * the document-wide grid facts (credit limit, payment due date, grid card number, and the
+     * billing summary's total amount due) attach only
      * to a CREDIT_CARD section (creditLimitAppliesTo), so a composite statement whose card table
      * carried too little vocabulary to classify lost them. Here: when no section took them and
      * exactly one section is UNKNOWN while none is CREDIT_CARD, that section is the only one that
@@ -880,6 +888,7 @@ public class PdfPreviewGenerator {
                                                                           BigDecimal gridCreditLimit,
                                                                           LocalDate gridPaymentDueDate,
                                                                           String gridAccountNumberMasked,
+                                                                          BigDecimal totalAmountDue,
                                                                           DocumentContext ctx) {
         if (sections.size() <= 1) return sections;
         // The line-based limit and due date live in whichever section's auxiliary text carries the
@@ -894,7 +903,8 @@ public class PdfPreviewGenerator {
             if (creditLimit == null) creditLimit = documentWide.creditLimit();
             if (paymentDueDate == null) paymentDueDate = documentWide.paymentDueDate();
         }
-        if (creditLimit == null && paymentDueDate == null && gridAccountNumberMasked == null) return sections;
+        if (creditLimit == null && paymentDueDate == null && gridAccountNumberMasked == null
+                && totalAmountDue == null) return sections;
         boolean anyCard = sections.stream().anyMatch(s -> s.detectedAccount() != null
                 && "CREDIT_CARD".equals(s.detectedAccount().detectedProduct()));
         if (anyCard) return sections;
@@ -916,7 +926,7 @@ public class PdfPreviewGenerator {
                 acc.statementPeriodStart(), acc.statementPeriodEnd(),
                 acc.accountNumberMasked() != null ? acc.accountNumberMasked() : gridAccountNumberMasked,
                 acc.creditLimit() != null ? acc.creditLimit() : creditLimit,
-                acc.totalAmountDue(),
+                acc.totalAmountDue() != null ? acc.totalAmountDue() : totalAmountDue,
                 acc.paymentDueDate() != null ? acc.paymentDueDate() : paymentDueDate,
                 acc.accountHolderName(), acc.branchName(),
                 acc.ifscCode(), acc.bank(), acc.detectedProduct(), acc.productConfidence(),
@@ -1112,7 +1122,7 @@ public class PdfPreviewGenerator {
         // A card's opening balance: the previous balance its summary panel printed, when this
         // section's rows carry it to the total due -- see CardStatementBalances.openingBalance.
         // Otherwise left null, and the review screen works it backwards from the total due.
-        if (cardSection && openingBalance == null) {
+        if (cardSection && creditLimitApplies && openingBalance == null) {
             BigDecimal printedPrevious = CardStatementBalances.openingBalance(printedCreditCardSummary, stagedRows);
             if (printedPrevious != null) {
                 openingBalance = printedPrevious;
@@ -1163,7 +1173,7 @@ public class PdfPreviewGenerator {
 
         return facts.toDetectedAccountInfo(product, suggestedAccountTypeFor(product, facts.creditCardSignals()),
                 openingBalance, closingBalance, statementStart, statementEnd, ProductAttributes.empty(),
-                printedCreditCardSummary == null ? null : printedCreditCardSummary.totalAmountDue(),
+                creditLimitApplies && printedCreditCardSummary != null ? printedCreditCardSummary.totalAmountDue() : null,
                 paymentDueDate, creditLimit,
                 creditLimitApplies || !gridAccountNumberIsCardLabelled ? gridAccountNumberMasked : null);
     }

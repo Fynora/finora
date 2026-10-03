@@ -130,4 +130,44 @@ class TotalAmountDuePlumbingPdfPreviewGeneratorTest {
 
         assertThat(result.sections().get(0).detectedAccount().totalAmountDue()).isEqualByComparingTo("9000.00");
     }
+
+    // --- A composite statement: the card's summary belongs only to the card ---
+
+    private static String outcomeOf(com.finora.dto.ImportDto.StagedAccountSection section, String rule) {
+        return section.verification().findings().stream().filter(f -> rule.equals(f.rule()))
+                .map(com.finora.dto.ImportDto.VerificationFinding::outcome).findFirst().orElse(null);
+    }
+
+    @Test
+    void aSavingsLedgerBesideACard_isNeitherCheckedAgainstNorGivenTheCardsSummary() throws Exception {
+        PdfPreviewGenerator.PdfGenerationResult result = realGenerator().generateSectionsWithContext(
+                UUID.randomUUID(), "composite.pdf", PdfFixtureBuilder.buildCardSummaryWithSavingsAndOneUnclassifiedTableSample());
+
+        var savings = result.sections().stream()
+                .filter(s -> "SAVINGS".equals(s.detectedAccount().detectedProduct())).findFirst().orElseThrow();
+        assertThat(savings.detectedAccount().totalAmountDue()).isNull();
+        assertThat(outcomeOf(savings, "CREDIT_CARD_FLOW_RECONCILIATION")).isEqualTo("NOT_APPLICABLE");
+        assertThat(outcomeOf(savings, "CREDIT_CARD_STATEMENT_TOTALS")).isEqualTo("NOT_APPLICABLE");
+
+        // The only section that can be the card still gets the summary's total due.
+        var card = result.sections().stream()
+                .filter(s -> "UNKNOWN".equals(s.detectedAccount().detectedProduct())).findFirst().orElseThrow();
+        assertThat(card.detectedAccount().totalAmountDue()).isEqualByComparingTo("3057.02");
+
+        assertThat(com.finora.imports.trust.TrustPredicate.evaluate(
+                result.sections().stream().map(s -> s.verification()).toList(), java.util.List.of(),
+                java.time.LocalDate.of(2026, 9, 1)).hold()).isFalse();
+    }
+
+    @Test
+    void aCompositeWhoseCardCannotBeTold_holdsNothingAndGivesNoSectionTheTotalDue() throws Exception {
+        PdfPreviewGenerator.PdfGenerationResult result = realGenerator().generateSectionsWithContext(
+                UUID.randomUUID(), "composite.pdf", PdfFixtureBuilder.buildSavingsAndCardWithCardSummarySample());
+
+        assertThat(result.sections()).hasSize(2);
+        assertThat(result.sections()).allSatisfy(s -> assertThat(s.detectedAccount().totalAmountDue()).isNull());
+        assertThat(com.finora.imports.trust.TrustPredicate.evaluate(
+                result.sections().stream().map(s -> s.verification()).toList(), java.util.List.of(),
+                java.time.LocalDate.of(2026, 9, 1)).hold()).isFalse();
+    }
 }

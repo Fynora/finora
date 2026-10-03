@@ -88,8 +88,17 @@ public final class CategoryRules {
         // characters and its UPI id before the "@" leaves only the id ("punemetrocc...",
         // "appleservices..."), which MerchantIdentityLookup.handleNamesKnownMerchant reads against
         // these names; without them a tester's metro fares and app-store charges typed as people.
-        RULES.put("Transport", List.of("uber", "ola", "rapido", "irctc", "petrol", "fuel", "metro", "fastag", "parking", "indian railways", "pune metro"));
-        RULES.put("Utilities", List.of("electricity", "power bill", "water bill", "gas bill", "broadband", "airtel", "jio", "recharge"));
+        // "punemetro", "parkplus", "hp petro", "airtelautopay", "airtelprepaid" and "gpay utility"
+        // (2026-10-03): measured on a tester's savings statement, whose bank cuts the payee's name to
+        // eight characters and fuses the UPI id into one word before cutting it, so the operator's
+        // own words above never stand apart -- the metro's id, a parking app, a fuel pump's cut name,
+        // the telecom's autopay and prepaid ids, and a payments app's bill-payment id all fell to
+        // "Other" and waited for the user. "punemetro" and "airtelprepaid" are fusion-tolerant (see
+        // FUSION_TOLERANT_KEYWORDS): the bank cuts the id after them at varying lengths.
+        RULES.put("Transport", List.of("uber", "ola", "rapido", "irctc", "petrol", "fuel", "metro", "fastag", "parking", "indian railways", "pune metro",
+                "punemetro", "parkplus", "hp petro"));
+        RULES.put("Utilities", List.of("electricity", "power bill", "water bill", "gas bill", "broadband", "airtel", "jio", "recharge",
+                "airtelautopay", "airtelprepaid", "gpay utility"));
         // "pureplay" (Pureplay Skin Sciences, a real D2C skincare/personal-care e-commerce brand)
         // added after checking this project's own real bank-statement corpus (docs/superpowers/
         // specs/2026-09-01-transaction-categorization-design.md §1) -- a real, verified miss, safe
@@ -204,7 +213,10 @@ public final class CategoryRules {
         // requires (see RULE_PATTERNS below) has nothing plausible to misfire against.
         RULES.put("Cash Withdrawal", List.of("atm withdrawal", "atm wdl", "cash withdrawal", "cash wdl", "nwd"));
         RULES.put("Travel", List.of("makemytrip", "goibibo", "yatra", "airbnb", "oyo", "indigo", "spicejet", "vistara", "hotel booking"));
-        RULES.put("Subscriptions", List.of("google one", "icloud", "adobe", "microsoft 365", "linkedin premium", "apple services"));
+        // "appleservices", "googleworkspace", "amazonaws" (2026-10-03): the same fused, cut UPI ids
+        // on the same statement -- an app store, an office suite and a cloud provider's monthly charges.
+        RULES.put("Subscriptions", List.of("google one", "icloud", "adobe", "microsoft 365", "linkedin premium", "apple services",
+                "appleservices", "googleworkspace", "amazonaws"));
         RULES.put("Education", List.of("udemy", "coursera", "byjus", "tuition fee", "school fee", "college fee"));
         RULES.put("Gifts & Donations", List.of("donation", "charity", "ngo donation", "gift"));
     }
@@ -518,7 +530,10 @@ public final class CategoryRules {
     // "sip" in particular is exactly the short, common-substring case ("gossip", "sipping") this
     // exemption must never be widened to cover without the same kind of real-corpus evidence
     // gathered for these three first.
-    private static final Set<String> FUSION_TOLERANT_KEYWORDS = Set.of("groww", "zerodha", "upstox");
+    // "punemetro" and "airtelprepaid" (2026-10-03): an operator's UPI id, which the bank cuts at a
+    // length that varies with the layout ("...prepaidUP", "...ccadri"), so no word boundary follows
+    // the brand. Both are long and specific enough that no English or Indian name contains them.
+    private static final Set<String> FUSION_TOLERANT_KEYWORDS = Set.of("groww", "zerodha", "upstox", "punemetro", "airtelprepaid");
 
     private static final Map<String, List<Pattern>> RULE_PATTERNS = new LinkedHashMap<>();
     static {

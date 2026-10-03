@@ -66,6 +66,7 @@ class DataExportServiceIT extends AbstractIntegrationTest {
     @Autowired private com.finora.repository.TransactionRelationshipRepository transactionRelationshipRepository;
     @Autowired private com.finora.repository.StatementImportExcludedRowRepository statementImportExcludedRowRepository;
     @Autowired private com.finora.repository.CounterpartyCategoryObservationRepository counterpartyCategoryObservationRepository;
+    @Autowired private com.finora.repository.StatementRefreshRunRepository statementRefreshRunRepository;
     @Autowired private DataExportService service;
 
     private UUID userId;
@@ -231,6 +232,7 @@ class DataExportServiceIT extends AbstractIntegrationTest {
         invitedByOther.setReferrerUserId(otherUserId);
         invitedByOther.setReferredUserId(userId);
         invitedByOther.setStatus(com.finora.entity.Referral.STATUS_REGISTERED);
+        invitedByOther.setReward(new BigDecimal("61.37"));
         referralRepository.save(invitedByOther);
         com.finora.entity.Referral invitedOther = new com.finora.entity.Referral();
         invitedOther.setReferrerUserId(userId);
@@ -297,6 +299,14 @@ class DataExportServiceIT extends AbstractIntegrationTest {
         statementImportExcludedRowRepository.save(new com.finora.entity.StatementImportExcludedRow(statementId, userId, 3,
                 java.time.LocalDate.of(2026, 9, 1), "OPENING BALANCE", new BigDecimal("12.50"), "CREDIT", false));
 
+        com.finora.entity.StatementRefreshRun refreshRun = new com.finora.entity.StatementRefreshRun(
+                statementId, userId, "parser-export-it", com.finora.entity.StatementRefreshRun.Status.APPLIED);
+        refreshRun.setCounts(0, 0, 1, 0);
+        refreshRun.setDetail(Map.of("removed", List.of(Map.of("transactionId", UUID.randomUUID().toString(),
+                "date", "2026-09-02", "description", "EXPORT IT REMOVED ROW", "amount", "75.00", "type", "EXPENSE",
+                "userEdited", false))));
+        statementRefreshRunRepository.save(refreshRun);
+
         com.finora.entity.CounterpartyCategoryObservation vote = new com.finora.entity.CounterpartyCategoryObservation();
         vote.setCounterpartyKey("vpa:export-it@okbank");
         vote.setDirection(com.finora.entity.Transaction.Type.EXPENSE);
@@ -328,6 +338,11 @@ class DataExportServiceIT extends AbstractIntegrationTest {
         JsonNode referrals = mapper.readTree(entries.get("referrals.json"));
         assertThat(referrals).hasSize(2);
         assertThat(referrals.findValuesAsText("role")).containsExactlyInAnyOrder("REFERRER", "REFERRED");
+        for (JsonNode referral : referrals) {
+            if (referral.get("role").asText().equals("REFERRED")) {
+                assertThat(referral.get("reward").isNull()).as("the inviter's reward").isTrue();
+            }
+        }
         assertThat(mapper.readTree(entries.get("referral_code.json")).get(0).get("code").asText()).isEqualTo(code.getCode());
         JsonNode wallet = mapper.readTree(entries.get("wallet.json"));
         assertThat(wallet).hasSize(1);
@@ -350,6 +365,11 @@ class DataExportServiceIT extends AbstractIntegrationTest {
         assertThat(excludedRows).hasSize(1);
         assertThat(excludedRows.get(0).get("statementImportId").asText()).isEqualTo(statementId.toString());
         assertThat(excludedRows.get(0).get("amount").decimalValue()).isEqualByComparingTo("12.50");
+        JsonNode refreshRuns = mapper.readTree(entries.get("statement_refresh_runs.json"));
+        assertThat(refreshRuns).hasSize(1);
+        assertThat(refreshRuns.get(0).get("fileName").asText()).isEqualTo("excluded-rows.csv");
+        assertThat(refreshRuns.get(0).get("accountName").asText()).isEqualTo("Export Test Savings");
+        assertThat(refreshRuns.get(0).get("removed").get(0).get("description").asText()).isEqualTo("EXPORT IT REMOVED ROW");
         JsonNode votes = mapper.readTree(entries.get("merchant_category_votes.json"));
         assertThat(votes).hasSize(1);
         assertThat(votes.get(0).get("category").asText()).isEqualTo("Dining");

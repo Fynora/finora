@@ -146,8 +146,10 @@ public class StatementRefreshUserService {
         return detail(run, p.getFileName(), p.getAccountName(), p.getPeriodStart(), p.getPeriodEnd());
     }
 
+    /** Public for DataExportService, so statement_refresh_runs.json carries exactly the "what
+     *  changed" view the app shows -- including rows a refresh removed, which survive nowhere else. */
     @SuppressWarnings("unchecked")
-    static RefreshRunDetail detail(StatementRefreshRun run, String fileName, String accountName,
+    public static RefreshRunDetail detail(StatementRefreshRun run, String fileName, String accountName,
                                    java.time.LocalDate periodStart, java.time.LocalDate periodEnd) {
         Map<String, Object> d = run.getDetail() == null ? Map.of() : run.getDetail();
         List<Map<String, Object>> changed = list(d.get("changed"));

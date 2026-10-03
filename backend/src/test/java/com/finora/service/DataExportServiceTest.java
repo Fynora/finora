@@ -60,6 +60,7 @@ import com.finora.repository.NetWorthSnapshotRepository;
 import com.finora.repository.PlanChangeRepository;
 import com.finora.repository.PlanRepository;
 import com.finora.repository.FeatureViewCountRepository;
+import com.finora.repository.StatementRefreshRunRepository;
 import com.finora.repository.PaymentRepository;
 import com.finora.repository.SubscriptionOrderRepository;
 import com.finora.repository.ReferralRepository;
@@ -165,6 +166,7 @@ class DataExportServiceTest {
     private AccountAggregatorLinkRepository accountAggregatorLinkRepository;
     private UserMerchantCategoryResolutionRepository userMerchantCategoryResolutionRepository;
     private FeatureViewCountRepository featureViewCountRepository;
+    private StatementRefreshRunRepository statementRefreshRunRepository;
     private PaymentRepository paymentRepository;
     private SubscriptionOrderRepository subscriptionOrderRepository;
     private ReferralRepository referralRepository;
@@ -221,6 +223,7 @@ class DataExportServiceTest {
         accountAggregatorLinkRepository = mock(AccountAggregatorLinkRepository.class);
         userMerchantCategoryResolutionRepository = mock(UserMerchantCategoryResolutionRepository.class);
         featureViewCountRepository = mock(FeatureViewCountRepository.class);
+        statementRefreshRunRepository = mock(StatementRefreshRunRepository.class);
         paymentRepository = mock(PaymentRepository.class);
         subscriptionOrderRepository = mock(SubscriptionOrderRepository.class);
         referralRepository = mock(ReferralRepository.class);
@@ -286,6 +289,7 @@ class DataExportServiceTest {
         when(transactionRelationshipRepository.findByUserIdOrderByCreatedAtAsc(any())).thenReturn(List.of());
         when(statementImportExcludedRowRepository.findByUserIdOrderByStatementImportIdAscRowPositionAsc(any())).thenReturn(List.of());
         when(counterpartyCategoryObservationRepository.findByUserIdOrderByCreatedAtAsc(any())).thenReturn(List.of());
+        when(statementRefreshRunRepository.findByUserIdOrderByCreatedAtDesc(any())).thenReturn(List.of());
         inflowKindRepository = mock(com.finora.repository.InflowKindRepository.class);
         senderInflowRuleRepository = mock(com.finora.repository.SenderInflowRuleRepository.class);
 
@@ -305,7 +309,7 @@ class DataExportServiceTest {
                 accountAggregatorLinkRepository, userMerchantCategoryResolutionRepository,
                 inflowKindRepository, senderInflowRuleRepository, objectMapper,
                 mock(com.finora.repository.StatementPasswordRepository.class), featureViewCountRepository,
-paymentRepository, subscriptionOrderRepository, referralRepository, referralCodeRepository, referralGrantRepository, walletLedgerRepository, notificationRepository, notificationPreferenceRepository, timelineEventRepository, transactionRelationshipRepository, statementImportExcludedRowRepository, counterpartyCategoryObservationRepository);
+paymentRepository, subscriptionOrderRepository, referralRepository, referralCodeRepository, referralGrantRepository, walletLedgerRepository, notificationRepository, notificationPreferenceRepository, timelineEventRepository, transactionRelationshipRepository, statementImportExcludedRowRepository, counterpartyCategoryObservationRepository, statementRefreshRunRepository);
     }
 
     private User user() {
@@ -341,7 +345,7 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
                 userFinancialFocusRepository, userChecklistEventRepository, recurringDismissalRepository,
                 accountAggregatorLinkRepository, userMerchantCategoryResolutionRepository,
                 inflowKindRepository, senderInflowRuleRepository, featureViewCountRepository,
-paymentRepository, subscriptionOrderRepository, referralRepository, referralCodeRepository, referralGrantRepository, walletLedgerRepository, notificationRepository, notificationPreferenceRepository, timelineEventRepository, transactionRelationshipRepository, statementImportExcludedRowRepository, counterpartyCategoryObservationRepository);
+paymentRepository, subscriptionOrderRepository, referralRepository, referralCodeRepository, referralGrantRepository, walletLedgerRepository, notificationRepository, notificationPreferenceRepository, timelineEventRepository, transactionRelationshipRepository, statementImportExcludedRowRepository, counterpartyCategoryObservationRepository, statementRefreshRunRepository);
     }
 
     @Test
@@ -1451,6 +1455,11 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
      * fails when one has no entry below -- or when an entry names a file or table the manifest does
      * not actually carry. A new purge call therefore cannot ship without someone deciding, here,
      * whether the user gets that data back.
+     *
+     * <p>What it cannot see: tables removed by ON DELETE CASCADE (held_statements,
+     * notification_logs, goal contributions and the like) and deletes routed through a service
+     * rather than a repository (statements go through StatementImportService.delete). Those are
+     * covered by their own manifest entries and tests, not by this scan.
      */
     @Test
     void everyPurgedTableIsExportedOrListedAsExcluded() throws IOException {
@@ -1462,7 +1471,7 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
                 Map.entry("transactionRelationshipRepository.deleteByUserId", "transaction_links.json"),
                 Map.entry("statementImportRepository.deleteExcludedRowsOfUser", "statement_excluded_rows.json"),
                 Map.entry("statementImportRepository.deleteRefreshPreviewsOfUser", "statement_refresh_previews"),
-                Map.entry("statementImportRepository.deleteRefreshRunsOfUser", "statement_refresh_runs"),
+                Map.entry("statementImportRepository.deleteRefreshRunsOfUser", "statement_refresh_runs.json"),
                 Map.entry("statementImportRepository.deleteStatementPasswordsOfUser", "saved_statement_passwords.json"),
                 Map.entry("merchantLearningEventRepository.deleteByUserId", "merchant_learning_event"),
                 Map.entry("merchantLearningAuditRepository.deleteByUserId", "merchant_learning_audit"),
@@ -1579,10 +1588,10 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
         UUID inviterUserId = UUID.randomUUID();
         when(referralRepository.findByReferrerUserIdOrderByCreatedAtDesc(userId)).thenReturn(List.of(entity(
                 com.finora.entity.Referral.class, "id", UUID.randomUUID(), "referrerUserId", userId,
-                "referredUserId", invitedUserId, "status", "SUBSCRIBED")));
+                "referredUserId", invitedUserId, "status", "REWARDED", "reward", new java.math.BigDecimal("75.00"))));
         when(referralRepository.findByReferredUserId(userId)).thenReturn(Optional.of(entity(
                 com.finora.entity.Referral.class, "id", UUID.randomUUID(), "referrerUserId", inviterUserId,
-                "referredUserId", userId, "status", "SIGNED_UP")));
+                "referredUserId", userId, "status", "REWARDED", "reward", new java.math.BigDecimal("60.00"))));
         when(referralCodeRepository.findByUserId(userId)).thenReturn(Optional.of(entity(
                 com.finora.entity.ReferralCode.class, "id", UUID.randomUUID(), "userId", userId, "code", "JANE42",
                 "plusMilestoneCounter", 2)));
@@ -1624,9 +1633,24 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
                 com.finora.entity.CounterpartyCategoryObservation.class, "id", UUID.randomUUID(), "userId", userId,
                 "counterpartyKey", "vpa:shop@okbank", "direction", Transaction.Type.EXPENSE, "category", "Groceries")));
 
+        com.finora.entity.StatementRefreshRun run = new com.finora.entity.StatementRefreshRun(
+                statementId, userId, "parser-2026.10", com.finora.entity.StatementRefreshRun.Status.APPLIED);
+        ReflectionTestUtils.setField(run, "id", UUID.randomUUID());
+        run.setCounts(0, 0, 1, 0);
+        run.setDetail(Map.of("removed", List.of(Map.of("transactionId", fromTxn.toString(), "date", "2026-09-01",
+                "description", "UPI/RAHUL/REMOVED", "amount", "250.00", "type", "EXPENSE", "userEdited", false))));
+        when(statementRefreshRunRepository.findByUserIdOrderByCreatedAtDesc(userId)).thenReturn(List.of(run));
+
         DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
         Map<String, byte[]> entries = writeZipAndReadEntries(bundle);
         ObjectMapper mapper = new ObjectMapper();
+
+        JsonNode refreshRuns = mapper.readTree(entries.get("statement_refresh_runs.json"));
+        assertThat(refreshRuns).hasSize(1);
+        assertThat(refreshRuns.get(0).get("status").asText()).isEqualTo("APPLIED");
+        assertThat(refreshRuns.get(0).get("statementImportId").asText()).isEqualTo(statementId.toString());
+        assertThat(refreshRuns.get(0).get("removed").get(0).get("description").asText()).isEqualTo("UPI/RAHUL/REMOVED");
+        assertThat(refreshRuns.get(0).get("removed").get(0).get("amount").asText()).isEqualTo("250.00");
 
         JsonNode payments = mapper.readTree(entries.get("payments.json"));
         assertThat(payments).hasSize(1);
@@ -1643,6 +1667,15 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
         JsonNode referrals = mapper.readTree(entries.get("referrals.json"));
         assertThat(referrals).hasSize(2);
         assertThat(referrals.findValuesAsText("role")).containsExactlyInAnyOrder("REFERRER", "REFERRED");
+        // The reward is the inviter's credit: kept on the row where this user invited someone,
+        // dropped on the row where someone else invited them.
+        for (JsonNode referral : referrals) {
+            if (referral.get("role").asText().equals("REFERRER")) {
+                assertThat(referral.get("reward").decimalValue()).isEqualByComparingTo("75.00");
+            } else {
+                assertThat(referral.get("reward").isNull()).isTrue();
+            }
+        }
         String referralsJson = new String(entries.get("referrals.json"));
         assertThat(referralsJson).doesNotContain(invitedUserId.toString()).doesNotContain(inviterUserId.toString())
                 .doesNotContain(userId.toString());
@@ -1682,7 +1715,8 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
                 .containsEntry("referral_rewards.json", 1).containsEntry("wallet.json", 1)
                 .containsEntry("notifications.json", 1).containsEntry("notification_preferences.json", 1)
                 .containsEntry("timeline.json", 1).containsEntry("transaction_links.json", 1)
-                .containsEntry("statement_excluded_rows.json", 1).containsEntry("merchant_category_votes.json", 1);
+                .containsEntry("statement_excluded_rows.json", 1).containsEntry("merchant_category_votes.json", 1)
+                .containsEntry("statement_refresh_runs.json", 1);
     }
 
     /** A user with none of the new data still gets every file, each an empty JSON array -- the
@@ -1695,7 +1729,7 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
         for (String name : List.of("payments.json", "subscription_orders.json", "referrals.json", "referral_code.json",
                 "referral_rewards.json", "wallet.json", "notifications.json", "notification_preferences.json",
                 "timeline.json", "transaction_links.json", "statement_excluded_rows.json",
-                "merchant_category_votes.json")) {
+                "merchant_category_votes.json", "statement_refresh_runs.json")) {
             assertThat(entries).as(name).containsKey(name);
             JsonNode node = mapper.readTree(entries.get(name));
             assertThat(node.isArray()).as(name).isTrue();

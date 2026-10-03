@@ -268,14 +268,17 @@ public final class DataExportDto {
 
     /** One {@code referrals} row, from this user's side: {@code role} is REFERRER when they
      *  invited someone, REFERRED when someone invited them. The other person's account id is
-     *  never exported -- it is their identifier, not this user's data. */
+     *  never exported -- it is their identifier, not this user's data. {@code reward} is the
+     *  credit paid to the inviter, so it is kept only on REFERRER rows: the app shows it to the
+     *  inviter (ReferralService.myReferrals) and never to the person they invited. */
     public record ReferralExportDto(UUID id, String role, String status, BigDecimal reward,
                                     Instant createdAt, Instant updatedAt) {
         public static final String ROLE_REFERRER = "REFERRER";
         public static final String ROLE_REFERRED = "REFERRED";
 
         public static ReferralExportDto from(Referral r, String role) {
-            return new ReferralExportDto(r.getId(), role, r.getStatus(), r.getReward(), r.getCreatedAt(), r.getUpdatedAt());
+            return new ReferralExportDto(r.getId(), role, r.getStatus(),
+                    ROLE_REFERRER.equals(role) ? r.getReward() : null, r.getCreatedAt(), r.getUpdatedAt());
         }
     }
 

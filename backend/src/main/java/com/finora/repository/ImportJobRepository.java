@@ -182,9 +182,62 @@ public interface ImportJobRepository extends JpaRepository<ImportJob, UUID> {
      */
     boolean existsByObjectKeyAndStatusNotIn(String objectKey, java.util.Collection<ImportJob.Status> excludedStatuses);
 
-    /** AccountPurgeSweepService -- hard delete, no soft-delete concern on this entity. Also frees
-     *  any object this job was the sole reference for, for StatementStorageSweepService to
-     *  eventually reclaim. */
+    /**
+     * {@link #existsByObjectKeyAndStatusNotIn} with one user's own jobs left out. Account purge
+     * asks this about each object that user's jobs name, immediately before deleting those jobs --
+     * so their rows must not count, while every other user's still must (content addressing is
+     * global, BH-039).
+     */
+    boolean existsByObjectKeyAndUserIdNotAndStatusNotIn(String objectKey, UUID userId,
+                                                         java.util.Collection<ImportJob.Status> excludedStatuses);
+
+    /**
+     * The import_jobs half of the storage sweep's discovery: COMPLETED and CANCELLED jobs that
+     * finished before {@code cutoff} and still hold their object.
+     *
+     * <p>Needed because a job's object is never the object a statement points at. {@code
+     * ImportJobService.accept} stores the upload itself, encrypted under a fresh IV; confirming
+     * stores the bytes again through {@code StatementContentService.store}, compressed and
+     * encrypted under another. Keys are the hash of what was stored, so the two always differ, and
+     * {@code StatementImportRepository.findObjectsUnreferencedSince} -- which only reads
+     * statement_imports -- can never return a job's key. Proved in {@code
+     * ImportJobObjectRetentionIT}.
+     *
+     * <p>Only the two statuses {@code StatementStorageSweepService.IMPORT_JOB_EXCLUDED_STATUSES}
+     * names. FAILED and both holds keep their object however old -- see that class's doc. {@code
+     * object_released_at IS NULL} keeps a job that was already dealt with out of every later run;
+     * see V250. Columns: id, object_key, finished_at as epoch millis (FG-019, the same reason as
+     * {@code findObjectsUnreferencedSince}).
+     */
+    @Query(value = """
+            SELECT id, object_key, (EXTRACT(EPOCH FROM finished_at) * 1000)::bigint
+              FROM import_jobs
+             WHERE status IN ('COMPLETED', 'CANCELLED')
+               AND object_key IS NOT NULL
+               AND object_released_at IS NULL
+               AND finished_at < :cutoff
+             ORDER BY finished_at ASC
+             LIMIT :limit
+            """, nativeQuery = true)
+    List<Object[]> findReleasableObjects(@Param("cutoff") Instant cutoff, @Param("limit") int limit);
+
+    /** Records that this job no longer holds its object -- see {@link #findReleasableObjects}. Its
+     *  own transaction: the sweep runs outside one, between calls to object storage. */
+    @org.springframework.transaction.annotation.Transactional
+    @org.springframework.data.jpa.repository.Modifying
+    @Query(value = "UPDATE import_jobs SET object_released_at = :releasedAt WHERE id = :id AND object_released_at IS NULL",
+            nativeQuery = true)
+    int markObjectReleased(@Param("id") UUID id, @Param("releasedAt") Instant releasedAt);
+
+    /** Every object this user's jobs still hold, whatever their status -- account purge reclaims
+     *  them before {@link #deleteByUserId} removes the only rows that name them. */
+    @Query("SELECT DISTINCT j.objectKey FROM ImportJob j WHERE j.userId = :userId AND j.objectKey IS NOT NULL AND j.objectReleasedAt IS NULL")
+    List<String> findHeldObjectKeysByUserId(@Param("userId") UUID userId);
+
+    /** AccountPurgeSweepService -- hard delete, no soft-delete concern on this entity. Run only after
+     *  {@code StatementStorageSweepService.reclaimImportJobObjectsOf} has dealt with the objects
+     *  these rows name: once they are gone no row anywhere names those objects, and no later sweep
+     *  can find them. */
     void deleteByUserId(UUID userId);
 
     // ---------------------------------------------------------------- trust telemetry (V141)

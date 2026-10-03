@@ -258,6 +258,16 @@ imported statement's object permanently unsweepable, and counting CANCELLED woul
 forever that never had a legitimate reference to begin with. FAILED and the in-flight statuses have
 no such bound either, deliberately -- see the class's own "Accepted trade-off" doc section.
 
+**Correction (2026-10-03): excluding COMPLETED and CANCELLED from the check was not enough on its
+own.** The paragraph above assumes a job and the statement it became name one object. They never
+do: `ImportJobService.accept` stores the upload encrypted under a fresh IV, and confirming stores the
+bytes again through `StatementContentService.store` (gzip, then encrypt under another fresh IV), so
+the two keys always differ for identical bytes. Discovery only read `statement_imports`, so no
+`import_jobs` object was ever a candidate, and every COMPLETED and CANCELLED job's object was kept
+forever -- including after an account purge, which hard-deletes the only rows naming them.
+`ImportJobObjectRetentionIT` proves this against the real upload, worker and confirm paths. See §6
+for the rule that closes it.
+
 That follows directly from the failure semantics in §5.1 — an unreferenced object is a tolerable,
 reclaimable cost, while a row pointing at a missing object is unrecoverable. Row-dropping itself
 still does no reference counting and does not need to; the sweeper is where that reasoning lives,
@@ -497,6 +507,18 @@ What "unreferenced" means, concretely, and its one known gap:
   behavioural change to that TTL sweep this change deliberately avoids).
 - **`ON DELETE CASCADE` on user deletion** hard-deletes at the database level, bypassing Hibernate
   (and therefore the soft-delete) entirely — the same gap as above, for the same reason.
+- **import_jobs rows never expire**, and a job's object is its own -- never the confirmed
+  statement's (§3.2, correction). COMPLETED and CANCELLED jobs are a second discovery source: once
+  `finished_at` is older than the same 90-day window, the object goes through the same fresh
+  reference check, and the job's `object_released_at` (V250) is set whether the object was deleted
+  or another live row was found naming it, so a job is considered once. FAILED, HELD_FOR_REVIEW and
+  HELD_FOR_TRUST_REVIEW keep their object however old. Account purge reclaims every object its
+  user's jobs name -- any status -- before deleting those rows, and fails the purge on a storage
+  error rather than leave objects nothing names. Consequences: nothing can read a COMPLETED or
+  CANCELLED job's upload more than 90 days after it finished -- a data export of uploads that never
+  became a statement should skip a job whose `object_released_at` is set -- and a reviewer
+  opening an approved trust hold's document (its job is COMPLETED) after that window gets a
+  storage error.
 
 Engineering input recorded when this was still open, now the basis for what got built:
 

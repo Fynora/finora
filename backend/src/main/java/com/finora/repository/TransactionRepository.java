@@ -164,6 +164,28 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
                                  @Param("key") String key,
                                  @Param("version") short version);
 
+    /** How often a user chose each category -- see {@link #countManualChoicesByCategory}. */
+    interface CategoryCount {
+        UUID getCategoryId();
+        long getCount();
+    }
+
+    /**
+     * The categories a user chose by hand for one payee type and direction, most-chosen first.
+     * Quick sort offers these before its defaults: the user's own habits beat a fixed list.
+     */
+    @Query("""
+            SELECT t.categoryId AS categoryId, COUNT(t) AS count
+            FROM Transaction t
+            WHERE t.userId = :userId AND t.categoryManuallySet = true
+              AND t.counterpartyType = :type AND t.txnType = :direction AND t.categoryId IS NOT NULL
+            GROUP BY t.categoryId
+            ORDER BY COUNT(t) DESC
+            """)
+    List<CategoryCount> countManualChoicesByCategory(@Param("userId") UUID userId,
+                                                     @Param("type") com.finora.util.CounterpartyType type,
+                                                     @Param("direction") Transaction.Type direction);
+
     /** What the suggestion re-check needs of a row: the waterfall's inputs and whose row it is. */
     interface CategorySuggestionRow {
         UUID getId();

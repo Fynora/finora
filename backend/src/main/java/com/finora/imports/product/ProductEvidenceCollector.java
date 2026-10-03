@@ -168,6 +168,7 @@ public class ProductEvidenceCollector {
     /** Records every fact the section exhibits. Never returns empty-handed: a section with nothing
      *  recognisable yields an empty fact list, which is itself the evidence that produces UNKNOWN. */
     public SectionEvidence collect(Section section) {
+        section = scopedToOwnBanner(section);
         List<ObservedFact> facts = new ArrayList<>();
 
         String columns = normalize(section.columnNames());
@@ -256,6 +257,115 @@ public class ProductEvidenceCollector {
         // Below 8 digits is a date, an amount or a reference, not an account identifier -- the same
         // threshold check-fixture-hygiene.sh uses to decide a digit run is worth looking at.
         return longest >= 8 ? longest + " digits" : null;
+    }
+
+    /**
+     * In a document of several sections, a section starts at its own banner: a line that opens with
+     * a product's name and carries an account or card number ("SAVINGS ACCOUNT - 1000...", "CREDIT
+     * CARD - 1234******5678"). Whatever is printed above the first such line is not this section's
+     * text, and moves to the document-level text.
+     *
+     * A card's billing summary printed above the first section's banner used to be read as that
+     * section's own. "Total Amount Due" is a field a savings ledger must never carry, so the ledger
+     * under that banner was disqualified from SAVINGS and read as the card, while the same summary
+     * printed after the last table left it SAVINGS. Where a document prints its summary must not
+     * decide which section is which.
+     *
+     * Deliberately narrow, so that a miss leaves the text as it was rather than taking a section's
+     * own fields away from it. A section's free text also holds prose ("TDS across your fixed
+     * deposits ..."), page headers repeated on every page and a neighbour's trailing lines; a split
+     * at the last line naming any product cut a real deposit section's own fields away. So a banner
+     * must carry a number, must open with the product's name (an auto-debit note "from your Savings
+     * Account 1234..." under a card's summary does not), rows of a relationship summary listing
+     * several products are not banners (see {@link #ignoreEnumeratedRows}), and the split is at the
+     * FIRST banner, so a banner repeated on a later page keeps everything after the first. Only for
+     * a document with
+     * more than one section: a single-section statement has no other section its preamble could
+     * describe.
+     */
+    private Section scopedToOwnBanner(Section section) {
+        List<String> text = section.sectionText();
+        if (section.of() <= 1 || text == null || text.isEmpty()) return section;
+        FinancialProductType[] banners = new FinancialProductType[text.size()];
+        for (int i = 0; i < text.size(); i++) banners[i] = bannerProductOf(text.get(i));
+        ignoreEnumeratedRows(banners);
+        int start = 0;
+        while (start < banners.length && banners[start] == null) start++;
+        if (start == 0 || start == banners.length) return section;
+        List<String> documentText = new ArrayList<>();
+        if (section.documentText() != null) documentText.addAll(section.documentText());
+        documentText.addAll(text.subList(0, start));
+        return new Section(section.columnNames(), new ArrayList<>(text.subList(start, text.size())),
+                documentText, section.rowCount(), section.index(), section.of(), section.rows());
+    }
+
+    /** An account or card number as a banner prints it: eight or more digits and masking characters,
+     *  at least four of them digits, in one run or in groups of three or more joined by single spaces
+     *  or hyphens ("1234 XXXX XXXX 5678"). A group shorter than three ends the run, so a date
+     *  ("01-06-2026") never forms one; commas and slashes end it too, and a run followed by a decimal
+     *  part ("10000000.00") is an amount, not a number that names an account. */
+    private static final java.util.regex.Pattern IDENTIFIER_RUN =
+            java.util.regex.Pattern.compile("[0-9Xx*\u2022]+(?:[ -][0-9Xx*\u2022]+)*");
+
+    /**
+     * Consecutive banner-shaped lines naming different products are a relationship summary listing
+     * the customer's accounts ("Savings Account 1000...", "Credit Card 1234..."), not a banner --
+     * the same reasoning as {@link #demoteEnumeratedNames}, one product per section. Left in, the
+     * first row of such a list would start the section above the card summary printed under it.
+     */
+    private static void ignoreEnumeratedRows(FinancialProductType[] banners) {
+        int i = 0;
+        while (i < banners.length) {
+            if (banners[i] == null) {
+                i++;
+                continue;
+            }
+            int end = i;
+            boolean mixed = false;
+            while (end < banners.length && banners[end] != null) {
+                if (banners[end] != banners[i]) mixed = true;
+                end++;
+            }
+            if (mixed) java.util.Arrays.fill(banners, i, end, null);
+            i = end;
+        }
+    }
+
+    /** The product a banner names: the line opens with the name of exactly one product and carries
+     *  an account or card number. Null for any other line. */
+    private FinancialProductType bannerProductOf(String line) {
+        if (line == null || !carriesAnIdentifier(line)) return null;
+        String normalized = normalize(java.util.Collections.singletonList(line));
+        List<ObservedFact> names = new ArrayList<>();
+        collectProductNames(names, normalized, EvidenceSource.SECTION_TEXT);
+        if (names.size() != 1) return null;
+        for (String name : PRODUCT_NAMES.keySet()) {
+            if (normalized.startsWith(" " + name + " ")) return names.get(0).named();
+        }
+        return null;
+    }
+
+    private static boolean carriesAnIdentifier(String line) {
+        java.util.regex.Matcher m = IDENTIFIER_RUN.matcher(line);
+        while (m.find()) {
+            if (m.end() + 1 < line.length() && line.charAt(m.end()) == '.'
+                    && Character.isDigit(line.charAt(m.end() + 1))) continue;
+            StringBuilder run = new StringBuilder();
+            for (String group : m.group().split("[ -]")) {
+                if (group.length() < 3) {
+                    if (isIdentifier(run)) return true;
+                    run.setLength(0);
+                } else {
+                    run.append(group);
+                }
+            }
+            if (isIdentifier(run)) return true;
+        }
+        return false;
+    }
+
+    private static boolean isIdentifier(CharSequence run) {
+        return run.length() >= 8 && run.chars().filter(Character::isDigit).count() >= 4;
     }
 
     /**

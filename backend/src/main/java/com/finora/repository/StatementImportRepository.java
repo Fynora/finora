@@ -401,7 +401,16 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
      * soft-deleted independently. The object is only unreferenced BY THIS TABLE once the LAST of
      * them was removed, so the retention window has to be measured from that point, not the first
      * -- using an earlier one would reclaim an object while a more-recently-deleted row (still
-     * within its own re-import grace period) pointed at it.
+     * within its own re-import grace period) pointed at it. Which is why the cutoff is a
+     * {@code HAVING} on the group, not a {@code WHERE} on each row: filtered per row, the more
+     * recently deleted row dropped out before the {@code MAX} was taken, and the key became a
+     * candidate on its oldest deletion alone.
+     *
+     * <p>{@code object_released_at IS NULL} (V251) leaves out rows the sweep has already dealt
+     * with -- see {@link #markObjectReleased}. Without it a key stayed a candidate forever after
+     * its object was gone, and, oldest first under the limit, kept newer candidates out of every
+     * run. A row deleted later that names the same key is not released, so it makes the key a
+     * candidate again, measured from its own deletion.
      *
      * <p>This is only the discovery half of the sweep. It can be stale by the time the caller acts
      * on it -- {@code StatementStorageSweepService} re-checks the reference count fresh, via
@@ -418,12 +427,36 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
     @Query(value = """
             SELECT content_hash, object_key, (EXTRACT(EPOCH FROM MAX(deleted_at)) * 1000)::bigint
               FROM statement_imports
-             WHERE object_key IS NOT NULL AND deleted_at IS NOT NULL AND deleted_at < :cutoff
+             WHERE object_key IS NOT NULL AND deleted_at IS NOT NULL AND object_released_at IS NULL
              GROUP BY content_hash, object_key
+            HAVING MAX(deleted_at) < :cutoff
              ORDER BY MAX(deleted_at) ASC
              LIMIT :limit
             """, nativeQuery = true)
     List<Object[]> findObjectsUnreferencedSince(@Param("cutoff") Instant cutoff, @Param("limit") int limit);
+
+    /**
+     * Records that the sweep has dealt with this key: every soft-deleted row naming it, deleted
+     * before {@code deletedBefore}, stops being a candidate (V251). Called once the object was
+     * deleted, or once a live row of this table was found still naming it.
+     *
+     * <p>{@code deletedBefore} is the sweep's cutoff. A row deleted after the candidate was
+     * discovered is not in the group the sweep acted on, and is left for its own window -- if it
+     * was the live row that kept the object, marking it would leave nothing to find the object by.
+     *
+     * <p>Native, for the same {@code @SQLRestriction} reason as {@link
+     * #findObjectsUnreferencedSince}. Its own transaction: the sweep runs outside one, between calls
+     * to object storage.
+     */
+    @org.springframework.transaction.annotation.Transactional
+    @org.springframework.data.jpa.repository.Modifying
+    @Query(value = """
+            UPDATE statement_imports SET object_released_at = :releasedAt
+             WHERE object_key = :objectKey AND deleted_at IS NOT NULL AND deleted_at < :deletedBefore
+               AND object_released_at IS NULL
+            """, nativeQuery = true)
+    int markObjectReleased(@Param("objectKey") String objectKey, @Param("deletedBefore") Instant deletedBefore,
+                           @Param("releasedAt") Instant releasedAt);
 
     /** One link of the absolute-SET anchor chain, read whether or not the statement has since been
      *  soft-deleted -- a statement deleted while another SET stood over it still names the figure

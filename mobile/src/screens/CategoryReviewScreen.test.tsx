@@ -24,6 +24,21 @@ jest.mock('../lib/invalidateFinancialData', () => ({
 
 jest.mock('../lib/haptics');
 
+// Quick sort is QuickSortPanel.test.tsx's subject; here only how the screen places it. The stub
+// reports how many questions the first batch has -- 0 unless a test sets it, so every test written
+// before Quick sort sees the screen exactly as it was.
+let mockQuickSortQuestions = 0;
+jest.mock('../components/QuickSortPanel', () => {
+  const { useEffect } = jest.requireActual('react');
+  const { Text } = jest.requireActual('react-native');
+  return {
+    QuickSortPanel: ({ onLoaded }: { onLoaded?: (n: number) => void }) => {
+      useEffect(() => { onLoaded?.(mockQuickSortQuestions); }, [onLoaded]);
+      return mockQuickSortQuestions > 0 ? <Text>Quick sort stub</Text> : null;
+    },
+  };
+});
+
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
 }));
@@ -91,6 +106,7 @@ function renderScreen() {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockQuickSortQuestions = 0;
   categories.list.mockResolvedValue([
     { id: 'c-1', name: 'Food', isSystem: true, icon: 'utensils', color: 'orange' },
     { id: 'c-2', name: 'Travel', isSystem: true, icon: 'plane', color: 'blue' },
@@ -98,6 +114,31 @@ beforeEach(() => {
   transactions.needsReview.mockResolvedValue([]);
   transactions.needsReviewGroups.mockResolvedValue([]);
   transactions.needsReviewByCounterparty.mockResolvedValue([]);
+});
+
+describe('Quick sort first', () => {
+  it('opens with Quick sort and keeps the full lists behind "See all waiting payments"', async () => {
+    mockQuickSortQuestions = 3;
+    transactions.needsReviewGroups.mockResolvedValue([group()]);
+
+    renderScreen();
+
+    expect(await screen.findByText('Quick sort stub')).toBeTruthy();
+    expect(await screen.findByText('See all waiting payments')).toBeTruthy();
+    expect(screen.queryByText('Swiggy')).toBeNull();
+
+    fireEvent.press(screen.getByText('See all waiting payments'));
+    expect(await screen.findByText('Swiggy')).toBeTruthy();
+  });
+
+  it('shows the full lists straight away when Quick sort has nothing to ask', async () => {
+    transactions.needsReviewGroups.mockResolvedValue([group()]);
+
+    renderScreen();
+
+    expect(await screen.findByText('Swiggy')).toBeTruthy();
+    expect(screen.queryByText('See all waiting payments')).toBeNull();
+  });
 });
 
 describe('rendering both halves of the backlog', () => {

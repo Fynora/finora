@@ -441,6 +441,12 @@ app:
       # Two minutes, so a deploy's first pass lands after boot and any migration have settled
       # rather than competing with them.
       initial-delay-ms: ${COUNTERPARTY_BACKFILL_SWEEP_INITIAL_DELAY_MS:120000}
+  quick-sort:
+    # QuickSortService. A batch stops once it covers this share of the waiting money, or at
+    # max-questions. 0.80 rests on one tester's account (its 10 biggest payees held 78%); the usage
+    # counters may move it.
+    coverage-target: ${QUICK_SORT_COVERAGE_TARGET:0.80}
+    max-questions: ${QUICK_SORT_MAX_QUESTIONS:10}
   category-suggestion-sweep:
     # CategorySuggestionSweepService. Re-runs the read-only category suggestion on rows still
     # waiting for review whenever CategorizationService.SUGGESTION_VERSION is raised. Off under test

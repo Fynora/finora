@@ -155,10 +155,14 @@ public class CounterpartyBackfillSweepService {
                         // A new key can change what reconciliation concludes too: the user's own
                         // UPI id is only recognised once it is read whole (rule 2a').
                         retypedUsers.add(row.getUserId());
-                        senderInflowRuleRepository.carryToNewKey(row.getUserId(), oldKey, typing.key());
-                        // Same for a learned category (a user's correction or the AI resolution
-                        // cache): left behind, the sender's next import loses what the user taught.
-                        categoryResolutionRepository.carryToNewKey(row.getUserId(), oldKey, typing.key());
+                        // Not to a key that names no one (a cut UPI id, say): a sender rule or a
+                        // learned category there is never read, and would only be clutter.
+                        if (com.finora.util.CounterpartyIdentity.identifiesOnePayee(typing.key())) {
+                            senderInflowRuleRepository.carryToNewKey(row.getUserId(), oldKey, typing.key());
+                            // Same for a learned category (a user's correction or the AI resolution
+                            // cache): left behind, the sender's next import loses what the user taught.
+                            categoryResolutionRepository.carryToNewKey(row.getUserId(), oldKey, typing.key());
+                        }
                     }
                 } catch (RuntimeException e) {
                     // Left unstamped on purpose -- see this class's own doc on why a false stamp is

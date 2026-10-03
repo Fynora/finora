@@ -210,6 +210,52 @@ class InflowKindServiceTest {
                 .satisfies(e -> assertStatus(e, HttpStatus.BAD_REQUEST));
     }
 
+    /** Keys that join credits from different senders: a masked id, an id cut before its "@", a
+     *  payment gateway's own id, a name made only of gateway words. */
+    private static final List<String> KEYS_NAMING_NO_ONE = List.of(
+            "masked:1111@ybl", "cut:sampleqr1111111", "vpa:pg.razorpay", "name:via razorpay");
+
+    @Test void senderScopeOnAKeyThatNamesNoOneIsRefused_andWritesNoRule() {
+        // A sender-wide choice would mark every stranger who shares the key -- and change what
+        // counts as income for all of them.
+        InflowKind family = builtIn(InflowKind.BuiltIn.FAMILY_SUPPORT);
+        for (String key : KEYS_NAMING_NO_ONE) {
+            Transaction t = personCredit(key);
+            assertThatThrownBy(() -> service.setChoice(userId, t.getId(),
+                    new InflowDtos.SetChoiceRequest(family.getId(), InflowChoices.Scope.SENDER)))
+                    .as(key).satisfies(e -> assertStatus(e, HttpStatus.BAD_REQUEST));
+        }
+        assertThat(storedRules).isEmpty();
+    }
+
+    @Test void aKeyThatNamesNoOneOffersNoSenderChoice_butTheRowCanStillBeSet() {
+        for (String key : KEYS_NAMING_NO_ONE) {
+            Transaction t = personCredit(key);
+            InflowDtos.CountsAsDto dto = service.countsAs(userId, t.getId());
+            assertThat(dto.senderAvailable()).as(key).isFalse();
+            assertThat(dto.senderRowCount()).as(key).isZero();
+            InflowKind paidBack = builtIn(InflowKind.BuiltIn.PAID_BACK);
+            service.setChoice(userId, t.getId(), new InflowDtos.SetChoiceRequest(paidBack.getId(), InflowChoices.Scope.ROW));
+            assertThat(t.getInflowKindId()).as(key).isEqualTo(paidBack.getId());
+        }
+    }
+
+    @Test void aSenderRuleSavedOnAKeyThatNamesNoOne_noLongerApplies() {
+        // Saved before such keys were refused, or carried there by the counterparty backfill.
+        Transaction t = personCredit("masked:1111@ybl");
+        InflowKind family = builtIn(InflowKind.BuiltIn.FAMILY_SUPPORT);
+        SenderInflowRule old = new SenderInflowRule();
+        old.setUserId(userId);
+        old.setCounterpartyKey("masked:1111@ybl");
+        old.setInflowKindId(family.getId());
+        storedRules.add(old);
+
+        InflowDtos.CountsAsDto dto = service.countsAs(userId, t.getId());
+
+        assertThat(dto.kind()).isNull();
+        assertThat(dto.appliedBy()).isNull();
+    }
+
     @Test void aDebitIsRefused() {
         Transaction t = personCredit("vpa:asha");
         t.setTxnType(Transaction.Type.EXPENSE);

@@ -73,6 +73,25 @@ class TransactionGroupingServiceCounterpartyTest {
     }
 
     @Test
+    void neverGroupsAKeyThatNamesNoOnePayee() {
+        // "Apply to N transactions" files every row of a group alike. A gateway's own id, a masked
+        // id and a cut id each join payments to different payees, so they must not form a group --
+        // and the gateway id would even be shown as a confirmed handle (it is a full UPI id).
+        List<Transaction> rows = new java.util.ArrayList<>();
+        for (String key : List.of("vpa:pg.razorpay", "masked:1111@ybl", "cut:sampleqr1111111", "name:via razorpay")) {
+            rows.add(txn(CounterpartyType.BUSINESS, key, BigDecimal.TEN, "x"));
+            rows.add(txn(CounterpartyType.BUSINESS, key, BigDecimal.TEN, "y"));
+        }
+        rows.add(txn(CounterpartyType.BUSINESS, "vpa:sampleshop.rzp", BigDecimal.TEN, "z"));
+        rows.add(txn(CounterpartyType.BUSINESS, "vpa:sampleshop.rzp", BigDecimal.TEN, "z"));
+
+        var groups = serviceWith(rows).groupNeedsReviewByCounterparty(userId);
+
+        assertThat(groups).extracting(TransactionGroupingService.CounterpartyGroup::counterpartyKey)
+                .containsExactly("vpa:sampleshop.rzp");
+    }
+
+    @Test
     void excludesRowsThatAlreadyHaveAMerchantMatch() {
         // The partition with groupNeedsReviewByMerchant -- a merchant-matched row already has a
         // strong category signal and stays in that grouping, never doubled up here.

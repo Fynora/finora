@@ -151,7 +151,9 @@ public class InflowKindService {
         InflowKind kind = ownedKind(userId, req.kindId());
         if (req.scope() == InflowChoices.Scope.SENDER) {
             String key = t.getCounterpartyKey();
-            if (key == null || key.isBlank()) {
+            // Not only a missing key: a masked or cut UPI id, or a payment gateway's own id, is
+            // shared by different senders, and a sender-wide choice would mark them all.
+            if (!com.finora.util.CounterpartyIdentity.identifiesOnePayee(key)) {
                 throw new ApiException(HttpStatus.BAD_REQUEST,
                         "We can't tell who sent this payment, so it can only be set on its own.");
             }
@@ -199,7 +201,7 @@ public class InflowKindService {
         // only "applied" when it is what actually decided the row.
         InflowChoices.Chosen chosen = refusal == null ? FlowTotals.chosen(t, ctx) : null;
         String key = t.getCounterpartyKey();
-        boolean senderAvailable = key != null && !key.isBlank();
+        boolean senderAvailable = com.finora.util.CounterpartyIdentity.identifiesOnePayee(key);
         String summary = chosen != null
                 ? (chosen.scope() == InflowChoices.Scope.SENDER
                         ? "You marked payments from this sender as " : "You marked this payment as ") + chosen.kind().getName()

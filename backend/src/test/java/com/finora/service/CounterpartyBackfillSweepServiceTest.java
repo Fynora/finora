@@ -270,6 +270,35 @@ class CounterpartyBackfillSweepServiceTest {
     }
 
     @Test
+    void aRekeyedRowCarriesItsSendersRuleAndLearnedCategory_butNotToAKeyThatNamesNoOne() {
+        var senderRules = mock(com.finora.repository.SenderInflowRuleRepository.class);
+        var resolutions = mock(com.finora.repository.UserMerchantCategoryResolutionRepository.class);
+        service = new CounterpartyBackfillSweepService(transactionRepository, transactionTemplate,
+                senderRules, resolutions, reconciliationService);
+        ReflectionTestUtils.setField(service, "sweepEnabled", true);
+        ReflectionTestUtils.setField(service, "batchSize", 3);
+        UUID user = UUID.randomUUID();
+        // An id printed whole: its old fragment key's rule and category move to the whole id.
+        String whole = "UPI/DR/111111111111/Samplena/BDBL/911111111 1@ptye/";
+        CounterpartyBackfillRow wholeRow = row(UUID.randomUUID(), whole, user, com.finora.util.CounterpartyClassifier.classify(whole));
+        when(wholeRow.getCounterpartyKey()).thenReturn("name:samplena");
+        // An id the bank cut before its "@": the new key is "cut:", which names no one, so nothing
+        // the user taught for the old key is copied onto it.
+        String cut = "UPI/DR/111111111112/SAMPLE S/YESB/sampleqr1111111/";
+        CounterpartyBackfillRow cutRow = row(UUID.randomUUID(), cut, user, com.finora.util.CounterpartyClassifier.classify(cut));
+        when(cutRow.getCounterpartyKey()).thenReturn("vpa:sampleqr1111111");
+        given(List.of(wholeRow, cutRow));
+        when(transactionRepository.applyCounterpartyTyping(any(), any(), any(), anyShort())).thenReturn(1);
+
+        service.sweep();
+
+        verify(senderRules).carryToNewKey(user, "name:samplena", "vpa:9111111111");
+        verify(resolutions).carryToNewKey(user, "name:samplena", "vpa:9111111111");
+        verify(senderRules, never()).carryToNewKey(any(), eq("vpa:sampleqr1111111"), any());
+        verify(resolutions, never()).carryToNewKey(any(), eq("vpa:sampleqr1111111"), any());
+    }
+
+    @Test
     void aRowThatVanishedTriggersNoReconciliation() {
         given(List.of(row(UUID.randomUUID(), "NEFT-ACME LTD-REF73", UUID.randomUUID(), CounterpartyType.PERSON)));
         when(transactionRepository.applyCounterpartyTyping(any(), any(), any(), anyShort())).thenReturn(0);

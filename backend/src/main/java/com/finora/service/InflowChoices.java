@@ -28,7 +28,9 @@ public record InflowChoices(Map<UUID, InflowKind> kindsById, Map<String, UUID> k
             if (k != null) return new Chosen(k, Scope.ROW);
         }
         String key = t.getCounterpartyKey();
-        if (key == null || key.isBlank()) return null;
+        // A sender rule saved on a key that names no one (before such keys were refused, or carried
+        // there by the counterparty backfill) would mark every stranger sharing it.
+        if (!com.finora.util.CounterpartyIdentity.identifiesOnePayee(key)) return null;
         UUID kindId = kindIdBySenderKey.get(key);
         InflowKind k = kindId == null ? null : kindsById.get(kindId);
         return k == null ? null : new Chosen(k, Scope.SENDER);

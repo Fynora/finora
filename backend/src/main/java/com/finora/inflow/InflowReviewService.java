@@ -38,8 +38,9 @@ public class InflowReviewService {
         Map<String, List<Transaction>> bySender = new LinkedHashMap<>();
         for (Transaction t : unresolved.rows()) {
             String key = t.getCounterpartyKey();
-            // A row with no sender key cannot share a rule, so it is its own group.
-            String group = key == null || key.isBlank() ? "row:" + t.getId() : key;
+            // A row whose key names no one sender -- none at all, or a masked, cut or gateway id
+            // shared by different senders -- cannot share a rule, so it is its own group.
+            String group = com.finora.util.CounterpartyIdentity.identifiesOnePayee(key) ? key : "row:" + t.getId();
             bySender.computeIfAbsent(group, g -> new ArrayList<>()).add(t);
         }
 

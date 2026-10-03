@@ -67,4 +67,30 @@ class InflowReviewServiceTest {
         assertThat(cashGroup.senderPaymentCount()).isEqualTo(1L);
         assertThat(cashGroup.label()).isEqualTo("CASH DEPOSIT BRANCH");
     }
+
+    @Test
+    void creditsOnAKeyThatNamesNoOneAreNeverGroupedAsOneSender() {
+        // Two strangers whose UPI ids the bank printed only the tail of, and two shops' refunds under
+        // the gateway's own id: each row stands alone, so no sender-wide choice is offered for them.
+        Account savings = new Account();
+        ReflectionTestUtils.setField(savings, "id", UUID.randomUUID());
+        savings.setName("Savings One");
+        Transaction strangerA = credit(savings, "300.00", LocalDate.of(2026, 8, 3), "UPI/CR/1/A/SBIN/**1111@ybl/X", "masked:1111@ybl");
+        Transaction strangerB = credit(savings, "400.00", LocalDate.of(2026, 8, 4), "UPI/CR/2/B/SBIN/**1111@ybl/X", "masked:1111@ybl");
+        Transaction refundA = credit(savings, "500.00", LocalDate.of(2026, 8, 5), "UPI-RAZORPAY-PG.RAZORPAY@SAMPLEBANK-A", "vpa:pg.razorpay");
+        Transaction refundB = credit(savings, "600.00", LocalDate.of(2026, 8, 6), "UPI-RAZORPAY-PG.RAZORPAY@SAMPLEBANK-B", "vpa:pg.razorpay");
+        ReportService reports = mock(ReportService.class);
+        when(reports.unresolvedInflows(userId, from, to)).thenReturn(new ReportService.UnresolvedRows(
+                List.of(strangerA, strangerB, refundA, refundB), List.of(savings)));
+
+        List<InflowDtos.UnresolvedSenderDto> groups =
+                new InflowReviewService(reports, mock(TransactionRepository.class)).groups(userId, from, to);
+
+        assertThat(groups).hasSize(4);
+        assertThat(groups).allSatisfy(g -> {
+            assertThat(g.count()).isEqualTo(1);
+            assertThat(g.senderKnown()).isFalse();
+            assertThat(g.senderPaymentCount()).isEqualTo(1L);
+        });
+    }
 }

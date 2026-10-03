@@ -820,3 +820,41 @@ export interface DuplicateMatch {
   confidence: 'EXACT' | 'BALANCE';
   reason: string;
 }
+
+// Mirrors QuickSortDto (backend) -- a few payee questions in place of every waiting row.
+export type QuickSortKind = 'PERSON_PAID' | 'SHOP' | 'GUESS' | 'MONEY_IN';
+
+export interface QuickSortSample {
+  id: string;
+  date: string;
+  description: string | null;
+  amount: number;
+  type: 'INCOME' | 'EXPENSE';
+}
+
+export interface QuickSortQuestion {
+  id: string;
+  anchorTransactionId: string;
+  kind: QuickSortKind;
+  payee: string;
+  payments: number;
+  total: number;
+  latestDate: string;
+  largeOneOff: boolean;
+  currentCategory: string | null;
+  answers: string[];
+  samples: QuickSortSample[];
+}
+
+export interface QuickSortRest {
+  questions: number;
+  payments: number;
+  amount: number;
+  transactionIds: string[];
+}
+
+export interface QuickSortBatch {
+  questions: QuickSortQuestion[];
+  waitingTotal: number;
+  rest: QuickSortRest;
+}

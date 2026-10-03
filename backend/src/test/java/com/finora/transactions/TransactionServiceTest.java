@@ -112,7 +112,8 @@ class TransactionServiceTest {
         transactionService = new TransactionService(transactionRepository, categoryRepository, accountRepository,
                 statementImportRepository, categorizationService, reconciliationService, recurringService,
                 auditService, auditLogRepository, bankManagementService, userRepository, smsProvider, transactionGroupingService,
-                reconciliationMetrics, transactionGraphService, sharedCorpusService, userMerchantCategoryResolutionService);
+                reconciliationMetrics, transactionGraphService, sharedCorpusService, userMerchantCategoryResolutionService,
+                mock(com.finora.observability.QuickSortMetrics.class));
 
         dummyCategory = new Category();
         ReflectionTestUtils.setField(dummyCategory, "id", UUID.randomUUID());
@@ -1267,7 +1268,7 @@ class TransactionServiceTest {
     @Test
     void similar_neverReachesRowsThroughAKeyThatDoesNotNameOnePayee() {
         // A masked UPI id ends the same for strangers; "Pay via Razorpay" never printed the payee.
-        for (String key : List.of("masked:.payu@hdfcbank", "name:via razorpay", "name:upiintent")) {
+        for (String key : List.of("masked:.payu@shopcobk", "name:via razorpay", "name:upiintent")) {
             Transaction chosen = fromPayee(key, Transaction.Type.EXPENSE);
             when(transactionRepository.findById(chosen.getId())).thenReturn(Optional.of(chosen));
             when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Travel"))).thenReturn(dummyCategory);

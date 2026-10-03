@@ -63,6 +63,7 @@ public class TransactionService {
     private final com.finora.service.TransactionGraphService transactionGraphService;
     private final com.finora.service.SharedCorpusService sharedCorpusService;
     private final com.finora.service.UserMerchantCategoryResolutionService userMerchantCategoryResolutionService;
+    private final com.finora.observability.QuickSortMetrics quickSortMetrics;
 
     public TransactionService(TransactionRepository transactionRepository, CategoryRepository categoryRepository,
                                AccountRepository accountRepository,
@@ -79,7 +80,8 @@ public class TransactionService {
                                com.finora.observability.ReconciliationMetrics reconciliationMetrics,
                                com.finora.service.TransactionGraphService transactionGraphService,
                                com.finora.service.SharedCorpusService sharedCorpusService,
-                               com.finora.service.UserMerchantCategoryResolutionService userMerchantCategoryResolutionService) {
+                               com.finora.service.UserMerchantCategoryResolutionService userMerchantCategoryResolutionService,
+                               com.finora.observability.QuickSortMetrics quickSortMetrics) {
         this.transactionRepository = transactionRepository;
         this.categoryRepository = categoryRepository;
         this.accountRepository = accountRepository;
@@ -99,6 +101,7 @@ public class TransactionService {
         this.transactionGraphService = transactionGraphService;
         this.sharedCorpusService = sharedCorpusService;
         this.userMerchantCategoryResolutionService = userMerchantCategoryResolutionService;
+        this.quickSortMetrics = quickSortMetrics;
     }
 
     // Never a real bank id (BankRegistry ids are short uppercase codes like "PNB"/"OTHER") --
@@ -672,6 +675,9 @@ public class TransactionService {
     public TransactionDto updateCategory(UUID userId, UUID txnId, String categoryName,
                                          TransactionDto.CategoryScope scope) {
         Transaction t = getOwned(userId, txnId);
+        // A Quick sort answer the user later changed -- how good the answers were. Quick sort's own
+        // answer never counts here: it stamps quick_sorted_at only after this method returns.
+        if (t.getQuickSortedAt() != null) quickSortMetrics.answerChangedLater();
         String previousCategoryId = String.valueOf(t.getCategoryId());
         Category category = categorizationService.resolveOrCreateCategory(userId, categoryName);
         List<Transaction> similar = applyChosenCategory(userId, t, category, scope);
@@ -726,6 +732,28 @@ public class TransactionService {
                 .toList();
         similar.forEach(other -> markChosen(other, category));
         return similar;
+    }
+
+    /**
+     * Quick sort: the rest of one payee's waiting rows, filed with the category the user just chose
+     * for the payee's anchor row (which {@link #updateCategory} already learned from and remembered).
+     * One write and one reconciliation for the batch, and no learning: the rows share the anchor's
+     * payee, so learning each would only repeat the same lesson -- and doing it row by row through
+     * updateCategory ran a reconciliation per row.
+     *
+     * @return how many rows were filed
+     */
+    @Transactional
+    public int fileWithChosenCategory(UUID userId, List<UUID> ids, String categoryName) {
+        if (ids.isEmpty()) return 0;
+        Category category = categorizationService.resolveOrCreateCategory(userId, categoryName);
+        List<Transaction> owned = getOwnedAll(userId, ids);
+        owned.forEach(t -> markChosen(t, category));
+        transactionRepository.saveAll(owned);
+        reconciliationService.reconcileIfInvestmentExclusionMayChange(userId, owned, category);
+        auditService.record(userId, "TRANSACTION_QUICK_SORT_FILED", "Transaction", null,
+                Map.of("count", owned.size(), "newCategory", categoryName));
+        return owned.size();
     }
 
     /** The user chose this category: it resolves the review flag, even "Other" picked on purpose. */

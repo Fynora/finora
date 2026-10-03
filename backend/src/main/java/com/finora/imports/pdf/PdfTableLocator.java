@@ -253,15 +253,36 @@ public class PdfTableLocator {
                     // folded into the last transaction on the page once narration rehoming started
                     // placing text that used to be dropped. Anchored to the WHOLE line, so a
                     // narration that merely mentions a page cannot match.
-                    + "|(?i)^\\s*page\\s*(no\\b[.:\\s]*)?\\d+\\s*$"
-                    // A footer that numbers the page WITHOUT the word "page": a real Union Bank of
-                    // India statement prints a bare "1 of 10" bottom-right of every page, which OCR
-                    // reads as "1of 10". Folded into the page's last transaction as a continuation
-                    // line, it both polluted that narration and used up the trailing-continuation
-                    // slot, so the next page's first narration line was refused and stood alone.
-                    // The real corpus's HSBC credit-card statements print the same bare "1 of 4".
-                    // Anchored to the WHOLE line: digits either side of "of" and nothing else.
-                    + "|(?i)^\\s*\\d{1,3}\\s*of\\s*\\d{1,3}\\s*$");
+                    + "|(?i)^\\s*page\\s*(no\\b[.:\\s]*)?\\d+\\s*$");
+
+    /**
+     * A footer that numbers the page WITHOUT the word "page": a real Union Bank of India statement
+     * prints a bare "1 of 10" bottom-right of every page, which OCR reads as "1of 10". Folded into the
+     * page's last transaction as a continuation line, it both polluted that narration and used up the
+     * trailing-continuation slot, so the next page's first narration line was refused and stood
+     * alone. The real corpus's HSBC credit-card statements print the same bare "1 of 4".
+     *
+     * <p>Not part of {@link #PAGE_FOOTER}: unlike "Page 2 of 4", a bare "2 of 6" is also what a
+     * wrapped EMI narration's last line can read. So it counts only when it IS this page's number --
+     * N is the row's own page, M the document's page count -- see {@link #isBarePageNumber}.
+     */
+    private static final Pattern BARE_PAGE_NUMBER = Pattern.compile("^\\s*(\\d{1,3})\\s*(?i:of)\\s*(\\d{1,3})\\s*$");
+
+    private static boolean isBarePageNumber(String rowLine, List<PositionedText> row, int pageCount) {
+        if (row.isEmpty()) return false;
+        Matcher m = BARE_PAGE_NUMBER.matcher(rowLine);
+        return m.matches()
+                && Integer.parseInt(m.group(1)) == row.get(0).pageIndex() + 1
+                && Integer.parseInt(m.group(2)) == pageCount;
+    }
+
+    private static int pageCountOf(List<List<PositionedText>> rows) {
+        int last = -1;
+        for (List<PositionedText> row : rows) {
+            for (PositionedText t : row) last = Math.max(last, t.pageIndex());
+        }
+        return last + 1;
+    }
 
     // Same capability as PAGE_FOOTER (PAGE_BOUNDARY_ISOLATION): a real slice small finance bank
     // statement ends every page with "Need help? Contact our support team at <email> or <phone>"
@@ -761,6 +782,38 @@ public class PdfTableLocator {
             new TrailingContentTrigger(TRANSACTION_TIME_FOOTNOTE_MARKER, "TRANSACTION_TIME_FOOTNOTE_CLOSED"),
             new TrailingContentTrigger(TABLE_TOTALS_SUMMARY_MARKER, "TABLE_TOTALS_SUMMARY_CLOSED"));
 
+    /**
+     * {@link #trailingContentTriggerCapability}, with one trigger checked against what follows it.
+     *
+     * <p>Every trigger closes the table for good, so a false one silently turns the rest of the
+     * document's transactions into auxiliary text. {@link #TABLE_TOTALS_SUMMARY_MARKER}'s line --
+     * "Total Debits &lt;amount&gt;" -- is also the shape a per-page SUBTOTAL would take on some other
+     * bank's statement, mid-document. So it closes the table only when the statement's own closing
+     * line follows it: a "Closing Balance" within the next {@value #CLOSING_SUMMARY_LOOKAHEAD_ROWS}
+     * physical rows on the same page, as the evidencing Union Bank of India summary prints it.
+     */
+    private String trailingContentTriggerAt(List<List<PositionedText>> rows, int rowIndex, String rowLine) {
+        String capability = trailingContentTriggerCapability(rowLine);
+        if ("TABLE_TOTALS_SUMMARY_CLOSED".equals(capability) && !closingBalanceFollows(rows, rowIndex)) {
+            return null;
+        }
+        return capability;
+    }
+
+    private static final int CLOSING_SUMMARY_LOOKAHEAD_ROWS = 3;
+    private static final Pattern CLOSING_BALANCE_LINE = Pattern.compile("(?i)\\bclosing\\s+balance\\b");
+
+    private boolean closingBalanceFollows(List<List<PositionedText>> rows, int rowIndex) {
+        if (rows.get(rowIndex).isEmpty()) return false;
+        int page = rows.get(rowIndex).get(0).pageIndex();
+        for (int j = rowIndex + 1; j < rows.size() && j <= rowIndex + CLOSING_SUMMARY_LOOKAHEAD_ROWS; j++) {
+            List<PositionedText> next = rows.get(j);
+            if (next.isEmpty() || next.get(0).pageIndex() != page) return false;
+            if (CLOSING_BALANCE_LINE.matcher(lineOf(next)).find()) return true;
+        }
+        return false;
+    }
+
     /** The capability name the first matching trigger should record for {@code rowLine}, or null
      *  if none match. */
     private static String trailingContentTriggerCapability(String rowLine) {
@@ -1184,7 +1237,6 @@ public class PdfTableLocator {
         Map<Integer, PageDateEvidence> yearsByPage = yearsByPage(rows);
         Set<String> repeatedFurniture = repeatedPageFurniture(rows);
         Set<String> repeatedPeriodBanners = repeatedPeriodBanners(rows);
-        int pageCount = lastPageIndex + 1;
 
         List<LocatedSection> sections = new ArrayList<>();
         // The row index of the header that opened the section currently accumulating into
@@ -1368,6 +1420,7 @@ public class PdfTableLocator {
         // WHOLE document, computed up front -- so a label is also checked against narration that
         // wraps further down, not only above it. See ledgerLineStarts.
         LedgerLineStarts ledgerLineStarts = new LedgerLineStarts(rows, yearsByPage);
+        int pageCount = pageCountOf(rows);
 
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             List<PositionedText> row = rows.get(rowIndex);
@@ -1404,7 +1457,7 @@ public class PdfTableLocator {
                 continue;
             }
             int rowPageIndex = row.isEmpty() ? -1 : row.get(0).pageIndex();
-            String trailingContentTrigger = trailingContentTriggerCapability(rowLine);
+            String trailingContentTrigger = trailingContentTriggerAt(rows, rowIndex, rowLine);
             if (trailingContentTrigger != null) {
                 trailingContentSuppressed = true;
                 // Closes whatever REAL section is open exactly the same way the header-signature
@@ -1695,8 +1748,10 @@ public class PdfTableLocator {
             // scores, the merge can only RENAME columns that were going to exist anyway, so it runs
             // under a much stricter one (P-001 Fix B, measured on a real Central Bank of India
             // statement whose header's second band was otherwise consumed as a data row).
+            boolean ocrRereadOfHeader = currentRows != null
+                    && isOcrRereadOfCurrentHeader(row, headerNames, headerAnchors);
             boolean rowAlreadyScoresAlone = looksLikeHeaderRow(row);
-            WrappedHeader wrapped = wrappedHeaderAt(rows, rowIndex, rowAlreadyScoresAlone);
+            WrappedHeader wrapped = ocrRereadOfHeader ? null : wrappedHeaderAt(rows, rowIndex, rowAlreadyScoresAlone);
             if (wrapped != null) {
                 headerRow = wrapped.row();
                 wrappedHeaderLines = wrapped.extraLines();
@@ -1714,7 +1769,7 @@ public class PdfTableLocator {
                 // (once this section's own accepted column count is known).
                 recordIfHeaderReconstructionCandidate(row, pendingHeaderReconstructionVocab);
             }
-            if (looksLikeHeaderRow(headerRow)) {
+            if (ocrRereadOfHeader || looksLikeHeaderRow(headerRow)) {
                 // Captured before `rowIndex` advances for a wrapped header just below, so the
                 // index refers to the header's FIRST physical line. Carried down to where the
                 // section this header opens is actually created -- see
@@ -1767,8 +1822,12 @@ public class PdfTableLocator {
                 // contradicting identity line would silently fall through to REPEATED_HEADER and
                 // its rows would be appended straight into the still-open (wrong) section.
                 boolean identityContradicts = currentRows != null && pendingIdentityMismatch;
-                if (currentRows != null && signature.equals(currentHeaderSignature) && !identityContradicts) {
+                if (currentRows != null && (ocrRereadOfHeader || signature.equals(currentHeaderSignature))
+                        && !identityContradicts) {
                     if (ctx != null) ctx.record("REPEATED_HEADER");
+                    if (ocrRereadOfHeader && !signature.equals(currentHeaderSignature) && ctx != null) {
+                        ctx.record("OCR_REPEATED_HEADER_TOLERATED");
+                    }
                     pageLegendBlockActive = false;
                     // LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER: whatever was buffered as leading
                     // narration before this per-page repeat belongs to the page that ended, never
@@ -2048,7 +2107,7 @@ public class PdfTableLocator {
                 }
                 continue;
             } else if (PAGE_FOOTER.matcher(rowLine).find() || PAGE_FOOTER_SENTENCE.matcher(rowLine).find()
-                    || isOwnPageCounter(rowLine, row, pageCount)
+                    || isBarePageNumber(rowLine, row, pageCount) || isOwnPageCounter(rowLine, row, pageCount)
                     || STATEMENT_CLOSING_MARKER.matcher(rowLine).find()
                     || PAGE_BANNER.matcher(rowLine).find() || pageNumberBesideTheTable(row, tableRuns)) {
                 if (ctx != null) ctx.record("PAGE_BOUNDARY_ISOLATION");
@@ -3016,12 +3075,6 @@ public class PdfTableLocator {
                 && Integer.parseInt(m.group(1)) == row.get(0).pageIndex() + 1;
     }
 
-    private static int pageCountOf(List<List<PositionedText>> rows) {
-        int last = -1;
-        for (List<PositionedText> row : rows) for (PositionedText t : row) last = Math.max(last, t.pageIndex());
-        return last + 1;
-    }
-
     /** The x of this row's leftmost non-blank run, or null for a row with nothing in it. */
     private static Float leftmostRunX(List<PositionedText> row) {
         Float leftmost = null;
@@ -3456,7 +3509,7 @@ public class PdfTableLocator {
      * column non-blank", which is not the same question as "is this row a new transaction." A
      * wrapped narration line's text frequently lands in the DATE column via nearest-X bucketing
      * (that column's anchor is leftmost, and a continuation line's text starts at the left margin) --
-     * e.g. "UPI/111122223333/02:44:32/UPI/paytm.s25j48". Under the old check that row looked like a
+     * e.g. "UPI/111122223333/02:44:32/UPI/paytm.s70k13". Under the old check that row looked like a
      * brand-new transaction anchor, so it was never merged into the transaction above it as a
      * continuation. Two failures fell out of that single misclassification: the row itself was
      * dropped at normalization ("didn't match any known date format" -- 114 of 169 rows on that one
@@ -3566,7 +3619,7 @@ public class PdfTableLocator {
 
             // Bug fix: a continuation row's wrapped narration very often mis-buckets into the DATE
             // column (that column's anchor is leftmost, and a wrapped line starts at the left
-            // margin) -- e.g. "UPI/111122223333/02:44:32/UPI/paytm.s25j48". Appending that onto the
+            // margin) -- e.g. "UPI/111122223333/02:44:32/UPI/paytm.s70k13". Appending that onto the
             // anchor row's own valid date produced "02/05/25 UPI/1111222..." which no longer parses
             // as a date, so the merge DESTROYED the very transaction it was supposed to complete --
             // every row on a real Bank of Baroda statement dropped this way. The anchor's date is
@@ -5527,6 +5580,56 @@ public class PdfTableLocator {
     /** Normalized set of this header row's own column names -- used to tell "the same table's
      *  header, repeated on a later page" (identical signature) from "a genuinely different
      *  section's header" (a different signature), once a marker-line banner isn't present. */
+    /** How far a re-read header label's left edge may sit from the label it repeats. A repeated
+     *  header is printed by the same template at the same place on every page; measured on the
+     *  scanned Union statement below, its OCR'd labels landed within 0.5pt of each other. */
+    private static final float OCR_HEADER_REPEAT_X_TOLERANCE = 3.0f;
+
+    /**
+     * OCR_REPEATED_HEADER_TOLERATED: an OCR'd row that is the table's own header again, read with a
+     * misrecognised letter or a dropped label.
+     *
+     * <p>Measured on a phone-scanned Union Bank of India statement: with the pinned OCR model its last
+     * page's header lost "Date" altogether, and with the model the Alpine package ships (which
+     * production ran until the Dockerfile pinned another) it also read "Chq Num" on page 1 but "Chg
+     * Num" on pages 2-10. The exact-signature comparison read page 2 as a different table -- a second
+     * section, offered to the user as a second account -- and the last page's header as a row of data,
+     * which took that page's first narration line with it.
+     *
+     * <p>Only ever OCR text: every run must carry {@link TextSource#OCR}, so a native document's header
+     * matching is untouched. And only a row that lines up with the CURRENT header column for column:
+     * every run starts within {@link #OCR_HEADER_REPEAT_X_TOLERANCE} of a distinct label's own left
+     * edge and is at most one edit from that label, and at most one label is missing. A data row
+     * cannot pass -- its values are not one edit away from "Withdrawal" or "Balance" -- and neither can
+     * a genuinely different table, whose labels sit elsewhere or read differently.
+     */
+    private boolean isOcrRereadOfCurrentHeader(List<PositionedText> row, List<String> headerNames,
+                                               List<Float> headerAnchors) {
+        if (row.isEmpty() || headerNames == null || headerAnchors == null
+                || headerNames.size() != headerAnchors.size() || headerNames.size() < 4) {
+            return false;
+        }
+        for (PositionedText t : row) if (t.source() != TextSource.OCR) return false;
+        boolean[] matched = new boolean[headerNames.size()];
+        int matches = 0;
+        for (PositionedText t : row) {
+            String text = CsvParser.normalizeHeaderCell(t.text());
+            int found = -1;
+            for (int j = 0; j < headerNames.size(); j++) {
+                if (matched[j] || Math.abs(t.x() - headerAnchors.get(j)) > OCR_HEADER_REPEAT_X_TOLERANCE) continue;
+                String label = CsvParser.normalizeHeaderCell(headerNames.get(j));
+                if (com.finora.util.TextSimilarity.editDistance(text, label) <= 1) {
+                    found = j;
+                    break;
+                }
+            }
+            if (found < 0) return false;
+            matched[found] = true;
+            matches++;
+        }
+        return matches >= headerNames.size() - 1;
+    }
+
     private Set<String> headerSignature(List<PositionedText> row) {
         Set<String> signature = new LinkedHashSet<>();
         for (PositionedText t : row) signature.add(CsvParser.normalizeHeaderCell(t.text()));
@@ -7747,7 +7850,7 @@ public class PdfTableLocator {
             List<PositionedText> row = allRows.get(rowIndex);
             String rowLine = lineOf(row);
             if (PAGE_FOOTER.matcher(rowLine).find() || PAGE_FOOTER_SENTENCE.matcher(rowLine).find()
-                    || isOwnPageCounter(rowLine, row, pageCount)) continue;
+                    || isBarePageNumber(rowLine, row, pageCount) || isOwnPageCounter(rowLine, row, pageCount)) continue;
             // Every TRAILING_CONTENT_TRIGGERS marker, not just STATEMENT_CLOSING_MARKER alone --
             // this headerless path used to check only that one trigger, so a document that falls
             // back to headerless inference (no recognized column vocabulary at all) got none of the
@@ -7758,7 +7861,7 @@ public class PdfTableLocator {
             // was added to TRAILING_CONTENT_TRIGGERS, because this loop never consulted that list.
             // A permanent break, same as every trigger's meaning in the header-based path -- none of
             // these markers is a per-page, resumable thing the way PAGE_FOOTER is.
-            String trailingTrigger = trailingContentTriggerCapability(rowLine);
+            String trailingTrigger = trailingContentTriggerAt(allRows, rowIndex, rowLine);
             if (trailingTrigger != null) {
                 recordTrailingContentTrigger(ctx, trailingTrigger);
                 break;

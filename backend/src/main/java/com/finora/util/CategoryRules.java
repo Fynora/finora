@@ -85,7 +85,7 @@ public final class CategoryRules {
         // same corpus (guarded by suggestCategory_indianClearingCorpIsNotMisclassifiedAsTransport).
         // "pune metro" and, below, "apple services" (2026-10-02) name an operator rather than add a
         // word: "metro" already files the fare. A bank that cuts the payee's name to eight
-        // characters and its UPI id before the "@" leaves only the id ("punemetrocc...",
+        // characters and its UPI id before the "@" leaves only the id ("punemetro...",
         // "appleservices..."), which MerchantIdentityLookup.handleNamesKnownMerchant reads against
         // these names; without them a tester's metro fares and app-store charges typed as people.
         // "punemetro", "parkplus", "hp petro", "airtelautopay", "airtelprepaid" and "gpay utility"
@@ -486,10 +486,10 @@ public final class CategoryRules {
      * the part before "@" is rejoined first. Each dot- or underscore-separated piece keeps its
      * leading letters ("samplestore27" and "sample035store" are "samplestore" and "sample"). A piece
      * that is a payment app's own word, or whose leading letters are fewer than three (a generated
-     * code such as "s25j48"), names nobody. Null when no piece of three or
+     * code such as "s70k13"), names nobody. Null when no piece of three or
      * more letters remains, which covers a phone number or a code on its own.
      */
-    /** A handle piece's leading letters. A generated code ("s25j48", "q1a2b3") leads with fewer than
+    /** A handle piece's leading letters. A generated code ("s70k13", "q1a2b3") leads with fewer than
      *  three, so the length check below rejects it; a payment app's own prefix is rejected by name. */
     private static final Pattern HANDLE_PIECE = Pattern.compile("^([a-z]+)");
 

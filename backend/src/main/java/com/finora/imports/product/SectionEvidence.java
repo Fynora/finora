@@ -73,6 +73,21 @@ public record SectionEvidence(List<ObservedFact> facts) {
         return out;
     }
 
+    /** True when this section shows credit-card payment-summary fields, but only in text that
+     *  describes the document rather than this section -- a card's summary printed above another
+     *  product's banner in a combined statement (see {@code ProductEvidenceCollector#bannerScopes}). */
+    public boolean cardFieldsAreDocumentLevel() {
+        boolean seen = false;
+        for (ProductSignal field : List.of(ProductSignal.CARD_NUMBER_FIELD, ProductSignal.TOTAL_DUE_FIELD,
+                ProductSignal.MINIMUM_DUE_FIELD, ProductSignal.CREDIT_LIMIT_FIELD)) {
+            Optional<EvidenceSource> source = strongestSourceFor(field);
+            if (source.isEmpty()) continue;
+            if (source.get() != EvidenceSource.DOCUMENT_TEXT) return false;
+            seen = true;
+        }
+        return seen;
+    }
+
     /**
      * A ledger is a COMBINATION, never one column.
      *

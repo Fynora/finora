@@ -122,8 +122,8 @@ class ApplyCategoryToSimilarIT extends AbstractIntegrationTest {
     @Test
     void similar_doesNotReachThroughAMaskedUpiId() {
         Owner me = owner();
-        Transaction chosen = row(me, "masked:.payu@hdfcbank", Transaction.Type.EXPENSE);
-        Transaction otherShop = row(me, "masked:.payu@hdfcbank", Transaction.Type.EXPENSE);
+        Transaction chosen = row(me, "masked:.payu@shopcobk", Transaction.Type.EXPENSE);
+        Transaction otherShop = row(me, "masked:.payu@shopcobk", Transaction.Type.EXPENSE);
 
         assertThat(transactionService.similarSummary(me.user().getId(), chosen.getId()))
                 .isEqualTo(new TransactionDto.SimilarSummary(0, 0));

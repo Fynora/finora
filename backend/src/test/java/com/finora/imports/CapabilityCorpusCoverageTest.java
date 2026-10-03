@@ -310,6 +310,14 @@ class CapabilityCorpusCoverageTest {
                 "no trace -- the evidencing slice statement is a customer's, never captured. Covered by "
                         + "SignedAmountLedgerPdfPreviewGeneratorTest and PageBannerPdfTableLocatorTest "
                         + "(mutation-checked)." + realCorpusVerified);
+        DECLARED_WITHOUT_A_TRACE.put("OCR_REPEATED_HEADER_TOLERATED",
+                "no trace -- fires only on OCR text, and the evidencing document is a customer's scanned "
+                        + "statement, never captured. Covered by ScannedGridLedgerPdfTableLocatorTest "
+                        + "(mutation-checked)." + realCorpusVerified);
+        DECLARED_WITHOUT_A_TRACE.put("OCR_BALANCE_CELL_CORROBORATED",
+                "no trace CAN cover it: it fires in PdfPreviewGenerator on OCR text, never in "
+                        + "PdfTableLocator.locateAll, and the evidencing document is a customer's scanned "
+                        + "statement. Covered by OcrBalanceCellRepairTest (mutation-checked)." + realCorpusVerified);
         DECLARED_WITHOUT_A_TRACE.put("FOREIGN_CURRENCY_AMOUNT",
                 "no trace CAN cover it here: it fires in TransactionNormalizer, never in "
                         + "PdfTableLocator.locateAll, and capture of the evidencing document was refused (see "

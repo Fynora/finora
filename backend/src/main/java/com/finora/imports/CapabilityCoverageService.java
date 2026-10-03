@@ -423,6 +423,14 @@ public class CapabilityCoverageService {
             // phantom one of its own before this trigger existed. See
             // PdfTableLocator.TABLE_TOTALS_SUMMARY_MARKER.
             "TABLE_TOTALS_SUMMARY_CLOSED",
+            // An OCR'd page header re-read with one misrecognised letter ("Chg Num" for "Chq Num")
+            // or one dropped label, still recognised as the table's own repeated header instead of
+            // opening a second section. OCR text only. See
+            // PdfTableLocator.isOcrRereadOfCurrentHeader.
+            "OCR_REPEATED_HEADER_TOLERATED",
+            // A running-balance cell OCR misread by one glyph, restored to the value the rows on
+            // both sides prove. OCR text only. See OcrBalanceCellRepair.
+            "OCR_BALANCE_CELL_CORROBORATED",
             // A real Canara Bank statement's own bare "Chq: <reference>" trailer line, past
             // MAX_TRAILING_CONTINUATION_ROWS's count cap, recovered as trailing content anyway by
             // content shape rather than count -- see PdfTableLocator.CHEQUE_REFERENCE_TRAILER.

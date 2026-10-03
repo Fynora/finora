@@ -160,14 +160,58 @@ class TotalAmountDuePlumbingPdfPreviewGeneratorTest {
     }
 
     @Test
-    void aCompositeWhoseCardCannotBeTold_holdsNothingAndGivesNoSectionTheTotalDue() throws Exception {
+    void theSameCompositeWithItsSummaryAboveTheSavingsBanner_holdsNothingAndGivesTheCardTheTotalDue() throws Exception {
+        // Printed above the first banner, the summary used to make the savings ledger the card: it
+        // took the total due, was checked against the card's purchases and payments, and was held.
+        PdfPreviewGenerator.PdfGenerationResult result = realGenerator().generateSectionsWithContext(
+                UUID.randomUUID(), "composite.pdf", PdfFixtureBuilder.buildCardSummaryWithSavingsAndOneUnclassifiedTableSample(true));
+
+        assertThat(result.sections()).extracting(s -> s.detectedAccount().detectedProduct())
+                .containsExactly("SAVINGS", "UNKNOWN");
+        var savings = result.sections().get(0);
+        assertThat(savings.detectedAccount().totalAmountDue()).isNull();
+        assertThat(outcomeOf(savings, "CREDIT_CARD_FLOW_RECONCILIATION")).isEqualTo("NOT_APPLICABLE");
+        assertThat(result.sections().get(1).detectedAccount().totalAmountDue()).isEqualByComparingTo("3057.02");
+        assertThat(com.finora.imports.trust.TrustPredicate.evaluate(
+                result.sections().stream().map(s -> s.verification()).toList(), java.util.List.of(),
+                java.time.LocalDate.of(2026, 9, 1)).hold()).isFalse();
+    }
+
+    @Test
+    void aCompositeWithItsCardSummaryAboveTheSavingsBanner_givesTheTotalDueOnlyToTheCardTable() throws Exception {
+        // The summary is printed above the savings banner. It used to leave the savings ledger
+        // UNKNOWN beside an UNKNOWN card table, so no section could be told to be the card and the
+        // total due went nowhere. The ledger is SAVINGS now, which leaves the card table the only
+        // section that can be the card -- and its rows are the ones that reach this total due.
         PdfPreviewGenerator.PdfGenerationResult result = realGenerator().generateSectionsWithContext(
                 UUID.randomUUID(), "composite.pdf", PdfFixtureBuilder.buildSavingsAndCardWithCardSummarySample());
 
         assertThat(result.sections()).hasSize(2);
-        assertThat(result.sections()).allSatisfy(s -> assertThat(s.detectedAccount().totalAmountDue()).isNull());
+        assertThat(result.sections()).extracting(s -> s.detectedAccount().detectedProduct())
+                .containsExactly("SAVINGS", "UNKNOWN");
+        assertThat(result.sections().get(0).detectedAccount().totalAmountDue()).isNull();
+        assertThat(result.sections().get(1).detectedAccount().totalAmountDue()).isEqualByComparingTo("2650.00");
         assertThat(com.finora.imports.trust.TrustPredicate.evaluate(
                 result.sections().stream().map(s -> s.verification()).toList(), java.util.List.of(),
                 java.time.LocalDate.of(2026, 9, 1)).hold()).isFalse();
+    }
+
+    @Test
+    void aCompositeWhoseCardCannotBeTold_holdsNothingAndGivesNoSectionTheTotalDue() throws Exception {
+        // Two tables either of which could be the card: the summary's total due belongs to neither
+        // with any certainty, wherever the summary is printed.
+        for (boolean summaryFirst : new boolean[] {true, false}) {
+            PdfPreviewGenerator.PdfGenerationResult result = realGenerator().generateSectionsWithContext(
+                    UUID.randomUUID(), "composite.pdf",
+                    PdfFixtureBuilder.buildCardSummaryWithSavingsAndUnclassifiedTablesSample(summaryFirst, true));
+
+            assertThat(result.sections()).as("summaryFirst=%s", summaryFirst)
+                    .extracting(s -> s.detectedAccount().detectedProduct())
+                    .containsExactly("SAVINGS", "UNKNOWN", "UNKNOWN");
+            assertThat(result.sections()).allSatisfy(s -> assertThat(s.detectedAccount().totalAmountDue()).isNull());
+            assertThat(com.finora.imports.trust.TrustPredicate.evaluate(
+                    result.sections().stream().map(s -> s.verification()).toList(), java.util.List.of(),
+                    java.time.LocalDate.of(2026, 9, 1)).hold()).isFalse();
+        }
     }
 }

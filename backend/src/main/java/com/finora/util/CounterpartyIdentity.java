@@ -273,7 +273,7 @@ public final class CounterpartyIdentity {
      *   <li>{@code vpa:} -- a full UPI id: yes, unless it is only a payment brand's partner prefix
      *       (see {@link #PARTNER_PREFIX_ONLY}) or a gateway's own id (see {@link #GATEWAY_OWN_IDS}).</li>
      *   <li>{@code masked:} -- only the end of a UPI id was printed, and the end is shared by strangers:
-     *       no. Measured on the corpus: {@code masked:.payu@hdfcbank} joined two different shops.</li>
+     *       no. Measured on the corpus: one gateway's masked id joined two different shops.</li>
      *   <li>{@code cut:} -- only the start of a UPI id was printed: no (see {@link #CUT_PREFIX}).</li>
      *   <li>{@code name:} -- yes, unless every word is a rail or gateway word (see
      *       {@link #RAIL_AND_GATEWAY_WORDS}), when the payee was never printed at all.</li>
@@ -303,7 +303,7 @@ public final class CounterpartyIdentity {
     /**
      * The counterparty's own UPI id, local part only and lower case, or {@code ""} when the
      * narration shows none. Unlike {@link #keyOf}, the standard layout's id slot counts in capitals
-     * too ("airtelprepaidUP"), as long as it is one word: a brand's id is evidence of who was paid
+     * too ("airtelprepaidXY"), as long as it is one word: a brand's id is evidence of who was paid
      * even where it is too weak to key on. A capitalised slot with a space in it is a note, not an id.
      */
     public static String payeeHandle(String description) {
@@ -400,7 +400,7 @@ public final class CounterpartyIdentity {
             if (!afterSeparator) break;
         }
         // In a "/"-separated narration a hyphen inside the field is part of the id
-        // ("/goog-payments@axisb", "/gpay-11111111801@okbizaxis"): stopping at it keyed on the tail
+        // ("/shop-payments@zzbnk", "/gpay-11111111801@okbizaxis"): stopping at it keyed on the tail
         // ("vpa:payments"), which other payees' ids end in too. Only when everything back to the "/"
         // is id characters -- a field holding a name has spaces and is not joined.
         if (i >= 2 && d.charAt(i - 1) == '-') {

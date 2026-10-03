@@ -85,9 +85,9 @@ class StructuredNarrationPayeeTest {
 
     @Test
     void aPaymentAppsOwnHandleNamesNobody() {
-        assertThat(label("UPI/100000000001/02:44:32/UPI/paytm.s25j48@pty/UPI")).isNull();
-        assertThat(label("UPI/100000000001/18:39:34/UPI/paytmqr6nu5ur@ptys/UPI")).isNull();
-        assertThat(label("UPI/100000000001/19:42:43/UPI/bharatpe.9006@yesbank/UPI")).isNull();
+        assertThat(label("UPI/100000000001/02:44:32/UPI/paytm.s70k13@pty/UPI")).isNull();
+        assertThat(label("UPI/100000000001/18:39:34/UPI/paytmqr3qz8xw@ptys/UPI")).isNull();
+        assertThat(label("UPI/100000000001/19:42:43/UPI/bharatpe.5173@yesbank/UPI")).isNull();
     }
 
     @Test

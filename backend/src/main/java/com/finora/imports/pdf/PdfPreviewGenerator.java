@@ -461,7 +461,7 @@ public class PdfPreviewGenerator {
     private List<StagedAccountSection> buildProductSections(String filename, PdfTableLocator.LocatedSection section,
                                                              ProductDiscovery.DiscoveredProduct product,
                                                              DocumentContext ctx) {
-        SharedSectionFacts facts = sharedFacts(filename, section, ctx);
+        SharedSectionFacts facts = sharedFacts(filename, section, product, ctx);
         List<ProductAttributes> attributes = attributeExtractor.extract(product.type(), section.rows());
         String suggestedAccountType = suggestedAccountTypeFor(product, facts.creditCardSignals());
 
@@ -510,6 +510,9 @@ public class PdfPreviewGenerator {
         // date -> balance-as-reported, purely to derive opening/closing balance below -- not
         // persisted anywhere, discarded once this method returns.
         List<BalancePoint> balancePoints = new ArrayList<>();
+        // Which staged row each balance point came from (-1 for a balance-marker row that was not
+        // staged), so an OCR balance-cell correction lands on both -- see OcrBalanceCellRepair.
+        List<Integer> balancePointStagedIndex = new ArrayList<>();
         // Hoisted for the same reason as PreviewGenerator's CSV loop -- see its comment. A
         // multi-account PDF calls this once per section, so the rule set is loaded once per
         // section rather than once per row.
@@ -617,6 +620,27 @@ public class PdfPreviewGenerator {
             if (balance != null) {
                 BigDecimal signedAmount = com.finora.imports.BalanceSequenceResolver.signedAmountOf(parsed, row);
                 balancePoints.add(new BalancePoint(parsed.date(), signedAmount, balance, parsed.description()));
+                balancePointStagedIndex.add(parsed.kind() == RowKind.TRANSACTION ? staged.size() - 1 : -1);
+            }
+        }
+
+        if (ctx.textSource() == TextSource.OCR) {
+            List<BigDecimal> corrected = OcrBalanceCellRepair.corrections(staged);
+            int repairs = 0;
+            for (int i = 0; i < corrected.size(); i++) {
+                if (corrected.get(i) == null) continue;
+                staged.set(i, staged.get(i).withBalanceAfter(corrected.get(i)));
+                repairs++;
+            }
+            if (repairs > 0) {
+                for (int p = 0; p < balancePoints.size(); p++) {
+                    int s = balancePointStagedIndex.get(p);
+                    if (s < 0 || corrected.get(s) == null) continue;
+                    BalancePoint point = balancePoints.get(p);
+                    balancePoints.set(p, new BalancePoint(point.date(), point.signedAmount(), corrected.get(s),
+                            point.description()));
+                }
+                ctx.record("OCR_BALANCE_CELL_CORROBORATED");
             }
         }
 
@@ -1066,7 +1090,7 @@ public class PdfPreviewGenerator {
         BigDecimal openingBalance = null;
         BigDecimal closingBalance = null;
 
-        SharedSectionFacts facts = sharedFacts(filename, section, ctx);
+        SharedSectionFacts facts = sharedFacts(filename, section, product, ctx);
         // Bug fix: this used to fall back to the confirmed rows' own min/max transaction date
         // whenever nothing was printed -- which is only ever a LOWER bound on the statement's true
         // period whenever a cycle has no activity near its own printed boundary dates. Confirmed
@@ -1194,7 +1218,7 @@ public class PdfPreviewGenerator {
      * it, rather than the classification-and-metadata block that used to live only in the former.
      */
     private SharedSectionFacts sharedFacts(String filename, PdfTableLocator.LocatedSection section,
-                                           DocumentContext ctx) {
+                                           ProductDiscovery.DiscoveredProduct product, DocumentContext ctx) {
         PdfMetadataExtractor.ExtractedMetadata metadata = metadataExtractor.extract(section.auxiliaryText(), ctx);
         BankRegistry.BankInfo bank = BankRegistry.detect(filename, new ArrayList<>(section.auxiliaryText()));
         String suggestedName = bank.officialName() != null ? bank.officialName() : "Bank Statement Import";
@@ -1231,9 +1255,14 @@ public class PdfPreviewGenerator {
         // FIELD with an amount rather than as a bare phrase, which is what separates AU's genuine
         // "Total Credit Limit: 1,00,000.00" from HSBC's repeated summary column header and an
         // overdraft's terms. The >= 2 threshold itself is unchanged.
+        //
+        // The free text is not counted when product discovery found its card fields to be
+        // document-level: a combined statement's card summary printed above another product's
+        // banner names the card, not the savings ledger under it.
         boolean creditCardSignals = section.rows().stream().anyMatch(row ->
                 CsvParser.hasHeaderMatch(row, "card number", "minimum due", "minimum amount due"))
-                || countDistinctCreditCardSignals(section.auxiliaryText()) >= MIN_CREDIT_CARD_TEXT_SIGNALS;
+                || (!product.evidence().cardFieldsAreDocumentLevel()
+                    && countDistinctCreditCardSignals(section.auxiliaryText()) >= MIN_CREDIT_CARD_TEXT_SIGNALS);
         // ctx is never null here either -- same call-graph trace as the other two guards removed
         // in this file (buildSections/buildLedgerSection).
         if (creditCardSignals) ctx.record("CREDIT_CARD_SUMMARY_SIGNAL");

@@ -51,8 +51,13 @@ class PdfMetadataExtractorTest {
                 .isEqualTo("1234XXXXXXX5678");
         assertThat(PdfMetadataExtractor.leadingAccountToken("111122223333444 SOME PLAN NAME"))
                 .isEqualTo("111122223333444");
-        // Spaced digit groups are one number: never shortened to the first group.
+        // Spaced digit groups are one number: never shortened to the first group...
         assertThat(PdfMetadataExtractor.leadingAccountToken("1234 5678 9012")).isEqualTo("1234 5678 9012");
+        // ...but the next field's label still ends it.
+        assertThat(PdfMetadataExtractor.leadingAccountToken("1234 5678 9012 IFSC UBIN0XXXXXX"))
+                .isEqualTo("1234 5678 9012");
+        assertThat(PdfMetadataExtractor.leadingAccountToken("XXXX XXXX 5678 Customer ID 00000000"))
+                .isEqualTo("XXXX XXXX 5678");
         // A masked group with fewer than four digits is not a whole number on its own.
         assertThat(PdfMetadataExtractor.leadingAccountToken("XXXXXXXX12 3456")).isEqualTo("XXXXXXXX12 3456");
         assertThat(PdfMetadataExtractor.leadingAccountToken("XXXXXXXX5678")).isEqualTo("XXXXXXXX5678");
@@ -635,6 +640,28 @@ class PdfMetadataExtractorTest {
 
         assertThat(metadata.statementPeriodStart()).isEqualTo(java.time.LocalDate.of(2026, 7, 2));
         assertThat(metadata.statementPeriodEnd()).isEqualTo(java.time.LocalDate.of(2026, 8, 1));
+    }
+
+    /** A real Union Bank of India statement's heading: "for the period FROM <date> TO <date>",
+     *  printed after its ten-line customer block -- past UNLABELLED_DATE_RANGE's search window, so
+     *  only the labelled prose pattern can read it. Values synthetic. */
+    @Test
+    void extract_recognizesAProsePeriodWithFromBetweenTheLabelAndTheDates() {
+        var metadata = extractor.extract(List.of(
+                "Union Bank of India",
+                "A Government of India Undertaking",
+                "DETAILS OF STATEMENT",
+                "Name & Address : Customer ID : 000000000 SAMPLE BRANCH",
+                "SAMPLE HOLDER Account Number : 1234XXXXXXX5678 IFSC : UBIN0XXXXXX",
+                "S/O: SAMPLE PARENT Account Open 01-01-2020 000000000",
+                "SAMPLE TOWN Account Type : SBA",
+                "SAMPLE DISTRICT Nomination : N",
+                "SAMPLE STATE Re KYC Due Date : 01-01-2036",
+                "000000 Generated Date : 03-10-2026",
+                "STATEMENT OF ACCOUNT FOR THE PERIOD FROM 01-09-2026 TO 30-09-2026"));
+
+        assertThat(metadata.statementPeriodStart()).isEqualTo(java.time.LocalDate.of(2026, 9, 1));
+        assertThat(metadata.statementPeriodEnd()).isEqualTo(java.time.LocalDate.of(2026, 9, 30));
     }
 
     /** A real PNB ONE savings statement's own heading: "Statement of Account:<number> For

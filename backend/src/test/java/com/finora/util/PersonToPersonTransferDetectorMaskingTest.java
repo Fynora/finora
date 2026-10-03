@@ -25,7 +25,7 @@ class PersonToPersonTransferDetectorMaskingTest {
     @Test
     void aShopNamedForWhatItSells_andAKnownMerchant_stay() {
         assertThat(mask("UPI-HANUMAN TEA STALL-q123456@ybl-UPI")).isEqualTo("UPI-HANUMAN TEA STALL-q123456@ybl-UPI");
-        assertThat(mask("UPI-ZOMATO-zomato@hdfcbank-UPI")).isEqualTo("UPI-ZOMATO-zomato@hdfcbank-UPI");
+        assertThat(mask("UPI-ZOMATO-zomato@shopcobk-UPI")).isEqualTo("UPI-ZOMATO-zomato@shopcobk-UPI");
     }
 
     @Test

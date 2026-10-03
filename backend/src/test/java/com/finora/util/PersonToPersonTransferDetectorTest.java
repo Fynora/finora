@@ -60,7 +60,7 @@ class PersonToPersonTransferDetectorTest {
         // VPA, so only the QR check can reject it. An earlier version used a narration whose every
         // segment already failed the name-shape test, and so passed with VPA_BUSINESS_QR deleted.
         assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
-                "UPI-RAJESH KUMAR-paytmqr6nu5ur@ptys-REF992817"))
+                "UPI-RAJESH KUMAR-paytmqr3qz8xw@ptys-REF992817"))
                 .isFalse();
     }
 
@@ -122,7 +122,7 @@ class PersonToPersonTransferDetectorTest {
         assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
                 "UPI-RAJESH KUMAR-Q999999999@YBL-XXXX0YBLUPI-REF1")).isFalse(); // synthetic-ok, Q-VPA
         assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
-                "UPI-RAJESH KUMAR-PAYTM.S25PHA0@PTY-REF2")).isFalse();               // Paytm merchant
+                "UPI-RAJESH KUMAR-PAYTM.S70KQZ0@PTY-REF2")).isFalse();               // Paytm merchant
         assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
                 "UPI-RAJESH KUMAR-rajesh@ybl-XXXX0MCHUPI-REF3")).isFalse();          // synthetic-ok
         assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
@@ -341,7 +341,7 @@ class PersonToPersonTransferDetectorTest {
         assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
                 "UPI/CR/REF909/SHARMA TRADERS/SBIN/sampleuser6/")).isFalse();
         assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
-                "UPI/CR/REF910/RAVI/SBIN/paytmqr6nu5ur@ptys/")).isFalse();
+                "UPI/CR/REF910/RAVI/SBIN/paytmqr3qz8xw@ptys/")).isFalse();
         assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
                 "UPI/RRN REF911/Payment from PhonePe_SWIGGY")).isFalse();
     }

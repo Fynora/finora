@@ -54,6 +54,10 @@ import type { DetectedAccountInfo } from '../types';
 // unsupported-file-type guard) -- everything else Import.tsx touches (categories/accounts lists,
 // the review step's account form, confirm/summary) is exercised by hand during review, not here.
 vi.mock('../api/endpoints', () => ({
+  // QuickSortCta on the summary screens counts waiting questions; nothing here is waiting.
+  transactionsApi: {
+    quickSort: vi.fn().mockResolvedValue({ questions: [], waitingTotal: 0, rest: { questions: 0, payments: 0, amount: 0, transactionIds: [] } }),
+  },
   importApi: {
     stageCsv: vi.fn(),
     stagePdf: vi.fn(),

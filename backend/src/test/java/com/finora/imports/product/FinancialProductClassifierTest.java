@@ -14,7 +14,7 @@ class FinancialProductClassifierTest {
     private final ProductEvidenceCollector collector = new ProductEvidenceCollector();
     private final FinancialProductClassifier classifier = new FinancialProductClassifier(collector);
     private final ProductValidator validator = new ProductValidator();
-    private final ProductDiscovery discovery = new ProductDiscovery(collector, classifier, validator);
+    private final ProductDiscovery discovery = new ProductDiscovery(classifier, validator);
 
     @Test
     void aTransactionLedgerWithNoProductMarkersIsASavingsAccount() {
@@ -369,5 +369,227 @@ class FinancialProductClassifierTest {
         assertThat(result.isConfident())
                 .as("structure identifies this section; repeated leaked namings must not demote it to UNKNOWN")
                 .isTrue();
+    }
+
+    // --- A section of a combined statement starts at its own banner ---
+
+    private static final List<String> LEDGER_COLUMNS =
+            List.of("Date", "Narration", "Withdrawal", "Deposit", "Balance");
+    private static final List<String> CARD_COLUMNS = List.of("Date", "Transaction Details", "Amount");
+    private static final List<String> CARD_SUMMARY_ABOVE_SAVINGS_BANNER = List.of(
+            "Relationship Summary",
+            "Credit Card Number Credit Limit Available Credit Limit",
+            "Total Amount Due 3,057.02",
+            "SAVINGS ACCOUNT - 10000000000001");
+
+    private FinancialProductType typeOf(List<String> columns, List<String> text, int index, int of) {
+        return classifier.classify(new Section(columns, text, null, 3, index, of)).type();
+    }
+
+    private java.util.Optional<EvidenceSource> totalDueSource(List<String> columns, List<String> text, int index, int of) {
+        return classifier.classify(new Section(columns, text, null, 3, index, of)).collected()
+                .strongestSourceFor(ProductSignal.TOTAL_DUE_FIELD);
+    }
+
+    @Test
+    void inACombinedStatement_aCardSummaryAboveTheFirstBannerDoesNotMakeItsLedgerTheCard() {
+        Section first = new Section(LEDGER_COLUMNS, CARD_SUMMARY_ABOVE_SAVINGS_BANNER, null, 3, 0, 2);
+
+        assertThat(classifier.classify(first).collected().strongestSourceFor(ProductSignal.TOTAL_DUE_FIELD))
+                .as("printed above the section's own banner, so not this section's")
+                .contains(EvidenceSource.DOCUMENT_TEXT);
+        assertThat(classifier.classify(first).collected().cardFieldsAreDocumentLevel()).isTrue();
+        assertThat(classifier.classify(first).type()).isEqualTo(FinancialProductType.SAVINGS);
+    }
+
+    @Test
+    void theSummaryAboveTheBannerNeedNotNameACardToBeLeftOut() {
+        assertThat(typeOf(LEDGER_COLUMNS, List.of("Relationship Summary", "Card Number Credit Limit",
+                "Total Amount Due 3,057.02", "Minimum Amount Due 152.85", "SAVINGS ACCOUNT - 10000000000001"), 0, 2))
+                .isEqualTo(FinancialProductType.SAVINGS);
+    }
+
+    @Test
+    void aSingleSectionStatement_keepsTheFieldsItsOwnTextPrints() {
+        // No other section exists for the text to describe, so it is this section's own.
+        Section only = new Section(LEDGER_COLUMNS, CARD_SUMMARY_ABOVE_SAVINGS_BANNER, null, 3, 0, 1);
+
+        assertThat(classifier.classify(only).collected().strongestSourceFor(ProductSignal.TOTAL_DUE_FIELD))
+                .contains(EvidenceSource.SECTION_TEXT);
+        assertThat(classifier.classify(only).collected().cardFieldsAreDocumentLevel()).isFalse();
+    }
+
+    @Test
+    void aCardSectionKeepsTheSummaryPrintedUnderItsOwnBanner() {
+        List<String> text = List.of("CREDIT CARD - 123456******7890", "Credit Limit 30,000.00",
+                "Total Amount Due 3,057.02", "Minimum Amount Due 152.85");
+
+        assertThat(totalDueSource(CARD_COLUMNS, text, 1, 2)).contains(EvidenceSource.SECTION_TEXT);
+        assertThat(classifier.classify(new Section(CARD_COLUMNS, text, null, 2, 1, 2)).collected().cardFieldsAreDocumentLevel()).isFalse();
+        assertThat(typeOf(CARD_COLUMNS, text, 1, 2)).isEqualTo(FinancialProductType.CREDIT_CARD);
+    }
+
+    @Test
+    void aCardSectionFirstInTheDocument_isStillTheCardBelowAPreambleNamingBothProducts() {
+        assertThat(typeOf(CARD_COLUMNS, List.of("Relationship Summary", "Savings Account 10000000000001",
+                "Credit Card 123456******7890", "CREDIT CARD - 123456******7890", "Credit Limit 30,000.00",
+                "Total Amount Due 3,057.02", "Minimum Amount Due 152.85"), 0, 2))
+                .isEqualTo(FinancialProductType.CREDIT_CARD);
+    }
+
+    @Test
+    void aCardSectionWhoseOwnTextMentionsASavingsAccount_isStillTheCard() {
+        assertThat(typeOf(CARD_COLUMNS, List.of("CREDIT CARD - 123456******7890", "Credit Limit 30,000.00",
+                "Total Amount Due 3,057.02", "Minimum Amount Due 152.85",
+                "Auto-debit from your savings account is active"), 1, 2))
+                .isEqualTo(FinancialProductType.CREDIT_CARD);
+    }
+
+    @Test
+    void aLineNamingAProductWithoutANumber_isNotABanner() {
+        // Prose and headings name products too ("TDS across your fixed deposits ...", "Savings
+        // Account Details"); splitting at them cut a real deposit section's own fields away.
+        assertThat(totalDueSource(LEDGER_COLUMNS, List.of("Total Amount Due 3,057.02", "Savings Account Details"), 0, 2))
+                .contains(EvidenceSource.SECTION_TEXT);
+        // An amount or a date beside a product name is not an account number either.
+        assertThat(totalDueSource(LEDGER_COLUMNS, List.of("Total Amount Due 3,057.02",
+                "Savings Account balance 12,345,678.00 as on 20/07/2026"), 0, 2))
+                .contains(EvidenceSource.SECTION_TEXT);
+        assertThat(totalDueSource(LEDGER_COLUMNS, List.of("Total Amount Due 3,057.02",
+                "Savings Account balance 10000000.00"), 0, 2))
+                .contains(EvidenceSource.SECTION_TEXT);
+        assertThat(totalDueSource(LEDGER_COLUMNS, List.of("Total Amount Due 3,057.02",
+                "Savings Account rate 0.12345678"), 0, 2))
+                .contains(EvidenceSource.SECTION_TEXT);
+    }
+
+    @Test
+    void aCardNumberPrintedInGroups_marksABanner() {
+        assertThat(totalDueSource(LEDGER_COLUMNS, List.of("Total Amount Due 3,057.02",
+                "Savings Account 1000 0000 0000 0001"), 0, 2))
+                .contains(EvidenceSource.DOCUMENT_TEXT);
+    }
+
+    @Test
+    void aBannerRepeatedOnEveryPage_startsTheSectionAtItsFirstOccurrence() {
+        // A page header repeats the banner; the section's own fields printed between the repeats
+        // are still its own.
+        assertThat(totalDueSource(CARD_COLUMNS, List.of("CREDIT CARD - 123456******7890",
+                "Total Amount Due 3,057.02", "Minimum Amount Due 152.85",
+                "CREDIT CARD - 123456******7890"), 0, 2))
+                .contains(EvidenceSource.SECTION_TEXT);
+    }
+
+    @Test
+    void aNullLineInASectionsText_neitherBreaksTheSplitNorIsLost() {
+        List<String> text = new java.util.ArrayList<>(List.of("Total Amount Due 3,057.02"));
+        text.add(null);
+        text.add("SAVINGS ACCOUNT - 10000000000001");
+        text.add(null);
+
+        assertThat(totalDueSource(LEDGER_COLUMNS, text, 0, 2)).contains(EvidenceSource.DOCUMENT_TEXT);
+        assertThat(typeOf(LEDGER_COLUMNS, text, 0, 2)).isEqualTo(FinancialProductType.SAVINGS);
+    }
+
+    @Test
+    void aHeadingWithAHyphenatedDate_isNotABanner() {
+        assertThat(totalDueSource(LEDGER_COLUMNS, List.of("Total Amount Due 3,057.02",
+                "Savings Account Statement 01-06-2026 to 30-06-2026"), 0, 2))
+                .contains(EvidenceSource.SECTION_TEXT);
+    }
+
+    @Test
+    void aNumberedProductMentionInProse_isNotABanner_soACardKeepsItsOwnSummary() {
+        // No banner of its own, and an auto-debit note naming the savings account that pays it,
+        // with that account's number, printed under the card's summary.
+        List<String> text = List.of("Credit Limit 30,000.00", "Total Amount Due 3,057.02",
+                "Minimum Amount Due 152.85", "Auto-debit from your Savings Account 10000000000001");
+
+        assertThat(totalDueSource(CARD_COLUMNS, text, 1, 2)).contains(EvidenceSource.SECTION_TEXT);
+        assertThat(typeOf(CARD_COLUMNS, text, 1, 2)).isEqualTo(FinancialProductType.CREDIT_CARD);
+    }
+
+    @Test
+    void aCardNumberGroupedByHyphens_marksABanner() {
+        assertThat(totalDueSource(LEDGER_COLUMNS, List.of("Total Amount Due 3,057.02",
+                "Savings Account 1000-0000-0000-0001"), 0, 2))
+                .contains(EvidenceSource.DOCUMENT_TEXT);
+    }
+
+    @Test
+    void aRelationshipSummaryListingTheAccountsWithTheirNumbers_isNotTheSectionsBanner() {
+        List<String> text = List.of("Relationship Summary",
+                "Savings Account 10000000000001", "Credit Card 123456******7890",
+                "Total Amount Due 3,057.02", "Minimum Amount Due 152.85",
+                "SAVINGS ACCOUNT - 10000000000001");
+
+        assertThat(totalDueSource(LEDGER_COLUMNS, text, 0, 2)).contains(EvidenceSource.DOCUMENT_TEXT);
+        assertThat(typeOf(LEDGER_COLUMNS, text, 0, 2)).isEqualTo(FinancialProductType.SAVINGS);
+    }
+
+    @Test
+    void aSavingsLineUnderACardsSummary_isNotTakenAsABannerWhenTheTableIsNotASavingsLedger() {
+        // No banner of its own; the account that pays the card printed under its summary, at the
+        // start of a line and with its number -- the same place a savings banner sits under a card
+        // summary printed above it. Only the table says which it is.
+        assertThat(typeOf(CARD_COLUMNS, List.of("Total Amount Due 3,057.02", "Minimum Amount Due 152.85",
+                "Credit Limit 30,000.00", "Card Number 123456******7890",
+                "Savings Account 10000000000001 linked for auto-debit"), 1, 2))
+                .isEqualTo(FinancialProductType.CREDIT_CARD);
+    }
+
+    @Test
+    void aSingleCardRowAboveTheCardSummary_doesNotStopTheSavingsBannerFromScopingItsLedger() {
+        assertThat(typeOf(LEDGER_COLUMNS, List.of("Credit Card 123456******7890 Limit 30,000.00",
+                "Total Amount Due 3,057.02", "Minimum Amount Due 152.85",
+                "SAVINGS ACCOUNT - 10000000000001"), 0, 2))
+                .isEqualTo(FinancialProductType.SAVINGS);
+    }
+
+    @Test
+    void finePrintNamingACardVariantBesideANumber_isNotABanner_soACardKeepsItsOwnTotalDue() {
+        // Measured on real card statements: a fee schedule names card variants beside phone and
+        // account-like numbers. Taken as a banner, the section still read as a card -- so the scope
+        // was accepted, and the card's own total due above it was demoted.
+        List<String> text = List.of("Total Amount Due 3,057.02",
+                "Fees for the Platinum Credit Card variant: call 1860 266 2666",
+                "Minimum Amount Due 152.85", "Credit Limit 30,000.00", "Card Number 123456******7890");
+
+        assertThat(totalDueSource(CARD_COLUMNS, text, 1, 2)).contains(EvidenceSource.SECTION_TEXT);
+        assertThat(typeOf(CARD_COLUMNS, text, 1, 2)).isEqualTo(FinancialProductType.CREDIT_CARD);
+    }
+
+    @Test
+    void aNumberPrintedBeforeTheProductsName_isNotABanner() {
+        assertThat(totalDueSource(LEDGER_COLUMNS, List.of("Total Amount Due 3,057.02",
+                "10000000000001 (Savings Account)"), 0, 2))
+                .contains(EvidenceSource.SECTION_TEXT);
+    }
+
+    @Test
+    void aCardWhoseSummaryIsPrintedJustAboveItsOwnBanner_keepsItsSummaryAndConfidence() {
+        // Already reads as the card its banner names: scoping it could only take its own fields away.
+        List<String> text = List.of("Total Amount Due 3,057.02", "Minimum Amount Due 152.85",
+                "CREDIT CARD - 123456******7890", "Credit Limit 30,000.00", "Card Number 123456******7890");
+        Section card = new Section(CARD_COLUMNS, text, null, 3, 1, 2);
+
+        var classified = classifier.classify(card);
+        assertThat(classified.type()).isEqualTo(FinancialProductType.CREDIT_CARD);
+        assertThat(classified.collected().strongestSourceFor(ProductSignal.TOTAL_DUE_FIELD))
+                .contains(EvidenceSource.SECTION_TEXT);
+        assertThat(classified.confidence()).isEqualTo(classifier.classify(collector.collect(card)).confidence());
+    }
+
+    @Test
+    void aSectionThatAlreadyReadsAsItsBannersProduct_isLeftExactlyAsItWas() {
+        Section savings = new Section(LEDGER_COLUMNS, List.of("Credit Card 123456******7890",
+                "Opening Balance 7,277.40", "SAVINGS ACCOUNT - 10000000000001", "Closing Balance 8,077.40"),
+                null, 3, 1, 2);
+
+        var classified = classifier.classify(savings);
+        assertThat(classified.type()).isEqualTo(FinancialProductType.SAVINGS);
+        assertThat(classified.confidence()).isEqualTo(classifier.classify(collector.collect(savings)).confidence());
+        assertThat(classified.collected().strongestSourceFor(ProductSignal.OPENING_BALANCE_FIELD))
+                .contains(EvidenceSource.SECTION_TEXT);
     }
 }

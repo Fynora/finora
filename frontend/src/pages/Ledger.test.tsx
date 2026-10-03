@@ -66,6 +66,11 @@ vi.mock('../components/CounterpartyGroupReviewCard', () => ({
   CounterpartyGroupReviewCard: () => <div data-testid="counterparty-group-review-card" />,
 }));
 
+// Quick sort is tested in QuickSortCard.test.tsx; here only where the Ledger places it.
+vi.mock('../components/QuickSortCard', () => ({
+  QuickSortCard: () => <div data-testid="quick-sort-card" />,
+}));
+
 function txn(overrides: Partial<Transaction> = {}): Transaction {
   return {
     id: 'txn-1',
@@ -624,14 +629,18 @@ describe('Ledger — merchant group review card', () => {
     vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
   });
 
-  it('renders the merchant group review card above the transaction list', async () => {
+  it('opens with Quick sort and keeps the full review lists behind "See all waiting payments"', async () => {
     renderLedger();
-    expect(await screen.findByTestId('merchant-group-review-card')).toBeInTheDocument();
+    expect(await screen.findByTestId('quick-sort-card')).toBeInTheDocument();
+    expect(screen.queryByTestId('merchant-group-review-card')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('counterparty-group-review-card')).not.toBeInTheDocument();
   });
 
-  it('renders the counterparty group review card too, after the merchant one', async () => {
+  it('shows the merchant and counterparty review cards once the full list is opened', async () => {
     renderLedger();
-    expect(await screen.findByTestId('counterparty-group-review-card')).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole('button', { name: 'See all waiting payments' }));
+    expect(await screen.findByTestId('merchant-group-review-card')).toBeInTheDocument();
+    expect(screen.getByTestId('counterparty-group-review-card')).toBeInTheDocument();
   });
 });
 

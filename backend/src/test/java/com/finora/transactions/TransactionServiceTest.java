@@ -112,7 +112,8 @@ class TransactionServiceTest {
         transactionService = new TransactionService(transactionRepository, categoryRepository, accountRepository,
                 statementImportRepository, categorizationService, reconciliationService, recurringService,
                 auditService, auditLogRepository, bankManagementService, userRepository, smsProvider, transactionGroupingService,
-                reconciliationMetrics, transactionGraphService, sharedCorpusService, userMerchantCategoryResolutionService);
+                reconciliationMetrics, transactionGraphService, sharedCorpusService, userMerchantCategoryResolutionService,
+                mock(com.finora.observability.QuickSortMetrics.class));
 
         dummyCategory = new Category();
         ReflectionTestUtils.setField(dummyCategory, "id", UUID.randomUUID());

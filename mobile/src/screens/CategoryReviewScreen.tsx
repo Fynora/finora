@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
 import { CategoryPickerModal } from '../components/CategoryPickerModal';
+import { QuickSortPanel } from '../components/QuickSortPanel';
 import { SkeletonTransactionRow } from '../components/skeletons/Skeletons';
 import { categoriesApi, transactionsApi } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
@@ -51,6 +52,12 @@ export function CategoryReviewScreen() {
   // Phase 4. Same hide-not-remove reasoning as resolvedMerchantIds above, keyed by
   // counterpartyKey since that's this group's own identity, not a merchantId.
   const [resolvedCounterpartyKeys, setResolvedCounterpartyKeys] = useState(() => new Set());
+  // Quick sort first: while its first batch has questions, the full lists below wait behind "See
+  // all waiting payments". With none (or a failed load) the screen is exactly as it was, so every
+  // waiting row stays reachable either way.
+  const [quickSortQuestions, setQuickSortQuestions] = useState(0);
+  const [showAllWaiting, setShowAllWaiting] = useState(false);
+  const listsBehindQuickSort = quickSortQuestions > 0 && !showAllWaiting;
 
   const singlesQ = useQuery({
     queryKey: ['needs-review'],
@@ -225,14 +232,21 @@ export function CategoryReviewScreen() {
         merchant.
       </Text>
 
+      <QuickSortPanel onLoaded={setQuickSortQuestions} />
+
       {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
-      {partiallyFailed ? (
+      {listsBehindQuickSort ? (
+        <Pressable onPress={() => setShowAllWaiting(true)} hitSlop={12} accessibilityRole="button">
+          <Text style={[styles.retry, { color: c.primary }]}>See all waiting payments</Text>
+        </Pressable>
+      ) : null}
+      {!listsBehindQuickSort && partiallyFailed ? (
         <Text style={[styles.warning, { color: c.mutedInk }]}>
           Part of your review queue couldn’t be loaded. Pull down to try again.
         </Text>
       ) : null}
 
-      {loading ? (
+      {listsBehindQuickSort ? null : loading ? (
         <Card style={styles.section}>
           <SkeletonTransactionRow />
           <SkeletonTransactionRow />

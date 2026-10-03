@@ -2160,6 +2160,86 @@
                 }
             }
         },
+        "/api/v1/transactions/quick-sort/more": {
+            "post": {
+                "tags": [
+                    "quick-sort-controller"
+                ],
+                "operationId": "more",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/transactions/quick-sort/keep-rest": {
+            "post": {
+                "tags": [
+                    "quick-sort-controller"
+                ],
+                "operationId": "keepRest",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/KeepRestRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseKeepRestResult"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/transactions/quick-sort/answer": {
+            "post": {
+                "tags": [
+                    "quick-sort-controller"
+                ],
+                "operationId": "answer",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AnswerRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseAnswerResult"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/transactions/bulk-delete": {
             "post": {
                 "tags": [
@@ -7649,6 +7729,47 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseListUnresolvedSenderDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/transactions/quick-sort": {
+            "get": {
+                "tags": [
+                    "quick-sort-controller"
+                ],
+                "operationId": "batch",
+                "parameters": [
+                    {
+                        "name": "skip",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int32",
+                            "default": 0
+                        }
+                    },
+                    {
+                        "name": "preview",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean",
+                            "default": false
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseBatch"
                                 }
                             }
                         }
@@ -13826,6 +13947,124 @@
                     "pairedTransactionId"
                 ]
             },
+            "KeepRestRequest": {
+                "type": "object",
+                "properties": {
+                    "transactionIds": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "maxItems": 2000,
+                        "minItems": 0
+                    }
+                },
+                "required": [
+                    "transactionIds"
+                ]
+            },
+            "ApiResponseKeepRestResult": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/KeepRestResult"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "KeepRestResult": {
+                "type": "object",
+                "properties": {
+                    "cleared": {
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                }
+            },
+            "AnswerRequest": {
+                "type": "object",
+                "properties": {
+                    "anchorTransactionId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "category": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "kind": {
+                        "type": "string",
+                        "enum": [
+                            "PERSON_PAID",
+                            "SHOP",
+                            "GUESS",
+                            "MONEY_IN"
+                        ]
+                    }
+                },
+                "required": [
+                    "anchorTransactionId",
+                    "category",
+                    "kind"
+                ]
+            },
+            "AnswerResult": {
+                "type": "object",
+                "properties": {
+                    "filed": {
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                }
+            },
+            "ApiResponseAnswerResult": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/AnswerResult"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
             "BulkDeleteRequest": {
                 "type": "object",
                 "properties": {
@@ -18949,6 +19188,149 @@
                         "items": {
                             "$ref": "#/components/schemas/UnresolvedRowDto"
                         }
+                    }
+                }
+            },
+            "ApiResponseBatch": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/Batch"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "Batch": {
+                "type": "object",
+                "properties": {
+                    "questions": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Question"
+                        }
+                    },
+                    "waitingTotal": {
+                        "type": "number"
+                    },
+                    "rest": {
+                        "$ref": "#/components/schemas/Rest"
+                    }
+                }
+            },
+            "Question": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "anchorTransactionId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "kind": {
+                        "type": "string",
+                        "enum": [
+                            "PERSON_PAID",
+                            "SHOP",
+                            "GUESS",
+                            "MONEY_IN"
+                        ]
+                    },
+                    "payee": {
+                        "type": "string"
+                    },
+                    "payments": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "total": {
+                        "type": "number"
+                    },
+                    "latestDate": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "largeOneOff": {
+                        "type": "boolean"
+                    },
+                    "currentCategory": {
+                        "type": "string"
+                    },
+                    "answers": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "samples": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Sample"
+                        }
+                    }
+                }
+            },
+            "Rest": {
+                "type": "object",
+                "properties": {
+                    "questions": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "payments": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "amount": {
+                        "type": "number"
+                    },
+                    "transactionIds": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                }
+            },
+            "Sample": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "amount": {
+                        "type": "number"
+                    },
+                    "type": {
+                        "type": "string"
                     }
                 }
             },

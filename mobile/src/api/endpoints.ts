@@ -8,7 +8,7 @@ import { reportHandledEvent } from '../lib/monitoring';
 import { shareFileAndCleanUp } from '../lib/shareFile';
 import type {
   Account, AccountStatementGroup, BankCorrectionHistoryEntry, Budget, CounterpartyGroup, DashboardSummary,
-  DetectedAccountInfo, Goal, ImportSummary, MerchantGroup, ReimportResult, StagedAccountSection, StagedRow,
+  DetectedAccountInfo, Goal, ImportSummary, MerchantGroup, QuickSortBatch, QuickSortKind, ReimportResult, StagedAccountSection, StagedRow,
   StatementSummary, Transaction, TransactionExplanation, TransactionSource, VerificationReport,
   WorkspaceSettings, UnparseableRow, WorkspaceSummary, TimelineEvent, GoalMomentum, Wrapped,
   ChoiceScope, CountsAs, InflowKind, SenderRule, UnresolvedSender,
@@ -271,6 +271,25 @@ export const transactionsApi = {
       .then((r) => r.data),
   similar: (id: string) =>
     api.get<SimilarSummary>(`/transactions/${id}/similar`).then((r) => r.data),
+  // Quick sort -- see QuickSortService. skip: payees skipped in earlier batches; preview: only the
+  // question count is shown (import success), so the server does not count it as a batch shown.
+  quickSort: (skip = 0, preview = false) =>
+    api.get<QuickSortBatch>('/transactions/quick-sort', { params: preview ? { skip, preview } : { skip } })
+      .then((r) => r.data),
+  quickSortAnswer: (anchorTransactionId: string, category: string, kind: QuickSortKind) =>
+    api.post<{ filed: number }>('/transactions/quick-sort/answer', { anchorTransactionId, category, kind })
+      .then((r) => r.data),
+  quickSortMore: () => api.post('/transactions/quick-sort/more', {}),
+  // The server takes at most 2,000 ids per request, so a large backlog goes in chunks.
+  quickSortKeepRest: async (transactionIds: string[]) => {
+    let cleared = 0;
+    for (let i = 0; i < transactionIds.length; i += 2000) {
+      const r = await api.post<{ cleared: number }>('/transactions/quick-sort/keep-rest',
+        { transactionIds: transactionIds.slice(i, i + 2000) });
+      cleared += r.data.cleared;
+    }
+    return { cleared };
+  },
   remove: (id: string) => api.delete(`/transactions/${id}`),
   // { ids } rather than a bare array: the endpoint now takes a validated DTO that bounds the
   // list (MAX_BULK_IDS). It previously accepted an unbounded List<UUID> straight off the body.

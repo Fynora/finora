@@ -676,6 +676,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/transactions/quick-sort/more": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["more"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/transactions/quick-sort/keep-rest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["keepRest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/transactions/quick-sort/answer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["answer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/transactions/bulk-delete": {
         parameters: {
             query?: never;
@@ -2956,6 +3004,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["listUnresolvedInflows"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/transactions/quick-sort": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["batch"];
         put?: never;
         post?: never;
         delete?: never;
@@ -6014,6 +6078,48 @@ export interface components {
             /** Format: uuid */
             pairedTransactionId: string;
         };
+        KeepRestRequest: {
+            transactionIds: string[];
+        };
+        ApiResponseKeepRestResult: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["KeepRestResult"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        KeepRestResult: {
+            /** Format: int32 */
+            cleared?: number;
+        };
+        AnswerRequest: {
+            /** Format: uuid */
+            anchorTransactionId: string;
+            category: string;
+            /** @enum {string} */
+            kind: "PERSON_PAID" | "SHOP" | "GUESS" | "MONEY_IN";
+        };
+        AnswerResult: {
+            /** Format: int32 */
+            filed?: number;
+        };
+        ApiResponseAnswerResult: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["AnswerResult"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
         BulkDeleteRequest: {
             ids: string[];
         };
@@ -7930,6 +8036,57 @@ export interface components {
             latestDate?: string;
             accountName?: string;
             rows?: components["schemas"]["UnresolvedRowDto"][];
+        };
+        ApiResponseBatch: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["Batch"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        Batch: {
+            questions?: components["schemas"]["Question"][];
+            waitingTotal?: number;
+            rest?: components["schemas"]["Rest"];
+        };
+        Question: {
+            id?: string;
+            /** Format: uuid */
+            anchorTransactionId?: string;
+            /** @enum {string} */
+            kind?: "PERSON_PAID" | "SHOP" | "GUESS" | "MONEY_IN";
+            payee?: string;
+            /** Format: int32 */
+            payments?: number;
+            total?: number;
+            /** Format: date */
+            latestDate?: string;
+            largeOneOff?: boolean;
+            currentCategory?: string;
+            answers?: string[];
+            samples?: components["schemas"]["Sample"][];
+        };
+        Rest: {
+            /** Format: int32 */
+            questions?: number;
+            /** Format: int32 */
+            payments?: number;
+            amount?: number;
+            transactionIds?: string[];
+        };
+        Sample: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: date */
+            date?: string;
+            description?: string;
+            amount?: number;
+            type?: string;
         };
         ApiResponseListTransactionDto: {
             success?: boolean;
@@ -12265,6 +12422,74 @@ export interface operations {
             };
         };
     };
+    more: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
+    keepRest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KeepRestRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseKeepRestResult"];
+                };
+            };
+        };
+    };
+    answer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnswerRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseAnswerResult"];
+                };
+            };
+        };
+    };
     bulkDelete: {
         parameters: {
             query?: never;
@@ -16249,6 +16474,29 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseListUnresolvedSenderDto"];
+                };
+            };
+        };
+    };
+    batch: {
+        parameters: {
+            query?: {
+                skip?: number;
+                preview?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseBatch"];
                 };
             };
         };

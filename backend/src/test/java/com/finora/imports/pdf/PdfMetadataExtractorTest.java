@@ -35,6 +35,38 @@ class PdfMetadataExtractorTest {
         assertThat(metadata.ifscCode()).isEqualTo("SBIN0001234");
     }
 
+    /** A scanned statement's header line, OCR'd as one line: the masked account number, then the
+     *  IFSC on the same line, its reserved zero read as the letter O. */
+    @Test
+    void extract_takesTheAccountNumberNotTheIfscTailWhenBothShareALine() {
+        var metadata = extractor.extract(List.of(
+                "SAMPLE HOLDER Account Number : 1234XXXXXXX5678 IFSC UBINOXXXXXX"));
+
+        assertThat(metadata.accountNumberMasked()).isEqualTo("••••5678");
+    }
+
+    @Test
+    void leadingAccountToken_cutsOnlyAWholeNumberFollowedByAnotherField() {
+        assertThat(PdfMetadataExtractor.leadingAccountToken("1234XXXXXXX5678 IFSC UBIN0XXXXXX"))
+                .isEqualTo("1234XXXXXXX5678");
+        assertThat(PdfMetadataExtractor.leadingAccountToken("111122223333444 SOME PLAN NAME"))
+                .isEqualTo("111122223333444");
+        // Spaced digit groups are one number: never shortened to the first group.
+        assertThat(PdfMetadataExtractor.leadingAccountToken("1234 5678 9012")).isEqualTo("1234 5678 9012");
+        // A masked group with fewer than four digits is not a whole number on its own.
+        assertThat(PdfMetadataExtractor.leadingAccountToken("XXXXXXXX12 3456")).isEqualTo("XXXXXXXX12 3456");
+        assertThat(PdfMetadataExtractor.leadingAccountToken("XXXXXXXX5678")).isEqualTo("XXXXXXXX5678");
+        assertThat(PdfMetadataExtractor.leadingAccountToken(null)).isNull();
+    }
+
+    @Test
+    void reservedZeroRestored_fixesOnlyAnOtherwiseIfscShapedValue() {
+        assertThat(PdfMetadataExtractor.reservedZeroRestored("UBINOXXXXXX")).isEqualTo("UBIN0XXXXXX");
+        assertThat(PdfMetadataExtractor.reservedZeroRestored("SBIN0XXXXXX")).isEqualTo("SBIN0XXXXXX");
+        assertThat(PdfMetadataExtractor.reservedZeroRestored("BRANCHOFFICE")).isEqualTo("BRANCHOFFICE");
+        assertThat(PdfMetadataExtractor.reservedZeroRestored(null)).isNull();
+    }
+
     /**
      * ACCOUNT_PRODUCT_BANNER. A real BOB savings statement never prints the phrase "Account
      * Number" anywhere: its account identity lives only in a per-page product banner that names

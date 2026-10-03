@@ -925,7 +925,7 @@ public class PdfMetadataExtractor {
                 }
             }
             if (accountNumberMasked == null) {
-                String acctNo = firstGroup(ACCOUNT_NUMBER, line);
+                String acctNo = leadingAccountToken(firstGroup(ACCOUNT_NUMBER, line));
                 // Only a value that holds at least four digits. A grid's header row ("Account
                 // Number  Credit Limit  Available Credit Limit ...") starts with the label and its
                 // "value" is the next column's heading; masking that yielded "" -- a non-null
@@ -1469,8 +1469,16 @@ public class PdfMetadataExtractor {
         }
         // Every rule above already declines a value that cannot be a name; this is the last line of
         // defence for any rule added later without it.
-        return new ExtractedMetadata(HolderNameSanity.orNull(accountHolderName), accountNumberMasked, branchName, ifscCode,
-                periodStart, periodEnd, creditLimit, paymentDueDate, accountNumberFull);
+        return new ExtractedMetadata(HolderNameSanity.orNull(accountHolderName), accountNumberMasked, branchName,
+                reservedZeroRestored(ifscCode), periodStart, periodEnd, creditLimit, paymentDueDate, accountNumberFull);
+    }
+
+    /** An IFSC's fifth character is always 0 by RBI's format; OCR returns it as the letter O
+     *  (a scanned Union Bank of India statement's "UBIN0XXXXXX" read as "UBINOXXXXXX"). Restored only
+     *  on an otherwise IFSC-shaped value, so nothing that is not one is touched. */
+    static String reservedZeroRestored(String ifsc) {
+        if (ifsc == null || !ifsc.matches("[A-Z]{4}O[A-Z0-9]{6}")) return ifsc;
+        return ifsc.substring(0, 4) + '0' + ifsc.substring(5);
     }
 
     /** Shared by every grid-metadata fallback (see {@link #GRID_DUE_DATE_LABEL}/
@@ -1577,6 +1585,27 @@ public class PdfMetadataExtractor {
         boolean alreadyMasked = trimmed.chars().anyMatch(c -> c == 'X' || c == 'x' || c == '*');
         if (alreadyMasked) return new String[]{trimmed, null};
         return new String[]{com.finora.imports.CsvParser.maskAccountNumber(trimmed), trimmed};
+    }
+
+    /**
+     * The account number alone, when the label's capture ran on into the next field.
+     *
+     * <p>A chain-merged line legitimately carries text after the number, and masking keeps the
+     * LAST four digits of whatever it is given. Measured on a scanned Union Bank of India statement,
+     * whose "Account Number : <masked number>" shares its line with its IFSC: the capture
+     * held both, and the account was staged with the last four digits of the IFSC. Cut only when the first
+     * token is unmistakably a whole number in its own right -- digits and mask characters only, at
+     * least nine of them, four or more digits -- so a number printed in spaced groups
+     * ("1234 5678 9012") is never shortened to its first group.
+     */
+    static String leadingAccountToken(String captured) {
+        if (captured == null) return null;
+        String[] tokens = captured.trim().split("\\s+");
+        if (tokens.length > 1 && tokens[0].matches("[0-9Xx*]{9,}")
+                && tokens[0].replaceAll("\\D", "").length() >= 4) {
+            return tokens[0];
+        }
+        return captured;
     }
 
     private String firstGroup(Pattern pattern, String line) {

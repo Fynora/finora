@@ -6,21 +6,33 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.finora.AbstractIntegrationTest;
 import com.finora.entity.Account;
 import com.finora.entity.AuditLog;
+import com.finora.entity.ImportJob;
+import com.finora.entity.ImportSession;
 import com.finora.entity.StatementImport;
 import com.finora.entity.User;
 import com.finora.exception.ApiException;
+import com.finora.exception.ErrorCode;
+import com.finora.imports.ImportSessionService;
+import com.finora.imports.StatementUpload;
+import com.finora.imports.jobs.ImportJobService;
+import com.finora.imports.storage.ContentAddress;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.AuditLogRepository;
+import com.finora.repository.ImportJobRepository;
+import com.finora.repository.ImportSessionRepository;
 import com.finora.repository.StatementImportRepository;
 import com.finora.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.context.TestPropertySource;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -43,13 +55,26 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  * {@code @Basic(fetch = FetchType.LAZY)}, so this test deliberately does NOT wrap itself in
  * {@code @Transactional} -- doing so would keep one Hibernate session open across both calls and
  * let a design that reads the lazy field at the wrong time pass anyway.
+ *
+ * <p>Object storage is configured (filesystem) so an upload can go through {@link
+ * ImportJobService#accept} for real -- encrypted, addressed, and read back through the same path
+ * production uses. The queue is off so no worker moves a job while a test is arranging its status.
  */
+@TestPropertySource(properties = {
+        "app.statement-storage.provider=filesystem",
+        "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-data-export-it",
+        "app.import.queue.enabled=false"
+})
 class DataExportServiceIT extends AbstractIntegrationTest {
 
     @Autowired private UserRepository userRepository;
     @Autowired private AccountRepository accountRepository;
     @Autowired private StatementImportRepository statementImportRepository;
     @Autowired private AuditLogRepository auditLogRepository;
+    @Autowired private ImportJobRepository importJobRepository;
+    @Autowired private ImportJobService importJobService;
+    @Autowired private ImportSessionService importSessionService;
+    @Autowired private ImportSessionRepository importSessionRepository;
     @Autowired private PasswordEncoder passwordEncoder;
     @Autowired private FeatureUsageService featureUsageService;
     @Autowired private SubscriptionService subscriptionService;
@@ -392,5 +417,183 @@ class DataExportServiceIT extends AbstractIntegrationTest {
 
         List<AuditLog> logs = auditLogRepository.findByUserIdOrderByCreatedAtDesc(userId);
         assertThat(logs).anySatisfy(log -> assertThat(log.getAction()).isEqualTo("INVALID_CURRENT_PASSWORD"));
+    }
+
+    /**
+     * An upload that never became a statement -- held for review, still queued, or failed -- has
+     * no {@code statement_imports} row, so the {@code statements/} loop never sees it. The file is
+     * still the user's and still held by Finora (in object storage, under the job's own address),
+     * so it belongs in the export, read back through the same decrypting path the worker uses.
+     */
+    @Test
+    void writeZip_includesUploadsThatNeverBecameAStatement_heldQueuedAndFailed() throws Exception {
+        byte[] heldBytes = "%PDF-1.4 held upload".getBytes(StandardCharsets.UTF_8);
+        byte[] queuedBytes = "date,narration,amount\n2026-09-01,queued upload,10\n".getBytes(StandardCharsets.UTF_8);
+        byte[] failedBytes = "%PDF-1.4 failed upload".getBytes(StandardCharsets.UTF_8);
+
+        ImportJob held = upload("hdfc-june.pdf", heldBytes, StatementUpload.Format.PDF);
+        held.markClaimed("worker", Instant.now());
+        held.recordFailure("IllegalStateException: no header row", "IllegalStateException",
+                ErrorCode.RetryPolicy.RETRY_ONCE_THEN_ALERT, Instant.now());
+        held.holdForReview("IllegalStateException", Instant.now());
+        importJobRepository.save(held);
+
+        ImportJob queued = upload("sbi-july.csv", queuedBytes, StatementUpload.Format.CSV);
+
+        ImportJob failed = upload("icici/august?.pdf", failedBytes, StatementUpload.Format.PDF);
+        failed.markClaimed("worker", Instant.now());
+        failed.recordFailure("locked PDF", ErrorCode.RetryPolicy.FAIL_FAST, Instant.now());
+        importJobRepository.save(failed);
+
+        assertThat(importJobRepository.findById(held.getId()).orElseThrow().getStatus())
+                .isEqualTo(ImportJob.Status.HELD_FOR_REVIEW);
+        assertThat(importJobRepository.findById(queued.getId()).orElseThrow().getStatus())
+                .isEqualTo(ImportJob.Status.QUEUED);
+        assertThat(importJobRepository.findById(failed.getId()).orElseThrow().getStatus())
+                .isEqualTo(ImportJob.Status.FAILED);
+
+        Map<String, byte[]> entries = export();
+
+        assertThat(entries.get("imports/" + held.getId() + "-hdfc-june.pdf")).isEqualTo(heldBytes);
+        assertThat(entries.get("imports/" + queued.getId() + "-sbi-july.csv")).isEqualTo(queuedBytes);
+        // The filename is sanitized exactly like statements/ entries: no path separator survives.
+        assertThat(entries.get("imports/" + failed.getId() + "-icici_august_.pdf")).isEqualTo(failedBytes);
+        assertThat(entries.keySet()).noneMatch(name -> name.contains(".MISSING.txt"));
+
+        String manifest = new String(entries.get("manifest.json"), StandardCharsets.UTF_8);
+        assertThat(manifest).contains("\"name\":\"imports/\"");
+    }
+
+    /**
+     * The same document already exported under {@code statements/} is not exported a second time
+     * under {@code imports/}. Matched by {@code content_hash} -- the SHA-256 of the original bytes,
+     * which both tables record -- not by {@code object_key}: the job's object and the confirmed
+     * statement's object are written separately (the statement's gzipped, both encrypted under a
+     * fresh random IV), so their keys never agree even for byte-identical documents.
+     */
+    @Test
+    void writeZip_doesNotRepeatUnderImportsADocumentAlreadyExportedUnderStatements() throws Exception {
+        byte[] bytes = "%PDF-1.4 imported fine".getBytes(StandardCharsets.UTF_8);
+        ImportJob job = upload("kotak-may.pdf", bytes, StatementUpload.Format.PDF);
+
+        Account account = accountRepository.findByUserId(userId).get(0);
+        StatementImport statement = new StatementImport();
+        statement.setUserId(userId);
+        statement.setAccountId(account.getId());
+        statement.setFileName("kotak-may.pdf");
+        statement.setSourceFormat("PDF");
+        statement.setFileContent(bytes);
+        // Derived the way a confirmed statement records it (ImportService.persistSection), not
+        // copied from the job -- so this also proves the two tables agree on what the hash is.
+        statement.setContentHash(ContentAddress.hashOf(bytes));
+        assertThat(statement.getContentHash()).isEqualTo(job.getContentHash());
+        UUID statementId = statementImportRepository.save(statement).getId();
+
+        Map<String, byte[]> entries = export();
+
+        assertThat(entries.get("statements/" + statementId + "-kotak-may.pdf")).isEqualTo(bytes);
+        assertThat(entries.keySet()).noneMatch(name -> name.startsWith("imports/"));
+    }
+
+    /**
+     * The same file uploaded twice (two failed attempts, say) is one document: one entry, from the
+     * most recent job.
+     */
+    @Test
+    void writeZip_exportsARepeatedlyUploadedDocumentOnce() throws Exception {
+        byte[] bytes = "%PDF-1.4 uploaded twice".getBytes(StandardCharsets.UTF_8);
+        ImportJob first = upload("axis-april.pdf", bytes, StatementUpload.Format.PDF);
+        first.markClaimed("worker", Instant.now());
+        first.recordFailure("locked PDF", ErrorCode.RetryPolicy.FAIL_FAST, Instant.now());
+        importJobRepository.save(first);
+        // A terminal first job is what lets the second upload become a job of its own -- a live
+        // one with the same content hash would be returned instead (BH-019).
+        ImportJob second = upload("axis-april (1).pdf", bytes, StatementUpload.Format.PDF);
+        assertThat(second.getId()).isNotEqualTo(first.getId());
+
+        Map<String, byte[]> entries = export();
+
+        assertThat(entries.keySet().stream().filter(name -> name.startsWith("imports/")))
+                .containsExactly("imports/" + second.getId() + "-axis-april _1_.pdf");
+    }
+
+    /**
+     * The synchronous stage path (POST /csv/stage, /pdf/stage) never creates a job: the upload is
+     * held only in its import session's file_content until the user confirms, or until the 48h TTL
+     * sweep removes it. A staged-but-unconfirmed file -- including one past its expiry that the
+     * sweep has not reached yet -- is still held, so it is exported too, read inside a transaction
+     * because file_content is LAZY.
+     */
+    @Test
+    void writeZip_includesStagedSessionUploads_evenPastExpiry() throws Exception {
+        byte[] stagedBytes = "date,narration,amount\n2026-09-02,staged only,25\n".getBytes(StandardCharsets.UTF_8);
+        byte[] expiredBytes = "date,narration,amount\n2026-08-02,expired not swept,30\n".getBytes(StandardCharsets.UTF_8);
+        ImportSession staged = importSessionService.createSession(userId, "yes-june.csv", stagedBytes, List.of(), null);
+        ImportSession expired = importSessionService.createSession(userId, "yes-may.csv", expiredBytes, List.of(), null);
+        expired.setExpiresAt(Instant.now().minusSeconds(3600));
+        importSessionRepository.save(expired);
+
+        Map<String, byte[]> entries = export();
+
+        assertThat(entries.get("imports/" + staged.getId() + "-yes-june.csv")).isEqualTo(stagedBytes);
+        assertThat(entries.get("imports/" + expired.getId() + "-yes-may.csv")).isEqualTo(expiredBytes);
+        assertThat(entries.keySet()).noneMatch(name -> name.contains(".MISSING.txt"));
+    }
+
+    /**
+     * A queued upload's worker stages it into a session holding the same bytes (same content_hash).
+     * That is one document: exported once, from the job, not again from its session.
+     */
+    @Test
+    void writeZip_doesNotRepeatAJobsDocumentFromItsSession() throws Exception {
+        byte[] bytes = "%PDF-1.4 job and its session".getBytes(StandardCharsets.UTF_8);
+        ImportJob job = upload("idfc-march.pdf", bytes, StatementUpload.Format.PDF);
+        ImportSession session = importSessionService.createSession(userId, "idfc-march.pdf", bytes, List.of(), null);
+        assertThat(session.getContentHash()).isEqualTo(job.getContentHash());
+
+        Map<String, byte[]> entries = export();
+
+        assertThat(entries.keySet().stream().filter(name -> name.startsWith("imports/")))
+                .containsExactly("imports/" + job.getId() + "-idfc-march.pdf");
+    }
+
+    /**
+     * A job whose object the storage sweep has released (V250, object_released_at set) no longer
+     * holds the file -- the sweep deleted it, or a live statement row names it and is exported
+     * under statements/ instead. It must not appear under imports/, not even as a .MISSING.txt
+     * placeholder for a file the user would be told to ask support about.
+     */
+    @Test
+    void writeZip_skipsAJobWhoseObjectTheSweepReleased() throws Exception {
+        byte[] bytes = "%PDF-1.4 released".getBytes(StandardCharsets.UTF_8);
+        ImportJob released = upload("rbl-jan.pdf", bytes, StatementUpload.Format.PDF);
+        released.markClaimed("worker", Instant.now());
+        released.recordFailure("locked PDF", ErrorCode.RetryPolicy.FAIL_FAST, Instant.now());
+        importJobRepository.save(released);
+        assertThat(importJobRepository.markObjectReleased(released.getId(), Instant.now())).isEqualTo(1);
+        assertThat(importJobRepository.findById(released.getId()).orElseThrow().getObjectReleasedAt()).isNotNull();
+
+        Map<String, byte[]> entries = export();
+
+        assertThat(entries.keySet()).noneMatch(name -> name.startsWith("imports/"));
+    }
+
+    private ImportJob upload(String fileName, byte[] bytes, StatementUpload.Format format) throws Exception {
+        MockMultipartFile file = new MockMultipartFile("file", fileName, format.contentType(), bytes);
+        return importJobRepository.findById(importJobService.accept(userId, file, format).getId()).orElseThrow();
+    }
+
+    private Map<String, byte[]> export() throws Exception {
+        DataExportService.ExportBundle bundle = service.buildBundle(userId, PASSWORD, null, null);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        service.writeZip(userId, bundle, out);
+        Map<String, byte[]> entries = new HashMap<>();
+        try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(out.toByteArray()))) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                entries.put(entry.getName(), zis.readAllBytes());
+            }
+        }
+        return entries;
     }
 }

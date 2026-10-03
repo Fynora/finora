@@ -16,6 +16,7 @@ import com.finora.entity.ChatMessage;
 import com.finora.entity.ClientPlatform;
 import com.finora.entity.FeedbackEntry;
 import com.finora.entity.HealthScoreSnapshot;
+import com.finora.entity.ImportJob;
 import com.finora.entity.ImportSession;
 import com.finora.entity.Merchant;
 import com.finora.entity.NetWorthSnapshot;
@@ -36,6 +37,7 @@ import com.finora.goals.GoalContributionRepository;
 import com.finora.goals.GoalRepository;
 import com.finora.budgets.BudgetService;
 import com.finora.imports.ImportSessionService;
+import com.finora.imports.storage.StatementContentService;
 import com.finora.integrations.google.GmailConnection;
 import com.finora.integrations.google.GmailConnectionRepository;
 import com.finora.integrations.setu.AccountAggregatorLink;
@@ -144,6 +146,7 @@ class DataExportServiceTest {
     private NetWorthSnapshotRepository netWorthSnapshotRepository;
     private MerchantRepository merchantRepository;
     private ImportJobRepository importJobRepository;
+    private StatementContentService statementContentService;
     private ImportSessionRepository importSessionRepository;
     private ImportSessionService importSessionService;
     private StatementImportRepository statementImportRepository;
@@ -201,6 +204,7 @@ class DataExportServiceTest {
         netWorthSnapshotRepository = mock(NetWorthSnapshotRepository.class);
         merchantRepository = mock(MerchantRepository.class);
         importJobRepository = mock(ImportJobRepository.class);
+        statementContentService = mock(StatementContentService.class);
         importSessionRepository = mock(ImportSessionRepository.class);
         importSessionService = mock(ImportSessionService.class);
         statementImportRepository = mock(StatementImportRepository.class);
@@ -311,7 +315,8 @@ class DataExportServiceTest {
                 accountAggregatorLinkRepository, userMerchantCategoryResolutionRepository,
                 inflowKindRepository, senderInflowRuleRepository, objectMapper,
                 mock(com.finora.repository.StatementPasswordRepository.class), featureViewCountRepository,
-paymentRepository, subscriptionOrderRepository, referralRepository, referralCodeRepository, referralGrantRepository, walletLedgerRepository, notificationRepository, notificationPreferenceRepository, timelineEventRepository, transactionRelationshipRepository, statementImportExcludedRowRepository, counterpartyCategoryObservationRepository, statementRefreshRunRepository, userActivityDayRepository);
+paymentRepository, subscriptionOrderRepository, referralRepository, referralCodeRepository, referralGrantRepository, walletLedgerRepository, notificationRepository, notificationPreferenceRepository, timelineEventRepository, transactionRelationshipRepository, statementImportExcludedRowRepository, counterpartyCategoryObservationRepository, statementRefreshRunRepository, userActivityDayRepository,
+                statementContentService);
     }
 
     private User user() {
@@ -850,18 +855,25 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
         // checked exception, so Mockito rejects it (correctly: this method never throws one). The
         // realistic source of a genuine IOException here is the ZIP output stream itself going bad
         // mid-write (a broken pipe), so this test breaks the OutputStream instead, once real bytes
-        // start flowing for this statement. 50KB of random (incompressible) content guarantees the
-        // deflated output for this entry alone comfortably exceeds the failure threshold, regardless
-        // of exactly how the manifest/README/other JSON entries ahead of it compress.
+        // start flowing for this statement. The threshold is the length of the same archive with
+        // no files in it -- longer than everything written ahead of statements/ (it adds the
+        // central directory), far shorter than that plus 50KB of incompressible content. It used
+        // to be a fixed 4096, which the manifest/README/JSON entries alone already exceeded: the
+        // stream broke before getFile was ever called, and this test passed without exercising
+        // the statement loop at all (proven by the getFile verify below failing at 4096).
         byte[] largeIncompressibleContent = new byte[50_000];
         new java.util.Random(42).nextBytes(largeIncompressibleContent);
         when(statementImportService.getFile(userId, brokenId))
                 .thenReturn(new StatementImportService.FileDownload("broken.csv", largeIncompressibleContent, "text/csv"));
 
         DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
-        OutputStream out = new FailAfterNBytesOutputStream(new ByteArrayOutputStream(), 4096);
+        ByteArrayOutputStream withoutFiles = new ByteArrayOutputStream();
+        service.writeZip(userId, withStoredFiles(bundle, List.of(), List.of()), withoutFiles);
+        OutputStream out = new FailAfterNBytesOutputStream(new ByteArrayOutputStream(), withoutFiles.size());
 
         assertThatThrownBy(() -> service.writeZip(userId, bundle, out)).isInstanceOf(IOException.class);
+        // The stream broke on this statement's bytes, not on some entry ahead of it.
+        verify(statementImportService).getFile(userId, brokenId);
         // The stream stayed broken -- the loop must not have gone on to attempt the next
         // statement after the one that broke it.
         verify(statementImportService, org.mockito.Mockito.never()).getFile(userId, neverReachedId);
@@ -894,6 +906,177 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
             written += len;
             delegate.write(b, off, len);
         }
+    }
+
+    /** imports/: a document already exported under statements/ (same content_hash) is not
+     *  repeated, the same document uploaded twice is one entry from its newest job, and a job with
+     *  no stored object has nothing to export. */
+    @Test
+    void buildBundle_unimportedUploads_skipsDocumentsUnderStatements_keepsNewestJobPerDocument() {
+        ImportJob newestOfTwice = job("twice (1).pdf", "hash-twice", "key-twice-2");
+        ImportJob alreadyImported = job("imported.pdf", "hash-imported", "key-imported");
+        ImportJob olderOfTwice = job("twice.pdf", "hash-twice", "key-twice-1");
+        ImportJob unaddressed = job("no-object.pdf", "hash-none", null);
+        when(importJobRepository.findByUserIdOrderByCreatedAtDesc(eq(userId), any()))
+                .thenReturn(List.of(newestOfTwice, alreadyImported, olderOfTwice, unaddressed));
+        when(statementImportRepository.findContentHashesByUserId(userId)).thenReturn(List.of("hash-imported"));
+
+        DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
+
+        assertThat(bundle.unimportedUploads()).containsExactly(new DataExportService.UnimportedUpload(
+                DataExportService.UnimportedUpload.Source.IMPORT_JOB, newestOfTwice.getId(), "twice (1).pdf"));
+        // import_jobs.json itself is untouched by the dedupe -- every job is still listed there.
+        assertThat(bundle.importJobs()).hasSize(4);
+    }
+
+    /** A job whose object the sweep released holds nothing to export, and it does not claim its
+     *  hash: a session still holding the same document is exported instead. */
+    @Test
+    void buildBundle_unimportedUploads_skipsReleasedJobs_withoutClaimingTheirDocument() {
+        ImportJob released = job("released.pdf", "hash-released", "key-released");
+        ReflectionTestUtils.setField(released, "objectReleasedAt", Instant.now());
+        when(importJobRepository.findByUserIdOrderByCreatedAtDesc(eq(userId), any())).thenReturn(List.of(released));
+        ImportSession sameDocument = stagedSession("released.pdf", "hash-released");
+        when(importSessionRepository.findByUserIdOrderByCreatedAtDesc(userId)).thenReturn(List.of(sameDocument));
+        when(importSessionService.readStagedRows(any())).thenReturn(List.of());
+
+        DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
+
+        assertThat(bundle.unimportedUploads()).containsExactly(new DataExportService.UnimportedUpload(
+                DataExportService.UnimportedUpload.Source.IMPORT_SESSION, sameDocument.getId(), "released.pdf"));
+    }
+
+    /** Sessions come after statements and jobs: a session holding a document already claimed by
+     *  either is skipped; a session-only document is kept (newest session wins); a pre-V79 session
+     *  with no hash cannot be matched and is kept rather than risk leaving it out. */
+    @Test
+    void buildBundle_unimportedUploads_sessionsOnlyForDocumentsNoStatementOrJobHolds() {
+        ImportJob job = job("job.pdf", "hash-job", "key-job");
+        when(importJobRepository.findByUserIdOrderByCreatedAtDesc(eq(userId), any())).thenReturn(List.of(job));
+        when(statementImportRepository.findContentHashesByUserId(userId)).thenReturn(List.of("hash-imported"));
+        ImportSession ofJob = stagedSession("job.pdf", "hash-job");
+        ImportSession ofStatement = stagedSession("imported.csv", "hash-imported");
+        ImportSession newestOnly = stagedSession("only (1).csv", "hash-only");
+        ImportSession olderOnly = stagedSession("only.csv", "hash-only");
+        ImportSession unhashed = stagedSession("old.csv", null);
+        when(importSessionRepository.findByUserIdOrderByCreatedAtDesc(userId))
+                .thenReturn(List.of(ofJob, ofStatement, newestOnly, olderOnly, unhashed));
+        when(importSessionService.readStagedRows(any())).thenReturn(List.of());
+
+        DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
+
+        assertThat(bundle.unimportedUploads()).containsExactly(
+                new DataExportService.UnimportedUpload(DataExportService.UnimportedUpload.Source.IMPORT_JOB, job.getId(), "job.pdf"),
+                new DataExportService.UnimportedUpload(DataExportService.UnimportedUpload.Source.IMPORT_SESSION, newestOnly.getId(), "only (1).csv"),
+                new DataExportService.UnimportedUpload(DataExportService.UnimportedUpload.Source.IMPORT_SESSION, unhashed.getId(), "old.csv"));
+    }
+
+    /** A session's bytes come from ImportSessionService.readOwnedFileContent, and a session that
+     *  is gone by write time (confirmed and swept, say) becomes a placeholder like any other. */
+    @Test
+    void writeZip_sessionUploads_readThroughImportSessionService_placeholderWhenGone() throws IOException {
+        ImportSession ok = stagedSession("ok.csv", "hash-ok");
+        ImportSession gone = stagedSession("gone.csv", "hash-gone");
+        when(importSessionRepository.findByUserIdOrderByCreatedAtDesc(userId)).thenReturn(List.of(ok, gone));
+        when(importSessionService.readStagedRows(any())).thenReturn(List.of());
+        when(importSessionService.readOwnedFileContent(userId, ok.getId())).thenReturn("staged".getBytes());
+        when(importSessionService.readOwnedFileContent(userId, gone.getId()))
+                .thenThrow(new ApiException(org.springframework.http.HttpStatus.NOT_FOUND, "Import session not found"));
+
+        DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
+        Map<String, byte[]> entries = writeZipAndReadEntries(bundle);
+
+        assertThat(new String(entries.get("imports/" + ok.getId() + "-ok.csv"))).isEqualTo("staged");
+        assertThat(new String(entries.get("imports/" + gone.getId() + "-gone.csv.MISSING.txt"))).contains("ApiException");
+        verifyNoInteractions(statementContentService);
+    }
+
+    private static ImportSession stagedSession(String fileName, String contentHash) {
+        ImportSession session = new ImportSession();
+        ReflectionTestUtils.setField(session, "id", UUID.randomUUID());
+        ReflectionTestUtils.setField(session, "sessionKind", ImportSession.KIND_SINGLE_ACCOUNT);
+        session.setFileName(fileName);
+        session.setContentHash(contentHash);
+        return session;
+    }
+
+    /** Same "one bad file doesn't sink the export" discipline as statements/: a storage failure,
+     *  or a job deleted between buildBundle and writeZip, becomes a placeholder; the rest goes on. */
+    @Test
+    void writeZip_oneUnimportedUploadReadFails_writesPlaceholderAndContinues() throws IOException {
+        ImportJob failing = job("failing.pdf", "hash-failing", "key-failing");
+        ImportJob gone = job("gone.pdf", "hash-gone", "key-gone");
+        ImportJob ok = job("ok.csv", "hash-ok", "key-ok");
+        when(importJobRepository.findByUserIdOrderByCreatedAtDesc(eq(userId), any())).thenReturn(List.of(failing, gone, ok));
+        when(importJobRepository.findByIdAndUserId(failing.getId(), userId)).thenReturn(Optional.of(failing));
+        when(importJobRepository.findByIdAndUserId(gone.getId(), userId)).thenReturn(Optional.empty());
+        when(importJobRepository.findByIdAndUserId(ok.getId(), userId)).thenReturn(Optional.of(ok));
+        when(statementContentService.read(failing))
+                .thenThrow(new com.finora.imports.storage.StatementStorageException("object missing"));
+        when(statementContentService.read(ok)).thenReturn("hello".getBytes());
+
+        DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
+        Map<String, byte[]> entries = writeZipAndReadEntries(bundle);
+
+        assertThat(new String(entries.get("imports/" + ok.getId() + "-ok.csv"))).isEqualTo("hello");
+        assertThat(new String(entries.get("imports/" + failing.getId() + "-failing.pdf.MISSING.txt")))
+                .contains("StatementStorageException");
+        assertThat(new String(entries.get("imports/" + gone.getId() + "-gone.pdf.MISSING.txt")))
+                .contains("IllegalStateException");
+        assertThat(entries).doesNotContainKeys("imports/" + failing.getId() + "-failing.pdf",
+                "imports/" + gone.getId() + "-gone.pdf");
+        String manifest = new String(entries.get("manifest.json"));
+        assertThat(manifest).contains("\"name\":\"imports/\"");
+        assertThat(new String(entries.get("README.txt"))).contains("imports/");
+    }
+
+    /** Sibling of writeZip_ioExceptionMidStatement_propagatesWithoutAttemptingAPlaceholder, for
+     *  imports/: a broken stream propagates, with no placeholder and no later upload read. */
+    @Test
+    void writeZip_ioExceptionMidUnimportedUpload_propagatesWithoutAttemptingAPlaceholder() throws IOException {
+        ImportJob broken = job("broken.pdf", "hash-broken", "key-broken");
+        ImportJob neverReached = job("later.pdf", "hash-later", "key-later");
+        when(importJobRepository.findByUserIdOrderByCreatedAtDesc(eq(userId), any())).thenReturn(List.of(broken, neverReached));
+        when(importJobRepository.findByIdAndUserId(broken.getId(), userId)).thenReturn(Optional.of(broken));
+        when(importJobRepository.findByIdAndUserId(neverReached.getId(), userId)).thenReturn(Optional.of(neverReached));
+        byte[] largeIncompressibleContent = new byte[50_000];
+        new java.util.Random(42).nextBytes(largeIncompressibleContent);
+        when(statementContentService.read(broken)).thenReturn(largeIncompressibleContent);
+
+        DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
+        // Breaks the stream only past everything written ahead of imports/: a whole archive with
+        // no uploads in it is longer than that prefix (it adds the central directory), and far
+        // shorter than the prefix plus 50KB of incompressible upload. A fixed small threshold broke
+        // inside the JSON entries instead, before any upload was read -- passing vacuously.
+        ByteArrayOutputStream withoutUploads = new ByteArrayOutputStream();
+        service.writeZip(userId, withStoredFiles(bundle, bundle.statementSummaries(), List.of()), withoutUploads);
+        OutputStream out = new FailAfterNBytesOutputStream(new ByteArrayOutputStream(), withoutUploads.size());
+
+        assertThatThrownBy(() -> service.writeZip(userId, bundle, out)).isInstanceOf(IOException.class);
+        // The stream broke on this upload's bytes, not on some entry ahead of it.
+        verify(statementContentService).read(broken);
+        verify(statementContentService, org.mockito.Mockito.never()).read(neverReached);
+    }
+
+    /** The same bundle with its statements/ and imports/ file lists replaced. */
+    private static DataExportService.ExportBundle withStoredFiles(DataExportService.ExportBundle b,
+                                                                  List<com.finora.dto.StatementImportDto.Summary> statements,
+                                                                  List<DataExportService.UnimportedUpload> uploads) {
+        return new DataExportService.ExportBundle(b.userId(), b.email(), b.accounts(), b.transactions(), b.budgets(),
+                b.goals(), b.goalContributions(), b.categories(), b.categoryRules(), b.relationships(),
+                b.netWorthSnapshots(), b.merchants(), b.importJobs(), b.importSessions(), statements,
+                uploads, b.gmailConnections(), b.userSettings(), b.workspaceSettings(), b.subscriptions(),
+                b.planChanges(), b.supportTickets(), b.feedback(), b.chatConversations(), b.chatMessages(),
+                b.healthScoreHistory(), b.financialFocus(), b.checklistEvents(), b.recurringDismissals(),
+                b.accountAggregatorLinks(), b.merchantCategoryResolutions(), b.inflowKinds(), b.senderInflowRules(),
+                b.paymentInflowChoices(), b.savedStatementPasswords(), b.featureViews(), b.payments(),
+                b.subscriptionOrders(), b.referrals(), b.referralCode(), b.referralRewards(), b.wallet(),
+                b.notifications(), b.notificationPreferences(), b.timeline(), b.transactionLinks(),
+                b.statementExcludedRows(), b.merchantCategoryVotes(), b.statementRefreshRuns(), b.activityDays());
+    }
+
+    private ImportJob job(String fileName, String contentHash, String objectKey) {
+        return new ImportJob(userId, fileName, contentHash, objectKey, "PDF");
     }
 
     /** Bug fix (review): toAccountExportEntry used to call AccountDto's 2-arg overload, which

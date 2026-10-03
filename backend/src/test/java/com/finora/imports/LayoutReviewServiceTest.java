@@ -65,6 +65,50 @@ class LayoutReviewServiceTest {
                 .containsExactly("CHAIN", "TOTALS");
     }
 
+    /** Sid's decision (2026-10-02): when a card statement's rows agree with its printed purchases
+     *  and payments, the summary disagreeing with itself is not something to review -- the import
+     *  went through, and the alert called it "needs review" anyway. */
+    @Test
+    void aCardSummaryWarning_isNotAReviewReason_whenTheRowsAgreeWithTheSummary() {
+        VerificationReport rowsAgree = new VerificationReport(
+                List.of(new VerificationFinding("CREDIT_CARD_STATEMENT_TOTALS", "WARNING", Map.of()),
+                        new VerificationFinding("CREDIT_CARD_FLOW_RECONCILIATION", "VERIFIED", Map.of())),
+                false, null, null);
+
+        assertThat(LayoutReviewService.rulesNotPassed(List.of(rowsAgree))).isEmpty();
+    }
+
+    @Test
+    void aCardSummaryWarning_staysAReviewReason_whenTheRowsDisagreeOrCannotBeChecked() {
+        for (String flow : List.of("WARNING", "NOT_APPLICABLE")) {
+            VerificationReport report = new VerificationReport(
+                    List.of(new VerificationFinding("CREDIT_CARD_STATEMENT_TOTALS", "WARNING", Map.of()),
+                            new VerificationFinding("CREDIT_CARD_FLOW_RECONCILIATION", flow, Map.of())),
+                    false, null, null);
+
+            assertThat(LayoutReviewService.rulesNotPassed(List.of(report))).as(flow)
+                    .contains("CREDIT_CARD_STATEMENT_TOTALS");
+        }
+        VerificationReport noFlowCheck = new VerificationReport(
+                List.of(new VerificationFinding("CREDIT_CARD_STATEMENT_TOTALS", "WARNING", Map.of())),
+                false, null, null);
+        assertThat(LayoutReviewService.rulesNotPassed(List.of(noFlowCheck))).containsExactly("CREDIT_CARD_STATEMENT_TOTALS");
+    }
+
+    /** Per section: a composite statement's other section agreeing says nothing about this one. */
+    @Test
+    void rowsAgreeingInOneSection_doNotExcuseASummaryWarningInAnother() {
+        VerificationReport warnsWithoutFlow = new VerificationReport(
+                List.of(new VerificationFinding("CREDIT_CARD_STATEMENT_TOTALS", "WARNING", Map.of())),
+                false, null, null);
+        VerificationReport agrees = new VerificationReport(
+                List.of(new VerificationFinding("CREDIT_CARD_FLOW_RECONCILIATION", "VERIFIED", Map.of())),
+                false, null, null);
+
+        assertThat(LayoutReviewService.rulesNotPassed(List.of(warnsWithoutFlow, agrees)))
+                .containsExactly("CREDIT_CARD_STATEMENT_TOTALS");
+    }
+
     @Test
     void theFingerprintOfADocumentWithNoHeadersIsRecognised_forEitherFormat() {
         String pdfHeaderless = new DocumentContext("PDF", "any").buildFingerprint();

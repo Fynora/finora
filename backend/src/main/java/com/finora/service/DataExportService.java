@@ -85,6 +85,9 @@ import com.finora.timeline.TimelineEventRepository;
 import com.finora.repository.TransactionRelationshipRepository;
 import com.finora.repository.StatementImportExcludedRowRepository;
 import com.finora.repository.CounterpartyCategoryObservationRepository;
+import com.finora.repository.StatementRefreshRunRepository;
+import com.finora.dto.StatementRefreshDtos.RefreshRunDetail;
+import com.finora.imports.refresh.StatementRefreshUserService;
 import com.finora.repository.FeedbackEntryRepository;
 import com.finora.repository.HealthScoreSnapshotRepository;
 import com.finora.repository.ImportJobRepository;
@@ -254,6 +257,7 @@ public class DataExportService {
     private final TransactionRelationshipRepository transactionRelationshipRepository;
     private final StatementImportExcludedRowRepository statementImportExcludedRowRepository;
     private final CounterpartyCategoryObservationRepository counterpartyCategoryObservationRepository;
+    private final StatementRefreshRunRepository statementRefreshRunRepository;
     private final ObjectMapper objectMapper;
 
     public DataExportService(UserRepository userRepository, GoogleReauthVerifier googleReauthVerifier,
@@ -296,7 +300,8 @@ public class DataExportService {
                               TimelineEventRepository timelineEventRepository,
                               TransactionRelationshipRepository transactionRelationshipRepository,
                               StatementImportExcludedRowRepository statementImportExcludedRowRepository,
-                              CounterpartyCategoryObservationRepository counterpartyCategoryObservationRepository) {
+                              CounterpartyCategoryObservationRepository counterpartyCategoryObservationRepository,
+                              StatementRefreshRunRepository statementRefreshRunRepository) {
         this.statementPasswordRepository = statementPasswordRepository;
         this.featureViewCountRepository = featureViewCountRepository;
         this.paymentRepository = paymentRepository;
@@ -311,6 +316,7 @@ public class DataExportService {
         this.transactionRelationshipRepository = transactionRelationshipRepository;
         this.statementImportExcludedRowRepository = statementImportExcludedRowRepository;
         this.counterpartyCategoryObservationRepository = counterpartyCategoryObservationRepository;
+        this.statementRefreshRunRepository = statementRefreshRunRepository;
         this.userRepository = userRepository;
         this.googleReauthVerifier = googleReauthVerifier;
         this.accountRepository = accountRepository;
@@ -402,7 +408,8 @@ public class DataExportService {
                         TransactionRepository.AccountTransactionCount::getAccountId,
                         TransactionRepository.AccountTransactionCount::getCount));
 
-        List<AccountExportEntry> accounts = accountRepository.findByUserIdIncludingDeleted(userId).stream()
+        List<Account> accountEntities = accountRepository.findByUserIdIncludingDeleted(userId);
+        List<AccountExportEntry> accounts = accountEntities.stream()
                 .map(a -> toAccountExportEntry(a, latestImportByAccount, statementsCountByAccount, transactionsCountByAccount))
                 .toList();
 
@@ -672,6 +679,22 @@ public class DataExportService {
                 .map(MerchantCategoryVoteExportDto::from)
                 .toList();
 
+        // The same "what changed" view the app shows for one refresh (StatementRefreshUserService.
+        // detail), statement name/period/account resolved from rows already fetched above. A run
+        // keeps the description and amount of every transaction it removed; nothing else does.
+        Map<UUID, StatementMetadata> statementsById = new HashMap<>();
+        statementMetadata.forEach(m -> statementsById.put(m.getId(), m));
+        Map<UUID, String> accountNames = new HashMap<>();
+        accountEntities.forEach(a -> accountNames.put(a.getId(), a.getName()));
+        List<RefreshRunDetail> statementRefreshRuns = statementRefreshRunRepository.findByUserIdOrderByCreatedAtDesc(userId).stream()
+                .map(run -> {
+                    StatementMetadata m = statementsById.get(run.getStatementImportId());
+                    return StatementRefreshUserService.detail(run, m == null ? null : m.getFileName(),
+                            m == null ? null : accountNames.get(m.getAccountId()),
+                            m == null ? null : m.getStatementPeriodStart(), m == null ? null : m.getStatementPeriodEnd());
+                })
+                .toList();
+
         return new ExportBundle(userId, user.getEmail(), accounts, transactions, budgets, goals, goalContributions,
                 categories, categoryRules, relationships, netWorthSnapshots, merchants, importJobs, importSessions,
                 statementSummaries, gmailConnections, userSettings, workspaceSettings, subscriptionExports, planChangeExports,
@@ -680,7 +703,7 @@ public class DataExportService {
                 inflowKinds, senderInflowRules, paymentInflowChoices, savedStatementPasswords, featureViews,
                 paymentExports, subscriptionOrderExports, referrals, referralCode, referralRewards, wallet,
                 notifications, notificationPreferences, timeline, transactionLinks, statementExcludedRows,
-                merchantCategoryVotes);
+                merchantCategoryVotes, statementRefreshRuns);
     }
 
     /**
@@ -745,6 +768,7 @@ public class DataExportService {
             writeJsonEntry(zos, "transaction_links.json", bundle.transactionLinks());
             writeJsonEntry(zos, "statement_excluded_rows.json", bundle.statementExcludedRows());
             writeJsonEntry(zos, "merchant_category_votes.json", bundle.merchantCategoryVotes());
+            writeJsonEntry(zos, "statement_refresh_runs.json", bundle.statementRefreshRuns());
 
             for (Summary statement : bundle.statementSummaries()) {
                 String entryName = "statements/" + statement.id() + "-" + sanitize(statement.fileName());
@@ -863,7 +887,8 @@ public class DataExportService {
                 new ManifestEntry("timeline.json", "Milestones on your financial timeline.", bundle.timeline().size()),
                 new ManifestEntry("transaction_links.json", "Links between your transactions -- transfers, card payments and what they settled, refunds.", bundle.transactionLinks().size()),
                 new ManifestEntry("statement_excluded_rows.json", "Statement rows you chose to leave out of your ledger.", bundle.statementExcludedRows().size()),
-                new ManifestEntry("merchant_category_votes.json", "Categories you chose for merchants' payments.", bundle.merchantCategoryVotes().size())
+                new ManifestEntry("merchant_category_votes.json", "Categories you chose for merchants' payments.", bundle.merchantCategoryVotes().size()),
+                new ManifestEntry("statement_refresh_runs.json", "Every time Finora re-read one of your statements, and exactly what that changed -- including transactions it removed.", bundle.statementRefreshRuns().size())
         );
         List<ManifestEntry> excluded = List.of(
                 new ManifestEntry("audit_logs", "Your own actions are logged for security, not collected as your data.", null),
@@ -881,11 +906,11 @@ public class DataExportService {
                         "Short-lived codes and confirmation steps for signing in or changing your details -- security bookkeeping that expires, not your data.", null),
                 new ManifestEntry("device_tokens", "The push-notification address of each device you signed in on -- delivery plumbing, not your data.", null),
                 new ManifestEntry("reimport_confirmation_claims", "A guard that stops one statement re-import from running twice -- request bookkeeping, not your data.", null),
-                new ManifestEntry("statement_refresh_previews, statement_refresh_runs",
-                        "Finora's own record of re-reading your statements with a newer parser -- what that changed is already in transactions.json.", null),
+                new ManifestEntry("statement_refresh_previews",
+                        "What a newer statement reader would change if you let it -- an offer Finora recalculates, not a record of anything that happened. Refreshes you ran are in statement_refresh_runs.json.", null),
                 new ManifestEntry("ai_audit_log", "Cost, token and timing records for each Fyn AI call -- Finora's own accountability log, like audit_logs. Your chats themselves are in fyn_chat_conversations.json and fyn_chat_messages.json.", null),
                 new ManifestEntry("referral_charges", "The payments made by people you referred, kept to count your referral rewards -- those are their payments, not your data. Your rewards are in referral_rewards.json and wallet.json.", null),
-                new ManifestEntry("held_statements, held_statement_events", "Finora's own review record for a statement it held back to check -- like support_ticket_internal_notes. The statement and its import are in statements.json and import_jobs.json.", null),
+                new ManifestEntry("held_statements, held_statement_events", "Finora's own review record for a statement it held back to check -- like support_ticket_internal_notes. The import itself is in import_jobs.json.", null),
                 new ManifestEntry("notification_logs, notifications (notification_key, attempt_count, next_attempt_at, last_error)",
                         "Delivery attempts and provider responses for each notification -- delivery plumbing. What you were sent, and when, is in notifications.json.", null),
                 new ManifestEntry("subscription_orders (razorpay_subscription_id)", "The payment provider's internal id for a checkout -- correlation bookkeeping, the same id subscriptions.json leaves out.", null)
@@ -963,6 +988,7 @@ public class DataExportService {
             List<NotificationExportDto> notifications, List<NotificationPreferenceExportDto> notificationPreferences,
             List<TimelineEventExportDto> timeline, List<TransactionLinkExportDto> transactionLinks,
             List<StatementExcludedRowExportDto> statementExcludedRows,
-            List<MerchantCategoryVoteExportDto> merchantCategoryVotes
+            List<MerchantCategoryVoteExportDto> merchantCategoryVotes,
+            List<RefreshRunDetail> statementRefreshRuns
     ) {}
 }

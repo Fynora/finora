@@ -10,6 +10,10 @@ import type { Account, DetectedAccountInfo, ImportSummary, StagedRow } from '../
 // stub those tests never expect to be reached -- stageCsv/stagePdf are configured per-test only by
 // the fresh-upload describe block below.
 jest.mock('../../api/endpoints', () => ({
+  // QuickSortCta on the success screen counts waiting questions; nothing here is waiting.
+  transactionsApi: {
+    quickSort: jest.fn().mockResolvedValue({ questions: [], waitingTotal: 0, rest: { questions: 0, payments: 0, amount: 0, transactionIds: [] } }),
+  },
   accountsApi: { list: jest.fn() },
   categoriesApi: { list: jest.fn() },
   importApi: {

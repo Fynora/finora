@@ -361,7 +361,7 @@ class UserMerchantCategoryResolutionServiceTest {
     /** Keys that join payments to different payees: a masked id, an id cut before its "@", a
      *  payment gateway's own id, a name made only of gateway words. */
     private static final List<String> KEYS_NAMING_NO_ONE = List.of(
-            "masked:.payu@hdfcbank", "cut:sampleqr1111111", "vpa:pg.razorpay", "name:via razorpay");
+            "masked:.payu@shopcobk", "cut:sampleqr1111111", "vpa:pg.razorpay", "name:via razorpay");
 
     /** The positive control for the test below: a gateway word beside the shop's own name still names the shop. */
     @Test

@@ -388,8 +388,8 @@ class CounterpartyIdentityTest {
     @Test
     void aMaskedUpiId_doesNotIdentifyOnePayee() {
         // The printed tail is shared by strangers: on the corpus one joined two different shops.
-        assertThat(CounterpartyIdentity.identifiesOnePayee("masked:.payu@hdfcbank")).isFalse();
-        assertThat(CounterpartyIdentity.identifiesOnePayee("masked:5.rzp@rxaxis")).isFalse();
+        assertThat(CounterpartyIdentity.identifiesOnePayee("masked:.payu@shopcobk")).isFalse();
+        assertThat(CounterpartyIdentity.identifiesOnePayee("masked:5.rzp@shopcobk")).isFalse();
     }
 
     @Test

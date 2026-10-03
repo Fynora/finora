@@ -1267,7 +1267,7 @@ class TransactionServiceTest {
     @Test
     void similar_neverReachesRowsThroughAKeyThatDoesNotNameOnePayee() {
         // A masked UPI id ends the same for strangers; "Pay via Razorpay" never printed the payee.
-        for (String key : List.of("masked:.payu@hdfcbank", "name:via razorpay", "name:upiintent")) {
+        for (String key : List.of("masked:.payu@shopcobk", "name:via razorpay", "name:upiintent")) {
             Transaction chosen = fromPayee(key, Transaction.Type.EXPENSE);
             when(transactionRepository.findById(chosen.getId())).thenReturn(Optional.of(chosen));
             when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Travel"))).thenReturn(dummyCategory);

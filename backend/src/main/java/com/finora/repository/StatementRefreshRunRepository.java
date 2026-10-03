@@ -11,4 +11,7 @@ public interface StatementRefreshRunRepository extends JpaRepository<StatementRe
     List<StatementRefreshRun> findByStatementImportIdOrderByCreatedAtDesc(UUID statementImportId);
 
     java.util.Optional<StatementRefreshRun> findFirstByStatementImportIdOrderByCreatedAtDesc(UUID statementImportId);
+
+    /** DataExportService -- every refresh of every one of this user's statements. */
+    List<StatementRefreshRun> findByUserIdOrderByCreatedAtDesc(UUID userId);
 }

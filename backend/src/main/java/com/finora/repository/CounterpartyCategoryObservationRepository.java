@@ -16,6 +16,9 @@ public interface CounterpartyCategoryObservationRepository extends JpaRepository
 
     List<CounterpartyCategoryObservation> findByCounterpartyKeyAndDirection(String counterpartyKey, Transaction.Type direction);
 
+    /** DataExportService -- this user's own corrections, for {@code merchant_category_votes.json}. */
+    List<CounterpartyCategoryObservation> findByUserIdOrderByCreatedAtAsc(UUID userId);
+
     long countByCounterpartyKeyAndDirectionAndCreatedAtAfter(String counterpartyKey, Transaction.Type direction, Instant after);
 
     /** Derived delete: loads each row and calls EntityManager.remove, which needs a transaction.

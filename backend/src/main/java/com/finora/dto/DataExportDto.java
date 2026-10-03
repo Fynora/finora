@@ -2,6 +2,18 @@ package com.finora.dto;
 
 import com.finora.entity.ChatConversation;
 import com.finora.entity.ChatMessage;
+import com.finora.entity.CounterpartyCategoryObservation;
+import com.finora.entity.Payment;
+import com.finora.entity.Referral;
+import com.finora.entity.ReferralCode;
+import com.finora.entity.ReferralGrant;
+import com.finora.entity.StatementImportExcludedRow;
+import com.finora.entity.SubscriptionOrder;
+import com.finora.entity.TransactionRelationship;
+import com.finora.entity.WalletLedgerEntry;
+import com.finora.notification.domain.Notification;
+import com.finora.notification.domain.NotificationPreference;
+import com.finora.timeline.TimelineEvent;
 import com.finora.entity.FeatureViewCount;
 import com.finora.entity.HealthScoreSnapshot;
 import com.finora.entity.NetWorthSnapshot;
@@ -217,6 +229,146 @@ public final class DataExportDto {
     public record RecurringDismissalExportDto(String merchant, Instant dismissedAt) {
         public static RecurringDismissalExportDto from(RecurringDismissal d) {
             return new RecurringDismissalExportDto(d.getMerchant(), d.getDismissedAt());
+        }
+    }
+
+    private static String name(Enum<?> e) {
+        return e == null ? null : e.name();
+    }
+
+    /** One {@code payments} row -- a charge for your plan. {@code planId} resolved to the plan's
+     *  own code/name, the same treatment {@link SubscriptionExportDto} gives it. */
+    public record PaymentExportDto(
+            UUID id, UUID subscriptionId, String planCode, String planName, String billingCycle,
+            BigDecimal amount, BigDecimal baseAmount, BigDecimal taxAmount, String currency,
+            String provider, String providerTransactionId, String status, String invoiceId, String invoiceUrl,
+            Instant createdAt, Instant updatedAt
+    ) {
+        public static PaymentExportDto from(Payment p, Plan plan) {
+            return new PaymentExportDto(p.getId(), p.getSubscriptionId(), plan != null ? plan.getCode() : null,
+                    plan != null ? plan.getName() : null, p.getBillingCycle(), p.getAmount(), p.getBaseAmount(),
+                    p.getTaxAmount(), p.getCurrency(), p.getProvider(), p.getProviderTransactionId(), p.getStatus(),
+                    p.getInvoiceId(), p.getInvoiceUrl(), p.getCreatedAt(), p.getUpdatedAt());
+        }
+    }
+
+    /** One {@code subscription_orders} row -- a checkout you started. {@code razorpaySubscriptionId}
+     *  is left out, the same as {@link SubscriptionExportDto} leaves it out; the manifest's
+     *  excluded list says so. */
+    public record SubscriptionOrderExportDto(
+            UUID id, String planCode, String planName, String billingCycle, String status, BigDecimal amount,
+            Instant createdAt, Instant completedAt
+    ) {
+        public static SubscriptionOrderExportDto from(SubscriptionOrder o, Plan plan) {
+            return new SubscriptionOrderExportDto(o.getId(), plan != null ? plan.getCode() : null,
+                    plan != null ? plan.getName() : null, o.getBillingCycle(), o.getStatus(), o.getAmount(),
+                    o.getCreatedAt(), o.getCompletedAt());
+        }
+    }
+
+    /** One {@code referrals} row, from this user's side: {@code role} is REFERRER when they
+     *  invited someone, REFERRED when someone invited them. The other person's account id is
+     *  never exported -- it is their identifier, not this user's data. {@code reward} is the
+     *  credit paid to the inviter, so it is kept only on REFERRER rows: the app shows it to the
+     *  inviter (ReferralService.myReferrals) and never to the person they invited. */
+    public record ReferralExportDto(UUID id, String role, String status, BigDecimal reward,
+                                    Instant createdAt, Instant updatedAt) {
+        public static final String ROLE_REFERRER = "REFERRER";
+        public static final String ROLE_REFERRED = "REFERRED";
+
+        public static ReferralExportDto from(Referral r, String role) {
+            return new ReferralExportDto(r.getId(), role, r.getStatus(),
+                    ROLE_REFERRER.equals(role) ? r.getReward() : null, r.getCreatedAt(), r.getUpdatedAt());
+        }
+    }
+
+    /** This user's own referral code and its milestone progress. */
+    public record ReferralCodeExportDto(String code, int plusMilestoneCounter, int premiumMilestoneCounter,
+                                        Instant createdAt) {
+        public static ReferralCodeExportDto from(ReferralCode c) {
+            return new ReferralCodeExportDto(c.getCode(), c.getPlusMilestoneCounter(), c.getPremiumMilestoneCounter(),
+                    c.getCreatedAt());
+        }
+    }
+
+    /** One {@code referral_grants} row -- a plan reward earned from a referral. */
+    public record ReferralRewardExportDto(UUID id, String tier, String status, UUID earnedFromReferralId,
+                                          Instant activatedAt, Instant expiresAt, Instant createdAt, Instant updatedAt) {
+        public static ReferralRewardExportDto from(ReferralGrant g) {
+            return new ReferralRewardExportDto(g.getId(), g.getTier(), g.getStatus(), g.getEarnedFromReferralId(),
+                    g.getActivatedAt(), g.getExpiresAt(), g.getCreatedAt(), g.getUpdatedAt());
+        }
+    }
+
+    /** One {@code wallet_ledger} entry -- a credit or debit to this user's wallet. */
+    public record WalletEntryExportDto(UUID id, BigDecimal amount, String reason, UUID referenceId, Instant createdAt) {
+        public static WalletEntryExportDto from(WalletLedgerEntry e) {
+            return new WalletEntryExportDto(e.getId(), e.getAmount(), e.getReason(), e.getReferenceId(), e.getCreatedAt());
+        }
+    }
+
+    /** One notification this user was sent. Delivery bookkeeping ({@code notificationKey},
+     *  {@code attemptCount}, {@code nextAttemptAt}, {@code lastError}) is left out; the manifest's
+     *  excluded list says so. */
+    public record NotificationExportDto(UUID id, String type, String category, String channel, String priority,
+                                        String status, String title, String message, Instant sentAt, Instant readAt,
+                                        Instant createdAt) {
+        public static NotificationExportDto from(Notification n) {
+            return new NotificationExportDto(n.getId(), name(n.getType()), name(n.getCategory()), name(n.getChannel()),
+                    name(n.getPriority()), name(n.getStatus()), n.getTitle(), n.getMessage(), n.getSentAt(),
+                    n.getReadAt(), n.getCreatedAt());
+        }
+    }
+
+    /** One notification on/off choice, per category and channel. */
+    public record NotificationPreferenceExportDto(String category, String channel, boolean enabled) {
+        public static NotificationPreferenceExportDto from(NotificationPreference p) {
+            return new NotificationPreferenceExportDto(name(p.getCategory()), name(p.getChannel()), p.isEnabled());
+        }
+    }
+
+    /** One {@code timeline_events} row -- a milestone on this user's financial timeline. */
+    public record TimelineEventExportDto(UUID id, String eventType, String bucket, String importance, boolean permanent,
+                                         UUID referenceId, String title, String detail, Instant occurredAt,
+                                         Instant createdAt) {
+        public static TimelineEventExportDto from(TimelineEvent e) {
+            return new TimelineEventExportDto(e.getId(), e.getEventType(), e.getBucket(), e.getImportance(),
+                    e.isPermanent(), e.getReferenceId(), e.getTitle(), e.getDetail(), e.getOccurredAt(), e.getCreatedAt());
+        }
+    }
+
+    /** One {@code transaction_relationships} row -- a link between two of this user's transactions
+     *  (a transfer pair, a card payment and the charges it settled, a refund). Both ids are
+     *  transaction ids from {@code transactions.json}. */
+    public record TransactionLinkExportDto(UUID id, UUID fromTransactionId, UUID toTransactionId, String relationshipType,
+                                           BigDecimal matchedAmount, String status, String detectionMethod,
+                                           Integer confidence, Integer sourceTrust, UUID supersededBy, Instant createdAt) {
+        public static TransactionLinkExportDto from(TransactionRelationship r) {
+            return new TransactionLinkExportDto(r.getId(), r.getFromTransactionId(), r.getToTransactionId(),
+                    name(r.getRelationshipType()), r.getMatchedAmount(), name(r.getStatus()),
+                    name(r.getDetectionMethod()), r.getConfidence(), r.getSourceTrust(), r.getSupersededBy(),
+                    r.getCreatedAt());
+        }
+    }
+
+    /** One statement row this user chose to leave out of their ledger. {@code statementImportId}
+     *  is the statement's id in {@code statements.json}. */
+    public record StatementExcludedRowExportDto(UUID statementImportId, Integer rowPosition, LocalDate txnDate,
+                                                String description, BigDecimal amount, String txnType,
+                                                boolean likelyDuplicate, Instant createdAt) {
+        public static StatementExcludedRowExportDto from(StatementImportExcludedRow r) {
+            return new StatementExcludedRowExportDto(r.getStatementImportId(), r.getRowPosition(), r.getTxnDate(),
+                    r.getDescription(), r.getAmount(), r.getTxnType(), r.isLikelyDuplicate(), r.getCreatedAt());
+        }
+    }
+
+    /** One {@code counterparty_category_observation} row -- a category this user chose for a
+     *  merchant's payments. */
+    public record MerchantCategoryVoteExportDto(String counterpartyKey, String direction, String category,
+                                                String counterpartyType, Instant createdAt) {
+        public static MerchantCategoryVoteExportDto from(CounterpartyCategoryObservation o) {
+            return new MerchantCategoryVoteExportDto(o.getCounterpartyKey(), name(o.getDirection()), o.getCategory(),
+                    name(o.getCounterpartyTypeAtVote()), o.getCreatedAt());
         }
     }
 

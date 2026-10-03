@@ -118,6 +118,16 @@ public class Transaction extends BaseEntity {
     @Column(name = "counterparty_classifier_version")
     private Short counterpartyClassifierVersion;
 
+    /**
+     * Which revision of the category-suggestion rules last examined this row
+     * ({@link com.finora.service.CategorizationService#SUGGESTION_VERSION}). 0 for a row never
+     * re-checked, including every new row: the sweep re-checks a waiting row once even when it was
+     * just imported, which costs one read-only suggestion and closes the window where a row staged
+     * under older rules is confirmed after a deploy. Written by a bulk update only.
+     */
+    @Column(name = "suggestion_version", nullable = false)
+    private short suggestionVersion = 0;
+
     @Column(name = "payment_method")
     private String paymentMethod;
 
@@ -383,6 +393,9 @@ public class Transaction extends BaseEntity {
 
     public Short getCounterpartyClassifierVersion() { return counterpartyClassifierVersion; }
     public void setCounterpartyClassifierVersion(Short v) { this.counterpartyClassifierVersion = v; }
+
+    public short getSuggestionVersion() { return suggestionVersion; }
+    public void setSuggestionVersion(short suggestionVersion) { this.suggestionVersion = suggestionVersion; }
 
     /**
      * Sets all three counterparty columns from a narration, and is the ONLY way any live write path

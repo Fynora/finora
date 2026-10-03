@@ -441,6 +441,16 @@ app:
       # Two minutes, so a deploy's first pass lands after boot and any migration have settled
       # rather than competing with them.
       initial-delay-ms: ${COUNTERPARTY_BACKFILL_SWEEP_INITIAL_DELAY_MS:120000}
+  category-suggestion-sweep:
+    # CategorySuggestionSweepService. Re-runs the read-only category suggestion on rows still
+    # waiting for review whenever CategorizationService.SUGGESTION_VERSION is raised. Off under test
+    # for the same reason as every sweep here (BH-058); tests call sweep() directly.
+    enabled: ${CATEGORY_SUGGESTION_SWEEP_ENABLED:true}
+    batch-size: ${CATEGORY_SUGGESTION_SWEEP_BATCH_SIZE:500}
+    interval-ms: ${CATEGORY_SUGGESTION_SWEEP_INTERVAL_MS:300000}
+    # Three minutes, one after the counterparty backfill's two: a re-typed payee can change what
+    # the waterfall answers, so the typing goes first on a fresh boot.
+    initial-delay-ms: ${CATEGORY_SUGGESTION_SWEEP_INITIAL_DELAY_MS:180000}
   net-worth-snapshot:
     sweep:
       # NetWorthSnapshotSweepService (Track C/C8). NetWorthController's manual "Save today's

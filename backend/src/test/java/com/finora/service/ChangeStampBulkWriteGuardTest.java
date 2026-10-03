@@ -35,7 +35,10 @@ class ChangeStampBulkWriteGuardTest {
             "applyCounterpartyTyping",
             "A backfill of a derived column, not something the user did. It must not look like an edit "
                     + "to another device, and bumping the version would make it cause or lose optimistic-lock "
-                    + "races against a person genuinely editing the same row (see its own doc comment).");
+                    + "races against a person genuinely editing the same row (see its own doc comment).",
+            "stampSuggestionVersion",
+            "Records that the suggestion rules examined a row and changed nothing the user sees. Bumping "
+                    + "the version would tell every device a row changed when it did not.");
 
     private static final Pattern MODIFYING_UPDATE = Pattern.compile(
             "@Modifying[^;]*?@Query\\((?<query>.*?)\\)\\s*(?:int|void|long)\\s+(?<method>\\w+)\\(",

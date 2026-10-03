@@ -14,6 +14,7 @@ import com.finora.repository.RefreshTokenRepository;
 import com.finora.repository.TransactionRepository;
 import com.finora.repository.UserRepository;
 import com.finora.security.JwtService;
+import com.finora.service.FeatureFlagService;
 import com.finora.testsupport.TestSessions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -51,6 +52,7 @@ class AdminFeatureFlagControllerIT extends AbstractIntegrationTest {
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
     @Autowired private CacheManager cacheManager;
+    @Autowired private FeatureFlagService featureFlagService;
     private final ObjectMapper mapper = new ObjectMapper();
 
     /**
@@ -59,7 +61,9 @@ class AdminFeatureFlagControllerIT extends AbstractIntegrationTest {
      * /recurring after the flag is off, which caches {@code false}. A direct repository save
      * bypasses FeatureFlagService's eviction, so that {@code false} outlived this class and made
      * RecurringService.detectForUser return nothing for any IT that ran in the next minute --
-     * RecurringAnswerIT failed all five tests that way. Evict the entry after restoring the row.
+     * RecurringAnswerIT failed all five tests that way. Evict the entry after restoring the row,
+     * then read the flag back through the cached service: that fails here, in this class, if the
+     * restore ever stops reaching the cache, instead of in whichever IT happens to run next.
      */
     @AfterEach
     void restoreFlag() {
@@ -69,6 +73,9 @@ class AdminFeatureFlagControllerIT extends AbstractIntegrationTest {
         });
         Cache cache = cacheManager.getCache(CacheConfig.FEATURE_FLAGS_CACHE);
         if (cache != null) cache.evict("RECURRING_DETECTION_ENABLED");
+        assertThat(featureFlagService.isEnabled("RECURRING_DETECTION_ENABLED"))
+                .as("the cached flag later ITs read must match the restored row")
+                .isTrue();
     }
 
     private User createUser(String role) {

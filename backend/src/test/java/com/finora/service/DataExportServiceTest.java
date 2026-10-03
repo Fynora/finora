@@ -125,6 +125,8 @@ import static org.mockito.Mockito.when;
 class DataExportServiceTest {
     private com.finora.repository.InflowKindRepository inflowKindRepository;
     private com.finora.repository.SenderInflowRuleRepository senderInflowRuleRepository;
+    private final com.finora.repository.UserActivityDayRepository userActivityDayRepository =
+            mock(com.finora.repository.UserActivityDayRepository.class);
 
 
     private UserRepository userRepository;
@@ -309,7 +311,7 @@ class DataExportServiceTest {
                 accountAggregatorLinkRepository, userMerchantCategoryResolutionRepository,
                 inflowKindRepository, senderInflowRuleRepository, objectMapper,
                 mock(com.finora.repository.StatementPasswordRepository.class), featureViewCountRepository,
-paymentRepository, subscriptionOrderRepository, referralRepository, referralCodeRepository, referralGrantRepository, walletLedgerRepository, notificationRepository, notificationPreferenceRepository, timelineEventRepository, transactionRelationshipRepository, statementImportExcludedRowRepository, counterpartyCategoryObservationRepository, statementRefreshRunRepository);
+paymentRepository, subscriptionOrderRepository, referralRepository, referralCodeRepository, referralGrantRepository, walletLedgerRepository, notificationRepository, notificationPreferenceRepository, timelineEventRepository, transactionRelationshipRepository, statementImportExcludedRowRepository, counterpartyCategoryObservationRepository, statementRefreshRunRepository, userActivityDayRepository);
     }
 
     private User user() {
@@ -1228,6 +1230,34 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
         assertThat(bundle.financialFocus().get(0).focusKey()).isEqualTo("BUDGETING");
         assertThat(bundle.checklistEvents()).hasSize(1);
         assertThat(bundle.checklistEvents().get(0).itemKey()).isEqualTo("LINKED_FIRST_ACCOUNT");
+    }
+
+    /** V249. activity_days.json -- user_activity_days is in AccountPurgeSweepService's purge scope,
+     *  so under the F-03 rule it must be exported (or disclosed as excluded), never silently absent.
+     *  Asserted on the written ZIP, not just the bundle: the file name, the ISO date strings and the
+     *  manifest entry are what the user actually receives. */
+    @Test
+    void writeZip_includesActivityDaysAsIsoDatesAndListsThemInTheManifest() throws IOException {
+        com.finora.entity.UserActivityDay first = new com.finora.entity.UserActivityDay();
+        ReflectionTestUtils.setField(first, "userId", userId);
+        ReflectionTestUtils.setField(first, "activityDate", java.time.LocalDate.of(2026, 9, 30));
+        com.finora.entity.UserActivityDay second = new com.finora.entity.UserActivityDay();
+        ReflectionTestUtils.setField(second, "userId", userId);
+        ReflectionTestUtils.setField(second, "activityDate", java.time.LocalDate.of(2026, 10, 1));
+        when(userActivityDayRepository.findByUserIdOrderByActivityDateAsc(userId)).thenReturn(List.of(first, second));
+
+        DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
+        Map<String, byte[]> entries = writeZipAndReadEntries(bundle);
+
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode days = mapper.readTree(entries.get("activity_days.json"));
+        assertThat(days.isArray()).isTrue();
+        assertThat(days).extracting(JsonNode::asText).containsExactly("2026-09-30", "2026-10-01");
+
+        JsonNode manifest = mapper.readTree(entries.get("manifest.json"));
+        List<String> includedNames = new ArrayList<>();
+        manifest.get("included").forEach(n -> includedNames.add(n.get("name").asText()));
+        assertThat(includedNames).contains("activity_days.json");
     }
 
     /** F-03 fix. recurring_dismissals.json -- a user-dismissed recurring transaction group. */

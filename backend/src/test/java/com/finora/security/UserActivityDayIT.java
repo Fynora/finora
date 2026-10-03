@@ -37,6 +37,7 @@ class UserActivityDayIT extends AbstractIntegrationTest {
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenService refreshTokenService;
     @Autowired private UserActivityDayRepository userActivityDayRepository;
+    @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
     private User newUser() {
         User user = new User();
@@ -85,6 +86,23 @@ class UserActivityDayIT extends AbstractIntegrationTest {
         assertThat(call(null)).isEqualTo(401);
 
         assertThat(userActivityDayRepository.findByUserIdOrderByActivityDateAsc(user.getId())).isEmpty();
+    }
+
+    /** The privacy policy promises "the calendar date only ... not the time". A timestamp column
+     *  (a created_at, say) would quietly break that promise while every other test still passed,
+     *  so the table's actual columns are pinned here. */
+    @Test
+    void theTableHoldsTheDateOnlyNeverATime() {
+        List<String> columns = jdbcTemplate.queryForList(
+                "SELECT column_name FROM information_schema.columns "
+                        + "WHERE table_name = 'user_activity_days' ORDER BY column_name",
+                String.class);
+        List<String> types = jdbcTemplate.queryForList(
+                "SELECT data_type FROM information_schema.columns WHERE table_name = 'user_activity_days'",
+                String.class);
+
+        assertThat(columns).containsExactly("activity_date", "id", "user_id");
+        assertThat(types).noneSatisfy(t -> assertThat(t).containsIgnoringCase("time"));
     }
 
     @Test

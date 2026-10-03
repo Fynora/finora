@@ -7,7 +7,8 @@
 --
 -- Deliberately a day, not a timestamp or a request log: the question is "how many days", and a row
 -- per request would be both far larger and a far more detailed record of someone's behaviour than
--- that question needs. Written by UserActivityInterceptor, at most once per user per day per backend
+-- that question needs. For the same reason there is no created_at column -- it would record the time
+-- of the day's first request, and the privacy policy promises the date only, never the time. Written by UserActivityInterceptor, at most once per user per day per backend
 -- instance; the UNIQUE constraint makes concurrent writes from several instances collapse to one row.
 --
 -- activity_date is the calendar day in the platform reporting zone (app.platform.reporting-zone,
@@ -27,7 +28,6 @@ CREATE TABLE user_activity_days (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     activity_date DATE NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (user_id, activity_date)
 );
 -- The UNIQUE index already leads with user_id, which covers per-user lookups and the purge delete.

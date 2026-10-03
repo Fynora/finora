@@ -19,6 +19,25 @@ class HolderNameSanityTest {
     }
 
     @Test
+    void theHolderShapesTheExtractorsOwnPatternsAcceptAreNames() {
+        // PdfMetadataExtractor's leading-line, panel, greeting and "Account Name" patterns all accept
+        // the "M/S" title a business account is printed with; a "/" there is not a reference.
+        assertThat(HolderNameSanity.isPlausible("M/S SAMPLE TRADERS")).isTrue();     // synthetic-ok
+        assertThat(HolderNameSanity.isPlausible("m/s. Sample Traders")).isTrue();    // synthetic-ok
+        assertThat(HolderNameSanity.isPlausible("RAVI KUMAR S/O RAM KUMAR")).isTrue(); // synthetic-ok
+        assertThat(HolderNameSanity.isPlausible("RAVI KUMAR (HUF)")).isTrue();       // synthetic-ok
+        assertThat(HolderNameSanity.isPlausible("ANITA D’SOUZA")).isTrue();          // synthetic-ok
+        // A labelled holder can be a firm, and firms carry words a statement also uses.
+        assertThat(HolderNameSanity.isPlausible("M/S SAMPLE TRAVEL SERVICES")).isTrue();   // synthetic-ok
+        assertThat(HolderNameSanity.isPlausible("SAMPLE CREDIT SOCIETY")).isTrue();        // synthetic-ok
+        assertThat(HolderNameSanity.isPlausible("SAMPLE CASH & CARRY")).isTrue();          // synthetic-ok
+        assertThat(HolderNameSanity.isPlausible("SAMPLE CARD PRINTERS")).isTrue();         // synthetic-ok
+        // The title alone, or a slash anywhere else, is still not a name.
+        assertThat(HolderNameSanity.isPlausible("M/S")).isFalse();
+        assertThat(HolderNameSanity.isPlausible("name/ Place of Supply")).isFalse();
+    }
+
+    @Test
     void whatTesterStatementsStoredAsAHolderIsNot() {
         assertThat(HolderNameSanity.isPlausible(".")).isFalse();
         assertThat(HolderNameSanity.isPlausible("Previous Balance")).isFalse();

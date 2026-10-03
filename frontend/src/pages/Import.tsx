@@ -764,7 +764,9 @@ export default function Import() {
   // "This is my account" with no name read from the statement: offered only when there is a
   // profile name to save, and never over a holder the chosen existing account already has.
   function holderClaimAvailable(): boolean {
-    if (detectedAccount?.accountHolderName || !fullName) return false;
+    // A re-import shows no account card, so it never offers the checkbox -- and a tick left from an
+    // earlier statement must not ride along on one.
+    if (reimportState || detectedAccount?.accountHolderName || !fullName) return false;
     if (accountChoice !== 'existing') return true;
     return !existingAccounts.find((a) => a.id === selectedAccountId)?.accountHolderName;
   }
@@ -1827,7 +1829,7 @@ export default function Import() {
       {step === 'review' && ownershipWarningOpen && (
         <ConfirmDialog
           title="Statement Check"
-          message={`The statement holder name ("${detectedAccount?.accountHolderName}") differs from your Finora profile name ("${fullName}"). If this is your account, Finora will save your name on it. If it belongs to someone else, continue anyway and the printed name is kept.`}
+          message={`The statement holder name ("${detectedAccount?.accountHolderName}") differs from your Fynora profile name ("${fullName}"). If this is your account, Fynora will save your name on it. If it belongs to someone else, continue anyway and the printed name is kept.`}
           confirmLabel="This is my account"
           secondaryLabel="Continue anyway"
           cancelLabel="Upload Different Statement"
@@ -2171,7 +2173,7 @@ function AccountChoiceFields({
               />
               <span>
                 This is my account. Save my name ({holderClaim.profileName}) as the account holder.
-                <span className="block text-xs text-muted">Finora could not read a holder name from this statement.</span>
+                <span className="block text-xs text-muted">Fynora could not read a holder name from this statement.</span>
               </span>
             </label>
           )}

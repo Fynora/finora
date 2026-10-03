@@ -1615,6 +1615,14 @@ class PdfMetadataExtractorTest {
     }
 
     @Test
+    void aBusinessHolderPrintedWithTheMsTitleIsStillRead() {
+        assertThat(extractor.extract(List.of("M/S SAMPLE TRADERS", "12 SAMPLE STREET,")).accountHolderName()) // synthetic-ok
+                .isEqualTo("M/S SAMPLE TRADERS"); // synthetic-ok
+        assertThat(extractor.extract(List.of("Name: M/S SAMPLE TRADERS")).accountHolderName()) // synthetic-ok
+                .isEqualTo("M/S SAMPLE TRADERS"); // synthetic-ok
+    }
+
+    @Test
     void aLabelledValueThatCannotBeANameLeavesNoHolder() {
         assertThat(extractor.extract(List.of("Name: .")).accountHolderName()).isNull();
         assertThat(extractor.extract(List.of("Name: Previous Balance")).accountHolderName()).isNull();

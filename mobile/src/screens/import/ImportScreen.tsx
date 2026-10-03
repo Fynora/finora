@@ -711,8 +711,8 @@ export function ImportScreen() {
   function confirmOwnershipMismatch() {
     AppAlert.alert(
       'Statement Check',
-      `The statement holder name ("${detected?.accountHolderName}") differs from your Finora ` +
-        `profile name ("${fullName}"). If this is your account, Finora will save your name on it. ` +
+      `The statement holder name ("${detected?.accountHolderName}") differs from your Fynora ` +
+        `profile name ("${fullName}"). If this is your account, Fynora will save your name on it. ` +
         'If it belongs to someone else, continue anyway and the printed name is kept.',
       [
         { text: 'Upload Different Statement', style: 'cancel', onPress: () => resetToUpload() },

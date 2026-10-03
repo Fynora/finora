@@ -596,12 +596,15 @@ public class ImportService {
     /**
      * "This is my account" on the ownership warning (ConfirmRequest.holderIsMine): the user's own
      * profile name becomes the account's holder, replacing whatever the statement printed. Inside
-     * the confirm's own transaction, so the name lands with the import or not at all. A profile with
-     * no name, or one that is not name-shaped, leaves the holder as it was.
+     * the confirm's own transaction, so the name lands with the import or not at all. The profile
+     * name is the user's own words, not text read off a statement, so it is not put through
+     * HolderNameSanity: refusing it would leave the user's answer silently ignored. A profile with no
+     * name leaves the holder as it was.
      */
     private void saveProfileNameAsHolder(UUID userId, UUID accountId) {
-        String name = com.finora.imports.ownership.HolderNameSanity.orNull(ownershipMatchService.profileName(userId));
-        if (name == null) return;
+        String profileName = ownershipMatchService.profileName(userId);
+        if (profileName == null || profileName.isBlank()) return;
+        String name = profileName.trim();
         accountRepository.findById(accountId)
                 .filter(account -> userId.equals(account.getUserId()))
                 .ifPresent(account -> {

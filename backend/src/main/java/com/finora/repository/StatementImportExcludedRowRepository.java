@@ -11,4 +11,7 @@ public interface StatementImportExcludedRowRepository extends JpaRepository<Stat
     /** Deletion lives on StatementImportRepository (deleteExcludedRows*), next to the statement
      *  lifecycle it belongs to. */
     List<StatementImportExcludedRow> findByStatementImportIdOrderByRowPositionAsc(UUID statementImportId);
+
+    /** DataExportService -- every row this user left out, across all their statements. */
+    List<StatementImportExcludedRow> findByUserIdOrderByStatementImportIdAscRowPositionAsc(UUID userId);
 }

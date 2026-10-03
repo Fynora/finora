@@ -28,6 +28,9 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
      *  purgeOne never issues a raw DELETE FROM users. See V137's own comment. */
     void deleteByUserId(UUID userId);
 
+    /** DataExportService -- every notification this user was sent, for {@code notifications.json}. */
+    List<Notification> findByUserIdOrderByCreatedAtDesc(UUID userId);
+
     Page<Notification> findByStatus(NotificationStatus status, Pageable pageable);
 
     long countByStatus(NotificationStatus status);

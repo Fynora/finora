@@ -111,6 +111,31 @@ class SectionScopedCreditLimitPdfPreviewGeneratorTest {
     }
 
     @Test
+    void aCardBillingSummaryPrintedAboveTheFirstBanner_doesNotMakeTheSavingsLedgerTheCard() throws Exception {
+        // The card's "Total Amount Due" panel printed above the savings banner landed in the
+        // savings section's own text: SAVINGS was contradicted by it and CREDIT_CARD won on the
+        // ledger, so the real card table had nowhere to take the card's facts. Where the summary is
+        // printed must not decide which section is the card.
+        for (boolean summaryFirst : new boolean[] {true, false}) {
+            PdfPreviewGenerator.PdfGenerationResult result = realGenerator().generateSectionsWithContext(
+                    UUID.randomUUID(), "relationship.pdf",
+                    PdfFixtureBuilder.buildCardSummaryWithSavingsAndOneUnclassifiedTableSample(summaryFirst));
+
+            assertThat(result.sections()).as("summaryFirst=%s", summaryFirst)
+                    .extracting(s -> s.detectedAccount().detectedProduct())
+                    .containsExactly("SAVINGS", "UNKNOWN");
+            StagedAccountSection savings = result.sections().get(0);
+            StagedAccountSection candidate = result.sections().get(1);
+            assertThat(savings.detectedAccount().suggestedAccountType()).isEqualTo("SAVINGS");
+            assertThat(savings.detectedAccount().creditLimit()).isNull();
+            assertThat(savings.detectedAccount().paymentDueDate()).isNull();
+            assertThat(savings.detectedAccount().accountNumberMasked()).endsWith("0001");
+            assertThat(candidate.detectedAccount().creditLimit()).isEqualByComparingTo(new BigDecimal("30000.00"));
+            assertThat(candidate.detectedAccount().paymentDueDate()).isEqualTo(java.time.LocalDate.of(2026, 7, 20));
+        }
+    }
+
+    @Test
     void withTwoSectionsThatCouldBeTheCard_theGridFactsAttachNowhere() throws Exception {
         PdfPreviewGenerator.PdfGenerationResult result = realGenerator().generateSectionsWithContext(
                 UUID.randomUUID(), "relationship.pdf", PdfFixtureBuilder.buildCardGridWithSavingsAndUnclassifiedTablesSample(true));

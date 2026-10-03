@@ -25,7 +25,7 @@ class CompositeMultiProductClassificationTest {
     private final ProductEvidenceCollector collector = new ProductEvidenceCollector();
     private final FinancialProductClassifier classifier = new FinancialProductClassifier(collector);
     private final ProductValidator validator = new ProductValidator();
-    private final ProductDiscovery discovery = new ProductDiscovery(collector, classifier, validator);
+    private final ProductDiscovery discovery = new ProductDiscovery(classifier, validator);
 
     private List<ProductDiscovery.DiscoveredProduct> discoverAll() throws IOException {
         byte[] pdf = PdfFixtureBuilder.buildCompositeMultiProductStatementSample();

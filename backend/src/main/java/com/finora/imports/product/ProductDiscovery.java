@@ -24,13 +24,13 @@ import static com.finora.imports.product.ProductValidator.ValidationResult;
 @Component
 public class ProductDiscovery {
 
-    private final ProductEvidenceCollector collector;
     private final FinancialProductClassifier classifier;
     private final ProductValidator validator;
 
-    public ProductDiscovery(ProductEvidenceCollector collector, FinancialProductClassifier classifier,
-                            ProductValidator validator) {
-        this.collector = collector;
+    /** Collection (Stage 1) happens inside the classifier, which owns the collector: whether a
+     *  section's text is scoped to its banner depends on how that scope classifies -- see
+     *  {@link FinancialProductClassifier#classify(ProductEvidenceCollector.Section)}. */
+    public ProductDiscovery(FinancialProductClassifier classifier, ProductValidator validator) {
         this.classifier = classifier;
         this.validator = validator;
     }
@@ -45,8 +45,7 @@ public class ProductDiscovery {
      * files every time a stage gains a dependency.
      */
     public static ProductDiscovery standard() {
-        ProductEvidenceCollector collector = new ProductEvidenceCollector();
-        return new ProductDiscovery(collector, new FinancialProductClassifier(collector),
+        return new ProductDiscovery(new FinancialProductClassifier(new ProductEvidenceCollector()),
                 new ProductValidator());
     }
 
@@ -96,8 +95,7 @@ public class ProductDiscovery {
 
     /** Runs all four stages over one section of a document. */
     public DiscoveredProduct discover(ProductEvidenceCollector.Section section) {
-        SectionEvidence evidence = collector.collect(section);
-        ProductClassification classification = classifier.classify(evidence);
+        ProductClassification classification = classifier.classify(section);
         ValidationResult validation = validator.validate(classification);
         return new DiscoveredProduct(classification, validation);
     }

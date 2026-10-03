@@ -827,6 +827,25 @@ public final class PdfFixtureBuilder {
      * unclassified table's two rows carry exactly. Invented figures.
      */
     public static byte[] buildCardSummaryWithSavingsAndOneUnclassifiedTableSample() throws IOException {
+        return buildCardSummaryWithSavingsAndOneUnclassifiedTableSample(false);
+    }
+
+    /**
+     * The same document with the billing summary printed either after the last table or, with
+     * {@code summaryFirst}, ABOVE the savings banner. The summary describes the card, and where it
+     * is printed must not decide which section is the card. It prints a minimum due as well, so the
+     * text above the banner carries two distinct card phrases.
+     */
+    public static byte[] buildCardSummaryWithSavingsAndOneUnclassifiedTableSample(boolean summaryFirst)
+            throws IOException {
+        return buildCardSummaryWithSavingsAndUnclassifiedTablesSample(summaryFirst, false);
+    }
+
+    /** With {@code twoUnclassified} a second table of the same unclassifiable shape is printed too, so
+     *  no single section is the one that can be the card. */
+    public static byte[] buildCardSummaryWithSavingsAndUnclassifiedTablesSample(boolean summaryFirst,
+                                                                                 boolean twoUnclassified)
+            throws IOException {
         float[] col = {LEFT_MARGIN, 130f, 300f, 380f, 460f};
         float[] gridCol = {LEFT_MARGIN, 200f, 300f, 430f};
         float[] summaryCol = {LEFT_MARGIN, 250f};
@@ -835,8 +854,9 @@ public final class PdfFixtureBuilder {
         page.line("Relationship Summary")
                 .row(gridCol, "Credit Card Number", "Credit Limit", "Available Credit Limit", "Available Cash Limit")
                 .row(gridCol, "123456******7890", "30,000.00", "25,000.00", "5,000.00")
-                .line("Payment Due Date : 20/07/2026")
-                .blankLine()
+                .line("Payment Due Date : 20/07/2026");
+        if (summaryFirst) cardBillingSummaryRows(page, summaryCol);
+        page.blankLine()
                 .line("SAVINGS ACCOUNT  - 10000000000001")
                 .row(col, "Date", "Narration", "Withdrawal", "Deposit", "Balance")
                 .row(col, "01/06/2026", "Opening Balance", null, null, "7,277.40")
@@ -846,13 +866,23 @@ public final class PdfFixtureBuilder {
                 .line("OTHER FACILITY  - 20000000000002")
                 .row(plainCol, "Date", "Details", "Amount")
                 .row(plainCol, "15/06/2026", "SAMPLE RETAILER ONE", "1,817.02")
-                .row(plainCol, "18/06/2026", "SAMPLE RETAILER TWO", "240.00")
-                .blankLine()
-                .row(summaryCol, "Previous Balance", "1,000.00")
+                .row(plainCol, "18/06/2026", "SAMPLE RETAILER TWO", "240.00");
+        if (twoUnclassified) {
+            page.blankLine()
+                .line("ANOTHER FACILITY  - 30000000000003")
+                .row(plainCol, "Txn Date", "Particulars", "Amount")
+                .row(plainCol, "21/06/2026", "SAMPLE RETAILER THREE", "99.00");
+        }
+        if (!summaryFirst) cardBillingSummaryRows(page.blankLine(), summaryCol);
+        return render(List.of(page));
+    }
+
+    private static void cardBillingSummaryRows(PageBuilder page, float[] summaryCol) {
+        page.row(summaryCol, "Previous Balance", "1,000.00")
                 .row(summaryCol, "Purchases", "2,057.02")
                 .row(summaryCol, "Payments / Credits", "0.00")
-                .row(summaryCol, "Total Amount Due", "3,057.02");
-        return render(List.of(page));
+                .row(summaryCol, "Total Amount Due", "3,057.02")
+                .row(summaryCol, "Minimum Amount Due", "152.85");
     }
 
     /** The savings-with-card-grid document again, but the ledger's own banner prints no account

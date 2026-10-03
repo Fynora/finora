@@ -201,7 +201,11 @@ public class TransactionGroupingService {
             CounterpartyType type = t.getCounterpartyType();
             if (type != CounterpartyType.PERSON && type != CounterpartyType.BUSINESS) continue;
             String key = t.getCounterpartyKey();
-            if (key == null) continue;
+            // A group is one "Apply to N transactions" away from filing every row alike, so only a
+            // key that names one payee forms one. A gateway's own id, a masked or a cut UPI id joins
+            // payments to different payees -- and the gateway id is a full UPI id, so it would even
+            // be shown as a confirmed handle.
+            if (!CounterpartyIdentity.identifiesOnePayee(key)) continue;
             transactionsByCounterparty.computeIfAbsent(key, k -> new ArrayList<>()).add(t);
         }
 

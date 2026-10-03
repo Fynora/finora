@@ -29,6 +29,8 @@ import java.util.regex.Pattern;
  *   <li>{@code vpa:<local-part>} -- strong. The handle is dropped deliberately: the same person
  *       collecting on {@code @ybl} and {@code @paytm} with one phone number is one counterparty, and
  *       keeping the handle would split them.</li>
+ *   <li>{@code masked:<tail@handle>} and {@code cut:<start>} -- weak: the statement printed only the
+ *       end, or only the start, of a UPI id, and strangers' ids can share either.</li>
  *   <li>{@code name:<token>} -- weak, and only as good as the extraction. Two spellings of one payee
  *       will not merge.</li>
  *   <li>{@code ""} -- nothing derivable. Not an error.</li>
@@ -147,8 +149,8 @@ public final class CounterpartyIdentity {
     public static String keyOf(String description) {
         if (description == null || description.isBlank()) return "";
 
-        String slotId = standardLayoutId(description);
-        if (slotId != null) return cap("vpa:" + slotId);
+        String slotKey = standardLayoutKey(description);
+        if (slotKey != null) return cap(slotKey);
 
         Matcher at = AT_HANDLE.matcher(description);
         while (at.find()) {
@@ -242,21 +244,47 @@ public final class CounterpartyIdentity {
     private static final Pattern PARTNER_PREFIX_ONLY = Pattern.compile("vpa:bajajpay\\.\\d+");
 
     /**
+     * A UPI id a bank printed only the start of, with no "@" to show where it ended. Measured
+     * 2026-10-03 on the corpus: one bank prints this id field 15 characters wide and drops the "@"
+     * whenever the id runs past it (17 rows, every one exactly 15 characters). Eight of those ids are
+     * the start of a longer id printed elsewhere, and one of them begins five different shops' ids
+     * under one payment brand. The rows still group by it; it is not taken as one payee.
+     */
+    static final String CUT_PREFIX = "cut:";
+
+    /**
+     * A payment gateway's or UPI app's own id, which settles refunds and reversals for every shop on
+     * it; the shop is at most in the free-text remark. Measured 2026-10-03 on the corpus: refunds from
+     * a grocery app and a travel site both arrived under {@code pg.razorpay}, and a few users' votes
+     * for the first made it the shared suggestion for the second. A shop's OWN id on a gateway
+     * ({@code <shop>.rzp}, {@code <shop>.payu}) is not one of these and names that shop.
+     */
+    private static final java.util.Set<String> GATEWAY_OWN_IDS = java.util.Set.of(
+            "vpa:pg.razorpay", "vpa:phonepemerchant");
+
+    /** Google Pay's refund ids ("gpayrefund-online"): the shop that refunded is never printed. */
+    private static final String GATEWAY_REFUND_ID_PREFIX = "vpa:gpayrefund";
+
+    /**
      * Whether every row carrying this key was paid to (or by) the same payee, so a choice the user
      * makes for one row can be applied to the others.
      *
      * <ul>
      *   <li>{@code vpa:} -- a full UPI id: yes, unless it is only a payment brand's partner prefix
-     *       (see {@link #PARTNER_PREFIX_ONLY}).</li>
+     *       (see {@link #PARTNER_PREFIX_ONLY}) or a gateway's own id (see {@link #GATEWAY_OWN_IDS}).</li>
      *   <li>{@code masked:} -- only the end of a UPI id was printed, and the end is shared by strangers:
      *       no. Measured on the corpus: {@code masked:.payu@hdfcbank} joined two different shops.</li>
+     *   <li>{@code cut:} -- only the start of a UPI id was printed: no (see {@link #CUT_PREFIX}).</li>
      *   <li>{@code name:} -- yes, unless every word is a rail or gateway word (see
      *       {@link #RAIL_AND_GATEWAY_WORDS}), when the payee was never printed at all.</li>
      * </ul>
      */
     public static boolean identifiesOnePayee(String key) {
         if (key == null || key.isBlank()) return false;
-        if (key.startsWith("vpa:")) return key.length() > "vpa:".length() && !PARTNER_PREFIX_ONLY.matcher(key).matches();
+        if (key.startsWith("vpa:")) {
+            return key.length() > "vpa:".length() && !PARTNER_PREFIX_ONLY.matcher(key).matches()
+                    && !GATEWAY_OWN_IDS.contains(key) && !key.startsWith(GATEWAY_REFUND_ID_PREFIX);
+        }
         if (!key.startsWith("name:")) return false;
         String[] words = key.substring("name:".length()).trim().split("\\s+");
         return !java.util.Arrays.stream(words).allMatch(w -> w.isEmpty() || RAIL_AND_GATEWAY_WORDS.contains(w));
@@ -295,15 +323,19 @@ public final class CounterpartyIdentity {
     }
 
     /**
-     * The id in the sixth field of the standard layout ({@link #STANDARD_LAYOUT}), lower-cased, or
+     * The key for the id in the sixth field of the standard layout ({@link #STANDARD_LAYOUT}), or
      * null when the narration is not in that layout or the field does not hold an id.
      *
      * <p>Whatever came after an "@" is dropped (the PSP, possibly cut), one line-wrap space is
      * removed, and a trailing linked-account suffix ("-1", or a lone "-" where the cut fell) goes.
      * A field with no "@" must still look like an id rather than words: more than one space, or
      * capitals with no digit ("Rent June"), and it is left to the name fallback.
+     *
+     * <p>With the "@" printed, the local part before it is whole: {@code vpa:}. Without it the bank
+     * cut the id somewhere, and where is not known: {@code cut:}, which groups the rows that print
+     * the same text but names no one ({@link #CUT_PREFIX}).
      */
-    static String standardLayoutId(String description) {
+    static String standardLayoutKey(String description) {
         Matcher m = STANDARD_LAYOUT.matcher(description);
         if (!m.find()) return null;
         String field = m.group(1).trim();
@@ -319,7 +351,7 @@ public final class CounterpartyIdentity {
         // With no "@" to vouch for it, only an id-shaped field counts: ids in this slot print lower
         // case or as digits. Capitals ("Rent June2026") are a note, left to the name fallback.
         if (!hadAt && !id.equals(id.toLowerCase())) return null;
-        return id.toLowerCase();
+        return (hadAt ? "vpa:" : CUT_PREFIX) + id.toLowerCase();
     }
 
     record IdBeforeAt(String local, boolean masked) {}

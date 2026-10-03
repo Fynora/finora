@@ -253,7 +253,7 @@ public class ImportService {
                     java.util.Collections.singletonList(staged.verification()));
             reviewLayout(fingerprint, "CSV", staged.rows(),
                     java.util.Collections.singletonList(staged.verification()), reference,
-                    LayoutIdentity.of(java.util.Collections.singletonList(staged.detectedAccount())));
+                    LayoutIdentity.of(java.util.Collections.singletonList(staged.detectedAccount())), false);
             return new StagingSessionResponse(session.getId(), staged, previousImportOf(userId, session.getContentHash()));
         } catch (RuntimeException e) {
             // BH-028. This caught ApiException only, so a document that made the PARSER FALL OVER
@@ -394,7 +394,8 @@ public class ImportService {
                 recordPdfParsed(userId, fileName, fileContent.length, fingerprint, sections.size(), startedAtMs,
                         diagnostics, session.getId(),
                         java.util.Collections.singletonList(staged.verification()), staged.rows(),
-                        LayoutIdentity.of(java.util.Collections.singletonList(staged.detectedAccount())));
+                        LayoutIdentity.of(java.util.Collections.singletonList(staged.detectedAccount())),
+                        holderUnreadable(result.documentContext(), java.util.Collections.singletonList(staged.detectedAccount())));
                 return new PdfStagingSessionResponse(session.getId(), false, staged, null,
                         previousImportOf(userId, session.getContentHash()));
             }
@@ -408,7 +409,8 @@ public class ImportService {
                     diagnostics, session.getId(),
                     sections.stream().map(StagedAccountSection::verification).toList(),
                     sections.stream().flatMap(section -> section.rows().stream()).toList(),
-                    LayoutIdentity.of(sections.stream().map(StagedAccountSection::detectedAccount).toList()));
+                    LayoutIdentity.of(sections.stream().map(StagedAccountSection::detectedAccount).toList()),
+                    holderUnreadable(result.documentContext(), sections.stream().map(StagedAccountSection::detectedAccount).toList()));
             return new PdfStagingSessionResponse(session.getId(), true, null, sections,
                     previousImportOf(userId, session.getContentHash()));
         } catch (RuntimeException e) {
@@ -568,12 +570,12 @@ public class ImportService {
                                   int sectionCount, long startedAtMs, ParseDiagnostics diagnostics,
                                   UUID importSessionId,
                                   List<VerificationReport> verificationBySection,
-                                  List<StagedRow> stagedRows, LayoutIdentity identity) {
+                                  List<StagedRow> stagedRows, LayoutIdentity identity, boolean holderUnreadable) {
         String reference = analysisRecorder.recordParsed(userId, StatementAnalysisSession.Source.CUSTOMER_IMPORT, fileName,
                 "PDF", byteSize, fingerprint, sectionCount, System.currentTimeMillis() - startedAtMs,
                 diagnostics, importSessionId);
         verificationRecorder.recordForAnalysis(reference, verificationBySection);
-        reviewLayout(fingerprint, "PDF", stagedRows, verificationBySection, reference, identity);
+        reviewLayout(fingerprint, "PDF", stagedRows, verificationBySection, reference, identity, holderUnreadable);
     }
 
     /**
@@ -585,10 +587,43 @@ public class ImportService {
      */
     private void reviewLayout(String fingerprint, String sourceFormat, List<StagedRow> rows,
                               List<VerificationReport> verificationBySection, String analysisReference,
-                              LayoutIdentity identity) {
+                              LayoutIdentity identity, boolean holderUnreadable) {
         if (layoutReviewService == null) return;
         layoutReviewService.onStaged(fingerprint, sourceFormat, rows, verificationBySection, analysisReference,
-                identity);
+                identity, holderUnreadable);
+    }
+
+    /**
+     * "This is my account" on the ownership warning (ConfirmRequest.holderIsMine): the user's own
+     * profile name becomes the account's holder, replacing whatever the statement printed. Inside
+     * the confirm's own transaction, so the name lands with the import or not at all. The profile
+     * name is the user's own words, not text read off a statement, so it is not put through
+     * HolderNameSanity: refusing it would leave the user's answer silently ignored. A profile with no
+     * name leaves the holder as it was.
+     */
+    private void saveProfileNameAsHolder(UUID userId, UUID accountId) {
+        String profileName = ownershipMatchService.profileName(userId);
+        if (profileName == null || profileName.isBlank()) return;
+        String name = profileName.trim();
+        accountRepository.findById(accountId)
+                .filter(account -> userId.equals(account.getUserId()))
+                .ifPresent(account -> {
+                    account.setAccountHolderName(name);
+                    accountRepository.save(account);
+                });
+    }
+
+    /**
+     * True when the extractor refused a value read from a holder label (it could not be a name, see
+     * HolderNameSanity) and no section ended up with a holder at all -- the case an admin should see
+     * (LayoutReviewService.Reason.HOLDER_NAME_UNREADABLE). A refusal followed by the real name found
+     * elsewhere, as on the tester's Axis statements, is the extractor working and flags nothing.
+     */
+    static boolean holderUnreadable(DocumentContext ctx, List<DetectedAccountInfo> accounts) {
+        if (ctx == null || !ctx.diagnostics().contains(com.finora.imports.ownership.HolderNameSanity.REFUSED_DIAGNOSTIC)) {
+            return false;
+        }
+        return accounts.stream().noneMatch(a -> a != null && a.accountHolderName() != null);
     }
 
     /**
@@ -732,14 +767,15 @@ public class ImportService {
                 }
                 reviewLayout(fingerprint, "PDF", sections.stream().flatMap(sec -> sec.rows().stream()).toList(),
                         sections.stream().map(StagedAccountSection::verification).toList(), null,
-                        LayoutIdentity.of(sections.stream().map(StagedAccountSection::detectedAccount).toList()));
+                        LayoutIdentity.of(sections.stream().map(StagedAccountSection::detectedAccount).toList()),
+                        holderUnreadable(result.documentContext(), sections.stream().map(StagedAccountSection::detectedAccount).toList()));
                 return toStagingResponse(sections.get(index));
             }
             var result = previewGenerator.generateWithContext(userId, filename, new java.io.ByteArrayInputStream(content));
             fingerprint = fingerprintOf(result.documentContext());
             StagingResponse staged = result.response();
             reviewLayout(fingerprint, "CSV", staged.rows(), java.util.Collections.singletonList(staged.verification()),
-                    null, LayoutIdentity.of(java.util.Collections.singletonList(staged.detectedAccount())));
+                    null, LayoutIdentity.of(java.util.Collections.singletonList(staged.detectedAccount())), false);
             return staged;
         } catch (RuntimeException e) {
             if (layoutReviewService != null) {
@@ -1104,6 +1140,9 @@ public class ImportService {
                                     // byte-array paths, which parse in the same request that confirms.
                                     String stagedByVersion) {
         long startedAtMs = System.currentTimeMillis();
+        // A session staged by a build without HolderNameSanity can still carry a footer fragment as
+        // its holder; it is neither compared nor stored.
+        extractedHolderName = com.finora.imports.ownership.HolderNameSanity.orNull(extractedHolderName);
         List<String> accountsCreated = new ArrayList<>();
         // What was created, by PRODUCT rather than by account. The summary says "1 Savings, 1 Fixed
         // Deposit" instead of "3 accounts" -- which was both less informative and, for a combined
@@ -1117,6 +1156,7 @@ public class ImportService {
         // yet to pollute that count.
         StatementImport.OwnershipMatchStatus ownershipMatchStatus =
                 ownershipMatchService.evaluate(userId, accountId, extractedHolderName);
+        if (Boolean.TRUE.equals(request.holderIsMine())) saveProfileNameAsHolder(userId, accountId);
 
         long merchantsBefore = merchantRepository.countByUserId(userId);
 
@@ -2004,6 +2044,9 @@ public class ImportService {
             if (na.name() == null || na.name().isBlank()) {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "The new account needs a name.");
             }
+            // The client sends back the holder it was shown, which a session staged before
+            // HolderNameSanity can hold as a footer fragment; that is neither matched on nor saved.
+            String newAccountHolder = com.finora.imports.ownership.HolderNameSanity.orNull(na.accountHolderName());
 
             // Before creating anything: is this a product the user already holds?
             //
@@ -2016,7 +2059,7 @@ public class ImportService {
             // at once, which is worse than a duplicate the user can see and merge.
             ProductIdentity discovered = ProductIdentity.stored(
                     na.bankId(), productTypeOf(na), na.productIdentityHash(), na.accountNumberMasked())
-                    .withWeakSignals(na.ifscCode(), na.accountHolderName());
+                    .withWeakSignals(na.ifscCode(), newAccountHolder);
             ProductIdentityResolver.ProductMatch match = productIdentityResolver.resolve(userId, discovered);
             if (match.mayImportWithoutAsking()) {
                 return match.account().getId();
@@ -2050,7 +2093,7 @@ public class ImportService {
             AccountDto created = accountService.create(userId, new AccountDto.CreateRequest(
                     na.name(), accountType, na.openingBalance(), na.creditLimit(), na.dueDate(),
                     product.investmentKind(),
-                    na.accountHolderName(), na.accountNumberMasked(), na.bankId(),
+                    newAccountHolder, na.accountNumberMasked(), na.bankId(),
                     na.branchName(), na.ifscCode(),
                     na.principalAmount(), na.interestRate(), na.maturityDate(), na.maturityAmount(),
                     na.installmentAmount(), na.installmentsPaid(), na.installmentsTotal()), userId);

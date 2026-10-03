@@ -361,6 +361,46 @@ class ImportServiceSessionTest {
     }
 
     @Test
+    void thisIsMyAccount_savesTheProfileNameAsTheAccountsHolder() {
+        Account account = accountRepository.findById(accountId).orElseThrow();
+        account.setAccountHolderName("Sunil Verma");
+        when(getOwnershipMatchService().profileName(userId)).thenReturn("Ravi Kumar"); // synthetic-ok
+
+        importService.confirm(userId, "statement.csv", "date,description,amount\n".getBytes(), withHolderIsMine(true));
+
+        assertThat(account.getAccountHolderName()).isEqualTo("Ravi Kumar"); // synthetic-ok
+        // Saved here, and again later by the import's own balance update -- the name is on both.
+        verify(accountRepository, org.mockito.Mockito.atLeastOnce()).save(account);
+    }
+
+    @Test
+    void continueAnyway_keepsThePrintedHolder() {
+        Account account = accountRepository.findById(accountId).orElseThrow();
+        account.setAccountHolderName("Sunil Verma");
+        when(getOwnershipMatchService().profileName(userId)).thenReturn("Ravi Kumar"); // synthetic-ok
+
+        importService.confirm(userId, "statement.csv", "date,description,amount\n".getBytes(), withHolderIsMine(null));
+
+        assertThat(account.getAccountHolderName()).isEqualTo("Sunil Verma");
+    }
+
+    @Test
+    void thisIsMyAccount_withNoUsableProfileName_leavesTheHolderAlone() {
+        Account account = accountRepository.findById(accountId).orElseThrow();
+        account.setAccountHolderName("Sunil Verma");
+        when(getOwnershipMatchService().profileName(userId)).thenReturn(null);
+
+        importService.confirm(userId, "statement.csv", "date,description,amount\n".getBytes(), withHolderIsMine(true));
+
+        assertThat(account.getAccountHolderName()).isEqualTo("Sunil Verma");
+    }
+
+    private com.finora.dto.ImportDto.ConfirmRequest withHolderIsMine(Boolean holderIsMine) {
+        return new com.finora.dto.ImportDto.ConfirmRequest(null, List.of(confirmedRow()), accountId, null,
+                null, null, null, null, null, null, null, true, null, holderIsMine);
+    }
+
+    @Test
     void confirm_withNoSession_leavesExtractedHolderNameNull() {
         // The byte-array confirm() overload (used by StatementImportService.confirmReimport()) has
         // no ImportSession to read a holder name from -- same best-effort-null treatment as the

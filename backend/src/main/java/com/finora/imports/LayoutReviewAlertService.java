@@ -39,7 +39,8 @@ public class LayoutReviewAlertService {
             "VERIFICATION_NOT_PASSED", "A verification check did not pass (warning or failure)",
             "BLANK_DESCRIPTIONS", "Most transactions staged with no description",
             "STAGING_FAILED", "The layout was recognised but staging failed",
-            "IDENTITY_CONFLICT", "The layout was seen as a different bank or account type than before");
+            "IDENTITY_CONFLICT", "The layout was seen as a different bank or account type than before",
+            "HOLDER_NAME_UNREADABLE", "The account holder's name could not be read (the statement still imported, with no holder)");
 
     private final UserRepository userRepository;
     private final EmailProvider emailProvider;

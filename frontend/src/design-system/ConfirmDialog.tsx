@@ -12,12 +12,16 @@ import { useDialogA11y } from './useDialogA11y';
  * Esc-dismisses-the-dialog behavior -- this replaces that dialog, so it should keep that much of it.
  */
 export function ConfirmDialog({
-  title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel', danger, busy, onConfirm, onCancel,
+  title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel', secondaryLabel, onSecondary, danger, busy,
+  onConfirm, onCancel,
 }: {
   title: string;
   message: string;
   confirmLabel?: string;
   cancelLabel?: string;
+  /** An optional third answer between Cancel and Confirm, rendered only when both are given. */
+  secondaryLabel?: string;
+  onSecondary?: () => void;
   /** Red confirm button -- for a delete/discard action, as opposed to a neutral confirmation. */
   danger?: boolean;
   /** Disables both buttons and swaps the confirm label to a busy state while the action is in flight. */
@@ -56,6 +60,16 @@ export function ConfirmDialog({
             >
               {cancelLabel}
             </button>
+            {secondaryLabel && onSecondary && (
+              <button
+                type="button"
+                onClick={onSecondary}
+                disabled={busy}
+                className="text-xs font-medium text-ink border border-border rounded-lg px-3 py-2 disabled:opacity-40"
+              >
+                {secondaryLabel}
+              </button>
+            )}
             <button
               type="button"
               onClick={onConfirm}

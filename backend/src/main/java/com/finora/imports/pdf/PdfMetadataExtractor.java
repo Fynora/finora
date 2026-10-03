@@ -1,6 +1,7 @@
 package com.finora.imports.pdf;
 
 import com.finora.imports.DocumentContext;
+import com.finora.imports.ownership.HolderNameSanity;
 import com.finora.util.BankRegistry;
 import org.springframework.stereotype.Component;
 
@@ -862,8 +863,9 @@ public class PdfMetadataExtractor {
             // labelled holder source the weak leading-line fallback has already been wrong against.
             Matcher cardholderBanner = CARDHOLDER_FOR_BANNER.matcher(line);
             if (cardholderBanner.matches()) {
-                if (accountHolderName == null || holderFromLeadingLineFallback) {
-                    accountHolderName = cardholderBanner.group(1).trim();
+                String bannerHolder = labelledName(cardholderBanner.group(1), ctx) ? cardholderBanner.group(1).trim() : null;
+                if ((accountHolderName == null || holderFromLeadingLineFallback) && bannerHolder != null) {
+                    accountHolderName = bannerHolder;
                     holderFromLeadingLineFallback = false;
                 }
                 if (accountNumberMasked == null && looksLikeCardOrAccountNumber(cardholderBanner.group(2))) {
@@ -876,7 +878,11 @@ public class PdfMetadataExtractor {
 
             if (accountHolderName == null || holderFromLeadingLineFallback) {
                 String holder = firstGroup(ACCOUNT_HOLDER, line);
-                if (holder != null) {
+                // A labelled value is taken only when it can be a name. The bare "Name" label also
+                // matches the end of a wrapped sentence ("...held in the Cardholder's" / "name."):
+                // on a tester's Axis card statements it captured "." and "/ Place of Supply and GST
+                // ...", and, being a label, overwrote the right name the leading-line rule had found.
+                if (holder != null && labelledName(cutAtFirstTokenWithADigit(holder), ctx)) {
                     // A labelled holder value runs to the end of the line, and on a real IOB
                     // statement the line continues with the address ("<name> <city>-<pin>,<city>").
                     // The name ends at the first token holding a digit.
@@ -885,14 +891,16 @@ public class PdfMetadataExtractor {
                     continue;
                 }
                 Matcher greeting = GREETING_NAME_LINE.matcher(line.trim());
-                if (greeting.matches() && containsNoLeadingTitleWord(greeting.group(1))) {
+                if (greeting.matches() && containsNoLeadingTitleWord(greeting.group(1))
+                        && labelledName(greeting.group(1), ctx)) {
                     accountHolderName = greeting.group(1).trim();
                     holderFromLeadingLineFallback = false;
                     if (ctx != null) ctx.record("ACCOUNT_HOLDER_FROM_GREETING");
                     continue;
                 }
                 Matcher midLabel = ACCOUNT_NAME_MID_LABEL.matcher(line.trim());
-                if (midLabel.find() && containsNoLeadingTitleWord(midLabel.group(1))) {
+                if (midLabel.find() && containsNoLeadingTitleWord(midLabel.group(1))
+                        && labelledName(midLabel.group(1), ctx)) {
                     accountHolderName = midLabel.group(1).trim();
                     holderFromLeadingLineFallback = false;
                     if (ctx != null) ctx.record("GRID_METADATA_TRAILING_LABEL");
@@ -908,7 +916,7 @@ public class PdfMetadataExtractor {
                 Matcher beforePanel = LEADING_NAME_BEFORE_PANEL_LABEL.matcher(line.trim());
                 if (beforePanel.find()) {
                     String candidate = beforePanel.group(1).trim();
-                    if (containsNoLeadingTitleWord(candidate)
+                    if (containsNoLeadingTitleWord(candidate) && HolderNameSanity.isPlausible(candidate)
                             && BankRegistry.UNKNOWN_ID.equals(BankRegistry.detect("", List.of(candidate)).id())) {
                         accountHolderName = candidate;
                         holderFromLeadingLineFallback = true;
@@ -1237,7 +1245,7 @@ public class PdfMetadataExtractor {
             }
             if (accountHolderName == null) {
                 Matcher holderMatch = ACCOUNT_NAME_TRAILING_LABEL.matcher(line);
-                if (holderMatch.find()) {
+                if (holderMatch.find() && labelledName(holderMatch.group(1), ctx)) {
                     accountHolderName = holderMatch.group(1).trim();
                     if (ctx != null) ctx.record("GRID_METADATA_TRAILING_LABEL");
                     continue;
@@ -1400,6 +1408,7 @@ public class PdfMetadataExtractor {
                     && !insideAddressContinuation
                     && LEADING_NAME_LINE.matcher(line.trim()).matches()
                     && containsNoLeadingTitleWord(line)
+                    && HolderNameSanity.isPlausible(line)
                     && !isASummaryGridLabel(preTableLines, i)
                     && BankRegistry.UNKNOWN_ID.equals(BankRegistry.detect("", List.of(line)).id())) {
                 accountHolderName = line.trim();
@@ -1458,7 +1467,9 @@ public class PdfMetadataExtractor {
                 }
             }
         }
-        return new ExtractedMetadata(accountHolderName, accountNumberMasked, branchName, ifscCode,
+        // Every rule above already declines a value that cannot be a name; this is the last line of
+        // defence for any rule added later without it.
+        return new ExtractedMetadata(HolderNameSanity.orNull(accountHolderName), accountNumberMasked, branchName, ifscCode,
                 periodStart, periodEnd, creditLimit, paymentDueDate, accountNumberFull);
     }
 
@@ -1586,6 +1597,14 @@ public class PdfMetadataExtractor {
             if (LEADING_TITLE_WORDS.contains(normalized)) return false;
         }
         return true;
+    }
+
+    /** Whether a value read from a holder label can be a name; a refusal is recorded as a parse
+     *  diagnostic, which staging turns into an admin flag when no holder is found anywhere else. */
+    private static boolean labelledName(String value, DocumentContext ctx) {
+        if (HolderNameSanity.isPlausible(value)) return true;
+        if (ctx != null) ctx.recordDiagnostic(HolderNameSanity.REFUSED_DIAGNOSTIC);
+        return false;
     }
 
     /** The tokens before the first one holding a digit, or the whole value when none does or

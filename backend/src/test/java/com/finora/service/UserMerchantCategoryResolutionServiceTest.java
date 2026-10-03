@@ -358,25 +358,12 @@ class UserMerchantCategoryResolutionServiceTest {
         verifyNoInteractions(resolutionRepository);
     }
 
-    // --- keys that do not name one payee: nothing is remembered against them, nothing is served ---
-    // A masked UPI id's printed tail is shared by strangers, and a name made only of gateway words
-    // ("Pay via Razorpay") never printed the payee at all: a category remembered against either would
-    // file payments to different shops the same way. See CounterpartyIdentity.identifiesOnePayee.
+    /** Keys that join payments to different payees: a masked id, an id cut before its "@", a
+     *  payment gateway's own id, a name made only of gateway words. */
+    private static final List<String> KEYS_NAMING_NO_ONE = List.of(
+            "masked:.payu@hdfcbank", "cut:sampleqr1111111", "vpa:pg.razorpay", "name:via razorpay");
 
-    @Test
-    void pin_maskedKey_writesNothing() {
-        service.pin(userId, "masked:tailx@okicici", Transaction.Type.EXPENSE, UUID.randomUUID());
-
-        verifyNoInteractions(resolutionRepository);
-    }
-
-    @Test
-    void pin_gatewayOnlyNameKey_writesNothing() {
-        service.pin(userId, "name:via razorpay", Transaction.Type.EXPENSE, UUID.randomUUID());
-
-        verifyNoInteractions(resolutionRepository);
-    }
-
+    /** The positive control for the test below: a gateway word beside the shop's own name still names the shop. */
     @Test
     void pin_nameKeyThatNamesThePayee_stillWrites() {
         UUID categoryId = UUID.randomUUID();
@@ -386,37 +373,58 @@ class UserMerchantCategoryResolutionServiceTest {
         verify(resolutionRepository).upsertPinned(eq(userId), eq("name:samplecanteen payu"), eq("EXPENSE"), eq(categoryId), any());
     }
 
-    /** No cache read, no LLM call, no Tier 1 understanding (cached for every user), no row written. */
+    /** A row saved before such keys stopped being saved is still in the table: the live read must not serve it. */
     @Test
-    void resolve_weakKey_callsNothingAndCachesNothing() {
-        Optional<String> result = service.resolve(userId, "masked:tailx@okicici", Transaction.Type.EXPENSE,
-                "UPI/DR/111111111111/SAMPLE N/CNRB/**TAILX@OKICICI/UPI");
-
-        assertThat(result).isEmpty();
-        verifyNoInteractions(resolutionRepository, understandingService, llmClient, categorizationService);
-    }
-
-    /** A row stored before the guard existed is not served: the read is guarded too. */
-    @Test
-    void resolveReadOnly_weakKey_ignoresAStoredRow() {
+    void resolveReadOnly_keyThatNamesNoOnePayee_ignoresARowAlreadyStored() {
         UserMerchantCategoryResolution stored = new UserMerchantCategoryResolution();
         stored.setCategoryId(UUID.randomUUID());
         when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(any(), any(), any()))
                 .thenReturn(Optional.of(stored));
 
-        assertThat(service.resolveReadOnly(userId, "name:via razorpay", Transaction.Type.EXPENSE)).isEmpty();
-        assertThat(service.resolveReadOnly(userId, "masked:tailx@okicici", Transaction.Type.EXPENSE)).isEmpty();
+        for (String key : KEYS_NAMING_NO_ONE) {
+            assertThat(service.resolveReadOnly(userId, key, Transaction.Type.EXPENSE)).isEmpty();
+        }
     }
 
-    /** Import staging's path: the statement-wide index may hold a row stored before the guard. */
     @Test
-    void resolveReadOnly_withIndex_weakKey_ignoresAnIndexedRow() {
-        var index = new com.finora.imports.ResolutionIndex(Map.of(Transaction.Type.EXPENSE, Map.of(
-                "name:via razorpay", "Dining", "masked:tailx@okicici", "Dining", "vpa:headsupfortails", "Pet Care")));
+    void pin_keyThatNamesNoOnePayee_writesNothing() {
+        // Pinned, one choice would file every later payment to a stranger on the same key.
+        for (String key : KEYS_NAMING_NO_ONE) {
+            service.pin(userId, key, Transaction.Type.EXPENSE, UUID.randomUUID());
+        }
 
-        assertThat(service.resolveReadOnly(userId, "name:via razorpay", Transaction.Type.EXPENSE, index)).isEmpty();
-        assertThat(service.resolveReadOnly(userId, "masked:tailx@okicici", Transaction.Type.EXPENSE, index)).isEmpty();
-        assertThat(service.resolveReadOnly(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, index)).contains("Pet Care");
+        verifyNoInteractions(resolutionRepository);
+    }
+
+    @Test
+    void resolveReadOnly_keyThatNamesNoOnePayee_returnsEmptyWithoutReadingAnySavedAnswer() {
+        var index = new com.finora.imports.ResolutionIndex(Map.of(Transaction.Type.EXPENSE,
+                Map.of("vpa:pg.razorpay", "Groceries", "cut:sampleqr1111111", "Groceries")));
+
+        for (String key : KEYS_NAMING_NO_ONE) {
+            assertThat(service.resolveReadOnly(userId, key, Transaction.Type.EXPENSE)).isEmpty();
+            assertThat(service.resolveReadOnly(userId, key, Transaction.Type.EXPENSE, index)).isEmpty();
+        }
+        verifyNoInteractions(resolutionRepository);
+    }
+
+    @Test
+    void resolve_keyThatNamesNoOnePayee_stillAsks_butNeverReadsOrSavesAnAnswer() {
+        when(understandingService.understand(any(), any(), any(), any())).thenReturn(Optional.of("An online travel agency"));
+        Category travel = new Category();
+        travel.setUserId(userId);
+        travel.setName("Travel");
+        when(categoryRepository.findByUserId(userId)).thenReturn(List.of(travel));
+        ToolUse toolUse = new ToolUse("t1", "RESOLVE_CATEGORY", Map.of("category", "Travel"));
+        when(llmClient.complete(any())).thenReturn(new LlmCompletion(null, List.of(toolUse),
+                "claude-haiku-4-5-20251001", 60, 8, "tool_use"));
+        when(categorizationService.resolveOrCreateCategory(userId, "Travel", null)).thenReturn(travel);
+
+        Optional<String> result = service.resolve(userId, "vpa:pg.razorpay", Transaction.Type.INCOME,
+                "UPI-RAZORPAY-PG.RAZORPAY@SAMPLEBANK-SMPL0XXXXXX-111111111111-SAMPLETRAVELREFUNDX1");
+
+        assertThat(result).contains("Travel");
+        verifyNoInteractions(resolutionRepository);
     }
 
     @Test

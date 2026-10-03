@@ -14659,6 +14659,9 @@
                     },
                     "idempotencyKey": {
                         "type": "string"
+                    },
+                    "holderIsMine": {
+                        "type": "boolean"
                     }
                 },
                 "required": [

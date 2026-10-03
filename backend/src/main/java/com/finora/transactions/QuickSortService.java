@@ -79,28 +79,35 @@ public class QuickSortService {
     }
 
     /**
-     * Files the question's payee with the chosen category: every waiting payment to it when its key
-     * names one payee (the "apply to all similar" path, #1902, which also learns and remembers the
-     * payee), otherwise the one row. Rows the user already chose by hand are left as they are and
-     * not counted. Answering "Personal Transfer" or "Other" on purpose is a choice like any other.
+     * Files the question's payee with the chosen category: the anchor, and when the key names one
+     * payee, the payee's other rows still WAITING -- exactly the payments the question showed.
+     * Not "apply to all similar": that also re-files the payee's rows a rule already filed, which
+     * the question never showed, so one tap could silently change payments the user never saw.
+     * The anchor's answer is learned and the payee remembered for future imports (the default
+     * scope of updateCategory); the other waiting rows are filed without learning the same lesson
+     * again. A key that names no one payee files the one row and remembers nothing. Answering
+     * "Personal Transfer" or "Other" on purpose is a choice like any other.
      */
     @Transactional
     public QuickSortDto.AnswerResult answer(UUID userId, QuickSortDto.AnswerRequest req) {
         Transaction anchor = OwnershipGuard.requireOwned(transactionRepository.findById(req.anchorTransactionId()),
                 Transaction::getUserId, userId, "Transaction");
         boolean onePayee = CounterpartyIdentity.identifiesOnePayee(anchor.getCounterpartyKey());
-        List<UUID> filed = new ArrayList<>();
-        filed.add(anchor.getId());
+        List<UUID> otherWaiting = new ArrayList<>();
         if (onePayee) {
             List<UUID> liveAccountIds = accountRepository.findByUserId(userId).stream().map(Account::getId).toList();
             if (!liveAccountIds.isEmpty()) {
                 transactionRepository.findByUserIdAndCounterpartyKeyAndTxnTypeAndIdNotAndAccountIdIn(userId,
                                 anchor.getCounterpartyKey(), anchor.getTxnType(), anchor.getId(), liveAccountIds)
-                        .stream().filter(t -> !t.isCategoryManuallySet()).forEach(t -> filed.add(t.getId()));
+                        .stream().filter(t -> t.isNeedsCategoryReview() && !t.isCategoryManuallySet())
+                        .forEach(t -> otherWaiting.add(t.getId()));
             }
         }
         transactionService.updateCategory(userId, anchor.getId(), req.category(),
-                onePayee ? TransactionDto.CategoryScope.SIMILAR : TransactionDto.CategoryScope.ONLY_THIS);
+                onePayee ? null : TransactionDto.CategoryScope.ONLY_THIS);
+        transactionService.fileWithChosenCategory(userId, otherWaiting, req.category());
+        List<UUID> filed = new ArrayList<>(otherWaiting);
+        filed.add(anchor.getId());
         transactionRepository.stampQuickSorted(userId, filed, java.time.Instant.now());
         metrics.answered(req.kind().name());
         return new QuickSortDto.AnswerResult(filed.size());

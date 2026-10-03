@@ -39,7 +39,7 @@ export function QuickSortCard() {
   const [creating, setCreating] = useState<string | null>(null);
   const [allSorted, setAllSorted] = useState(false);
 
-  function load(skip: number) {
+  function load(skip: number, first = false) {
     transactionsApi.quickSort(skip)
       .then((b) => {
         setBatch(b);
@@ -47,14 +47,18 @@ export function QuickSortCard() {
         setAnsweredInBatch(0);
         setStartTotal((prev) => prev ?? b.waitingTotal);
       })
-      // A failed fetch leaves the card hidden: the full review lists below still work.
-      .catch(() => setBatch(null));
+      .catch(() => {
+        // The first fetch failing leaves the card hidden: the full review lists still work. A
+        // later one keeps the card and says so.
+        if (first) setBatch(null);
+        else setError("Couldn't load more questions — please try again.");
+      });
   }
-  useEffect(() => load(0), []);
+  useEffect(() => load(0, true), []);
 
-  if (!batch || (startTotal !== null && startTotal === 0) || (batch.questions.length === 0 && !allSorted && index === 0)) {
-    return null;
-  }
+  // Hidden only when the first batch found nothing waiting; a later empty batch (everything left
+  // was skipped) still shows the end of the run.
+  if (!batch || !startTotal) return null;
 
   const current: QuickSortQuestion | undefined = batch.questions[index];
   const sortedPct = startTotal && startTotal > 0
@@ -97,6 +101,12 @@ export function QuickSortCard() {
       // Only a usage counter; the next batch is what matters.
     }
     load(skipped);
+  }
+
+  function askSkippedAgain() {
+    setSkipped(0);
+    setError(null);
+    load(0);
   }
 
   async function stopAsking() {
@@ -219,6 +229,17 @@ export function QuickSortCard() {
             <p className="text-xs text-muted">
               {batch.rest.payments} {batch.rest.payments === 1 ? 'payment' : 'payments'} ({fmt(batch.rest.amount)}) stay as Personal Transfer or Other. You can change any of them later from the Ledger.
             </p>
+          </div>
+        ) : skipped > 0 ? (
+          <div className="space-y-2">
+            <p className="text-sm text-ink">
+              You skipped {skipped} {skipped === 1 ? "question. It's" : "questions. They're"} still waiting.
+            </p>
+            <button type="button"
+              className="rounded-lg border border-border px-3 py-2 text-sm text-ink"
+              onClick={askSkippedAgain}>
+              Ask the skipped ones again
+            </button>
           </div>
         ) : (
           <p className="text-sm text-ink">All sorted. You can change any category later from the Ledger.</p>

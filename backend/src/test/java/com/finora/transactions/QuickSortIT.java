@@ -86,6 +86,33 @@ class QuickSortIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void answeringNeverRefilesAPaymentOfThePayeeThatWasNotWaiting() throws Exception {
+        UUID a = seed(user.getId(), accountId, "vpa:samplea", 100);
+        UUID b = seed(user.getId(), accountId, "vpa:samplea", 100);
+        UUID filedByRule = seed(user.getId(), accountId, "vpa:samplea", 100);
+        UUID shoppingId = category(user.getId(), "Shopping");
+        Transaction ruled = reload(filedByRule);
+        ruled.setNeedsCategoryReview(false);
+        ruled.setDecisionSource(Transaction.DecisionSource.KEYWORD_MATCH);
+        ruled.setCategoryId(shoppingId);
+        transactionRepository.save(ruled);
+
+        JsonNode answer = data(post("/api/v1/transactions/quick-sort/answer",
+                "{\"anchorTransactionId\":\"" + a + "\",\"category\":\"Groceries\",\"kind\":\"SHOP\"}", user));
+
+        // The question showed the two waiting payments; only those are filed.
+        assertThat(answer.get("filed").asInt()).isEqualTo(2);
+        assertThat(reload(b).isNeedsCategoryReview()).isFalse();
+        Transaction untouched = reload(filedByRule);
+        assertThat(untouched.getCategoryId()).isEqualTo(shoppingId);
+        assertThat(untouched.getDecisionSource()).isEqualTo(Transaction.DecisionSource.KEYWORD_MATCH);
+        assertThat(untouched.getQuickSortedAt()).isNull();
+        // The payee is still remembered for future imports.
+        assertThat(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(
+                user.getId(), "vpa:samplea", Transaction.Type.EXPENSE)).isPresent();
+    }
+
+    @Test
     void answeringARowOnAKeyThatNamesNoOneFilesOnlyThatRow() throws Exception {
         UUID a = seed(user.getId(), accountId, "cut:samplepay.12", 100);
         UUID b = seed(user.getId(), accountId, "cut:samplepay.12", 90);

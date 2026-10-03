@@ -156,6 +156,29 @@ describe('QuickSortPanel', () => {
     expect(screen.getByText("You've sorted 20% of your waiting money")).toBeTruthy();
   });
 
+  it('never says all sorted while skipped questions are still waiting', async () => {
+    tx.quickSort
+      .mockResolvedValueOnce(batch([question()]))
+      .mockResolvedValueOnce(batch([question({ payee: 'ASKED AGAIN' })]));
+    renderPanel();
+    fireEvent.press(await screen.findByText('Skip'));
+    expect(await screen.findByText("You skipped 1 question. It's still waiting.")).toBeTruthy();
+    expect(screen.queryByText(/All sorted/)).toBeNull();
+    fireEvent.press(screen.getByText('Ask the skipped ones again'));
+    expect(await screen.findByText('ASKED AGAIN')).toBeTruthy();
+    expect(tx.quickSort).toHaveBeenLastCalledWith(0);
+  });
+
+  it('stays visible with the skipped message when Sort 10 more comes back empty', async () => {
+    tx.quickSort
+      .mockResolvedValueOnce(batch([question()], { rest: { questions: 1, payments: 1, amount: 5, transactionIds: ['r1'] } }))
+      .mockResolvedValueOnce(batch([], { waitingTotal: 5 }));
+    renderPanel();
+    fireEvent.press(await screen.findByText('Skip'));
+    fireEvent.press(await screen.findByText('Sort 10 more'));
+    expect(await screen.findByText("You skipped 1 question. It's still waiting.")).toBeTruthy();
+  });
+
   it('a failed answer keeps the question and says so', async () => {
     tx.quickSort.mockResolvedValue(batch([question()]));
     tx.quickSortAnswer.mockRejectedValue(new Error('boom'));

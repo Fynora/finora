@@ -46,14 +46,22 @@ export function QuickSortPanel({ onLoaded }: { onLoaded?: (questions: number) =>
         if (first) onLoaded?.(b.questions.length);
       })
       .catch(() => {
-        setBatch(null);
-        if (first) onLoaded?.(0);
+        // The first fetch failing hides the panel: the screen's full lists still work. A later one
+        // keeps the panel and says so.
+        if (first) {
+          setBatch(null);
+          onLoaded?.(0);
+        } else {
+          setError("Couldn't load more questions — please try again.");
+        }
       });
   }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- loads once, on mount
   useEffect(() => load(0, true), []);
 
-  if (!batch || startTotal === 0 || (batch.questions.length === 0 && !allSorted && index === 0)) return null;
+  // Hidden only when the first batch found nothing waiting; a later empty batch (everything left
+  // was skipped) still shows the end of the run.
+  if (!batch || !startTotal) return null;
 
   const current: QuickSortQuestion | undefined = batch.questions[index];
   const sortedPct = startTotal && startTotal > 0
@@ -90,6 +98,12 @@ export function QuickSortPanel({ onLoaded }: { onLoaded?: (questions: number) =>
       // Only a usage counter; the next batch is what matters.
     }
     load(skipped, false);
+  }
+
+  function askSkippedAgain() {
+    setSkipped(0);
+    setError(null);
+    load(0, false);
   }
 
   async function stopAsking() {
@@ -165,6 +179,13 @@ export function QuickSortPanel({ onLoaded }: { onLoaded?: (questions: number) =>
           <Text style={[styles.meta, { color: c.mutedInk }]}>
             {batch.rest.payments} {batch.rest.payments === 1 ? 'payment' : 'payments'} ({fmtCurrency(batch.rest.amount)}) stay as Personal Transfer or Other. You can change any of them later from the Ledger.
           </Text>
+        </View>
+      ) : skipped > 0 ? (
+        <View>
+          <Text style={[styles.body, { color: c.ink }]}>
+            You skipped {skipped} {skipped === 1 ? "question. It's" : "questions. They're"} still waiting.
+          </Text>
+          <View style={styles.chips}>{chip('Ask the skipped ones again', askSkippedAgain)}</View>
         </View>
       ) : (
         <Text style={[styles.body, { color: c.ink }]}>All sorted. You can change any category later from the Ledger.</Text>

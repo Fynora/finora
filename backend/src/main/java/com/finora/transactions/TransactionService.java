@@ -734,6 +734,28 @@ public class TransactionService {
         return similar;
     }
 
+    /**
+     * Quick sort: the rest of one payee's waiting rows, filed with the category the user just chose
+     * for the payee's anchor row (which {@link #updateCategory} already learned from and remembered).
+     * One write and one reconciliation for the batch, and no learning: the rows share the anchor's
+     * payee, so learning each would only repeat the same lesson -- and doing it row by row through
+     * updateCategory ran a reconciliation per row.
+     *
+     * @return how many rows were filed
+     */
+    @Transactional
+    public int fileWithChosenCategory(UUID userId, List<UUID> ids, String categoryName) {
+        if (ids.isEmpty()) return 0;
+        Category category = categorizationService.resolveOrCreateCategory(userId, categoryName);
+        List<Transaction> owned = getOwnedAll(userId, ids);
+        owned.forEach(t -> markChosen(t, category));
+        transactionRepository.saveAll(owned);
+        reconciliationService.reconcileIfInvestmentExclusionMayChange(userId, owned, category);
+        auditService.record(userId, "TRANSACTION_QUICK_SORT_FILED", "Transaction", null,
+                Map.of("count", owned.size(), "newCategory", categoryName));
+        return owned.size();
+    }
+
     /** The user chose this category: it resolves the review flag, even "Other" picked on purpose. */
     private static void markChosen(Transaction t, Category category) {
         t.setCategoryId(category.getId());

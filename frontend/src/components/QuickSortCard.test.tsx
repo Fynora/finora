@@ -170,6 +170,29 @@ describe('QuickSortCard', () => {
     expect(screen.getByText(/You've sorted 20% of your waiting money/)).toBeInTheDocument();
   });
 
+  it('never says all sorted while skipped questions are still waiting', async () => {
+    vi.mocked(transactionsApi.quickSort)
+      .mockResolvedValueOnce(batch([question()]))
+      .mockResolvedValueOnce(batch([question({ payee: 'ASKED AGAIN' })]));
+    renderCard();
+    await userEvent.click(await screen.findByRole('button', { name: 'Skip' }));
+    expect(await screen.findByText("You skipped 1 question. It's still waiting.")).toBeInTheDocument();
+    expect(screen.queryByText(/All sorted/)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Ask the skipped ones again' }));
+    expect(transactionsApi.quickSort).toHaveBeenLastCalledWith(0);
+    expect(await screen.findByText('ASKED AGAIN')).toBeInTheDocument();
+  });
+
+  it('stays visible with the skipped message when Sort 10 more comes back empty', async () => {
+    vi.mocked(transactionsApi.quickSort)
+      .mockResolvedValueOnce(batch([question()], { rest: { questions: 1, payments: 1, amount: 5, transactionIds: ['r1'] } }))
+      .mockResolvedValueOnce(batch([], { waitingTotal: 5 }));
+    renderCard();
+    await userEvent.click(await screen.findByRole('button', { name: 'Skip' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Sort 10 more' }));
+    expect(await screen.findByText("You skipped 1 question. It's still waiting.")).toBeInTheDocument();
+  });
+
   it('a failed answer keeps the question and says so', async () => {
     vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch([question()]));
     vi.mocked(transactionsApi.quickSortAnswer).mockRejectedValue(new Error('boom'));

@@ -299,6 +299,77 @@ class CsvParserTest {
         assertThat(CsvParser.parseDate("01 Jul 2026")).isEqualTo(java.time.LocalDate.of(2026, 7, 1));
     }
 
+    // --- impossible dates ------------------------------------------------------------------------
+    //
+    // The formatters used to resolve SMART, which clamps a day its month lacks to the month's last
+    // day instead of rejecting it -- every input below except the last two used to come back as a
+    // real, different date (Feb 28 or Apr/Jun 30), with nothing to say the printed day was wrong.
+
+    @Test
+    void parseDate_rejectsADayTheMonthDoesNotHave_ratherThanClampingIt() {
+        assertThat(CsvParser.parseDate("31 Feb 26")).isNull();
+        assertThat(CsvParser.parseDate("31/02/2026")).isNull();
+        assertThat(CsvParser.parseDate("31 Feb 2026")).isNull();
+        assertThat(CsvParser.parseDate("30 Feb 2026")).isNull();
+        assertThat(CsvParser.parseDate("31-Apr-2026")).isNull();
+    }
+
+    @Test
+    void parseDate_rejectsAnImpossibleDayOnEveryFormatAndRetryPath() {
+        // 29 Feb in a non-leap year, including the century that is not a leap year.
+        assertThat(CsvParser.parseDate("29 Feb 2026")).isNull();
+        assertThat(CsvParser.parseDate("29/02/26")).isNull();
+        assertThat(CsvParser.parseDate("29/02/2100")).isNull();
+        // Month-first: "MM/dd/yyyy" is reached only after the day-first forms fail, and used to
+        // clamp too.
+        assertThat(CsvParser.parseDate("02/30/2026")).isNull();
+        // Month-name-first, as printed and through the missing-separator retry.
+        assertThat(CsvParser.parseDate("Feb 30, 2026")).isNull();
+        assertThat(CsvParser.parseDate("Feb30, 2026")).isNull();
+        // Ordinal-suffix retry, and the trailing-time strip.
+        assertThat(CsvParser.parseDate("31st Apr 2026")).isNull();
+        assertThat(CsvParser.parseDate("31/06/2026| 14:18")).isNull();
+    }
+
+    @Test
+    void parseDate_stillReadsEveryRealMonthEnd() {
+        // Leap day, in every shape that can print it, including the leap century.
+        assertThat(CsvParser.parseDate("29 Feb 2028")).isEqualTo(java.time.LocalDate.of(2028, 2, 29));
+        assertThat(CsvParser.parseDate("29/02/2028")).isEqualTo(java.time.LocalDate.of(2028, 2, 29));
+        assertThat(CsvParser.parseDate("29.02.2028")).isEqualTo(java.time.LocalDate.of(2028, 2, 29));
+        assertThat(CsvParser.parseDate("2028-02-29")).isEqualTo(java.time.LocalDate.of(2028, 2, 29));
+        assertThat(CsvParser.parseDate("29-02-28")).isEqualTo(java.time.LocalDate.of(2028, 2, 29));
+        assertThat(CsvParser.parseDate("February 29, 2028")).isEqualTo(java.time.LocalDate.of(2028, 2, 29));
+        assertThat(CsvParser.parseDate("29 Feb 2000")).isEqualTo(java.time.LocalDate.of(2000, 2, 29));
+        // A 30-day month's last day.
+        assertThat(CsvParser.parseDate("30 Apr 2026")).isEqualTo(java.time.LocalDate.of(2026, 4, 30));
+        assertThat(CsvParser.parseDate("30/04/2026")).isEqualTo(java.time.LocalDate.of(2026, 4, 30));
+        // The year's last day, four- and two-digit.
+        assertThat(CsvParser.parseDate("31 Dec 2026")).isEqualTo(java.time.LocalDate.of(2026, 12, 31));
+        assertThat(CsvParser.parseDate("31-12-2026")).isEqualTo(java.time.LocalDate.of(2026, 12, 31));
+        assertThat(CsvParser.parseDate("31/12/26")).isEqualTo(java.time.LocalDate.of(2026, 12, 31));
+        assertThat(CsvParser.parseDate("31-DEC-26")).isEqualTo(java.time.LocalDate.of(2026, 12, 31));
+        assertThat(CsvParser.parseDate("December 31, 2026")).isEqualTo(java.time.LocalDate.of(2026, 12, 31));
+        // Month-first still wins where the day-first reading is the impossible one.
+        assertThat(CsvParser.parseDate("12/31/2026")).isEqualTo(java.time.LocalDate.of(2026, 12, 31));
+    }
+
+    @Test
+    void parseDate_twoDigitYearsKeepTheirRangeUnderStrictResolution() {
+        // STRICT needs an era to resolve "yy"/"yyyy"; the formatters default it to CE. Both ends of
+        // the two-digit range must still land in 2000-2099.
+        assertThat(CsvParser.parseDate("01/07/00")).isEqualTo(java.time.LocalDate.of(2000, 7, 1));
+        assertThat(CsvParser.parseDate("01/07/99")).isEqualTo(java.time.LocalDate.of(2099, 7, 1));
+    }
+
+    @Test
+    void parseDate_stillRejectsYearZeroAndSignedYears() {
+        // Why the formatters keep year-of-era instead of switching to "uuuu": the proleptic year
+        // has no lower bound at 1, and with it both of these began to parse.
+        assertThat(CsvParser.parseDate("0000-01-01")).isNull();
+        assertThat(CsvParser.parseDate("-2026-01-01")).isNull();
+    }
+
     // --- header detection: abbreviated column names -------------------------------------------
     //
     // AMOUNT_HEADER_HINTS deliberately lists the abbreviated forms "withdrawal amt" and "deposit

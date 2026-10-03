@@ -130,7 +130,10 @@ Four parts, built and merged in this order. Each is useful alone.
    each row is its own group, so different payees are never filed together (#1930, #1947).
 3. Rank groups by total amount, biggest first.
 4. Take groups, skipping the first `skip`, until they cover **80% of the waiting money or 10
-   questions**, whichever comes first.
+   questions**, whichever comes first. Both numbers are application properties
+   (`app.quick-sort.coverage-target`, `app.quick-sort.max-questions`), not constants: 80% rests
+   on one account's measurement (its top 10 payees held 78%), and the usage measurement below
+   may move it.
 5. Return:
    - `questions`: for each group, a stable id, the anchor transaction id, the kind (below), a
      readable payee label, the number of payments, the total, the latest date, up to 3 sample
@@ -140,11 +143,14 @@ Four parts, built and merged in this order. Each is useful alone.
 
 Question kinds and their first answers. Only categories the user still has are offered; the
 user's own most-used categories for the same payee type and direction come first; "More…" opens
-the full list.
+the full list. A payment to a person offers no spending category of its own accord: nothing in
+its narration says what it was for (see the non-goals), and a ready-made "Groceries" or "Rent"
+button there would nudge a guess. The user's own history, and "More…", still reach every
+category.
 
 | Kind | When | Default answers after the user's own |
 |---|---|---|
-| Person paid | expense, structural person transfer | Personal Transfer, Groceries, Dining, Rent, Friend Repayment |
+| Person paid | expense, structural person transfer | Personal Transfer, Friend Repayment |
 | Shop | expense, "Other", no guess | Groceries, Dining, Shopping, Transport, Health |
 | Guess | a rule or AI guess is present | the guess as "Correct", then "Change" |
 | Money in | income | Friend Repayment, Salary, Gifts & Donations, Transfer |
@@ -160,11 +166,16 @@ transaction ids shown in the "rest" summary. It keeps each row's current categor
 waiting flag. No learning, no pin, no change to decision source. Ids not owned by the user, or no
 longer waiting, are skipped.
 
+Its wording must say what it does, not that the rows are right. The button reads **"Stop asking
+about these"**, with the line under it: "N payments (Rs X) stay as Personal Transfer or Other.
+You can change any of them later from the Ledger." It never says "correct", "done" or "keep as
+they are".
+
 **Web and mobile**
 - After an import is confirmed, the success screen offers "Sort N questions" (N from the server).
 - The Ledger's review area (web) and `CategoryReviewScreen` (mobile) open with Quick sort: one
   question at a time, the progress line ("You've sorted 78% of your waiting money"), and after
-  the batch: "Sort 10 more", or "Keep the rest as they are (N payments, Rs X)", or stop.
+  the batch: "Sort 10 more", or "Stop asking about these" (wording above), or leave.
 - The existing per-row list stays available behind "See all waiting payments", so nothing
   becomes unreachable.
 
@@ -189,10 +200,32 @@ longer waiting, are skipped.
   rows may change.
 - Production, the tester's account (SQL run by the owner): waiting rows and payees before and
   after each part.
-- Web and mobile: tests for the question card, progress, "Sort 10 more" and "Keep the rest".
+- Web and mobile: tests for the question card, progress, "Sort 10 more" and "Stop asking about
+  these".
+
+### Usage measurement (ships with Part 4)
+
+Whether Quick sort helps is measured, not assumed. Counters (Micrometer, no payee data, no
+amounts per user):
+
+| Counter | Tells us |
+|---|---|
+| batches shown, questions shown | exposure |
+| questions answered, by kind | engagement |
+| "Sort 10 more" taken | whether one batch is enough |
+| "Stop asking about these" taken, and rows it cleared | abandonment |
+| an answered row's category changed again later | answer quality |
+
+The last one needs to know a row was answered in Quick sort: the answer sets a new nullable
+`transactions.quick_sorted_at`, and `TransactionService.updateCategory` counts a change on a row
+that has it. Same migration as Part 1's column if both land together; otherwise its own.
 
 ## Order of work
 
-1. Part 1 and Part 2 (one PR each). Then re-measure the tester's account.
-2. Part 4.
-3. Part 3, once AI-on-Plus has merged.
+1. Part 1 and Part 2 (one PR each). Then re-measure the tester's account and the corpus.
+2. Part 4, with its usage measurement.
+3. Read the usage numbers.
+4. Part 3, only if the rows still waiting after 1-3 justify it, and once AI-on-Plus has merged.
+   Expect it to clear little: most waiting "Other" rows carry a QR owner's personal name or a
+   bare id, which `narrationForModel` masks or which give a model nothing to read. Part 3 only
+   ever sees worded shop rows.

@@ -174,6 +174,11 @@ public final class TesseractEngine implements OcrEngine {
      * read as noise and merged neighbouring table rows, so a third of the statement's 289
      * transactions never staged. The HSBC scan in the corpus scored 0.2% and 0.5%. 2% sits between
      * the two with room on both sides, and keeps a clean page's cost at one recognition pass.
+     *
+     * <p>Measured with the tessdata_fast English model the production image pins (see the backend
+     * Dockerfile), on Tesseract 5.5.3 locally and on the image's own 5.5.2: every page's share came
+     * out identical on both. With the Alpine package's larger model the shares, and the readings,
+     * were different -- these thresholds are a property of the model as much as of the documents.
      */
     static final double SPARSE_RETRY_LOW_CONFIDENCE_SHARE = 0.02;
 

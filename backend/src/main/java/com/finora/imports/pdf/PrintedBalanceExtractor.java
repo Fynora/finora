@@ -97,7 +97,19 @@ public final class PrintedBalanceExtractor {
             if (amountOf(candidate.text()) == null) continue;
             if (best == null || candidate.x() < best.x()) best = candidate;
         }
-        return best == null ? null : amountOf(best.text());
+        if (best != null) return amountOf(best.text());
+        // A ledger's own "Opening Balance" row: the label in the narration column and its amount in
+        // the Balance column, further apart than SAME_ROW_MAX_X_DISTANCE allows -- measured at 344pt
+        // on a real (scanned) Union Bank of India statement, which then staged with no opening
+        // balance. Past the cap only when that amount is the ONLY thing printed to the label's right,
+        // so a wide row carrying other text or figures still cannot lend the label a far-off value.
+        PositionedText only = null;
+        for (PositionedText candidate : row) {
+            if (candidate == label || candidate.x() <= label.x()) continue;
+            if (only != null) return null;
+            only = candidate;
+        }
+        return only == null ? null : amountOf(only.text());
     }
 
     /** The amount, or null when the text is not one amount (a heading, prose, several figures, or
@@ -107,6 +119,12 @@ public final class PrintedBalanceExtractor {
         String bare = CURRENCY_DECORATION.matcher(text.trim()).replaceAll("").trim();
         if (bare.isEmpty() || bare.contains(" ") || !bare.matches("[\\d,]+(?:\\.\\d{1,2})?")) return null;
         if (!bare.contains(".") && !bare.contains(",")) return null;
-        return CsvParser.parseNumeric(bare);
+        BigDecimal value = CsvParser.parseNumeric(bare);
+        // "Dr" is an overdrawn balance, negative -- the convention CsvParser.parseNumeric applies to
+        // every running-balance cell the chain is built from. Stripped without it, a printed "500.00
+        // Dr" opening read as +500 against a chain that says -500.
+        return value != null && DEBIT_SUFFIX.matcher(text.trim()).find() ? value.negate() : value;
     }
+
+    private static final Pattern DEBIT_SUFFIX = Pattern.compile("(?i)dr\\.?$");
 }

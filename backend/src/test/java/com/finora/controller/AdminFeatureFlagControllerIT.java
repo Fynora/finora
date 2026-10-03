@@ -3,6 +3,7 @@ package com.finora.controller;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.AbstractIntegrationTest;
+import com.finora.config.CacheConfig;
 import com.finora.entity.Account;
 import com.finora.entity.FeatureFlag;
 import com.finora.entity.Transaction;
@@ -18,6 +19,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.http.*;
 
 import java.math.BigDecimal;
@@ -47,14 +50,25 @@ class AdminFeatureFlagControllerIT extends AbstractIntegrationTest {
     @Autowired private FeatureFlagRepository featureFlagRepository;
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
+    @Autowired private CacheManager cacheManager;
     private final ObjectMapper mapper = new ObjectMapper();
 
+    /**
+     * Restoring the row is not enough on its own. FeatureFlagService.isEnabled is cached in the
+     * shared Redis (CacheConfig.FEATURE_FLAGS_CACHE, 60 s TTL), and the disable test reads
+     * /recurring after the flag is off, which caches {@code false}. A direct repository save
+     * bypasses FeatureFlagService's eviction, so that {@code false} outlived this class and made
+     * RecurringService.detectForUser return nothing for any IT that ran in the next minute --
+     * RecurringAnswerIT failed all five tests that way. Evict the entry after restoring the row.
+     */
     @AfterEach
     void restoreFlag() {
         featureFlagRepository.findByKey("RECURRING_DETECTION_ENABLED").ifPresent(f -> {
             f.setEnabled(true);
             featureFlagRepository.save(f);
         });
+        Cache cache = cacheManager.getCache(CacheConfig.FEATURE_FLAGS_CACHE);
+        if (cache != null) cache.evict("RECURRING_DETECTION_ENABLED");
     }
 
     private User createUser(String role) {

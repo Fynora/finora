@@ -96,6 +96,34 @@ class SignedAmountLedgerPdfPreviewGeneratorTest {
     }
 
     @Test
+    void aMonthWithNoDebitsStagesEveryRowAsTheCreditItsBalanceProves() throws Exception {
+        // Before: every credit staged as an expense and the import was held on its balance chain.
+        var result = realGenerator().generateSectionsWithContext(
+                UUID.randomUUID(), "statement.pdf", PdfFixtureBuilder.buildSignedAmountLedgerWithNoDebitsSample());
+
+        var section = result.sections().get(0);
+        assertThat(section.rows()).extracting(StagedRow::type).containsExactly("INCOME", "INCOME", "INCOME", "INCOME");
+        assertThat(section.verification().findings())
+                .filteredOn(f -> f.rule().equals("BALANCE_CHAIN")).extracting(f -> f.outcome()).containsExactly("VERIFIED");
+        assertThat(result.documentContext().capabilities()).extracting(c -> c.capability())
+                .contains("SIGNED_AMOUNT_COLUMN");
+    }
+
+    @Test
+    void anOverdraftWithTheSameShapeIsLeftAlone() throws Exception {
+        // An overdraft's balance can be an amount owed: the same reconciliation, the opposite meaning.
+        var result = realGenerator().generateSectionsWithContext(
+                UUID.randomUUID(), "od.pdf", PdfFixtureBuilder.buildOverdraftWithSignedAmountColumnSample());
+
+        var section = result.sections().get(0);
+        assertThat(section.detectedAccount().detectedProduct()).isEqualTo("OVERDRAFT");
+        assertThat(result.documentContext().capabilities()).extracting(c -> c.capability())
+                .doesNotContain("SIGNED_AMOUNT_COLUMN");
+        assertThat(section.rows()).filteredOn(r -> r.description().contains("SAMPLE DRAWING"))
+                .extracting(StagedRow::type).containsOnly("EXPENSE");
+    }
+
+    @Test
     void aCardWithTheSameShapeKeepsItsPurchasesAsExpenses() throws Exception {
         var result = realGenerator().generateSectionsWithContext(
                 UUID.randomUUID(), "card.pdf", PdfFixtureBuilder.buildCardWithSignedAmountAndOutstandingBalanceSample());

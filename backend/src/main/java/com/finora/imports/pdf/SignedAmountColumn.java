@@ -31,6 +31,16 @@ import java.util.Map;
  * unsigned. Then, and only then, each unsigned amount is marked "+" -- the leading-plus credit form
  * the normalizer already reads ({@code LEADING_PLUS_CREDIT}). A statement with a debit/credit column
  * pair, a Dr/Cr marker, a type column, or no running balance is returned untouched.
+ *
+ * <h2>A month with no debits</h2>
+ *
+ * With no amount printed negative, nothing shows the column is signed -- but on an account whose
+ * balance is money held (the only kind the caller passes), a balance that rises by EXACTLY each
+ * amount on EVERY pair is itself the evidence those amounts came in. Measured on a synthetic
+ * credits-only slice ledger before this: every credit staged as an expense and the import was held
+ * on its failed balance chain. Every pair is required here, not {@value #MIN_RECONCILED_SHARE_PERCENT}%:
+ * with no minus sign to establish the convention, one pair the balance contradicts leaves the column
+ * alone.
  */
 final class SignedAmountColumn {
 
@@ -73,8 +83,9 @@ final class SignedAmountColumn {
             }
             previousBalance = balance;
         }
-        if (!anyNegative || !anyUnsigned || pairs < MIN_PAIRS
-                || reconciled * 100 < pairs * MIN_RECONCILED_SHARE_PERCENT) {
+        boolean signedColumn = anyNegative && reconciled * 100 >= pairs * MIN_RECONCILED_SHARE_PERCENT;
+        boolean everyAmountRaisedTheBalance = !anyNegative && reconciled == pairs;
+        if (!anyUnsigned || pairs < MIN_PAIRS || !(signedColumn || everyAmountRaisedTheBalance)) {
             return rows;
         }
 

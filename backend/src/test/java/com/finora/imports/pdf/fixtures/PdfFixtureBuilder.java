@@ -985,6 +985,47 @@ public final class PdfFixtureBuilder {
         return render(List.of(p1, p2));
     }
 
+    /** The slice ledger shape on an OVERDRAFT account statement, whose balance can be an amount
+     *  owed. The amounts reconcile "as printed" exactly as on a savings ledger. Values invented. */
+    public static byte[] buildOverdraftWithSignedAmountColumnSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 120f, 330f, 420f, 500f};
+        PageBuilder page = new PageBuilder();
+        page.line("Sample Bank Overdraft Account Statement")
+                .line("Overdraft Account Number 000000001234")
+                .line("Sanctioned Limit 50,000.00   Credit Limit 50,000.00")
+                .line("Statement Period 01/09/2026 to 30/09/2026")
+                .row(col, "DATE", "DETAILS", "REF NO.", "AMOUNT", "BALANCE")
+                .row(col, "02/09/2026", "SAMPLE DRAWING", "000000000001", "5,000.00", "5,000.00")
+                .row(col, "05/09/2026", "SAMPLE DRAWING", "000000000002", "2,000.00", "7,000.00")
+                .row(col, "09/09/2026", "SAMPLE REPAYMENT", "000000000003", "-3,000.00", "4,000.00")
+                .row(col, "12/09/2026", "SAMPLE INTEREST", "000000000004", "100.00", "4,100.00");
+        return render(List.of(page));
+    }
+
+    /** The slice ledger in a month with no debits at all: a transfer in and daily interest, every
+     *  amount printed unsigned, so no minus sign shows the column is signed. Values invented. */
+    public static byte[] buildSignedAmountLedgerWithNoDebitsSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 120f, 330f, 420f, 500f};
+        float[] summaryCol = {LEFT_MARGIN, 160f, 280f, 400f};
+        PageBuilder page = new PageBuilder();
+        page.line("01 Sep '26 - 30 Sep '26")
+                .line("Sample Savings Account Statement")
+                .line("SAMPLE HOLDER")
+                .line("Customer ID 000000000 Account SAVING")
+                .line("Phone 0000000000 A/C number 000000001234")
+                .line("Email sample@example.com IFSC NESF0XXXXXX")
+                .row(summaryCol, "Opening balance", "Total credits", "Total debits", "Closing balance")
+                .blankLine()
+                .row(summaryCol, "18.20", "6,001.38", "0.00", "6,019.58")
+                .blankLine()
+                .row(col, "DATE", "DETAILS", "REF NO.", "AMOUNT", "BALANCE")
+                .row(col, "15 Sep '26", "Account Transfer-Credit-SAMPLE", "000000000001", "6,000.00", "6,018.20")
+                .row(col, "16 Sep '26", "Interest Cr. for 15-Sep-2026", "000000000002", "0.87", "6,019.07")
+                .row(col, "17 Sep '26", "Interest Cr. for 16-Sep-2026", "000000000003", "0.26", "6,019.33")
+                .row(col, "18 Sep '26", "Interest Cr. for 17-Sep-2026", "000000000004", "0.25", "6,019.58");
+        return render(List.of(page));
+    }
+
     /** The same signed-amount-beside-a-running-balance shape on a CREDIT CARD statement, whose
      *  balance is the amount OUTSTANDING: purchases printed positive raise it, a refund printed
      *  negative lowers it. Read "as printed" it reconciles exactly like a savings ledger -- and

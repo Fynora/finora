@@ -527,12 +527,13 @@ public class PdfPreviewGenerator {
         // one of the user's categories -- see the normalize overload that takes this.
         Map<String, String> existingCategoryNames = transactionNormalizer.categoryNamesFor(userId);
         // A single AMOUNT column that carries its own sign has its credits marked here -- see
-        // SignedAmountColumn for the running-balance evidence that decides it. Bank-account ledgers
-        // only: a card's running OUTSTANDING balance also reconciles with purchases printed positive
-        // and refunds negative, the opposite meaning, and the numbers alone cannot tell the two
-        // apart -- so a card, or a section not yet classified, is never touched.
-        boolean ledgerAccount = product != null && product.type() != null
-                && product.type().domain() == com.finora.imports.product.FinancialProductType.Domain.ACCOUNT;
+        // SignedAmountColumn for the running-balance evidence that decides it. Only accounts whose
+        // balance is money HELD (savings, current, wallet): a card's running OUTSTANDING balance also
+        // reconciles with purchases printed positive and refunds negative, the opposite meaning, and
+        // the numbers alone cannot tell the two apart. An overdraft's balance can be an amount owed
+        // in the same way, so it is left out too, as is a card or a section not yet classified.
+        boolean ledgerAccount = product != null && (product.type() == FinancialProductType.SAVINGS
+                || product.type() == FinancialProductType.CURRENT || product.type() == FinancialProductType.WALLET);
         List<Map<String, String>> sectionRows = ledgerAccount
                 ? SignedAmountColumn.markCredits(section.rows(), ctx) : section.rows();
         // Checked once, up front, against the RAW located rows -- before the loop below decides

@@ -44,9 +44,21 @@ class SignedAmountColumnTest {
     }
 
     @Test
-    void noNegativeAmountsMeansNoEvidenceTheColumnIsSigned() {
+    void aMonthWithNoDebits_isAllCredits_whenTheBalanceRisesByEveryAmount() {
         List<Map<String, String>> rows = List.of(
-                row("100.00", "100.00"), row("50.00", "150.00"), row("25.00", "175.00"), row("10.00", "185.00"));
+                row("₹6,000.00", "₹6,018.20"), row("₹0.87", "₹6,019.07"), row("₹0.26", "₹6,019.33"),
+                row("₹0.25", "₹6,019.58"));
+
+        assertThat(amounts(SignedAmountColumn.markCredits(rows, null)))
+                .containsExactly("+₹6,000.00", "+₹0.87", "+₹0.26", "+₹0.25");
+    }
+
+    @Test
+    void aMonthWithNoDebits_needsEveryPair_withNoMinusSignToGoOn() {
+        // Three of four pairs rise by their amount (75%); one is contradicted. With no minus sign
+        // establishing the convention, that is not enough.
+        List<Map<String, String>> rows = List.of(row("100.00", "100.00"), row("50.00", "150.00"),
+                row("25.00", "175.00"), row("10.00", "165.00"), row("5.00", "170.00"));
 
         assertThat(SignedAmountColumn.markCredits(rows, null)).isSameAs(rows);
     }

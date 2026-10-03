@@ -133,6 +133,19 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void anUnreadableHolderFlagsAKnownLayoutForAnAdmin_withoutAffectingTheUpload() {
+        String fp = fingerprint();
+        registryService.observe(fp, "PDF", null);
+
+        reviewService.onStaged(fp, "PDF", rows(4, 0), report("VERIFIED"), "SA-TEST-30", null, true);
+
+        RegisteredLayout layout = layout(fp);
+        assertThat(layout.getReviewReasons()).containsExactly("HOLDER_NAME_UNREADABLE");
+        verify(alertService, timeout(5000).times(1))
+                .alertLayoutNeedsReview(eq(fp), eq(List.of("HOLDER_NAME_UNREADABLE")), eq("SA-TEST-30"), any());
+    }
+
+    @Test
     void blankDescriptionsFlagOnlyWhenMoreThanHalfTheRowsAreBlank() {
         String exactlyHalf = fingerprint();
         String moreThanHalf = fingerprint();

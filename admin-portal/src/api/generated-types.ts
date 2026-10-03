@@ -6321,6 +6321,7 @@ export interface components {
             paymentDueDate?: string;
             userConfirmedContinue?: boolean;
             idempotencyKey?: string;
+            holderIsMine?: boolean;
         };
         ConfirmedRow: {
             /** Format: date */

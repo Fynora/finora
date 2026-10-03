@@ -428,9 +428,12 @@ export interface ConfirmPayload {
   // PDF -- see ConfirmRequest's own doc comment on the backend. Every other confirm path ignores it.
   password?: string;
   // docs/proposals/account-ownership-intelligence-proposal.md §3.1/§3.2. Whether the user clicked
-  // "Continue Import" after the client-side ownership warning fired -- see ConfirmRequest's own
+  // "This is my account" or "Continue anyway" after the client-side ownership warning fired -- see ConfirmRequest's own
   // doc comment on the backend. Omitted (not just false) when the warning never fired.
   userConfirmedContinue?: boolean;
+  // "This is my account" on that same warning: the server saves the user's own profile name as the
+  // account's holder. Omitted for "Continue anyway", which keeps the name the statement printed.
+  holderIsMine?: boolean;
   // Also reimport-only: identifies one logical confirm ATTEMPT so the server can refuse a replay
   // rather than posting the statement's transactions a second time (V133). A first-time import
   // needs no key -- its ImportSession is claimed atomically server-side and cannot be confirmed

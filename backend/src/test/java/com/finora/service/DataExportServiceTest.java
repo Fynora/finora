@@ -929,6 +929,23 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
         assertThat(bundle.importJobs()).hasSize(4);
     }
 
+    /** A job whose object the sweep released holds nothing to export, and it does not claim its
+     *  hash: a session still holding the same document is exported instead. */
+    @Test
+    void buildBundle_unimportedUploads_skipsReleasedJobs_withoutClaimingTheirDocument() {
+        ImportJob released = job("released.pdf", "hash-released", "key-released");
+        ReflectionTestUtils.setField(released, "objectReleasedAt", Instant.now());
+        when(importJobRepository.findByUserIdOrderByCreatedAtDesc(eq(userId), any())).thenReturn(List.of(released));
+        ImportSession sameDocument = stagedSession("released.pdf", "hash-released");
+        when(importSessionRepository.findByUserIdOrderByCreatedAtDesc(userId)).thenReturn(List.of(sameDocument));
+        when(importSessionService.readStagedRows(any())).thenReturn(List.of());
+
+        DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
+
+        assertThat(bundle.unimportedUploads()).containsExactly(new DataExportService.UnimportedUpload(
+                DataExportService.UnimportedUpload.Source.IMPORT_SESSION, sameDocument.getId(), "released.pdf"));
+    }
+
     /** Sessions come after statements and jobs: a session holding a document already claimed by
      *  either is skipped; a session-only document is kept (newest session wins); a pre-V79 session
      *  with no hash cannot be matched and is kept rather than risk leaving it out. */

@@ -557,6 +557,27 @@ class DataExportServiceIT extends AbstractIntegrationTest {
                 .containsExactly("imports/" + job.getId() + "-idfc-march.pdf");
     }
 
+    /**
+     * A job whose object the storage sweep has released (V250, object_released_at set) no longer
+     * holds the file -- the sweep deleted it, or a live statement row names it and is exported
+     * under statements/ instead. It must not appear under imports/, not even as a .MISSING.txt
+     * placeholder for a file the user would be told to ask support about.
+     */
+    @Test
+    void writeZip_skipsAJobWhoseObjectTheSweepReleased() throws Exception {
+        byte[] bytes = "%PDF-1.4 released".getBytes(StandardCharsets.UTF_8);
+        ImportJob released = upload("rbl-jan.pdf", bytes, StatementUpload.Format.PDF);
+        released.markClaimed("worker", Instant.now());
+        released.recordFailure("locked PDF", ErrorCode.RetryPolicy.FAIL_FAST, Instant.now());
+        importJobRepository.save(released);
+        assertThat(importJobRepository.markObjectReleased(released.getId(), Instant.now())).isEqualTo(1);
+        assertThat(importJobRepository.findById(released.getId()).orElseThrow().getObjectReleasedAt()).isNotNull();
+
+        Map<String, byte[]> entries = export();
+
+        assertThat(entries.keySet()).noneMatch(name -> name.startsWith("imports/"));
+    }
+
     private ImportJob upload(String fileName, byte[] bytes, StatementUpload.Format format) throws Exception {
         MockMultipartFile file = new MockMultipartFile("file", fileName, format.contentType(), bytes);
         return importJobRepository.findById(importJobService.accept(userId, file, format).getId()).orElseThrow();

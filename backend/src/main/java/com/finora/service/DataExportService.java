@@ -202,7 +202,8 @@ import java.util.zip.ZipOutputStream;
  * two places, both exported under {@code imports/}:
  * <ul>
  *   <li>an {@code import_jobs} row's object (the asynchronous upload path), read through the same
- *       {@link StatementContentService#read} path the import worker uses;</li>
+ *       {@link StatementContentService#read} path the import worker uses -- unless the storage
+ *       sweep has released it ({@code object_released_at}, V250);</li>
  *   <li>an {@code import_sessions} row's {@code file_content} (the synchronous stage path, which
  *       never creates a job), read via {@code ImportSessionService.readOwnedFileContent} -- which,
  *       unlike {@code getOwnedSession}, does not refuse a session past its expiry that the TTL
@@ -560,8 +561,11 @@ public class DataExportService {
         Set<String> claimedHashes = new HashSet<>(statementImportRepository.findContentHashesByUserId(userId));
         List<UnimportedUpload> unimportedUploads = new ArrayList<>();
         for (ImportJob job : importJobEntities) {
-            // No address means no object to read -- nothing held to export.
-            if (job.getContentHash() == null || job.getObjectKey() == null) continue;
+            // No address means no object to read, and a released one (V250) means the storage sweep
+            // deleted it or found a live statement naming it -- either way the job holds nothing to
+            // export. Skipped without claiming the hash, so a session still holding the same
+            // document is exported instead.
+            if (job.getContentHash() == null || job.getObjectKey() == null || job.getObjectReleasedAt() != null) continue;
             if (claimedHashes.add(job.getContentHash())) {
                 unimportedUploads.add(new UnimportedUpload(UnimportedUpload.Source.IMPORT_JOB, job.getId(), job.getFileName()));
             }

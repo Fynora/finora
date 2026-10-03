@@ -73,7 +73,7 @@ class BankActivityCategoryTest {
     void aGovernmentFee_isTaxes() {
         assertThat(of("UPI-PASSPORT SEVA PROJEC-PASSPORTSEVA.GOI.SBIEPAYLITE@SBI-SBIN0000000-000000000000-MOPSUP", EXPENSE))
                 .isEqualTo("Taxes");
-        assertThat(of("UPI/000000000000/19:06:39/UPI/upsc.sbiepaylite@sb", EXPENSE)).isEqualTo("Taxes");
+        assertThat(of("UPI/000000000000/19:06:39/UPI/upsc.sbiepaylite@zz", EXPENSE)).isEqualTo("Taxes");
     }
 
     @Test
@@ -100,7 +100,7 @@ class BankActivityCategoryTest {
 
     @Test
     void moneyFromAGovernmentBody_isNotATax() {
-        assertThat(of("UPI/000000000000/19:06:39/UPI/upsc.sbiepaylite@sb", INCOME)).isNull();
+        assertThat(of("UPI/000000000000/19:06:39/UPI/upsc.sbiepaylite@zz", INCOME)).isNull();
     }
 
     // --- Savings and card bill payments ---

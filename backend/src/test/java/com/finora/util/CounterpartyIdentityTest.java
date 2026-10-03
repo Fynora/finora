@@ -273,8 +273,8 @@ class CounterpartyIdentityTest {
 
     @Test
     void aHyphenInsideASlashSeparatedIdIsPartOfTheId() {
-        assertThat(CounterpartyIdentity.keyOf("UPI/111111111111/13:14:05/UPI/goog-payment s@axisb"))
-                .isEqualTo("vpa:goog-payments");
+        assertThat(CounterpartyIdentity.keyOf("UPI/111111111111/13:14:05/UPI/shop-payment s@zzbnk"))
+                .isEqualTo("vpa:shop-payments");
         assertThat(CounterpartyIdentity.keyOf("UPI/111111111111/21:34:04/UPI/gpay-1111111 1801@ok"))
                 .isEqualTo("vpa:gpay-11111111801");
         // A hyphen-delimited narration still stops at the hyphen: there it separates fields.
@@ -388,8 +388,8 @@ class CounterpartyIdentityTest {
     @Test
     void aMaskedUpiId_doesNotIdentifyOnePayee() {
         // The printed tail is shared by strangers: on the corpus one joined two different shops.
-        assertThat(CounterpartyIdentity.identifiesOnePayee("masked:.payu@hdfcbank")).isFalse();
-        assertThat(CounterpartyIdentity.identifiesOnePayee("masked:5.rzp@rxaxis")).isFalse();
+        assertThat(CounterpartyIdentity.identifiesOnePayee("masked:.payu@shopcobk")).isFalse();
+        assertThat(CounterpartyIdentity.identifiesOnePayee("masked:5.rzp@shopcobk")).isFalse();
     }
 
     @Test

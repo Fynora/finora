@@ -440,7 +440,7 @@ class CategoryRulesTest {
     void suggestCategory_brokerAndAmcNamesSeenOnTheCorpus_areInvestments() {
         assertThat(CategoryRules.suggestCategory("NEFT CR-XXXX0001-NEXTBILLION TECHNOLOGY PRIVATE LIMITED CLIENT ACCOUNT"))
                 .isEqualTo("Investments");
-        assertThat(CategoryRules.suggestCategory("UPI/DR/123456/NSE ZEROD/HDFC/BRK@VALID")).isEqualTo("Investments");
+        assertThat(CategoryRules.suggestCategory("UPI/DR/123456/NSE ZEROD/HDFC/BRK@ZZVLD")).isEqualTo("Investments");
         assertThat(CategoryRules.suggestCategory("BD-HSBC MF DEBIT CMP MANDATE DEBIT")).isEqualTo("Investments");
         assertThat(CategoryRules.suggestCategory("RELIANCE NIPPON LIFE ASSET MANA DEBIT CMP MANDATE DEBIT"))
                 .isEqualTo("Investments");
@@ -535,13 +535,13 @@ class CategoryRulesTest {
 
     @Test
     void suggestCategory_aMetroIdFusedAndCutIsTransport() {
-        assertThat(CategoryRules.suggestCategory("UPI/DR/900011112201/PUNE MET/HDFC/punemetroccadri/")) // synthetic-ok
+        assertThat(CategoryRules.suggestCategory("UPI/DR/900011112201/PUNE MET/HDFC/punemetroabcdef/")) // synthetic-ok
                 .isEqualTo("Transport");
     }
 
     @Test
     void suggestCategory_aParkingAppIsTransport() {
-        assertThat(CategoryRules.suggestCategory("UPI/DR/900011112202/PARKPLUS/HDFC/parkpl usio.payu/")) // synthetic-ok
+        assertThat(CategoryRules.suggestCategory("UPI/DR/900011112202/PARKPLUS/HDFC/parkpl usxy.payu/")) // synthetic-ok
                 .isEqualTo("Transport");
     }
 
@@ -553,25 +553,25 @@ class CategoryRulesTest {
 
     @Test
     void suggestCategory_aTelecomsAutopayOrPrepaidIdIsUtilities() {
-        assertThat(CategoryRules.suggestCategory("UPI/DR/900011112204/Www Airt/HDFC/airtelautopay.p/")) // synthetic-ok
+        assertThat(CategoryRules.suggestCategory("UPI/DR/900011112204/Www Airt/HDFC/airtelautopay.x/")) // synthetic-ok
                 .isEqualTo("Utilities");
-        assertThat(CategoryRules.suggestCategory("UPI/DR/900011112205/BHARTI A/AIRP/airtelprepaidUP/")) // synthetic-ok
+        assertThat(CategoryRules.suggestCategory("UPI/DR/900011112205/BHARTI A/AIRP/airtelprepaidXY/")) // synthetic-ok
                 .isEqualTo("Utilities");
     }
 
     @Test
     void suggestCategory_aPaymentsAppBillPaymentIdIsUtilities() {
-        assertThat(CategoryRules.suggestCategory("UPI/DR/900011112206/Google I/UTIB/gpay-utility@ok/")) // synthetic-ok
+        assertThat(CategoryRules.suggestCategory("UPI/DR/900011112206/Google I/UTIB/gpay-utility@zz/")) // synthetic-ok
                 .isEqualTo("Utilities");
     }
 
     @Test
     void suggestCategory_softwareAndCloudSubscriptionIdsAreSubscriptions() {
-        assertThat(CategoryRules.suggestCategory("UPI/DR/900011112207/APPLE ME/HDFC/appleservices.b/")) // synthetic-ok
+        assertThat(CategoryRules.suggestCategory("UPI/DR/900011112207/APPLE ME/HDFC/appleservices.x/")) // synthetic-ok
                 .isEqualTo("Subscriptions");
         assertThat(CategoryRules.suggestCategory("UPI/DR/900011112208/Google W/UTIB/googleworkspace/")) // synthetic-ok
                 .isEqualTo("Subscriptions");
-        assertThat(CategoryRules.suggestCategory("UPI/DR/900011112209/AWS Indi/YESB/amazonaws@yapl/A")) // synthetic-ok
+        assertThat(CategoryRules.suggestCategory("UPI/DR/900011112209/AWS Indi/YESB/amazonaws@zzzz/A")) // synthetic-ok
                 .isEqualTo("Subscriptions");
     }
 

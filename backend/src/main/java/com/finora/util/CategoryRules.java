@@ -289,6 +289,19 @@ public final class CategoryRules {
         return null;
     }
 
+    /**
+     * The payee field of a structured narration, or null when the narration is not structured or
+     * its payee field names nobody. The same field {@link #extractMerchantLabel} shows; it is also
+     * what MerchantNormalizationEngine groups a new description by, because {@link #extractMerchant}
+     * keeps only the first four words and so drops a payee printed after a long prefix
+     * ("Payment from PhonePe_NAME").
+     */
+    public static String structuredPayee(String desc) {
+        if (desc == null || desc.isBlank()) return null;
+        java.util.Optional<String> structured = payeeOfStructuredNarration(desc);
+        return structured == null ? null : structured.orElse(null);
+    }
+
     // ---- Plan 5, task 1: the payee field of a structured narration -------------------------------
     //
     // Measured on the 33-document corpus: the name used to be the first four words of the
@@ -430,6 +443,15 @@ public final class CategoryRules {
         List<String> chosen = named.isEmpty() ? words : named;
         if (chosen.isEmpty()) return null;
         return String.join(" ", chosen.subList(0, Math.min(4, chosen.size())));
+    }
+
+    /**
+     * Whether {@code word} (already normalised) is a payment app's name or handle suffix, which
+     * names how the money moved and never who received it. MerchantNormalizationEngine uses this to
+     * refuse a grouping key made of nothing else.
+     */
+    public static boolean isPaymentAppWord(String word) {
+        return word != null && PAYMENT_APP_HANDLE_WORDS.contains(word);
     }
 
     /** Payment apps whose own name, or QR-code prefix, starts a handle that names no payee. */

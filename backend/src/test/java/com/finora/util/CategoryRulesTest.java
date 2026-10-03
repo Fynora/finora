@@ -246,6 +246,26 @@ class CategoryRulesTest {
      * Real corpus finding: "PMSBY" is the same government's Pradhan Mantri Suraksha Bima Yojana
      * accident-insurance scheme, debited in the same "JNS-" narration shape as PMJJBY.
      */
+    /** The payee field MerchantNormalizationEngine groups by: present when a structured narration
+     *  names someone, null when it is not structured or names nobody. */
+    @Test
+    void structuredPayee_readsThePayeeFieldOnly() {
+        assertThat(CategoryRules.structuredPayee("UPI/RRN 000000000001/Payment from PhonePe_ALICE")).isEqualTo("alice");
+        assertThat(CategoryRules.structuredPayee("UPI-SUNIL VERMA-sampleuser@ybl-REF61")).isEqualTo("sunil verma");
+        assertThat(CategoryRules.structuredPayee("SWIGGY BANGALORE")).isNull();
+        assertThat(CategoryRules.structuredPayee("UPI/000000000001/00:41:30/UPI/q000000001@ybl/UPI")).isNull();
+        assertThat(CategoryRules.structuredPayee(null)).isNull();
+        assertThat(CategoryRules.structuredPayee("   ")).isNull();
+    }
+
+    @Test
+    void isPaymentAppWord_namesAppsNotPayees() {
+        assertThat(CategoryRules.isPaymentAppWord("ybl")).isTrue();
+        assertThat(CategoryRules.isPaymentAppWord("razorpay")).isTrue();
+        assertThat(CategoryRules.isPaymentAppWord("swiggy")).isFalse();
+        assertThat(CategoryRules.isPaymentAppWord(null)).isFalse();
+    }
+
     @Test
     void suggestCategory_matchesPmsby_governmentInsuranceScheme() {
         assertThat(CategoryRules.suggestCategory("JNS-PMSBY-26-27-00000000000-000_DAP")).isEqualTo("Insurance");

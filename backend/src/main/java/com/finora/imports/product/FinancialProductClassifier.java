@@ -142,7 +142,17 @@ public class FinancialProductClassifier {
     /** Collects evidence and classifies in one call, for callers that have a section rather than a
      *  prepared {@link SectionEvidence}. */
     public ProductClassification classify(ProductEvidenceCollector.Section section) {
-        return classify(collector.collect(section));
+        // A banner-scoped reading is tried only when the section does not already read as the
+        // product its nearest banner names, and taken only when the section's own structure then
+        // agrees with the banner it was scoped to -- see ProductEvidenceCollector#bannerScopes.
+        ProductClassification unscoped = classify(collector.collect(section));
+        FinancialProductType nearest = collector.nearestBannerProduct(section);
+        if (nearest == null || unscoped.type() == nearest) return unscoped;
+        for (ProductEvidenceCollector.BannerScope scope : collector.bannerScopes(section)) {
+            ProductClassification scoped = classify(collector.collect(scope.section()));
+            if (scoped.type() == scope.product()) return scoped;
+        }
+        return unscoped;
     }
 
     /** Scores already-collected evidence. Stage 1 and Stage 2 stay separately callable so evidence

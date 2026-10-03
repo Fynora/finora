@@ -9,6 +9,7 @@ import com.finora.integrations.anthropic.LlmClient.*;
 import com.finora.repository.AiAuditLogRepository;
 import com.finora.repository.CategoryRepository;
 import com.finora.repository.UserMerchantCategoryResolutionRepository;
+import com.finora.util.CounterpartyIdentity;
 import com.finora.util.PersonToPersonTransferDetector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -110,8 +111,14 @@ public class UserMerchantCategoryResolutionService {
      * a category, never writes a resolution row. A preview for a genuinely new merchant simply
      * shows no AI suggestion (falls through to whatever the rest of the waterfall picks) until
      * the user actually confirms a transaction for it.
+     *
+     * <p>Only for a key that names one payee ({@link CounterpartyIdentity#identifiesOnePayee}). A
+     * resolution saved under a gateway's own id or a masked or cut id was one shop's answer, and
+     * would be read back for every other shop on that key -- including one saved before such keys
+     * stopped being saved.
      */
     public Optional<String> resolveReadOnly(UUID userId, String counterpartyKey, Transaction.Type direction) {
+        if (!CounterpartyIdentity.identifiesOnePayee(counterpartyKey)) return Optional.empty();
         return resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(userId, counterpartyKey, direction)
                 .flatMap(cached -> categoryRepository.findById(cached.getCategoryId()).map(Category::getName));
     }
@@ -123,6 +130,7 @@ public class UserMerchantCategoryResolutionService {
      *  hasn't hoisted one. */
     public Optional<String> resolveReadOnly(UUID userId, String counterpartyKey, Transaction.Type direction,
                                              com.finora.imports.ResolutionIndex resolutionIndex) {
+        if (!CounterpartyIdentity.identifiesOnePayee(counterpartyKey)) return Optional.empty();
         if (resolutionIndex != null) {
             return resolutionIndex.categoryNameFor(counterpartyKey, direction);
         }
@@ -155,6 +163,12 @@ public class UserMerchantCategoryResolutionService {
         return new com.finora.imports.ResolutionIndex(byDirection);
     }
 
+    /**
+     * For a key that does not name one payee the model is still asked about this narration, but the
+     * answer is neither read from nor saved to the user's resolutions: saved, it would file the next
+     * shop on the same key the same way. {@link #resolveReadOnly} returns nothing for such a key, so
+     * the read below already misses.
+     */
     public Optional<String> resolve(UUID userId, String counterpartyKey, Transaction.Type direction,
                                      String description) {
         Optional<String> cached = resolveReadOnly(userId, counterpartyKey, direction);
@@ -246,7 +260,9 @@ public class UserMerchantCategoryResolutionService {
                 ? LEFTOVER_PLACEHOLDER.matcher(shield.unshield(r)).replaceAll("someone") : null;
 
         Category resolved = categorizationService.resolveOrCreateCategory(userId, categoryName, reason);
-        resolutionRepository.insertIfAbsent(userId, counterpartyKey, direction.name(), resolved.getId(), Instant.now());
+        if (CounterpartyIdentity.identifiesOnePayee(counterpartyKey)) {
+            resolutionRepository.insertIfAbsent(userId, counterpartyKey, direction.name(), resolved.getId(), Instant.now());
+        }
         return Optional.of(resolved.getName());
     }
 
@@ -265,9 +281,14 @@ public class UserMerchantCategoryResolutionService {
      *  no-identity transaction overwrite the cached resolution for every OTHER no-identity
      *  transaction sharing that same (user, "", direction) row. Skipping both, same defensive
      *  shape as {@code SharedCorpusService.isEligible}'s own null check right before this same
-     *  call site's sibling {@code recordObservation} call. */
+     *  call site's sibling {@code recordObservation} call.
+     *
+     *  <p>The same holds for any key that does not name one payee ({@link
+     *  CounterpartyIdentity#identifiesOnePayee}): a choice for one refund under a gateway's own id
+     *  would file the next shop's refund the same way. Checked here, not at each caller -- three of
+     *  the four callers did not check. */
     public void pin(UUID userId, String counterpartyKey, Transaction.Type direction, UUID categoryId) {
-        if (counterpartyKey == null || counterpartyKey.isBlank()) {
+        if (!CounterpartyIdentity.identifiesOnePayee(counterpartyKey)) {
             return;
         }
         resolutionRepository.upsertPinned(userId, counterpartyKey, direction.name(), categoryId, Instant.now());

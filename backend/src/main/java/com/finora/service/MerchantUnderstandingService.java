@@ -6,6 +6,7 @@ import com.finora.integrations.anthropic.LlmClient;
 import com.finora.integrations.anthropic.LlmClient.*;
 import com.finora.repository.AiAuditLogRepository;
 import com.finora.repository.MerchantUnderstandingRepository;
+import com.finora.util.CounterpartyIdentity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -63,11 +64,20 @@ public class MerchantUnderstandingService {
         this.understandingRepository = understandingRepository;
     }
 
+    /**
+     * The cache is shared by every user, so it is read and written only for a key that names one
+     * payee ({@link CounterpartyIdentity#identifiesOnePayee}). For any other key -- a gateway's own
+     * id, a masked or cut id -- whichever shop's narration arrived first would describe the key for
+     * everyone; the model is still asked about this narration, and the answer is not kept.
+     */
     public Optional<String> understand(UUID userId, String counterpartyKey, Transaction.Type direction,
                                         String description) {
-        var cached = understandingRepository.findByCounterpartyKeyAndDirection(counterpartyKey, direction);
-        if (cached.isPresent()) {
-            return Optional.of(cached.get().getUnderstanding());
+        boolean cacheable = CounterpartyIdentity.identifiesOnePayee(counterpartyKey);
+        if (cacheable) {
+            var cached = understandingRepository.findByCounterpartyKeyAndDirection(counterpartyKey, direction);
+            if (cached.isPresent()) {
+                return Optional.of(cached.get().getUnderstanding());
+            }
         }
         if (!availabilityGuard.categorizationAvailableFor(userId)) {
             return Optional.empty();
@@ -114,7 +124,9 @@ public class MerchantUnderstandingService {
             return Optional.empty();
         }
 
-        understandingRepository.upsert(counterpartyKey, direction.name(), understanding, completion.model(), Instant.now());
+        if (cacheable) {
+            understandingRepository.upsert(counterpartyKey, direction.name(), understanding, completion.model(), Instant.now());
+        }
         return Optional.of(understanding);
     }
 

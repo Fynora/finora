@@ -358,6 +358,52 @@ class UserMerchantCategoryResolutionServiceTest {
         verifyNoInteractions(resolutionRepository);
     }
 
+    /** Keys that join payments to different payees: a masked id, an id cut before its "@", a
+     *  payment gateway's own id, a name made only of gateway words. */
+    private static final List<String> KEYS_NAMING_NO_ONE = List.of(
+            "masked:.payu@hdfcbank", "cut:sampleqr1111111", "vpa:pg.razorpay", "name:via razorpay");
+
+    @Test
+    void pin_keyThatNamesNoOnePayee_writesNothing() {
+        // Pinned, one choice would file every later payment to a stranger on the same key.
+        for (String key : KEYS_NAMING_NO_ONE) {
+            service.pin(userId, key, Transaction.Type.EXPENSE, UUID.randomUUID());
+        }
+
+        verifyNoInteractions(resolutionRepository);
+    }
+
+    @Test
+    void resolveReadOnly_keyThatNamesNoOnePayee_returnsEmptyWithoutReadingAnySavedAnswer() {
+        var index = new com.finora.imports.ResolutionIndex(Map.of(Transaction.Type.EXPENSE,
+                Map.of("vpa:pg.razorpay", "Groceries", "cut:sampleqr1111111", "Groceries")));
+
+        for (String key : KEYS_NAMING_NO_ONE) {
+            assertThat(service.resolveReadOnly(userId, key, Transaction.Type.EXPENSE)).isEmpty();
+            assertThat(service.resolveReadOnly(userId, key, Transaction.Type.EXPENSE, index)).isEmpty();
+        }
+        verifyNoInteractions(resolutionRepository);
+    }
+
+    @Test
+    void resolve_keyThatNamesNoOnePayee_stillAsks_butNeverReadsOrSavesAnAnswer() {
+        when(understandingService.understand(any(), any(), any(), any())).thenReturn(Optional.of("An online travel agency"));
+        Category travel = new Category();
+        travel.setUserId(userId);
+        travel.setName("Travel");
+        when(categoryRepository.findByUserId(userId)).thenReturn(List.of(travel));
+        ToolUse toolUse = new ToolUse("t1", "RESOLVE_CATEGORY", Map.of("category", "Travel"));
+        when(llmClient.complete(any())).thenReturn(new LlmCompletion(null, List.of(toolUse),
+                "claude-haiku-4-5-20251001", 60, 8, "tool_use"));
+        when(categorizationService.resolveOrCreateCategory(userId, "Travel", null)).thenReturn(travel);
+
+        Optional<String> result = service.resolve(userId, "vpa:pg.razorpay", Transaction.Type.INCOME,
+                "UPI-RAZORPAY-PG.RAZORPAY@SAMPLEBANK-SMPL0XXXXXX-111111111111-SAMPLETRAVELREFUNDX1");
+
+        assertThat(result).contains("Travel");
+        verifyNoInteractions(resolutionRepository);
+    }
+
     @Test
     void resolveReadOnly_cacheHit_returnsTheResolvedCategoryName() {
         UUID categoryId = UUID.randomUUID();

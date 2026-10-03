@@ -70,6 +70,21 @@ class SharedCorpusServiceTest {
     }
 
     @Test
+    void isEligible_aGatewaysOwnIdOrACutIdIsNotOneMerchant() {
+        // Refunds from different shops arrive under the gateway's own id: one shop's category, voted
+        // in by a few users, was suggested to everyone for another shop's refund.
+        assertThat(SharedCorpusService.isEligible("vpa:pg.razorpay", CounterpartyType.BUSINESS)).isFalse();
+        assertThat(SharedCorpusService.isEligible("cut:sampleqr1111111", CounterpartyType.BUSINESS)).isFalse();
+    }
+
+    @Test
+    void findTrustedSuggestion_aGatewaysOwnId_suggestsNothingEvenWhenARowWasTrusted() {
+        assertThat(service.findTrustedSuggestion("vpa:pg.razorpay", CounterpartyType.BUSINESS, Transaction.Type.INCOME))
+                .isEmpty();
+        verifyNoInteractions(corpus);
+    }
+
+    @Test
     void recordObservation_ineligibleCounterparty_writesNothing() {
         service.recordObservation(UUID.randomUUID(), "name:rahul", CounterpartyType.PERSON,
                 Transaction.Type.EXPENSE, "Dining");

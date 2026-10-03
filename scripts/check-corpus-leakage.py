@@ -57,6 +57,12 @@ fails the run (exit 2) and is named. Supply its password with --passwords FILE, 
 reader and never printed. --allow-unreadable downgrades the failure to a warning, for a run where
 the gap is known and accepted.
 
+A scanned statement opens without error and has no text, which is the same silent gap in another
+form. A page with almost no text is read by OCR when tesseract is installed (the page image goes to
+tesseract on stdin, never to disk); a document that still has no text counts as unreadable. OCR
+misreads characters, so those pages are listed as read with caveats -- a match there is real, but a
+miss is weaker evidence than on a text page.
+
 EXIT CODES, AND ONE WAY TO LOSE THEM
 ------------------------------------
     0   no corpus identifier occurs in tracked content, and every statement was read
@@ -72,10 +78,16 @@ WHAT IT DOES NOT DO
 It does not judge severity, and it does not distinguish a customer's account number from a bank's
 public IFSC or a merchant's VPA -- all three occur in a statement. Classification is a human
 decision against repository policy. This reports occurrence.
+
+It does not match a UPI id that a bank printed cut short with no "@" left ("airtelautopay.p"), nor
+any other free-text fragment: those have no shape that separates them from ordinary words, and a
+dotted-id rule tried on 2026-10-03 matched production constants and PDF font names as often as it
+matched copies. A fixture built from a statement's narration still needs a person to check it.
 """
 
 import argparse
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -86,12 +98,21 @@ MIN_PREFIX = 8
 # Lifted deliberately from check-fixture-hygiene.sh so the two agree on what is not identifying.
 REPEATED_RUN = re.compile(r"(.)\1{3,}")
 
+VPA = re.compile(r"[A-Za-z0-9._%+-]{3,}@[A-Za-z0-9.-]{2,}")    # email and UPI VPA
+
 PATTERNS = [
     re.compile(r"[0-9]{10,}"),                      # account, card, transaction reference
     re.compile(r"\b[A-Z]{4}0[A-Z0-9]{6}\b"),        # IFSC
-    re.compile(r"[A-Za-z0-9._%+-]{3,}@[A-Za-z0-9.-]{2,}"),   # email and UPI VPA
+    VPA,
     re.compile(r"\b[6-9][0-9]{9}\b"),               # Indian mobile
 ]
+
+# Whitespace around a handle's "@" (OCR's "name @bank", or a wrap just before the "@"), and a wrap
+# INSIDE the name ("samplepoun d@okicici", seen on real statements): the two pieces before the "@"
+# are also read joined. Both only add candidates; the text as printed is always read too.
+# The domain must start right after the "@": prose like "interest @ 3.5%" has a space on both sides.
+AT_GAP = re.compile(r"(?<=[A-Za-z0-9._%+-])[ \t]*\n?[ \t]*@(?=[A-Za-z0-9])")
+SPLIT_NAME = re.compile(r"([A-Za-z0-9._%+-]+)[ \t]*\n?[ \t]*([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]{2,})")
 
 SKIP = re.compile(r"^(backend/target/|.*-lock\.(json|yaml)$|.*\.pdf$)")
 
@@ -146,7 +167,22 @@ def _self_test() -> int:
         ok = got == want
         bad += 0 if ok else 1
         print(f"  {'ok  ' if ok else 'FAIL'} {name:<20} -> {sorted(got) if got else '(none)'}")
-    print(f"\n  {len(cases) - bad} passed, {bad} failed")
+
+    # Handles split by OCR or a wrap: `want` must be among the needles, `not_want` must not.
+    handle_cases = [
+        ("handle, as printed", "UPI/DR/samplestore1@zzbank/x", {"samplestore1@zzbank"}, set()),
+        ("handle, OCR gap",    "UPI DR samplestore1 @zzbank REF", {"samplestore1@zzbank"}, set()),
+        ("handle, name wrap",  "PAID TO samplepoun d@okzzbank", {"samplepound@okzzbank"}, set()),
+        ("handle, wrap at @",  "samplestore1\n@zzbank", {"samplestore1@zzbank"}, set()),
+        ("prose 'at'",         "meet at the bank @ noon", set(), {"bank@noon", "thebank@noon"}),
+    ]
+    for name, text, want, not_want in handle_cases:
+        got = needles(text)
+        ok = want <= got and not (not_want & got)
+        bad += 0 if ok else 1
+        print(f"  {'ok  ' if ok else 'FAIL'} {name:<20} -> {sorted(want & got) if want else '(none wanted)'}")
+    total = len(cases) + len(handle_cases)
+    print(f"\n  {total - bad} passed, {bad} failed")
     return 1 if bad else 0
 
 
@@ -156,12 +192,76 @@ def _self_test() -> int:
 TEXT_SOURCES = (".csv",)
 
 
-def corpus_text(corpus: Path, passwords: Path = None, unreadable: list = None) -> str:
+# Kept as one raw string so the Java reads as Java. See corpus_text for why each piece exists.
+CORPUS_DUMP_JAVA = r'''
+import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.rendering.PDFRenderer;
+import org.apache.pdfbox.text.PDFTextStripper;
+import javax.imageio.ImageIO;
+import java.io.*;
+import java.nio.file.Files;
+import java.util.HashMap;
+
+public class CorpusDump {
+  static final int MIN_PAGE_CHARS = 40;
+
+  public static void main(String[] a) throws Exception {
+    PrintStream out = System.out;
+    System.setOut(System.err);
+    var pw = new HashMap<String, String>();
+    if (!a[1].isEmpty()) for (String l : Files.readAllLines(new File(a[1]).toPath())) {
+      l = l.replace("\r", "");
+      int t = l.indexOf('\t');
+      if (t > 0) pw.put(l.substring(0, t), l.substring(t + 1));
+    }
+    String tess = a[2];
+    for (File f : new File(a[0]).listFiles((d, n) -> n.toLowerCase().endsWith(".pdf"))) {
+      String p = pw.get(f.getName());
+      try (var d = p == null ? Loader.loadPDF(f) : Loader.loadPDF(f, p)) {
+        StringBuilder text = new StringBuilder(new PDFTextStripper().getText(d));
+        int pages = d.getNumberOfPages(), empty = 0, ocred = 0;
+        PDFRenderer renderer = new PDFRenderer(d);
+        for (int i = 0; i < pages; i++) {
+          var s = new PDFTextStripper();
+          s.setStartPage(i + 1);
+          s.setEndPage(i + 1);
+          if (s.getText(d).replaceAll("\\s+", "").length() >= MIN_PAGE_CHARS) continue;
+          String ocr = tess.isEmpty() ? "" : ocr(tess, renderer, i);
+          if (ocr.replaceAll("\\s+", "").length() >= MIN_PAGE_CHARS) { text.append('\n').append(ocr); ocred++; }
+          else empty++;
+        }
+        out.println(text);
+        if (pages > 0 && empty == pages) System.err.println("UNREADABLE\t" + f.getName() + "\tNoTextLayer");
+        else if (empty > 0) System.err.println("PARTIAL\t" + f.getName() + "\t" + empty + "/" + pages + " pages without text");
+        if (ocred > 0) System.err.println("OCR\t" + f.getName() + "\t" + ocred + "/" + pages + " pages read by OCR");
+      } catch (Exception e) {
+        System.err.println("UNREADABLE\t" + f.getName() + "\t" + e.getClass().getSimpleName());
+      }
+    }
+  }
+
+  static String ocr(String tess, PDFRenderer renderer, int page) throws Exception {
+    var png = new ByteArrayOutputStream();
+    ImageIO.write(renderer.renderImageWithDPI(page, 300), "png", png);
+    Process proc = new ProcessBuilder(tess, "stdin", "stdout")
+        .redirectError(ProcessBuilder.Redirect.DISCARD).start();
+    try (var in = proc.getOutputStream()) { in.write(png.toByteArray()); }
+    String text = new String(proc.getInputStream().readAllBytes());
+    return proc.waitFor() == 0 ? text : "";
+  }
+}
+'''
+
+
+def corpus_text(corpus: Path, passwords: Path = None, unreadable: list = None,
+                notes: list = None) -> str:
     """Every statement's text in one directory, concatenated: its top-level PDFs (through the
     backend's PDFBox, which must be on the classpath) and its top-level CSV exports.
 
-    A PDF that cannot be read is appended to `unreadable` (file name and exception class only);
-    when no list is passed, the caller has said it does not care, and the skip stays silent."""
+    A PDF that cannot be read -- protected, broken, or a scan with no text that could not be OCR'd --
+    is appended to `unreadable` (file name and reason only); when no list is passed, the caller has
+    said it does not care, and the skip stays silent. Scanned pages that were OCR'd, and pages left
+    without text in an otherwise readable document, go to `notes`."""
     cp_file = REPO_ROOT / "backend" / "target" / "corpus-classpath.txt"
     classes = REPO_ROOT / "backend" / "target" / "classes"
     if not cp_file.is_file():
@@ -172,24 +272,20 @@ def corpus_text(corpus: Path, passwords: Path = None, unreadable: list = None) -
     # The password file is read by the Java side, so a password never passes through this process's
     # output. Only the exception's class is reported for a skipped file -- PDFBox messages can quote
     # document content.
+    #
+    # System.out is re-pointed at stderr before PDFBox loads: its font warnings are logged to the
+    # console, and while they shared stdout with the extracted text they became corpus "identifiers"
+    # (font and class names) that then matched ordinary code. Text goes to the saved stream only.
+    #
+    # A page with almost no text is a scanned image. When tesseract is available it is rendered and
+    # read through tesseract's stdin/stdout, so no page image is ever written to disk; when it is not,
+    # a document with no text at all is reported as unreadable rather than passed as clean.
     src = REPO_ROOT / "backend" / "target" / "CorpusDump.java"
-    src.write_text(
-        'import org.apache.pdfbox.Loader; import org.apache.pdfbox.text.PDFTextStripper;\n'
-        'import java.io.File; import java.nio.file.Files; import java.util.HashMap;\n'
-        'public class CorpusDump { public static void main(String[] a) throws Exception {\n'
-        '  var pw = new HashMap<String, String>();\n'
-        '  if (a.length > 1) for (String l : Files.readAllLines(new File(a[1]).toPath())) {\n'
-        '    int t = l.indexOf(\'\\t\'); if (t > 0) pw.put(l.substring(0, t), l.substring(t + 1)); }\n'
-        '  for (File f : new File(a[0]).listFiles((d,n)->n.toLowerCase().endsWith(".pdf"))) {\n'
-        '    String p = pw.get(f.getName());\n'
-        '    try (var d = p == null ? Loader.loadPDF(f) : Loader.loadPDF(f, p)) {\n'
-        '      System.out.println(new PDFTextStripper().getText(d)); }\n'
-        '    catch (Exception e) {\n'
-        '      System.err.println("UNREADABLE\\t" + f.getName() + "\\t" + e.getClass().getSimpleName()); } } } }\n')
+    src.write_text(CORPUS_DUMP_JAVA)
     cp = f"{classes}:{cp_file.read_text().strip()}"
     subprocess.run(["javac", "-cp", cp, "-d", str(REPO_ROOT / "backend" / "target" / "corpusdump"),
                     str(src)], check=True, capture_output=True)
-    args = [str(corpus)] + ([str(passwords)] if passwords else [])
+    args = [str(corpus), str(passwords) if passwords else "", shutil.which("tesseract") or ""]
     out = subprocess.run(["java", "-cp",
                           f"{REPO_ROOT / 'backend' / 'target' / 'corpusdump'}:{cp}",
                           "CorpusDump", *args], capture_output=True, text=True)
@@ -198,8 +294,12 @@ def corpus_text(corpus: Path, passwords: Path = None, unreadable: list = None) -
     skipped = []
     for line in out.stderr.splitlines():
         parts = line.split("\t")
-        if len(parts) == 3 and parts[0] == "UNREADABLE":
+        if len(parts) != 3:
+            continue
+        if parts[0] == "UNREADABLE":
             skipped.append((corpus / parts[1], parts[2]))
+        elif parts[0] in ("PARTIAL", "OCR") and notes is not None:
+            notes.append((parts[0], corpus / parts[1], parts[2]))
     if unreadable is not None:
         unreadable.extend(skipped)
 
@@ -213,6 +313,18 @@ def corpus_text(corpus: Path, passwords: Path = None, unreadable: list = None) -
     return text
 
 
+def split_handles(text: str) -> set:
+    """Handles as they read once a split at or before the "@" is closed up; see AT_GAP and
+    SPLIT_NAME. Applied to the corpus AND the repository, for the reason given under SYMMETRY."""
+    out = set()
+    joined = AT_GAP.sub("@", text)
+    for m in VPA.finditer(joined):
+        out.add(m.group())
+    for m in SPLIT_NAME.finditer(joined):
+        out.add(m.group(1) + m.group(2))
+    return {v for v in out if len(v) >= 10 and VPA.fullmatch(v) and not REPEATED_RUN.fullmatch(v)}
+
+
 def needles(text: str) -> set:
     """Whole identifiers plus their proper prefixes. See the module docstring on why prefixes."""
     whole = set()
@@ -221,6 +333,7 @@ def needles(text: str) -> set:
             v = m.group()
             if len(v) >= 10 and not REPEATED_RUN.fullmatch(v):
                 whole.add(v)
+    whole |= split_handles(text)
 
     out = set(whole) | separated_digits(text)
     for v in whole:
@@ -259,17 +372,17 @@ def main() -> int:
     if passwords is not None:
         if not passwords.is_file():
             sys.exit(f"not a file: {passwords}")
-        if str(passwords).startswith(str(REPO_ROOT)):
+        if passwords.is_relative_to(REPO_ROOT):
             sys.exit(f"REFUSED: {passwords} is inside the repository.")
 
-    texts, unreadable = [], []
+    texts, unreadable, notes = [], [], []
     for given in args.corpus:
         corpus = given.resolve()
         if not corpus.is_dir():
             sys.exit(f"not a directory: {corpus}")
-        if str(corpus).startswith(str(REPO_ROOT)):
+        if corpus.is_relative_to(REPO_ROOT):
             sys.exit(f"REFUSED: {corpus} is inside the repository.")
-        texts.append(corpus_text(corpus, passwords, unreadable))
+        texts.append(corpus_text(corpus, passwords, unreadable, notes))
 
     ns = needles("\n".join(texts))
     print(f"corpus identifiers + prefixes to match: {len(ns)}", file=sys.stderr)
@@ -281,9 +394,11 @@ def main() -> int:
     # rule is that real customer data must not become a development artefact, not merely that it must
     # not be committed, and a build directory is a development artefact.
     # -i: see "CASE-INSENSITIVE" in the module docstring.
+    # An empty pattern list is not "nothing to find": git grep reads it as one empty pattern, which
+    # matches every line in the repository. With no needles there is simply no verdict (exit 2 below).
     hits = subprocess.run(["git", "grep", "-niF", "-f", "-", "--", "."],
                           cwd=REPO_ROOT, input="\n".join(sorted(ns)),
-                          capture_output=True, text=True).stdout.splitlines()
+                          capture_output=True, text=True).stdout.splitlines() if ns else []
     hits = [h for h in hits if not SKIP.match(h.split(":", 1)[0])]
 
     # SYMMETRY. The pass above greps literally, so it only catches a corpus value that is spaced in
@@ -293,6 +408,10 @@ def main() -> int:
     # made on digits alone. Without this, "separator-tolerant" would be true of one side only, which
     # is the same disagreement-by-construction the corpus normalisation exists to prevent.
     corpus_digits = {n for n in ns if n.isdigit() and len(n) >= MIN_SEPARATED_DIGITS}
+    # The same symmetry for handles: a statement's wrap ("name piec e@bank") copied into a fixture
+    # is invisible to the literal pass, whose needle is the joined handle.
+    corpus_handles = {n.lower() for n in ns if "@" in n}
+    literal = {":".join(h.split(":", 2)[:2]) for h in hits}
     tracked = subprocess.run(["git", "ls-files"], cwd=REPO_ROOT,
                              capture_output=True, text=True).stdout.splitlines()
     for rel in tracked:
@@ -304,6 +423,9 @@ def main() -> int:
         except OSError:
             continue
         for n_, line in enumerate(body.splitlines(), 1):
+            if "@" in line and f"{rel}:{n_}" not in literal and \
+                    {v.lower() for v in split_handles(line)} & corpus_handles:
+                hits.append(f"{rel}:{n_}: split corpus handle")
             if "synthetic-ok" in line:
                 continue
             for d in separated_digits(line) & corpus_digits:
@@ -316,17 +438,31 @@ def main() -> int:
         sys.exit(f"REFUSED: this scan persisted corpus identifiers to {leftover[0]}. "
                  "Needles must stay in memory; see the comment above the git grep call.")
 
-    # NAMES ONLY -- a file name and the exception's class. The statement's content never reaches here.
+    # NAMES ONLY -- a file name and a reason. The statement's content never reaches here.
+    if notes:
+        print("\nREAD WITH CAVEATS (OCR misreads characters, so a copied value can escape a match on "
+              "these pages):", file=sys.stderr)
+        for kind, path, what in notes:
+            print(f"  {path}  ({what})", file=sys.stderr)
+        if not shutil.which("tesseract"):
+            print("tesseract is not installed, so scanned pages were not read at all.", file=sys.stderr)
     if unreadable:
         level = "WARNING" if args.allow_unreadable else "INCOMPLETE"
         print(f"\n{level}: {len(unreadable)} statement(s) could not be read, so their identifiers "
               "were NOT checked:", file=sys.stderr)
         for path, why in unreadable:
             print(f"  {path}  ({why})", file=sys.stderr)
+        if any(why == "NoTextLayer" for _, why in unreadable) and not shutil.which("tesseract"):
+            print("A NoTextLayer statement is a scan: install tesseract and its pages are read by OCR.",
+                  file=sys.stderr)
         print("Supply a protected statement's password with --passwords FILE (see the module "
               "docstring),\nor pass --allow-unreadable to accept the gap knowingly.", file=sys.stderr)
 
     if not hits:
+        if not ns:
+            print("no identifiers were extracted from any statement -- nothing was compared, so "
+                  "there is no verdict.", file=sys.stderr)
+            return 2
         if unreadable and not args.allow_unreadable:
             print("no corpus identifier found in what was read -- but the scan is INCOMPLETE (see above).")
             return 2
@@ -342,7 +478,7 @@ def main() -> int:
         parts = h.split(":", 2)
         where = ":".join(parts[:2]) if len(parts) >= 2 else h
         kind = parts[2].strip() if len(parts) > 2 and parts[2].strip().startswith(
-            "separator-split") else "matches a corpus identifier"
+            ("separator-split", "split corpus handle")) else "matches a corpus identifier"
         print(f"  {where}  {kind}", file=sys.stderr)
     print(f"\n{len(hits)} line(s). These are verified occurrences, not pattern guesses.\n"
           "Replace with deterministic synthetic values that preserve what each test asserts.\n"

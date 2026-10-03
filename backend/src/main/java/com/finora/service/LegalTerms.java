@@ -10,7 +10,7 @@ package com.finora.service;
  */
 public final class LegalTerms {
 
-    public static final String CURRENT_VERSION = "2026-09";
+    public static final String CURRENT_VERSION = "2026-10";
 
     private LegalTerms() {
     }

@@ -1,13 +1,14 @@
 package com.finora.config;
 
 import com.finora.security.AdminUserDataReadAuditInterceptor;
+import com.finora.security.UserActivityInterceptor;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 /**
- * MVC-level registrations. Only the admin read-audit interceptor lives here today; see its own
- * doc comment for why it is an interceptor rather than a call in each controller.
+ * MVC-level registrations: the admin read-audit interceptor and the user activity-day recorder.
+ * See each one's own doc comment for why it is an interceptor rather than a call in each controller.
  */
 @Configuration
 public class WebMvcConfig implements WebMvcConfigurer {
@@ -20,14 +21,22 @@ public class WebMvcConfig implements WebMvcConfigurer {
             "/api/v1/admin/users/*/**",
     };
 
-    private final AdminUserDataReadAuditInterceptor adminUserDataReadAuditInterceptor;
+    /** Every API route. The interceptor itself decides whose requests count (user-portal accounts
+     *  only); this just keeps it off non-API paths such as error pages. */
+    static final String[] USER_ACTIVITY_ROUTES = {"/api/**"};
 
-    public WebMvcConfig(AdminUserDataReadAuditInterceptor adminUserDataReadAuditInterceptor) {
+    private final AdminUserDataReadAuditInterceptor adminUserDataReadAuditInterceptor;
+    private final UserActivityInterceptor userActivityInterceptor;
+
+    public WebMvcConfig(AdminUserDataReadAuditInterceptor adminUserDataReadAuditInterceptor,
+                        UserActivityInterceptor userActivityInterceptor) {
         this.adminUserDataReadAuditInterceptor = adminUserDataReadAuditInterceptor;
+        this.userActivityInterceptor = userActivityInterceptor;
     }
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(adminUserDataReadAuditInterceptor).addPathPatterns(ADMIN_SINGLE_USER_ROUTES);
+        registry.addInterceptor(userActivityInterceptor).addPathPatterns(USER_ACTIVITY_ROUTES);
     }
 }

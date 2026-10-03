@@ -214,6 +214,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     @Autowired private UserChecklistEventRepository userChecklistEventRepository;
     @Autowired private HealthScoreSnapshotRepository healthScoreSnapshotRepository;
     @Autowired private FeatureViewCountRepository featureViewCountRepository;
+    @Autowired private com.finora.repository.UserActivityDayRepository userActivityDayRepository;
     @Autowired private RecurringDismissalRepository recurringDismissalRepository;
     @Autowired private AccountAggregatorLinkRepository accountAggregatorLinkRepository;
     @Autowired private AiAuditLogRepository aiAuditLogRepository;
@@ -261,7 +262,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 emailChangeSessionRepository, phoneChangeSessionRepository, deviceTokenRepository,
                 notificationPreferenceRepository, reimportConfirmationClaimRepository, userFinancialFocusRepository,
                 userChecklistEventRepository, healthScoreSnapshotRepository, featureViewCountRepository,
-                recurringDismissalRepository, accountAggregatorLinkRepository, aiAuditLogRepository,
+                userActivityDayRepository, recurringDismissalRepository, accountAggregatorLinkRepository, aiAuditLogRepository,
                 chatConversationRepository, chatMessageRepository, counterpartyCategoryObservationRepository,
                 inflowKindRepository, senderInflowRuleRepository,
                 auditService,
@@ -1018,6 +1019,8 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         // user row just fine.
         featureViewCountRepository.recordView(userId, "DASHBOARD");
         recurringDismissalRepository.insertIfAbsent(userId, "NETFLIX");
+        userActivityDayRepository.recordDay(userId, java.time.LocalDate.of(2026, 9, 30));
+        assertThat(userActivityDayRepository.findByUserIdOrderByActivityDateAsc(userId)).hasSize(1);
 
         AccountAggregatorLink aaLink = new AccountAggregatorLink();
         aaLink.setUserId(userId);
@@ -1075,6 +1078,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         assertThat(userChecklistEventRepository.findByUserId(userId)).isEmpty();
         assertThat(healthScoreSnapshotRepository.findTop6ByUserIdOrderByYearMonthDesc(userId)).isEmpty();
         assertThat(featureViewCountRepository.findByUserIdAndFeature(userId, "DASHBOARD")).isEmpty();
+        assertThat(userActivityDayRepository.findByUserIdOrderByActivityDateAsc(userId)).isEmpty();
         assertThat(recurringDismissalRepository.findByUserId(userId)).isEmpty();
         assertThat(accountAggregatorLinkRepository.findByUserId(userId)).isEmpty();
 

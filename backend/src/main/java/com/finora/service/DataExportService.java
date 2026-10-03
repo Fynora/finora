@@ -258,6 +258,7 @@ public class DataExportService {
     private final StatementImportExcludedRowRepository statementImportExcludedRowRepository;
     private final CounterpartyCategoryObservationRepository counterpartyCategoryObservationRepository;
     private final StatementRefreshRunRepository statementRefreshRunRepository;
+    private final com.finora.repository.UserActivityDayRepository userActivityDayRepository;
     private final ObjectMapper objectMapper;
 
     public DataExportService(UserRepository userRepository, GoogleReauthVerifier googleReauthVerifier,
@@ -301,7 +302,8 @@ public class DataExportService {
                               TransactionRelationshipRepository transactionRelationshipRepository,
                               StatementImportExcludedRowRepository statementImportExcludedRowRepository,
                               CounterpartyCategoryObservationRepository counterpartyCategoryObservationRepository,
-                              StatementRefreshRunRepository statementRefreshRunRepository) {
+                              StatementRefreshRunRepository statementRefreshRunRepository,
+                              com.finora.repository.UserActivityDayRepository userActivityDayRepository) {
         this.statementPasswordRepository = statementPasswordRepository;
         this.featureViewCountRepository = featureViewCountRepository;
         this.paymentRepository = paymentRepository;
@@ -317,6 +319,7 @@ public class DataExportService {
         this.statementImportExcludedRowRepository = statementImportExcludedRowRepository;
         this.counterpartyCategoryObservationRepository = counterpartyCategoryObservationRepository;
         this.statementRefreshRunRepository = statementRefreshRunRepository;
+        this.userActivityDayRepository = userActivityDayRepository;
         this.userRepository = userRepository;
         this.googleReauthVerifier = googleReauthVerifier;
         this.accountRepository = accountRepository;
@@ -448,6 +451,13 @@ public class DataExportService {
                                 r.getStatementImportId(), r.getFileName(), r.getAccountName(),
                                 r.getPeriodStart(), r.getPeriodEnd(), r.getConsentedAt()))
                         .toList();
+
+        // V249: the dates this account used the app. In the purge scope, so -- per the F-03 rule
+        // above -- it is exported rather than silently left out. ISO strings, not LocalDate, so the
+        // file's shape does not depend on the ObjectMapper's date settings.
+        List<String> activityDays = userActivityDayRepository.findByUserIdOrderByActivityDateAsc(userId).stream()
+                .map(d -> d.getActivityDate().toString())
+                .toList();
 
         List<BudgetDto> budgets = budgetService.listForUser(userId);
 
@@ -703,7 +713,7 @@ public class DataExportService {
                 inflowKinds, senderInflowRules, paymentInflowChoices, savedStatementPasswords, featureViews,
                 paymentExports, subscriptionOrderExports, referrals, referralCode, referralRewards, wallet,
                 notifications, notificationPreferences, timeline, transactionLinks, statementExcludedRows,
-                merchantCategoryVotes, statementRefreshRuns);
+                merchantCategoryVotes, statementRefreshRuns, activityDays);
     }
 
     /**
@@ -769,6 +779,7 @@ public class DataExportService {
             writeJsonEntry(zos, "statement_excluded_rows.json", bundle.statementExcludedRows());
             writeJsonEntry(zos, "merchant_category_votes.json", bundle.merchantCategoryVotes());
             writeJsonEntry(zos, "statement_refresh_runs.json", bundle.statementRefreshRuns());
+            writeJsonEntry(zos, "activity_days.json", bundle.activityDays());
 
             for (Summary statement : bundle.statementSummaries()) {
                 String entryName = "statements/" + statement.id() + "-" + sanitize(statement.fileName());
@@ -888,7 +899,8 @@ public class DataExportService {
                 new ManifestEntry("transaction_links.json", "Links between your transactions -- transfers, card payments and what they settled, refunds.", bundle.transactionLinks().size()),
                 new ManifestEntry("statement_excluded_rows.json", "Statement rows you chose to leave out of your ledger.", bundle.statementExcludedRows().size()),
                 new ManifestEntry("merchant_category_votes.json", "Categories you chose for merchants' payments.", bundle.merchantCategoryVotes().size()),
-                new ManifestEntry("statement_refresh_runs.json", "Every time Finora re-read one of your statements, and exactly what that changed -- including transactions it removed.", bundle.statementRefreshRuns().size())
+                new ManifestEntry("statement_refresh_runs.json", "Every time Finora re-read one of your statements, and exactly what that changed -- including transactions it removed.", bundle.statementRefreshRuns().size()),
+                new ManifestEntry("activity_days.json", "The dates you used Fynora -- the date only, never the time or what you did.", bundle.activityDays().size())
         );
         List<ManifestEntry> excluded = List.of(
                 new ManifestEntry("audit_logs", "Your own actions are logged for security, not collected as your data.", null),
@@ -989,6 +1001,7 @@ public class DataExportService {
             List<TimelineEventExportDto> timeline, List<TransactionLinkExportDto> transactionLinks,
             List<StatementExcludedRowExportDto> statementExcludedRows,
             List<MerchantCategoryVoteExportDto> merchantCategoryVotes,
-            List<RefreshRunDetail> statementRefreshRuns
+            List<RefreshRunDetail> statementRefreshRuns,
+            List<String> activityDays
     ) {}
 }

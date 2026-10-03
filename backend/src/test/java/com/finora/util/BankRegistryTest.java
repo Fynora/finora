@@ -113,6 +113,27 @@ class BankRegistryTest {
     }
 
     @Test
+    void aLabelledIfscWhoseReservedZeroOcrReadAsTheLetterO_stillNamesTheBank() {
+        // A scanned statement's "IFSC : UBIN0XXXXXX" recognised with O for the fifth-position zero.
+        // The only other bank-shaped text is a counterparty's narration and garbled letterhead, so
+        // without the labelled IFSC this resolves to the wrong bank or none.
+        BankRegistry.BankInfo bank = BankRegistry.detect("statement.pdf", List.of(
+                "SAMPLE HOLDER Account Number : 1234XXXXXXX5678 IFSC UBINOXXXXXX",
+                "UPIAR/000000000001/DR/SAMPLE/BKID/0000000000@ybl Bank of India"));
+
+        assertThat(bank.id()).isEqualTo("UNION");
+    }
+
+    @Test
+    void anUnlabelledWordWithAnOInTheFifthPosition_isNotReadAsAnIfsc() {
+        // Only the LABELLED IFSC tolerates the O: "HDFCONLINE1" in a narration is a word.
+        BankRegistry.BankInfo bank = BankRegistry.detect("statement.pdf", List.of(
+                "PAYMENT VIA HDFCONLINE1 PORTAL"));
+
+        assertThat(bank.id()).isEqualTo(BankRegistry.get(null).id());
+    }
+
+    @Test
     void counterpartyIfscCodesInsideNarrations_doNotOutvoteTheStatementsOwnBank() {
         // Indian UPI/NEFT narrations embed the COUNTERPARTY's IFSC, so a single statement
         // legitimately contains several banks' codes -- and they routinely outnumber the account's

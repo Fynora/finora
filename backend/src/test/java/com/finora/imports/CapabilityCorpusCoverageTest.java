@@ -299,6 +299,9 @@ class CapabilityCorpusCoverageTest {
         DECLARED_WITHOUT_A_TRACE.put("TRANSACTION_TIME_FOOTNOTE_CLOSED",
                 "no trace -- capture refused, see above. Covered by "
                         + "DomesticInternationalSplitPdfTableLocatorTest (mutation-checked)." + realCorpusVerified);
+        DECLARED_WITHOUT_A_TRACE.put("TABLE_TOTALS_SUMMARY_CLOSED",
+                "no trace -- the evidencing document is a customer's scanned statement, never captured. "
+                        + "Covered by ScannedGridLedgerPdfTableLocatorTest (mutation-checked)." + realCorpusVerified);
         DECLARED_WITHOUT_A_TRACE.put("FOREIGN_CURRENCY_AMOUNT",
                 "no trace CAN cover it here: it fires in TransactionNormalizer, never in "
                         + "PdfTableLocator.locateAll, and capture of the evidencing document was refused (see "

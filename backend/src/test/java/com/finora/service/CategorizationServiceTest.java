@@ -456,6 +456,65 @@ class CategorizationServiceTest {
         assertThat(suggestion.confidence()).isEqualTo(ConfidenceEngine.INITIAL_AI_FALLBACK_CONFIDENCE);
     }
 
+    /** A payment to a named individual carries that person's name, and usually their UPI id, in
+     *  its narration. The AI fallback sends the narration to a third party, so a person-shaped
+     *  row must never reach it, even when it would have answered. */
+    @Test
+    void suggest_namedIndividualTransfer_neverReachesTheAiFallback() {
+        UUID merchantId = UUID.randomUUID();
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
+        when(sharedCorpusService.findTrustedSuggestion(any(), any(), any())).thenReturn(Optional.empty());
+        when(fynCategorizationFallbackService.suggest(any(), any(), any(), any())).thenReturn(Optional.of("Dining"));
+
+        var suggestion = categorizationService.suggest(userId,
+                "UPI-RAJESH KUMAR-sampleuser@ybl-REF881234", null, null, Transaction.Type.EXPENSE);
+
+        verify(fynCategorizationFallbackService, never()).suggest(any(), any(), any(), any());
+        assertThat(suggestion.decisionSource()).isEqualTo(Transaction.DecisionSource.STRUCTURAL_P2P);
+    }
+
+    /** Measured shapes of a person payment the classifier does not type PERSON: a spaced
+     *  "UPI NAME number" narration (UNKNOWN) and one naming the payer's own bank
+     *  (FINANCIAL_INSTITUTION). Both go to the model only with the names masked -- and the first,
+     *  which is nothing but a name and a reference, does not go at all. */
+    @Test
+    void narrationForModel_masksThePersonPaymentsTheClassifierMistypes() {
+        String spaced = "UPI RAVI SHANKAR KUMAR 412345678901"; // synthetic-ok
+        String namesPayerBank = "RAVI K UPI/RAVI K/ravik@okicici/Payment fr/ICICI Bank/412345678901/UPI"; // synthetic-ok
+        assertThat(com.finora.util.CounterpartyTyping.of(spaced).type())
+                .as("precondition").isEqualTo(com.finora.util.CounterpartyType.UNKNOWN);
+        assertThat(com.finora.util.CounterpartyTyping.of(namesPayerBank).type())
+                .as("precondition").isEqualTo(com.finora.util.CounterpartyType.FINANCIAL_INSTITUTION);
+
+        assertThat(CategorizationService.narrationForModel(spaced)).isEmpty();
+        assertThat(CategorizationService.narrationForModel(namesPayerBank))
+                .contains("[name] UPI/[name]/[redacted-id]/Payment fr/ICICI Bank/[redacted-number]/UPI");
+    }
+
+    /** Longer than any stored narration: not processed or sent, so a crafted one cannot cost the
+     *  seconds the patterns take on it. */
+    @Test
+    void narrationForModel_aNarrationLongerThanTheColumn_isNotSent() {
+        String atLimit = "UPI-ACME STORE-" + "x".repeat(CategorizationService.MAX_MODEL_NARRATION_LENGTH - 15);
+        assertThat(atLimit).hasSize(CategorizationService.MAX_MODEL_NARRATION_LENGTH);
+        assertThat(CategorizationService.narrationForModel(atLimit)).isPresent();
+        assertThat(CategorizationService.narrationForModel(atLimit + "x")).isEmpty();
+    }
+
+    @Test
+    void suggest_aNarrationWithNothingLeftOnceNamesAreMasked_neverReachesTheAiFallback() {
+        UUID merchantId = UUID.randomUUID();
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
+        when(sharedCorpusService.findTrustedSuggestion(any(), any(), any())).thenReturn(Optional.empty());
+        when(fynCategorizationFallbackService.suggest(any(), any(), any(), any())).thenReturn(Optional.of("Dining"));
+
+        categorizationService.suggest(userId, "UPI RAVI SHANKAR KUMAR 412345678901", null, null, Transaction.Type.EXPENSE); // synthetic-ok
+
+        verify(fynCategorizationFallbackService, never()).suggest(any(), any(), any(), any());
+    }
+
     @Test
     void suggest_noCorpusEntryAndNoAiAnswer_fallsThroughToStructuralP2pThenOther() {
         UUID merchantId = UUID.randomUUID();

@@ -32,14 +32,21 @@ class FynInsightsNarrationServiceTest {
 
     private final UUID userId = UUID.randomUUID();
 
+    private com.finora.repository.UserRepository userRepository;
+    private com.finora.repository.AccountRepository accountRepository;
+    private com.finora.repository.TransactionRepository transactionRepository;
+
     @BeforeEach
     void setUp() {
         availabilityGuard = mock(FynAvailabilityGuard.class);
         insightsService = mock(InsightsService.class);
         llmClient = mock(LlmClient.class);
         aiAuditLogRepository = mock(AiAuditLogRepository.class);
+        userRepository = mock(com.finora.repository.UserRepository.class);
+        accountRepository = mock(com.finora.repository.AccountRepository.class);
+        transactionRepository = mock(com.finora.repository.TransactionRepository.class);
         service = new FynInsightsNarrationService(availabilityGuard, insightsService, llmClient,
-                aiAuditLogRepository);
+                aiAuditLogRepository, new FynNameShields(userRepository, accountRepository, transactionRepository));
 
         when(availabilityGuard.insightsAvailableFor(userId)).thenReturn(true);
     }
@@ -97,6 +104,30 @@ class FynInsightsNarrationServiceTest {
         assertThat(saved.getToolName()).isEqualTo("NARRATE_INSIGHTS");
         assertThat(saved.getCost()).isEqualByComparingTo(
                 FynPricing.cost("claude-haiku-4-5-20251001", 300, 40));
+    }
+
+    /** A category named after someone the user paid goes to the model as a token, and the
+     *  narration the user reads has the name back. */
+    @Test
+    void aCategoryNamedAfterAPersonIsHiddenAndRestored() {
+        when(transactionRepository.findPersonPaymentDescriptions(org.mockito.ArgumentMatchers.eq(userId), any()))
+                .thenReturn(List.of("UPI-PRIYA SHARMA-priyasharma@okicici-UPI")); // synthetic-ok
+        when(insightsService.build(userId, null)).thenReturn(new InsightsDto(
+                List.of(),
+                List.of(new InsightsDto.CategoryMover("Priya Sharma", new BigDecimal("4200"),
+                        new BigDecimal("3000"), 40.0)),
+                null,
+                new InsightsDto.CategoryHighlight("Priya Sharma", new BigDecimal("4200")),
+                null));
+        when(llmClient.complete(any())).thenReturn(
+                new LlmCompletion("[name-1] was your biggest category.", List.of(), "claude-haiku-4-5-20251001", 10, 10, "end_turn"));
+
+        String narration = service.narrate(userId, null);
+
+        var captor = org.mockito.ArgumentCaptor.forClass(LlmClient.LlmRequest.class);
+        verify(llmClient).complete(captor.capture());
+        assertThat(captor.getValue().messages().get(0).content()).contains("[name-1]").doesNotContainIgnoringCase("priya");
+        assertThat(narration).isEqualTo("Priya Sharma was your biggest category.");
     }
 
     @Test

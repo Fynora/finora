@@ -29,14 +29,15 @@ public class MerchantUnderstandingService {
 
     private static final Logger log = LoggerFactory.getLogger(MerchantUnderstandingService.class);
 
-    private static final String PROMPT_VERSION = "merchant-understanding-v1";
+    private static final String PROMPT_VERSION = "merchant-understanding-v2";
     private static final String TOOL_NAME = "UNDERSTAND_MERCHANT";
     private static final int MAX_TOKENS = 80;
 
     private static final String SYSTEM_PROMPT = """
             You are Fyn, describing what kind of merchant a bank transaction narration belongs \
-            to. You are given only the raw narration text -- never the amount, account, or any \
-            other user-identifying detail. Call the understand_merchant tool with a short, \
+            to. You are given only the narration text, with its identifiers replaced by \
+            placeholders such as [redacted-id] -- never the amount, account, or any other \
+            user-identifying detail. Call the understand_merchant tool with a short, \
             free-text description of the merchant's business (e.g. "Pet supplies retailer \
             selling food, toys, and grooming products"). Do not suggest a spending category --\
             describe the merchant, not how to file it.
@@ -72,7 +73,16 @@ public class MerchantUnderstandingService {
             return Optional.empty();
         }
 
-        LlmRequest request = LlmRequest.withTools(SYSTEM_PROMPT, List.of(LlmMessage.user(description)),
+        // The narration leaves Finora here, so its structural identifiers (UPI ids, account and
+        // reference numbers, IFSC codes) are stripped first; the merchant words the model needs
+        // stay. Names are masked before this (CategorizationService.narrationForModel) and again
+        // here, so a caller that skipped it still sends none; both steps are idempotent.
+        if (description == null || description.length() > CategorizationService.MAX_MODEL_NARRATION_LENGTH) {
+            return Optional.empty();
+        }
+        String forModel = FynOcrRedactor.redactNarration(
+                com.finora.util.PersonToPersonTransferDetector.maskPersonNames(description));
+        LlmRequest request = LlmRequest.withTools(SYSTEM_PROMPT, List.of(LlmMessage.user(forModel)),
                 MAX_TOKENS, List.of(TOOL));
         long startedAt = System.currentTimeMillis();
         LlmCompletion completion;

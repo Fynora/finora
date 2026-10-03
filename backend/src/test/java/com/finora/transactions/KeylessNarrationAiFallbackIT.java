@@ -130,11 +130,12 @@ class KeylessNarrationAiFallbackIT extends AbstractIntegrationTest {
     /** Control: with the same harness, a narration that DOES carry a key still reaches the LLM.
      *  Without this, the never()-called assertions above could pass because the fallback was
      *  unreachable in this context for some unrelated reason. The VPA is unique per run because
-     *  merchant_understanding is a global table shared by every IT. */
+     *  merchant_understanding is a global table shared by every IT. The payee reads as a shop:
+     *  a person-shaped one ("QZX VENDOR") is typed PERSON and never goes to the model at all. */
     @Test
     void manualCreate_withKeyedNarration_stillReachesTheLlm() {
         String vpa = "qzxvendor" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
-        String narration = "UPI-QZX VENDOR-" + vpa + "@ybl-REF881234";
+        String narration = "UPI-QZX HARDWARE STORE-" + vpa + "@ybl-REF881234";
         assertThat(CounterpartyTyping.of(narration).key()).isEqualTo("vpa:" + vpa);
         Fixture f = fixture();
 

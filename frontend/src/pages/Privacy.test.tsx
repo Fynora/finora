@@ -18,8 +18,12 @@ function policyText(): string {
  * (docs/engineering/gmail-sync-paused.md), so the policy must not mention Gmail at all. Each assertion
  * below is a fact read from code:
  *   - hand-typed transaction to the AI: TransactionService -> CategorizationService.suggest ->
- *     MerchantUnderstandingService (sends the description only; the description is free text, so the
- *     policy must not claim it holds no identifying detail).
+ *     UserMerchantCategoryResolutionService (sends the description, never a person payment, with ids
+ *     redacted and recognised names replaced, plus the user's category names; the description is free
+ *     text, so the policy must not claim it holds no identifying detail).
+ *   - Insights summary: FynInsightsNarrationService (category-level totals and category names).
+ *   - name shielding: FynNameShield (profile and account holder names, people in person payments,
+ *     names in a screenshot's text).
  *   - shared learning: SharedCorpusService (>= 3 distinct users, only vpa:-keyed payees the
  *     classifier calls BUSINESS or FINANCIAL_INSTITUTION), SharedCorpusRetentionSweepService (only
  *     keys with one or two voters and no shared row, 180 / 365 days from the most recent entry), and
@@ -45,7 +49,7 @@ describe('Privacy policy matches what the product does', () => {
   it('no longer claims categorisation never involves a third-party AI', () => {
     const t = policyText();
     expect(t).not.toMatch(/not a third-party AI service — see\s+Uploaded Statements above/);
-    expect(t).toMatch(/except for the two uses of an AI service/i);
+    expect(t).toMatch(/except for the three uses of an AI service/i);
   });
 
   it('describes learning across users: what is recorded, the threshold, what is shared, and deletion', () => {
@@ -79,6 +83,23 @@ describe('Privacy policy matches what the product does', () => {
     const t = policyText();
     expect(t).toMatch(/Anthropic\s*—\s*the AI service behind Ask Fyn/i);
     expect(t).toMatch(/authentication, communications and AI\s+features are also based outside India/i);
+  });
+
+  // AI name shielding (PR #1894): what each AI use sends, and that recognised names are replaced.
+  it('names every AI use and what each one sends', () => {
+    const t = policyText();
+    expect(t).toMatch(/On the Insights page, Fyn writes a short\s+summary of your month from category-level totals and your category names/i);
+    expect(t).toMatch(/the\s+description you typed and the names of your categories may be sent/i);
+    expect(t).toMatch(/A\s+description that is a payment to a person is never sent/i);
+    expect(t).toMatch(/reads its text on its own servers and sends that\s+text, not the image/i);
+  });
+
+  it('says recognised names are replaced with placeholders, and which names are not recognised', () => {
+    const t = policyText();
+    expect(t).toMatch(/Fynora hides the names of people it can recognise before anything is sent/i);
+    expect(t).toMatch(/Anthropic receives the placeholder, never the\s+name/i);
+    expect(t).toMatch(/common first names and\s+surnames from a list built into Fynora, even for someone you have never paid/i);
+    expect(t).toMatch(/A name Fynora cannot recognise is sent\s+as written/i);
   });
 
   // Statement refresh and saved statement passwords (docs: statement refresh design, 2026-09-27).

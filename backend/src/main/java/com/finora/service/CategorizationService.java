@@ -260,7 +260,8 @@ public class CategorizationService {
             return new Suggestion(corpusMatch.get(), SHARED_CORPUS_SOURCE, merchant.getId(),
                     Transaction.DecisionSource.SHARED_CORPUS, null, ConfidenceEngine.INITIAL_SHARED_CORPUS_CONFIDENCE);
         }
-        Optional<String> aiMatch = direction == null || !hasCounterpartyKey(typing.key()) ? Optional.empty()
+        Optional<String> aiMatch = direction == null || !hasCounterpartyKey(typing.key())
+                || !mayGoToModel(description) ? Optional.empty()
                 : fynCategorizationFallbackService.suggest(userId, typing.key(), direction, description);
         if (aiMatch.isPresent()) {
             return new Suggestion(aiMatch.get(), AI_FALLBACK_SOURCE, merchant.getId(),
@@ -576,6 +577,42 @@ public class CategorizationService {
      *  test, which no narration can reach through {@code CounterpartyTyping.of}. */
     static boolean hasCounterpartyKey(String counterpartyKey) {
         return counterpartyKey != null && !counterpartyKey.isBlank();
+    }
+
+    /** transactions.description's own limit, VARCHAR(500). */
+    static final int MAX_MODEL_NARRATION_LENGTH = 500;
+
+    /** Whether a narration may go to the AI fallback -- see {@link #narrationForModel}. */
+    static boolean mayGoToModel(String description) {
+        return narrationForModel(description).isPresent();
+    }
+
+    /**
+     * What the AI fallback may send to the model for this narration, which leaves Finora for a
+     * third party; empty when nothing may go. A transfer to a named individual never goes. Any
+     * other narration goes with every name-shaped part masked ({@link
+     * PersonToPersonTransferDetector#maskPersonNames}) -- a person's name tells the model nothing
+     * about what kind of business was paid, and the classifier types some person payments UNKNOWN
+     * or FINANCIAL_INSTITUTION and owner-named shops BUSINESS, all measured on the real corpus --
+     * and with its UPI ids, account and reference numbers and IFSC codes replaced ({@link
+     * FynOcrRedactor#redactNarration}). Nothing goes when masking leaves no word a model could
+     * recognise. Used here and by {@link UserMerchantCategoryResolutionService#resolve}, the one
+     * entry into the model calls, so a future caller cannot skip it. {@link #suggestReadOnly}'s
+     * fallback reads its own cache and never calls the model.
+     */
+    static Optional<String> narrationForModel(String description) {
+        if (description == null || description.isBlank()) return Optional.empty();
+        // The masking and redaction patterns cost time that grows faster than the text: a crafted
+        // 6,000-character narration took seconds (measured). A stored narration is at most 500
+        // characters (transactions.description), so anything longer is not a real one; it is not
+        // sent, rather than cut, since a cut could split an identifier and let half of it through.
+        if (description.length() > MAX_MODEL_NARRATION_LENGTH) return Optional.empty();
+        if (com.finora.util.CounterpartyClassifier.classify(description) == com.finora.util.CounterpartyType.PERSON
+                || PersonToPersonTransferDetector.isNamedIndividualTransfer(description)) {
+            return Optional.empty();
+        }
+        String prepared = FynOcrRedactor.redactNarration(PersonToPersonTransferDetector.maskPersonNames(description));
+        return PersonToPersonTransferDetector.hasRecognisableWords(prepared) ? Optional.of(prepared) : Optional.empty();
     }
 
     /** The canonical name only if a person has confirmed this merchant's identity -- see

@@ -9,6 +9,7 @@ import com.finora.integrations.anthropic.LlmClient.*;
 import com.finora.repository.AiAuditLogRepository;
 import com.finora.repository.CategoryRepository;
 import com.finora.repository.UserMerchantCategoryResolutionRepository;
+import com.finora.util.PersonToPersonTransferDetector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
@@ -35,7 +36,11 @@ public class UserMerchantCategoryResolutionService {
 
     private static final Logger log = LoggerFactory.getLogger(UserMerchantCategoryResolutionService.class);
 
-    private static final String PROMPT_VERSION = "user-category-resolution-v1";
+    private static final String PROMPT_VERSION = "user-category-resolution-v3";
+
+    /** A placeholder the model was shown, or made up, still in its answer after unshielding. */
+    private static final java.util.regex.Pattern LEFTOVER_PLACEHOLDER =
+            java.util.regex.Pattern.compile("(?i)\\[\\s*(?:name(?:[-\\s]?\\d+)?|redacted-[a-z]+)\\s*]");
     private static final String TOOL_NAME = "RESOLVE_CATEGORY";
     private static final int MAX_TOKENS = 60;
     private static final int MAX_CATEGORIES_SENT = 100;
@@ -48,7 +53,10 @@ public class UserMerchantCategoryResolutionService {
 
             Call the resolve_category tool. If one of the user's existing categories fits, reply \
             with that EXACT name and no reason. If none fit, reply with a new, short category \
-            name and a brief reason why it doesn't match any existing one.
+            name and a brief reason why it doesn't match any existing one. \
+            Text written as [name-1], [name-2] and so on stands for a person's name, hidden for \
+            privacy; repeat such a token exactly as written when you refer to that person, and \
+            never guess the name behind it.
             """;
 
     private static final LlmTool TOOL = new LlmTool(TOOL_NAME,
@@ -66,6 +74,7 @@ public class UserMerchantCategoryResolutionService {
     private final UserMerchantCategoryResolutionRepository resolutionRepository;
     private final CategoryRepository categoryRepository;
     private final CategorizationService categorizationService;
+    private final FynNameShields nameShields;
 
     // @Lazy breaks a real circular bean dependency: CategorizationService depends on
     // FynCategorizationFallbackService (existing), which (Task 5) now depends on this service,
@@ -79,7 +88,8 @@ public class UserMerchantCategoryResolutionService {
                                                   AiAuditLogRepository aiAuditLogRepository,
                                                   UserMerchantCategoryResolutionRepository resolutionRepository,
                                                   CategoryRepository categoryRepository,
-                                                  @Lazy CategorizationService categorizationService) {
+                                                  @Lazy CategorizationService categorizationService,
+                                                  FynNameShields nameShields) {
         this.understandingService = understandingService;
         this.availabilityGuard = availabilityGuard;
         this.llmClient = llmClient;
@@ -87,6 +97,7 @@ public class UserMerchantCategoryResolutionService {
         this.resolutionRepository = resolutionRepository;
         this.categoryRepository = categoryRepository;
         this.categorizationService = categorizationService;
+        this.nameShields = nameShields;
     }
 
     /**
@@ -151,7 +162,26 @@ public class UserMerchantCategoryResolutionService {
             return cached;
         }
 
-        Optional<String> understanding = understandingService.understand(userId, counterpartyKey, direction, description);
+        // Both model calls below send the narration to a third party, so they get only what
+        // CategorizationService.narrationForModel allows: no person's transfer, names masked,
+        // identifiers redacted.
+        // The account holders' own names are masked too: they show up in remarks, handles and
+        // payer lines in shapes no rule can see, and here they are known -- the profile name, and
+        // the holder printed on each of the user's accounts, which differs for a spouse's or a
+        // joint account the user imports.
+        Optional<String> prepared = CategorizationService.narrationForModel(description);
+        if (prepared.isEmpty()) {
+            return Optional.empty();
+        }
+        // The narration goes with names as a plain "[name]": the understanding call's answer is
+        // cached for every user, and a numbered token in it would mean someone else's name to the
+        // next user's shield. Only the category list, below, needs tokens it can map back.
+        FynNameShield shield = nameShields.forUser(userId);
+        String forModel = shield.shieldNarration(prepared.get()).replaceAll("\\[name-\\d+]", PersonToPersonTransferDetector.NAME_MASK);
+        if (!PersonToPersonTransferDetector.hasRecognisableWords(forModel)) {
+            return Optional.empty();
+        }
+        Optional<String> understanding = understandingService.understand(userId, counterpartyKey, direction, forModel);
         if (understanding.isEmpty()) {
             return Optional.empty();
         }
@@ -167,10 +197,12 @@ public class UserMerchantCategoryResolutionService {
                 .sorted()
                 .limit(MAX_CATEGORIES_SENT)
                 .collect(Collectors.joining(", "));
+        // A category the user named after a person reaches the model as a token; the name the
+        // model picks is unshielded below before it is looked up.
         String systemPrompt = String.format(SYSTEM_PROMPT_TEMPLATE, understanding.get(),
-                categoryList.isBlank() ? "(none yet)" : categoryList);
+                categoryList.isBlank() ? "(none yet)" : shield.shield(categoryList));
 
-        LlmRequest request = LlmRequest.withTools(systemPrompt, List.of(LlmMessage.user(description)),
+        LlmRequest request = LlmRequest.withTools(systemPrompt, List.of(LlmMessage.user(forModel)),
                 MAX_TOKENS, List.of(TOOL));
         long startedAt = System.currentTimeMillis();
         LlmCompletion completion;
@@ -199,10 +231,19 @@ public class UserMerchantCategoryResolutionService {
         }
         Map<String, Object> input = completion.toolUses().get(0).input();
         Object rawCategory = input.get("category");
-        if (!(rawCategory instanceof String categoryName) || categoryName.isBlank()) {
+        if (!(rawCategory instanceof String shieldedName) || shieldedName.isBlank()) {
             return Optional.empty();
         }
-        String reason = input.get("reason") instanceof String r && !r.isBlank() ? r : null;
+        String categoryName = shield.unshield(shieldedName);
+        // The model was shown placeholders -- "[name]" and "[redacted-id]" in the narration, and
+        // any "[name-N]" it makes up -- that unshield cannot put back. A pick still holding one would
+        // be created as a category literally named "[name]", so it is no pick at all; in a reason,
+        // shown to the user beside the new category, one reads as "someone".
+        if (LEFTOVER_PLACEHOLDER.matcher(categoryName).find()) {
+            return Optional.empty();
+        }
+        String reason = input.get("reason") instanceof String r && !r.isBlank()
+                ? LEFTOVER_PLACEHOLDER.matcher(shield.unshield(r)).replaceAll("someone") : null;
 
         Category resolved = categorizationService.resolveOrCreateCategory(userId, categoryName, reason);
         resolutionRepository.insertIfAbsent(userId, counterpartyKey, direction.name(), resolved.getId(), Instant.now());

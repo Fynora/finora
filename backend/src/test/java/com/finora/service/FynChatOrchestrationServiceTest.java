@@ -25,6 +25,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
@@ -47,6 +48,9 @@ class FynChatOrchestrationServiceTest {
 
     private final UUID userId = UUID.randomUUID();
 
+    private com.finora.repository.AccountRepository accountRepository;
+    private com.finora.repository.TransactionRepository transactionRepository;
+
     @BeforeEach
     void setUp() {
         availabilityGuard = mock(FynAvailabilityGuard.class);
@@ -58,6 +62,8 @@ class FynChatOrchestrationServiceTest {
         stubTool = mock(FynChatTool.class);
         properties = new FynProperties();
         userRepository = mock(com.finora.repository.UserRepository.class);
+        accountRepository = mock(com.finora.repository.AccountRepository.class);
+        transactionRepository = mock(com.finora.repository.TransactionRepository.class);
         when(stubTool.name()).thenReturn("GET_BALANCE");
         when(stubTool.toLlmTool()).thenReturn(new LlmClient.LlmTool("GET_BALANCE", "d", Map.of()));
 
@@ -78,7 +84,8 @@ class FynChatOrchestrationServiceTest {
         when(messageRepository.findByConversationIdOrderByCreatedAtAsc(any())).thenReturn(List.of());
 
         service = new FynChatOrchestrationService(availabilityGuard, entitlementService, conversationRepository,
-                messageRepository, aiAuditLogRepository, llmClient, List.of(stubTool), properties, userRepository);
+                messageRepository, aiAuditLogRepository, llmClient, List.of(stubTool), properties, userRepository,
+                new FynNameShields(userRepository, accountRepository, transactionRepository));
     }
 
     private static LlmCompletion textCompletion(String text) {
@@ -209,6 +216,53 @@ class FynChatOrchestrationServiceTest {
         verify(llmClient, times(2)).complete(any());
         verify(stubTool).execute(userId, Map.of());
         verify(aiAuditLogRepository, times(2)).save(any()); // one row per Anthropic call
+    }
+
+    /** A person the user paid never reaches the model by name: the tool's answer goes out with a
+     *  token, the model's tool call comes back with that token and is unshielded before the tool
+     *  runs, and the reply the user sees -- and the one saved -- has the real name back. */
+    @Test
+    void namesAreHiddenFromTheModelAndRestoredInTheReply() {
+        when(transactionRepository.findPersonPaymentDescriptions(eq(userId), any()))
+                .thenReturn(List.of("UPI-PRIYA SHARMA-priyasharma@okicici-UPI")); // synthetic-ok
+        when(stubTool.execute(any(), any())).thenReturn("Spent 500 in Priya Sharma");
+        when(llmClient.complete(any()))
+                .thenReturn(new LlmCompletion(null, List.of(new ToolUse("toolu_01", "GET_BALANCE",
+                        Map.of("category", "[name-1]"))), "claude-haiku-4-5-20251001", 100, 20, "tool_use"))
+                .thenReturn(textCompletion("You spent 500 in [name-1]."));
+
+        var result = service.sendMessage(userId, null, "how much in priya sharma?");
+
+        verify(stubTool).execute(eq(userId), org.mockito.ArgumentMatchers.argThat(
+                input -> "priya sharma".equalsIgnoreCase(String.valueOf(input.get("category")))));
+        var requests = org.mockito.ArgumentCaptor.forClass(LlmClient.LlmRequest.class);
+        verify(llmClient, times(2)).complete(requests.capture());
+        String sentToModel = requests.getAllValues().get(1).messages().toString();
+        assertThat(sentToModel).contains("[name-1]").doesNotContainIgnoringCase("priya");
+        assertThat(result.reply()).isEqualTo("You spent 500 in Priya Sharma.");
+        var saved = org.mockito.ArgumentCaptor.forClass(ChatMessage.class);
+        verify(messageRepository, org.mockito.Mockito.atLeastOnce()).save(saved.capture());
+        assertThat(saved.getAllValues()).anySatisfy(m -> assertThat(m.getContent()).isEqualTo("You spent 500 in Priya Sharma."));
+    }
+
+    /** A screenshot's text is read for names line by line; the user's own question is not. */
+    @Test
+    void namesInAnAttachedScreenshotAreHiddenFromTheModel() {
+        String augmented = "The user attached a screenshot. " + FynScreenshotOcrService.SCREENSHOT_TEXT_START
+                + "Paid to\nRAVI KUMAR\nRs 500" + FynScreenshotOcrService.SCREENSHOT_TEXT_END + "who is this?";
+        ChatMessage persisted = new ChatMessage();
+        persisted.setRole(ChatMessage.ROLE_USER);
+        persisted.setContent(augmented);
+        when(messageRepository.findByConversationIdOrderByCreatedAtAsc(any())).thenReturn(List.of(persisted));
+        when(llmClient.complete(any())).thenReturn(textCompletion("You paid [name-1] Rs 500."));
+
+        var result = service.sendMessage(userId, null, augmented);
+
+        var request = org.mockito.ArgumentCaptor.forClass(LlmClient.LlmRequest.class);
+        verify(llmClient).complete(request.capture());
+        assertThat(request.getValue().messages().get(0).content())
+                .contains("Paid to\n[name-1]\nRs 500").contains("who is this?").doesNotContain("RAVI");
+        assertThat(result.reply()).isEqualTo("You paid RAVI KUMAR Rs 500.");
     }
 
     @Test

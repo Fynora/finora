@@ -587,6 +587,41 @@ describe('ImportScreen — new-account opening balance field', () => {
     const [payload] = api.import.confirm.mock.calls[0];
     expect(payload.newAccount).toMatchObject({ openingBalance: 1250 });
   });
+
+  // No holder name read (this fixture has none): the review screen offers "This is my account",
+  // and turning it on asks the server to save the profile name as the account's holder.
+  it('sends holderIsMine only after "This is my account" is switched on', async () => {
+    await reachReview();
+    await pressImport();
+    expect(api.import.confirm.mock.calls[0][0].holderIsMine).toBeUndefined();
+  });
+
+  it('with no holder read, "This is my account" asks the server to save the profile name', async () => {
+    await reachReview();
+
+    fireEvent(screen.getByTestId('import-claim-holder'), 'valueChange', true);
+    await pressImport();
+
+    expect(api.import.confirm.mock.calls[0][0]).toMatchObject({ holderIsMine: true });
+  });
+
+  it('offers no holder switch when a holder name was read', async () => {
+    api.import.stageCsv.mockResolvedValue({
+      sessionId: 'session-1',
+      multiAccount: false,
+      sections: null,
+      staging: {
+        rows: [stagedRow('Groceries')],
+        totalParsed: 1,
+        flaggedDuplicates: 0,
+        detectedAccount: { bank: { id: 'OTHER' }, accountHolderName: 'Test User' } as DetectedAccountInfo,
+        unparseableRows: [],
+      },
+    } as never);
+    await reachReview();
+
+    expect(screen.queryByTestId('import-claim-holder')).not.toBeOnTheScreen();
+  });
 });
 
 // Phase 5 (Low-Priority Polish). StagingResult.verification is threaded through hydrateReviewFrom

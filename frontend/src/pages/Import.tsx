@@ -265,6 +265,9 @@ export default function Import() {
   // "This is my account" on that dialog: the confirm asks the server to save the user's own profile
   // name as the account's holder. "Continue anyway" leaves this false, keeping the printed name.
   const [holderIsMine, setHolderIsMine] = useState(false);
+  // The same answer when the statement's holder could not be read at all (no name, so no warning
+  // to answer): a checkbox on the review screen. See holderClaimAvailable().
+  const [claimHolder, setClaimHolder] = useState(false);
 
   // Set only for a multi-account PDF upload (see SectionState above) -- null the rest of the
   // time, and the single flat rows/detectedAccount/etc. state above is what's used instead.
@@ -758,6 +761,14 @@ export default function Import() {
     return !isLikelyMatch(holder, fullName);
   }
 
+  // "This is my account" with no name read from the statement: offered only when there is a
+  // profile name to save, and never over a holder the chosen existing account already has.
+  function holderClaimAvailable(): boolean {
+    if (detectedAccount?.accountHolderName || !fullName) return false;
+    if (accountChoice !== 'existing') return true;
+    return !existingAccounts.find((a) => a.id === selectedAccountId)?.accountHolderName;
+  }
+
   // ownershipAcknowledgedNow is an explicit override, not just a read of ownershipWarningAcknowledged
   // state -- the dialog's own answer handlers call this function again immediately after setting
   // that state, and a React state update isn't visible in the same render's closure yet. The
@@ -766,7 +777,7 @@ export default function Import() {
   async function confirmImport(ownershipAcknowledgedNow = false, holderIsMineNow = false) {
     if (!reimportState && !sessionId) return;
     const ownershipAcknowledged = ownershipWarningAcknowledged || ownershipAcknowledgedNow;
-    const mine = holderIsMine || holderIsMineNow;
+    const mine = holderIsMine || holderIsMineNow || (claimHolder && holderClaimAvailable());
     if (!ownershipAcknowledged && ownershipNameMismatch()) {
       setOwnershipWarningOpen(true);
       return;
@@ -921,6 +932,7 @@ export default function Import() {
     setOwnershipWarningOpen(false);
     setOwnershipWarningAcknowledged(false);
     setHolderIsMine(false);
+    setClaimHolder(false);
     // Same reset the line above does for the ownership dialog, which this one was missing. Before
     // Phase 4b the omission was invisible -- the summary step early-returned above this dialog's
     // render, so a left-open flag could never resurface. Now that every step shares one tree, a
@@ -1699,6 +1711,9 @@ export default function Import() {
                   newDueDate={newDueDate}
                   setNewDueDate={setNewDueDate}
                   hideChoiceRadio
+                  holderClaim={holderClaimAvailable()
+                    ? { profileName: fullName!, checked: claimHolder, onChange: setClaimHolder }
+                    : undefined}
                 />
               </div>
               )}
@@ -2023,6 +2038,7 @@ function AccountChoiceFields({
   newDueDate,
   setNewDueDate,
   hideChoiceRadio,
+  holderClaim,
 }: {
   // This component renders once per account card on the multi-account path (one call site below,
   // once per `multiSections` entry) -- a hardcoded id here duplicated across every card, and
@@ -2052,6 +2068,9 @@ function AccountChoiceFields({
   // there rather than duplicated inside, since it sits alongside a heading this component doesn't
   // own) -- the multi-account case renders it here instead, once per account card.
   hideChoiceRadio?: boolean;
+  // Single-account review only: the statement's holder name was not read, and the user may say the
+  // account is theirs, which saves their profile name as its holder (ConfirmRequest.holderIsMine).
+  holderClaim?: { profileName: string; checked: boolean; onChange: (v: boolean) => void };
 }) {
   return (
     <>
@@ -2141,6 +2160,20 @@ function AccountChoiceFields({
               <label htmlFor={`${idPrefix}-account-holder`} className="block text-xs uppercase text-muted mb-1">Account holder (detected)</label>
               <input id={`${idPrefix}-account-holder`} value={detectedAccount.accountHolderName} disabled className="border border-border rounded-lg px-3 py-2 text-sm w-full bg-bg text-muted" />
             </div>
+          )}
+          {holderClaim && (
+            <label className="flex items-start gap-2 text-sm text-ink md:col-span-2">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={holderClaim.checked}
+                onChange={(e) => holderClaim.onChange(e.target.checked)}
+              />
+              <span>
+                This is my account. Save my name ({holderClaim.profileName}) as the account holder.
+                <span className="block text-xs text-muted">Finora could not read a holder name from this statement.</span>
+              </span>
+            </label>
           )}
           {detectedAccount?.accountNumberMasked && (
             <div>

@@ -3091,6 +3091,31 @@ describe('Import — ownership name-mismatch warning', () => {
 
     await waitFor(() => expect(importApi.confirm).toHaveBeenCalledTimes(1));
     expect(screen.queryByText('Statement Check')).not.toBeInTheDocument();
+    // Left unticked, nothing is claimed.
+    expect(vi.mocked(importApi.confirm).mock.calls[0][0].holderIsMine).toBeUndefined();
+  });
+
+  it('with no holder read, "This is my account" on the review screen asks the server to save the profile name', async () => {
+    stageWithHolder(null);
+    const user = userEvent.setup();
+    renderImport();
+
+    await pickAndUploadPdf(user);
+    await user.click(await screen.findByRole('checkbox', { name: /this is my account/i }));
+    await user.click(screen.getByRole('button', { name: /confirm import/i }));
+
+    await waitFor(() => expect(importApi.confirm).toHaveBeenCalledTimes(1));
+    expect(importApi.confirm).toHaveBeenCalledWith(expect.objectContaining({ holderIsMine: true }));
+  });
+
+  it('offers no holder checkbox when a holder name was read', async () => {
+    stageWithHolder('Rahul Sharma');
+    const user = userEvent.setup();
+    renderImport();
+
+    await pickAndUploadPdf(user);
+    await screen.findByRole('button', { name: /confirm import/i });
+    expect(screen.queryByRole('checkbox', { name: /this is my account/i })).not.toBeInTheDocument();
   });
 
   it('never shows the warning when the profile itself has no name on file', async () => {

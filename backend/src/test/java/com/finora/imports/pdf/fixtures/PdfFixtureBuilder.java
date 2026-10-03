@@ -1646,6 +1646,71 @@ public final class PdfFixtureBuilder {
     }
 
     /**
+     * Same summary layout as {@link #buildCreditCardTotalDueGridSample}, but the transactions are
+     * the whole cycle: 20,000.00 previous balance + 1,150.00 of purchases - 500.00 paid = 20,650.00
+     * total due, row for row. Invented figures.
+     */
+    public static byte[] buildCreditCardStatementWhoseRowsReconcileSample() throws IOException {
+        float[] summaryCol = {LEFT_MARGIN, 250f};
+        float[] col = {LEFT_MARGIN, 110f, 350f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("SAMPLE BANK")
+                .line("Credit Card Statement")
+                .row(summaryCol, "Previous Balance", "20,000.00")
+                .row(summaryCol, "Purchases", "1,150.00")
+                .row(summaryCol, "Payments / Credits", "500.00")
+                .row(summaryCol, "Total Amount Due", "20,650.00")
+                .line("Minimum Amount Due 1,032.50")
+                .blankLine()
+                .row(col, "DATE", "TRANSACTION DETAILS", "AMOUNT (Rs.)")
+                .row(col, "05/06/2026", "Sample Merchant Purchase", "1,000.00 Dr")
+                .row(col, "12/06/2026", "Payment Received Thank You", "500.00 Cr")
+                .row(col, "24/06/2026", "Sample Store Purchase", "150.00 Dr");
+
+        return render(List.of(page));
+    }
+
+    /**
+     * An HSBC-shaped card statement: the payment box's values sit at their measured places around
+     * the cheque-instruction line with no labels (UnlabelledCardPaymentSummaryExtractor), and the
+     * summary table's headline is "Net Outstanding Balance", which here also counts a loan's
+     * future instalments: 9,000.00 outstanding against a 6,000.00 bill. {@code withInstructionLine}
+     * false drops the anchor, so the box cannot be read. The end date sits clear of the start run:
+     * nearer, and the text extractor joins the two into one run, which the box reader rightly
+     * refuses. Invented figures.
+     */
+    public static byte[] buildCardWithUnlabelledPaymentBoxSample(boolean withInstructionLine) throws IOException {
+        float[] summaryCol = {LEFT_MARGIN, 250f};
+        float[] col = {LEFT_MARGIN, 110f, 350f};
+        PageBuilder page = new PageBuilder();
+        page.line("SAMPLE BANK")
+                .line("Credit Card Statement")
+                .blankLine()
+                .row(new float[]{LEFT_MARGIN, 371f, 503f}, null, "05 MAY 2026", "1,234.00")
+                .line("SAMPLE HOLDER NAME")
+                .row(new float[]{LEFT_MARGIN, 336f, 420f, 501f}, "SAMPLE ADDRESS LINE", "15 MAR 2026 To", "14 APR 2026", "6,000.00")
+                .row(new float[]{LEFT_MARGIN, 379f}, null, "SAMPLE CARD");
+        if (withInstructionLine) {
+            page.row(new float[]{LEFT_MARGIN, 337.4f}, null,
+                    "Please make all cheques/demand drafts duly crossed, payable to \"HSBC");
+        } else {
+            page.blankLine();
+        }
+        page.blankLine()
+                .row(new float[]{LEFT_MARGIN, 364f, 486f}, "State: 00 - SAMPLE", "00xx xxxx xxxx 0000", "00xx xxxx xxxx 0000")
+                .row(new float[]{86f, 214f}, "50,000.00", "10,000.00")
+                .blankLine()
+                .row(summaryCol, "NET OUTSTANDING BALANCE", "9,000.00")
+                .line("Minimum Amount Due 1,234.00")
+                .blankLine()
+                .row(col, "DATE", "TRANSACTION DETAILS", "AMOUNT (Rs.)")
+                .row(col, "20/03/2026", "Sample Merchant Purchase", "1,000.00 Dr")
+                .row(col, "02/04/2026", "Sample Store Purchase", "150.00 Dr");
+        return render(List.of(page));
+    }
+
+    /**
      * The lower half of the distinct-signal boundary: a ledger whose free text carries EXACTLY
      * ONE phrase from the credit-card signal list ("Total Payment Due", here a bill-payment
      * reminder printed on an ordinary account statement) and no others.

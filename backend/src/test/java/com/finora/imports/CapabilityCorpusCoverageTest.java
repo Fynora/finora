@@ -473,6 +473,9 @@ class CapabilityCorpusCoverageTest {
                         + "PrintedBalancePdfPreviewGeneratorTest covers it.");
         DECLARED_WITHOUT_A_TRACE.put("PRINTED_BALANCE_USED_AS_CLOSING",
                 "no trace -- same site and test as the entry above.");
+        DECLARED_WITHOUT_A_TRACE.put("PRINTED_PREVIOUS_BALANCE_USED_AS_CARD_OPENING",
+                "no trace -- fires in PdfPreviewGenerator.buildDetectedAccountInfo. "
+                        + "TotalAmountDuePlumbingPdfPreviewGeneratorTest and CardStatementBalancesTest cover it.");
         DECLARED_WITHOUT_A_TRACE.put("PRINTED_BALANCE_DISAGREES_WITH_CHAIN",
                 "no trace -- same site as the entry above; measured on the corpus to fire on no document once "
                         + "the extractor skipped table headers and read inline figures first.");

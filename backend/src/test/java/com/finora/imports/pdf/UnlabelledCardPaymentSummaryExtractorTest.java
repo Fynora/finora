@@ -141,6 +141,49 @@ class UnlabelledCardPaymentSummaryExtractorTest {
     }
 
     @Test
+    void readsTheTotalPaymentDue_besideThePeriodEnd() {
+        // The box's "Total payment due" -- what the card bills this cycle. The summary table's
+        // "Net Outstanding Balance" also counts a loan's future instalments, so it is not this.
+        var summary = read(layout("05 MAY 2026", "15 MAR 2026", "14 APR 2026", "50,000.00", "10,000.00"));
+
+        assertThat(summary.totalPaymentDue()).isEqualByComparingTo("12345.00");
+    }
+
+    @Test
+    void readsNoTotalPaymentDue_whenThePeriodRowCarriesAnythingElse() {
+        List<PositionedText> runs = layout("05 MAY 2026", "15 MAR 2026", "14 APR 2026", "50,000.00", "10,000.00");
+        runs.add(run("9.99", 460f, 20f, 82.9f));
+
+        assertThat(read(runs).totalPaymentDue()).isNull();
+    }
+
+    @Test
+    void readsNoTotalPaymentDue_whenSomethingSitsBeforeThePeriodStart() {
+        List<PositionedText> runs = layout("05 MAY 2026", "15 MAR 2026", "14 APR 2026", "50,000.00", "10,000.00");
+        runs.removeIf(t -> t.text().equals("12,345.00"));
+        runs.add(run("9", 334f, 1f, 82.9f));
+
+        assertThat(read(runs).totalPaymentDue()).isNull();
+    }
+
+    @Test
+    void readsNoTotalPaymentDue_whenTheFigureBesideThePeriodEndIsNotAnAmount() {
+        List<PositionedText> runs = layout("05 MAY 2026", "15 MAR 2026", "14 APR 2026", "50,000.00", "10,000.00");
+        runs.removeIf(t -> t.text().equals("12,345.00"));
+        runs.add(run("SAMPLE", 501f, 33f, 82.9f));
+
+        assertThat(read(runs).totalPaymentDue()).isNull();
+    }
+
+    @Test
+    void readsNoTotalPaymentDue_withoutTheInstructionLine() {
+        List<PositionedText> runs = layout("05 MAY 2026", "15 MAR 2026", "14 APR 2026", "50,000.00", "10,000.00");
+        runs.removeIf(t -> t.text().equals(ANCHOR));
+
+        assertThat(read(runs).totalPaymentDue()).isNull();
+    }
+
+    @Test
     void readsNothing_fromEmptyInput() {
         assertThat(read(List.of()).paymentDueDate()).isNull();
         assertThat(read(null).creditLimit()).isNull();

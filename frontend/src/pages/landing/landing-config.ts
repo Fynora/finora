@@ -384,7 +384,7 @@ export const faq = {
     ],
     [
       'Does Fynora use AI on my data?',
-      "Ask Fyn does, only when you use it, and it sends your question and the data needed to answer it to Anthropic's Claude. Importing a statement does not send it to any AI service. If you add a transaction by hand without picking a category, the description you typed may be sent to Anthropic's Claude to help pick one.",
+      "Ask Fyn does, only when you use it, and it sends your question and the data needed to answer it to Anthropic's Claude. The summary on the Insights page is written by Anthropic's Claude from your category totals and category names. Importing a statement does not send it to any AI service. If you add a transaction by hand without picking a category, the description you typed may be sent to Anthropic's Claude to help pick one.",
     ],
     [
       'Can I export or delete my data?',

@@ -104,7 +104,7 @@ public final class CreditCardSummaryExtractor {
      * <p>Widened from 200 to 230 on real evidence, the same way it was first set: a real HSBC
      * statement's own "Net Outstanding Balance" row right-aligns its value in a wide table column,
      * so a short value ("0.00", gap 212.9pt) sits FURTHER from the label than a longer one in the
-     * exact same column on a different HSBC statement of the same layout ("15,664.31", gap 195.6pt)
+     * exact same column on a different HSBC statement of the same layout (a five-digit balance, gap 195.6pt)
      * — a right-aligned column moves a shorter string's START position right as the value shrinks.
      * 230 covers both real cases with a small margin, without approaching the ~680pt gap the
      * Axis fee-schedule case above is rejected at.
@@ -145,12 +145,14 @@ public final class CreditCardSummaryExtractor {
     // dead-entry drift a future reader would have to re-derive is safe.
     private static final List<String> TOTAL_DUE_LABELS = List.of(
             "total amount due", "total payment due",
-            // Real HSBC shape: this statement never prints "Total Amount Due" anywhere -- its own
-            // headline figure is labeled "Net Outstanding Balance" instead, confirmed to be the
-            // same concept by its own printed arithmetic: Total Purchase Outstanding + Total Cash
-            // Outstanding + Total Balance Transfer Outstanding + Total Loan Outstanding sums to it
-            // exactly on a real document (11,738.64 + 0.00 + 0.00 + 3,925.67 = 15,664.31). Those
-            // four component labels are deliberately NOT added to PURCHASES_LABELS/
+            // Real HSBC shape: the summary table never prints "Total Amount Due" -- its headline
+            // figure is "Net Outstanding Balance", which its own printed arithmetic shows is Total
+            // Purchase Outstanding + Total Cash Outstanding + Total Balance Transfer Outstanding +
+            // Total Loan Outstanding. That counts a loan's future instalments, so on a card carrying
+            // a loan it is more than this cycle's bill; the payment box's "Total payment due"
+            // replaces it whenever UnlabelledCardPaymentSummaryExtractor reads that box (see
+            // CardStatementBalances.withBoxTotalPaymentDue), leaving this label as the fallback.
+            // Those four component labels are deliberately NOT added to PURCHASES_LABELS/
             // CASH_ADVANCE_LABELS below -- "outstanding" carries forward unpaid balance from prior
             // cycles too, a different concept from this schema's "purchases"/"cashAdvances" (this
             // statement's own new activity), and there is no real evidence yet that the two are

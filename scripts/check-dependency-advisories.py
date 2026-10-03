@@ -130,6 +130,29 @@ ACCEPTED = [
         "entry. Re-check at once if the app code, or a runtime (non-cli) part of an Expo package, "
         "starts importing node-forge or @expo/code-signing-certificates.",
     ),
+    Accepted(
+        "GHSA-vfj7-8cjw-p6xm",
+        {"mobile"},
+        "braces: stack-exhaustion denial of service through deeply nested patterns",
+        "Counted as shipped only because it is reached as expo -> @expo/cli -> @expo/metro-file-map "
+        "and metro -> metro-file-map, each -> micromatch -> braces: Metro's file watcher, which "
+        "runs on a developer machine or CI runner during `expo start` / `expo export`, never in "
+        "the installed app. No module the app bundles imports braces or micromatch (2026-10-03: "
+        "0 of the 2331 source-map entries of `expo export --platform android` come from braces, "
+        "micromatch, picomatch or fill-range). Both "
+        "watchers call only micromatch.some(), which compiles patterns with picomatch and never "
+        "calls braces (instrumented 2026-10-03: zero braces calls from micromatch.some, one from "
+        "micromatch.parse); the patterns are Metro's own fixed globs (**/package.json, "
+        "**/*.<ext>), not input anyone outside the repo controls. No patched version exists "
+        "(affected: <= 3.0.3, the latest), micromatch 4.0.8 (the latest) requires braces ^3.0.3, "
+        "and the newest metro-file-map (0.87.1) and @expo/metro-file-map (57.0.3) still depend "
+        "on micromatch ^4.0.4, so no upgrade or override reaches a fix.",
+        "When braces publishes a release that fixes this, update the lockfile (or add an "
+        "override if micromatch's range excludes it) and delete this entry; same if a Metro or "
+        "Expo upgrade drops micromatch. Re-check at once if the app code or any bundled "
+        "(non-build-tool) dependency starts importing braces or micromatch, or if metro-file-map "
+        "starts calling micromatch.parse / braces / braceExpand.",
+    ),
 ]
 
 ACCEPTED_BY_GHSA = {a.ghsa: a for a in ACCEPTED}

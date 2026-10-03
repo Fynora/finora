@@ -74,6 +74,12 @@ public class FynScreenshotOcrService {
 
     private static final Logger log = LoggerFactory.getLogger(FynScreenshotOcrService.class);
 
+    /** The text right before and right after a screenshot's extracted text in the message
+     *  {@link #describeForChat} builds -- the bounds {@link FynNameShield} reads names inside. The
+     *  same characters this message always used, so a conversation saved before still matches. */
+    static final String SCREENSHOT_TEXT_START = "to type it instead:\n\n";
+    static final String SCREENSHOT_TEXT_END = "\n\n---\nUser's question: ";
+
     // Same CodeQL-motivated reasoning as TesseractEngine's own RESOLVED_TESSERACT_PATH: resolved
     // once against $PATH by this class's own trusted code and cached, rather than re-resolved by
     // the OS on every call, so nothing later on PATH can silently swap out which binary "tesseract"
@@ -316,8 +322,8 @@ public class FynScreenshotOcrService {
                 + "replaced with placeholders like [redacted-number] before reaching you -- this is "
                 + "expected, not an OCR failure; never invent a real-looking value to fill one in, "
                 + "and if the user's question depends on one, tell them you can't see it and ask them "
-                + "to type it instead:\n\n"
-                + extractedText + "\n\n---\nUser's question: " + question;
+                + SCREENSHOT_TEXT_START
+                + extractedText + SCREENSHOT_TEXT_END + question;
     }
 
     private static String extensionFor(String contentType) {

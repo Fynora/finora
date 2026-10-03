@@ -510,6 +510,9 @@ public class PdfPreviewGenerator {
         // date -> balance-as-reported, purely to derive opening/closing balance below -- not
         // persisted anywhere, discarded once this method returns.
         List<BalancePoint> balancePoints = new ArrayList<>();
+        // Which staged row each balance point came from (-1 for a balance-marker row that was not
+        // staged), so an OCR balance-cell correction lands on both -- see OcrBalanceCellRepair.
+        List<Integer> balancePointStagedIndex = new ArrayList<>();
         // Hoisted for the same reason as PreviewGenerator's CSV loop -- see its comment. A
         // multi-account PDF calls this once per section, so the rule set is loaded once per
         // section rather than once per row.
@@ -608,6 +611,27 @@ public class PdfPreviewGenerator {
             if (balance != null) {
                 BigDecimal signedAmount = com.finora.imports.BalanceSequenceResolver.signedAmountOf(parsed, row);
                 balancePoints.add(new BalancePoint(parsed.date(), signedAmount, balance, parsed.description()));
+                balancePointStagedIndex.add(parsed.kind() == RowKind.TRANSACTION ? staged.size() - 1 : -1);
+            }
+        }
+
+        if (ctx.textSource() == TextSource.OCR) {
+            List<BigDecimal> corrected = OcrBalanceCellRepair.corrections(staged);
+            int repairs = 0;
+            for (int i = 0; i < corrected.size(); i++) {
+                if (corrected.get(i) == null) continue;
+                staged.set(i, staged.get(i).withBalanceAfter(corrected.get(i)));
+                repairs++;
+            }
+            if (repairs > 0) {
+                for (int p = 0; p < balancePoints.size(); p++) {
+                    int s = balancePointStagedIndex.get(p);
+                    if (s < 0 || corrected.get(s) == null) continue;
+                    BalancePoint point = balancePoints.get(p);
+                    balancePoints.set(p, new BalancePoint(point.date(), point.signedAmount(), corrected.get(s),
+                            point.description()));
+                }
+                ctx.record("OCR_BALANCE_CELL_CORROBORATED");
             }
         }
 

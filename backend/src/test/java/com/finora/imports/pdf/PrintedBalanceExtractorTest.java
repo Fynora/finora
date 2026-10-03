@@ -100,6 +100,41 @@ class PrintedBalanceExtractorTest {
     }
 
     @Test
+    void aLedgersOwnOpeningBalanceRow_isReadAcrossTheWideGapToTheBalanceColumn() {
+        // A Union Bank of India ledger's first row: SI, "Opening Balance" in the narration column,
+        // and the amount in the Balance column -- 344pt from the label's end, past the inline cap.
+        List<PositionedText> runs = List.of(
+                run("1", 34f, 318.5f), new PositionedText("Opening Balance", 102.5f, 318.5f, 0, 56.1f),
+                new PositionedText("40.97 Cr", 502.8f, 318.5f, 0, 27.6f));
+
+        assertThat(PrintedBalanceExtractor.extract(runs, null).opening()).isEqualByComparingTo("40.97");
+    }
+
+    @Test
+    void aDrBalanceIsOverdrawn_negative_asTheLedgersOwnBalanceCellsAre() {
+        List<PositionedText> runs = List.of(
+                run("Opening Balance", 200f, 100f), run("500.00 Dr", 420f, 100f),
+                run("Closing Balance", 200f, 130f), run("1,250.00Dr", 420f, 130f));
+
+        PrintedBalanceExtractor.PrintedBalances printed = PrintedBalanceExtractor.extract(runs, null);
+
+        assertThat(printed.opening()).isEqualByComparingTo("-500.00");
+        assertThat(printed.closing()).isEqualByComparingTo("-1250.00");
+        assertThat(PrintedBalanceExtractor.amountOf("500.00 Cr")).isEqualByComparingTo("500.00");
+    }
+
+    @Test
+    void pastTheInlineCap_aRowWithAnythingElseBesideTheLabelLendsItNoValue() {
+        // The same far-off figure, but the row carries other text to the label's right: whose figure
+        // it is is no longer settled, so nothing is read.
+        List<PositionedText> runs = List.of(
+                new PositionedText("Opening Balance", 102.5f, 318.5f, 0, 56.1f), run("Branch Code", 250f, 318.5f),
+                new PositionedText("40.97 Cr", 502.8f, 318.5f, 0, 27.6f));
+
+        assertThat(PrintedBalanceExtractor.extract(runs, null).opening()).isNull();
+    }
+
+    @Test
     void theFirstPrintedValueWins_aLaterRepeatIsIgnored() {
         List<PositionedText> runs = List.of(
                 run("Opening Balance", 200f, 100f), run("100.00", 420f, 100f),

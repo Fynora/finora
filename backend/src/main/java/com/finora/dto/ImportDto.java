@@ -173,6 +173,13 @@ public class ImportDto {
         }
 
         /** A copy with {@code rowPosition} set -- see that field's own doc comment. */
+        public StagedRow withBalanceAfter(BigDecimal balanceAfter) {
+            return new StagedRow(date, description, amount, type, suggestedCategory, categorySource, ruleId,
+                    likelyDuplicate, referenceNumber, balanceAfter, duplicateMatch, kind, confidence,
+                    merchant, merchantConfidence, categoryConfidence, rowPosition,
+                    international, foreignCurrency, foreignAmount);
+        }
+
         public StagedRow withRowPosition(int rowPosition) {
             return new StagedRow(date, description, amount, type, suggestedCategory, categorySource, ruleId,
                     likelyDuplicate, referenceNumber, balanceAfter, duplicateMatch, kind, confidence,

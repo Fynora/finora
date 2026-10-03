@@ -306,10 +306,6 @@ class CapabilityCorpusCoverageTest {
                 "no trace CAN cover it: it fires in PdfPreviewGenerator, never in PdfTableLocator.locateAll, "
                         + "and the evidencing slice statement is a customer's, never captured. Covered by "
                         + "SignedAmountColumnTest (mutation-checked)." + realCorpusVerified);
-        DECLARED_WITHOUT_A_TRACE.put("NARRATION_WRAP_JOINED_AT_IFSC",
-                "no trace -- the evidencing slice and HDFC statements are customers', never captured, and no "
-                        + "committed trace splits an IFSC across a line. Covered by NarrationLineBreaksTest "
-                        + "(mutation-checked)." + realCorpusVerified);
         DECLARED_WITHOUT_A_TRACE.put("REPEATED_PERIOD_BANNER_DIVERTED",
                 "no trace -- the evidencing slice statement is a customer's, never captured. Covered by "
                         + "SignedAmountLedgerPdfPreviewGeneratorTest and PageBannerPdfTableLocatorTest "

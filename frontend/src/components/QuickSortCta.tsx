@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { transactionsApi } from '../api/endpoints';
+import { trackNavigation } from '../lib/trackNavigation';
 import { Button } from '../design-system';
 
 /**
@@ -20,7 +21,7 @@ export function QuickSortCta() {
 
   if (count === 0) return null;
   return (
-    <Button onClick={() => void navigate('/app/transactions')}>
+    <Button onClick={() => { trackNavigation('transactions', 'contextual'); void navigate('/app/transactions'); }}>
       Sort {count} {count === 1 ? 'question' : 'questions'}
     </Button>
   );

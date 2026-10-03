@@ -1,5 +1,8 @@
 package com.finora.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.finora.AbstractIntegrationTest;
 import com.finora.entity.Account;
 import com.finora.entity.AuditLog;
@@ -18,6 +21,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,6 +51,7 @@ class DataExportServiceIT extends AbstractIntegrationTest {
     @Autowired private StatementImportRepository statementImportRepository;
     @Autowired private AuditLogRepository auditLogRepository;
     @Autowired private PasswordEncoder passwordEncoder;
+    @Autowired private FeatureUsageService featureUsageService;
     @Autowired private DataExportService service;
 
     private UUID userId;
@@ -120,6 +126,52 @@ class DataExportServiceIT extends AbstractIntegrationTest {
      * and only a mocked {@code AuditServiceTest} would ever have missed this, since a mock has no
      * transaction to roll back. See {@code AuditService.recordEvenOnRollback}'s own doc comment.
      */
+    /**
+     * feature_views.json against a real Postgres and the application's own ObjectMapper: the rows
+     * are written through the same native upsert the Billing page uses, and another user's counter
+     * on the same feature must not appear in this user's export.
+     */
+    @Test
+    void writeZip_featureViews_exportsOnlyThisUsersCountersWithRealValues() throws Exception {
+        Instant before = Instant.now().minusSeconds(5);
+        featureUsageService.recordView(userId, "insights");
+        featureUsageService.recordView(userId, "insights");
+
+        User otherUser = new User();
+        otherUser.setEmail("export-it-other-" + UUID.randomUUID() + "@example.com");
+        otherUser.setPasswordHash(passwordEncoder.encode(PASSWORD));
+        otherUser.setFullName("Other Export Test User");
+        UUID otherUserId = userRepository.save(otherUser).getId();
+        featureUsageService.recordView(otherUserId, "insights");
+
+        DataExportService.ExportBundle bundle = service.buildBundle(userId, PASSWORD, null, null);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        service.writeZip(userId, bundle, out);
+
+        Map<String, byte[]> entries = new HashMap<>();
+        try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(out.toByteArray()))) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                entries.put(entry.getName(), zis.readAllBytes());
+            }
+        }
+
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        JsonNode featureViews = mapper.readTree(entries.get("feature_views.json"));
+        assertThat(featureViews).hasSize(1);
+        assertThat(featureViews.get(0).get("feature").asText()).isEqualTo("INSIGHTS");
+        assertThat(featureViews.get(0).get("viewCount").asInt()).isEqualTo(2);
+        Instant lastViewedAt = mapper.treeToValue(featureViews.get(0).get("lastViewedAt"), Instant.class);
+        assertThat(lastViewedAt).isAfter(before).isBefore(Instant.now().plusSeconds(5));
+
+        List<JsonNode> manifestEntries = new ArrayList<>();
+        mapper.readTree(entries.get("manifest.json")).get("included").forEach(n -> {
+            if (n.get("name").asText().equals("feature_views.json")) manifestEntries.add(n);
+        });
+        assertThat(manifestEntries).hasSize(1);
+        assertThat(manifestEntries.get(0).get("rowCount").asInt()).isEqualTo(1);
+    }
+
     @Test
     void buildBundle_wrongPassword_stillPersistsTheAuditRow_despiteTheTransactionRollingBack() {
         assertThrows(ApiException.class, () -> service.buildBundle(userId, "definitely-the-wrong-password", null, null));

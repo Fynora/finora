@@ -6,12 +6,16 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 public interface FeatureViewCountRepository extends JpaRepository<FeatureViewCount, UUID> {
 
     Optional<FeatureViewCount> findByUserIdAndFeature(UUID userId, String feature);
+
+    /** DataExportService -- every counter this user has, for {@code feature_views.json}. */
+    List<FeatureViewCount> findByUserIdOrderByFeatureAsc(UUID userId);
 
     /** Atomic insert-or-increment -- avoids a read-then-write race between concurrent views for
      *  the same (user, feature), which a findOrCreate-then-save round trip would not. */

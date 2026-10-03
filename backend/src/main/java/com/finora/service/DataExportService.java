@@ -12,6 +12,7 @@ import com.finora.dto.DataExportDto.PaymentInflowChoiceExportDto;
 import com.finora.dto.DataExportDto.SenderInflowRuleExportDto;
 import com.finora.dto.DataExportDto.ChatConversationExportDto;
 import com.finora.dto.DataExportDto.ChatMessageExportDto;
+import com.finora.dto.DataExportDto.FeatureViewExportDto;
 import com.finora.dto.DataExportDto.GmailConnectionExportDto;
 import com.finora.dto.DataExportDto.GoalContributionExportDto;
 import com.finora.dto.DataExportDto.GoalExportEntry;
@@ -59,6 +60,7 @@ import com.finora.repository.CategoryRepository;
 import com.finora.repository.CategoryRuleRepository;
 import com.finora.repository.ChatConversationRepository;
 import com.finora.repository.ChatMessageRepository;
+import com.finora.repository.FeatureViewCountRepository;
 import com.finora.repository.FeedbackEntryRepository;
 import com.finora.repository.HealthScoreSnapshotRepository;
 import com.finora.repository.ImportJobRepository;
@@ -205,6 +207,7 @@ public class DataExportService {
     private final com.finora.repository.InflowKindRepository inflowKindRepository;
     private final com.finora.repository.SenderInflowRuleRepository senderInflowRuleRepository;
     private final com.finora.repository.StatementPasswordRepository statementPasswordRepository;
+    private final FeatureViewCountRepository featureViewCountRepository;
     private final ObjectMapper objectMapper;
 
     public DataExportService(UserRepository userRepository, GoogleReauthVerifier googleReauthVerifier,
@@ -234,8 +237,10 @@ public class DataExportService {
                               com.finora.repository.InflowKindRepository inflowKindRepository,
                               com.finora.repository.SenderInflowRuleRepository senderInflowRuleRepository,
                               ObjectMapper objectMapper,
-                              com.finora.repository.StatementPasswordRepository statementPasswordRepository) {
+                              com.finora.repository.StatementPasswordRepository statementPasswordRepository,
+                              FeatureViewCountRepository featureViewCountRepository) {
         this.statementPasswordRepository = statementPasswordRepository;
+        this.featureViewCountRepository = featureViewCountRepository;
         this.userRepository = userRepository;
         this.googleReauthVerifier = googleReauthVerifier;
         this.accountRepository = accountRepository;
@@ -538,12 +543,18 @@ public class DataExportService {
                 .map(r -> UserMerchantCategoryResolutionExportDto.from(r, categoryNames.get(r.getCategoryId())))
                 .toList();
 
+        // feature_view_counts (V171) was in AccountPurgeSweepService's purge scope but read nowhere
+        // here -- the same silent gap F-03 closed for the eight tables above.
+        List<FeatureViewExportDto> featureViews = featureViewCountRepository.findByUserIdOrderByFeatureAsc(userId).stream()
+                .map(FeatureViewExportDto::from)
+                .toList();
+
         return new ExportBundle(userId, user.getEmail(), accounts, transactions, budgets, goals, goalContributions,
                 categories, categoryRules, relationships, netWorthSnapshots, merchants, importJobs, importSessions,
                 statementSummaries, gmailConnections, userSettings, workspaceSettings, subscriptionExports, planChangeExports,
                 supportTicketExports, feedbackExports, chatConversations, chatMessages, healthScoreHistory,
                 financialFocus, checklistEvents, recurringDismissals, accountAggregatorLinks, merchantCategoryResolutions,
-                inflowKinds, senderInflowRules, paymentInflowChoices, savedStatementPasswords);
+                inflowKinds, senderInflowRules, paymentInflowChoices, savedStatementPasswords, featureViews);
     }
 
     /**
@@ -595,6 +606,7 @@ public class DataExportService {
             writeJsonEntry(zos, "remembered_senders.json", bundle.senderInflowRules());
             writeJsonEntry(zos, "payment_kind_choices.json", bundle.paymentInflowChoices());
             writeJsonEntry(zos, "saved_statement_passwords.json", bundle.savedStatementPasswords());
+            writeJsonEntry(zos, "feature_views.json", bundle.featureViews());
 
             for (Summary statement : bundle.statementSummaries()) {
                 String entryName = "statements/" + statement.id() + "-" + sanitize(statement.fileName());
@@ -700,7 +712,8 @@ public class DataExportService {
                 new ManifestEntry("money_kinds.json", "The kinds you give money coming in (built-in and your own), and whether each counts as income.", bundle.inflowKinds().size()),
                 new ManifestEntry("remembered_senders.json", "Senders you told Finora how to treat every payment from.", bundle.senderInflowRules().size()),
                 new ManifestEntry("payment_kind_choices.json", "Kinds you chose for a single payment.", bundle.paymentInflowChoices().size()),
-                new ManifestEntry("saved_statement_passwords.json", "Statements you let Finora keep the password for, and when you agreed -- never the password itself.", bundle.savedStatementPasswords().size())
+                new ManifestEntry("saved_statement_passwords.json", "Statements you let Finora keep the password for, and when you agreed -- never the password itself.", bundle.savedStatementPasswords().size()),
+                new ManifestEntry("feature_views.json", "How many times you've opened each tracked feature, and when you last did -- the count behind the Billing page's usage tile.", bundle.featureViews().size())
         );
         List<ManifestEntry> excluded = List.of(
                 new ManifestEntry("audit_logs", "Your own actions are logged for security, not collected as your data.", null),
@@ -780,6 +793,7 @@ public class DataExportService {
             List<InflowKindExportDto> inflowKinds,
             List<SenderInflowRuleExportDto> senderInflowRules,
             List<PaymentInflowChoiceExportDto> paymentInflowChoices,
-            List<com.finora.dto.SavedStatementPasswordDtos.SavedStatementPassword> savedStatementPasswords
+            List<com.finora.dto.SavedStatementPasswordDtos.SavedStatementPassword> savedStatementPasswords,
+            List<FeatureViewExportDto> featureViews
     ) {}
 }

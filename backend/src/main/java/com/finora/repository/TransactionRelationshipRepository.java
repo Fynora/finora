@@ -11,6 +11,10 @@ import java.util.UUID;
 
 public interface TransactionRelationshipRepository extends JpaRepository<TransactionRelationship, UUID> {
 
+    /** DataExportService -- every link between this user's transactions, for {@code
+     *  transaction_links.json}. */
+    List<TransactionRelationship> findByUserIdOrderByCreatedAtAsc(UUID userId);
+
     /**
      * Every edge touching any of {@code transactionIds} from either side -- the graph is walked
      * from an arbitrary starting transaction, and a transfer pair (for example) is symmetric, so a

@@ -13,6 +13,18 @@ import com.finora.dto.DataExportDto.SenderInflowRuleExportDto;
 import com.finora.dto.DataExportDto.ChatConversationExportDto;
 import com.finora.dto.DataExportDto.ChatMessageExportDto;
 import com.finora.dto.DataExportDto.FeatureViewExportDto;
+import com.finora.dto.DataExportDto.PaymentExportDto;
+import com.finora.dto.DataExportDto.SubscriptionOrderExportDto;
+import com.finora.dto.DataExportDto.ReferralExportDto;
+import com.finora.dto.DataExportDto.ReferralCodeExportDto;
+import com.finora.dto.DataExportDto.ReferralRewardExportDto;
+import com.finora.dto.DataExportDto.WalletEntryExportDto;
+import com.finora.dto.DataExportDto.NotificationExportDto;
+import com.finora.dto.DataExportDto.NotificationPreferenceExportDto;
+import com.finora.dto.DataExportDto.TimelineEventExportDto;
+import com.finora.dto.DataExportDto.TransactionLinkExportDto;
+import com.finora.dto.DataExportDto.StatementExcludedRowExportDto;
+import com.finora.dto.DataExportDto.MerchantCategoryVoteExportDto;
 import com.finora.dto.DataExportDto.GmailConnectionExportDto;
 import com.finora.dto.DataExportDto.GoalContributionExportDto;
 import com.finora.dto.DataExportDto.GoalExportEntry;
@@ -61,6 +73,21 @@ import com.finora.repository.CategoryRuleRepository;
 import com.finora.repository.ChatConversationRepository;
 import com.finora.repository.ChatMessageRepository;
 import com.finora.repository.FeatureViewCountRepository;
+import com.finora.repository.PaymentRepository;
+import com.finora.repository.SubscriptionOrderRepository;
+import com.finora.repository.ReferralRepository;
+import com.finora.repository.ReferralCodeRepository;
+import com.finora.repository.ReferralGrantRepository;
+import com.finora.repository.WalletLedgerRepository;
+import com.finora.notification.repository.NotificationRepository;
+import com.finora.notification.repository.NotificationPreferenceRepository;
+import com.finora.timeline.TimelineEventRepository;
+import com.finora.repository.TransactionRelationshipRepository;
+import com.finora.repository.StatementImportExcludedRowRepository;
+import com.finora.repository.CounterpartyCategoryObservationRepository;
+import com.finora.repository.StatementRefreshRunRepository;
+import com.finora.dto.StatementRefreshDtos.RefreshRunDetail;
+import com.finora.imports.refresh.StatementRefreshUserService;
 import com.finora.repository.FeedbackEntryRepository;
 import com.finora.repository.HealthScoreSnapshotRepository;
 import com.finora.repository.ImportJobRepository;
@@ -140,6 +167,12 @@ import java.util.zip.ZipOutputStream;
  * excluded set below, so the manifest itself gave no indication they existed. See {@link
  * #buildBundle}'s own comment on the block that fetches them for what each one now produces.
  *
+ * <p>The same drift had left twenty-five more tables the purge deletes directly out of the manifest entirely
+ * (payments, referrals, wallet, notifications, timeline, transaction links and others, plus every
+ * sign-in token table). Each is now exported or listed as excluded with a reason, and {@code
+ * DataExportServiceTest.everyPurgedTableIsExportedOrListedAsExcluded} reads {@link
+ * AccountPurgeSweepService}'s source so the next purged table cannot be missed silently.
+ *
  * <h2>Two phases, for one specific reason</h2>
  * {@link #buildBundle} runs entirely inside one {@code @Transactional(readOnly = true)} call,
  * synchronously, before the controller returns anything -- if it throws, the caller gets a normal
@@ -208,6 +241,23 @@ public class DataExportService {
     private final com.finora.repository.SenderInflowRuleRepository senderInflowRuleRepository;
     private final com.finora.repository.StatementPasswordRepository statementPasswordRepository;
     private final FeatureViewCountRepository featureViewCountRepository;
+    // Every one of these is in AccountPurgeSweepService's purge scope but was neither exported nor
+    // listed as excluded -- the same silent gap F-03 closed for eight other tables. See
+    // DataExportServiceTest.everyPurgedTableIsExportedOrListedAsExcluded, which now fails when the
+    // purge gains a table this class does not account for.
+    private final PaymentRepository paymentRepository;
+    private final SubscriptionOrderRepository subscriptionOrderRepository;
+    private final ReferralRepository referralRepository;
+    private final ReferralCodeRepository referralCodeRepository;
+    private final ReferralGrantRepository referralGrantRepository;
+    private final WalletLedgerRepository walletLedgerRepository;
+    private final NotificationRepository notificationRepository;
+    private final NotificationPreferenceRepository notificationPreferenceRepository;
+    private final TimelineEventRepository timelineEventRepository;
+    private final TransactionRelationshipRepository transactionRelationshipRepository;
+    private final StatementImportExcludedRowRepository statementImportExcludedRowRepository;
+    private final CounterpartyCategoryObservationRepository counterpartyCategoryObservationRepository;
+    private final StatementRefreshRunRepository statementRefreshRunRepository;
     private final ObjectMapper objectMapper;
 
     public DataExportService(UserRepository userRepository, GoogleReauthVerifier googleReauthVerifier,
@@ -238,9 +288,35 @@ public class DataExportService {
                               com.finora.repository.SenderInflowRuleRepository senderInflowRuleRepository,
                               ObjectMapper objectMapper,
                               com.finora.repository.StatementPasswordRepository statementPasswordRepository,
-                              FeatureViewCountRepository featureViewCountRepository) {
+                              FeatureViewCountRepository featureViewCountRepository,
+                              PaymentRepository paymentRepository,
+                              SubscriptionOrderRepository subscriptionOrderRepository,
+                              ReferralRepository referralRepository,
+                              ReferralCodeRepository referralCodeRepository,
+                              ReferralGrantRepository referralGrantRepository,
+                              WalletLedgerRepository walletLedgerRepository,
+                              NotificationRepository notificationRepository,
+                              NotificationPreferenceRepository notificationPreferenceRepository,
+                              TimelineEventRepository timelineEventRepository,
+                              TransactionRelationshipRepository transactionRelationshipRepository,
+                              StatementImportExcludedRowRepository statementImportExcludedRowRepository,
+                              CounterpartyCategoryObservationRepository counterpartyCategoryObservationRepository,
+                              StatementRefreshRunRepository statementRefreshRunRepository) {
         this.statementPasswordRepository = statementPasswordRepository;
         this.featureViewCountRepository = featureViewCountRepository;
+        this.paymentRepository = paymentRepository;
+        this.subscriptionOrderRepository = subscriptionOrderRepository;
+        this.referralRepository = referralRepository;
+        this.referralCodeRepository = referralCodeRepository;
+        this.referralGrantRepository = referralGrantRepository;
+        this.walletLedgerRepository = walletLedgerRepository;
+        this.notificationRepository = notificationRepository;
+        this.notificationPreferenceRepository = notificationPreferenceRepository;
+        this.timelineEventRepository = timelineEventRepository;
+        this.transactionRelationshipRepository = transactionRelationshipRepository;
+        this.statementImportExcludedRowRepository = statementImportExcludedRowRepository;
+        this.counterpartyCategoryObservationRepository = counterpartyCategoryObservationRepository;
+        this.statementRefreshRunRepository = statementRefreshRunRepository;
         this.userRepository = userRepository;
         this.googleReauthVerifier = googleReauthVerifier;
         this.accountRepository = accountRepository;
@@ -332,7 +408,8 @@ public class DataExportService {
                         TransactionRepository.AccountTransactionCount::getAccountId,
                         TransactionRepository.AccountTransactionCount::getCount));
 
-        List<AccountExportEntry> accounts = accountRepository.findByUserIdIncludingDeleted(userId).stream()
+        List<Account> accountEntities = accountRepository.findByUserIdIncludingDeleted(userId);
+        List<AccountExportEntry> accounts = accountEntities.stream()
                 .map(a -> toAccountExportEntry(a, latestImportByAccount, statementsCountByAccount, transactionsCountByAccount))
                 .toList();
 
@@ -458,11 +535,18 @@ public class DataExportService {
         List<PlanChange> planChanges = planChangeRepository.findBySubscriptionIdInOrderByCreatedAtDesc(
                 subscriptions.stream().map(Subscription::getId).toList());
 
-        // One batched Plan lookup shared by both DTOs below -- every planId a subscription is
+        List<com.finora.entity.Payment> payments = paymentRepository.findByUserIdOrderByCreatedAtDesc(userId);
+        List<com.finora.entity.SubscriptionOrder> subscriptionOrders =
+                subscriptionOrderRepository.findByUserIdOrderByCreatedAtDesc(userId);
+
+        // One batched Plan lookup shared by every DTO below -- every planId a subscription is
         // currently on, plus every fromPlanId/toPlanId a plan_changes row ever referenced (a
-        // downgrade's fromPlanId can be a plan the subscription isn't on anymore).
+        // downgrade's fromPlanId can be a plan the subscription isn't on anymore), plus the plan
+        // each payment and checkout was for.
         Set<UUID> planIdsToResolve = new HashSet<>();
         subscriptions.forEach(s -> planIdsToResolve.add(s.getPlanId()));
+        payments.forEach(p -> { if (p.getPlanId() != null) planIdsToResolve.add(p.getPlanId()); });
+        subscriptionOrders.forEach(o -> { if (o.getPlanId() != null) planIdsToResolve.add(o.getPlanId()); });
         planChanges.forEach(pc -> {
             if (pc.getFromPlanId() != null) planIdsToResolve.add(pc.getFromPlanId());
             planIdsToResolve.add(pc.getToPlanId());
@@ -477,6 +561,12 @@ public class DataExportService {
                 .toList();
         List<PlanChangeExportDto> planChangeExports = planChanges.stream()
                 .map(pc -> PlanChangeExportDto.from(pc, plansById.get(pc.getFromPlanId()), plansById.get(pc.getToPlanId())))
+                .toList();
+        List<PaymentExportDto> paymentExports = payments.stream()
+                .map(p -> PaymentExportDto.from(p, plansById.get(p.getPlanId())))
+                .toList();
+        List<SubscriptionOrderExportDto> subscriptionOrderExports = subscriptionOrders.stream()
+                .map(o -> SubscriptionOrderExportDto.from(o, plansById.get(o.getPlanId())))
                 .toList();
 
         // Support module (Phase 7): support_tickets.json/feedback.json. Attachment BYTES and
@@ -549,12 +639,71 @@ public class DataExportService {
                 .map(FeatureViewExportDto::from)
                 .toList();
 
+        // Both sides of referrals: rows where this user invited someone, and the one row (if any)
+        // where someone invited them. The other person's account id never leaves -- see
+        // ReferralExportDto.
+        List<ReferralExportDto> referrals = new java.util.ArrayList<>();
+        referralRepository.findByReferrerUserIdOrderByCreatedAtDesc(userId)
+                .forEach(r -> referrals.add(ReferralExportDto.from(r, ReferralExportDto.ROLE_REFERRER)));
+        referralRepository.findByReferredUserId(userId)
+                .ifPresent(r -> referrals.add(ReferralExportDto.from(r, ReferralExportDto.ROLE_REFERRED)));
+        List<ReferralCodeExportDto> referralCode = referralCodeRepository.findByUserId(userId).stream()
+                .map(ReferralCodeExportDto::from)
+                .toList();
+        List<ReferralRewardExportDto> referralRewards = referralGrantRepository.findByUserIdOrderByCreatedAtDesc(userId).stream()
+                .map(ReferralRewardExportDto::from)
+                .toList();
+        List<WalletEntryExportDto> wallet = walletLedgerRepository.findByUserIdOrderByCreatedAtDesc(userId).stream()
+                .map(WalletEntryExportDto::from)
+                .toList();
+
+        List<NotificationExportDto> notifications = notificationRepository.findByUserIdOrderByCreatedAtDesc(userId).stream()
+                .map(NotificationExportDto::from)
+                .toList();
+        List<NotificationPreferenceExportDto> notificationPreferences = notificationPreferenceRepository.findByUserId(userId).stream()
+                .map(NotificationPreferenceExportDto::from)
+                .toList();
+
+        List<TimelineEventExportDto> timeline = timelineEventRepository.findByUserIdOrderByOccurredAtDesc(userId).stream()
+                .map(TimelineEventExportDto::from)
+                .toList();
+        List<TransactionLinkExportDto> transactionLinks = transactionRelationshipRepository.findByUserIdOrderByCreatedAtAsc(userId).stream()
+                .map(TransactionLinkExportDto::from)
+                .toList();
+        List<StatementExcludedRowExportDto> statementExcludedRows = statementImportExcludedRowRepository
+                .findByUserIdOrderByStatementImportIdAscRowPositionAsc(userId).stream()
+                .map(StatementExcludedRowExportDto::from)
+                .toList();
+        List<MerchantCategoryVoteExportDto> merchantCategoryVotes = counterpartyCategoryObservationRepository
+                .findByUserIdOrderByCreatedAtAsc(userId).stream()
+                .map(MerchantCategoryVoteExportDto::from)
+                .toList();
+
+        // The same "what changed" view the app shows for one refresh (StatementRefreshUserService.
+        // detail), statement name/period/account resolved from rows already fetched above. A run
+        // keeps the description and amount of every transaction it removed; nothing else does.
+        Map<UUID, StatementMetadata> statementsById = new HashMap<>();
+        statementMetadata.forEach(m -> statementsById.put(m.getId(), m));
+        Map<UUID, String> accountNames = new HashMap<>();
+        accountEntities.forEach(a -> accountNames.put(a.getId(), a.getName()));
+        List<RefreshRunDetail> statementRefreshRuns = statementRefreshRunRepository.findByUserIdOrderByCreatedAtDesc(userId).stream()
+                .map(run -> {
+                    StatementMetadata m = statementsById.get(run.getStatementImportId());
+                    return StatementRefreshUserService.detail(run, m == null ? null : m.getFileName(),
+                            m == null ? null : accountNames.get(m.getAccountId()),
+                            m == null ? null : m.getStatementPeriodStart(), m == null ? null : m.getStatementPeriodEnd());
+                })
+                .toList();
+
         return new ExportBundle(userId, user.getEmail(), accounts, transactions, budgets, goals, goalContributions,
                 categories, categoryRules, relationships, netWorthSnapshots, merchants, importJobs, importSessions,
                 statementSummaries, gmailConnections, userSettings, workspaceSettings, subscriptionExports, planChangeExports,
                 supportTicketExports, feedbackExports, chatConversations, chatMessages, healthScoreHistory,
                 financialFocus, checklistEvents, recurringDismissals, accountAggregatorLinks, merchantCategoryResolutions,
-                inflowKinds, senderInflowRules, paymentInflowChoices, savedStatementPasswords, featureViews);
+                inflowKinds, senderInflowRules, paymentInflowChoices, savedStatementPasswords, featureViews,
+                paymentExports, subscriptionOrderExports, referrals, referralCode, referralRewards, wallet,
+                notifications, notificationPreferences, timeline, transactionLinks, statementExcludedRows,
+                merchantCategoryVotes, statementRefreshRuns);
     }
 
     /**
@@ -607,6 +756,19 @@ public class DataExportService {
             writeJsonEntry(zos, "payment_kind_choices.json", bundle.paymentInflowChoices());
             writeJsonEntry(zos, "saved_statement_passwords.json", bundle.savedStatementPasswords());
             writeJsonEntry(zos, "feature_views.json", bundle.featureViews());
+            writeJsonEntry(zos, "payments.json", bundle.payments());
+            writeJsonEntry(zos, "subscription_orders.json", bundle.subscriptionOrders());
+            writeJsonEntry(zos, "referrals.json", bundle.referrals());
+            writeJsonEntry(zos, "referral_code.json", bundle.referralCode());
+            writeJsonEntry(zos, "referral_rewards.json", bundle.referralRewards());
+            writeJsonEntry(zos, "wallet.json", bundle.wallet());
+            writeJsonEntry(zos, "notifications.json", bundle.notifications());
+            writeJsonEntry(zos, "notification_preferences.json", bundle.notificationPreferences());
+            writeJsonEntry(zos, "timeline.json", bundle.timeline());
+            writeJsonEntry(zos, "transaction_links.json", bundle.transactionLinks());
+            writeJsonEntry(zos, "statement_excluded_rows.json", bundle.statementExcludedRows());
+            writeJsonEntry(zos, "merchant_category_votes.json", bundle.merchantCategoryVotes());
+            writeJsonEntry(zos, "statement_refresh_runs.json", bundle.statementRefreshRuns());
 
             for (Summary statement : bundle.statementSummaries()) {
                 String entryName = "statements/" + statement.id() + "-" + sanitize(statement.fileName());
@@ -713,7 +875,20 @@ public class DataExportService {
                 new ManifestEntry("remembered_senders.json", "Senders you told Finora how to treat every payment from.", bundle.senderInflowRules().size()),
                 new ManifestEntry("payment_kind_choices.json", "Kinds you chose for a single payment.", bundle.paymentInflowChoices().size()),
                 new ManifestEntry("saved_statement_passwords.json", "Statements you let Finora keep the password for, and when you agreed -- never the password itself.", bundle.savedStatementPasswords().size()),
-                new ManifestEntry("feature_views.json", "How many times you've opened each tracked feature, and when you last did -- the count behind the Billing page's usage tile.", bundle.featureViews().size())
+                new ManifestEntry("feature_views.json", "How many times you've opened each tracked feature, and when you last did -- the count behind the Billing page's usage tile.", bundle.featureViews().size()),
+                new ManifestEntry("payments.json", "Every payment you made for your plan, with its invoice.", bundle.payments().size()),
+                new ManifestEntry("subscription_orders.json", "Every plan checkout you started, finished or not.", bundle.subscriptionOrders().size()),
+                new ManifestEntry("referrals.json", "People you invited and, if someone invited you, that invitation -- never the other person's account id.", bundle.referrals().size()),
+                new ManifestEntry("referral_code.json", "Your own referral code and its reward progress.", bundle.referralCode().size()),
+                new ManifestEntry("referral_rewards.json", "Plan rewards you earned through referrals.", bundle.referralRewards().size()),
+                new ManifestEntry("wallet.json", "Every credit and debit to your Finora wallet.", bundle.wallet().size()),
+                new ManifestEntry("notifications.json", "Notifications Finora sent you, and when you read them.", bundle.notifications().size()),
+                new ManifestEntry("notification_preferences.json", "Which notifications you turned on or off, per channel.", bundle.notificationPreferences().size()),
+                new ManifestEntry("timeline.json", "Milestones on your financial timeline.", bundle.timeline().size()),
+                new ManifestEntry("transaction_links.json", "Links between your transactions -- transfers, card payments and what they settled, refunds.", bundle.transactionLinks().size()),
+                new ManifestEntry("statement_excluded_rows.json", "Statement rows you chose to leave out of your ledger.", bundle.statementExcludedRows().size()),
+                new ManifestEntry("merchant_category_votes.json", "Categories you chose for merchants' payments.", bundle.merchantCategoryVotes().size()),
+                new ManifestEntry("statement_refresh_runs.json", "Every time Finora re-read one of your statements, and exactly what that changed -- including transactions it removed.", bundle.statementRefreshRuns().size())
         );
         List<ManifestEntry> excluded = List.of(
                 new ManifestEntry("audit_logs", "Your own actions are logged for security, not collected as your data.", null),
@@ -726,7 +901,19 @@ public class DataExportService {
                 new ManifestEntry("support_ticket_attachments (bytes)", "The files themselves aren't included, only their filenames in support_tickets.json -- contact support if you need one back.", null),
                 new ManifestEntry("support_ticket_internal_notes", "Finora's own operational notes on your ticket (e.g. \"reproduced on Android 1.3.7\"), not data you provided.", null),
                 new ManifestEntry("account_aggregator_links (consent_handle_id, link_idempotency_key, resolution_claimed_at)",
-                        "Internal Setu-correlation, request-deduplication, and concurrency-claim bookkeeping, not data you provided -- your link's own status/consent/sync history is in account_aggregator_links.json.", null)
+                        "Internal Setu-correlation, request-deduplication, and concurrency-claim bookkeeping, not data you provided -- your link's own status/consent/sync history is in account_aggregator_links.json.", null),
+                new ManifestEntry("password_change_sessions, password_reset_tokens, account_reactivation_tokens, email_verification_tokens, email_login_otps, email_change_sessions, phone_change_sessions",
+                        "Short-lived codes and confirmation steps for signing in or changing your details -- security bookkeeping that expires, not your data.", null),
+                new ManifestEntry("device_tokens", "The push-notification address of each device you signed in on -- delivery plumbing, not your data.", null),
+                new ManifestEntry("reimport_confirmation_claims", "A guard that stops one statement re-import from running twice -- request bookkeeping, not your data.", null),
+                new ManifestEntry("statement_refresh_previews",
+                        "What a newer statement reader would change if you let it -- an offer Finora recalculates, not a record of anything that happened. Refreshes you ran are in statement_refresh_runs.json.", null),
+                new ManifestEntry("ai_audit_log", "Cost, token and timing records for each Fyn AI call -- Finora's own accountability log, like audit_logs. Your chats themselves are in fyn_chat_conversations.json and fyn_chat_messages.json.", null),
+                new ManifestEntry("referral_charges", "The payments made by people you referred, kept to count your referral rewards -- those are their payments, not your data. Your rewards are in referral_rewards.json and wallet.json.", null),
+                new ManifestEntry("held_statements, held_statement_events", "Finora's own review record for a statement it held back to check -- like support_ticket_internal_notes. The import itself is in import_jobs.json.", null),
+                new ManifestEntry("notification_logs, notifications (notification_key, attempt_count, next_attempt_at, last_error)",
+                        "Delivery attempts and provider responses for each notification -- delivery plumbing. What you were sent, and when, is in notifications.json.", null),
+                new ManifestEntry("subscription_orders (razorpay_subscription_id)", "The payment provider's internal id for a checkout -- correlation bookkeeping, the same id subscriptions.json leaves out.", null)
         );
         return new Manifest(Instant.now(), bundle.userId(), bundle.email(), included, excluded);
     }
@@ -794,6 +981,14 @@ public class DataExportService {
             List<SenderInflowRuleExportDto> senderInflowRules,
             List<PaymentInflowChoiceExportDto> paymentInflowChoices,
             List<com.finora.dto.SavedStatementPasswordDtos.SavedStatementPassword> savedStatementPasswords,
-            List<FeatureViewExportDto> featureViews
+            List<FeatureViewExportDto> featureViews,
+            List<PaymentExportDto> payments, List<SubscriptionOrderExportDto> subscriptionOrders,
+            List<ReferralExportDto> referrals, List<ReferralCodeExportDto> referralCode,
+            List<ReferralRewardExportDto> referralRewards, List<WalletEntryExportDto> wallet,
+            List<NotificationExportDto> notifications, List<NotificationPreferenceExportDto> notificationPreferences,
+            List<TimelineEventExportDto> timeline, List<TransactionLinkExportDto> transactionLinks,
+            List<StatementExcludedRowExportDto> statementExcludedRows,
+            List<MerchantCategoryVoteExportDto> merchantCategoryVotes,
+            List<RefreshRunDetail> statementRefreshRuns
     ) {}
 }

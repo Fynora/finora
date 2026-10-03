@@ -9,6 +9,7 @@ import { PageLoading } from './components/PageLoading';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
+import { OpenInAppBanner } from './components/OpenInAppBanner';
 import { GMAIL_SYNC_UI_ENABLED } from './lib/features';
 // Landing stays eagerly imported: it is the first paint for an unauthenticated visitor, so making
 // it lazy would ADD a round trip to the most common entry point rather than removing one.
@@ -122,6 +123,8 @@ export default function App() {
             render standalone with no chrome to preserve -- there it is the difference between a
             recovery panel and the blank white page those routes would otherwise show. */}
         <ErrorBoundary context="root">
+        {/* Off unless VITE_OPEN_IN_APP_ANDROID is "true"; see lib/openInApp.ts. */}
+        <OpenInAppBanner />
         {/* Covers the marketing and auth routes, which render standalone with no shell. */}
         <Suspense fallback={<PageLoading />}>
         <Routes>

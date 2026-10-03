@@ -92,6 +92,13 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
            """)
     List<StatementMetadata> findMetadataByUserIdOrderByImportedAtDesc(@Param("userId") UUID userId);
 
+    /** The original-document hashes of this user's live statements -- the same rows
+     *  {@link #findMetadataByUserIdOrderByImportedAtDesc} returns, so "already exported under
+     *  statements/" in {@code DataExportService} means exactly that. A legacy row confirmed before
+     *  {@code content_hash} was recorded has none and so matches nothing. */
+    @Query("SELECT DISTINCT s.contentHash FROM StatementImport s WHERE s.userId = :userId AND s.contentHash IS NOT NULL")
+    List<String> findContentHashesByUserId(@Param("userId") UUID userId);
+
     /** Like {@link #findMetadataByUserIdOrderByImportedAtDesc}, scoped to a set of live account
      *  ids -- excludes a soft-deleted account's statements, which the unscoped finder would keep
      *  returning forever (see {@link #countByUserIdAndAccountIdIn}'s own doc comment). */

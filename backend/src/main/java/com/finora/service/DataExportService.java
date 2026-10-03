@@ -50,6 +50,7 @@ import com.finora.entity.Category;
 import com.finora.entity.Transaction;
 import com.finora.entity.ChatConversation;
 import com.finora.entity.FeedbackEntry;
+import com.finora.entity.ImportJob;
 import com.finora.entity.ImportSession;
 import com.finora.entity.Plan;
 import com.finora.entity.PlanChange;
@@ -63,6 +64,7 @@ import com.finora.goals.GoalDto;
 import com.finora.goals.GoalRepository;
 import com.finora.imports.ImportSessionService;
 import com.finora.imports.jobs.ImportJobDto;
+import com.finora.imports.storage.StatementContentService;
 import com.finora.integrations.google.GmailConnectionRepository;
 import com.finora.integrations.setu.AccountAggregatorLinkRepository;
 import com.finora.onboarding.UserChecklistEventRepository;
@@ -123,10 +125,12 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -190,6 +194,19 @@ import java.util.zip.ZipOutputStream;
  * projects out every column except {@code fileContent}, so the bulk fetch that produces {@code
  * statementSummaries} below can never pull a user's entire statement history's raw bytes into heap
  * during this transaction, whether or not the LAZY annotation actually does anything.
+ *
+ * <h2>Uploads that never became a statement ({@code imports/})</h2>
+ * {@code statements/} only ever covered {@code statement_imports} rows. An upload that was held
+ * for review, is still queued, failed, was cancelled, or was staged and never confirmed has no
+ * such row, yet its file is still the user's and still held by Finora -- in object storage, under
+ * its {@code import_jobs} row's own address. Those go under {@code imports/}, read through the
+ * same {@link StatementContentService#read} path the import worker uses, with the same
+ * placeholder-on-failure handling as {@code statements/}. A document already under {@code
+ * statements/} is not repeated: matched by {@code content_hash} (the SHA-256 of the original
+ * bytes, recorded on both tables), never by {@code object_key} -- a job's object and the confirmed
+ * statement's object are separate writes, each encrypted under a fresh random IV, so their keys
+ * never agree even for identical bytes. The same document uploaded more than once is one entry,
+ * from its newest job.
  */
 @Service
 public class DataExportService {
@@ -259,6 +276,7 @@ public class DataExportService {
     private final CounterpartyCategoryObservationRepository counterpartyCategoryObservationRepository;
     private final StatementRefreshRunRepository statementRefreshRunRepository;
     private final com.finora.repository.UserActivityDayRepository userActivityDayRepository;
+    private final StatementContentService statementContentService;
     private final ObjectMapper objectMapper;
 
     public DataExportService(UserRepository userRepository, GoogleReauthVerifier googleReauthVerifier,
@@ -303,7 +321,8 @@ public class DataExportService {
                               StatementImportExcludedRowRepository statementImportExcludedRowRepository,
                               CounterpartyCategoryObservationRepository counterpartyCategoryObservationRepository,
                               StatementRefreshRunRepository statementRefreshRunRepository,
-                              com.finora.repository.UserActivityDayRepository userActivityDayRepository) {
+                              com.finora.repository.UserActivityDayRepository userActivityDayRepository,
+                              StatementContentService statementContentService) {
         this.statementPasswordRepository = statementPasswordRepository;
         this.featureViewCountRepository = featureViewCountRepository;
         this.paymentRepository = paymentRepository;
@@ -320,6 +339,7 @@ public class DataExportService {
         this.counterpartyCategoryObservationRepository = counterpartyCategoryObservationRepository;
         this.statementRefreshRunRepository = statementRefreshRunRepository;
         this.userActivityDayRepository = userActivityDayRepository;
+        this.statementContentService = statementContentService;
         this.userRepository = userRepository;
         this.googleReauthVerifier = googleReauthVerifier;
         this.accountRepository = accountRepository;
@@ -497,8 +517,8 @@ public class DataExportService {
                 .map(MerchantExportDto::from)
                 .toList();
 
-        List<ImportJobDto.Progress> importJobs = importJobRepository
-                .findByUserIdOrderByCreatedAtDesc(userId, Pageable.unpaged()).stream()
+        List<ImportJob> importJobEntities = importJobRepository.findByUserIdOrderByCreatedAtDesc(userId, Pageable.unpaged());
+        List<ImportJobDto.Progress> importJobs = importJobEntities.stream()
                 .map(ImportJobDto.Progress::of)
                 .toList();
 
@@ -525,6 +545,19 @@ public class DataExportService {
         Map<UUID, Integer> duplicateCounts = statementImportService.duplicateCountsByStatementImport(userId);
         List<Summary> statementSummaries = statementMetadata.stream()
                 .map(s -> Summary.from(s, duplicateCounts.getOrDefault(s.getId(), 0)))
+                .toList();
+
+        // imports/ -- see this class's own doc section on it. importJobEntities is newest first, so
+        // putIfAbsent keeps each document's newest job.
+        Set<String> hashesUnderStatements = new HashSet<>(statementImportRepository.findContentHashesByUserId(userId));
+        Map<String, ImportJob> newestUnimportedJobByHash = new LinkedHashMap<>();
+        for (ImportJob job : importJobEntities) {
+            if (job.getContentHash() == null || job.getObjectKey() == null) continue;
+            if (hashesUnderStatements.contains(job.getContentHash())) continue;
+            newestUnimportedJobByHash.putIfAbsent(job.getContentHash(), job);
+        }
+        List<UnimportedUpload> unimportedUploads = newestUnimportedJobByHash.values().stream()
+                .map(job -> new UnimportedUpload(job.getId(), job.getFileName()))
                 .toList();
 
         List<GmailConnectionExportDto> gmailConnections = gmailConnectionRepository
@@ -707,7 +740,7 @@ public class DataExportService {
 
         return new ExportBundle(userId, user.getEmail(), accounts, transactions, budgets, goals, goalContributions,
                 categories, categoryRules, relationships, netWorthSnapshots, merchants, importJobs, importSessions,
-                statementSummaries, gmailConnections, userSettings, workspaceSettings, subscriptionExports, planChangeExports,
+                statementSummaries, unimportedUploads, gmailConnections, userSettings, workspaceSettings, subscriptionExports, planChangeExports,
                 supportTicketExports, feedbackExports, chatConversations, chatMessages, healthScoreHistory,
                 financialFocus, checklistEvents, recurringDismissals, accountAggregatorLinks, merchantCategoryResolutions,
                 inflowKinds, senderInflowRules, paymentInflowChoices, savedStatementPasswords, featureViews,
@@ -725,7 +758,8 @@ public class DataExportService {
      * <p>One statement's storage failure doesn't abort the export -- caught, logged, replaced with
      * a placeholder entry, and the rest continues. This is the same "one bad row doesn't sink the
      * batch" discipline {@link AccountPurgeSweepService} already established for its own per-
-     * statement loop.
+     * statement loop. {@code imports/} entries get the identical treatment, via the same {@link
+     * #writeStoredFile}.
      */
     public void writeZip(UUID userId, ExportBundle bundle, OutputStream out) throws IOException {
         try (ZipOutputStream zos = new ZipOutputStream(out)) {
@@ -782,31 +816,48 @@ public class DataExportService {
             writeJsonEntry(zos, "activity_days.json", bundle.activityDays());
 
             for (Summary statement : bundle.statementSummaries()) {
-                String entryName = "statements/" + statement.id() + "-" + sanitize(statement.fileName());
-                try {
-                    StatementImportService.FileDownload file = statementImportService.getFile(userId, statement.id());
-                    zos.putNextEntry(new ZipEntry(entryName));
-                    zos.write(file.content());
-                    zos.closeEntry();
-                } catch (IOException e) {
-                    // Bug fix (review): a broken pipe (client disconnect mid-download) surfaces as
-                    // an ordinary IOException from zos.write/putNextEntry/closeEntry above -- the
-                    // SAME exception type a genuinely broken stream produces. Writing a recovery
-                    // placeholder onto that same, now-dead stream would itself throw a second,
-                    // uncaught IOException, misattributing an ordinary client-side cancel as a
-                    // generic internal failure once it propagates out of this method. Re-thrown
-                    // here, not converted to a placeholder: an IOException means the STREAM is
-                    // unusable, not that this one file's storage read failed, so no further write
-                    // to it (a placeholder or the next statement) can succeed either.
-                    throw e;
-                } catch (Exception e) {
-                    log.warn("Data export: failed to read statement {} for user {}: {}",
-                            statement.id(), userId, e.getMessage(), e);
-                    writeTextEntry(zos, entryName + ".MISSING.txt",
-                            "This file could not be included in your export (" + e.getClass().getSimpleName()
-                                    + "). Contact support if you need it.");
-                }
+                writeStoredFile(zos, "statements/" + statement.id() + "-" + sanitize(statement.fileName()),
+                        "statement " + statement.id(), userId,
+                        () -> statementImportService.getFile(userId, statement.id()).content());
             }
+
+            for (UnimportedUpload upload : bundle.unimportedUploads()) {
+                // Re-fetched here, not carried from buildBundle, for the same reason statements are:
+                // resolved fresh at write time, and a job deleted in between becomes a placeholder.
+                writeStoredFile(zos, "imports/" + upload.jobId() + "-" + sanitize(upload.fileName()),
+                        "import job " + upload.jobId(), userId,
+                        () -> statementContentService.read(importJobRepository.findByIdAndUserId(upload.jobId(), userId)
+                                .orElseThrow(() -> new IllegalStateException("import job no longer exists"))));
+            }
+        }
+    }
+
+    /** Writes one stored file's bytes as {@code entryName}, or a {@code .MISSING.txt} placeholder in
+     *  its place if reading them fails. {@code content} runs before the entry is opened, so a read
+     *  failure never leaves a half-written entry behind. */
+    private void writeStoredFile(ZipOutputStream zos, String entryName, String what, UUID userId,
+                                 Supplier<byte[]> content) throws IOException {
+        try {
+            byte[] bytes = content.get();
+            zos.putNextEntry(new ZipEntry(entryName));
+            zos.write(bytes);
+            zos.closeEntry();
+        } catch (IOException e) {
+            // Bug fix (review): a broken pipe (client disconnect mid-download) surfaces as
+            // an ordinary IOException from zos.write/putNextEntry/closeEntry above -- the
+            // SAME exception type a genuinely broken stream produces. Writing a recovery
+            // placeholder onto that same, now-dead stream would itself throw a second,
+            // uncaught IOException, misattributing an ordinary client-side cancel as a
+            // generic internal failure once it propagates out of this method. Re-thrown
+            // here, not converted to a placeholder: an IOException means the STREAM is
+            // unusable, not that this one file's storage read failed, so no further write
+            // to it (a placeholder or the next file) can succeed either.
+            throw e;
+        } catch (Exception e) {
+            log.warn("Data export: failed to read {} for user {}: {}", what, userId, e.getMessage(), e);
+            writeTextEntry(zos, entryName + ".MISSING.txt",
+                    "This file could not be included in your export (" + e.getClass().getSimpleName()
+                            + "). Contact support if you need it.");
         }
     }
 
@@ -865,6 +916,7 @@ public class DataExportService {
                 new ManifestEntry("import_sessions.json", "Your statement staging session history.", bundle.importSessions().size()),
                 new ManifestEntry("statements.json", "Metadata for every statement you've imported.", bundle.statementSummaries().size()),
                 new ManifestEntry("statements/", "The original statement files you uploaded, where still retrievable.", bundle.statementSummaries().size()),
+                new ManifestEntry("imports/", "Statement files you uploaded that never became an imported statement -- held for review, still processing, failed, cancelled, or never confirmed -- where still retrievable. Each is named after its job in import_jobs.json.", bundle.unimportedUploads().size()),
                 new ManifestEntry("gmail_connection.json", "Your Gmail connection status, if any (no credentials).", bundle.gmailConnections().size()),
                 new ManifestEntry("account_settings.json", "Your profile and account preferences.", null),
                 new ManifestEntry("workspace_settings.json", "Your categorization workspace preferences.", null),
@@ -937,9 +989,9 @@ public class DataExportService {
                 See manifest.json for the full list of what's included in this archive and what's
                 deliberately excluded (with a one-line reason for each).
 
-                If a file under statements/ ends in ".MISSING.txt" instead of containing your
-                original document, that one file couldn't be retrieved at export time -- contact
-                support if you need it.
+                If a file under statements/ or imports/ ends in ".MISSING.txt" instead of
+                containing your original document, that one file couldn't be retrieved at export
+                time -- contact support if you need it.
                 """;
     }
 
@@ -980,7 +1032,8 @@ public class DataExportService {
             List<RelationshipDto> relationships, List<NetWorthSnapshotExportDto> netWorthSnapshots,
             List<MerchantExportDto> merchants, List<ImportJobDto.Progress> importJobs,
             List<ImportSessionSummaryDto> importSessions,
-            List<Summary> statementSummaries, List<GmailConnectionExportDto> gmailConnections,
+            List<Summary> statementSummaries, List<UnimportedUpload> unimportedUploads,
+            List<GmailConnectionExportDto> gmailConnections,
             UserSettingsDto userSettings, WorkspaceSettingsDto workspaceSettings,
             List<SubscriptionExportDto> subscriptions, List<PlanChangeExportDto> planChanges,
             List<SupportTicketDto.Detail> supportTickets, List<FeedbackDto.Summary> feedback,
@@ -1004,4 +1057,8 @@ public class DataExportService {
             List<RefreshRunDetail> statementRefreshRuns,
             List<String> activityDays
     ) {}
+
+    /** An {@code imports/} entry to write: just enough for {@link #writeZip} to re-fetch the job and
+     *  name the file. */
+    public record UnimportedUpload(UUID jobId, String fileName) {}
 }

@@ -259,6 +259,165 @@ public class ProductEvidenceCollector {
     }
 
     /**
+     * In a document of several sections, a section starts at its own banner: a line that opens with
+     * a product's name and carries an account or card number ("SAVINGS ACCOUNT - 1000...", "CREDIT
+     * CARD - 1234******5678"). Whatever is printed above it is not this section's text.
+     *
+     * A card's billing summary printed above the first section's banner used to be read as that
+     * section's own. "Total Amount Due" is a field a savings ledger must never carry, so the ledger
+     * under that banner was disqualified from SAVINGS and read as the card, while the same summary
+     * printed after the last table left it SAVINGS. Where a document prints its summary must not
+     * decide which section is which.
+     *
+     * Text alone cannot say which banner-shaped line is this section's: a card's own text can carry
+     * "Savings Account 1000... linked for auto-debit" under its summary, in exactly the place a
+     * savings ledger's banner sits under a card summary printed above it. Only the table tells them
+     * apart. So this offers CANDIDATE scopes -- one per banner, nearest the table first, each moving
+     * the text above that banner to the document-level text -- and
+     * {@link FinancialProductClassifier#classify(Section)} accepts one only when the section,
+     * classified with that scope, is the product its banner names. Nothing accepted leaves the
+     * text exactly as it was. And none is tried at all when the section already reads as the
+     * product its nearest banner names: scoping a section that is already right can only take
+     * its own fields away (measured: a card whose summary sat just above its own banner lost its
+     * total due to the document and fell from 0.76 to 0.62 confidence while still reading as a
+     * card).
+     *
+     * A scope starts at the first of a run of banners naming the same product with no other
+     * product's banner between them, so a banner repeated on a later page keeps the section's own
+     * fields between the repeats. Rows of a relationship summary listing several products are not
+     * banners (see {@link #ignoreEnumeratedRows}). Prose and headings naming a product without a
+     * number are not banners: a split at the last line naming any product cut a real deposit
+     * section's own fields away. Only for a document with more than one section: a single-section
+     * statement has no other section its preamble could describe.
+     */
+    public List<BannerScope> bannerScopes(Section section) {
+        FinancialProductType[] banners = bannersOf(section);
+        if (banners.length == 0) return List.of();
+        List<String> text = section.sectionText();
+        List<BannerScope> scopes = new ArrayList<>();
+        java.util.Set<Integer> starts = new java.util.HashSet<>();
+        for (int k = banners.length - 1; k > 0; k--) {
+            if (banners[k] == null) continue;
+            int start = k;
+            for (int j = k - 1; j >= 0; j--) {
+                if (banners[j] == null) continue;
+                if (banners[j] != banners[k]) break;
+                start = j;
+            }
+            if (start == 0 || !starts.add(start)) continue;
+            List<String> documentText = new ArrayList<>();
+            if (section.documentText() != null) documentText.addAll(section.documentText());
+            documentText.addAll(text.subList(0, start));
+            scopes.add(new BannerScope(banners[k], new Section(section.columnNames(),
+                    new ArrayList<>(text.subList(start, text.size())), documentText, section.rowCount(),
+                    section.index(), section.of(), section.rows())));
+        }
+        return scopes;
+    }
+
+    /** The section as it reads from one candidate banner down, and the product that banner names. */
+    public record BannerScope(FinancialProductType product, Section section) {}
+
+    /** The product named by the banner nearest this section's table, or null when it has none (or
+     *  the document has one section). A section that already reads as this product is left as it
+     *  is -- see {@link FinancialProductClassifier#classify(Section)}. */
+    public FinancialProductType nearestBannerProduct(Section section) {
+        FinancialProductType[] banners = bannersOf(section);
+        for (int i = banners.length - 1; i >= 0; i--) {
+            if (banners[i] != null) return banners[i];
+        }
+        return null;
+    }
+
+    /** Each line's banner product (null for a line that is not a banner), relationship-summary rows
+     *  removed; empty for a single-section document or a section without text. */
+    private FinancialProductType[] bannersOf(Section section) {
+        List<String> text = section.sectionText();
+        if (section.of() <= 1 || text == null || text.isEmpty()) return new FinancialProductType[0];
+        FinancialProductType[] banners = new FinancialProductType[text.size()];
+        for (int i = 0; i < text.size(); i++) banners[i] = bannerProductOf(text.get(i));
+        ignoreEnumeratedRows(banners);
+        return banners;
+    }
+
+    /** An account or card number as a banner prints it: eight or more digits and masking characters,
+     *  at least four of them digits, in one run or in groups of three or more joined by single spaces
+     *  or hyphens ("1234 XXXX XXXX 5678"). A group shorter than three ends the run, so a date
+     *  ("01-06-2026") never forms one; commas and slashes end it too, and a run beside a decimal
+     *  point ("10000000.00", "0.12345678") is an amount, not a number that names an account. */
+    private static final java.util.regex.Pattern IDENTIFIER_RUN =
+            java.util.regex.Pattern.compile("[0-9Xx*\u2022]+(?:[ -][0-9Xx*\u2022]+)*");
+
+    /**
+     * Consecutive banner-shaped lines naming different products are a relationship summary listing
+     * the customer's accounts ("Savings Account 1000...", "Credit Card 1234..."), not a banner --
+     * the same reasoning as {@link #demoteEnumeratedNames}, one product per section. Left in, the
+     * first row of such a list would start the section above the card summary printed under it.
+     */
+    private static void ignoreEnumeratedRows(FinancialProductType[] banners) {
+        int i = 0;
+        while (i < banners.length) {
+            if (banners[i] == null) {
+                i++;
+                continue;
+            }
+            int end = i;
+            boolean mixed = false;
+            while (end < banners.length && banners[end] != null) {
+                if (banners[end] != banners[i]) mixed = true;
+                end++;
+            }
+            if (mixed) java.util.Arrays.fill(banners, i, end, null);
+            i = end;
+        }
+    }
+
+    /** The product a banner names: the line opens with the name of exactly one product and carries
+     *  an account or card number. Null for any other line.
+     *
+     *  "Opens with", not "names somewhere": measured on a real card statement merged with another,
+     *  fee-schedule lines naming a card variant beside a phone or account-like number were taken as
+     *  banners, and since the section still classified as a card, its own Total Amount Due above
+     *  them was demoted. The cost is that a banner worded "Statement of Savings Account 1000..." is
+     *  not recognised, which leaves that section's text as it was. */
+    private FinancialProductType bannerProductOf(String line) {
+        if (line == null || !carriesAnIdentifier(line)) return null;
+        String normalized = normalize(java.util.Collections.singletonList(line));
+        List<ObservedFact> names = new ArrayList<>();
+        collectProductNames(names, normalized, EvidenceSource.SECTION_TEXT);
+        if (names.size() != 1) return null;
+        for (String name : PRODUCT_NAMES.keySet()) {
+            if (normalized.startsWith(" " + name + " ")) return names.get(0).named();
+        }
+        return null;
+    }
+
+    private static boolean carriesAnIdentifier(String line) {
+        java.util.regex.Matcher m = IDENTIFIER_RUN.matcher(line);
+        while (m.find()) {
+            if (m.end() + 1 < line.length() && line.charAt(m.end()) == '.'
+                    && Character.isDigit(line.charAt(m.end() + 1))) continue;
+            if (m.start() >= 2 && line.charAt(m.start() - 1) == '.'
+                    && Character.isDigit(line.charAt(m.start() - 2))) continue;
+            StringBuilder run = new StringBuilder();
+            for (String group : m.group().split("[ -]")) {
+                if (group.length() < 3) {
+                    if (isIdentifier(run)) return true;
+                    run.setLength(0);
+                } else {
+                    run.append(group);
+                }
+            }
+            if (isIdentifier(run)) return true;
+        }
+        return false;
+    }
+
+    private static boolean isIdentifier(CharSequence run) {
+        return run.length() >= 8 && run.chars().filter(Character::isDigit).count() >= 4;
+    }
+
+    /**
      * Free text naming SEVERAL different products is a document-level summary, not a description of
      * the section it happens to sit next to.
      *

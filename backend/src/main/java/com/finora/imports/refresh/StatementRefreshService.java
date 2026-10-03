@@ -321,6 +321,7 @@ public class StatementRefreshService {
     private void applyCorrections(UUID userId, Transaction t, List<FieldChange> changes, FreshRow fresh, StagedRow staged) {
         Set<Transaction.EditableField> edited = t.getUserEditedFields();
         boolean recategorize = false;
+        boolean relabel = false;
         for (FieldChange change : changes) {
             switch (change.field()) {
                 case DATE -> t.setTxnDate(fresh.date());
@@ -331,6 +332,7 @@ public class StatementRefreshService {
                 case TYPE -> {
                     t.setTxnType(EnumParsing.parse(Transaction.Type.class, fresh.type(), "type"));
                     recategorize = true;
+                    relabel = true;
                 }
                 case BALANCE_AFTER -> t.setBalanceAfter(fresh.balanceAfter());
                 case REFERENCE_NUMBER -> t.setReferenceNumber(fresh.referenceNumber());
@@ -338,12 +340,17 @@ public class StatementRefreshService {
                     t.setDescription(fresh.description());
                     t.applyCounterpartyTyping(fresh.description());
                     if (!edited.contains(Transaction.EditableField.MERCHANT)) {
-                        t.setMerchant(CategoryRules.extractMerchantLabel(fresh.description()));
                         t.setMerchantId(categorizationService.resolveMerchantId(userId, fresh.description()));
                     }
                     recategorize = true;
+                    relabel = true;
                 }
             }
+        }
+        // The label reads the direction as well as the narration (an interest credit is labelled
+        // "interest"), so it is set once both corrections are on the row, whichever order they came in.
+        if (relabel && !edited.contains(Transaction.EditableField.MERCHANT)) {
+            t.setMerchant(CategoryRules.extractMerchantLabel(t.getDescription(), t.getTxnType()));
         }
         // The category and its review flag were decided from the old reading; a corrected
         // narration, amount or type is decided again from the new one, as a clean import of the
@@ -393,9 +400,9 @@ public class StatementRefreshService {
         t.applyCounterpartyTyping(row.description());
         t.setTxnDate(row.date());
         t.setDescription(row.description());
-        t.setMerchant(CategoryRules.extractMerchantLabel(row.description()));
         t.setAmount(row.amount());
         t.setTxnType(EnumParsing.parse(Transaction.Type.class, row.type(), "type"));
+        t.setMerchant(CategoryRules.extractMerchantLabel(row.description(), t.getTxnType()));
         t.setSource(source);
         t.setReferenceNumber(row.referenceNumber());
         t.setBalanceAfter(row.balanceAfter());

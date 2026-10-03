@@ -1274,9 +1274,9 @@ public class ImportService {
             }
             t.setTxnDate(row.date());
             t.setDescription(row.description());
-            t.setMerchant(CategoryRules.extractMerchantLabel(row.description()));
             t.setAmount(row.amount());
             t.setTxnType(com.finora.util.EnumParsing.parse(Transaction.Type.class, row.type(), "type"));
+            t.setMerchant(CategoryRules.extractMerchantLabel(row.description(), t.getTxnType()));
             // GMAIL_IMPORT only when the session actually said so (C5-B); everything else keeps
             // the exact pre-existing behaviour, INCLUDING the known PDF-mislabelled-as-CSV_IMPORT
             // gap -- see Transaction.Source's own comment. Not fixing that here.

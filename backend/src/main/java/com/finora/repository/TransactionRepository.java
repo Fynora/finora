@@ -164,6 +164,76 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
                                  @Param("key") String key,
                                  @Param("version") short version);
 
+    /** What the suggestion re-check needs of a row: the waterfall's inputs and whose row it is. */
+    interface CategorySuggestionRow {
+        UUID getId();
+        UUID getUserId();
+        String getDescription();
+        java.math.BigDecimal getAmount();
+        Transaction.Type getTxnType();
+    }
+
+    /**
+     * Rows still waiting for review whose category is one of the two unresolved guesses ("Other",
+     * or the structural person guess) and which the current suggestion rules have not examined.
+     * A row the user chose is never a candidate; neither is one a rule, learning, the corpus, the
+     * AI cache, a card's printed category or a file decided.
+     */
+    @Query("""
+            SELECT t.id AS id, t.userId AS userId, t.description AS description, t.amount AS amount,
+                   t.txnType AS txnType
+            FROM Transaction t
+            WHERE t.needsCategoryReview = true
+              AND t.categoryManuallySet = false
+              AND t.decisionSource IN (com.finora.entity.Transaction.DecisionSource.MERCHANT_DEFAULT,
+                                       com.finora.entity.Transaction.DecisionSource.STRUCTURAL_P2P)
+              AND t.suggestionVersion < :version
+            """)
+    List<CategorySuggestionRow> findWaitingRowsBelowSuggestionVersion(@Param("version") short version,
+                                                                      Pageable pageable);
+
+    /**
+     * Writes a re-checked row's new category. Guarded on the discovery predicate, so a row the user
+     * chose, or one answered elsewhere, between discovery and this write is left alone (returns 0).
+     * Bumps {@code version}: the category is something the user sees, so another device must learn
+     * of it (ChangeStampService).
+     */
+    @Modifying
+    @Query("""
+            UPDATE Transaction t
+            SET t.categoryId = :categoryId,
+                t.decisionSource = :decisionSource,
+                t.decisionRuleId = :ruleId,
+                t.decisionConfidence = :confidence,
+                t.needsCategoryReview = :needsReview,
+                t.suggestionVersion = :version,
+                t.version = t.version + 1
+            WHERE t.id = :id
+              AND t.needsCategoryReview = true
+              AND t.categoryManuallySet = false
+              AND t.decisionSource IN (com.finora.entity.Transaction.DecisionSource.MERCHANT_DEFAULT,
+                                       com.finora.entity.Transaction.DecisionSource.STRUCTURAL_P2P)
+              AND t.suggestionVersion < :version
+            """)
+    int applyCategorySuggestion(@Param("id") UUID id,
+                                @Param("categoryId") UUID categoryId,
+                                @Param("decisionSource") Transaction.DecisionSource decisionSource,
+                                @Param("ruleId") UUID ruleId,
+                                @Param("confidence") Integer confidence,
+                                @Param("needsReview") boolean needsReview,
+                                @Param("version") short version);
+
+    /** Records that the current rules examined a row and found nothing better. Nothing the user sees
+     *  changes, so {@code version} is left alone -- see ChangeStampBulkWriteGuardTest's exemption. */
+    @Modifying
+    @Query("""
+            UPDATE Transaction t
+            SET t.suggestionVersion = :version
+            WHERE t.id = :id
+              AND t.suggestionVersion < :version
+            """)
+    int stampSuggestionVersion(@Param("id") UUID id, @Param("version") short version);
+
     List<Transaction> findByUserId(UUID userId);
 
     /** Every other row from one payee in one direction, on the given accounts -- what "apply to all

@@ -80,6 +80,15 @@ public class CategorizationService {
      */
     public static final String P2P_CATEGORY = "Personal Transfer";
 
+    /**
+     * Revision of the suggestion rules: the keyword table (CategoryRules), ShopTradeCategory,
+     * BankActivityCategory, and the order of this class's waterfall. Raise it with any change to
+     * those that can move a row off "Other" or "Personal Transfer"; CategorySuggestionSweepService
+     * then re-checks every row still waiting for review. Raising it when nothing changed only costs
+     * one read-only pass over the waiting rows.
+     */
+    public static final short SUGGESTION_VERSION = 1;
+
     /** {@code Suggestion.source()} for a Trusted shared-corpus row (spec §5/§9). */
     public static final String SHARED_CORPUS_SOURCE = "shared_corpus";
     /** {@code Suggestion.source()} for a Fyn categorization-fallback answer (spec §8). */

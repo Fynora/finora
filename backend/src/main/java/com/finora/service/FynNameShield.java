@@ -28,7 +28,8 @@ import java.util.regex.Pattern;
  *       "Priya", "Sharma" or "Raj" alone in a question is hidden too once a payment to them is on
  *       record;</li>
  *   <li>the account holders' own names -- the profile name and the holder on each of the user's
- *       accounts -- whole, cut short or glued ({@link PersonToPersonTransferDetector#maskHolderName});</li>
+ *       accounts -- as whole words, and in a bank narration ({@link #shieldNarration}) also cut short
+ *       or glued ({@link PersonToPersonTransferDetector#maskHolderName});</li>
  *   <li>inside a screenshot's text block, any line or field that reads as a name
  *       ({@link PersonToPersonTransferDetector#maskPersonNames}), the same rules the narration path
  *       uses;</li>
@@ -80,19 +81,46 @@ public final class FynNameShield {
         return token;
     }
 
-    /** {@code text} with every name this shield knows or finds replaced by its token. Null-safe. */
+    /** {@code text} with every name this shield knows or finds replaced by its token: a question,
+     *  chat history, a category or budget name, a tool's answer. The account holders' names are
+     *  matched as whole words here -- a surname is the start of everyday words ("SHAR" of "shares",
+     *  "SING" of "single"; measured), and cutting those would hide the question itself. Null-safe. */
     public String shield(String text) {
+        return shield(text, false);
+    }
+
+    /** {@link #shield} for a bank narration, where a holder's name is also matched cut short or
+     *  glued to other characters ("<INITIALS><SURNAME>114"), as banks print it
+     *  ({@link PersonToPersonTransferDetector#maskHolderName}). Null-safe. */
+    public String shieldNarration(String text) {
+        return shield(text, true);
+    }
+
+    private String shield(String text, boolean narration) {
         if (text == null || text.isEmpty()) return text;
         // Known names first, whole, so a holder word inside one ("SHARMA" in "PRIYA SHARMA") does
-        // not split it; then the holder patterns and the screenshot block; then known names once
+        // not split it; then the holder names and the screenshot block; then known names once
         // more, now including any the screenshot turned up, wherever else they appear.
         String out = replaceKnownNames(text);
         for (String holder : holderNames) {
-            out = PersonToPersonTransferDetector.maskHolderName(out, holder, this::tokenFor);
+            out = narration
+                    ? PersonToPersonTransferDetector.maskHolderName(out, holder, this::tokenFor)
+                    : replaceHolderWords(out, holder);
         }
         out = shieldScreenshotBlock(out);
         out = replaceKnownNames(out);
         return replaceCommonNames(out);
+    }
+
+    /** Each word of 3+ letters of the holder's name, as a whole word, any case. */
+    private String replaceHolderWords(String text, String holder) {
+        String out = text;
+        for (String word : holder.split("[^A-Za-z]+")) {
+            if (word.length() < 3) continue;
+            out = Pattern.compile("(?i)(?<![A-Za-z\\[])" + Pattern.quote(word) + "(?![A-Za-z])").matcher(out)
+                    .replaceAll(m -> Matcher.quoteReplacement(tokenFor(m.group())));
+        }
+        return out;
     }
 
     /** Common given names and surnames ({@link PersonNameLexicon#isCommonName}) the user has never

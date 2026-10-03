@@ -194,6 +194,42 @@ class UserMerchantCategoryResolutionServiceTest {
                 org.mockito.ArgumentMatchers.argThat(text -> !text.matches("(?s).*\\[name-\\d+].*")));
     }
 
+    /** The model was shown "[name]" and "[redacted-id]", and could invent "[name-9]": a pick still
+     *  holding one is no pick, never a new category literally named after the placeholder. */
+    @Test
+    void resolve_aPickThatIsAPlaceholder_createsNoCategory() {
+        when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(any(), any(), any())).thenReturn(Optional.empty());
+        when(understandingService.understand(any(), any(), any(), any())).thenReturn(Optional.of("A tea stall"));
+        when(categoryRepository.findByUserId(userId)).thenReturn(List.of());
+        for (String pick : List.of("[name]", "Payments to [name-9]", "[redacted-id]")) {
+            when(llmClient.complete(any())).thenReturn(new LlmCompletion(null,
+                    List.of(new ToolUse("t1", "RESOLVE_CATEGORY", Map.of("category", pick))),
+                    "claude-haiku-4-5-20251001", 60, 8, "tool_use"));
+
+            assertThat(service.resolve(userId, "vpa:acmeteashop", Transaction.Type.EXPENSE,
+                    "UPI-ACME TEA SHOP-acmeteashop@okaxis-UPI")).as(pick).isEmpty();
+        }
+        verify(categorizationService, never()).resolveOrCreateCategory(any(), any(), any());
+    }
+
+    @Test
+    void resolve_aPlaceholderLeftInTheReason_readsAsSomeone() {
+        when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(any(), any(), any())).thenReturn(Optional.empty());
+        when(understandingService.understand(any(), any(), any(), any())).thenReturn(Optional.of("A tea stall"));
+        when(categoryRepository.findByUserId(userId)).thenReturn(List.of());
+        when(llmClient.complete(any())).thenReturn(new LlmCompletion(null,
+                List.of(new ToolUse("t1", "RESOLVE_CATEGORY", Map.of("category", "Tea", "reason", "Tea bought from [name]"))),
+                "claude-haiku-4-5-20251001", 60, 8, "tool_use"));
+        Category tea = new Category();
+        tea.setUserId(userId);
+        tea.setName("Tea");
+        when(categorizationService.resolveOrCreateCategory(userId, "Tea", "Tea bought from someone")).thenReturn(tea);
+        when(resolutionRepository.insertIfAbsent(any(), any(), any(), any(), any())).thenReturn(1);
+
+        assertThat(service.resolve(userId, "vpa:acmeteashop", Transaction.Type.EXPENSE,
+                "UPI-ACME TEA SHOP-acmeteashop@okaxis-UPI")).contains("Tea");
+    }
+
     /** The gate at the one entry into the model calls, not only at today's caller. */
     @Test
     void resolve_aNamedIndividualTransfer_makesNoModelCallAtAll() {

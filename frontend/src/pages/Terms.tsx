@@ -84,9 +84,12 @@ export default function Terms() {
           are estimates intended to help you understand your own finances, not verified or audited figures.
           Categorization suggestions can be wrong, and a statement's extracted values (dates, balances,
           amounts) depend on the quality and format of the document you upload; always check anything you rely
-          on against your bank's or card issuer's own statement or app. Fynora does not use third-party AI
-          services (such as OpenAI, Anthropic, or Google Gemini) to process your financial data — this
-          processing is performed by Fynora's own application logic.
+          on against your bank's or card issuer's own statement or app. Reading your statements, the rules that
+          categorize your transactions, the Financial Health Score and budgets are Fynora's own application
+          logic, with no third-party AI service involved. Three features do use a third-party AI service,
+          Anthropic's Claude: Ask Fyn, the summary on the Insights page, and category suggestions for a
+          transaction you add by hand. Their answers can be wrong in the same way. The Privacy Policy explains
+          what each one sends and how people's names are hidden first.
         </p>
       </PublicSection>
 

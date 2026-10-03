@@ -37,6 +37,10 @@ public class UserMerchantCategoryResolutionService {
     private static final Logger log = LoggerFactory.getLogger(UserMerchantCategoryResolutionService.class);
 
     private static final String PROMPT_VERSION = "user-category-resolution-v3";
+
+    /** A placeholder the model was shown, or made up, still in its answer after unshielding. */
+    private static final java.util.regex.Pattern LEFTOVER_PLACEHOLDER =
+            java.util.regex.Pattern.compile("(?i)\\[\\s*(?:name(?:[-\\s]?\\d+)?|redacted-[a-z]+)\\s*]");
     private static final String TOOL_NAME = "RESOLVE_CATEGORY";
     private static final int MAX_TOKENS = 60;
     private static final int MAX_CATEGORIES_SENT = 100;
@@ -173,7 +177,7 @@ public class UserMerchantCategoryResolutionService {
         // cached for every user, and a numbered token in it would mean someone else's name to the
         // next user's shield. Only the category list, below, needs tokens it can map back.
         FynNameShield shield = nameShields.forUser(userId);
-        String forModel = shield.shield(prepared.get()).replaceAll("\\[name-\\d+]", PersonToPersonTransferDetector.NAME_MASK);
+        String forModel = shield.shieldNarration(prepared.get()).replaceAll("\\[name-\\d+]", PersonToPersonTransferDetector.NAME_MASK);
         if (!PersonToPersonTransferDetector.hasRecognisableWords(forModel)) {
             return Optional.empty();
         }
@@ -231,7 +235,15 @@ public class UserMerchantCategoryResolutionService {
             return Optional.empty();
         }
         String categoryName = shield.unshield(shieldedName);
-        String reason = input.get("reason") instanceof String r && !r.isBlank() ? shield.unshield(r) : null;
+        // The model was shown placeholders -- "[name]" and "[redacted-id]" in the narration, and
+        // any "[name-N]" it makes up -- that unshield cannot put back. A pick still holding one would
+        // be created as a category literally named "[name]", so it is no pick at all; in a reason,
+        // shown to the user beside the new category, one reads as "someone".
+        if (LEFTOVER_PLACEHOLDER.matcher(categoryName).find()) {
+            return Optional.empty();
+        }
+        String reason = input.get("reason") instanceof String r && !r.isBlank()
+                ? LEFTOVER_PLACEHOLDER.matcher(shield.unshield(r)).replaceAll("someone") : null;
 
         Category resolved = categorizationService.resolveOrCreateCategory(userId, categoryName, reason);
         resolutionRepository.insertIfAbsent(userId, counterpartyKey, direction.name(), resolved.getId(), Instant.now());

@@ -32,6 +32,20 @@ class FynNameShieldTest {
         assertThat(shield.unshield("Yes, [name-1] [name-2] paid it.")).isEqualTo("Yes, Tanvi Sharma paid it.");
     }
 
+    /** In a question or a label the holder's name is matched as whole words: a surname is a prefix
+     *  of everyday words ("SHAR" of "shares", "SING" of "single"), and cutting those would hide the
+     *  question. A narration's glued or cut-short forms are {@link FynNameShield#shieldNarration}'s. */
+    @Test
+    void theHoldersName_inFreeText_isMatchedOnlyAsWholeWords() {
+        FynNameShield shield = new FynNameShield(List.of("Tanvi Sharma", "Rohan Singh"));
+
+        assertThat(shield.shield("How much in shares and Share Market? Single or joint, Sharma?"))
+                .startsWith("How much in shares and Share Market? Single or joint, [name-")
+                .doesNotContain("Sharma");
+        assertThat(shield.shieldNarration("NEFT-THSHARMA114-SALARY")) // synthetic-ok
+                .doesNotContain("SHARMA");
+    }
+
     @Test
     void aPersonTheUserPaid_isHiddenWholeAndByFirstName_inAnyText() {
         FynNameShield shield = new FynNameShield(List.of(), new java.util.LinkedHashSet<>(List.of("PRIYA SHARMA", "PRIYA")));

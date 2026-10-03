@@ -176,7 +176,34 @@ class UserRepositoryIT extends AbstractIntegrationTest {
             @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager) {
         User seed = save("user-repository-it-race-" + UUID.randomUUID() + "@example.com", User.DEFAULT_ROLE, User.STATUS_ACTIVE);
         UUID id = seed.getId();
+        // Every write below commits, so nothing rolls this user back. Left behind, it sits in the
+        // shared Postgres as PENDING_DELETION, and AccountPurgeSweepService.sweep() -- which purges
+        // every such user once its request is past the retention window, 30 minutes under
+        // AccountPurgeSweepServiceIT's settings -- counts it in whichever later class runs a sweep
+        // (it broke AccountPurgeSweepServiceIT's purged() == 1 in a full-suite run).
+        // A cleanup failure must not hide the race's own failure: it is attached as suppressed when
+        // the test already failed, and only thrown on its own when the test had passed.
+        Throwable testFailure = null;
+        try {
+            assertAConcurrentStatusChangeIsNotReverted(transactionManager, id);
+        } catch (Throwable t) {
+            testFailure = t;
+            throw t;
+        } finally {
+            try {
+                userRepository.deleteById(id);
+            } catch (RuntimeException cleanupFailure) {
+                if (testFailure == null) {
+                    throw cleanupFailure;
+                }
+                testFailure.addSuppressed(cleanupFailure);
+            }
+        }
+        assertThat(userRepository.findById(id)).isEmpty();
+    }
 
+    private void assertAConcurrentStatusChangeIsNotReverted(
+            org.springframework.transaction.PlatformTransactionManager transactionManager, UUID id) {
         var txA = new org.springframework.transaction.support.TransactionTemplate(transactionManager);
         txA.executeWithoutResult(txAStatus -> {
             // txA's own persistence context loads the row here -- status=ACTIVE. Hibernate's

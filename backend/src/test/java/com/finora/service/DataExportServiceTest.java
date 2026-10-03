@@ -1555,6 +1555,7 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
                 Map.entry("chatMessageRepository.deleteByUserId", "fyn_chat_messages.json"),
                 Map.entry("chatConversationRepository.deleteByUserId", "fyn_chat_conversations.json"),
                 Map.entry("counterpartyCategoryObservationRepository.deleteByUserId", "merchant_category_votes.json"),
+                Map.entry("userActivityDayRepository.deleteByUserId", "activity_days.json"),
                 Map.entry("statementAnalysisSessionRepository.anonymizeByUserId", "statement_analysis_sessions"));
 
         String purgeSource = java.nio.file.Files.readString(

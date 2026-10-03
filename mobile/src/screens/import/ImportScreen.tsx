@@ -1300,8 +1300,8 @@ export function ImportScreen() {
                     && accountForm.accountType === 'CREDIT_CARD'
                     && detected?.totalAmountDue != null ? (
                     <Text style={[styles.helpText, { color: c.muted, marginTop: 4 }]}>
-                      The statement's summary panel didn't print its own previous balance, so this
-                      is worked backwards from the detected total amount due (
+                      The statement's own previous balance wasn't read, or didn't add up with these
+                      transactions, so this is worked backwards from the detected total amount due (
                       {fmtCurrency(detected.totalAmountDue)}) minus these transactions. Check it
                       against the statement before confirming.
                     </Text>

@@ -77,6 +77,28 @@ class BankActivityCategoryTest {
     }
 
     @Test
+    void aMunicipalOrTransportOfficePayment_isTaxes() {
+        assertThat(of("UPI/000000000000/MUNICIPAL CORPORATION PROPERTY TAX/sample@okbank", EXPENSE))
+                .isEqualTo("Taxes");
+        assertThat(of("UPI/000000000000/NAGAR NIGAM/sample@okbank", EXPENSE)).isEqualTo("Taxes");
+        assertThat(of("RTO VEHICLE ROAD TAX", EXPENSE)).isEqualTo("Taxes");
+    }
+
+    @Test
+    void aProvidentFundContribution_isInvestments_notTaxes() {
+        // Money paid into the employees' provident fund is retirement savings that comes back to
+        // the payer, not a tax or a fee.
+        assertThat(of("NEFT-EPFO CONTRIBUTION-000000000000", EXPENSE)).isEqualTo("Investments");
+        assertThat(of("UPI/000000000000/EPF VOLUNTARY CONTRIBUTION/sample@okbank", EXPENSE))
+                .isEqualTo("Investments");
+    }
+
+    @Test
+    void aProvidentFundWithdrawalCredited_hasNoBankActivityCategory() {
+        assertThat(of("NEFT-EPFO SETTLEMENT-000000000000", INCOME)).isNull();
+    }
+
+    @Test
     void moneyFromAGovernmentBody_isNotATax() {
         assertThat(of("UPI/000000000000/19:06:39/UPI/upsc.sbiepaylite@sb", INCOME)).isNull();
     }

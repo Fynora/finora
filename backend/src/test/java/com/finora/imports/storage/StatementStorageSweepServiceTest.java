@@ -531,4 +531,86 @@ class StatementStorageSweepServiceTest {
         assertThat(newService(Optional.empty()).reclaimImportJobObjectsOf(java.util.UUID.randomUUID())).isZero();
         verifyNoInteractions(statementImportRepository, importSessionRepository, importJobRepository);
     }
+
+    // ---------------------------------------------------------------- which outcomes release a candidate
+
+    private void stubOneCandidate(String key) {
+        when(statementImportRepository.findObjectsUnreferencedSince(any(), anyInt()))
+                .thenReturn(List.<Object[]>of(candidate("aabbcc", key, Instant.now().minus(120, ChronoUnit.DAYS))));
+    }
+
+    @Test
+    void sweep_releasesTheCandidate_whenItsObjectWasDeleted_atTheSameCutoffItWasFoundWith() {
+        String key = "statements/aa/bb/deleted.bin";
+        stubOneCandidate(key);
+
+        service.sweep();
+
+        org.mockito.ArgumentCaptor<Instant> foundWith = org.mockito.ArgumentCaptor.forClass(Instant.class);
+        org.mockito.ArgumentCaptor<Instant> releasedWith = org.mockito.ArgumentCaptor.forClass(Instant.class);
+        verify(statementImportRepository).findObjectsUnreferencedSince(foundWith.capture(), anyInt());
+        verify(statementImportRepository).markObjectReleased(eq(key), releasedWith.capture(), any());
+        assertThat(releasedWith.getValue()).isEqualTo(foundWith.getValue());
+    }
+
+    @Test
+    void sweep_releasesTheCandidate_whenALiveStatementRowStillNamesTheKey() {
+        String key = "statements/aa/bb/live-statement.bin";
+        stubOneCandidate(key);
+        when(statementImportRepository.existsByObjectKey(key)).thenReturn(true);
+
+        StatementStorageSweepService.Result result = service.sweep();
+
+        assertThat(result.skipped()).isEqualTo(1);
+        verify(storage, never()).delete(anyString());
+        verify(statementImportRepository).markObjectReleased(eq(key), any(), any());
+    }
+
+    /** A session leaves no row behind when its TTL hard-deletes it, so the soft-deleted statement
+     *  rows must stay candidates -- they are the only way left back to this object. */
+    @Test
+    void sweep_doesNotReleaseTheCandidate_whenOnlyASessionStillNamesTheKey() {
+        String key = "statements/aa/bb/session-only.bin";
+        stubOneCandidate(key);
+        when(importSessionRepository.existsByObjectKey(key)).thenReturn(true);
+
+        StatementStorageSweepService.Result result = service.sweep();
+
+        assertThat(result.skipped()).isEqualTo(1);
+        verify(statementImportRepository, never()).markObjectReleased(anyString(), any(), any());
+    }
+
+    @Test
+    void sweep_doesNotReleaseTheCandidate_whenOnlyAnImportJobStillNamesTheKey() {
+        String key = "statements/aa/bb/job-only.bin";
+        stubOneCandidate(key);
+        when(importJobRepository.existsByObjectKeyAndStatusNotIn(eq(key), any())).thenReturn(true);
+
+        StatementStorageSweepService.Result result = service.sweep();
+
+        assertThat(result.skipped()).isEqualTo(1);
+        verify(statementImportRepository, never()).markObjectReleased(anyString(), any(), any());
+    }
+
+    /** The object is still there; these rows are the reason the next run comes back for it. */
+    @Test
+    void sweep_doesNotReleaseTheCandidate_whenTheDeleteFailed() {
+        String key = "statements/aa/bb/delete-failed.bin";
+        stubOneCandidate(key);
+        org.mockito.Mockito.doThrow(new StatementStorageException("boom", null)).when(storage).delete(key);
+
+        StatementStorageSweepService.Result result = service.sweep();
+
+        assertThat(result.failed()).isEqualTo(1);
+        verify(statementImportRepository, never()).markObjectReleased(anyString(), any(), any());
+    }
+
+    @Test
+    void reclaimIfUnreferenced_doesNotReleaseAnyRows() {
+        String key = "statements/aa/bb/purge.bin";
+
+        assertThat(service.reclaimIfUnreferenced(key)).isTrue();
+
+        verify(statementImportRepository, never()).markObjectReleased(anyString(), any(), any());
+    }
 }

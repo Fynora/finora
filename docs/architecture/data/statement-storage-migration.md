@@ -495,7 +495,11 @@ What "unreferenced" means, concretely, and its one known gap:
 
 - **statement_imports rows are soft-deleted** (`@SQLDelete`), so a user deleting a statement leaves
   a `deleted_at`-stamped row behind forever — a durable, queryable trace of exactly when that
-  reference ended. The 90-day window is measured from there.
+  reference ended. The 90-day window is measured from there — from the most recent such deletion
+  when several rows name one key. Because those rows stay forever, the sweep marks them
+  (`statement_imports.object_released_at`, V251) once it has deleted the object or found a live `statement_imports`
+  row still naming it; unmarked, a reclaimed key came back on every run and, oldest first under the
+  batch limit, kept newer candidates from ever being reached.
 - **import_sessions rows are hard-deleted** by the existing 48h TTL sweep
   (`ImportSessionService.sweepExpiredSessions`, deliberately untouched by this change — see that
   class's own reasoning for why it is a scheduled job and not opportunistic). A session that is

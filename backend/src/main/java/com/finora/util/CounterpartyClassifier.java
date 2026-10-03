@@ -114,7 +114,12 @@ public final class CounterpartyClassifier {
     //    a merchant rail. Measured on the corpus (1,936 rows): 2 rows PERSON -> BUSINESS (one shop
     //    paid under its owner's full name), no other change; on a tester's statement the seven
     //    payees it typed PERSON read BUSINESS. No key changes.
-    public static final short VERSION = 9;
+    // 10: the counterparty KEY changed (CounterpartyIdentity, 2026-10-03): an id in the standard
+    //    layout's id slot printed with no "@" is the weak "cut:" key instead of "vpa:" -- the bank cut
+    //    it, and the start of one payment brand's id is shared by its shops. Measured on the corpus
+    //    (1,936 rows): the key changes only on that bank's 17 cut rows (vpa: -> cut:, same text), no
+    //    type changes. Bumped so the backfill sweep re-keys stored rows.
+    public static final short VERSION = 10;
 
     /**
      * Bank-generated activity, where the counterparty is the institution itself. These words are

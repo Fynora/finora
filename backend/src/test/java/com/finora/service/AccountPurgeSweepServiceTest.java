@@ -113,6 +113,7 @@ class AccountPurgeSweepServiceTest {
     private StatementImportRepository statementImportRepository;
     private StatementImportService statementImportService;
     private StatementStorageSweepService statementStorageSweepService;
+    private ImportJobRepository importJobRepository;
     private StatementAnalysisSessionRepository statementAnalysisSessionRepository;
     private RelationshipRepository relationshipRepository;
     private AccountRepository accountRepository;
@@ -147,6 +148,7 @@ class AccountPurgeSweepServiceTest {
         statementImportRepository = mock(StatementImportRepository.class);
         statementImportService = mock(StatementImportService.class);
         statementStorageSweepService = mock(StatementStorageSweepService.class);
+        importJobRepository = mock(ImportJobRepository.class);
         statementAnalysisSessionRepository = mock(StatementAnalysisSessionRepository.class);
         relationshipRepository = mock(RelationshipRepository.class);
         accountRepository = mock(AccountRepository.class);
@@ -184,7 +186,7 @@ class AccountPurgeSweepServiceTest {
                 mock(CategoryRuleRepository.class), mock(CategoryRepository.class),
                 mock(UserMerchantCategoryResolutionRepository.class),
                 relationshipRepository, mock(RelationshipIdentifierRepository.class),
-                mock(NetWorthSnapshotRepository.class), timelineEventRepository, mock(ImportJobRepository.class),
+                mock(NetWorthSnapshotRepository.class), timelineEventRepository, importJobRepository,
                 mock(ImportSessionRepository.class), mock(PasswordHistoryRepository.class),
                 mock(PasswordChangeSessionRepository.class), mock(PasswordResetTokenRepository.class),
                 mock(AccountReactivationTokenRepository.class), mock(EmailVerificationTokenRepository.class),
@@ -199,7 +201,8 @@ class AccountPurgeSweepServiceTest {
                 mock(DeviceTokenRepository.class), mock(NotificationPreferenceRepository.class),
                 mock(ReimportConfirmationClaimRepository.class), mock(UserFinancialFocusRepository.class),
                 mock(UserChecklistEventRepository.class), mock(HealthScoreSnapshotRepository.class),
-                mock(FeatureViewCountRepository.class), mock(RecurringDismissalRepository.class),
+                mock(FeatureViewCountRepository.class), mock(com.finora.repository.UserActivityDayRepository.class),
+                mock(RecurringDismissalRepository.class),
                 mock(AccountAggregatorLinkRepository.class), mock(AiAuditLogRepository.class),
                 mock(ChatConversationRepository.class), mock(ChatMessageRepository.class),
                 mock(CounterpartyCategoryObservationRepository.class),
@@ -373,6 +376,40 @@ class AccountPurgeSweepServiceTest {
         inOrder.verify(statementImportRepository).findObjectKeyById(statementId);
         inOrder.verify(statementImportService).delete(userId, statementId, userId);
         inOrder.verify(statementStorageSweepService).reclaimIfUnreferenced("statements/aa/bb/key.bin");
+    }
+
+    /**
+     * The objects an account's async uploads wrote are named only by its import_jobs rows, so they
+     * have to be reclaimed before those rows are hard-deleted -- afterwards nothing leads back to
+     * them. See StatementStorageSweepService's "Async uploads" doc.
+     */
+    @Test
+    void sweep_reclaimsImportJobObjects_beforeDeletingTheImportJobRows() {
+        User user = pendingDeletionUser();
+        stubOneCandidate(user);
+
+        service.sweep();
+
+        InOrder inOrder = inOrder(statementStorageSweepService, importJobRepository);
+        inOrder.verify(statementStorageSweepService).reclaimImportJobObjectsOf(userId);
+        inOrder.verify(importJobRepository).deleteByUserId(userId);
+    }
+
+    /** A storage failure there fails the purge with every import_jobs row still in place, so the
+     *  next run can find those objects again. */
+    @Test
+    void sweep_failsThePurgeWithoutDeletingImportJobRows_whenImportJobObjectsCannotBeReclaimed() {
+        User user = pendingDeletionUser();
+        stubOneCandidate(user);
+        when(statementStorageSweepService.reclaimImportJobObjectsOf(userId))
+                .thenThrow(new com.finora.imports.storage.StatementStorageException("boom", null));
+
+        AccountPurgeSweepService.Result result = service.sweep();
+
+        assertThat(result.failed()).isEqualTo(1);
+        assertThat(result.purged()).isZero();
+        verify(importJobRepository, never()).deleteByUserId(any());
+        assertThat(user.getStatus()).isNotEqualTo(User.STATUS_DELETED);
     }
 
     /** No object key (legacy row, or no storage provider configured) -- nothing to reclaim, and

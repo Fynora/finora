@@ -154,6 +154,11 @@ export default function Privacy() {
           improve the product. This is never combined with your individual financial data for any purpose
           outside operating and improving Fynora itself.
         </p>
+        <p>
+          We also record the dates on which you use Fynora — the calendar date only, once per day, not
+          the time or what you did — so we can understand how often the product is used. These records
+          are linked to your account and are deleted if you delete your account.
+        </p>
       </PublicSection>
 
       <PublicSection title="Data Usage">

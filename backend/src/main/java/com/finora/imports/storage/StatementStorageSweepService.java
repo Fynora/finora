@@ -116,6 +116,19 @@ import java.util.UUID;
  * <p>Account purge hard-deletes every {@code import_jobs} row a user has, and those rows are the
  * only ones naming their objects. It calls {@link #reclaimImportJobObjectsOf} first.
  *
+ * <h2>Considered once</h2>
+ * The soft-deleted rows a candidate comes from are never removed, so once the sweep has acted on a
+ * key those rows are marked ({@code statement_imports.object_released_at}, V251, via
+ * {@link StatementImportRepository#markObjectReleased}) and discovery leaves them out. Unmarked,
+ * a deleted object's key came back on every run and was "deleted" again ({@link
+ * StatementStorage#delete} is idempotent), and because discovery is oldest first under the batch
+ * limit, a batch's worth of such keys kept every newer candidate out of every run. The rows are
+ * marked when the object was deleted, or when a live statement_imports row still names the key --
+ * that row's own deletion brings the key back. They are not marked when the delete failed, or
+ * when only a session or an import job still names the key, so those candidates are re-checked on
+ * every run as before. {@link #reclaimIfUnreferenced} does not mark: the scheduled sweep finds
+ * that key once more after the window, repeats the idempotent delete, and marks the rows then.
+ *
  * <h2>A known, deliberate gap</h2>
  * This can only discover candidates that leave a queryable trace. {@code statement_imports} does --
  * its {@code @SQLDelete} soft-delete keeps the row (and its {@code deleted_at}) forever -- and so do
@@ -253,10 +266,14 @@ public class StatementStorageSweepService {
             String objectKey = (String) row[1];
             Instant lastReferencedAt = Instant.ofEpochMilli((Long) row[2]);
 
-            switch (reclaim(objectKey, contentHash, lastReferencedAt)) {
+            ReclaimOutcome outcome = reclaim(objectKey, contentHash, lastReferencedAt);
+            switch (outcome) {
                 case DELETED -> swept++;
                 case STILL_REFERENCED -> skipped++;
                 case FAILED -> failed++;
+            }
+            if (releasesCandidate(outcome, objectKey)) {
+                statementImportRepository.markObjectReleased(objectKey, cutoff, Instant.now());
             }
         }
 
@@ -282,6 +299,22 @@ public class StatementStorageSweepService {
             }
         }
         return new Result(swept, skipped, failed);
+    }
+
+    /**
+     * Whether this candidate's soft-deleted rows are done with -- see this class's "Considered once"
+     * doc section. A deleted object, yes. A live statement_imports row still naming the key, yes:
+     * that row's own soft delete makes the key a candidate again, measured from then. A failed
+     * delete, no -- the object is still there and these rows are the reason to come back for it.
+     * Only a session or an import job naming the key, no: a session is hard deleted at its TTL and
+     * leaves nothing behind, so these rows would be the only way left to find the object.
+     */
+    private boolean releasesCandidate(ReclaimOutcome outcome, String objectKey) {
+        return switch (outcome) {
+            case DELETED -> true;
+            case STILL_REFERENCED -> statementImportRepository.existsByObjectKey(objectKey);
+            case FAILED -> false;
+        };
     }
 
     /**

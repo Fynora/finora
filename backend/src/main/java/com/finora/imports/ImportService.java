@@ -1246,15 +1246,22 @@ public class ImportService {
             if (decision.worthLearning() && merchantId != null) {
                 pendingLearning.add(new PendingLearning(merchantId, category.getId()));
             }
-            // Rides the same worthLearning decision the merchant-learning queue above already
-            // made, per SharedCorpusService's own contract (a corpus observation is only ever a
-            // genuine human decision, never an unconfirmed guess). t.setTxnType(...) hasn't run
-            // yet at this point in the loop -- row.type() is the same raw value it will parse to,
-            // already used earlier in this same loop for the credits/debits totals.
+            // The pin rides the same worthLearning decision the merchant-learning queue above
+            // already made. t.setTxnType(...) hasn't run yet at this point in the loop --
+            // row.type() is the same raw value it will parse to, already used earlier in this same
+            // loop for the credits/debits totals.
             if (decision.worthLearning()) {
                 Transaction.Type rowDirection = com.finora.util.EnumParsing.parse(Transaction.Type.class, row.type(), "type");
-                sharedCorpusService.recordObservation(userId, t.getCounterpartyKey(), t.getCounterpartyType(),
-                        rowDirection, category.getName());
+                // A shared-corpus vote is narrower: only a category the user changed on the review
+                // screen ("review", set by ConfirmedRowIntegrity.withStatementFacts on every session
+                // confirm). A rule's, learned or AI answer confirmed as it was is the engine speaking,
+                // and counted as a vote it is laundered into every user's suggestion: three users
+                // bulk-confirming one global keyword rule made its category the trusted answer for a
+                // gateway id that other shops' refunds arrive under too (2026-10-03, local probe).
+                if (CategorizationService.REVIEW_SOURCE.equals(row.categorySource())) {
+                    sharedCorpusService.recordObservation(userId, t.getCounterpartyKey(), t.getCounterpartyType(),
+                            rowDirection, category.getName());
+                }
                 String pinKey = rowDirection + ":" + t.getCounterpartyKey();
                 UUID pinCategoryId = category.getId();
                 // pinCategoryId == null is deliberately never treated as "already pinned this

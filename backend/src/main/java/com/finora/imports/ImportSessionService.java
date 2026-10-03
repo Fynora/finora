@@ -432,6 +432,22 @@ public class ImportSessionService {
         return session;
     }
 
+    /** The staged file's bytes for an owned session, whatever its expiry or status -- for Download
+     *  My Data, which must export a file for as long as Finora still holds it, including a session
+     *  past its expiry that the TTL sweep has not reached yet. {@link #getOwnedSession} refuses
+     *  exactly those, which is right for confirm/resume and wrong here. Transactional because
+     *  {@code fileContent} is LAZY. */
+    @Transactional(readOnly = true)
+    public byte[] readOwnedFileContent(UUID userId, UUID sessionId) {
+        ImportSession session = OwnershipGuard.requireOwned(importSessionRepository.findById(sessionId),
+                ImportSession::getUserId, userId, "Import session");
+        byte[] content = session.getFileContent();
+        if (content == null) {
+            throw new IllegalStateException("Import session " + sessionId + " holds no file content");
+        }
+        return content;
+    }
+
     /** Package-private -- {@link #listResumableSessions} is the only caller and the only
      *  public entry point a session list should come through; nothing outside this package
      *  currently needs the unfiltered population. Widen this back to public if a real second

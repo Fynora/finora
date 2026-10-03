@@ -432,4 +432,172 @@ class StatementStorageSweepServiceIT extends AbstractIntegrationTest {
         assertThat(result.skipped()).isEqualTo(1);
         assertThat(storage.exists(address)).isTrue();
     }
+
+    // ---------------------------------------------------------------- a candidate is considered once
+
+    /**
+     * Once the sweep has deleted an object, the soft-deleted rows that named it are still there
+     * with the same {@code object_key} and the same old {@code deleted_at}. Unless the sweep records
+     * that it has dealt with them, discovery returns the same key on every later run, and the
+     * idempotent {@link StatementStorage#delete} "succeeds" again each time.
+     */
+    @Test
+    @Transactional
+    void sweep_doesNotConsiderAnObjectAgainOnceItHasBeenReclaimed() {
+        ContentAddress address = storeBytes("reclaimed-once");
+        StatementImport si = saveStatementImport(address);
+        softDeleteAndBackdate(si, Instant.now().minus(91, ChronoUnit.DAYS));
+
+        StatementStorageSweepService.Result first = service.sweep();
+        StatementStorageSweepService.Result second = service.sweep();
+
+        assertThat(first.swept()).isEqualTo(1);
+        assertThat(storage.exists(address)).isFalse();
+        assertThat(second.swept()).as("an object already reclaimed must not be swept again").isZero();
+        assertThat(second.skipped()).isZero();
+    }
+
+    /**
+     * The consequence of the above under the batch limit. Discovery is oldest first, so with more
+     * already-handled candidates than one batch holds, every run would take those same oldest ones
+     * and never reach a newer object past its window.
+     */
+    @Test
+    @Transactional
+    void sweep_reachesNewerCandidates_onceOlderOnesHaveBeenReclaimed() {
+        ReflectionTestUtils.setField(service, "batchSize", 2);
+        ContentAddress oldest = storeBytes("oldest");
+        ContentAddress middle = storeBytes("middle");
+        ContentAddress newest = storeBytes("newest");
+        softDeleteAndBackdate(saveStatementImport(oldest), Instant.now().minus(300, ChronoUnit.DAYS));
+        softDeleteAndBackdate(saveStatementImport(middle), Instant.now().minus(200, ChronoUnit.DAYS));
+        softDeleteAndBackdate(saveStatementImport(newest), Instant.now().minus(100, ChronoUnit.DAYS));
+
+        service.sweep();
+        assertThat(storage.exists(oldest)).isFalse();
+        assertThat(storage.exists(middle)).isFalse();
+        assertThat(storage.exists(newest)).as("outside the first batch").isTrue();
+
+        service.sweep();
+        assertThat(storage.exists(newest))
+                .as("the second run must move past the two objects the first run already reclaimed")
+                .isFalse();
+    }
+
+    /**
+     * The same starvation, from a candidate whose object another live statement row still names.
+     * That row's own soft delete will make the key a candidate again, so this one need not be
+     * re-checked on every run.
+     */
+    @Test
+    @Transactional
+    void sweep_reachesNewerCandidates_pastOneStillReferencedByALiveStatementRow() {
+        ReflectionTestUtils.setField(service, "batchSize", 1);
+        ContentAddress shared = storeBytes("shared-with-a-live-row");
+        softDeleteAndBackdate(saveStatementImport(shared), Instant.now().minus(300, ChronoUnit.DAYS));
+        StatementImport live = saveStatementImport(shared);
+        ContentAddress orphan = storeBytes("newer-orphan");
+        softDeleteAndBackdate(saveStatementImport(orphan), Instant.now().minus(100, ChronoUnit.DAYS));
+
+        StatementStorageSweepService.Result first = service.sweep();
+        StatementStorageSweepService.Result second = service.sweep();
+
+        assertThat(first.skipped()).isEqualTo(1);
+        assertThat(second.swept()).isEqualTo(1);
+        assertThat(storage.exists(orphan)).isFalse();
+        assertThat(storage.exists(shared)).isTrue();
+
+        // The live row is deleted later. It is a fresh reference, so its own window applies from
+        // its own deletion -- and once that has passed the object is reclaimed.
+        softDeleteAndBackdate(live, Instant.now().minus(10, ChronoUnit.DAYS));
+        service.sweep();
+        assertThat(storage.exists(shared)).as("inside the later row's own window").isTrue();
+
+        backdate(live, Instant.now().minus(91, ChronoUnit.DAYS));
+        StatementStorageSweepService.Result afterWindow = service.sweep();
+        assertThat(afterWindow.swept()).isEqualTo(1);
+        assertThat(storage.exists(shared)).isFalse();
+    }
+
+    /**
+     * A session or a job naming the key is different: a session is hard deleted at its TTL and
+     * leaves no row behind, so if the statement rows were set aside here nothing would ever lead
+     * back to this object. They stay candidates, and the object goes once the other reference does.
+     */
+    @Test
+    @Transactional
+    void sweep_keepsConsideringACandidate_whoseOnlyOtherReferenceIsASession() {
+        ContentAddress address = storeBytes("pinned-by-a-session");
+        softDeleteAndBackdate(saveStatementImport(address), Instant.now().minus(91, ChronoUnit.DAYS));
+        ImportSession session = saveImportSession(address, ImportSession.STATUS_STAGED);
+
+        assertThat(service.sweep().skipped()).isEqualTo(1);
+
+        importSessionRepository.delete(session);
+        entityManager.flush();
+        StatementStorageSweepService.Result afterSessionExpired = service.sweep();
+
+        assertThat(afterSessionExpired.swept()).isEqualTo(1);
+        assertThat(storage.exists(address)).isFalse();
+    }
+
+    /**
+     * The window runs from the LAST time this table stopped naming the object. An older deleted row
+     * on the same key must not make it a candidate while a more recently deleted one is still
+     * inside its own window.
+     */
+    @Test
+    @Transactional
+    void sweep_measuresTheWindowFromTheMostRecentDeletionOfAKey() {
+        ContentAddress address = storeBytes("deleted-twice");
+        StatementImport older = saveStatementImport(address);
+        StatementImport newer = saveStatementImport(address);
+        softDeleteAndBackdate(older, Instant.now().minus(200, ChronoUnit.DAYS));
+        softDeleteAndBackdate(newer, Instant.now().minus(10, ChronoUnit.DAYS));
+
+        StatementStorageSweepService.Result result = service.sweep();
+
+        assertThat(result.swept()).isZero();
+        assertThat(result.skipped()).isZero();
+        assertThat(storage.exists(address)).isTrue();
+    }
+
+    /**
+     * The mark is bounded by the cutoff the candidate was found with. A row naming the same key
+     * that was deleted after that is not part of what the sweep acted on, and keeps its own window.
+     */
+    @Test
+    @Transactional
+    void markObjectReleased_leavesRowsDeletedAfterTheCutoffForTheirOwnWindow() {
+        ContentAddress address = storeBytes("mark-bound");
+        StatementImport older = saveStatementImport(address);
+        StatementImport newer = saveStatementImport(address);
+        StatementImport live = saveStatementImport(address);
+        softDeleteAndBackdate(older, Instant.now().minus(100, ChronoUnit.DAYS));
+        softDeleteAndBackdate(newer, Instant.now().minus(10, ChronoUnit.DAYS));
+
+        int marked = statementImportRepository.markObjectReleased(address.key(),
+                Instant.now().minus(90, ChronoUnit.DAYS), Instant.now());
+        entityManager.clear();
+
+        assertThat(marked).isEqualTo(1);
+        assertThat(releasedAt(older)).isNotNull();
+        assertThat(releasedAt(newer)).isNull();
+        assertThat(releasedAt(live)).as("a live row is never marked").isNull();
+    }
+
+    private Object releasedAt(StatementImport si) {
+        return entityManager.createNativeQuery("SELECT object_released_at FROM statement_imports WHERE id = :id")
+                .setParameter("id", si.getId())
+                .getSingleResult();
+    }
+
+    private void backdate(StatementImport si, Instant deletedAt) {
+        entityManager.createNativeQuery("UPDATE statement_imports SET deleted_at = :deletedAt WHERE id = :id")
+                .setParameter("deletedAt", Timestamp.from(deletedAt))
+                .setParameter("id", si.getId())
+                .executeUpdate();
+        entityManager.flush();
+        entityManager.clear();
+    }
 }

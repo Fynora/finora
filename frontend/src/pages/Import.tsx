@@ -1126,7 +1126,7 @@ export default function Import() {
           {!jobId && pendingPdf && (
             <form
               data-testid="pdf-password-panel"
-              className="bg-card rounded shadow-card border border-border space-y-4"
+              className="bg-card rounded p-6 shadow-card border border-border space-y-4"
               onSubmit={(e) => {
                 e.preventDefault();
                 if (!uploading) void upload(pendingPdf, true, pdfPassword || undefined);

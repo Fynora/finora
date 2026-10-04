@@ -1222,6 +1222,10 @@ public class PdfMetadataExtractor {
                         if (paymentDueDate != null) continue;
                     }
 
+                    // A label inside a sentence is not a grid header, and the lines below it are
+                    // not its value -- see labelSitsInsideASentence.
+                    if (labelSitsInsideASentence(line, dueDateLabel.start(), dueDateLabel.end())) continue;
+
                     // Genuine multi-line grid: label and value are on separate lines entirely (see
                     // GRID_DUE_DATE_LABEL's own doc comment for the real Axis/HDFC layouts this
                     // covers) -- tried after the same-line search, not instead of it, so neither
@@ -1564,6 +1568,52 @@ public class PdfMetadataExtractor {
         int valueStart = line.indexOf(value, fromIndex);
         if (valueStart < 0) return false; // defensive; caller already found this exact substring
         return line.substring(fromIndex, valueStart).chars().noneMatch(Character::isLetter);
+    }
+
+    private static final Pattern PAYMENT_BEFORE_LABEL = Pattern.compile("(?i)\\bpayment\\s+$");
+
+    /** Whether a "due date" label is being used inside a sentence rather than as a field label:
+     *  an ordinary lowercase word sits directly before it (a leading "payment" counts as part of
+     *  the label) or directly after it. A grid header names its fields in title or upper case, so a
+     *  lowercase neighbour means running text -- and running text has no value on the lines below.
+     *
+     *  <p>Measured on every line of the real corpus that reached the multi-line grid search: each
+     *  real grid label (a label alone on its line, an upper-case label followed by a one-letter
+     *  bullet glyph) has no such neighbour, nor do the title- and upper-case header rows
+     *  GRID_DUE_DATE_LABEL documents; the terms-and-conditions sentences on two real credit-card
+     *  statements, whose nearby dated notices the search took as the due date, both do. Words of one
+     *  letter are ignored because a bullet glyph extracts as a single lowercase letter next to a
+     *  real label.
+     *
+     *  <p>Not caught: a sentence written entirely in capitals, one whose words beside the label
+     *  happen to be capitalised, or one with punctuation rather than a word beside it (a quoted
+     *  label). The corpus has all three, none with a date within the grid search's reach; they
+     *  fall through to it exactly as before. */
+    private static boolean labelSitsInsideASentence(String line, int labelStart, int labelEnd) {
+        String before = line.substring(0, labelStart);
+        Matcher payment = PAYMENT_BEFORE_LABEL.matcher(before);
+        if (payment.find()) before = before.substring(0, payment.start());
+        return isLowercaseWord(wordEndingAt(before)) || isLowercaseWord(wordStartingAt(line.substring(labelEnd)));
+    }
+
+    private static String wordEndingAt(String text) {
+        int end = text.length();
+        while (end > 0 && Character.isWhitespace(text.charAt(end - 1))) end--;
+        int start = end;
+        while (start > 0 && Character.isLetter(text.charAt(start - 1))) start--;
+        return text.substring(start, end);
+    }
+
+    private static String wordStartingAt(String text) {
+        int start = 0;
+        while (start < text.length() && Character.isWhitespace(text.charAt(start))) start++;
+        int end = start;
+        while (end < text.length() && Character.isLetter(text.charAt(end))) end++;
+        return text.substring(start, end);
+    }
+
+    private static boolean isLowercaseWord(String word) {
+        return word.length() > 1 && Character.isLowerCase(word.charAt(0));
     }
 
     /** Whether a CARD_NUMBER_VALUE-shaped candidate is actually identifying, not noise picked up

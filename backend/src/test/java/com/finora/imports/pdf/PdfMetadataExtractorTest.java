@@ -1155,6 +1155,37 @@ class PdfMetadataExtractorTest {
         assertThat(metadata.paymentDueDate()).isNull();
     }
 
+    /** A due-date mention inside a sentence is not a grid label, so the lines below it are not its
+     *  value. Real credit-card terms pages carry this shape: a sentence about the due date, then,
+     *  within the grid search's few-line window, an unrelated notice dated years earlier, which the
+     *  search used to take as the due date. Both real sentence shapes are covered -- an ordinary
+     *  lowercase word just before the label, and one just after it. */
+    @Test
+    void extract_doesNotTakeANearbyNoticeDate_whenTheDueDateLabelSitsInsideASentence() {
+        var wordBeforeTheLabel = extractor.extract(List.of(
+                "Interest applies to any amount left unpaid after the due date of payment.",
+                "Effective 04 Mar 2015, payments are applied in a new order."));
+        var wordAfterTheLabel = extractor.extract(List.of(
+                "The payment due date as printed above applies to this statement.",
+                "Fees were revised on 05 Jun 2017."));
+
+        assertThat(wordBeforeTheLabel.paymentDueDate()).isNull();
+        assertThat(wordAfterTheLabel.paymentDueDate()).isNull();
+    }
+
+    /** The same fine-print shape with the notice's month spelled in full ("5 August 2013"), which
+     *  is how the real terms text writes it. No date format reads day-then-full-month today, so this
+     *  holds on parsing alone. It is here so that adding such a format cannot turn the notice into a
+     *  due date: measured, adding one did exactly that to two real statements. */
+    @Test
+    void extract_doesNotTakeANearbyNoticeDate_writtenWithTheMonthInFull() {
+        var metadata = extractor.extract(List.of(
+                "Interest applies to any amount left unpaid after the due date of payment.",
+                "Effective 4 March 2015, payments are applied in a new order."));
+
+        assertThat(metadata.paymentDueDate()).isNull();
+    }
+
     @Test
     void extract_findsCreditLimit_inAMultiColumnGrid_notAvailableCreditLimitOnTheSameRow() {
         var metadata = extractor.extract(List.of(

@@ -62,6 +62,13 @@ class InterestLabelRecheckIT extends AbstractIntegrationTest {
         return id;
     }
 
+    /** A row as an older release left it: the label it was imported with, version untouched. */
+    private UUID labelled(Account account, String description, String merchant) {
+        UUID id = labelledInterest(account, description);
+        jdbc.update("UPDATE transactions SET merchant = ?, version = 0 WHERE id = ?", merchant, id);
+        return id;
+    }
+
     private Map<String, Object> row(UUID id) {
         return jdbc.queryForMap("SELECT merchant, version FROM transactions WHERE id = ?", id);
     }
@@ -109,6 +116,29 @@ class InterestLabelRecheckIT extends AbstractIntegrationTest {
         snapshot();
         drain();
         assertThat(row(lender)).as("a second run changes nothing").containsEntry("version", 2L);
+    }
+
+    @Test
+    void aNewlyReadSpelling_getsTheInterestLabel() throws Exception {
+        Account account = account();
+        UUID credited = labelled(account, "INTEREST CREDITED 30-06-2026", "interest credited 30 06");
+        UUID fd = labelled(account, "FD INTEREST 0000000000", "fd interest");
+        UUID handTyped = labelled(account, "INTEREST PAYMENT", "Savings Interest");
+        // Queued for its note, but its label differs from today's only because of how an older
+        // release reduced narrations -- not this recheck's business.
+        UUID person = labelled(account, "UPI-AMIT KUMAR-amitkumar@okaxis-HDFC0000000-000000000000-INTEREST PAYMENT",
+                "upi amit kumar");
+
+        snapshot();
+        assertThat(queued(credited)).isTrue();
+        assertThat(queued(person)).isTrue();
+        drain();
+
+        assertThat(row(credited)).containsEntry("merchant", "interest").containsEntry("version", 1L);
+        assertThat(row(fd)).containsEntry("merchant", "interest").containsEntry("version", 1L);
+        assertThat(row(handTyped)).as("typed before edits were recorded").containsEntry("merchant", "Savings Interest")
+                .containsEntry("version", 0L);
+        assertThat(row(person)).containsEntry("merchant", "upi amit kumar").containsEntry("version", 0L);
     }
 
     @Test

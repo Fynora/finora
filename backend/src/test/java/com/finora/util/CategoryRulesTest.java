@@ -83,6 +83,10 @@ class CategoryRulesTest {
                 .isEqualTo("interest");
         assertThat(CategoryRules.extractMerchantLabel("Int.Pd:01-05-2026 to 31-07-2026: 000000000000000",
                 Transaction.Type.INCOME)).isEqualTo("interest");
+        assertThat(CategoryRules.extractMerchantLabel("INTEREST CREDITED 30-06-2026", Transaction.Type.INCOME))
+                .isEqualTo("interest");
+        assertThat(CategoryRules.extractMerchantLabel("FD INTEREST 0000000000", Transaction.Type.INCOME))
+                .isEqualTo("interest");
         // Only the first four words are kept, which dropped "interest" from this one.
         assertThat(CategoryRules.extractMerchantLabel("SAVING A/C CREDIT INTEREST", Transaction.Type.INCOME))
                 .isEqualTo("interest");

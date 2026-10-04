@@ -17,17 +17,19 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Gives the rows V254 labelled "interest" the label a fresh import gives them now, from the
- * snapshot V255 took ({@code interest_label_recheck}), in bounded batches until it is empty.
+ * Gives stored interest credits the label a fresh import gives them now, from the snapshot V255
+ * took ({@code interest_label_recheck}), in bounded batches until it is empty.
  *
  * <p>The decision is {@link CategoryRules#extractMerchantLabel(String, Transaction.Type)} itself,
- * the method every import uses. V254 wrote "interest" on every stored interest credit; the rule now
- * keeps the payer's name when the narration names one, and does not count a refund or reversal of
- * interest as interest earned. A queued row the rule still labels {@link CategoryRules#INTEREST_LABEL}
- * is left as it is.
+ * the method every import uses. V254 wrote "interest" on every stored interest credit as the rule
+ * stood then; the rule now keeps the payer's name when the narration names one, does not count a
+ * refund or reversal of interest as interest earned, and reads four more spellings as interest. A
+ * queued row whose label already matches the rule is left as it is.
  *
- * <p>Never a label the user chose: MERCHANT in user_edited_fields is skipped, and the UPDATE only
- * writes over the "interest" V254 wrote, so an edit landing between the read and the write wins.
+ * <p>Never a label the user chose: MERCHANT in user_edited_fields is skipped, and so is a label that
+ * is not all lowercase -- edits made before user_edited_fields existed (V232) were never recorded,
+ * and the parser only writes lowercase. The UPDATE only writes over the label read here, so an edit
+ * landing between the read and the write wins.
  *
  * <p>The version moves, so the change stamp (ChangeStampService) sees the row and the app refetches
  * it. Reconciliation is not re-run: the refund pass reads interest from the narration, not the
@@ -100,9 +102,9 @@ public class InterestLabelRecheckSweepService {
                         UPDATE transactions
                         SET merchant = ?, version = version + 1, updated_at = now()
                         WHERE id = ?
-                          AND merchant = ?
+                          AND merchant IS NOT DISTINCT FROM ?
                           AND NOT ('MERCHANT' = ANY (user_edited_fields))
-                        """, label.isEmpty() ? null : label, row.id(), CategoryRules.INTEREST_LABEL);
+                        """, label.isEmpty() ? null : label, row.id(), row.merchant());
                 if (written > 0) counts[0]++; else counts[1]++;
                 jdbc.update("DELETE FROM interest_label_recheck WHERE transaction_id = ?", row.id());
             }
@@ -112,16 +114,20 @@ public class InterestLabelRecheckSweepService {
     }
 
     /**
-     * The label a fresh import gives the row when it is not "interest", with "" standing for no label
-     * at all (the import leaves Transaction.merchant unset when nothing names anyone); null when the
-     * row is to be left as it is.
+     * The label a fresh import gives the row, when the change is to or from "interest" -- with ""
+     * standing for no label at all (the import leaves Transaction.merchant unset when nothing names
+     * anyone); null when the row is to be left as it is. A label that differs only because an older
+     * release reduced narrations differently is not this recheck's business, and is left alone.
      */
     private static String importLabelIfDifferent(Queued row) {
         if (row.description() == null || row.txnType() == null) return null; // the transaction is gone
-        if (!CategoryRules.INTEREST_LABEL.equals(row.merchant())) return null;
         if (row.userEdited().contains(Transaction.EditableField.MERCHANT.name())) return null;
+        String current = row.merchant();
+        if (current != null && !current.equals(current.toLowerCase(java.util.Locale.ROOT))) return null;
         String label = CategoryRules.extractMerchantLabel(row.description(), Transaction.Type.valueOf(row.txnType()));
-        if (CategoryRules.INTEREST_LABEL.equals(label)) return null;
+        if (java.util.Objects.equals(label, current)) return null;
+        boolean aboutInterest = CategoryRules.INTEREST_LABEL.equals(label) || CategoryRules.INTEREST_LABEL.equals(current);
+        if (!aboutInterest) return null;
         return label == null ? "" : label;
     }
 
@@ -131,8 +137,8 @@ public class InterestLabelRecheckSweepService {
     }
 
     /**
-     * @param relabelled rows given back the label a fresh import gives them
-     * @param left       rows decided and left as they were (still "interest", the user's, or gone)
+     * @param relabelled rows given the label a fresh import gives them
+     * @param left       rows decided and left as they were (already matching, the user's, or gone)
      * @param failed     rows the rule threw on; left queued for the next pass
      * @param drained    whether the queue is now empty
      */

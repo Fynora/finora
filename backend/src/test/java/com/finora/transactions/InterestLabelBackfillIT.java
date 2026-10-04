@@ -6,7 +6,6 @@ import com.finora.entity.Transaction;
 import com.finora.entity.User;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.UserRepository;
-import com.finora.util.BankActivityCategory;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
@@ -118,21 +117,28 @@ class InterestLabelBackfillIT extends AbstractIntegrationTest {
                 .containsEntry("version", 0L);
     }
 
-    /** The migration is the runtime's rule written in SQL; these rows pin the two to the same answer. */
+    /**
+     * V254 is the runtime rule as it stood when it ran, written in SQL; it is frozen, and the rule has
+     * moved on since (V255 rechecks the difference). These rows pin what V254 itself decides.
+     */
     @Test
-    void theMigrationAgreesWithTheRuntimeRule() throws Exception {
+    void theMigrationLabelsExactlyTheSpellingsOfItsRelease() throws Exception {
         Account account = account();
-        String[] descriptions = {"Interest Cr. for 03-Jan-2026", "INTEREST PAID TILL 31-MAR-2026", "CREDIT INTEREST",
-                "SB INT CREDIT", "INTCR 01-2026", "SAVINGS INTEREST Q1", "Int.Cr-Jan", "interest credited", "POINTERESTCR",
-                "WINT PD ABC", "SAMPLE STORE 2ND OF 3 INSTALLMENTS INTEREST", "CASHBACK EARNED", "INTEREST ON EMI"};
-        Map<UUID, String> ids = new java.util.LinkedHashMap<>();
-        for (String d : descriptions) {
-            ids.put(insert(account, d, "INCOME", "old label", com.finora.util.CounterpartyTyping.of(d).type().name()), d);
+        Map<String, Boolean> expected = new java.util.LinkedHashMap<>();
+        for (String d : new String[]{"Interest Cr. for 03-Jan-2026", "INTEREST PAID TILL 31-MAR-2026", "CREDIT INTEREST",
+                "SB INT CREDIT", "INTCR 01-2026", "SAVINGS INTEREST Q1", "Int.Cr-Jan"}) {
+            expected.put(d, true);
         }
+        for (String d : new String[]{"interest credited", "POINTERESTCR", "WINT PD ABC",
+                "SAMPLE STORE 2ND OF 3 INSTALLMENTS INTEREST", "CASHBACK EARNED", "INTEREST ON EMI"}) {
+            expected.put(d, false);
+        }
+        Map<UUID, String> ids = new java.util.LinkedHashMap<>();
+        expected.keySet().forEach(d ->
+                ids.put(insert(account, d, "INCOME", "old label", com.finora.util.CounterpartyTyping.of(d).type().name()), d));
 
         runV254();
 
-        ids.forEach((id, d) -> assertThat("interest".equals(row(id).get("merchant"))).as(d)
-                .isEqualTo(BankActivityCategory.isInterestEarned(d, Transaction.Type.INCOME)));
+        ids.forEach((id, d) -> assertThat("interest".equals(row(id).get("merchant"))).as(d).isEqualTo(expected.get(d)));
     }
 }

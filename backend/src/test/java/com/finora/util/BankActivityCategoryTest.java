@@ -32,6 +32,13 @@ class BankActivityCategoryTest {
         assertThat(of("Int.Pd:01-05-2026 to 31-07-2026: 000000000000000", INCOME)).isEqualTo("Interest & Cashback");
         assertThat(of("SB INT CREDIT", INCOME)).isEqualTo("Interest & Cashback");
         assertThat(of("Interest Cr. for 03-Jan-2026", INCOME)).isEqualTo("Interest & Cashback");
+        // No corpus statement prints these four; added because FlowClassifier already reads them as
+        // interest income (Sid's decision, 2026-10-04).
+        assertThat(of("INTEREST CREDITED 30-06-2026", INCOME)).isEqualTo("Interest & Cashback");
+        assertThat(of("FD INTEREST 0000000000", INCOME)).isEqualTo("Interest & Cashback");
+        assertThat(of("INT CREDIT JUN 2026", INCOME)).isEqualTo("Interest & Cashback");
+        assertThat(of("INTEREST PAYMENT", INCOME)).isEqualTo("Interest & Cashback");
+        assertThat(of("INTEREST PAYMENT", EXPENSE)).as("money leaving").isNull();
     }
 
     @Test

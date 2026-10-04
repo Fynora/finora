@@ -44,11 +44,14 @@ public final class BankActivityCategory {
     // instalment-plan credit reads "... INSTALLMENTS INTEREST" and is not interest the bank paid
     // you. "interest cr": a small finance bank credits interest daily as "Interest Cr. for <date>",
     // which none of the other spellings matched, so every one of those rows was "Other" (2026-10-04).
-    // V254 relabelled stored rows with this list as it stood then; a phrase added later applies to
-    // new rows only.
+    // "interest credited", "fd interest", "int credit", "interest payment": spellings no corpus
+    // statement prints, added on Sid's decision (2026-10-04) because FlowClassifier already counts a
+    // non-card credit carrying them as interest income, so the category and the label disagreed
+    // with it. V254 relabelled stored rows with the list as it stood then; V255 queued the rows these
+    // four add.
     private static final Pattern INTEREST_EARNED = words(
-            "interest paid", "credit interest", "interest credit", "interest cr", "int pd", "sb int", "int cr",
-            "intcr", "savings interest");
+            "interest paid", "credit interest", "interest credit", "interest credited", "interest cr", "int pd",
+            "sb int", "int cr", "int credit", "intcr", "savings interest", "fd interest", "interest payment");
     private static final Pattern CARD_BILL_RECEIVED = words("bbps");
     private static final Pattern CHARGED = words(
             "sms charges", "sms charge", "sms chrg", "sms alert", "emi interest", "interest on emi");

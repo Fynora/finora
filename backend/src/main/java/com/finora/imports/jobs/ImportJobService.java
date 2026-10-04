@@ -192,14 +192,83 @@ public class ImportJobService {
         // active.store() itself hashes for its key layout (the ciphertext) -- the exact
         // hash-before-transform split StatementContentService.store's own "Compression" doc
         // section documents, done here via streams instead of an in-memory array.
+        StoredUpload stored = store(active, file.getInputStream(), file.getSize());
+        ContentAddress address = stored.address();
+
+        // Step 3, and everything that touches the database is inside it.
+        //
+        // A TransactionTemplate rather than an @Transactional method extracted from this one,
+        // because extracting it and calling it on `this` would bypass Spring's proxy and quietly
+        // apply no transaction at all -- the dedup check and the enqueue would stop being atomic,
+        // and isSynchronizationActive() below would be false, so the post-commit nudge would never
+        // register and every upload would wait for the next poll. Reaching a second bean or a
+        // self-injected proxy would work, and buys nothing here: this template makes the boundary
+        // visible on the two lines where BH-018 says it was invisible.
+        //
+        // Default propagation, so this still joins a caller's transaction if one ever exists --
+        // which is the guarantee ImportJobStore.enqueue's own comment depends on, and it is
+        // unchanged.
+        return transactionTemplate.execute(status -> {
+            ImportJob job = enqueueStoredUpload(userId, file.getOriginalFilename(), address, sourceFormat, stored.encryptionKeyId());
+            // Also when the same file was already queued: the job returned is that one, and its
+            // worker needs the password just the same.
+            if (savedPassword != null) statementPasswordService.saveForJob(userId, job.getId(), savedPassword);
+            return job;
+        });
+    }
+
+    /** Where {@link #store} put an upload: the ORIGINAL bytes' hash with the storage layer's key,
+     *  and the key id the stored object is encrypted under. */
+    public record StoredUpload(ContentAddress address, String encryptionKeyId) {}
+
+    /**
+     * Stores a statement the synchronous stage endpoint staged and the trust check then held, so
+     * its review has the same stored copy a queued upload's has. The same encoding {@link #accept}
+     * writes (encrypted, not compressed), so {@link ImportJob#getCompressionType()}'s fixed answer
+     * stays true and {@code StatementContentService.read} reads it back through the job.
+     *
+     * <p>Not inside a transaction, for the BH-018 reason {@link #accept} gives: this is a network
+     * write.
+     *
+     * @throws ApiException 503 when object storage is not configured -- a held statement's review
+     *         record must name a stored object (V144), so there is nowhere to hold it
+     */
+    public StoredUpload storeForHold(byte[] content) throws IOException {
+        StatementStorage active = storage.orElseThrow(() -> new ApiException(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "This statement needs an accuracy check before it can be imported, and this deployment "
+                        + "has no object storage to keep it in while it is checked. Set "
+                        + "app.statement-storage.provider."));
+        return store(active, new java.io.ByteArrayInputStream(content), content.length);
+    }
+
+    /**
+     * Deletes a copy {@link #storeForHold} wrote that ended up referenced by nothing -- the hold it
+     * was for was not opened. The storage sweep finds objects only through the rows that name them,
+     * so an unreferenced one would stay forever. Each store encrypts afresh and the key follows the
+     * stored bytes, so nothing else can name this key. Best effort: a failure is logged.
+     */
+    public void discardStoredForHold(StoredUpload stored) {
+        if (stored == null || storage.isEmpty()) return;
+        try {
+            storage.get().delete(stored.address().key());
+        } catch (RuntimeException e) {
+            org.slf4j.LoggerFactory.getLogger(ImportJobService.class).warn(
+                    "Could not delete an unreferenced statement copy {}; it will stay in storage",
+                    stored.address().key(), e);
+        }
+    }
+
+    private StoredUpload store(StatementStorage active, java.io.InputStream content, long size)
+            throws IOException {
         MessageDigest originalDigest;
         try {
             originalDigest = MessageDigest.getInstance("SHA-256");
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 unavailable", e);
         }
-        DigestInputStream digested = new DigestInputStream(file.getInputStream(), originalDigest);
-        EncryptingStream encrypting = encryptionService.encryptStream(digested, file.getSize());
+        DigestInputStream digested = new DigestInputStream(content, originalDigest);
+        EncryptingStream encrypting = encryptionService.encryptStream(digested, size);
         ContentAddress stored;
         try {
             stored = active.store(encrypting.stream(), encrypting.length());
@@ -223,27 +292,7 @@ public class ImportJobService {
         // byte has already passed through digested by this point.
         String originalHash = HexFormat.of().formatHex(originalDigest.digest());
         ContentAddress address = new ContentAddress(originalHash, stored.key());
-
-        // Step 3, and everything that touches the database is inside it.
-        //
-        // A TransactionTemplate rather than an @Transactional method extracted from this one,
-        // because extracting it and calling it on `this` would bypass Spring's proxy and quietly
-        // apply no transaction at all -- the dedup check and the enqueue would stop being atomic,
-        // and isSynchronizationActive() below would be false, so the post-commit nudge would never
-        // register and every upload would wait for the next poll. Reaching a second bean or a
-        // self-injected proxy would work, and buys nothing here: this template makes the boundary
-        // visible on the two lines where BH-018 says it was invisible.
-        //
-        // Default propagation, so this still joins a caller's transaction if one ever exists --
-        // which is the guarantee ImportJobStore.enqueue's own comment depends on, and it is
-        // unchanged.
-        return transactionTemplate.execute(status -> {
-            ImportJob job = enqueueStoredUpload(userId, file.getOriginalFilename(), address, sourceFormat, encrypting.keyId());
-            // Also when the same file was already queued: the job returned is that one, and its
-            // worker needs the password just the same.
-            if (savedPassword != null) statementPasswordService.saveForJob(userId, job.getId(), savedPassword);
-            return job;
-        });
+        return new StoredUpload(address, encrypting.keyId());
     }
 
     private ImportJob enqueueStoredUpload(UUID userId, String fileName, ContentAddress address,

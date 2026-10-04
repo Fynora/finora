@@ -4996,6 +4996,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/held-statements/{heldId}/staged-rows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["stagedRows"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/held-statements/{heldId}/document": {
         parameters: {
             query?: never;
@@ -6823,6 +6839,8 @@ export interface components {
             staging?: components["schemas"]["StagingResponse"];
             sections?: components["schemas"]["StagedAccountSection"][];
             previousImport?: components["schemas"]["PreviousImport"];
+            /** Format: uuid */
+            heldForReviewJobId?: string;
         };
         PreviousImport: {
             /** Format: uuid */
@@ -6950,6 +6968,8 @@ export interface components {
             sessionId?: string;
             staging?: components["schemas"]["StagingResponse"];
             previousImport?: components["schemas"]["PreviousImport"];
+            /** Format: uuid */
+            heldForReviewJobId?: string;
         };
         ApiResponseGoalDto: {
             success?: boolean;
@@ -7718,6 +7738,7 @@ export interface components {
             aiSuggestedDiagnosis?: string;
             /** Format: date-time */
             aiSuggestedDiagnosisAt?: string;
+            lockedWithoutPassword?: boolean;
         };
         ApiResponseHeldStatementRerunResultDto: {
             success?: boolean;
@@ -10649,6 +10670,45 @@ export interface components {
             totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
+        };
+        ApiResponseHeldStatementStagedRowsDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["HeldStatementStagedRowsDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        HeldRow: {
+            /** Format: date */
+            date?: string;
+            description?: string;
+            amount?: number;
+            type?: string;
+            balanceAfter?: number;
+            referenceNumber?: string;
+        };
+        HeldSection: {
+            accountName?: string;
+            accountNumberMasked?: string;
+            accountType?: string;
+            /** Format: date */
+            statementPeriodStart?: string;
+            /** Format: date */
+            statementPeriodEnd?: string;
+            openingBalance?: number;
+            closingBalance?: number;
+            /** Format: int32 */
+            totalParsed?: number;
+            rows?: components["schemas"]["HeldRow"][];
+        };
+        HeldStatementStagedRowsDto: {
+            heldId?: string;
+            sections?: components["schemas"]["HeldSection"][];
         };
         ApiResponsePagedResponseHoldWithoutReviewRecordDto: {
             success?: boolean;
@@ -19338,6 +19398,28 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseHeldStatementDetailDto"];
+                };
+            };
+        };
+    };
+    stagedRows: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                heldId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseHeldStatementStagedRowsDto"];
                 };
             };
         };

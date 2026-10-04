@@ -7,7 +7,7 @@ import { RequirePermission } from '../components/ProtectedRoute';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { adminHeldStatementApi } from '../api/endpoints';
 import { formatWhen } from '../lib/formatWhen';
-import type { HeldStatementFinding, HeldStatementRerunResult } from '../types';
+import type { HeldStatementFinding, HeldStatementRerunResult, HeldStatementStagedRows } from '../types';
 
 const RESOLVED_STATUSES = new Set(['IMPORTED', 'REJECTED']);
 
@@ -51,6 +51,53 @@ function FindingCard({ finding }: { finding: HeldStatementFinding }) {
   );
 }
 
+/** The rows a hold staged, one table per account section -- what approving releases. */
+function StagedRowsView({ data }: { data: HeldStatementStagedRows }) {
+  if (data.sections.length === 0) {
+    return <p className="text-xs text-muted">This hold staged no rows.</p>;
+  }
+  return (
+    <div className="space-y-4" data-testid="staged-rows">
+      {data.sections.map((section, index) => (
+        <div key={index} className="space-y-2">
+          <p className="text-xs text-muted">
+            <span className="text-ink font-medium">{section.accountName ?? `Section ${index + 1}`}</span>
+            {section.accountNumberMasked && <> &middot; {section.accountNumberMasked}</>}
+            {section.statementPeriodStart && section.statementPeriodEnd && (
+              <> &middot; {section.statementPeriodStart} to {section.statementPeriodEnd}</>
+            )}
+            {' '}&middot; {section.rows.length} staged of {section.totalParsed} read
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-muted">
+                  <th className="py-1 pr-3 font-normal">Date</th>
+                  <th className="py-1 pr-3 font-normal">Description</th>
+                  <th className="py-1 pr-3 font-normal text-right">Amount</th>
+                  <th className="py-1 pr-3 font-normal">Type</th>
+                  <th className="py-1 pr-3 font-normal text-right">Balance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {section.rows.map((row, rowIndex) => (
+                  <tr key={rowIndex} className="border-t border-border">
+                    <td className="py-1 pr-3 font-mono whitespace-nowrap">{row.date ?? '—'}</td>
+                    <td className="py-1 pr-3 text-ink">{row.description ?? '—'}</td>
+                    <td className="py-1 pr-3 font-mono text-right">{row.amount ?? '—'}</td>
+                    <td className="py-1 pr-3">{row.type ?? '—'}</td>
+                    <td className="py-1 pr-3 font-mono text-right">{row.balanceAfter ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function HeldStatementDetailContent({ heldId }: { heldId: string }) {
   const { roles } = useAdminAuth();
   const canDownload = roles.includes('ADMIN') || roles.includes('SUPER_ADMIN');
@@ -66,6 +113,7 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
   const [rootCauseDraft, setRootCauseDraft] = useState('');
   const [fixReferenceDraft, setFixReferenceDraft] = useState('');
   const [rerunResult, setRerunResult] = useState<HeldStatementRerunResult | null>(null);
+  const [stagedRows, setStagedRows] = useState<HeldStatementStagedRows | null>(null);
 
   const detail = useQuery({
     queryKey: ['held-statement-detail', heldId],
@@ -95,6 +143,7 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
   // reset happens the instant navigation occurs rather than waiting for the new query to resolve.
   useEffect(() => {
     setRerunResult(null);
+    setStagedRows(null);
   }, [heldId]);
 
   // Same stale-state class of bug the rerun result above already guards against: a checked box
@@ -175,6 +224,12 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
     onSuccess: () => { setActionError(null); invalidate(); },
     onError,
   });
+  // On request only: every read is audited server-side, the same as a download.
+  const loadStagedRows = useMutation({
+    mutationFn: () => adminHeldStatementApi.stagedRows(heldId),
+    onSuccess: (result) => { setActionError(null); setStagedRows(result); },
+    onError,
+  });
   const download = useMutation({
     // Falls back to `${heldId}.pdf` only in the rare case detail.data.fileName is null -- the
     // underlying ImportJob no longer exists (requireJob's own doc: deleted out from under an open
@@ -193,6 +248,9 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
 
   const { summary, findings, timeline } = detail.data;
   const resolved = RESOLVED_STATUSES.has(summary.status);
+  // A locked PDF staged without its password being kept: nobody can open the stored file, so
+  // download and re-run are not offered and the rows below are the review.
+  const locked = summary.lockedWithoutPassword === true;
   const busy = approve.isPending || reject.isPending || reopen.isPending || assignToMe.isPending
     || assignToEngineer.isPending || investigate.isPending || rerunParser.isPending
     || suggestDiagnosis.isPending;
@@ -208,7 +266,7 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
           <h2 className="text-lg font-semibold text-ink font-mono">{summary.heldId}</h2>
           <p className="text-muted text-xs mt-1">{summary.status.replace(/_/g, ' ')}</p>
         </div>
-        {canDownload && (
+        {canDownload && !locked && (
           <button
             type="button"
             onClick={() => download.mutate()}
@@ -220,11 +278,21 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
           </button>
         )}
       </div>
-      {canDownload && (
+      {canDownload && !locked && (
         <p className="text-xs text-muted">
           Downloading this statement has been logged against your account, because it shows
           content from a customer&apos;s bank statement.
         </p>
+      )}
+      {locked && (
+        <div className="rounded-lg border border-warning p-3" data-testid="locked-without-password">
+          <p className="text-sm text-ink">This statement is password-protected, and its password wasn&apos;t kept.</p>
+          <p className="text-xs text-muted mt-1">
+            The user uploaded it without letting Fynora keep the password, so the stored file can&apos;t be
+            opened and the parser can&apos;t read it again. Review the staged rows and the findings below,
+            then approve or reject. If it needs a fresh read, reject it and ask the user to upload it again.
+          </p>
+        </div>
       )}
 
       {actionError && (
@@ -245,6 +313,29 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
           </div>
         )}
       </section>
+
+      {/* Staged rows */}
+      {canDownload && (
+        <section className="bg-card border border-border rounded-xl2 p-6 space-y-3">
+          <h3 className="text-sm font-semibold text-ink">Staged rows</h3>
+          <p className="text-xs text-muted">
+            The rows approving releases to the user&apos;s confirm step. Viewing them is logged against
+            your account, because they are content from a customer&apos;s bank statement.
+          </p>
+          {stagedRows ? (
+            <StagedRowsView data={stagedRows} />
+          ) : (
+            <button
+              type="button"
+              onClick={() => loadStagedRows.mutate()}
+              disabled={loadStagedRows.isPending}
+              className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-ink disabled:opacity-50"
+            >
+              {loadStagedRows.isPending ? 'Loading…' : 'Show staged rows'}
+            </button>
+          )}
+        </section>
+      )}
 
       {/* Extraction snapshot */}
       <section className="bg-card border border-border rounded-xl2 p-6">
@@ -283,16 +374,23 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
       {/* Parser re-run */}
       <section className="bg-card border border-border rounded-xl2 p-6 space-y-3">
         <h3 className="text-sm font-semibold text-ink">Re-run parser</h3>
-        <p className="text-xs text-muted">
-          Re-parses this statement's original bytes with the parser build running right now, and
-          checks whether it would still be flagged. If it clears, its rows replace the ones staged
-          when the statement was held, so approving releases this build&apos;s reading. If it is
-          still flagged, nothing changes.
-        </p>
+        {locked ? (
+          <p className="text-xs text-muted">
+            Not available: the statement is password-protected and its password wasn&apos;t kept, so the
+            parser can&apos;t open it.
+          </p>
+        ) : (
+          <p className="text-xs text-muted">
+            Re-parses this statement's original bytes with the parser build running right now, and
+            checks whether it would still be flagged. If it clears, its rows replace the ones staged
+            when the statement was held, so approving releases this build&apos;s reading. If it is
+            still flagged, nothing changes.
+          </p>
+        )}
         <button
           type="button"
           onClick={() => rerunParser.mutate()}
-          disabled={busy || resolved}
+          disabled={busy || resolved || locked}
           className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-ink disabled:opacity-50"
         >
           {rerunParser.isPending ? 'Re-running…' : 'Re-run parser'}

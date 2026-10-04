@@ -9,6 +9,7 @@ import com.finora.imports.analysis.StatementAnalysisRecorder;
 import com.finora.security.CurrentUser;
 import com.finora.imports.ImportService;
 import com.finora.imports.StatementUpload;
+import com.finora.imports.jobs.StagingTrustGate;
 import com.finora.uploads.UploadScanGate;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -34,11 +35,14 @@ public class ImportController {
     private final CurrentUser currentUser;
     private final StatementAnalysisRecorder analysisRecorder;
     private final UploadScanGate uploadScanGate;
+    private final StagingTrustGate stagingTrustGate;
 
     public ImportController(ImportService importService, ImportSessionService importSessionService,
                              ImportConcurrencyLimiter concurrencyLimiter, CurrentUser currentUser,
-                             StatementAnalysisRecorder analysisRecorder, UploadScanGate uploadScanGate) {
+                             StatementAnalysisRecorder analysisRecorder, UploadScanGate uploadScanGate,
+                             StagingTrustGate stagingTrustGate) {
         this.uploadScanGate = uploadScanGate;
+        this.stagingTrustGate = stagingTrustGate;
         this.importService = importService;
         this.importSessionService = importSessionService;
         this.concurrencyLimiter = concurrencyLimiter;
@@ -63,8 +67,12 @@ public class ImportController {
         // After the cheap structural check, before the limiter (audit F-18): a rejected file
         // costs no scanner round trip if it was never a CSV, and no import permit if it was.
         uploadScanGate.requireClean(file, currentUser.id(), "statement-import");
-        return ResponseEntity.ok(ApiResponse.ok(
-                concurrencyLimiter.runGated(() -> importService.parseAndStageWithSession(currentUser.id(), file))));
+        // The trust check runs here, after staging, exactly as the worker runs it after staging a
+        // queued upload -- see StagingTrustGate. Inside the permit: it is part of staging this file.
+        UUID userId = currentUser.id();
+        return ResponseEntity.ok(ApiResponse.ok(concurrencyLimiter.runGated(() -> stagingTrustGate.check(
+                userId, StatementUpload.safeFileName(file, "statement.csv"), file.getBytes(),
+                importService.parseAndStageWithSession(userId, file)))));
     }
 
     // PDF Milestone 1 (com.finora.imports.pdf) -- digital/text-based bank statements only, no
@@ -89,8 +97,13 @@ public class ImportController {
             @RequestParam(value = "password", required = false) String password) throws Exception {
         StatementUpload.requireReadable(file, StatementUpload.Format.PDF);
         uploadScanGate.requireClean(file, currentUser.id(), "statement-import");
-        return ResponseEntity.ok(ApiResponse.ok(
-                concurrencyLimiter.runGated(() -> importService.parseAndStagePdfWithSession(currentUser.id(), file, password))));
+        // The trust check, as for /csv/stage above. A locked PDF is the usual reason a statement
+        // comes here rather than to the queue: the password is not kept, so a hold is reviewed from
+        // its staged rows (HeldStatement.lockedWithoutPassword).
+        UUID userId = currentUser.id();
+        return ResponseEntity.ok(ApiResponse.ok(concurrencyLimiter.runGated(() -> stagingTrustGate.check(
+                userId, StatementUpload.safeFileName(file, "statement.pdf"), file.getBytes(),
+                importService.parseAndStagePdfWithSession(userId, file, password)))));
     }
 
     // ADR-0002: plain JSON now, not multipart -- the file no longer needs to be re-uploaded here,

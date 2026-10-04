@@ -26,6 +26,7 @@ import com.finora.imports.trust.HeldStatementIdGenerator;
 import com.finora.imports.trust.HoldDecision;
 import com.finora.imports.trust.TrustPredicate;
 import com.finora.dto.HeldStatementRerunResultDto;
+import com.finora.dto.HeldStatementStagedRowsDto;
 import com.finora.dto.HoldWithoutReviewRecordDto;
 import com.finora.repository.HeldStatementEventRepository;
 import com.finora.repository.HeldStatementRepository;
@@ -210,6 +211,108 @@ public class HeldStatementService {
         return statuses.stream().filter(status -> !status.isResolved()).findFirst()
                 .or(() -> Optional.of(HeldStatement.Status.IMPORTED));
     }
+
+    // --- holds opened by the synchronous stage endpoint --------------------------------------------
+
+    /**
+     * Where a trust review already covering this staged session stands, for the synchronous stage
+     * endpoint: a re-upload there replays the live session for the same bytes, held or not
+     * ({@code ImportSessionService.findLiveSessionByContentHash}), and must follow the review that
+     * session already has rather than open a second one -- the same rule the worker applies to a
+     * replay ({@link #priorReviewOf}).
+     *
+     * @return empty when no review covers the session; a review that blocks it with the job the
+     *         client should follow; or an approved review ({@code jobId} null), which releases it
+     */
+    @Transactional(readOnly = true)
+    public Optional<StagedSessionReview> reviewOfStagedSession(UUID importSessionId) {
+        Optional<HeldStatement.Status> prior = priorReviewOf(importSessionId, null);
+        if (prior.isEmpty()) return Optional.empty();
+        if (prior.get() == HeldStatement.Status.IMPORTED) return Optional.of(new StagedSessionReview(null, prior.get()));
+        // The job a user is told about: the one whose review an operator decides. A job riding it
+        // with no record of its own follows that decision, so it is only the fallback.
+        java.util.Comparator<ImportJob> preferred = java.util.Comparator
+                .comparing((ImportJob job) -> job.getHeldStatementId() == null)
+                .thenComparing(ImportJob::getCreatedAt, java.util.Comparator.reverseOrder());
+        java.util.function.Predicate<ImportJob> carriesIt = prior.get() == HeldStatement.Status.REJECTED
+                ? HeldStatementService::isRejectedByReview
+                : job -> job.getStatus() == ImportJob.Status.HELD_FOR_TRUST_REVIEW;
+        UUID jobId = importJobRepository.findByImportSessionId(importSessionId).stream()
+                .filter(carriesIt)
+                .sorted(preferred)
+                .map(ImportJob::getId)
+                .findFirst()
+                .orElse(null);
+        return Optional.of(new StagedSessionReview(jobId, prior.get()));
+    }
+
+    /** A trust review covering a staged session: the job carrying it (null once approved) and where
+     *  the review stands. Only {@link HeldStatement.Status#IMPORTED} lets the rows be confirmed. */
+    public record StagedSessionReview(UUID jobId, HeldStatement.Status status) {
+        public boolean blocks() { return status != HeldStatement.Status.IMPORTED; }
+    }
+
+    /**
+     * Holds a statement the synchronous stage endpoint staged and the trust predicate distrusts:
+     * the same guarantee a queued upload gets from the worker. A job is created already held
+     * ({@link ImportJob#heldOnStaging}), pointing at the staged session and at the stored copy of
+     * the file the caller wrote, and its review record is opened through {@link #openHold} -- the
+     * worker's own path, so the record, its first event, the user's "being checked" notification and
+     * the admin alert are the ones every hold gets. The confirm gate then refuses the session on the
+     * job's status ({@code ImportSessionService.sessionsBlockedByTrustReview}) until an operator
+     * approves it.
+     *
+     * <p>Under the session's lock, the one {@link #createHold}, approve and reject take: two uploads
+     * of the same bytes replay one session, and a worker job on those bytes may be holding it too.
+     * Whichever gets the lock second sees the first's review and follows it rather than opening a
+     * second one ({@link StagedHold#created} false). The lock also makes a confirm claim that arrives
+     * meanwhile wait for this hold and then see it.
+     *
+     * @param lockedWithoutPassword the file is a password-protected PDF and no password is kept with
+     *                              it, so the review is made from the staged rows (V258)
+     */
+    @Transactional
+    public StagedHold holdStagedUpload(UUID userId, String fileName, String sourceFormat,
+                                       com.finora.imports.storage.ContentAddress stored, String encryptionKeyId,
+                                       StagedForJob staged, HoldDecision decision, String parserVersion,
+                                       boolean lockedWithoutPassword) {
+        importSessionService.lockForReview(staged.sessionId());
+        Optional<StagedSessionReview> existing = reviewOfStagedSession(staged.sessionId());
+        if (existing.isPresent()) {
+            return new StagedHold(existing.get().blocks() ? existing.get().jobId() : null, false);
+        }
+        if (!importSessionService.exists(staged.sessionId())) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "This upload's staged rows were removed before they could be checked. Upload the statement again.");
+        }
+        Instant now = Instant.now();
+        ImportJob job = ImportJob.heldOnStaging(userId, fileName, stored.hash(), stored.key(), sourceFormat,
+                encryptionKeyId, staged.sessionId(), now);
+        job.recordProgress(staged.totalParsed(), staged.stagedRows());
+        VerificationTelemetry telemetry = VerificationTelemetry.from(staged.verificationReports());
+        job.recordVerificationTelemetry(
+                telemetry.reliabilityStatus(), telemetry.textSource(),
+                telemetry.isEmpty() ? null : telemetry.headerReconstructionUncertain(),
+                telemetry.isEmpty() ? null : telemetry.findingsCount(),
+                telemetry.isEmpty() ? null : telemetry.failedCount(),
+                telemetry.isEmpty() ? null : telemetry.warningCount(),
+                parserVersion);
+        importJobRepository.saveAndFlush(job);
+
+        HeldStatement held = openHold(job, staged, decision, parserVersion);
+        if (lockedWithoutPassword) {
+            held.markLockedWithoutPassword();
+            repository.save(held);
+        }
+        job.attachReviewRecord(held.getId());
+        importJobRepository.save(job);
+        return new StagedHold(job.getId(), true);
+    }
+
+    /** What {@link #holdStagedUpload} did: the job the client follows while the rows are blocked
+     *  (null when an approved review already released them), and whether it opened a new hold --
+     *  when it did not, the stored copy the caller wrote for it is referenced by nothing. */
+    public record StagedHold(UUID jobId, boolean created) {}
 
     // --- holds the worker could not write a record for ------------------------------------------
 
@@ -627,6 +730,7 @@ public class HeldStatementService {
     public HeldStatementRerunResultDto rerunParser(UUID actingAdminId, String heldId) {
         HeldStatement held = require(heldId);
         refuseIfResolved(held, "re-parsed");
+        refuseIfLockedWithoutPassword(held, "re-parsed");
         ImportJob job = requireJob(held);
         refuseIfUploadedAgain(held, job, "re-parsed");
 
@@ -635,7 +739,8 @@ public class HeldStatementService {
         ImportService.DryRunResult dryRun;
         String extractionError = null;
         try {
-            // A locked upload reached this queue only with a password the user saved (step 4).
+            // A locked upload gets here only with a password the user saved (step 4): one staged
+            // without a kept password was refused above.
             reparsed = importService.reparse(job.getUserId(), job.getFileName(), content, job.getSourceFormat(),
                     statementPasswordService.forJob(job.getId()).orElse(null));
             dryRun = reparsed.dryRun();
@@ -828,15 +933,18 @@ public class HeldStatementService {
                     + " is " + job.getStatus() + ", not the rejection this would undo.");
         }
         refuseIfUploadedAgain(held, job, "reopened");
-        // A locked statement reached the queue only with the password its user saved, and the
-        // hourly sweep deletes a failed job's password (deleteUnusableJobPasswords). Once it is
-        // gone nothing can read the file again, so reopening would only strand the hold.
+        // A locked statement reached the queue with the password its user saved, and the hourly
+        // sweep deletes a failed job's password (deleteUnusableJobPasswords) -- or through the
+        // synchronous stage endpoint with no password kept at all (lockedWithoutPassword). Either
+        // way nothing can read the file again, so reopening would only strand the hold.
         if (StatementUpload.Format.PDF.name().equals(job.getSourceFormat())
                 && !statementPasswordService.hasJobPassword(job.getId())
                 && PdfTextExtractor.needsPassword(new java.io.ByteArrayInputStream(readStatement(held, job)))) {
             throw new ApiException(HttpStatus.CONFLICT, held.getHeldId() + " cannot be reopened: the statement "
-                    + "is password-protected and the password saved with it was deleted after the rejection, "
-                    + "so it cannot be read again. Ask the user to upload it again.");
+                    + "is password-protected and " + (held.isLockedWithoutPassword()
+                            ? "its password was never kept"
+                            : "the password saved with it was deleted after the rejection")
+                    + ", so it cannot be read again. Ask the user to upload it again.");
         }
 
         HeldStatement.Status from = held.getStatus();
@@ -859,6 +967,57 @@ public class HeldStatementService {
                         "heldId", held.getHeldId(),
                         "reason", reason == null ? "" : reason));
         return HeldStatementDto.from(held);
+    }
+
+    /**
+     * The rows this hold staged -- what approving releases, and the whole review when the file
+     * itself cannot be opened ({@link HeldStatement#isLockedWithoutPassword()}).
+     *
+     * <p>Statement content, so it is audited like {@link #download}: before the rows are read, in a
+     * transaction of its own so the refusal below does not roll the record back. The controller pins
+     * it to the same roles as the document.
+     *
+     * <p>409 when the rows are gone -- a rejected-then-reopened hold whose session was swept -- with
+     * the way back that applies: a re-run for a file the parser can read, a new upload otherwise.
+     */
+    @Transactional
+    public HeldStatementStagedRowsDto stagedRows(UUID actingAdminId, String heldId) {
+        HeldStatement held = require(heldId);
+        ImportJob job = requireJob(held);
+        auditService.recordEvenOnRollback(actingAdminId, "TRUST_REVIEW_STAGED_ROWS_VIEWED", "HeldStatement", held.getId(),
+                Map.of("actorId", actingAdminId.toString(),
+                        "subjectUserId", held.getUserId().toString(),
+                        "heldId", held.getHeldId()));
+        com.finora.entity.ImportSession session = importSessionService.findHeldSession(job.getImportSessionId())
+                .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT, "The staged rows behind "
+                        + held.getHeldId() + " are gone. " + (held.isLockedWithoutPassword()
+                                ? "The statement is password-protected and its password was not kept, so it "
+                                        + "cannot be read again; ask the user to upload it again."
+                                : "Re-run the parser to read the statement again.")));
+        var staged = importService.stagedResponseOf(job.getUserId(), session);
+        List<HeldStatementStagedRowsDto.HeldSection> sections = staged.multiAccount()
+                ? (staged.sections() == null ? List.<HeldStatementStagedRowsDto.HeldSection>of()
+                        : staged.sections().stream()
+                                .map(section -> sectionOf(section.detectedAccount(), section.totalParsed(), section.rows()))
+                                .toList())
+                : staged.staging() == null ? List.of()
+                        : List.of(sectionOf(staged.staging().detectedAccount(), staged.staging().totalParsed(),
+                                staged.staging().rows()));
+        return new HeldStatementStagedRowsDto(held.getHeldId(), sections);
+    }
+
+    private static HeldStatementStagedRowsDto.HeldSection sectionOf(
+            com.finora.dto.ImportDto.DetectedAccountInfo account, int totalParsed,
+            List<com.finora.dto.ImportDto.StagedRow> rows) {
+        List<HeldStatementStagedRowsDto.HeldRow> view = rows == null ? List.of() : rows.stream()
+                .map(row -> new HeldStatementStagedRowsDto.HeldRow(row.date(), row.description(), row.amount(),
+                        row.type(), row.balanceAfter(), row.referenceNumber()))
+                .toList();
+        return account == null
+                ? new HeldStatementStagedRowsDto.HeldSection(null, null, null, null, null, null, null, totalParsed, view)
+                : new HeldStatementStagedRowsDto.HeldSection(account.suggestedName(), account.accountNumberMasked(),
+                        account.suggestedAccountType(), account.statementPeriodStart(), account.statementPeriodEnd(),
+                        account.openingBalance(), account.closingBalance(), totalParsed, view);
     }
 
     /** What the download endpoint hands back -- everything the controller needs to set the
@@ -888,13 +1047,18 @@ public class HeldStatementService {
     @Transactional
     public DownloadedStatement download(UUID actingAdminId, String heldId) {
         HeldStatement held = require(heldId);
+        // Before the audit entry: nothing is handed over. The stored file is still locked, and a
+        // copy nobody can open is a customer's statement given to staff for no purpose.
+        refuseIfLockedWithoutPassword(held, "downloaded");
         ImportJob job = requireJob(held);
 
         // Recorded before the bytes are read (see above), so it can only say a saved password exists
         // and an unlocked copy will be attempted -- reviewCopy falls back to the stored file.
         boolean savedPassword = "PDF".equalsIgnoreCase(job.getSourceFormat())
                 && statementPasswordService.hasJobPassword(job.getId());
-        auditService.record(actingAdminId, "TRUST_REVIEW_DOCUMENT_DOWNLOADED", "HeldStatement",
+        // Its own transaction: the 409s below (a missing file, an unreadable one) roll this one
+        // back, and the attempt is the event being recorded.
+        auditService.recordEvenOnRollback(actingAdminId, "TRUST_REVIEW_DOCUMENT_DOWNLOADED", "HeldStatement",
                 held.getId(), Map.of("actorId", actingAdminId.toString(),
                         "subjectUserId", held.getUserId().toString(),
                         "heldId", held.getHeldId(),
@@ -961,6 +1125,11 @@ public class HeldStatementService {
     }
 
     /** What {@link #reject} did to a job riding on the review: failed with the review's own code. */
+    private static boolean isRejectedByReview(ImportJob job) {
+        return job.getStatus() == ImportJob.Status.FAILED
+                && ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name().equals(job.getFailureCode());
+    }
+
     private static boolean isRejectedWithNoRecord(ImportJob job) {
         return job.getStatus() == ImportJob.Status.FAILED
                 && ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name().equals(job.getFailureCode());
@@ -1036,6 +1205,20 @@ public class HeldStatementService {
      * <p>Checked here as well as in the entity so a double-clicked button gets an explainable
      * conflict rather than a 500 from an IllegalStateException.
      */
+    /**
+     * A locked PDF staged through the synchronous endpoint, which keeps no password (V258): the
+     * stored file cannot be opened, so it cannot be read by a reviewer or by the parser. 409 naming
+     * what the review is made from instead, rather than a re-run that fails on the password or a
+     * download nobody can open.
+     */
+    private static void refuseIfLockedWithoutPassword(HeldStatement held, String verb) {
+        if (held.isLockedWithoutPassword()) {
+            throw new ApiException(HttpStatus.CONFLICT, held.getHeldId() + " cannot be " + verb
+                    + ": the statement is password-protected and its password was not kept, so the file "
+                    + "cannot be opened. Review it from the staged rows and the findings, then approve or reject.");
+        }
+    }
+
     private static void refuseIfResolved(HeldStatement held, String verb) {
         if (held.getStatus().isResolved()) {
             throw new ApiException(HttpStatus.CONFLICT,

@@ -138,6 +138,10 @@ public class HeldStatement {
     @Column(name = "ai_suggested_diagnosis_at")
     private Instant aiSuggestedDiagnosisAt;
 
+    // V258. A locked PDF staged through the synchronous endpoint, which keeps no password.
+    @Column(name = "locked_without_password", nullable = false)
+    private boolean lockedWithoutPassword;
+
     protected HeldStatement() {}
 
     public HeldStatement(String heldId, UUID importJobId, UUID userId, String statementObjectKey,
@@ -171,6 +175,10 @@ public class HeldStatement {
     /** Set once, when the hold is opened. See the {@code bank_name} column comment for why this is
      *  a snapshot rather than a live read. Null when the parser could not name a bank. */
     public void recordBank(String bankName) { this.bankName = bankName; }
+
+    /** Set once, when the hold is opened: the stored file is a password-protected PDF and no
+     *  password was kept with it, so nobody can open it or re-read it. See V258. */
+    public void markLockedWithoutPassword() { this.lockedWithoutPassword = true; }
 
     public void assign(UUID engineerId, Instant now) {
         refuseIfResolved("assigned");
@@ -303,4 +311,5 @@ public class HeldStatement {
     public UUID getResolvedBy() { return resolvedBy; }
     public String getAiSuggestedDiagnosis() { return aiSuggestedDiagnosis; }
     public Instant getAiSuggestedDiagnosisAt() { return aiSuggestedDiagnosisAt; }
+    public boolean isLockedWithoutPassword() { return lockedWithoutPassword; }
 }

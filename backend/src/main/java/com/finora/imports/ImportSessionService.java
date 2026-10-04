@@ -706,6 +706,24 @@ public class ImportSessionService {
     }
 
     /**
+     * Removes a session the synchronous stage endpoint staged but could not hold for trust review,
+     * so its rows cannot be confirmed unreviewed -- the fail-closed half of
+     * {@code StagingTrustGate}. Left in place when a held job already points at it: that review
+     * blocks it, and it is the reviewer's evidence (the rule {@link #deleteSession} also keeps).
+     *
+     * @return whether the session is now gone
+     */
+    @Transactional
+    public boolean discardUnlessUnderReview(UUID sessionId) {
+        if (sessionId == null) return true;
+        if (importJobRepository.existsByImportSessionIdAndStatusIn(sessionId, SESSIONS_PROTECTED_FROM_CLEANUP)) {
+            return false;
+        }
+        importSessionRepository.findById(sessionId).ifPresent(importSessionRepository::delete);
+        return true;
+    }
+
+    /**
      * This user's staged session for the same document other than {@code ownSessionId} -- a later
      * upload of the statement a held session came from. A re-upload under a newer build deletes
      * the held session as stale ({@link #findLiveSessionByContentHash}) and stages its own, and

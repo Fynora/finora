@@ -4,6 +4,7 @@ import com.finora.dto.ApiResponse;
 import com.finora.dto.HeldStatementDetailDto;
 import com.finora.dto.HeldStatementDto;
 import com.finora.dto.HeldStatementRerunResultDto;
+import com.finora.dto.HeldStatementStagedRowsDto;
 import com.finora.dto.HoldWithoutReviewRecordDto;
 import com.finora.dto.PagedResponse;
 import com.finora.entity.HeldStatement;
@@ -126,6 +127,18 @@ public class AdminHeldStatementController {
                 .header(HttpHeaders.CONTENT_DISPOSITION,
                         ContentDisposition.attachment().filename(file.fileName()).build().toString())
                 .body(file.content());
+    }
+
+    /**
+     * The rows this hold staged, the ones approving releases. Statement content, so pinned to the
+     * same roles as {@link #document} in the same single expression, and audited by the service.
+     * For a password-protected statement whose password was not kept, these and the findings are
+     * the whole review: the file cannot be opened.
+     */
+    @PreAuthorize("hasAuthority('TRUST_REVIEW_MANAGE') and hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    @GetMapping("/{heldId}/staged-rows")
+    public ApiResponse<HeldStatementStagedRowsDto> stagedRows(@PathVariable String heldId) {
+        return ApiResponse.ok(heldStatementService.stagedRows(currentUser.id(), heldId));
     }
 
     /** "Assign to Me" is the common case and must not require typing an id: an absent or blank

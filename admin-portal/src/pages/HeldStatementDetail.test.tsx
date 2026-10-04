@@ -27,6 +27,7 @@ vi.mock('../api/endpoints', () => ({
     rerunParser: vi.fn(),
     suggestDiagnosis: vi.fn(),
     download: vi.fn(),
+    stagedRows: vi.fn(),
   },
 }));
 
@@ -476,5 +477,81 @@ describe('HeldStatementDetail', () => {
 
     await screen.findByText(/a different trigger/i);
     expect(screen.getByLabelText(/mark as false positive/i)).not.toBeChecked();
+  });
+
+  describe('a locked statement whose password was not kept', () => {
+    const locked: HeldStatementDetailDto = { ...detail, summary: { ...summary, lockedWithoutPassword: true } };
+
+    it('says why, and offers neither the download nor a re-run', async () => {
+      vi.mocked(adminHeldStatementApi.get).mockResolvedValue(locked);
+      mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
+      renderPage();
+
+      expect(await screen.findByTestId('locked-without-password')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Download statement' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Re-run parser' })).toBeDisabled();
+      // Still decidable: the rows and the findings are the review.
+      expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Show staged rows' })).toBeInTheDocument();
+    });
+
+    it('keeps the download and the re-run for an ordinary hold', async () => {
+      mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
+      renderPage();
+
+      expect(await screen.findByRole('button', { name: 'Download statement' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Re-run parser' })).toBeEnabled();
+      expect(screen.queryByTestId('locked-without-password')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('staged rows', () => {
+    it('loads them only when asked, and shows each row', async () => {
+      vi.mocked(adminHeldStatementApi.stagedRows).mockResolvedValue({
+        heldId: 'HLD-2026-100001',
+        sections: [{
+          accountName: 'Sample Bank', accountNumberMasked: 'XXXX1234', accountType: 'SAVINGS',
+          statementPeriodStart: '2026-01-01', statementPeriodEnd: '2026-01-31',
+          openingBalance: 1000, closingBalance: 3600, totalParsed: 3,
+          rows: [
+            { date: '2026-01-02', description: 'SAMPLE SALARY', amount: 5000, type: 'CREDIT', balanceAfter: 6000, referenceNumber: null },
+            { date: '2026-01-05', description: 'SAMPLE GROCERY', amount: 400, type: 'DEBIT', balanceAfter: 5600, referenceNumber: null },
+          ],
+        }],
+      });
+      mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
+      renderPage();
+      await screen.findByText(/count disagree/i);
+
+      // Audited server-side on every read, so never fetched just by opening the page.
+      expect(adminHeldStatementApi.stagedRows).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole('button', { name: 'Show staged rows' }));
+
+      expect(await screen.findByText('SAMPLE SALARY')).toBeInTheDocument();
+      expect(screen.getByText('SAMPLE GROCERY')).toBeInTheDocument();
+      expect(screen.getByText(/2 staged of 3 read/)).toBeInTheDocument();
+      expect(adminHeldStatementApi.stagedRows).toHaveBeenCalledWith('HLD-2026-100001');
+    });
+
+    it('shows the server\'s reason when the rows are gone', async () => {
+      vi.mocked(adminHeldStatementApi.stagedRows).mockRejectedValue(
+        { response: { data: { message: 'The staged rows behind HLD-2026-100001 are gone.' } } });
+      mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
+      renderPage();
+      await screen.findByText(/count disagree/i);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Show staged rows' }));
+
+      expect(await screen.findByText(/are gone/)).toBeInTheDocument();
+    });
+
+    /** The same role pin the backend applies: queue permission alone does not reach content. */
+    it('is not offered below the admin roles', async () => {
+      mockAuth(['TRUST_REVIEW_MANAGE'], ['SUPPORT']);
+      renderPage();
+      await screen.findByText(/count disagree/i);
+
+      expect(screen.queryByRole('button', { name: 'Show staged rows' })).not.toBeInTheDocument();
+    });
   });
 });

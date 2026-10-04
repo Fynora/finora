@@ -14,9 +14,14 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Tesseract, as a candidate.
@@ -84,7 +89,66 @@ public final class TesseractEngine implements OcrEngine {
         return Optional.empty();
     }
 
-    public TesseractEngine() {}
+    /**
+     * How long one {@code tesseract} process may run before it is killed.
+     *
+     * <p>Without a bound, a process that never exits holds the caller forever: the synchronous
+     * import paths run inside {@code ImportConcurrencyLimiter.runGated}, so a hung process keeps an
+     * import permit and a request thread until the next restart, and six of them turn every import
+     * into IMPORT_SYSTEM_BUSY.
+     *
+     * <p>Measured on the two real scans available (12 pages), rendered at 300 DPI as below, through
+     * the production image's Tesseract 5.5.2 and pinned tessdata_fast model in a container held to
+     * one CPU: the slowest single process took 6.3 s. Six processes at once on one CPU took 32 s
+     * each with {@code OMP_THREAD_LIMIT=1}, and 164-187 s each without it -- the container still
+     * reported all ten host cores, and the thread limit alone removed the difference. 60 s is
+     * roughly ten times the slowest uncontended run and twice the contended, thread-limited one.
+     * The image does not set that limit, so six concurrent scans on a single CPU would exceed this
+     * bound and fail; such a scan would also spend most of {@link #DOCUMENT_BUDGET} on its first
+     * page. The bound is there to catch a process that will never finish, not to bound normal
+     * latency -- that is {@link #DOCUMENT_BUDGET}'s job.
+     */
+    static final Duration PROCESS_TIMEOUT = Duration.ofSeconds(60);
+
+    /**
+     * How long recognising one whole document may take, rendering included.
+     *
+     * <p>A per-process bound alone does not bound a document: {@code app.import.pdf.max-pages}
+     * allows 500 pages, each recognised once or twice. On one CPU the gridded scan, whose every page
+     * takes the sparse retry, needed about 10 s of recognition per page, so a 500-page scan would
+     * run for over an hour. The synchronous import paths hold an {@code ImportConcurrencyLimiter}
+     * lease whose safety TTL is 300 s ({@code app.import.concurrency-lease-ttl-seconds}), and the
+     * queue worker treats a job in flight for 30 minutes as abandoned and runs it again. 240 s stays
+     * under the lease with time left for the rest of the parse, which took under 2 s per native
+     * statement in the corpus. That 10-page scan needed about 100 s on one CPU, so a scan of its
+     * size still fits; one much longer fails through the same path as any other recognition
+     * failure.
+     */
+    static final Duration DOCUMENT_BUDGET = Duration.ofSeconds(240);
+
+    /** {@code tesseract --version}, which {@link #available()} runs on every scanned import and
+     *  every health check, measured at 3-5 ms in the production image. */
+    private static final Duration VERSION_PROBE_TIMEOUT = Duration.ofSeconds(10);
+
+    /** Waiting for stdout after the process has exited. It is closed by then, so this only guards
+     *  against a descendant that kept the pipe open. */
+    private static final Duration STDOUT_DRAIN_TIMEOUT = Duration.ofSeconds(5);
+
+    private final Optional<String> tesseractPath;
+    private final Duration processTimeout;
+    private final Duration documentBudget;
+
+    public TesseractEngine() {
+        this(RESOLVED_TESSERACT_PATH, PROCESS_TIMEOUT, DOCUMENT_BUDGET);
+    }
+
+    /** For tests: a stand-in executable and short bounds, so the timeout paths can be exercised
+     *  without a real Tesseract that hangs. */
+    TesseractEngine(Optional<String> tesseractPath, Duration processTimeout, Duration documentBudget) {
+        this.tesseractPath = tesseractPath;
+        this.processTimeout = processTimeout;
+        this.documentBudget = documentBudget;
+    }
 
     @Override
     public String name() {
@@ -94,15 +158,27 @@ public final class TesseractEngine implements OcrEngine {
     /** Whether the binary is on PATH, so a missing engine reports itself rather than failing oddly. */
     public static boolean available() {
         if (RESOLVED_TESSERACT_PATH.isEmpty()) return false;
+        Process process = null;
         try {
-            return new ProcessBuilder(RESOLVED_TESSERACT_PATH.get(), "--version").start().waitFor() == 0;
-        } catch (IOException | InterruptedException e) {
+            process = new ProcessBuilder(RESOLVED_TESSERACT_PATH.get(), "--version")
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                    .redirectError(ProcessBuilder.Redirect.DISCARD)
+                    .start();
+            return process.waitFor(VERSION_PROBE_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)
+                    && process.exitValue() == 0;
+        } catch (IOException e) {
             return false;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        } finally {
+            if (process != null) kill(process);
         }
     }
 
     @Override
     public List<RecognisedText> recognise(byte[] pdf, int dpi) throws IOException {
+        long deadline = System.nanoTime() + documentBudget.toNanos();
         Path work = Files.createTempDirectory("tesseract-eval-");
         // finally, not just a trailing call: this now runs against real uploaded statements, and a
         // page that fails to render/recognise must not leave its rasterised image -- a real
@@ -112,16 +188,20 @@ public final class TesseractEngine implements OcrEngine {
         List<PageReadings> pages = new ArrayList<>();
         try (PDDocument in = Loader.loadPDF(pdf)) {
             PDFRenderer renderer = new PDFRenderer(in);
-            for (int page = 0; page < in.getNumberOfPages(); page++) {
+            int pageCount = in.getNumberOfPages();
+            for (int page = 0; page < pageCount; page++) {
+                if (System.nanoTime() - deadline >= 0) {
+                    throw budgetExceeded(page, pageCount);
+                }
                 BufferedImage image = renderer.renderImageWithDPI(page, dpi);
                 File png = work.resolve("page-" + page + ".png").toFile();
                 ImageIO.write(image, "png", png);
 
                 PDRectangle size = in.getPage(page).getMediaBox();
                 float scale = size.getWidth() / image.getWidth();
-                List<RecognisedText> standard = parse(run(png, null), page, scale);
+                List<RecognisedText> standard = parse(run(png, null, deadline, page, pageCount), page, scale);
                 List<RecognisedText> sparse = lowConfidenceShare(standard) > SPARSE_RETRY_LOW_CONFIDENCE_SHARE
-                        ? parse(run(png, SPARSE_TEXT_PSM), page, scale)
+                        ? parse(run(png, SPARSE_TEXT_PSM, deadline, page, pageCount), page, scale)
                         : null;
                 pages.add(new PageReadings(standard, sparse));
             }
@@ -210,28 +290,70 @@ public final class TesseractEngine implements OcrEngine {
         return (double) low / runs.size();
     }
 
-    /** {@code tesseract <png> stdout tsv} -- one row per recognised element. {@code psm} null keeps
-     *  Tesseract's default page segmentation, the exact invocation every page got before the sparse
-     *  retry existed. */
-    private String run(File png, String psm) throws IOException {
-        String tesseract = RESOLVED_TESSERACT_PATH.orElseThrow(
+    /**
+     * {@code tesseract <png> stdout tsv} -- one row per recognised element. {@code psm} null keeps
+     * Tesseract's default page segmentation, the exact invocation every page got before the sparse
+     * retry existed.
+     *
+     * <p>Waits at most {@link #processTimeout}, or whatever is left of the document's budget if that
+     * is less, then kills the process. Every failure is an {@link IOException}, which
+     * {@code RoutingTextAcquirer} already treats as "this recogniser could not read the document".
+     *
+     * <p>Stdout is read on its own thread while this one waits, as {@code FynScreenshotOcrService}
+     * does: reading first blocks until EOF, which a hung process never sends, and waiting first can
+     * deadlock against a process blocked on a full stdout pipe. Killing the process closes the pipe,
+     * which ends the read. Stderr is discarded rather than left in an undrained pipe; nothing reads
+     * it, and each measured run wrote 29 bytes to it.
+     */
+    private String run(File png, String psm, long deadline, int page, int pageCount) throws IOException {
+        String tesseract = tesseractPath.orElseThrow(
                 () -> new IOException("tesseract is not on PATH -- callers must check available() first"));
+        long remaining = deadline - System.nanoTime();
+        if (remaining <= 0) {
+            throw budgetExceeded(page, pageCount);
+        }
+        long wait = Math.min(processTimeout.toNanos(), remaining);
         List<String> command = new ArrayList<>(List.of(tesseract, png.getAbsolutePath(), "stdout"));
         if (psm != null) command.addAll(List.of("--psm", psm));
         command.add("tsv");
         Process process = new ProcessBuilder(command)
-                .redirectErrorStream(false)
+                .redirectError(ProcessBuilder.Redirect.DISCARD)
                 .start();
-        String out = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         try {
-            if (process.waitFor() != 0) {
+            FutureTask<byte[]> stdout = new FutureTask<>(() -> process.getInputStream().readAllBytes());
+            Thread.ofPlatform().daemon().name("tesseract-stdout").start(stdout);
+            if (!process.waitFor(wait, TimeUnit.NANOSECONDS)) {
+                if (wait < processTimeout.toNanos()) {
+                    throw budgetExceeded(page, pageCount);
+                }
+                throw new IOException("tesseract did not finish page " + (page + 1) + " of " + pageCount
+                        + " within " + processTimeout.toSeconds() + "s and was killed");
+            }
+            byte[] out = stdout.get(STDOUT_DRAIN_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+            if (process.exitValue() != 0) {
                 throw new IOException("tesseract exited non-zero for " + png);
             }
+            return new String(out, StandardCharsets.UTF_8);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IOException("interrupted while recognising " + png, e);
+        } catch (ExecutionException | TimeoutException e) {
+            throw new IOException("could not read tesseract's output for " + png, e);
+        } finally {
+            kill(process);
         }
-        return out;
+    }
+
+    private IOException budgetExceeded(int page, int pageCount) {
+        return new IOException("OCR stopped at page " + (page + 1) + " of " + pageCount
+                + ": the document's " + documentBudget.toSeconds() + "s recognition budget is spent");
+    }
+
+    /** No-op once the process has exited. Descendants first, in case a wrapper script forked the
+     *  real binary and would otherwise keep the stdout pipe open. */
+    private static void kill(Process process) {
+        process.descendants().forEach(ProcessHandle::destroyForcibly);
+        process.destroyForcibly();
     }
 
     /**

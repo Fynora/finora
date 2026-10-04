@@ -44,6 +44,8 @@ public final class BankActivityCategory {
     // instalment-plan credit reads "... INSTALLMENTS INTEREST" and is not interest the bank paid
     // you. "interest cr": a small finance bank credits interest daily as "Interest Cr. for <date>",
     // which none of the other spellings matched, so every one of those rows was "Other" (2026-10-04).
+    // V254 relabelled stored rows with this list as it stood then; a phrase added later applies to
+    // new rows only.
     private static final Pattern INTEREST_EARNED = words(
             "interest paid", "credit interest", "interest credit", "interest cr", "int pd", "sb int", "int cr",
             "intcr", "savings interest");

@@ -303,7 +303,8 @@ public final class CategoryRules {
         return null;
     }
 
-    /** The label {@link #extractMerchantLabel(String, com.finora.entity.Transaction.Type)} gives every interest credit. */
+    /** The label {@link #extractMerchantLabel(String, com.finora.entity.Transaction.Type)} gives every interest
+     *  credit. The web and mobile MerchantLogo components hold a copy, so they never look it up on Logo.dev. */
     public static final String INTEREST_LABEL = "interest";
 
     /**

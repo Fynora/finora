@@ -596,4 +596,106 @@ class AdminHeldStatementControllerIT extends AbstractIntegrationTest {
         return importSessionService.createSession(ownerId, "statement.csv", content,
                 java.util.List.of(), null).getId();
     }
+
+    // ------------------------------------------------- holds the worker held with no review record
+
+    /** What the worker leaves when createHold throws: held, with no held_statements row. */
+    private ImportJob seedHoldWithoutReviewRecord(UUID sessionId, User owner) {
+        ImportJob job = new ImportJob(owner.getId(), "no-record.csv",
+                "hash-" + UUID.randomUUID(), "objects/key-" + UUID.randomUUID(), "CSV");
+        job.markClaimed("worker", Instant.now());
+        job.holdForTrustReview(sessionId, null, Instant.now());
+        return importJobRepository.save(job);
+    }
+
+    @Test
+    void holdsWithoutAReviewRecordAreGatedLikeTheQueue() {
+        User ordinary = createUser("USER");
+        User owner = createUser("USER");
+        ImportJob job = seedHoldWithoutReviewRecord(stagedSession(owner.getId(), CLEAN_CSV), owner);
+
+        assertThat(get("/api/v1/admin/held-statements/without-review-record", ordinary).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(post("/api/v1/admin/held-statements/without-review-record/" + job.getId() + "/open-review",
+                ordinary, null).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(importJobRepository.findById(job.getId()).orElseThrow().getHeldStatementId()).isNull();
+    }
+
+    @Test
+    void anAdminOpensTheMissingReviewAndItJoinsTheQueue() throws Exception {
+        User owner = createUser("USER");
+        User admin = createUser("ADMIN");
+        UUID sessionId = stagedSession(owner.getId(), CLEAN_CSV);
+        ImportJob job = seedHoldWithoutReviewRecord(sessionId, owner);
+
+        JsonNode listed = mapper.readTree(get("/api/v1/admin/held-statements/without-review-record?size=200", admin)
+                .getBody()).path("data").path("content");
+        JsonNode row = null;
+        for (JsonNode candidate : listed) {
+            if (candidate.path("jobId").asText().equals(job.getId().toString())) row = candidate;
+        }
+        assertThat(row).as("the stuck hold is listed").isNotNull();
+        assertThat(row.path("stagedRowsAvailable").asBoolean()).isTrue();
+        assertThat(row.toString()).doesNotContain("objectKey");
+
+        ResponseEntity<String> opened = post(
+                "/api/v1/admin/held-statements/without-review-record/" + job.getId() + "/open-review", admin, null);
+
+        assertThat(opened.getStatusCode()).isEqualTo(HttpStatus.OK);
+        String heldId = mapper.readTree(opened.getBody()).path("data").path("heldId").asText();
+        HeldStatement held = heldStatementRepository.findByHeldId(heldId).orElseThrow();
+        ImportJob reloaded = importJobRepository.findById(job.getId()).orElseThrow();
+        assertThat(reloaded.getHeldStatementId()).isEqualTo(held.getId());
+        assertThat(reloaded.getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_TRUST_REVIEW);
+        assertThat(reloaded.getImportSessionId()).isEqualTo(sessionId);
+        assertThat(held.getTriggerSummary()).contains("Held without a review record");
+        assertThat(eventRepository.findByHeldStatementIdOrderByCreatedAtAsc(held.getId()))
+                .extracting(HeldStatementEvent::getEventType)
+                .containsExactly("HELD_CREATED", "REVIEW_RECORD_OPENED");
+        assertThat(mapper.readTree(get("/api/v1/admin/held-statements?size=200", admin).getBody())
+                .path("data").path("content").findValuesAsText("heldId")).contains(heldId);
+
+        // Now an ordinary hold: approved from the queue, the user can confirm.
+        assertThat(post("/api/v1/admin/held-statements/" + heldId + "/approve", admin, "{}").getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        assertThat(importSessionService.claimForConfirmation(owner.getId(), sessionId).getStatus())
+                .isEqualTo(com.finora.entity.ImportSession.STATUS_CONFIRMED);
+    }
+
+    @Test
+    void openingItTwiceIsRefusedRatherThanWritingASecondRecord() {
+        User owner = createUser("USER");
+        User admin = createUser("ADMIN");
+        ImportJob job = seedHoldWithoutReviewRecord(stagedSession(owner.getId(), CLEAN_CSV), owner);
+        String path = "/api/v1/admin/held-statements/without-review-record/" + job.getId() + "/open-review";
+
+        assertThat(post(path, admin, null).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(post(path, admin, null).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(heldStatementRepository.findByImportJobId(job.getId())).isPresent();
+    }
+
+    @Test
+    void aReviewStillOpensWhenTheStagedRowsAreGone() throws Exception {
+        User owner = createUser("USER");
+        User admin = createUser("ADMIN");
+        ImportJob job = seedHoldWithoutReviewRecord(UUID.randomUUID(), owner);
+
+        ResponseEntity<String> opened = post(
+                "/api/v1/admin/held-statements/without-review-record/" + job.getId() + "/open-review", admin, null);
+
+        assertThat(opened.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(mapper.readTree(opened.getBody()).path("data").path("triggerSummary").asText())
+                .contains("staged rows are gone");
+    }
+
+    @Test
+    void aJobThatIsNotHeldWithoutARecordCannotBeOpened() {
+        User admin = createUser("ADMIN");
+        HeldStatement held = seedHold("HLD-2026-100090");
+
+        assertThat(post("/api/v1/admin/held-statements/without-review-record/" + held.getImportJobId()
+                + "/open-review", admin, null).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(post("/api/v1/admin/held-statements/without-review-record/" + UUID.randomUUID()
+                + "/open-review", admin, null).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
 }

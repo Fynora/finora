@@ -4,9 +4,12 @@ import com.finora.entity.ImportJob;
 import com.finora.entity.ImportSession;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import jakarta.persistence.LockModeType;
 
 import java.time.Instant;
 import java.util.Collection;
@@ -140,6 +143,11 @@ public interface ImportSessionRepository extends JpaRepository<ImportSession, UU
      * sole non-blocking status, matching {@code
      * HeldStatementRepository.findByImportJobIdInAndStatusNot}'s own reasoning for the same
      * fail-closed default.
+     *
+     * <p>The second {@code NOT EXISTS} is the hold with no review record: the worker holds a job
+     * even when it cannot write the {@code held_statements} row, and the join above cannot see a
+     * hold that has no row. A job still in HELD_FOR_TRUST_REVIEW is a pending review whatever its
+     * record says, so it blocks on its own status.
      */
     // clearAutomatically: a native bulk UPDATE writes through JDBC directly, bypassing the
     // persistence context entirely -- Hibernate has no way to know the ImportSession entity it
@@ -169,8 +177,21 @@ public interface ImportSessionRepository extends JpaRepository<ImportSession, UU
                     WHERE j.import_session_id = s.id
                       AND hs.status <> 'IMPORTED'
                   )
+              AND NOT EXISTS (
+                    SELECT 1 FROM import_jobs j
+                    WHERE j.import_session_id = s.id
+                      AND j.status = 'HELD_FOR_TRUST_REVIEW'
+                  )
            """, nativeQuery = true)
     int claimForConfirmation(@Param("id") UUID id);
+
+    /** Locks the session row for the rest of the caller's transaction -- so the worker opening a
+     *  hold on a replayed session and an operator opening the review a held import never got
+     *  cannot both see "no open review here" and each write one. See
+     *  {@code ImportSessionService.lockForReview}. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select s from ImportSession s where s.id = :id")
+    Optional<ImportSession> findByIdForUpdate(@Param("id") UUID id);
 
     /** AccountPurgeSweepService -- hard delete, no soft-delete concern on this entity (no
      *  lifecycle state to preserve, unlike StatementImport). Also frees any object this session

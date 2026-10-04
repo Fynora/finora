@@ -511,19 +511,27 @@ public class ImportSessionService {
      */
     private java.util.Set<UUID> sessionsBlockedByTrustReview(java.util.Collection<UUID> sessionIds) {
         if (sessionIds.isEmpty()) return java.util.Set.of();
+        // A job still held blocks on its own status, record or not. The worker holds the import
+        // even when it cannot write the held_statements row (fail closed), and the record-keyed
+        // check below cannot see a hold that has no record -- without this the session was offered
+        // for resume and confirmed as if nothing had been held.
+        java.util.Set<UUID> blocked = new java.util.HashSet<>();
+        importJobRepository.findByImportSessionIdInAndStatus(sessionIds, ImportJob.Status.HELD_FOR_TRUST_REVIEW)
+                .forEach(job -> blocked.add(job.getImportSessionId()));
         List<ImportJob> jobsWithAHold =
                 importJobRepository.findByImportSessionIdInAndHeldStatementIdIsNotNull(sessionIds);
-        if (jobsWithAHold.isEmpty()) return java.util.Set.of();
+        if (jobsWithAHold.isEmpty()) return blocked;
         java.util.Map<UUID, UUID> heldStatementIdToSessionId = jobsWithAHold.stream()
                 .collect(java.util.stream.Collectors.toMap(
                         ImportJob::getHeldStatementId, ImportJob::getImportSessionId));
-        return heldStatementRepository
+        heldStatementRepository
                 .findByImportJobIdInAndStatusNot(
                         jobsWithAHold.stream().map(ImportJob::getId).toList(),
                         HeldStatement.Status.IMPORTED)
                 .stream()
                 .map(hs -> heldStatementIdToSessionId.get(hs.getId()))
-                .collect(java.util.stream.Collectors.toSet());
+                .forEach(blocked::add);
+        return blocked;
     }
 
     /** Whether the resume UI can reopen a session of this kind. A {@code switch} rather than a
@@ -617,6 +625,16 @@ public class ImportSessionService {
         if (!expired && !stale) {
             return Optional.of(session);
         }
+        // A session an open trust review depends on is replayed, never deleted -- the same
+        // exemption sweepExpiredSessions gives it, for the same reason. Deleting it as stale or
+        // expired here made a re-upload under a newer build take the rows the reviewer was judging,
+        // and approving afterwards completed the held job against a session that no longer existed
+        // ("Import session not found" at confirm, after telling the user it was ready). Replaying
+        // it instead hands back rows the confirm step already refuses while the review is open.
+        if (importJobRepository.existsByImportSessionIdAndStatusIn(
+                session.getId(), SESSIONS_PROTECTED_FROM_CLEANUP)) {
+            return Optional.of(session);
+        }
         importSessionRepository.delete(session);
         return Optional.empty();
     }
@@ -703,6 +721,28 @@ public class ImportSessionService {
                 .filter(session -> !session.getId().equals(ownSessionId));
     }
 
+    /**
+     * Takes a row lock on this session for the caller's transaction (joined, not opened: the lock
+     * is only worth anything while the caller's check-then-write runs under it). Opening a review
+     * on a session happens on two paths that can race -- the worker holding a replay of it
+     * ({@code HeldStatementService.createHold}) and an operator opening the review a held import
+     * never got ({@code openReviewForHoldWithoutRecord}) -- and each must see the other's review
+     * once it holds the lock, or the rows end up under two reviews. A missing session locks
+     * nothing; there is nothing for a replay to stage onto.
+     */
+    @Transactional
+    public void lockForReview(UUID sessionId) {
+        if (sessionId != null) importSessionRepository.findByIdForUpdate(sessionId);
+    }
+
+    /** A session by id whatever its owner, expiry or status -- for an operator opening the review a
+     *  held import never got. A held session has usually outlived its TTL (the sweep exempts it),
+     *  which {@link #getOwnedSession} refuses. */
+    @Transactional(readOnly = true)
+    public Optional<ImportSession> findHeldSession(UUID sessionId) {
+        return sessionId == null ? Optional.empty() : importSessionRepository.findById(sessionId);
+    }
+
     /** Whether a session still exists -- a held statement's can be swept once its job stops being
      *  held (a rejection), and approving it then would release rows that are gone. */
     @Transactional(readOnly = true)
@@ -713,6 +753,20 @@ public class ImportSessionService {
     @Transactional
     public void deleteSession(UUID userId, UUID sessionId) {
         ImportSession session = getOwnedSession(userId, sessionId);
+        // Not while a trust review is open on it -- the third place that rule lives, beside
+        // sweepExpiredSessions and findLiveSessionByContentHash. The session is the reviewer's
+        // evidence and the rows approving hands the user; deleting it left the hold to be approved
+        // against nothing, telling the user their statement was ready when there was nothing to
+        // confirm. Its id is not hidden from the user (the job's progress carries it, and a
+        // re-upload replays it), so the endpoint has to refuse, not merely not offer it. Once the
+        // review is decided the job leaves HELD_FOR_TRUST_REVIEW and the session can be discarded
+        // like any other.
+        if (importJobRepository.existsByImportSessionIdAndStatusIn(
+                sessionId, SESSIONS_PROTECTED_FROM_CLEANUP)) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "This statement is being reviewed for accuracy, so it can't be discarded yet. "
+                            + "We'll let you know when it's ready.");
+        }
         // A password the user let Fynora keep for this upload (statement refresh, step 4) goes with
         // it now, rather than waiting for the hourly sweep: nothing is left for it to open.
         statementPasswordRepository.deleteHeldByJobsOfSession(sessionId);

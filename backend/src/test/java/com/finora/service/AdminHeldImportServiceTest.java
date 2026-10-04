@@ -78,8 +78,8 @@ class AdminHeldImportServiceTest {
     }
 
     private void noLiveDuplicate() {
-        when(repository.findFirstByUserIdAndContentHashAndStatusNotInOrderByCreatedAtDesc(
-                any(), anyString(), any())).thenReturn(Optional.empty());
+        when(repository.findByUserIdAndContentHashAndStatusNotInOrderByCreatedAtDesc(
+                any(), anyString(), any())).thenReturn(List.of());
     }
 
     // ------------------------------------------------------------------ audit
@@ -237,8 +237,8 @@ class AdminHeldImportServiceTest {
         ImportJob newerLiveJob = new ImportJob(
                 job.getUserId(), "statement.pdf", "hash", "objects/key", "PDF");
         when(repository.findById(job.getId())).thenReturn(Optional.of(job));
-        when(repository.findFirstByUserIdAndContentHashAndStatusNotInOrderByCreatedAtDesc(
-                any(), anyString(), any())).thenReturn(Optional.of(newerLiveJob));
+        when(repository.findByUserIdAndContentHashAndStatusNotInOrderByCreatedAtDesc(
+                any(), anyString(), any())).thenReturn(List.of(newerLiveJob));
 
         assertThatThrownBy(() -> service.reprocess(adminUserId, job.getId()))
                 .isInstanceOf(ApiException.class)
@@ -305,10 +305,13 @@ class AdminHeldImportServiceTest {
         when(repository.findByStatus(eq(ImportJob.Status.HELD_FOR_REVIEW), any()))
                 .thenReturn(new PageImpl<>(List.of(reprocessable, blocked)));
         when(repository.countByStatus(ImportJob.Status.HELD_FOR_REVIEW)).thenReturn(2L);
-        when(repository.findFirstByUserIdAndContentHashAndStatusNotInOrderByCreatedAtDesc(
-                eq(reprocessable.getUserId()), anyString(), any())).thenReturn(Optional.empty());
-        when(repository.findFirstByUserIdAndContentHashAndStatusNotInOrderByCreatedAtDesc(
-                eq(blocked.getUserId()), anyString(), any())).thenReturn(Optional.of(blocked));
+        when(repository.findByUserIdAndContentHashAndStatusNotInOrderByCreatedAtDesc(
+                eq(reprocessable.getUserId()), anyString(), any())).thenReturn(List.of());
+        // The user's re-upload of the same document, still queued. Not `blocked` itself: the real
+        // query excludes HELD_FOR_REVIEW, so a held job can never come back as its own live duplicate.
+        ImportJob liveReupload = new ImportJob(blocked.getUserId(), "statement.pdf", "hash", "objects/key", "PDF");
+        when(repository.findByUserIdAndContentHashAndStatusNotInOrderByCreatedAtDesc(
+                eq(blocked.getUserId()), anyString(), any())).thenReturn(List.of(liveReupload));
 
         int reprocessed = service.reprocessAll(adminUserId);
 

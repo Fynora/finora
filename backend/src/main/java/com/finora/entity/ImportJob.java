@@ -89,6 +89,27 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
         public static final Set<Status> TERMINAL =
                 EnumSet.of(COMPLETED, FAILED, HELD_FOR_REVIEW, HELD_FOR_TRUST_REVIEW, CANCELLED);
 
+        /**
+         * The statuses after which the same document may start a new job: {@link #TERMINAL} minus
+         * HELD_FOR_TRUST_REVIEW.
+         *
+         * <p>A trust-held job is terminal for the worker but still owns the document. Its staged
+         * session is what the reviewer is judging, and a second job on the same bytes has nowhere
+         * else to go: under the same build staging replays that session and the trust predicate
+         * opens a second review of it, and under a new build staging deletes it as stale. Either way
+         * approving the first review no longer lets the user confirm. So a re-upload, or an admin
+         * reprocess of an older job on the same bytes, gets the held job back instead -- the BH-019
+         * answer for a document that is already being handled.
+         *
+         * <p>Deliberately not the predicate of {@code idx_import_jobs_live_content}, which must
+         * track {@link #TERMINAL} (V134). The index guards "one job running per document"; this is
+         * the app-level read in front of it, and the index still allows the row this refuses.
+         */
+        public static final Set<Status> OPEN_TO_RESUBMISSION =
+                EnumSet.of(COMPLETED, FAILED, HELD_FOR_REVIEW, CANCELLED);
+        // A trust-held job with no review record is the exception, decided per row in
+        // ImportJob.ownsItsDocument -- a status set cannot see heldStatementId.
+
         public boolean isTerminal() { return TERMINAL.contains(this); }
         public boolean isInFlight() { return IN_FLIGHT.contains(this); }
         boolean isBefore(Status other) { return ordinal() < other.ordinal(); }
@@ -739,6 +760,21 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
     }
 
     /**
+     * Links a held job to the review record the worker failed to write when it held it -- opened
+     * later by an operator ({@code HeldStatementService.openReviewForHoldWithoutRecord}). Only for a
+     * job still held with no record: a job that has one is already in the queue, and one that is no
+     * longer held has nothing left to review.
+     */
+    public void attachReviewRecord(UUID heldStatementId) {
+        if (status != Status.HELD_FOR_TRUST_REVIEW || this.heldStatementId != null) {
+            throw new IllegalStateException(
+                    "Import job " + id + " is at " + status + " with review record " + this.heldStatementId
+                            + "; only a HELD_FOR_TRUST_REVIEW job with no review record can be given one.");
+        }
+        this.heldStatementId = heldStatementId;
+    }
+
+    /**
      * Undoes {@link #rejectAfterTrustReview}: the review is open again, so the import is held
      * again rather than failed. Only from that rejection -- any other failure was the import's
      * own, and is not a review's to reopen.
@@ -810,6 +846,22 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
     /** Cancellable only before user-visible data exists -- see the class comment. */
     public boolean isCancellable() {
         return status == Status.QUEUED || status.isBefore(Status.IMPORTING);
+    }
+
+    /**
+     * Whether a new upload of this job's document must follow this job rather than start another
+     * -- {@link Status#OPEN_TO_RESUBMISSION}, plus the one case a status cannot decide.
+     *
+     * <p>A trust-held job with no review record does not own its document. The worker holds the
+     * import anyway when it cannot write the {@code held_statements} row (fail closed), so such a
+     * job sits in HELD_FOR_TRUST_REVIEW with nothing in the operator queue to approve or reject.
+     * Handing it back to every re-upload would leave the user following a review that does not
+     * exist; letting the re-upload through gives the worker another chance to open one, on the same
+     * session, that an operator can act on.
+     */
+    public boolean ownsItsDocument() {
+        if (Status.OPEN_TO_RESUBMISSION.contains(status)) return false;
+        return status != Status.HELD_FOR_TRUST_REVIEW || heldStatementId != null;
     }
 
     public void cancel(Instant now) {

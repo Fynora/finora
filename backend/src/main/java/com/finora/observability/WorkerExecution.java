@@ -170,6 +170,17 @@ public final class WorkerExecution implements AutoCloseable {
     }
 
     /**
+     * A job was held for trust review but its review record could not be written. The worker holds
+     * it anyway (fail closed), so its rows are blocked from the ledger with nothing in the operator
+     * queue to release them -- the user waits on a review nobody can see. Paged at ERROR because
+     * {@code sentry.logging.enabled} is off: the worker's own log line reaches no one.
+     */
+    public void heldWithoutReviewRecord(UUID jobId, Throwable cause) {
+        meters.failures(worker, jobKind).increment();
+        capture(jobId, "trust-hold", "no-review-record", cause, SentryLevel.ERROR);
+    }
+
+    /**
      * Rows abandoned mid-flight were returned to the queue, which means a worker process died.
      *
      * <p>Reported without a throwable: no exception exists here, only evidence that one happened

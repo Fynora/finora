@@ -79,6 +79,13 @@ public interface ImportJobRepository extends JpaRepository<ImportJob, UUID> {
      * excluded so re-uploading a statement whose earlier import finished, failed or was cancelled
      * still starts fresh work.
      */
+    /** Every job on this document outside these statuses, newest first -- for the callers that
+     *  need the newest one that OWNS the document ({@code ImportJob.ownsItsDocument}), which a
+     *  status alone cannot pick: a job riding another job's review is newer and owns nothing. A
+     *  user has a handful of jobs per document at most. */
+    List<ImportJob> findByUserIdAndContentHashAndStatusNotInOrderByCreatedAtDesc(
+            UUID userId, String contentHash, java.util.Collection<ImportJob.Status> excludedStatuses);
+
     Optional<ImportJob> findFirstByUserIdAndContentHashAndStatusNotInOrderByCreatedAtDesc(
             UUID userId, String contentHash, java.util.Collection<ImportJob.Status> excludedStatuses);
 
@@ -89,6 +96,10 @@ public interface ImportJobRepository extends JpaRepository<ImportJob, UUID> {
 
     /** One page of the admin triage queue. Backed by {@code idx_import_jobs_held} (V134). */
     Page<ImportJob> findByStatus(ImportJob.Status status, Pageable pageable);
+
+    /** Jobs in a status with no review record -- for the operator list of trust holds the worker
+     *  held without one ({@code HeldStatementService.listHoldsWithoutReviewRecord}). */
+    Page<ImportJob> findByStatusAndHeldStatementIdIsNull(ImportJob.Status status, Pageable pageable);
 
     /**
      * Jobs an admin has already sent back to the queue that have not finished yet.
@@ -125,6 +136,19 @@ public interface ImportJobRepository extends JpaRepository<ImportJob, UUID> {
      * every job that never recorded a session, which today is all of them.
      */
     List<ImportJob> findByImportSessionId(UUID importSessionId);
+
+    /** Whether a job in one of these statuses still points at this session -- the per-row form of
+     *  {@code ImportSessionRepository.findSweepableExpiredSessions}'s exemption, for
+     *  {@code ImportSessionService.findLiveSessionByContentHash}. Same null caveat as above. */
+    boolean existsByImportSessionIdAndStatusIn(UUID importSessionId,
+                                               java.util.Collection<ImportJob.Status> statuses);
+
+    /** The jobs behind these sessions sitting in one status -- for
+     *  {@code ImportSessionService.sessionsBlockedByTrustReview}, which must see a trust hold whose
+     *  review record was never written, and for {@code HeldStatementService}, which resolves such a
+     *  job alongside the review that covers its session. */
+    List<ImportJob> findByImportSessionIdInAndStatus(java.util.Collection<UUID> importSessionIds,
+                                                     ImportJob.Status status);
 
     /**
      * The jobs behind these sessions that ever went through a trust hold, whatever became of it --

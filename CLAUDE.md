@@ -164,6 +164,11 @@ it tests the branch without main merged in.
 Every full run costs real minutes from a 2,000-a-month allowance. Label the PR once it's ready,
 not while it's still taking pushes, because every push to a labelled PR runs in full again.
 
+Don't push again after the full run passes and before merging. A merge whose final commit has no
+full, passing run turns main's CI red: `scripts/check-merge-was-tested.py` runs on every private
+push to main. If main goes red for that reason, run `gh workflow run ci.yml --ref main` and fix
+whatever it finds before anything else merges.
+
 ## Exception
 
 Read-only exploration — reading code, answering questions about the repo, reviewing docs —

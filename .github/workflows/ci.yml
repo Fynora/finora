@@ -38,6 +38,15 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
+  # Weekly full run of main, every job, as in a by-hand run. It exists for the private profile,
+  # where nothing else ever runs the whole suite against main: each merge is tested only as its own
+  # PR's `full-ci` run, so two PRs that each pass alone but break together would go unnoticed.
+  # Monday 04:30 UTC (10:00 IST), so a red run lands at the start of the week; offset from the
+  # 03:xx nightlies and CodeQL's Monday 04:00. It also runs while the repository is public, where it
+  # is free and simply repeats what every push to main already ran. GitHub notifies the account
+  # that last changed this cron line when a scheduled run fails.
+  schedule:
+    - cron: '30 4 * * 1'
 
 # A new push to the same branch makes the in-flight run obsolete. Cancelling it keeps queue times
 # down on a shared runner allowance -- but never for main, where every commit's result is a record
@@ -120,7 +129,10 @@ permissions:
 #   * Public (full profile): every job below runs exactly as it always has. GitHub-hosted
 #     standard runners cost nothing in a public repository.
 #   * Private (lean profile): only repo-hygiene runs, and only on push to main. Everything runs for
-#     a PR carrying the `full-ci` label, and for a run started by hand (workflow_dispatch). The
+#     a PR carrying the `full-ci` label, for a run started by hand (workflow_dispatch), and for the
+#     weekly scheduled run of main (see `on: schedule`). On a push to main, repo-hygiene's last step
+#     also fails if the merged PR had no full, passing run on its final commit
+#     (scripts/check-merge-was-tested.py), so a forgotten label shows up red the same day. The
 #     Fynora org is on GitHub Free: 2,000 Actions minutes a month for private repositories, each job
 #     billed rounded up to the minute. Measured 2026-09-27..10-04, this workflow used ~9,150 minutes
 #     in one week (~300 PR events, ~94 pushes to main), so no automatic per-PR subset fits; a full
@@ -188,11 +200,12 @@ jobs:
   changes:
     name: Detect changed areas
     # Private profile: nothing reads this job's outputs except jobs that are skipped anyway, so it
-    # runs only for a full run (a `full-ci` PR or workflow_dispatch). See "Repository visibility"
-    # above `jobs:` for this condition, which every job below repeats.
+    # runs only for a full run (a `full-ci` PR, workflow_dispatch or the weekly schedule). See
+    # "Repository visibility" above `jobs:` for this condition, which every job below repeats.
     if: >-
       (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'schedule' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
@@ -285,6 +298,13 @@ jobs:
       )
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # The file-level grant plus `actions: read`, which only the last step needs (to list the merged
+    # PR's CI runs and their jobs). A job-level block replaces the file-level one, so the two
+    # file-level grants are repeated here.
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
     steps:
       - uses: actions/checkout@v7
         with:
@@ -459,6 +479,19 @@ jobs:
       - name: Reporting period labels
         run: python3 scripts/check-reporting-period-labels.py
 
+      # Private profile only, on a push to main: did the merged PR get a full, passing CI run on its
+      # final commit before it merged? While private, nothing else tests a merge -- a PR's jobs are
+      # skipped unless it carries `full-ci`, main runs only this job, and Railway deploys main as
+      # soon as it lands. A forgotten label used to leave no trace; this step turns main's run red
+      # and GitHub notifies whoever merged. See scripts/check-merge-was-tested.py for exactly what
+      # counts as tested. Inside this job rather than its own so it costs no extra billed minute.
+      # `!cancelled()` so a failing hygiene step above does not hide it.
+      - name: Merged PR had a full CI run (private profile)
+        if: ${{ !cancelled() && github.event_name == 'push' && github.event.repository.private }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/check-merge-was-tested.py
+
   secret-scan:
     name: Secret scan (gitleaks)
     # Private profile: full runs only. gitleaks-nightly.yml scans main's full history every night in
@@ -468,6 +501,7 @@ jobs:
     if: >-
       (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'schedule' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
@@ -534,6 +568,7 @@ jobs:
         needs.changes.outputs.shared_config == 'true'
       ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'schedule' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
@@ -579,6 +614,7 @@ jobs:
         needs.changes.outputs.shared_config == 'true'
       ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'schedule' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
@@ -781,6 +817,7 @@ jobs:
           contains(github.event.pull_request.labels.*.name, 'full-ci'))
       ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'schedule' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
@@ -901,6 +938,7 @@ jobs:
         needs.changes.outputs.shared_config == 'true'
       ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'schedule' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
@@ -980,6 +1018,7 @@ jobs:
         needs.changes.outputs.shared_config == 'true'
       ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'schedule' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
@@ -1052,6 +1091,7 @@ jobs:
         needs.changes.outputs.shared_config == 'true'
       ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'schedule' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
@@ -1103,6 +1143,7 @@ jobs:
         needs.changes.outputs.shared_config == 'true'
       ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'schedule' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
@@ -1210,6 +1251,7 @@ jobs:
         needs.changes.outputs.shared_config == 'true'
       ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'schedule' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     # Each job below gets its own fresh, isolated GitHub-hosted VM, so unlike the old self-hosted
@@ -1564,6 +1606,7 @@ jobs:
         needs.changes.outputs.shared_config == 'true'
       ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'schedule' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
@@ -1705,6 +1748,7 @@ jobs:
         needs.changes.outputs.backend_image == 'true'
       ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'schedule' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest

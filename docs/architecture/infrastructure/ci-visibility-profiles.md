@@ -40,8 +40,8 @@ be increased", 2026-08-07). See [self-hosted-runner.md](self-hosted-runner.md).
 
 | Workflow / job | Public (full) | Private (lean) |
 |---|---|---|
-| `ci.yml` — Repository hygiene | every PR event and push | push to main, `full-ci` PRs, by hand |
-| `ci.yml` — every other job | as before | `full-ci` PRs and by hand only |
+| `ci.yml` — Repository hygiene | every PR event and push | push to main (plus the merge alarm, below), `full-ci` PRs, by hand, weekly |
+| `ci.yml` — every other job | as before, plus the weekly run | `full-ci` PRs, by hand, and the weekly run of main (Monday 04:30 UTC) |
 | `migration-order.yml` — both jobs | only when migrations (or the checker) change | same |
 | `codeql.yml` | as before | skipped (code scanning needs GitHub Code Security on private repos) |
 | `maestro-nightly.yml` | mobile merges, nightly | by hand only |
@@ -66,8 +66,9 @@ that file's header.
 | Migration re-check, main pushes that change migrations (22 that week) | ~100 |
 | Container image scan, nightly | ~80 |
 | Secret scan, nightly | ~30 |
-| **Baseline** | **~920** |
-| **Left for full runs** | **~1,080**: about 35–55 labelled PR runs at ~19–33 minutes each, or ~27 by-hand runs at ~40 |
+| Weekly full run of main (~40 minutes, 4–5 a month) | ~180 |
+| **Baseline** | **~1,100** |
+| **Left for full runs** | **~900**: about 27–47 labelled PR runs at ~19–33 minutes each, or ~22 by-hand runs at ~40 |
 
 A labelled PR run is an ordinary pull_request run, so it is path-filtered. Its ~19 minutes is the
 measured week's average, 5,737 job-minutes over 302 PR runs.
@@ -146,6 +147,24 @@ in the org's billing page early in any private spell.
 - **Main's ruleset isn't enforced.** On GitHub Free, rulesets (required checks, no force-push, no
   deletion) only apply to public repositories. Nothing blocks a merge with failing or missing
   checks.
+- **A merge that skipped the full run turns main red.** On every private push to main,
+  repo-hygiene's last step (`scripts/check-merge-was-tested.py`) looks up the merged PR. It
+  requires the latest `ci.yml` run on the PR's final commit to have finished `success` with
+  `Detect changed areas` actually run, which is the marker of a full run.
+  - It fails when:
+    - the PR had no full run (label forgotten, or a push after the full run);
+    - the last run failed, or was still going at merge time;
+    - no PR produced the commit at all (a direct push).
+  - The failure shows on main's CI run, and GitHub notifies whoever merged.
+  - The fix is to test main by hand (`gh workflow run ci.yml --ref main`) and repair anything it
+    finds.
+  - Checked on 2026-10-04 against real PRs before shipping: a fully tested merge (#2003) passed; a
+    lean-only PR (#2017), a failed-CI PR (#1880), a non-merge commit and an unknown PR all failed,
+    each with its own reason. The "still running at merge time" branch had no live example and has
+    not been exercised.
+- **Main gets a full run every week.** `ci.yml`'s schedule runs every job against main on Monday
+  at 04:30 UTC (10:00 IST). That catches two changes that each pass alone but break together, which
+  per-PR runs cannot see. A failure notifies the account that last changed the cron line.
 - **Keeping dev current takes two steps:** `gh workflow run ci.yml --ref main`, then once it
   passes, `gh workflow run sync-dev-branch.yml`.
 - **Secret and customer-PII scanning, while private:**

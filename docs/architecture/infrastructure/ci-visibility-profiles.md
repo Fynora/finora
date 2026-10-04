@@ -130,9 +130,14 @@ in the org's billing page early in any private spell.
   checks.
 - **Keeping dev current takes two steps:** `gh workflow run ci.yml --ref main`, then once it
   passes, `gh workflow run sync-dev-branch.yml`.
-- **Secret scanning moves to two places:** the nightly full-history gitleaks run and the local
-  `.husky/pre-commit` hook (when gitleaks is installed). GitHub's own secret-scanning push
-  protection is free only on public repositories.
+- **Secret and customer-PII scanning, while private:**
+  - On every local commit: `.husky/pre-commit` (gitleaks only where installed).
+  - On every push to main: repo-hygiene's PII scan.
+  - Every night: the full-history gitleaks run on main.
+  - On labelled PRs: both scans.
+  - Before flipping back to public: `scripts/check-branches-since.sh`, over every branch.
+
+  GitHub's own secret-scanning push protection is free only on public repositories.
 
 ## Checklist: before making the repository private
 
@@ -196,3 +201,8 @@ That matters because three checks read only their own push's `before..sha` range
 
 A cancelled run skips those checks for its commit for good. In the private profile, that PII scan
 on main is the only automatic one.
+
+The cost is speed, in both profiles. When several merges land close together, their main runs now
+run side by side instead of one after another. GitHub Free allows 20 concurrent jobs per account
+on standard hosted runners (GitHub's Actions limits reference), so during a burst of merges, PR
+runs can wait longer in the queue. Nothing is cancelled or skipped.

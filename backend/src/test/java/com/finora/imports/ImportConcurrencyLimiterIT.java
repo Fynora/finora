@@ -1,6 +1,8 @@
 package com.finora.imports;
 
 import com.finora.AbstractIntegrationTest;
+import eu.rekawek.toxiproxy.model.ToxicDirection;
+import eu.rekawek.toxiproxy.model.toxic.Latency;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -67,27 +69,26 @@ class ImportConcurrencyLimiterIT extends AbstractIntegrationTest {
         assertThat(limiter.acquireRedisLease()).isNotNull();
     }
 
-    /** The Redis clock (TIME, whole seconds) the acquire script itself scores and prunes against. */
-    private long redisNowSeconds() {
+    /** The Redis clock (TIME) the acquire script itself scores and prunes against, in microseconds. */
+    private long redisNowMicros() {
         return redisTemplate.execute((RedisCallback<Long>) connection ->
-                connection.serverCommands().time(TimeUnit.SECONDS));
+                connection.serverCommands().time(TimeUnit.MICROSECONDS));
     }
 
     /** Backdates an existing lease so it reads as acquired `ageSeconds` ago on the Redis clock --
      *  the deterministic stand-in for sleeping past (or short of) the safety TTL.
      *
-     *  Why not sleep: the acquire script scores leases with Redis TIME truncated to whole seconds
-     *  and prunes every score <= now - safetyTtlSeconds, so the earliest a later acquire can prune a
-     *  lease is anywhere from just over ttl - 1 to exactly ttl seconds after it was granted. With the 1-second TTL these tests used to run on, a lease acquired at
-     *  x.999 was pruned by an acquire at (x+1).000 -- measured: about 1 in 1,000 back-to-back
-     *  acquire pairs, with under a millisecond between them, every one straddling a second
-     *  boundary. That is how a "slot genuinely full right now" assertion failed under full-suite
-     *  load. A 300-second TTL with backdated scores keeps every lease the test means to be live
-     *  hundreds of seconds clear of that edge. */
-    private void ageLease(String leaseId, long ageSeconds) {
+     *  Why not sleep: these tests used a 1-second TTL and slept past it, which only works if the
+     *  calls around the sleep take well under a second. Worse, the acquire script then scored
+     *  leases in whole seconds, so a lease acquired at x.999 was pruned by an acquire at
+     *  (x+1).000 -- measured: about 1 in 1,000 back-to-back acquire pairs, under a millisecond
+     *  apart, every one straddling a second boundary. That is how a "slot genuinely full right
+     *  now" assertion failed under full-suite load. A 300-second TTL with backdated scores keeps
+     *  every lease the test means to be live hundreds of seconds clear of the edge. */
+    private void ageLease(String leaseId, double ageSeconds) {
         assertThat(redisTemplate.opsForZSet().score(LEASE_SET_KEY, leaseId))
                 .as("lease %s must exist before it is aged", leaseId).isNotNull();
-        redisTemplate.opsForZSet().add(LEASE_SET_KEY, leaseId, redisNowSeconds() - ageSeconds);
+        redisTemplate.opsForZSet().add(LEASE_SET_KEY, leaseId, redisNowMicros() / 1e6 - ageSeconds);
     }
 
     /** The precise failure this design closes, found tracing a shared-counter design during
@@ -121,6 +122,82 @@ class ImportConcurrencyLimiterIT extends AbstractIntegrationTest {
 
         limiter.releaseRedisLease(live);
         limiter.releaseRedisLease(third);
+    }
+
+    /** A lease's score is the Redis time it was granted, to the microsecond. It used to be TIME's
+     *  whole seconds, which is what let a lease be pruned up to a second before its TTL. */
+    @Test
+    void aLeaseIsScoredWithTheRedisTimeItWasGrantedToTheMicrosecond() {
+        ImportConcurrencyLimiter limiter = newLimiter(1);
+
+        long before = redisNowMicros();
+        String lease = limiter.acquireRedisLease();
+        long after = redisNowMicros();
+
+        assertThat(lease).isNotNull();
+        Double score = redisTemplate.opsForZSet().score(LEASE_SET_KEY, lease);
+        assertThat(score).isNotNull();
+        // A double holds these seconds to well under a microsecond; 1us either side covers rounding.
+        assertThat(Math.round(score * 1e6)).isBetween(before - 1, after + 1);
+        limiter.releaseRedisLease(lease);
+    }
+
+    /** The prune cut-off has the same precision: a lease one millisecond past its TTL is gone at the
+     *  next acquire. With the cut-off on whole seconds it survived unless the Redis clock happened
+     *  to be within the first millisecond of a second. */
+    @Test
+    void aLeaseOneMillisecondPastItsTtlIsPrunedByTheNextAcquire() {
+        ImportConcurrencyLimiter limiter = newLimiter(1); // 300s safety TTL
+        String leaked = limiter.acquireRedisLease();
+        assertThat(leaked).isNotNull();
+        ageLease(leaked, 300.001);
+
+        String next = limiter.acquireRedisLease();
+
+        assertThat(next).isNotNull();
+        assertThat(redisTemplate.opsForZSet().score(LEASE_SET_KEY, leaked)).isNull();
+        limiter.releaseRedisLease(next);
+    }
+
+    /** A reply that arrives after the client's timeout: the acquire script ran and wrote its
+     *  lease, but the caller saw an exception and fell back to the local semaphore. Nothing
+     *  released that lease, so it held a fleet-wide slot for the whole safety TTL and the next
+     *  import was refused with Redis perfectly healthy (measured before the fix). */
+    @Test
+    void anAcquireWhoseReplyArrivesAfterTheTimeoutLeavesNoLeaseBehind() throws Exception {
+        ImportConcurrencyLimiter limiter = newLimiter(1);
+        // Load the script into Redis's cache first. A cold cache answers the first EVALSHA with
+        // NOSCRIPT, so under the delay below the script would never run and the test would pass
+        // without the fix.
+        limiter.releaseRedisLease(limiter.acquireRedisLease());
+        assertThat(redisTemplate.opsForZSet().size(LEASE_SET_KEY)).isZero();
+
+        // Replies from Redis delayed past the test profile's 1000ms command timeout; requests are not.
+        Latency slowReplies = REDIS_PROXY.toxics().latency("slow-replies", ToxicDirection.DOWNSTREAM, 1_500);
+        String result;
+        try {
+            result = limiter.runGated(() -> "admitted via the local fallback");
+        } finally {
+            slowReplies.remove();
+        }
+
+        assertThat(result).isEqualTo("admitted via the local fallback");
+        // The delayed replies still in flight can hold this read past the timeout on a loaded
+        // machine, so it is retried for a few seconds. A leaked lease would stay for 300.
+        assertThat(leaseCountOnceRedisAnswers()).isZero();
+        assertThat(limiter.runGated(() -> "next")).isEqualTo("next");
+    }
+
+    private long leaseCountOnceRedisAnswers() throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (true) {
+            try {
+                return redisTemplate.opsForZSet().size(LEASE_SET_KEY);
+            } catch (org.springframework.dao.QueryTimeoutException e) {
+                if (System.nanoTime() > deadline) throw e;
+                Thread.sleep(100);
+            }
+        }
     }
 
     @Test

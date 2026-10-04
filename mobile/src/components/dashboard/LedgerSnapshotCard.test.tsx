@@ -7,10 +7,12 @@ const KPIS: KpiItem[] = [
   { label: 'Expenses', value: 12831, delta: -3.2, invert: true, caption: null, isPercent: false },
 ];
 
-function renderCard(kpis: KpiItem[] = KPIS) {
+function renderCard(kpis: KpiItem[] = KPIS, title = 'This Month') {
   return render(
     <ThemeProvider>
-      <LedgerSnapshotCard kpis={kpis} title="This Month" deltaLabel="vs last month" deltaSpokenLabel="versus last month" />
+      <LedgerSnapshotCard
+        kpis={kpis} title={title} deltaLabel="vs last month" deltaSpokenLabel="versus last month"
+      />
     </ThemeProvider>
   );
 }
@@ -21,6 +23,14 @@ describe('LedgerSnapshotCard', () => {
     expect(screen.getByText('Income')).toBeTruthy();
     expect(screen.getByText('Expenses')).toBeTruthy();
     expect(screen.getByTestId('kpi-Income')).toBeTruthy();
+  });
+
+  // The KPIs are the summary's reporting month -- routinely an earlier one for statements
+  // imported in arrears -- so the heading is whatever period the caller says they describe.
+  it('titles the card with the period it is given, not a hard-coded "This Month"', () => {
+    renderCard(KPIS, 'June 2026');
+    expect(screen.getByText('June 2026')).toBeTruthy();
+    expect(screen.queryByText('This Month')).toBeNull();
   });
 
   it('shows a delta for a KPI that has one', () => {

@@ -990,6 +990,13 @@ export interface InsightsData {
   coverageCaveat: CoverageCaveat | null;
   biggestCategory: CategoryHighlight | null;
   topMerchant: MerchantHighlight | null;
+  // The month every figure above describes: the requested month, or by default the newest month
+  // with a PURCHASE -- not necessarily DashboardSummary.reportingMonth (newest month with ANY
+  // data), so label these figures from this pair, never from the summary's. Null month (with
+  // IsCurrent true) when there is no spending. Optional: absent reads the same as null, i.e. no
+  // month to name, which is what every caller already gets for a response that predates it.
+  reportingMonth?: string | null;
+  reportingMonthIsCurrent?: boolean;
 }
 export type RecurringQuestionState = 'NEEDS_ANSWER' | 'ANSWERED' | 'AMOUNT_CHANGED' | 'NONE';
 export interface RecurringItem {

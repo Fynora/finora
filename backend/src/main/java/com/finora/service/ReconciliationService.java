@@ -36,19 +36,9 @@ public class ReconciliationService {
     private static final long REFUND_WINDOW_DAYS = ReconciliationPolicy.REFUND_WINDOW_DAYS;
 
     // Keyword signal for "this INCOME row is a refund," independent of merchant matching -- see
-    // the refund pass below. Deliberately not folded into CategoryRules (util package): that
-    // table drives the CATEGORY suggestion ("Fees/Interest", "Transfer", ...), this drives
-    // RECONCILIATION status, a different concern evaluated at a different point in the pipeline.
-    //
-    // "reversal" used to live in this set. Split out below (Phase 1 of the reconciliation
-    // roadmap, docs/proposals/reconciliation-evolution-roadmap-proposal.md) because a bank-side
-    // reversal ("this payment bounced") and a merchant refund ("this order was returned") are
-    // different real-world events that were producing an identical REFUND verdict -- the pass's
-    // matching mechanism (same account, refund window, capacity tracking) is unchanged, only the
-    // final classification now distinguishes them.
-    private static final Set<String> REFUND_KEYWORDS = Set.of(
-            "refund", "returned", "chargeback", "credit adjustment", "cancelled", "canceled");
-    private static final Set<String> REVERSAL_KEYWORDS = Set.of("reversal", "payment reversed");
+    // the refund pass below. A different concern from the CATEGORY suggestion (CategoryRules'
+    // table): this drives RECONCILIATION status. The words live in MoneyBackWords, which
+    // FlowClassifier and BankActivityCategory read as well.
 
     /**
      * The order every pass walks its rows in (see {@link #candidateOrder}): by date (the windowed
@@ -915,7 +905,12 @@ public class ReconciliationService {
             // share of a bill, and stays income (product decision, 2026-09-27). UNKNOWN is not an
             // organisation either: on the corpus, a friend paying through a wallet handle reads
             // UNKNOWN, and so name-only matching counted it as a refund of the payment to them.
-            boolean nameCanShowARefund = isFromAnOrganisation(income);
+            // Nor is interest the bank credited: it is earned, never money back for a purchase, and
+            // every interest credit carries the one label "interest" -- the same label a debit
+            // narrated just "INTEREST" reduces to, so a name match there would read the credit as
+            // that debit's refund.
+            boolean nameCanShowARefund = isFromAnOrganisation(income)
+                    && !com.finora.util.BankActivityCategory.isInterestEarned(income.getDescription(), income.getTxnType());
             Transaction bestMatch = null;
             boolean bestMatchSameMerchant = false;
             String bestMatchSharedReference = null;
@@ -2403,22 +2398,14 @@ public class ReconciliationService {
     }
 
     /** Package-visible and static so {@link FlowClassifier} reads the exact same refund vocabulary
-     *  this pass matches on -- one word list, not two that can drift. */
+     *  this pass matches on -- one word list (MoneyBackWords), not two that can drift. */
     static boolean looksLikeRefund(String description) {
-        String normalized = CategoryRules.normalize(description);
-        return REFUND_KEYWORDS.stream().anyMatch(normalized::contains)
-                || WRAPPED_REFUND.matcher(normalized).find();
+        return com.finora.util.MoneyBackWords.looksLikeRefund(description);
     }
-
-    /** "refund" split by a wrapped line ("R EFUND", "REFU ND"), starting at a word. Not the word with
-     *  every space removed: that also matched fund names ("INFRASTRUCTURE FUND" -> "...urefund"). */
-    private static final java.util.regex.Pattern WRAPPED_REFUND =
-            java.util.regex.Pattern.compile("(^| )r ?e ?f ?u ?n ?d");
 
     /** See {@link #looksLikeRefund}. */
     static boolean looksLikeReversal(String description) {
-        String normalized = CategoryRules.normalize(description);
-        return REVERSAL_KEYWORDS.stream().anyMatch(normalized::contains);
+        return com.finora.util.MoneyBackWords.looksLikeReversal(description);
     }
 
     /** Exact-amount matches always outrank partial-amount matches; among equally-good matches,

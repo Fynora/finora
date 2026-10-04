@@ -24,6 +24,25 @@ function fmt(n: number) {
 // "this mover gets a badge" and "this mover gets a sentence" agree on what counts as significant.
 const MOVER_SIGNIFICANCE_THRESHOLD_PCT = 15;
 
+/** "2026-06" -> "June 2026" -- same construction as Reports.tsx's own monthLabel. */
+function monthLabelLong(monthStr: string) {
+  const [y, m] = monthStr.split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
+/**
+ * "this month" / "in June 2026" for the month an insights response describes. Statements are
+ * imported in arrears, so InsightsService's month (newest with a purchase) is routinely not the
+ * current one; the response says which it is. No month means nothing to report on, which reads as
+ * current (ReportingPeriod's no-data rule); a month without an explicit reportingMonthIsCurrent is
+ * named rather than assumed current.
+ */
+function insightsPeriodPhrase(data: InsightsData | null | undefined) {
+  const reportingMonth = data?.reportingMonth ?? null;
+  const reportingMonthIsCurrent = !reportingMonth || data?.reportingMonthIsCurrent === true;
+  return reportingMonthIsCurrent ? 'this month' : `in ${monthLabelLong(reportingMonth!)}`;
+}
+
 /** Matches the observation blocks' real shape: full-width padded boxes, not text lines. */
 function ObservationsSkeleton() {
   return (
@@ -228,7 +247,8 @@ export default function Insights() {
           // Region outside the delayed gate, shapes inside -- the accessible label announces
           // immediately while only the visual shape waits out the anti-flash window
           // (ChartContainer.tsx is the reference implementation of this contract).
-          <Skeleton.Region label="Loading this month's observations">
+          // No month in the label: which month these describe is only known once they arrive.
+          <Skeleton.Region label="Loading your observations">
             {showInsightsSkeleton && <ObservationsSkeleton />}
           </Skeleton.Region>
         ) : insightsFailed ? (
@@ -274,7 +294,7 @@ export default function Insights() {
               <div className="flex items-center gap-3 border-l-4 border-border bg-black/[0.02] rounded p-3">
                 <CategoryIcon icon={Trophy} color={COLOR_HEX.gray} />
                 <p className="text-sm leading-relaxed">
-                  Your top merchant this month was{' '}
+                  Your top merchant {insightsPeriodPhrase(data)} was{' '}
                   <span className="font-semibold">"{data!.topMerchant.name}"</span> at{' '}
                   <span className="font-semibold">{fmt(data!.topMerchant.amount)}</span>.
                 </p>

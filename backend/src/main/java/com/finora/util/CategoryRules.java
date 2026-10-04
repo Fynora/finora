@@ -75,7 +75,7 @@ public final class CategoryRules {
         // a name, so it typed PERSON and fell to "Personal Transfer" on 7 corpus rows across 4
         // documents and 2 accounts, in both the HDFC and the slash UPI layout. The whole phrase, as
         // with the other brands here -- a bare "tea" names a drink, not a business.
-        RULES.put("Dining", List.of("swiggy", "zomato", "restaurant", "cafe", "starbucks", "dominos", "mcdonald", "kfc", "cinnabon", "gokhana", "tobox", "chinese factory", "cream house", "lassi wassi", "tea post"));
+        RULES.put("Dining", List.of("swiggy", "zomato", "eatclub", "restaurant", "cafe", "starbucks", "dominos", "mcdonald", "kfc", "cinnabon", "gokhana", "tobox", "chinese factory", "cream house", "lassi wassi", "tea post"));
         // "indian railways" (the national railway institution, named directly rather than
         // through its "irctc" booking portal already above) added after re-checking this
         // project's own real bank-statement corpus for additional vocabulary beyond the
@@ -303,6 +303,41 @@ public final class CategoryRules {
         return null;
     }
 
+    /** The label {@link #extractMerchantLabel(String, com.finora.entity.Transaction.Type)} gives every interest
+     *  credit. The web and mobile MerchantLogo components hold a copy, so they never look it up on Logo.dev. */
+    public static final String INTEREST_LABEL = "interest";
+
+    /**
+     * {@link #extractMerchantLabel(String)} for a row whose direction is known -- the label stored on
+     * Transaction.merchant. The one difference: interest the bank credited
+     * ({@link BankActivityCategory#isInterestEarned}) is labelled {@link #INTEREST_LABEL}, unless the
+     * narration names who paid it.
+     *
+     * <p>The narration of an interest credit carries the date it was earned for, and only
+     * references of four digits or more are stripped, so the day survived into the label: a bank
+     * that credits interest daily gave every row a label of its own, and a quarterly credit's label
+     * named the quarter's last day. Measured on the real corpus (2026-10-04): 9 interest credits
+     * across 8 statements carried 5 different labels, and one had lost the word "interest"
+     * altogether (only the first four words of a narration are kept).
+     *
+     * <p>A structured narration whose payee field names someone ("NEFT CR-&lt;IFSC&gt;-&lt;LENDER&gt;-INTEREST
+     * PAID") keeps that name: interest from a lender or another bank's deposit is told apart from
+     * the account's own by who paid it, and the name carries no date. A payee field that is itself
+     * the interest phrase names nobody, and gets the one label.
+     *
+     * <p>Money in only: a debit worded the same way keeps the label it always had. Refund matching
+     * pairs a credit with a debit on the same account by this label, so ReconciliationService
+     * never takes a name match on an interest credit as evidence -- a debit narrated just
+     * "INTEREST" reduces to the same label.
+     */
+    public static String extractMerchantLabel(String desc, com.finora.entity.Transaction.Type direction) {
+        if (BankActivityCategory.isInterestEarned(desc, direction)) {
+            String payee = structuredPayee(desc);
+            if (payee == null || BankActivityCategory.namesInterest(payee)) return INTEREST_LABEL;
+        }
+        return extractMerchantLabel(desc);
+    }
+
     /**
      * The payee field of a structured narration, or null when the narration is not structured or
      * its payee field names nobody. The same field {@link #extractMerchantLabel} shows; it is also
@@ -335,6 +370,12 @@ public final class CategoryRules {
     /** An IFSC, matched from the start of a field with its spaces removed: a line wrap can split it
      *  ("U TIB0...", "IOB A0001 ...") and an account number can follow it. */
     private static final Pattern IFSC_FIELD = Pattern.compile("(?i)^[a-z]{4}0[a-z0-9]{6}");
+    /** A field that is only the money's direction, spelt out: the real slice small finance bank
+     *  layout, "UPI-Debit-REF-NAME-IFSC-HANDLE-NOTE" (and "UPI-Credit-..."). Read as a name, it
+     *  labelled every UPI row on that statement "debit" or "credit". Only the WHOLE field: a payee
+     *  whose name merely starts with one of these words keeps it. Measured on the corpus: the slice
+     *  statement is the only one printing either word as a field of its own. */
+    private static final Pattern DIRECTION_FIELD = Pattern.compile("(?i)debit|credit");
     /** A code mixing letters and digits with no space in it: a transaction or merchant ID. */
     private static final Pattern CODE_FIELD = Pattern.compile("^(?=.*\\d)(?=.*[A-Za-z])\\S{6,}$");
 
@@ -357,6 +398,7 @@ public final class CategoryRules {
         for (int i = 1; i < fields.length; i++) {
             String field = fields[i].trim();
             if (field.isEmpty()) continue;
+            if (DIRECTION_FIELD.matcher(field).matches()) continue;
             if (field.contains("@")) {
                 // The payee is printed before the handle in almost every corpus layout; what follows
                 // is a note, a bank or an IFSC, often cut off or split by a line wrap ("UP", "IOB

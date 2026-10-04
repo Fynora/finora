@@ -1,5 +1,6 @@
 package com.finora.util;
 
+import com.finora.entity.Transaction;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -67,6 +68,72 @@ class CategoryRulesTest {
         // rail word -- extractMerchantLabel must not treat it as "nothing survived" and null it
         // out a second time.
         assertThat(CategoryRules.extractMerchantLabel("")).isEqualTo("unknown");
+    }
+
+    /** The narration carries the date the interest was earned for; the label must not. */
+    @Test
+    void extractMerchantLabel_givesEveryInterestCreditOneLabel_whateverDayItIsFor() {
+        // Without a direction, the day survives -- what every interest credit used to be labelled.
+        assertThat(CategoryRules.extractMerchantLabel("Interest Cr. for 03-Jan-2026")).isEqualTo("interest cr for 03");
+        assertThat(CategoryRules.extractMerchantLabel("Interest Cr. for 03-Jan-2026", Transaction.Type.INCOME))
+                .isEqualTo(CategoryRules.INTEREST_LABEL);
+        assertThat(CategoryRules.extractMerchantLabel("Interest Cr. for 04-Jan-2026", Transaction.Type.INCOME))
+                .isEqualTo("interest");
+        assertThat(CategoryRules.extractMerchantLabel("INTEREST PAID TILL 31-MAR-2026", Transaction.Type.INCOME))
+                .isEqualTo("interest");
+        assertThat(CategoryRules.extractMerchantLabel("Int.Pd:01-05-2026 to 31-07-2026: 000000000000000",
+                Transaction.Type.INCOME)).isEqualTo("interest");
+        assertThat(CategoryRules.extractMerchantLabel("INTEREST CREDITED 30-06-2026", Transaction.Type.INCOME))
+                .isEqualTo("interest");
+        assertThat(CategoryRules.extractMerchantLabel("FD INTEREST 0000000000", Transaction.Type.INCOME))
+                .isEqualTo("interest");
+        // Only the first four words are kept, which dropped "interest" from this one.
+        assertThat(CategoryRules.extractMerchantLabel("SAVING A/C CREDIT INTEREST", Transaction.Type.INCOME))
+                .isEqualTo("interest");
+    }
+
+    /** Interest from a named lender or another bank is told apart by who paid it, not by the word "interest". */
+    @Test
+    void extractMerchantLabel_keepsThePayersName_whenTheNarrationNamesOne() {
+        assertThat(CategoryRules.extractMerchantLabel("NEFT CR-YESB0000000-SAMPLE FINANCE LTD-INTEREST PAID",
+                Transaction.Type.INCOME)).isEqualTo("sample finance ltd");
+        assertThat(CategoryRules.extractMerchantLabel("UPI/CR/000000000000/SAMPLE CAPITAL/samplecap@ybl/interest paid",
+                Transaction.Type.INCOME)).isEqualTo("sample capital");
+        // A payee field that is the interest phrase itself names nobody.
+        assertThat(CategoryRules.extractMerchantLabel("MMT/IMPS/000000000000/INTEREST PAID/SAMPLE NBFC",
+                Transaction.Type.INCOME)).isEqualTo("interest");
+        // A payee field with no name in it (a phone-number UPI id) names nobody either.
+        assertThat(CategoryRules.extractMerchantLabel("UPI/CR/000000000000/0000000000@ybl/interest paid",
+                Transaction.Type.INCOME)).isEqualTo("interest");
+    }
+
+    /** Interest charged and then refunded or reversed is money coming back, not interest earned. */
+    @Test
+    void extractMerchantLabel_aRefundOrReversalOfInterest_keepsItsOwnLabel() {
+        for (String description : new String[]{"INTEREST CR REVERSAL", "INTEREST REFUND CR", "INT CR REVERS"}) {
+            assertThat(CategoryRules.extractMerchantLabel(description, Transaction.Type.INCOME))
+                    .as(description).isEqualTo(CategoryRules.extractMerchantLabel(description));
+        }
+    }
+
+    /** A debit keeps its own label, so refund matching never reads an interest credit as its refund. */
+    @Test
+    void extractMerchantLabel_leavesEveryOtherRowAsTheDirectionlessLabelHasIt() {
+        for (String description : new String[]{"Interest Cr. for 03-Jan-2026", "INTEREST ON EMI",
+                "EMI INTEREST - 1/6, REF# 00000000", "CASHBACK EARNED", "UPI-SUNIL VERMA-REF9182736",
+                "SAMPLE STORE 2ND OF 3 INSTALLMENTS INTEREST", "UPI-REF9182736", ""}) {
+            assertThat(CategoryRules.extractMerchantLabel(description, Transaction.Type.EXPENSE))
+                    .as(description).isEqualTo(CategoryRules.extractMerchantLabel(description));
+            assertThat(CategoryRules.extractMerchantLabel(description, null))
+                    .as(description).isEqualTo(CategoryRules.extractMerchantLabel(description));
+        }
+        for (String description : new String[]{"CASHBACK EARNED", "UPI-SUNIL VERMA-REF9182736",
+                "SAMPLE STORE 2ND OF 3 INSTALLMENTS INTEREST", "UPI-AMIT KUMAR-amitkumar@okaxis-HDFC0000000-000000000000-INTEREST PAID"}) {
+            assertThat(CategoryRules.extractMerchantLabel(description, Transaction.Type.INCOME))
+                    .as(description).isEqualTo(CategoryRules.extractMerchantLabel(description));
+        }
+        assertThat(CategoryRules.extractMerchantLabel(null, Transaction.Type.INCOME))
+                .isEqualTo(CategoryRules.extractMerchantLabel(null));
     }
 
     @Test

@@ -592,7 +592,7 @@ export function DashboardScreen() {
         showCashFlowMini ? (
           <View style={styles.cardRow}>
             <View style={styles.cardRowItem}>
-              <CashFlowMiniCard points={cashFlowPoints} deltaPct={summary.netDeltaPct} />
+              <CashFlowMiniCard points={cashFlowPoints} deltaPct={summary.netDeltaPct} deltaLabel={deltaLabel} />
             </View>
             <View style={styles.cardRowItem}>
               <AccountsCard

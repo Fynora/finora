@@ -2167,6 +2167,62 @@ describe('Import — queued imports', () => {
       expect(screen.queryByTestId('password-not-kept')).not.toBeInTheDocument();
     });
 
+    function unreadStatement(looksLikeAStatement: boolean) {
+      return {
+        response: {
+          data: {
+            errorCode: 'IMPORT_007', message: 'server copy',
+            details: { looksLikeAStatement, recoveredLines: 2, transactionShapedLines: 2 },
+          },
+        },
+      };
+    }
+
+    it('offers to send a statement it could not read for review, keeping the password', async () => {
+      vi.mocked(importApi.stagePdf).mockReset().mockRejectedValue(unreadStatement(true));
+      vi.mocked(importJobsApi.submit).mockReset().mockResolvedValue({
+        jobId: 'job-1', statusUrl: '/api/v1/import/jobs/job-1', passwordSaved: true,
+      });
+      const user = userEvent.setup();
+      renderImport();
+      await waitFor(() => expect(importJobsApi.availability).toHaveBeenCalled());
+
+      await pickAndUploadPdf(user, pdfFile(), 'SYNTH1234');
+
+      expect(await screen.findByTestId('unread-layout-review-offer')).toBeInTheDocument();
+      // Not the "double-check this is your statement" copy: the file is not the problem.
+      expect(screen.queryByText(/double-check/)).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: /keep password and send for review/i }));
+      await waitFor(() => expect(importJobsApi.submit).toHaveBeenCalledTimes(1));
+      expect(vi.mocked(importJobsApi.submit).mock.calls[0][2]).toEqual({ password: 'SYNTH1234' });
+    });
+
+    it('keeps the usual message for a file that does not look like a statement', async () => {
+      vi.mocked(importApi.stagePdf).mockReset().mockRejectedValue(unreadStatement(false));
+      const user = userEvent.setup();
+      renderImport();
+      await waitFor(() => expect(importJobsApi.availability).toHaveBeenCalled());
+
+      await pickAndUploadPdf(user, pdfFile(), 'SYNTH1234');
+
+      expect(await screen.findByText(/double-check/)).toBeInTheDocument();
+      expect(screen.queryByTestId('unread-layout-review-offer')).not.toBeInTheDocument();
+    });
+
+    it('says what happened, without the offer, where passwords cannot be kept', async () => {
+      vi.mocked(importJobsApi.availability).mockReset().mockResolvedValue({ asyncImportAvailable: true });
+      vi.mocked(importApi.stagePdf).mockReset().mockRejectedValue(unreadStatement(true));
+      const user = userEvent.setup();
+      renderImport();
+      await waitFor(() => expect(importJobsApi.availability).toHaveBeenCalled());
+
+      await pickAndUploadPdf(user, pdfFile(), 'SYNTH1234');
+
+      expect(await screen.findByText(/hasn't learned yet, so its transactions weren't imported/)).toBeInTheDocument();
+      expect(screen.queryByTestId('unread-layout-review-offer')).not.toBeInTheDocument();
+    });
+
     it('does not offer to keep it where the server cannot', async () => {
       vi.mocked(importJobsApi.availability).mockReset().mockResolvedValue({ asyncImportAvailable: true });
       const user = userEvent.setup();

@@ -39,13 +39,19 @@ public final class BankActivityCategory {
     // every non-alphanumeric into a space ("Int.Pd:01-05" reads "int pd 01 05").
     // A change here that can move a row off "Other" or "Personal Transfer": raise
     // CategorizationService.SUGGESTION_VERSION so rows already waiting are re-checked.
-    private static final Pattern EARNED = words(
-            "cashback", "cash back",
-            // The bank's own interest credit, in each spelling measured. Never a bare "interest":
-            // a card's instalment-plan credit reads "... INSTALLMENTS INTEREST" and is not interest
-            // the bank paid you.
-            "interest paid", "credit interest", "interest credit", "int pd", "sb int", "int cr", "intcr",
-            "savings interest");
+    private static final Pattern CASHBACK = words("cashback", "cash back");
+    // The bank's own interest credit, in each spelling measured. Never a bare "interest": a card's
+    // instalment-plan credit reads "... INSTALLMENTS INTEREST" and is not interest the bank paid
+    // you. "interest cr": a small finance bank credits interest daily as "Interest Cr. for <date>",
+    // which none of the other spellings matched, so every one of those rows was "Other" (2026-10-04).
+    // "interest credited", "fd interest", "int credit", "interest payment": spellings no corpus
+    // statement prints, added on Sid's decision (2026-10-04) because FlowClassifier already counts a
+    // non-card credit carrying them as interest income, so the category and the label disagreed
+    // with it. V254 relabelled stored rows with the list as it stood then; V255 queued the rows these
+    // four add.
+    private static final Pattern INTEREST_EARNED = words(
+            "interest paid", "credit interest", "interest credit", "interest credited", "interest cr", "int pd",
+            "sb int", "int cr", "int credit", "intcr", "savings interest", "fd interest", "interest payment");
     private static final Pattern CARD_BILL_RECEIVED = words("bbps");
     private static final Pattern CHARGED = words(
             "sms charges", "sms charge", "sms chrg", "sms alert", "emi interest", "interest on emi");
@@ -65,7 +71,9 @@ public final class BankActivityCategory {
         if (counterparty == CounterpartyType.PERSON) return Optional.empty();
         String text = CategoryRules.normalize(description);
         if (direction == Transaction.Type.INCOME) {
-            if (EARNED.matcher(text).find()) return Optional.of(INTEREST_AND_CASHBACK);
+            if (namesInterestEarned(text, description) || CASHBACK.matcher(text).find()) {
+                return Optional.of(INTEREST_AND_CASHBACK);
+            }
             if (CARD_BILL_RECEIVED.matcher(text).find()) return Optional.of("Transfer");
             return Optional.empty();
         }
@@ -76,6 +84,31 @@ public final class BankActivityCategory {
         if (GST.matcher(text).find()) return Optional.of("Taxes");
         if (counterparty == CounterpartyType.GOVERNMENT) return Optional.of("Taxes");
         return Optional.empty();
+    }
+
+    /**
+     * Whether the row is interest the bank credited to you: money in, worded as one of the bank's
+     * own interest credits, not a refund or reversal, and not from a person. These are the interest
+     * rows {@link #of} files under {@link #INTEREST_AND_CASHBACK}.
+     */
+    public static boolean isInterestEarned(String description, Transaction.Type direction) {
+        if (description == null || description.isBlank() || direction != Transaction.Type.INCOME) return false;
+        if (CounterpartyTyping.of(description).type() == CounterpartyType.PERSON) return false;
+        return namesInterestEarned(CategoryRules.normalize(description), description);
+    }
+
+    /** Whether {@code text} -- a narration, or a field of one -- reads as one of the bank's interest credits. */
+    static boolean namesInterest(String text) {
+        return text != null && INTEREST_EARNED.matcher(CategoryRules.normalize(text)).find();
+    }
+
+    /**
+     * An interest phrase, and no refund or reversal word: interest charged and then refunded or
+     * reversed ("INTEREST CR REVERSAL") is money coming back, which FlowClassifier already reads
+     * ahead of interest -- it is not interest earned.
+     */
+    private static boolean namesInterestEarned(String normalized, String description) {
+        return INTEREST_EARNED.matcher(normalized).find() && !MoneyBackWords.readsAsMoneyBack(description);
     }
 
     /** Phrases are lowercase letters, digits and single spaces -- the alphabet normalize() leaves. */

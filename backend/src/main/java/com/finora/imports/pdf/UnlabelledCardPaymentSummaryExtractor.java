@@ -114,6 +114,9 @@ public final class UnlabelledCardPaymentSummaryExtractor {
             List<PositionedText> row = rows.get(j);
             if (!onPageAbove(row, anchor, MAX_GAP_TO_PERIOD_ROW)) return null;
             LocalDate periodEnd = periodEndIn(row, anchor);
+            // The period row found, its end impossible: without the end there is no due date to
+            // check against it, and a "<date> To" row further up is not this box's period.
+            if (periodEnd == null && impossiblePeriodEndIn(row, anchor)) return null;
             if (periodEnd == null) continue;
             // The nearest row above with anything on the instruction line's side: on the real page
             // the cardholder's name, on the left, sits between the due-date row and this one.
@@ -155,6 +158,17 @@ public final class UnlabelledCardPaymentSummaryExtractor {
             return parseDate(end.group(1));
         }
         return null;
+    }
+
+    /** The row {@link #periodEndIn} reads, with an end that is a date but not a real one. */
+    private static boolean impossiblePeriodEndIn(List<PositionedText> row, PositionedText anchor) {
+        List<PositionedText> side = onAnchorsSide(row, anchor);
+        for (int k = 0; k + 1 < side.size(); k++) {
+            if (!PERIOD_START.matcher(side.get(k).text().trim()).matches()) continue;
+            Matcher end = BARE_DATE.matcher(side.get(k + 1).text().trim());
+            return end.matches() && parseDate(end.group(1)) == null && looksLikeADate(end.group(1));
+        }
+        return false;
     }
 
     /** Exactly one date and one amount on the instruction line's side, the date over the
@@ -228,6 +242,16 @@ public final class UnlabelledCardPaymentSummaryExtractor {
             return LocalDate.parse(raw.trim().replaceAll("\\s+", " "), DATE_FORMAT);
         } catch (Exception ignored) {
             return null;
+        }
+    }
+
+    /** What DATE_FORMAT parsed before it went STRICT: a date, real or not. */
+    private static boolean looksLikeADate(String raw) {
+        try {
+            LocalDate.parse(raw.trim().replaceAll("\\s+", " "), DATE_FORMAT.withResolverStyle(ResolverStyle.SMART));
+            return true;
+        } catch (Exception ignored) {
+            return false;
         }
     }
 }

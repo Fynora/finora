@@ -79,6 +79,18 @@ public final class PaymentDueDateGridExtractor {
                     .toFormatter(Locale.ENGLISH).withResolverStyle(ResolverStyle.STRICT),
     };
 
+    /** The same three patterns read loosely -- proleptic year, SMART -- so year 0, a signed year and
+     *  an impossible day all still count as a date: the test for a value that IS the due date,
+     *  just not readable. See {@link #valueBelow}. */
+    private static final DateTimeFormatter[] DATE_SHAPES = {
+            new DateTimeFormatterBuilder().appendPattern("dd/MM/uuuu")
+                    .toFormatter(Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
+            new DateTimeFormatterBuilder().parseCaseInsensitive().appendPattern("d MMM uuuu")
+                    .toFormatter(Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
+            new DateTimeFormatterBuilder().parseCaseInsensitive().appendPattern("d MMM, uuuu")
+                    .toFormatter(Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
+    };
+
     public static LocalDate extract(List<PositionedText> runs) {
         return extract(runs, null);
     }
@@ -123,8 +135,11 @@ public final class PaymentDueDateGridExtractor {
             if (first.y() - label.y() > MAX_ROW_GAP) break;
             PositionedText value = StatementSummaryExtractor.valueUnder(label, candidateRow);
             if (value == null) continue;
-            LocalDate date = parseDate(value.text());
+            LocalDate date = parseDate(value.text(), DATE_FORMATS);
             if (date != null) return date;
+            // A date under the label that is not a real one is the due date, unreadable -- not a
+            // reason to take the next date down the column instead.
+            if (parseDate(value.text(), DATE_SHAPES) != null) return null;
         }
         return null;
     }
@@ -137,8 +152,12 @@ public final class PaymentDueDateGridExtractor {
     }
 
     private static LocalDate parseDate(String raw) {
+        return parseDate(raw, DATE_FORMATS);
+    }
+
+    private static LocalDate parseDate(String raw, DateTimeFormatter[] formats) {
         String text = raw.trim().replaceAll("\\s+", " ");
-        for (DateTimeFormatter format : DATE_FORMATS) {
+        for (DateTimeFormatter format : formats) {
             try {
                 return LocalDate.parse(text, format);
             } catch (Exception ignored) {

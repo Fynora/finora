@@ -456,6 +456,25 @@ class TransactionServiceTest {
         verify(recurringService).detectForUser(userId);
     }
 
+    @Test
+    void create_labelsAnInterestCredit_withoutTheDayItWasEarnedFor() {
+        when(categorizationService.suggest(eq(userId), anyString(), any(), any(), any()))
+                .thenReturn(new CategorizationService.Suggestion("Interest & Cashback", "rule", UUID.randomUUID(),
+                        Transaction.DecisionSource.KEYWORD_MATCH, null));
+        when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Interest & Cashback"))).thenReturn(dummyCategory);
+
+        transactionService.create(userId, new TransactionDto.CreateRequest(UUID.randomUUID(), null, LocalDate.now(),
+                "Interest Cr. for 03-Jan-2026", BigDecimal.valueOf(12), "INCOME", List.of()));
+        transactionService.create(userId, new TransactionDto.CreateRequest(UUID.randomUUID(), null, LocalDate.now(),
+                "Interest Cr. for 03-Jan-2026", BigDecimal.valueOf(12), "EXPENSE", List.of()));
+
+        ArgumentCaptor<Transaction> captor = ArgumentCaptor.forClass(Transaction.class);
+        verify(transactionRepository, times(2)).save(captor.capture());
+        assertThat(captor.getAllValues()).extracting(Transaction::getMerchant)
+                .as("money in is the bank's interest; money out keeps the narration's own label")
+                .containsExactly("interest", "interest cr for 03");
+    }
+
     private User userWithPhone(boolean phoneVerified) {
         User user = new User();
         ReflectionTestUtils.setField(user, "id", userId);

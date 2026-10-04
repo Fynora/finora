@@ -529,7 +529,16 @@ public class PdfPreviewGenerator {
         // A category a statement prints is the bank's own label, so it is only kept when it names
         // one of the user's categories -- see the normalize overload that takes this.
         Map<String, String> existingCategoryNames = transactionNormalizer.categoryNamesFor(userId);
-        List<Map<String, String>> sectionRows = section.rows();
+        // A single AMOUNT column that carries its own sign has its credits marked here -- see
+        // SignedAmountColumn for the running-balance evidence that decides it. Only accounts whose
+        // balance is money HELD (savings, current, wallet): a card's running OUTSTANDING balance also
+        // reconciles with purchases printed positive and refunds negative, the opposite meaning, and
+        // the numbers alone cannot tell the two apart. An overdraft's balance can be an amount owed
+        // in the same way, so it is left out too, as is a card or a section not yet classified.
+        boolean ledgerAccount = product != null && (product.type() == FinancialProductType.SAVINGS
+                || product.type() == FinancialProductType.CURRENT || product.type() == FinancialProductType.WALLET);
+        List<Map<String, String>> sectionRows = ledgerAccount
+                ? SignedAmountColumn.markCredits(section.rows(), ctx) : section.rows();
         // Checked once, up front, against the RAW located rows -- before the loop below decides
         // what any of them mean transactionally. A row can state the statement's own zero-activity
         // claim and still fail every classification below (see ExplicitZeroActivityDetector's own

@@ -214,4 +214,23 @@ class BankRegistryTest {
         assertThat(bank.officialName()).isEqualTo("Indian Overseas Bank");
         assertThat(bank.ifscPrefix()).isEqualTo("IOBA");
     }
+
+    @Test
+    void aSliceStatement_isNamedByItsOwnLabelledIfsc_notByAnAxisCodeInANarration() {
+        BankRegistry.BankInfo bank = BankRegistry.detect("statement.pdf", List.of(
+                "Email sample@example.com IFSC NESF0XXXXXX",
+                "UPI-Debit-000000000001-Amazon India-UTIB0XXXXXX-amazonupi@apl"));
+
+        assertThat(bank.id()).isEqualTo("SLICE");
+        assertThat(bank.ifscPrefix()).isEqualTo("NESF");
+    }
+
+    @Test
+    void aSliceNamedUpiHandleOnAnotherBanksStatement_doesNotNameItSlice() {
+        // "…/NESF/sliceaddmoney@…" handles appear in other banks' narrations: no bare "slice" alias.
+        BankRegistry.BankInfo bank = BankRegistry.detect("statement.pdf", List.of(
+                "UPIAR/000000000001/DR/slice sm/NESF/sliceaddmoney@"));
+
+        assertThat(bank.id()).isNotEqualTo("SLICE");
+    }
 }

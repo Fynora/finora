@@ -85,6 +85,15 @@ REPO_ROOT = os.path.join(SCRIPT_DIR, "..")
 DASHBOARD_SCREENS = [
     "frontend/src/pages/Dashboard.tsx",
     "mobile/src/screens/DashboardScreen.tsx",
+    # Insights render two server-chosen periods: the dashboard summary's (mobile's banner, glance
+    # card, donut and income card) and the insights endpoint's own (newest month with a PURCHASE,
+    # or the month picked on mobile's Spending tab) -- InsightsDto carries the same
+    # reportingMonth/reportingMonthIsCurrent pair for exactly this. Mobile's screen headed both
+    # with a hard-coded "This Month" until it was added here.
+    "frontend/src/pages/Insights.tsx",
+    "mobile/src/screens/InsightsScreen.tsx",
+    # Ledger's month card renders the same summary KPIs through useDashboardKpis.
+    "mobile/src/screens/LedgerScreen.tsx",
 ]
 
 # mobile/src/screens/DashboardScreen.tsx no longer reads reportingMonth/reportingMonthIsCurrent
@@ -94,8 +103,19 @@ DASHBOARD_SCREENS = [
 # REQUIRED_FIELDS is satisfied if either the screen or its companion hook file contains them: the
 # claim this check protects ("the client actually reads the field before labelling a period") is
 # still true, it just now lives one hop away through an explicit, typed import rather than inline.
+#
+# DashboardScreen also renders summary figures through components that took a hard-coded "This
+# Month" heading, "vs last month" delta and "this month" health pill until they were given the
+# period as a prop; they are scanned as companions so a literal cannot creep back into them.
 COMPANION_FILES = {
-    "mobile/src/screens/DashboardScreen.tsx": ["mobile/src/lib/useDashboardKpis.ts"],
+    "mobile/src/screens/DashboardScreen.tsx": [
+        "mobile/src/lib/useDashboardKpis.ts",
+        "mobile/src/components/dashboard/LedgerSnapshotCard.tsx",
+        "mobile/src/components/dashboard/CashFlowMiniCard.tsx",
+        "mobile/src/components/dashboard/HealthHero.tsx",
+    ],
+    "mobile/src/screens/InsightsScreen.tsx": ["mobile/src/lib/useDashboardKpis.ts"],
+    "mobile/src/screens/LedgerScreen.tsx": ["mobile/src/lib/useDashboardKpis.ts"],
 }
 
 REQUIRED_FIELDS = ("reportingMonth", "reportingMonthIsCurrent")
@@ -118,7 +138,10 @@ PICKER_SCREENS = [
 # check-imports.py "checked a proxy for the property it actually cared about", and
 # scaling-triggers.md's "a count is a hypothesis, not a measurement". The property here is not
 # "does this string appear"; it is "is this string conditional on the period the server reported".
-PERIOD_CLAIMS = ("this month", "vs last month", "versus last month")
+#
+# "than last month" is the prose form of the same comparison ("22% lower than last month") --
+# mobile's Insights banners asserted it over a summary delta without this list catching it.
+PERIOD_CLAIMS = ("this month", "vs last month", "versus last month", "than last month")
 
 # Identifiers that mean the surrounding expression is derived from the server's period. A claim
 # within GUARD_WINDOW lines of one of these is guarded; anything else is a bare assertion.

@@ -593,6 +593,14 @@ public class ImportService {
                 List.of(), importSessionService.readVerification(session));
     }
 
+    /** An already-staged session read back as the staging response the worker had when it held
+     *  the import -- either kind, CSV or PDF, since the PDF response shape covers both. For opening
+     *  the review a held import never got ({@code HeldStatementService
+     *  .openReviewForHoldWithoutRecord}); parses nothing. */
+    public PdfStagingSessionResponse stagedResponseOf(UUID userId, ImportSession session) {
+        return rebuildPdfStagingSessionResponse(userId, session);
+    }
+
     /** PDF equivalent of {@link #rebuildStagingResponse} -- branches on the found session's own
      *  kind rather than assuming single-account, since a duplicate PDF upload can match either
      *  shape depending on what the original upload staged. */

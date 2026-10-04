@@ -760,6 +760,21 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
     }
 
     /**
+     * Links a held job to the review record the worker failed to write when it held it -- opened
+     * later by an operator ({@code HeldStatementService.openReviewForHoldWithoutRecord}). Only for a
+     * job still held with no record: a job that has one is already in the queue, and one that is no
+     * longer held has nothing left to review.
+     */
+    public void attachReviewRecord(UUID heldStatementId) {
+        if (status != Status.HELD_FOR_TRUST_REVIEW || this.heldStatementId != null) {
+            throw new IllegalStateException(
+                    "Import job " + id + " is at " + status + " with review record " + this.heldStatementId
+                            + "; only a HELD_FOR_TRUST_REVIEW job with no review record can be given one.");
+        }
+        this.heldStatementId = heldStatementId;
+    }
+
+    /**
      * Undoes {@link #rejectAfterTrustReview}: the review is open again, so the import is held
      * again rather than failed. Only from that rejection -- any other failure was the import's
      * own, and is not a review's to reopen.

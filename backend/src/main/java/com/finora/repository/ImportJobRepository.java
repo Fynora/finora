@@ -90,6 +90,10 @@ public interface ImportJobRepository extends JpaRepository<ImportJob, UUID> {
     /** One page of the admin triage queue. Backed by {@code idx_import_jobs_held} (V134). */
     Page<ImportJob> findByStatus(ImportJob.Status status, Pageable pageable);
 
+    /** Jobs in a status with no review record -- for the operator list of trust holds the worker
+     *  held without one ({@code HeldStatementService.listHoldsWithoutReviewRecord}). */
+    Page<ImportJob> findByStatusAndHeldStatementIdIsNull(ImportJob.Status status, Pageable pageable);
+
     /**
      * Jobs an admin has already sent back to the queue that have not finished yet.
      *

@@ -721,6 +721,14 @@ public class ImportSessionService {
                 .filter(session -> !session.getId().equals(ownSessionId));
     }
 
+    /** A session by id whatever its owner, expiry or status -- for an operator opening the review a
+     *  held import never got. A held session has usually outlived its TTL (the sweep exempts it),
+     *  which {@link #getOwnedSession} refuses. */
+    @Transactional(readOnly = true)
+    public Optional<ImportSession> findHeldSession(UUID sessionId) {
+        return sessionId == null ? Optional.empty() : importSessionRepository.findById(sessionId);
+    }
+
     /** Whether a session still exists -- a held statement's can be swept once its job stops being
      *  held (a rejection), and approving it then would release rows that are gone. */
     @Transactional(readOnly = true)

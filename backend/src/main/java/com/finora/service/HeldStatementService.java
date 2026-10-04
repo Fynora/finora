@@ -26,6 +26,7 @@ import com.finora.imports.trust.HeldStatementIdGenerator;
 import com.finora.imports.trust.HoldDecision;
 import com.finora.imports.trust.TrustPredicate;
 import com.finora.dto.HeldStatementRerunResultDto;
+import com.finora.dto.HoldWithoutReviewRecordDto;
 import com.finora.repository.HeldStatementEventRepository;
 import com.finora.repository.HeldStatementRepository;
 import com.finora.repository.ImportJobRepository;
@@ -168,6 +169,81 @@ public class HeldStatementService {
         if (statuses.contains(HeldStatement.Status.REJECTED)) return Optional.of(HeldStatement.Status.REJECTED);
         return statuses.stream().filter(status -> !status.isResolved()).findFirst()
                 .or(() -> Optional.of(HeldStatement.Status.IMPORTED));
+    }
+
+    // --- holds the worker could not write a record for ------------------------------------------
+
+    /**
+     * Imports held for trust review with no review record, oldest first. The worker holds an
+     * import even when it cannot write the {@code held_statements} row (fail closed), and such a
+     * hold blocks the user's confirm while appearing nowhere in the queue -- this is where an
+     * operator finds it. {@code WorkerExecution.heldWithoutReviewRecord} pages when one is made.
+     */
+    @Transactional(readOnly = true)
+    public PagedResponse<HoldWithoutReviewRecordDto> listHoldsWithoutReviewRecord(int page, int size) {
+        Page<ImportJob> jobs = importJobRepository.findByStatusAndHeldStatementIdIsNull(
+                ImportJob.Status.HELD_FOR_TRUST_REVIEW,
+                PageRequest.of(PageBounds.safePage(page), PageBounds.safeSize(size > 0 ? size : 25),
+                        Sort.by(Sort.Direction.ASC, "finishedAt")));
+        return PagedResponse.of(jobs.map(job ->
+                HoldWithoutReviewRecordDto.from(job, importSessionService.exists(job.getImportSessionId()))));
+    }
+
+    /**
+     * Writes the review record a held import never got, so it becomes an ordinary held statement:
+     * in the queue, with its evidence, a parser re-run, and approve or reject like any other.
+     * Deliberately not a release or reject of its own -- a decision about a customer's ledger is
+     * made where the evidence is, and there is one approve and one reject to keep correct.
+     *
+     * <p>Goes through {@link #openHold}, the worker's own path, so the record, its first event, the
+     * user's "being checked" notification (which the failed attempt never sent) and the admin alert
+     * are the ones every hold gets. The trigger is read back from the staged session the worker
+     * held, with the predicate anchored to the day it was held -- the same anchoring
+     * {@link #rerunParser} uses. If those rows are gone, the review still opens, saying so; a
+     * re-run stages the statement again.
+     *
+     * <p>Two operators opening the same one: the second sees the record the first wrote and gets a
+     * 409; if both get past that read, {@code held_statements.import_job_id} is UNIQUE (V144) and
+     * the loser's insert is refused, also as a 409.
+     */
+    @Transactional
+    public HeldStatementDto openReviewForHoldWithoutRecord(UUID actingAdminId, UUID jobId) {
+        ImportJob job = importJobRepository.findById(jobId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "No such import job."));
+        if (!isHeldWithNoRecord(job)) {
+            throw new ApiException(HttpStatus.CONFLICT, job.getStatus() == ImportJob.Status.HELD_FOR_TRUST_REVIEW
+                    ? "This import already has a review record; open it from the held-statements queue."
+                    : "This import is " + job.getStatus() + ", not held for review; there is nothing to open.");
+        }
+
+        Optional<com.finora.entity.ImportSession> session =
+                importSessionService.findHeldSession(job.getImportSessionId());
+        StagedForJob staged = session
+                .map(s -> StagedForJob.of(importService.stagedResponseOf(job.getUserId(), s)))
+                .orElseGet(() -> new StagedForJob(job.getImportSessionId(), 0, 0, null, List.of(), List.of()));
+        java.time.LocalDate heldOn = (job.getFinishedAt() != null ? job.getFinishedAt() : Instant.now())
+                .atZone(java.time.ZoneOffset.UTC).toLocalDate();
+        HoldDecision evaluated = TrustPredicate.evaluate(staged.verificationReports(), staged.statementPeriods(), heldOn);
+        List<String> reasons = new java.util.ArrayList<>();
+        reasons.add(session.isPresent()
+                ? "Held without a review record; review opened by an operator"
+                : "Held without a review record, and its staged rows are gone; re-run the parser to read it again");
+        reasons.addAll(evaluated.reasons());
+        HoldDecision decision = new HoldDecision(true, reasons, evaluated.categories());
+
+        HeldStatement held = openHold(job, staged, decision, job.getParserVersion());
+        job.attachReviewRecord(held.getId());
+        importJobRepository.save(job);
+
+        eventRepository.save(new HeldStatementEvent(held.getId(), actingAdminId, "REVIEW_RECORD_OPENED",
+                null, held.getStatus().name(), null));
+        auditService.record(actingAdminId, "TRUST_REVIEW_RECORD_OPENED", "HeldStatement", held.getId(),
+                Map.of("actorId", actingAdminId.toString(),
+                        "subjectUserId", held.getUserId().toString(),
+                        "heldId", held.getHeldId(),
+                        "importJobId", job.getId().toString(),
+                        "stagedRowsAvailable", session.isPresent()));
+        return HeldStatementDto.from(held);
     }
 
     private HeldStatement openHold(ImportJob job, StagedForJob staged, HoldDecision decision,

@@ -454,4 +454,35 @@ class HeldStatementReuploadIT extends AbstractIntegrationTest {
                 .isEqualTo(ImportJob.Status.COMPLETED);
         assertConfirmable(owner, held.getImportSessionId());
     }
+
+    @Test
+    void anOperatorOpensTheMissingReviewAndApprovingItLetsTheUserConfirm() throws Exception {
+        User owner = user();
+        ImportJob held = heldWithNoReviewRecord(owner);
+
+        String heldId = heldStatementService.openReviewForHoldWithoutRecord(user().getId(), held.getId()).heldId();
+
+        // The review the worker failed to write, reading the trigger back from the held rows.
+        assertThat(heldStatementRepository.findByHeldId(heldId).orElseThrow().getTriggerSummary())
+                .contains("Held without a review record").contains("future");
+        assertThat(heldStatementService.listHoldsWithoutReviewRecord(0, 200).content())
+                .noneMatch(row -> row.jobId().equals(held.getId()));
+        heldStatementService.approve(user().getId(), heldId, null, null);
+        assertConfirmable(owner, held.getImportSessionId());
+    }
+
+    @Test
+    void anOperatorOpensTheMissingReviewAndRejectingItFailsTheImport() throws Exception {
+        User owner = user();
+        ImportJob held = heldWithNoReviewRecord(owner);
+        String heldId = heldStatementService.openReviewForHoldWithoutRecord(user().getId(), held.getId()).heldId();
+
+        heldStatementService.reject(user().getId(), heldId, "rows do not match the document");
+
+        ImportJob reloaded = jobRepository.findById(held.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(ImportJob.Status.FAILED);
+        assertThat(reloaded.getFailureCode()).isEqualTo(ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name());
+        assertThat(importSessionService.listResumableSessions(owner.getId()))
+                .extracting(ImportSession::getId).doesNotContain(held.getImportSessionId());
+    }
 }

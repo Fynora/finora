@@ -647,6 +647,20 @@ export function ImportScreen() {
         ? await importApi.stagePdf(file, setUploadProgress, password, controller.signal)
         : await importApi.stageCsv(file, setUploadProgress, controller.signal);
 
+      if (res.heldForReviewJobId) {
+        // The accuracy check held this statement, as the queue would have: its rows wait for a
+        // reviewer, so there is nothing to review here. Follow the held job exactly as a queued
+        // upload is followed -- ImportProgressCard shows the same "running additional checks"
+        // state, and the review once a reviewer approves it.
+        setPendingPdf(null);
+        setPdfPassword('');
+        setPasswordRevealed(false);
+        setPasswordState(null);
+        setSavePassword(false);
+        setJobId(res.heldForReviewJobId);
+        return;
+      }
+
       setSessionId(res.sessionId);
       setPreviousImport(res.previousImport ?? null);
       // The document opened, so the password has done its whole job -- drop it and the file.

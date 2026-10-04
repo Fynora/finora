@@ -329,6 +329,29 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
         this.encryptionKeyId = encryptionKeyId;
     }
 
+    /**
+     * A statement staged through the synchronous endpoint that the trust check held. It never ran
+     * on the queue, so it is created already held: the job exists so the hold has what every other
+     * trust hold has -- a review record keyed on a job, a progress the client follows to "being
+     * checked", and a stored copy of the file an operator works from.
+     *
+     * <p>Created in {@link Status#HELD_FOR_TRUST_REVIEW}, never QUEUED first: QUEUED is inside
+     * {@code idx_import_jobs_live_content}, so an intermediate insert would collide with a queued
+     * upload of the same bytes, and a worker could claim it. The review record is attached
+     * afterwards with {@link #attachReviewRecord}, once it exists.
+     */
+    public static ImportJob heldOnStaging(UUID userId, String fileName, String contentHash, String objectKey,
+                                          String sourceFormat, String encryptionKeyId,
+                                          UUID importSessionId, Instant now) {
+        ImportJob job = new ImportJob(userId, fileName, contentHash, objectKey, sourceFormat, encryptionKeyId);
+        job.status = Status.HELD_FOR_TRUST_REVIEW;
+        job.importSessionId = importSessionId;
+        job.createdAt = now;
+        job.startedAt = now;
+        job.finishedAt = now;
+        return job;
+    }
+
     // ------------------------------------------------------------------ transitions
 
     /** A worker has taken this job. Records when, so recovery can tell abandoned from merely slow. */

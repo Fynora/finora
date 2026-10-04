@@ -1200,6 +1200,42 @@ describe('ImportScreen — async import job (Phase 4)', () => {
       expect(api.importJobs.submit).not.toHaveBeenCalled();
     });
 
+    /**
+     * The password left unkept is the usual way a statement reaches the synchronous path, and the
+     * server now runs the same accuracy check there as on the queue. A held statement's rows can't
+     * be confirmed, so the screen follows the held job to "running additional checks" instead of
+     * opening a review that would end in a refused confirm.
+     */
+    it('follows the held job, not the review, when the synchronous path holds the statement', async () => {
+      api.import.stagePdf.mockResolvedValue({
+        sessionId: 'session-held',
+        staging: { rows: [stagedRow('Coffee')], totalParsed: 1, flaggedDuplicates: 0, detectedAccount: detectedWithBank, unparseableRows: [] },
+        heldForReviewJobId: 'job-held',
+      } as never);
+      api.importJobs.progress.mockResolvedValue(jobProgress({
+        jobId: 'job-held', status: 'HELD_FOR_TRUST_REVIEW', userStatus: 'PROCESSING', importSessionId: 'session-held',
+      }));
+      api.importJobs.timeline.mockResolvedValue({
+        jobId: 'job-held', status: 'HELD_FOR_TRUST_REVIEW', userStatus: 'PROCESSING', failureCode: null, stages: [],
+      });
+      render(treeSaveOffered());
+      fireEvent.press(await screen.findByText('Choose a file'));
+      await settle();
+
+      fireEvent.changeText(screen.getByLabelText('Statement password'), 'SYNTH1234');
+      fireEvent.press(screen.getByText('Upload statement'));
+      await settle();
+
+      await waitFor(() => expect(api.importJobs.progress).toHaveBeenCalledWith('job-held'), { timeout: 3000 });
+      expect(await screen.findByText('Running additional checks')).toBeTruthy();
+      expect(screen.queryByText(/^Import \d+ transaction/)).toBeNull();
+      expect(screen.queryByTestId('pdf-password-panel')).toBeNull();
+
+      // And a way back while a reviewer has it.
+      fireEvent.press(await screen.findByText('Import another statement'));
+      expect(await screen.findByText('Choose a file')).toBeTruthy();
+    });
+
     it('falls back to the path that keeps nothing when the server will not keep it after all', async () => {
       api.importJobs.submit.mockRejectedValue(
         Object.assign(new Error('Request failed with status code 422'), {

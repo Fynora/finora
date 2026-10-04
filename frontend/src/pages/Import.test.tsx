@@ -3447,3 +3447,87 @@ describe('Import — re-upload notice', () => {
     expect(await screen.findByTestId('previous-import-notice')).toHaveTextContent('Sample Savings');
   });
 });
+
+/**
+ * A statement the server's accuracy check held on the synchronous path -- the path a locked PDF takes
+ * when the user does not let Fynora keep its password. Its rows cannot be confirmed until a reviewer
+ * approves them, so the page must follow the held job to the same "being checked" state a queued hold
+ * shows, never open the review screen on rows the confirm step would refuse.
+ */
+describe('Import — a statement held by the accuracy check on the synchronous path', () => {
+  const heldJob = (over: Partial<ImportJobProgress> = {}): ImportJobProgress => ({
+    jobId: 'job-held',
+    fileName: 'statement.pdf',
+    status: 'HELD_FOR_TRUST_REVIEW',
+    userStatus: 'PROCESSING',
+    rowsTotal: 3,
+    rowsProcessed: 3,
+    createdAt: '2026-10-04T09:00:00Z',
+    startedAt: '2026-10-04T09:00:00Z',
+    finishedAt: '2026-10-04T09:00:00Z',
+    importSessionId: 'session-held',
+    error: null,
+    correlationId: null,
+    ...over,
+  });
+
+  beforeEach(() => {
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(importJobsApi.progress).mockReset().mockResolvedValue(heldJob());
+    vi.mocked(importJobsApi.timeline).mockReset().mockResolvedValue({
+      jobId: 'job-held', status: 'HELD_FOR_TRUST_REVIEW', userStatus: 'PROCESSING', failureCode: null, stages: [],
+    });
+  });
+
+  it('follows the held job instead of opening the review screen for a locked PDF', async () => {
+    vi.mocked(importApi.stagePdf).mockReset().mockResolvedValue({
+      ...stagingResultWith({ sessionId: 'session-held' }),
+      heldForReviewJobId: 'job-held',
+    });
+    const user = userEvent.setup();
+    renderImport();
+
+    await pickAndUploadPdf(user, pdfFile(), 'sample-pass');
+
+    expect(await screen.findByText('Running additional checks')).toBeInTheDocument();
+    expect(await screen.findByText(/We'll notify you once it's ready/)).toBeInTheDocument();
+    await waitFor(() => expect(importJobsApi.progress).toHaveBeenCalledWith('job-held'));
+    expect(screen.queryByText(/which account is this statement for/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('pdf-password-panel')).not.toBeInTheDocument();
+
+    // A hold made on this path records no stages; the way back must not depend on them.
+    await user.click(await screen.findByRole('button', { name: 'Import another statement' }));
+    await waitFor(() => expect(screen.queryByTestId('import-progress')).not.toBeInTheDocument());
+    expect(screen.getByTestId('statement-file-input')).toBeInTheDocument();
+  });
+
+  it('follows the held job for a CSV staged synchronously too', async () => {
+    vi.mocked(importApi.stageCsv).mockReset().mockResolvedValue({
+      ...stagingResultWith({ sessionId: 'session-held' }),
+      heldForReviewJobId: 'job-held',
+    });
+    const user = userEvent.setup();
+    renderImport();
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+
+    expect(await screen.findByText('Running additional checks')).toBeInTheDocument();
+    expect(screen.getByTestId('import-progress')).toBeInTheDocument();
+    expect(screen.queryByText(/which account is this statement for/i)).not.toBeInTheDocument();
+  });
+
+  it('still opens the review screen when the statement was not held', async () => {
+    vi.mocked(importApi.stagePdf).mockReset().mockResolvedValue({
+      ...stagingResultWith(),
+      heldForReviewJobId: null,
+    });
+    const user = userEvent.setup();
+    renderImport();
+
+    await pickAndUploadPdf(user, pdfFile(), 'sample-pass');
+
+    expect(await screen.findByText(/which account is this statement for/i)).toBeInTheDocument();
+    expect(importJobsApi.progress).not.toHaveBeenCalled();
+  });
+});

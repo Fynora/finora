@@ -1310,6 +1310,42 @@ export interface HeldStatementRow {
    *  `rootCause`, not a replacement for either. Null until "Suggest diagnosis" is used. */
   aiSuggestedDiagnosis: string | null;
   aiSuggestedDiagnosisAt: string | null;
+  /** The held file is a password-protected PDF and no password was kept with it (a locked
+   *  statement staged without "keep password"): it cannot be downloaded in a readable form or
+   *  re-parsed, so the review is made from the staged rows and the findings. Absent from an older
+   *  backend, which never held such a statement. */
+  lockedWithoutPassword?: boolean;
+}
+
+/** One account section of the rows a hold staged -- mirrors the backend's
+ *  `HeldStatementStagedRowsDto.HeldSection`. */
+export interface HeldStatementStagedSection {
+  accountName: string | null;
+  accountNumberMasked: string | null;
+  accountType: string | null;
+  statementPeriodStart: string | null;
+  statementPeriodEnd: string | null;
+  openingBalance: number | null;
+  closingBalance: number | null;
+  totalParsed: number;
+  rows: HeldStatementStagedRow[];
+}
+
+/** `type` is DEBIT or CREDIT; balance and reference only when the statement had those columns. */
+export interface HeldStatementStagedRow {
+  date: string | null;
+  description: string | null;
+  amount: number | null;
+  type: string | null;
+  balanceAfter: number | null;
+  referenceNumber: string | null;
+}
+
+/** The rows a hold staged -- what approving releases. Statement content: the endpoint is gated to
+ *  ADMIN/SUPER_ADMIN like the document, and every read is audited. */
+export interface HeldStatementStagedRows {
+  heldId: string;
+  sections: HeldStatementStagedSection[];
 }
 
 /** Mirrors the backend's `HeldStatementTelemetryDto` exactly, field for field. `falsePositives`

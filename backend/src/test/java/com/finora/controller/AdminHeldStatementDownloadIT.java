@@ -212,6 +212,23 @@ class AdminHeldStatementDownloadIT extends AbstractIntegrationTest {
         });
     }
 
+    /** The attempt is the sensitive event, so a download that fails -- here the stored file is
+     *  gone -- is on record too, as the service's own doc promises. */
+    @Test
+    void aFailedDownloadIsStillAudited() {
+        HeldStatement held = seedHold("HLD-2026-200008");
+        storage.delete(importJobRepository.findById(held.getImportJobId()).orElseThrow().getObjectKey());
+        User admin = createUser("ADMIN");
+
+        ResponseEntity<byte[]> response = download("HLD-2026-200008", admin);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(held.getId())).anySatisfy(entry -> {
+            assertThat(entry.getAction()).isEqualTo("TRUST_REVIEW_DOCUMENT_DOWNLOADED");
+            assertThat(entry.getUserId()).isEqualTo(admin.getId());
+        });
+    }
+
     @Test
     void anAdminGetsThePdfBytes() {
         seedHold("HLD-2026-200004");
@@ -244,5 +261,57 @@ class AdminHeldStatementDownloadIT extends AbstractIntegrationTest {
         ResponseEntity<byte[]> response = download("HLD-2026-999999", admin);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    // ---------------------------------------------------------------- the staged rows, same gate
+
+    private ResponseEntity<String> stagedRows(String heldId, User caller) {
+        return restTemplate.exchange("/api/v1/admin/held-statements/" + heldId + "/staged-rows",
+                HttpMethod.GET, new HttpEntity<>(bearerFor(caller)), String.class);
+    }
+
+    /** The rows are the statement's content as much as the file is, so the queue permission alone
+     *  does not reach them either. */
+    @Test
+    void stagedRowsRefuseAnyRoleBelowAdmin() {
+        seedHold("HLD-2026-200101");
+
+        ResponseEntity<String> response = stagedRows("HLD-2026-200101", createSupportUserWithTrustReviewPermissionButNoAdminRole());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    /** The same AND as the document's: the admin role without the permission is refused too. */
+    @Test
+    void stagedRowsRefuseAnAdminRoleAccountWithoutTheTrustReviewPermission() {
+        seedHold("HLD-2026-200102");
+        User user = new User();
+        user.setEmail("held-dl-it-" + UUID.randomUUID() + "@example.com");
+        user.setPasswordHash("irrelevant-for-this-test");
+        user.setFullName("Held Download IT User");
+        user.setRole("ADMIN");
+        user.setPhoneVerified(true);
+        userRepository.save(user);
+
+        ResponseEntity<String> response = stagedRows("HLD-2026-200102", user);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    /** Audited before the rows are read, as the document is: this hold's session never existed, so
+     *  the read is refused, and the attempt is still on record. */
+    @Test
+    void everyStagedRowsReadIsAuditedEvenWhenTheRowsAreGone() {
+        HeldStatement held = seedHold("HLD-2026-200103");
+        User admin = createUser("ADMIN");
+
+        ResponseEntity<String> response = stagedRows("HLD-2026-200103", admin);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody()).contains("are gone");
+        assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(held.getId())).anySatisfy(entry -> {
+            assertThat(entry.getAction()).isEqualTo("TRUST_REVIEW_STAGED_ROWS_VIEWED");
+            assertThat(entry.getUserId()).isEqualTo(admin.getId());
+        });
     }
 }

@@ -1221,6 +1221,78 @@ class PdfMetadataExtractorTest {
                 "Effective 5 August 2013, the payment hierarchy changes.")).paymentDueDate()).isNull();
     }
 
+    /** A weekday, a bracketed note or "on or before"/"by"/"is" between the label and its date is
+     *  not a sentence: the date is read. The sentence guard dropped all of these to nothing. */
+    @Test
+    void extract_readsASameLineDueDate_afterAWeekdayNoteOrConnective() {
+        java.time.LocalDate expected = java.time.LocalDate.of(2026, 8, 5);
+        for (String line : List.of(
+                "Pay Now Payment Due Date Mon, 05 Aug 2026",
+                "Pay Now Payment Due Date Wednesday 05 Aug 2026",
+                "Pay Now Payment Due Date (DD/MM/YYYY) 05/08/2026",
+                "Pay Now Payment Due Date (PDD) 05 Aug 2026",
+                "Pay Now Payment Due Date on or before 05 Aug 2026",
+                "Pay Now Payment Due Date by 05 Aug 2026",
+                "Payment Due Date is 05 Aug 2026",
+                "Pay Now Payment Due Date 12,345.00 05/08/2026")) {
+            assertThat(extractor.extract(List.of(line, "Statement Date 14 Jul 2026")).paymentDueDate())
+                    .as(line).isEqualTo(expected);
+        }
+    }
+
+    /** " - " straight after the label separates it from its value; it does not make the value the
+     *  end of a range. It used to, and the next line's statement date was read instead. A real
+     *  range after the label is still skipped. */
+    @Test
+    void extract_readsASameLineDueDate_afterADashSeparator_butNotARange() {
+        assertThat(extractor.extract(List.of("Pay Now Payment Due Date - 05 Aug 2026", "Statement Date 14 Jul 2026"))
+                .paymentDueDate()).isEqualTo(java.time.LocalDate.of(2026, 8, 5));
+        assertThat(extractor.extract(List.of("Payment Due Date 01/07/2026 - 31/07/2026 20/08/2026"))
+                .paymentDueDate()).isEqualTo(java.time.LocalDate.of(2026, 8, 20));
+        assertThat(extractor.extract(List.of("Payment Due Date - 01/07/2026 - 31/07/2026", "Statement Date 14 Jul 2026"))
+                .paymentDueDate()).isNull();
+    }
+
+    /** A label after a sentence word ("your", "the", "and") is inside a sentence, whatever sits
+     *  between it and the date; so is one followed by words that are not filler ("will be"). */
+    @Test
+    void extract_doesNotReadASameLineDate_whenTheLabelSitsInASentence() {
+        for (String line : List.of(
+                "If your Payment Due Date is 05 Aug 2026, interest is charged",
+                "interest is charged after the due date, 05 Aug 2026 onwards",
+                "his Payment Due Date will be 24 Aug 2026.",
+                "Payment Due Date by the customer 05 Aug 2026")) {
+            assertThat(extractor.extract(List.of(line, "Statement Date 14 Jul 2026")).paymentDueDate())
+                    .as(line).isNull();
+        }
+    }
+
+    /** "Sept" is read as September wherever a month name is (java.time only knows "Sep"); an
+     *  impossible "31 Sept" is still no date. */
+    @Test
+    void extract_readsSeptAsSeptember() {
+        assertThat(extractor.extract(List.of("Payment Due Date: 5 Sept 2026")).paymentDueDate())
+                .isEqualTo(java.time.LocalDate.of(2026, 9, 5));
+        assertThat(extractor.extract(List.of("Pay Now Payment due date Sept 5th, 2026", "Statement Date 14 Jul 2026"))
+                .paymentDueDate()).isEqualTo(java.time.LocalDate.of(2026, 9, 5));
+        assertThat(extractor.extract(List.of("Remember to pay by 5 Sept 2026")).paymentDueDate())
+                .isEqualTo(java.time.LocalDate.of(2026, 9, 5));
+        var period = extractor.extract(List.of("Statement Period: 1 Sept 2026 to 30 Sept 2026"));
+        assertThat(period.statementPeriodStart()).isEqualTo(java.time.LocalDate.of(2026, 9, 1));
+        assertThat(period.statementPeriodEnd()).isEqualTo(java.time.LocalDate.of(2026, 9, 30));
+        assertThat(extractor.extract(List.of("Payment Due Date: 31 Sept 2026", "Remember to pay by 05-Oct-2026"))
+                .paymentDueDate()).isNull();
+    }
+
+    /** The filler check runs on whatever text follows a "due date" label; a long run of filler-
+     *  shaped text before a non-filler word must not make it backtrack exponentially. */
+    @Test
+    void extract_sameLineDueDateCheck_staysLinearOnLongLines() {
+        String line = "Payment Due Date " + "(1) on ".repeat(20_000) + "xyzzy 05 Aug 2026";
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(10),
+                () -> assertThat(extractor.extract(List.of(line)).paymentDueDate()).isNull());
+    }
+
     /** Terms text naming the label and then an example account's date is a sentence, not this
      *  statement's value (synthetic wording of a real card statement's shape): neither the
      *  example date nor the next line's date is read. Abbreviated month, so the example would

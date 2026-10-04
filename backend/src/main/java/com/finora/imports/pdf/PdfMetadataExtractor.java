@@ -1281,8 +1281,11 @@ public class PdfMetadataExtractor {
                         // of an example account ("Payment Due Date (<abbreviation>) of a ... account
                         // is <date>"), and in the same corpus every real same-line due date sits
                         // directly after its label. Neither this date nor one further down is the
-                        // statement's due date, so the line is skipped outright.
-                        if (!noInterveningProse(line, dueDateLabel.end(), sameLineValue)) continue;
+                        // statement's due date, so the line is skipped outright. A weekday, a
+                        // bracketed note or "on or before"/"by"/"is" is not such a sentence -- see
+                        // sameLineDueDateFollowsLabel.
+                        if (!sameLineDueDateFollowsLabel(line, dueDateLabel.start(), dueDateLabel.end(),
+                                sameLineValue)) continue;
                         paymentDueDate = readDueDate(unreadable, sameLineValue);
                         if (ctx != null && paymentDueDate != null) ctx.record("GRID_METADATA_FALLBACK");
                         // Read or not, this is the label's own value. An impossible date
@@ -1620,10 +1623,17 @@ public class PdfMetadataExtractor {
      *  in this line" and "the label starts this line" are genuinely different real shapes). */
     private String firstMatchAfter(String line, int fromIndex, Pattern valuePattern, Pattern exclude) {
         Matcher m = valuePattern.matcher(line);
+        boolean firstCandidate = true;
         while (m.find(fromIndex)) {
             fromIndex = m.end();
+            // The first candidate's own left side is the label's separator, not another value: in
+            // "Payment Due Date - 05 Aug 2026" the " - " is punctuation after the label, and checking
+            // it made the date look like the end of a range ("01 Aug 2026 - 05 Aug 2026"), so the
+            // label's own value was skipped. Only its right side can make it a range's start.
+            int windowStart = firstCandidate ? m.start() : Math.max(0, m.start() - 3);
+            firstCandidate = false;
             if (exclude == null || !exclude.matcher(line.substring(
-                    Math.max(0, m.start() - 3), Math.min(line.length(), m.end() + 3))).find()) {
+                    windowStart, Math.min(line.length(), m.end() + 3))).find()) {
                 return m.group();
             }
         }
@@ -1649,6 +1659,39 @@ public class PdfMetadataExtractor {
         int valueStart = line.indexOf(value, fromIndex);
         if (valueStart < 0) return false; // defensive; caller already found this exact substring
         return line.substring(fromIndex, valueStart).chars().noneMatch(Character::isLetter);
+    }
+
+    // What may stand between a due-date label and its own value on the same line without making
+    // the line a sentence: anything that is not a letter (what noInterveningProse allows), a
+    // bracketed note ("(DD/MM/YYYY)", "(PDD)"), a weekday name, and the connectives "on or before",
+    // "by" and "is".
+    // Possessive throughout: a plain (?:[^\\p{L}]+|...)* backtracks exponentially over a long run of
+    // non-letters followed by a word that is not filler. The bracketed note is tried before the
+    // non-letter run, which stops at "(" so the bracket can still be read whole; a lone "(" is
+    // allowed after both, as noInterveningProse allows it.
+    private static final Pattern DUE_DATE_LABEL_FILLER = Pattern.compile(
+            "(?i)(?:\\([^()]{0,40}\\)|[^\\p{L}(]++|\\("
+                    + "|\\b(?:mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nesday)?|thu(?:r(?:s(?:day)?)?)?|fri(?:day)?"
+                    + "|sat(?:urday)?|sun(?:day)?)\\b|\\b(?:on|or|before|by|is)\\b)*+");
+
+    /** Whether a same-line date is the due-date label's own value rather than a date inside a
+     *  sentence that mentions the label.
+     *
+     *  <p>Two tests. The words between label and date must all be {@link #DUE_DATE_LABEL_FILLER}
+     *  -- punctuation, a weekday, a bracketed note, "on or before", "by", "is"; every real same-line
+     *  due date in the corpus has only punctuation there. And the label must not follow a word of
+     *  {@link #SENTENCE_WORDS} ("if your Payment Due Date is ...", "after the due date, ..."); no
+     *  real same-line due date in the corpus does. A real card statement's terms text, "Payment Due
+     *  Date (<abbreviation>) of a ... account is <date>", fails the first: "of a ... account" is
+     *  not filler. */
+    private static boolean sameLineDueDateFollowsLabel(String line, int labelStart, int labelEnd, String value) {
+        int valueStart = line.indexOf(value, labelEnd);
+        if (valueStart < 0) return false; // defensive; caller already found this exact substring
+        if (!DUE_DATE_LABEL_FILLER.matcher(line.substring(labelEnd, valueStart)).matches()) return false;
+        String before = line.substring(0, labelStart);
+        Matcher payment = PAYMENT_BEFORE_LABEL.matcher(before);
+        if (payment.find()) before = before.substring(0, payment.start());
+        return !SENTENCE_WORDS.contains(wordEndingAt(before).toLowerCase(Locale.ROOT));
     }
 
     private static final Pattern PAYMENT_BEFORE_LABEL = Pattern.compile("(?i)\\bpayment\\s+$");
@@ -1968,10 +2011,27 @@ public class PdfMetadataExtractor {
     }
 
     private LocalDate tryFormats(String raw, DateTimeFormatter[] formats) {
+        LocalDate parsed = tryFormatsAsWritten(raw, formats);
+        if (parsed != null) return parsed;
+        String sep = septAsSep(raw);
+        return sep.equals(raw) ? null : tryFormatsAsWritten(sep, formats);
+    }
+
+    private static LocalDate tryFormatsAsWritten(String raw, DateTimeFormatter[] formats) {
         for (DateTimeFormatter fmt : formats) {
             try { return LocalDate.parse(raw, fmt); } catch (Exception ignored) {}
         }
         return null;
+    }
+
+    // "Sept" is a common abbreviation of September that java.time's English "MMM" rejects -- it
+    // reads "Sep" only -- so "5 Sept 2026" matched DATE_LIKE and every period/due-date pattern
+    // and then parsed as nothing. Applied only as a retry after the text as written failed, the
+    // same discipline as the ordinal-suffix retry, so nothing that parsed before reads differently.
+    private static final Pattern SEPT = Pattern.compile("(?i)\\bsept\\b");
+
+    private static String septAsSep(String raw) {
+        return SEPT.matcher(raw).replaceAll("Sep");
     }
 
     // Package-private so a raw-PositionedText reader (AccountNumberTransactionHeaderExtractor) can
@@ -2018,9 +2078,8 @@ public class PdfMetadataExtractor {
     }
 
     static boolean looksLikeADate(String candidate) {
-        for (DateTimeFormatter fmt : DATE_SHAPES) {
-            try { LocalDate.parse(candidate, fmt); return true; } catch (Exception ignored) {}
-        }
-        return false;
+        if (tryFormatsAsWritten(candidate, DATE_SHAPES) != null) return true;
+        String sep = septAsSep(candidate);
+        return !sep.equals(candidate) && tryFormatsAsWritten(sep, DATE_SHAPES) != null;
     }
 }

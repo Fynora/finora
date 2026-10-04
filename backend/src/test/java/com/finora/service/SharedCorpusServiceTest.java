@@ -131,11 +131,84 @@ class SharedCorpusServiceTest {
         service.recordObservation(UUID.randomUUID(), "vpa:ambiguous", CounterpartyType.BUSINESS,
                 Transaction.Type.EXPENSE, "Groceries");
         service.recordObservation(UUID.randomUUID(), "vpa:ambiguous", CounterpartyType.BUSINESS,
-                Transaction.Type.EXPENSE, "Electronics");
+                Transaction.Type.EXPENSE, "Entertainment");
 
         ArgumentCaptor<SharedMerchantCategory> captor = ArgumentCaptor.forClass(SharedMerchantCategory.class);
         verify(corpus).save(captor.capture());
         assertThat(captor.getValue().getStatus()).isEqualTo(SharedMerchantCategory.Status.DISPUTED);
+    }
+
+    // ---- Only default categories travel between users ----
+
+    @Test
+    void recordObservation_aCategoryTheUserMadeThemselves_isNoVote() {
+        // Three users each filing one shop under their own "Quick Bites" made it every user's
+        // trusted answer, and confirm then created "Quick Bites" in accounts that never had it.
+        when(corpus.findByCounterpartyKeyAndDirection(any(), any())).thenReturn(Optional.empty());
+
+        for (int i = 0; i < 3; i++) {
+            service.recordObservation(UUID.randomUUID(), "vpa:newmerchant", CounterpartyType.BUSINESS,
+                    Transaction.Type.EXPENSE, "Quick Bites");
+        }
+
+        assertThat(stored).isEmpty();
+        verify(corpus, never()).save(any());
+    }
+
+    @Test
+    void recordObservation_aDefaultCategory_isRecordedInItsSeededSpelling() {
+        // A user who made "groceries" before the default existed votes the same answer as
+        // everyone's "Groceries" -- one category, not two that split the share.
+        when(corpus.findByCounterpartyKeyAndDirection(any(), any())).thenReturn(Optional.empty());
+
+        service.recordObservation(UUID.randomUUID(), "vpa:newmerchant", CounterpartyType.BUSINESS,
+                Transaction.Type.EXPENSE, " groceries");
+
+        assertThat(stored).singleElement().extracting(CounterpartyCategoryObservation::getCategory).isEqualTo("Groceries");
+    }
+
+    @Test
+    void computeTier_votesRecordedForACustomCategoryBeforeTheLimit_countForNothing() {
+        // Two old "Quick Bites" votes beside three "Dining" ones: counted, Dining's share was 60%
+        // and the shop stayed Disputed; a lower-case old vote for a default still counts as it.
+        List<CounterpartyCategoryObservation> history = new ArrayList<>();
+        history.add(observationOf("Quick Bites", Instant.now()));
+        history.add(observationOf("Quick Bites", Instant.now()));
+        history.add(observationOf("Dining", Instant.now()));
+        history.add(observationOf("Dining", Instant.now()));
+        history.add(observationOf("dining", Instant.now()));
+
+        SharedCorpusService.Tier tier = SharedCorpusService.computeTier(history);
+
+        assertThat(tier.status()).isEqualTo(SharedMerchantCategory.Status.TRUSTED);
+        assertThat(tier.category()).isEqualTo("Dining");
+        assertThat(tier.distribution()).containsOnlyKeys("Dining");
+        assertThat(tier.distinctUserCount()).isEqualTo(3);
+    }
+
+    @Test
+    void computeTier_onlyCustomCategoryVotes_isNoTierAtAll() {
+        List<CounterpartyCategoryObservation> history = new ArrayList<>();
+        for (int i = 0; i < 3; i++) history.add(observationOf("Quick Bites", Instant.now()));
+
+        assertThat(SharedCorpusService.computeTier(history)).isNull();
+    }
+
+    @Test
+    void findTrustedSuggestion_aTrustedRowNamingACustomCategory_suggestsNothing() {
+        // Rows promoted before votes were limited to default categories.
+        SharedMerchantCategory row = new SharedMerchantCategory();
+        row.setCounterpartyKey("vpa:newmerchant");
+        row.setDirection(Transaction.Type.EXPENSE);
+        row.setStatus(SharedMerchantCategory.Status.TRUSTED);
+        row.setCategory("Quick Bites");
+        when(corpus.findByCounterpartyKeyAndDirection("vpa:newmerchant", Transaction.Type.EXPENSE)).thenReturn(Optional.of(row));
+
+        assertThat(service.findTrustedSuggestion("vpa:newmerchant", CounterpartyType.BUSINESS, Transaction.Type.EXPENSE)).isEmpty();
+
+        row.setCategory("dining");
+        assertThat(service.findTrustedSuggestion("vpa:newmerchant", CounterpartyType.BUSINESS, Transaction.Type.EXPENSE))
+                .contains("Dining");
     }
 
     @Test

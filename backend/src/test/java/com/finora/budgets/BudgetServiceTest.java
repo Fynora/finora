@@ -2,6 +2,7 @@ package com.finora.budgets;
 
 import com.finora.repository.InflowKindRepository;
 import com.finora.repository.SenderInflowRuleRepository;
+import com.finora.service.CategorizationService;
 import com.finora.service.InflowChoiceService;
 
 import com.finora.entity.Account;
@@ -60,6 +61,7 @@ class BudgetServiceTest {
     private UserRepository userRepository;
     private TimelineEventService timelineEventService;
     private BudgetService budgetService;
+    private CategorizationService categorizationService;
     private final UUID userId = UUID.randomUUID();
     private Account liveAccount;
 
@@ -79,9 +81,24 @@ class BudgetServiceTest {
         liveAccount.setUserId(userId);
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(liveAccount));
 
+        // Stands in for CategorizationService.resolveOrCreateCategory's own match-or-create, against
+        // the same mocked repository the assertions below read.
+        categorizationService = mock(CategorizationService.class);
+        when(categorizationService.resolveOrCreateCategory(any(), anyString())).thenAnswer(inv -> {
+            UUID owner = inv.getArgument(0);
+            String name = inv.<String>getArgument(1).trim();
+            List<Category> matches = categoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc(owner, name);
+            if (matches != null && !matches.isEmpty()) return matches.get(0);
+            Category created = new Category();
+            created.setUserId(owner);
+            created.setName(name);
+            return categoryRepository.save(created);
+        });
+
         budgetService = new BudgetService(budgetRepository, categoryRepository, transactionRepository, accountRepository,
                 userRepository, mock(AuditService.class), transactionGraphService, timelineEventService,
-                new InflowChoiceService(mock(InflowKindRepository.class), mock(SenderInflowRuleRepository.class)));
+                new InflowChoiceService(mock(InflowKindRepository.class), mock(SenderInflowRuleRepository.class)),
+                categorizationService);
         when(userRepository.findById(any())).thenReturn(Optional.empty());
     }
 
@@ -365,6 +382,20 @@ class BudgetServiceTest {
 
         verify(transactionRepository, never()).findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any());
         verify(transactionRepository, never()).findByUserIdAndReconciliationStatusInAndAccountIdIn(any(), any(), any());
+    }
+
+    /** A budget for a category the user does not have yet creates it the same way every other
+     *  path does -- CategorizationService.resolveOrCreateCategory -- not through a copy of it. */
+    @Test
+    void upsert_aNewCategoryIsCreatedThroughTheSharedFindOrCreate() {
+        when(categoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc(userId, "Plants")).thenReturn(List.of());
+        when(categoryRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(budgetRepository.findByUserIdAndCategoryId(any(), any())).thenReturn(Optional.empty());
+        when(budgetRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        budgetService.upsert(userId, new BudgetDto.UpsertRequest(" Plants ", new BigDecimal("500.00")));
+
+        verify(categorizationService).resolveOrCreateCategory(userId, "Plants");
     }
 
     // Identity Engine (docs/superpowers/plans/2026-09-11-identity-engine.md, Task 5).

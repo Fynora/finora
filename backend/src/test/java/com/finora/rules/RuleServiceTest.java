@@ -453,6 +453,61 @@ class RuleServiceTest {
         assertThat(result.lastMatchedAt()).isNull();
     }
 
+    // --- createGlobal()/updateGlobal(): a global rule names a default category ---
+
+    @Test
+    void createGlobal_refusesACategoryThatIsNotADefault() {
+        // A global rule reaches every user: a name outside the defaults (a typo like "Grocery")
+        // would be created as a new category in every account it matched.
+        var req = new RuleDto.CreateRequest("DESCRIPTION", "CONTAINS", "bigbasket", "ASSIGN_CATEGORY", "Grocery", null, null, null);
+
+        assertThatThrownBy(() -> ruleService.createGlobal(actingAdminId, req))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("Grocery");
+        verify(categoryRuleRepository, never()).save(any());
+    }
+
+    @Test
+    void createGlobal_storesADefaultCategoryInItsSeededSpelling() {
+        var req = new RuleDto.CreateRequest("DESCRIPTION", "CONTAINS", "bigbasket", "ASSIGN_CATEGORY", " groceries ", null, null, null);
+
+        assertThat(ruleService.createGlobal(actingAdminId, req).actionValue()).isEqualTo("Groceries");
+    }
+
+    @Test
+    void createGlobal_anInvestmentRule_takesADefaultOrNothing() {
+        var blank = new RuleDto.CreateRequest("DESCRIPTION", "CONTAINS", "zerodha", "MARK_INVESTMENT", null, null, null, null);
+        assertThat(ruleService.createGlobal(actingAdminId, blank).actionValue()).isNull();
+
+        var custom = new RuleDto.CreateRequest("DESCRIPTION", "CONTAINS", "zerodha", "MARK_INVESTMENT", "Stocks", null, null, null);
+        assertThatThrownBy(() -> ruleService.createGlobal(actingAdminId, custom)).isInstanceOf(ApiException.class);
+
+        // Rules whose action value names no category are unaffected.
+        var transfer = new RuleDto.CreateRequest("DESCRIPTION", "CONTAINS", "self", "MARK_TRANSFER", null, null, null, null);
+        assertThat(ruleService.createGlobal(actingAdminId, transfer).actionType()).isEqualTo("MARK_TRANSFER");
+    }
+
+    @Test
+    void updateGlobal_refusesRenamingTheCategoryToANonDefault() {
+        UUID id = UUID.randomUUID();
+        when(categoryRuleRepository.findById(id)).thenReturn(Optional.of(globalRule(id)));
+        var req = new RuleDto.UpdateRequest(null, null, null, null, "Online Shopping", null, null, null, null);
+
+        assertThatThrownBy(() -> ruleService.updateGlobal(actingAdminId, id, req)).isInstanceOf(ApiException.class);
+    }
+
+    @Test
+    void updateGlobal_canStillSwitchOffARuleSavedWithANonDefaultName() {
+        // A rule saved before this check must not be stuck on: switching it off is the fix.
+        UUID id = UUID.randomUUID();
+        CategoryRule legacy = globalRule(id);
+        legacy.setActionValue("Online Shopping");
+        when(categoryRuleRepository.findById(id)).thenReturn(Optional.of(legacy));
+        var req = new RuleDto.UpdateRequest(null, null, null, null, null, null, false, null, null);
+
+        assertThat(ruleService.updateGlobal(actingAdminId, id, req).enabled()).isFalse();
+    }
+
     // --- listGlobal() -- Admin Portal, Global Rules page ---
 
     @Test

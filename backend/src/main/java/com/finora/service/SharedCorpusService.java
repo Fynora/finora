@@ -7,6 +7,7 @@ import com.finora.repository.CounterpartyCategoryObservationRepository;
 import com.finora.repository.SharedMerchantCategoryRepository;
 import com.finora.util.CounterpartyIdentity;
 import com.finora.util.CounterpartyType;
+import com.finora.util.DefaultCategories;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -58,15 +59,27 @@ public class SharedCorpusService {
     public Optional<String> findTrustedSuggestion(String counterpartyKey, CounterpartyType counterpartyType,
                                                    Transaction.Type direction) {
         if (!isEligible(counterpartyKey, counterpartyType)) return Optional.empty();
+        // A row promoted before votes were limited to default categories can still name one a
+        // user made for themselves; never suggested, see recordObservation.
         return corpus.findByCounterpartyKeyAndDirection(counterpartyKey, direction)
                 .filter(row -> row.getStatus() == SharedMerchantCategory.Status.TRUSTED)
-                .map(SharedMerchantCategory::getCategory);
+                .flatMap(row -> DefaultCategories.canonical(row.getCategory()));
     }
 
+    /**
+     * Only a default category is a vote, recorded in its seeded spelling. A category a user made
+     * for themselves means something only in their own account: three users each filing a shop
+     * under their own "Quick Bites" made it the shop's trusted answer, and confirm then created
+     * "Quick Bites" in the account of every other user who imported that shop -- or brought it
+     * back for one who had deleted it.
+     */
     @Transactional
     public void recordObservation(UUID userId, String counterpartyKey, CounterpartyType counterpartyType,
-                                   Transaction.Type direction, String category) {
+                                   Transaction.Type direction, String chosenCategory) {
         if (!isEligible(counterpartyKey, counterpartyType)) return;
+        Optional<String> defaultCategory = DefaultCategories.canonical(chosenCategory);
+        if (defaultCategory.isEmpty()) return;
+        String category = defaultCategory.get();
 
         CounterpartyCategoryObservation obs = new CounterpartyCategoryObservation();
         obs.setCounterpartyKey(counterpartyKey);
@@ -161,21 +174,28 @@ public class SharedCorpusService {
     record Tier(SharedMerchantCategory.Status status, String category,
                 Map<String, BigDecimal> distribution, int distinctUserCount) {}
 
-    /** @return null if fewer than 3 distinct voters (Empty/Provisional -- no corpus row yet). */
-    static Tier computeTier(List<CounterpartyCategoryObservation> obs) {
-        Set<UUID> distinctUsers = obs.stream().map(CounterpartyCategoryObservation::getUserId)
+    /** @return null if fewer than 3 distinct voters (Empty/Provisional -- no corpus row yet).
+     *  Counts default categories only, in their seeded spelling: a vote recorded before
+     *  {@link #recordObservation} was limited to them is no vote here either. */
+    static Tier computeTier(List<CounterpartyCategoryObservation> recorded) {
+        List<Vote> obs = new ArrayList<>();
+        for (CounterpartyCategoryObservation o : recorded) {
+            DefaultCategories.canonical(o.getCategory())
+                    .ifPresent(category -> obs.add(new Vote(o.getUserId(), category, o.getCreatedAt())));
+        }
+        Set<UUID> distinctUsers = obs.stream().map(Vote::userId)
                 .collect(Collectors.toSet());
         if (distinctUsers.size() < TRUSTED_MIN_DISTINCT_VOTERS) return null;
 
         Map<String, Long> rawCounts = obs.stream()
-                .collect(Collectors.groupingBy(CounterpartyCategoryObservation::getCategory, Collectors.counting()));
+                .collect(Collectors.groupingBy(Vote::category, Collectors.counting()));
 
         Instant now = Instant.now();
         Map<String, BigDecimal> weighted = new HashMap<>();
         BigDecimal totalWeight = BigDecimal.ZERO;
-        for (CounterpartyCategoryObservation o : obs) {
-            BigDecimal weight = decayWeight(now, o.getCreatedAt());
-            weighted.merge(o.getCategory(), weight, BigDecimal::add);
+        for (Vote o : obs) {
+            BigDecimal weight = decayWeight(now, o.createdAt());
+            weighted.merge(o.category(), weight, BigDecimal::add);
             totalWeight = totalWeight.add(weight);
         }
 
@@ -198,6 +218,10 @@ public class SharedCorpusService {
         var status = trusted ? SharedMerchantCategory.Status.TRUSTED : SharedMerchantCategory.Status.DISPUTED;
         return new Tier(status, winner, distribution, distinctUsers.size());
     }
+
+    /** One counted vote: a recorded observation whose category is a default one. */
+    private record Vote(UUID userId, String category, Instant createdAt) {}
+
 
     static BigDecimal decayWeight(Instant now, Instant createdAt) {
         double ageDays = Duration.between(createdAt, now).toDays();

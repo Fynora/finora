@@ -1281,7 +1281,21 @@ public class ImportService {
             // site the bug report identifies as reachable with unbounded, possibly-blank raw
             // parser output.
             String rowCategory = (row.category() == null || row.category().isBlank()) ? "Other" : row.category();
-            Category category = categorizationService.resolveOrCreateCategory(userId, rowCategory);
+            Optional<Category> existingCategory = categorizationService.findCategory(userId, rowCategory);
+            // The engine named one of the user's own categories when the file was read, and the
+            // user renamed or deleted it before confirming. Creating it again would bring back what
+            // they just removed, so the row waits in "Other" for them to sort instead. A default
+            // category cannot be renamed or deleted, so one the engine named is created as before;
+            // so is a category picked or typed on the review screen, or printed in the user's file.
+            if (existingCategory.isEmpty() && namedByTheEngine(row)
+                    && com.finora.util.DefaultCategories.canonical(rowCategory).isEmpty()) {
+                row = row.withNothingMatched();
+                rowCategory = row.category();
+                existingCategory = categorizationService.findCategory(userId, rowCategory);
+            }
+            String categoryToCreate = rowCategory;
+            Category category = existingCategory
+                    .orElseGet(() -> categorizationService.resolveOrCreateCategory(userId, categoryToCreate));
             var decision = ruleLearningService.recordDecision(row);
             boolean isUnresolvedGuess = decision.unresolvedGuess();
 
@@ -2008,6 +2022,17 @@ public class ImportService {
         }
         AccountCoverage coverage = accountCoverageFor(userId, accountId);
         return CoverageWarnings.duplicateOverlaps(coverage.report(), statementId, coverage.importedAtById());
+    }
+
+    /**
+     * Whether a confirmed row's category is still the one the engine gave it at staging: the
+     * user did not change it on the review screen ("review", see
+     * ConfirmedRowIntegrity.withStatementFacts) and it is not the file's own Category column
+     * ("file"). A row with no source at all is left as it always was.
+     */
+    private static boolean namedByTheEngine(ConfirmedRow row) {
+        String source = row.categorySource();
+        return source != null && !CategorizationService.REVIEW_SOURCE.equals(source) && !"file".equals(source);
     }
 
     /**

@@ -1,8 +1,6 @@
 package com.finora.util;
 
-import com.finora.service.AuthService;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Map;
 
@@ -14,9 +12,7 @@ class CategoryPaletteTest {
      *  time its owner edited it, and render as the fallback icon on both clients. */
     @Test
     void everyDefaultCategoryDrawsFromThePalette() {
-        @SuppressWarnings("unchecked")
-        Map<String, String[]> defaults =
-                (Map<String, String[]>) ReflectionTestUtils.getField(AuthService.class, "DEFAULT_CATEGORIES");
+        Map<String, String[]> defaults = DefaultCategories.iconAndColor();
 
         assertThat(defaults).containsKey("Personal Care");
         defaults.forEach((name, iconAndColor) -> {

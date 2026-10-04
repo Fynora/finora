@@ -12688,6 +12688,7 @@
                 "properties": {
                     "categoryName": {
                         "type": "string",
+                        "maxLength": 80,
                         "minLength": 1
                     },
                     "monthlyLimit": {

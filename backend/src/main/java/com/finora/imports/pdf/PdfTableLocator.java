@@ -1237,6 +1237,7 @@ public class PdfTableLocator {
         Map<Integer, PageDateEvidence> yearsByPage = yearsByPage(rows);
         Set<String> repeatedFurniture = repeatedPageFurniture(rows);
         Set<String> repeatedPeriodBanners = repeatedPeriodBanners(rows);
+        LineGeometry lineGeometry = LineGeometry.of(rows);
 
         List<LocatedSection> sections = new ArrayList<>();
         // The row index of the header that opened the section currently accumulating into
@@ -2150,8 +2151,9 @@ public class PdfTableLocator {
                 // lines up only gets the row treated as an anchor, it does not fix what ends up
                 // stored in that anchor's own date cell.
                 List<PositionedText> resolvedRow = substituteYearlessDates(row, rowCandidateYears);
-                Map<String, String> bucketed = bucketRow(resolvedRow, headerNames, headerAnchors, headerEnds, ctx,
-                        rowCandidateYears, textColumnSpans, marginPanelBand);
+                Map<String, String> bucketed = lineGeometry.decorate(bucketRow(resolvedRow, headerNames, headerAnchors,
+                        headerEnds, ctx, rowCandidateYears, textColumnSpans, marginPanelBand), resolvedRow,
+                        column -> !isAmountColumn(column));
                 if (bucketed.isEmpty()) {
                     // Row-accounting evidence: the row survived every structural gate up to
                     // bucketing and still produced literally nothing -- the strongest "we don't
@@ -7846,6 +7848,7 @@ public class PdfTableLocator {
         List<Float> narrationStarts = new ArrayList<>();
         LedgerLineStarts ledgerLineStarts = new LedgerLineStarts(allRows, yearsByPage);
         int pageCount = pageCountOf(allRows);
+        LineGeometry lineGeometry = LineGeometry.of(allRows);
         for (int rowIndex = 0; rowIndex < allRows.size(); rowIndex++) {
             List<PositionedText> row = allRows.get(rowIndex);
             String rowLine = lineOf(row);
@@ -7881,8 +7884,9 @@ public class PdfTableLocator {
                     if (ctx != null) ctx.record("PHYSICAL_ROW_DEDUP_EVIDENCE");
                     continue;
                 }
-                Map<String, String> bucketed = bucketRow(resolvedRow, headerNames, headerAnchors, headerEnds, ctx,
-                        rowYears);
+                Map<String, String> bucketed = lineGeometry.decorate(bucketRow(resolvedRow, headerNames,
+                        headerAnchors, headerEnds, ctx, rowYears), resolvedRow,
+                        column -> !isAmountColumn(column));
                 if (bucketed.isEmpty()) continue;
                 result.add(bucketed);
                 noteTextStarts(narrationStarts, resolvedRow);
@@ -7890,8 +7894,9 @@ public class PdfTableLocator {
                 continuationCount = 0;
                 previousTransactionLine = rowLine;
             } else if (currentAnchor != null && continuationCount < MAX_BLOCK_CONTINUATION_ROWS) {
-                Map<String, String> bucketed = bucketRow(resolvedRow, headerNames, headerAnchors, headerEnds, ctx,
-                        rowYears);
+                Map<String, String> bucketed = lineGeometry.decorate(bucketRow(resolvedRow, headerNames,
+                        headerAnchors, headerEnds, ctx, rowYears), resolvedRow,
+                        column -> !isAmountColumn(column));
                 if (bucketed.isEmpty()) continue;
                 // TABLE_TOTALS_ROW_DIVERTED, same rule as the header-based path: a closing "Total"
                 // line -- whole, or split over two physical rows -- is not the last transaction's

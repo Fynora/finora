@@ -217,8 +217,9 @@ public final class BankRegistry {
         // named Axis Bank -- from an Axis IFSC inside a counterparty's narration. No bare "SLICE"
         // alias: UPI narrations on other banks' statements carry "slice"-named handles
         // ("…/NESF/sliceaddmoney@…"), and a one-word alias would name those statements slice too.
-        // Neutral colour: no brand colour is evidenced.
-        register("SLICE", "slice small finance bank", "slice", "#475569", "SL", "slice",
+        // Colour: the primary action colour of the bank's own site (its logo mark is a brighter
+        // magenta, but white initials on it fall below 4.5:1 contrast; on this they clear it).
+        register("SLICE", "slice small finance bank", "slice", "#9E2BD0", "SL", "slice",
                 Category.SMALL_FINANCE, "https://slice.bank.in", "NESF",
                 new String[]{"SLICESMALLFINANCEBANK", "SLICESFB", "NORTHEASTSMALLFINANCEBANK"});
 

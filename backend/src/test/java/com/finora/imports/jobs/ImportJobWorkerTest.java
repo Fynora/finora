@@ -59,6 +59,7 @@ class ImportJobWorkerTest {
     private ImportJobWorker worker;
 
     private ImportJob job;
+    private SimpleMeterRegistry meters;
 
     @BeforeEach
     void setUp() {
@@ -69,7 +70,8 @@ class ImportJobWorkerTest {
         // directly -- see ImportJobWorker.readContent's own doc for why.
         statementContentService = mock(StatementContentService.class);
         stageRecorder = mock(ImportStageRecorder.class);
-        WorkerObservability observability = new WorkerObservability(new SimpleMeterRegistry());
+        meters = new SimpleMeterRegistry();
+        WorkerObservability observability = new WorkerObservability(meters);
 
         statementStatusNotifier = mock(StatementStatusNotifier.class);
         verificationRecorder = mock(ImportVerificationRecorder.class);
@@ -808,6 +810,13 @@ class ImportJobWorkerTest {
         assertThat(job.getHeldStatementId())
                 .as("no review record exists, and the job must not claim one does")
                 .isNull();
+        // The worker's log line reaches no one (sentry.logging.enabled is off), so the failure
+        // is reported through the worker's own channel -- the counter is the observable half.
+        assertThat(meters.find("finora.worker.failures").counter())
+                .as("a hold nobody can act on is reported, not only logged")
+                .isNotNull()
+                .extracting(io.micrometer.core.instrument.Counter::count)
+                .isEqualTo(1.0);
     }
 
     /** Telemetry is recorded for a held import too -- it is the evidence the reviewer works from,

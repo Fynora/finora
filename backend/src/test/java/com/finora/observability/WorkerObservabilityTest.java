@@ -337,6 +337,7 @@ class WorkerObservabilityTest {
             execution.deadLettered(id, 5, new IllegalStateException("warning"), AlertSeverity.WARNING);
             execution.deadLettered(id, 2, new IllegalStateException("error"), AlertSeverity.ERROR);
             execution.failureNotRecorded(id, new IllegalStateException("x"));
+            execution.heldWithoutReviewRecord(id, new IllegalStateException("x"));
             execution.deadLettered(null, 3, new IllegalStateException("no id"));
             execution.recovered(1);
         }

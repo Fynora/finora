@@ -329,6 +329,7 @@ public class ImportJobWorker {
                 } catch (RuntimeException e) {
                     log.error("Could not create the hold record for import job {}; holding the "
                             + "import anyway, with no review record to work from", jobId, e);
+                    execution.heldWithoutReviewRecord(jobId, e);
                 }
             }
             final UUID heldId = heldStatementId;

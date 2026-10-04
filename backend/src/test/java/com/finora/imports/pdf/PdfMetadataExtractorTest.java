@@ -1174,6 +1174,53 @@ class PdfMetadataExtractorTest {
         assertThat(metadata.paymentDueDate()).isEqualTo(java.time.LocalDate.of(2026, 5, 5));
     }
 
+    /** A day before a FULL month name, and an abbreviated month before the day, both parse now --
+     *  on every due-date path (anchored, mid-line, ordinal, next line). */
+    @Test
+    void extract_readsFullMonthAndMonthFirstDueDates_onEveryPath() {
+        java.time.LocalDate expected = java.time.LocalDate.of(2026, 8, 5);
+        for (List<String> lines : List.of(
+                List.of("Payment Due Date: 5 August 2026"),
+                List.of("Payment Due Date: Aug 5, 2026"),
+                List.of("Payment Due Date: 5th August 2026"),
+                List.of("Pay Now Payment due date 5 August 2026", "Statement Date 14 Apr 2026"),
+                List.of("Pay Now Payment due date Aug 5, 2026", "Statement Date 14 Apr 2026"),
+                List.of("Pay Now Payment due date Aug 5th 2026", "Statement Date 14 Apr 2026"),
+                List.of("Pay Now Payment due date 5 August, 2026", "Statement Date 14 Apr 2026"),
+                List.of("Due Date", "5 August 2026"),
+                List.of("Due Date", "Aug 5, 2026"))) {
+            assertThat(extractor.extract(lines).paymentDueDate()).as(lines.toString()).isEqualTo(expected);
+        }
+    }
+
+    @Test
+    void extract_readsAStatementPeriod_writtenWithFullMonthNames() {
+        var metadata = extractor.extract(List.of("Statement Period: 1 July 2026 to 31 July 2026"));
+
+        assertThat(metadata.statementPeriodStart()).isEqualTo(java.time.LocalDate.of(2026, 7, 1));
+        assertThat(metadata.statementPeriodEnd()).isEqualTo(java.time.LocalDate.of(2026, 7, 31));
+    }
+
+    /** The new shapes resolve strictly like every other: an impossible day is still no date. */
+    @Test
+    void extract_rejectsAnImpossibleFullMonthOrMonthFirstDueDate() {
+        assertThat(extractor.extract(List.of("Payment Due Date: 31 June 2026")).paymentDueDate()).isNull();
+        assertThat(extractor.extract(List.of("Payment Due Date: Feb 30, 2026")).paymentDueDate()).isNull();
+    }
+
+    /** The guards the formats were waiting on, with a full-month date: an example date in a
+     *  due-date sentence, and a dated notice below a sentence that mentions the due date, are
+     *  still not read (synthetic wording of real card statements' terms text). */
+    @Test
+    void extract_doesNotReadFullMonthDatesFromDueDateSentences() {
+        assertThat(extractor.extract(List.of(
+                "If the Payment Due Date (PDD) of an account is 31st March 2021, and the minimum is unpaid",
+                "Statement Date 14 Apr 2026")).paymentDueDate()).isNull();
+        assertThat(extractor.extract(List.of(
+                "interest is charged on the amount left unpaid after the due date of payment.",
+                "Effective 5 August 2013, the payment hierarchy changes.")).paymentDueDate()).isNull();
+    }
+
     /** Terms text naming the label and then an example account's date is a sentence, not this
      *  statement's value (synthetic wording of a real card statement's shape): neither the
      *  example date nor the next line's date is read. Abbreviated month, so the example would

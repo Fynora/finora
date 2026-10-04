@@ -202,6 +202,31 @@ class TemplateSampleAnalyzerTest {
         assertThat(unreadable.problems()).anySatisfy(p -> assertThat(p).contains("could not be read"));
     }
 
+    @Test
+    @DisplayName("a Date header with a day the month does not have is unreadable, not moved to the month's end")
+    void anImpossibleDateHeaderIsUnreadable() {
+        TemplateSampleAnalyzer.Analysis noWeekday = analyzer.analyze(eml(
+                "Authentication-Results: " + DMARC_PASS + "\nDate: 31 Apr 2026 10:00:00 +0000\n",
+                "<p>Total &#8377;10.00</p>"));
+        // 28 Feb 2026 is a Saturday, so a clamped date would also pass the weekday check.
+        TemplateSampleAnalyzer.Analysis weekdayOfTheClampedDay = analyzer.analyze(eml(
+                "Authentication-Results: " + DMARC_PASS + "\nDate: Sat, 31 Feb 2026 10:00:00 +0000\n",
+                "<p>Total &#8377;10.00</p>"));
+
+        assertThat(noWeekday.receivedOn()).isNull();
+        assertThat(weekdayOfTheClampedDay.receivedOn()).isNull();
+        assertThat(noWeekday.problems()).anySatisfy(p -> assertThat(p).contains("could not be read"));
+    }
+
+    @Test
+    @DisplayName("a printed date the month does not have is not offered as a date")
+    void anImpossiblePrintedDateIsNotOffered() {
+        TemplateSampleAnalyzer.Analysis a = analyzer.analyze(authenticated(
+                "<p>Total &#8377;10.00</p><p>Order Date: February 30, 2026</p>"));
+
+        assertThat(a.dates()).isEmpty();
+    }
+
     // ---- the sender -------------------------------------------------------------------------
 
     @Test

@@ -14,7 +14,7 @@ import type {
   LearningTimelineEntry,
   IntegrationsOverviewDto,
   MeAccessDto, MerchantDto, MerchantMergeRequest, MerchantStatDto, MerchantTemplateDto,
-  MerchantUpdateRequest, OperationalDashboardDto, SampleAnalysis, PagedResponse, PermissionDto, PlatformAnalyticsDto,
+  MerchantUpdateRequest, OperationalDashboardDto, SampleAnalysis, PagedResponse, PermissionDto, PlatformAnalyticsDto, SpendingTrackingBreakdown,
   PlatformDiagnosticsDto, PlatformSettingsDto, PlatformStatsDto, ReconciliationStatsDto, RecentImportDto,
   RelationshipDto, RelationshipMergeRequest, RoleDto, RuleDto,
   SearchResultDto, TrustedSenderDto, SubscriptionHealthDto, SubscriptionSummaryDto, SystemHealthDto,
@@ -662,6 +662,8 @@ export const adminUserWorkspaceApi = {
 
 export const adminPlatformAnalyticsApi = {
   get: () => api.get<PlatformAnalyticsDto>('/admin/analytics/platform').then((r) => r.data),
+  spendingTracking: () =>
+    api.get<SpendingTrackingBreakdown>('/admin/analytics/spending-tracking').then((r) => r.data),
 };
 
 // Global Search (Admin Portal Phase 2) -- AdminSearchController fans this one call out across

@@ -1,3 +1,4 @@
+import type React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -23,6 +24,11 @@ vi.mock('../api/endpoints', () => ({
 vi.mock('../api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api/client')>()),
   refreshAccessToken: vi.fn().mockRejectedValue(new Error('no refresh cookie')),
+}));
+
+// The required spending question is not what this file is about; the user below has answered it.
+vi.mock('../onboarding/SpendingQuestionGate', () => ({
+  SpendingQuestionGate: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
 // ProtectedRoute only reads the onboarding step; the logged-in user below has finished onboarding.

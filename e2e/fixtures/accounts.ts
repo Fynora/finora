@@ -133,7 +133,13 @@ export async function createUser(prefix = 'user'): Promise<TestUser> {
   // page this suite navigates to and show Welcome instead of it, unrelated to whatever that
   // test is actually about. Unlike phone_verified above, this doesn't need a SQL stand-in: the
   // real endpoint needs only the bearer token this fixture already has, so it goes through the
-  // product like everything else here.
+  // product like everything else here. The required "how do you track spending" question (V256)
+  // comes first: the backend refuses to complete onboarding without it, and the app shows it in
+  // place of every page until it is answered.
+  const spendingTracking = await post('/onboarding/spending-tracking', { method: 'SPREADSHEET' }, token);
+  if (!spendingTracking.payload?.success) {
+    throw new Error(`Seed spending-tracking answer failed for ${email}: ${spendingTracking.payload?.errorCode} ${spendingTracking.payload?.message}`);
+  }
   const completeOnboarding = await post('/onboarding/complete', {}, token);
   if (!completeOnboarding.payload?.success) {
     throw new Error(`Seed onboarding-complete failed for ${email}: ${completeOnboarding.payload?.errorCode} ${completeOnboarding.payload?.message}`);

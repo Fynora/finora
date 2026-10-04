@@ -93,7 +93,7 @@ describe('OnboardingFlow', () => {
 
   describe('focus step', () => {
     it('advances to tourIntro when setFinancialFocus succeeds', async () => {
-      vi.mocked(onboardingApi.setFinancialFocus).mockResolvedValue({ onboardingCompleted: false, financialFocus: [] });
+      vi.mocked(onboardingApi.setFinancialFocus).mockResolvedValue({ onboardingCompleted: false, financialFocus: [], spendingTrackingMethod: 'SPREADSHEET' });
       renderAtStep('focus');
 
       await act(async () => {

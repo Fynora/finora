@@ -273,6 +273,16 @@ public class User {
     @Column(name = "onboarding_completed_at")
     private Instant onboardingCompletedAt;
 
+    // The answer to the required setup question "How do you keep track of your spending today?"
+    // (a SpendingTrackingMethod name) and when it was given. Both null until answered, and set
+    // together (V256's CHECK) by OnboardingService.setSpendingTracking. Kept by reset(): it is a
+    // fact about the person, not onboarding progress.
+    @Column(name = "spending_tracking_method", length = 20)
+    private String spendingTrackingMethod;
+
+    @Column(name = "spending_tracking_answered_at")
+    private Instant spendingTrackingAnsweredAt;
+
     // Both null for an account created before V223 -- never backfilled, see that migration. Set
     // together, once, at account creation by AuthService (every sign-up path shows the Terms and
     // Privacy notice beside the action that creates the account).
@@ -339,6 +349,13 @@ public class User {
     public void setPasswordChangedAt(Instant passwordChangedAt) { this.passwordChangedAt = passwordChangedAt; }
     public Instant getOnboardingCompletedAt() { return onboardingCompletedAt; }
     public void setOnboardingCompletedAt(Instant onboardingCompletedAt) { this.onboardingCompletedAt = onboardingCompletedAt; }
+    public String getSpendingTrackingMethod() { return spendingTrackingMethod; }
+    public Instant getSpendingTrackingAnsweredAt() { return spendingTrackingAnsweredAt; }
+    /** Records the answer; both columns move together (V256's CHECK). */
+    public void recordSpendingTracking(String method, Instant at) {
+        this.spendingTrackingMethod = method;
+        this.spendingTrackingAnsweredAt = at;
+    }
     public Instant getTermsAcceptedAt() { return termsAcceptedAt; }
     public String getTermsVersion() { return termsVersion; }
     /** Records acceptance of the given Terms/Privacy version. Both columns move together (V223's CHECK). */

@@ -53,7 +53,21 @@ public class OnboardingService {
         User user = requireUser(userId);
         List<String> focus = focusRepository.findByUserId(userId).stream()
                 .map(UserFinancialFocus::getFocusKey).toList();
-        return new OnboardingDto.StatusResponse(user.getOnboardingCompletedAt() != null, focus);
+        return new OnboardingDto.StatusResponse(user.getOnboardingCompletedAt() != null, focus,
+                user.getSpendingTrackingMethod());
+    }
+
+    /** Records the answer to the required "How do you keep track of your spending today?"
+     *  question. Answering again replaces the answer and its time. */
+    @Transactional
+    public OnboardingDto.StatusResponse setSpendingTracking(UUID userId, String method) {
+        User user = requireUser(userId);
+        if (method == null || method.isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "method is required");
+        }
+        SpendingTrackingMethod parsed = EnumParsing.parse(SpendingTrackingMethod.class, method, "method");
+        user.recordSpendingTracking(parsed.name(), Instant.now());
+        return getStatus(userId);
     }
 
     @Transactional
@@ -87,6 +101,12 @@ public class OnboardingService {
     @Transactional
     public void complete(UUID userId) {
         User user = requireUser(userId);
+        // The spending question is required: the clients ask it before anything else, and this
+        // keeps an old client or a direct call from finishing onboarding around it.
+        if (user.getSpendingTrackingMethod() == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "Tell us how you keep track of your spending today before continuing.");
+        }
         if (user.getOnboardingCompletedAt() == null) {
             user.setOnboardingCompletedAt(Instant.now());
         }

@@ -83,8 +83,62 @@ class OnboardingControllerIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void completeIsRefusedUntilTheSpendingQuestionIsAnswered_andTheAnswerIsStored() throws Exception {
+        User user = createUser();
+
+        ResponseEntity<String> refused = restTemplate.exchange("/api/v1/onboarding/complete", HttpMethod.POST,
+                new HttpEntity<>(Map.of(), bearerFor(user)), String.class);
+        assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        ResponseEntity<String> answered = restTemplate.exchange("/api/v1/onboarding/spending-tracking", HttpMethod.POST,
+                new HttpEntity<>(Map.of("method", "IN_MY_HEAD"), bearerFor(user)), String.class);
+        assertThat(answered.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(mapper.readTree(answered.getBody()).get("data").get("spendingTrackingMethod").asText())
+                .isEqualTo("IN_MY_HEAD");
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getSpendingTrackingAnsweredAt()).isNotNull();
+
+        ResponseEntity<String> completed = restTemplate.exchange("/api/v1/onboarding/complete", HttpMethod.POST,
+                new HttpEntity<>(Map.of(), bearerFor(user)), String.class);
+        assertThat(completed.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    /** The admin breakdown's query, on the real database. The users table is shared by every IT,
+     *  so this reads the change one answer makes, on an answer no other test gives. */
+    @Test
+    void theAdminCountQuery_countsALiveAnswer_andLeavesAPurgedAccountOut() {
+        long before = otherCount();
+        User live = createUser();
+        live.recordSpendingTracking("OTHER", java.time.Instant.now());
+        userRepository.save(live);
+        User purged = createUser();
+        purged.recordSpendingTracking("OTHER", java.time.Instant.now());
+        purged.setDeletedAt(java.time.Instant.now());
+        userRepository.save(purged);
+
+        assertThat(otherCount()).isEqualTo(before + 1);
+    }
+
+    private long otherCount() {
+        return userRepository.countBySpendingTrackingMethod().stream()
+                .filter(r -> "OTHER".equals(r.getMethod()))
+                .mapToLong(UserRepository.SpendingTrackingCount::getCount).sum();
+    }
+
+    @Test
+    void spendingTrackingRejectsAnUnknownAnswer() {
+        User user = createUser();
+
+        ResponseEntity<String> response = restTemplate.exchange("/api/v1/onboarding/spending-tracking", HttpMethod.POST,
+                new HttpEntity<>(Map.of("method", "CARRIER_PIGEON"), bearerFor(user)), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
     void completeThenResetRoundTrips() throws Exception {
         User user = createUser();
+        restTemplate.exchange("/api/v1/onboarding/spending-tracking", HttpMethod.POST,
+                new HttpEntity<>(Map.of("method", "SPREADSHEET"), bearerFor(user)), String.class);
 
         restTemplate.exchange("/api/v1/onboarding/complete", HttpMethod.POST,
                 new HttpEntity<>(Map.of(), bearerFor(user)), String.class);

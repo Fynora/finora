@@ -355,6 +355,29 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
 paymentRepository, subscriptionOrderRepository, referralRepository, referralCodeRepository, referralGrantRepository, walletLedgerRepository, notificationRepository, notificationPreferenceRepository, timelineEventRepository, transactionRelationshipRepository, statementImportExcludedRowRepository, counterpartyCategoryObservationRepository, statementRefreshRunRepository);
     }
 
+    /** The required setup answer (V256) goes into the export as its own file: empty until
+     *  answered, then the answer and when it was given. */
+    @Test
+    void theSpendingTrackingAnswer_isExported_asItsOwnFile() throws IOException {
+        DataExportService.ExportBundle unanswered = service.buildBundle(userId, "correct-password", null, null);
+        assertThat(unanswered.spendingTracking()).isEmpty();
+
+        User answered = user();
+        java.time.Instant at = java.time.Instant.parse("2026-10-04T10:00:00Z");
+        answered.recordSpendingTracking("SPREADSHEET", at);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(answered));
+
+        DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
+
+        assertThat(bundle.spendingTracking()).singleElement()
+                .isEqualTo(new com.finora.dto.DataExportDto.SpendingTrackingExportDto("SPREADSHEET", at));
+        Map<String, byte[]> entries = writeZipAndReadEntries(bundle);
+        assertThat(new String(entries.get("spending_tracking.json"), java.nio.charset.StandardCharsets.UTF_8))
+                .contains("SPREADSHEET").contains(String.valueOf(at.getEpochSecond()));
+        assertThat(new String(entries.get("manifest.json"), java.nio.charset.StandardCharsets.UTF_8))
+                .contains("spending_tracking.json");
+    }
+
     @Test
     void buildBundle_correctPassword_proceeds() {
         DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
@@ -1072,7 +1095,8 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
                 b.paymentInflowChoices(), b.savedStatementPasswords(), b.featureViews(), b.payments(),
                 b.subscriptionOrders(), b.referrals(), b.referralCode(), b.referralRewards(), b.wallet(),
                 b.notifications(), b.notificationPreferences(), b.timeline(), b.transactionLinks(),
-                b.statementExcludedRows(), b.merchantCategoryVotes(), b.statementRefreshRuns(), b.activityDays());
+                b.statementExcludedRows(), b.merchantCategoryVotes(), b.statementRefreshRuns(), b.activityDays(),
+                b.spendingTracking());
     }
 
     private ImportJob job(String fileName, String contentHash, String objectKey) {

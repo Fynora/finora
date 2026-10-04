@@ -194,4 +194,19 @@ public interface UserRepository extends JpaRepository<User, UUID> {
            """)
     List<User> findByPermissionNameAndAccountScope(@Param("permissionName") String permissionName,
                                                     @Param("accountScope") String accountScope);
+
+    /** One row per answer to the required "How do you keep track of your spending today?" question
+     *  (V256), with how many live consumer accounts gave it; a null answer counts the accounts that
+     *  have not answered yet. Purged accounts (deletedAt set) are left out. */
+    interface SpendingTrackingCount {
+        String getMethod();
+        long getCount();
+    }
+
+    @Query("""
+           SELECT u.spendingTrackingMethod AS method, COUNT(u) AS count FROM User u
+            WHERE u.accountScope = 'USER' AND u.deletedAt IS NULL
+            GROUP BY u.spendingTrackingMethod
+           """)
+    List<SpendingTrackingCount> countBySpendingTrackingMethod();
 }

@@ -322,10 +322,17 @@ public class ImportJobWorker {
             // exists to stop. createHold is idempotent on the job id, so a retried pass reuses the
             // review that already exists instead of colliding with it.
             UUID heldStatementId = null;
+            boolean covered = false;
             if (decision.hold()) {
                 try {
                     heldStatementId = heldStatementService
                             .createHold(job, staged, decision, parserVersionProvider.current()).getId();
+                } catch (com.finora.service.HeldStatementService.HoldCoveredException e) {
+                    // An operator opened a review on these rows after this pass decided to hold:
+                    // held riding that review, which decides this job with it. Expected, not paged.
+                    log.info("Import job {} replays rows already under review in {}; held with "
+                            + "that review", jobId, e.heldId());
+                    covered = true;
                 } catch (RuntimeException e) {
                     log.error("Could not create the hold record for import job {}; holding the "
                             + "import anyway, with no review record to work from", jobId, e);
@@ -333,20 +340,31 @@ public class ImportJobWorker {
                 }
             }
             final UUID heldId = heldStatementId;
+            final boolean riding = covered;
 
             jobStore.update(jobId, j -> {
+                // A job riding another job's review settles against where that review stands now,
+                // under the session's lock -- first, before anything here is flushed. See
+                // HeldStatementService.settleRidingJob for the race this closes.
+                com.finora.entity.HeldStatement.Status settled = !riding ? null
+                        : heldStatementService.settleRidingJob(staged.sessionId(), jobId)
+                                .orElse(com.finora.entity.HeldStatement.Status.HELD);
                 // totalParsed rather than the staged row count: the latter is what staged
                 // successfully, and reporting it as the total would make a statement with
                 // unparseable rows look like it had fewer rows than it did.
                 j.recordProgress(staged.totalParsed(), staged.stagedRows());
-                if (rejectedBefore) {
-                    // No session on the job: these rows never reach the ledger, and pointing this
-                    // job at the session would make a second reference to rows that are blocked
-                    // for good. Same failure code the rejected job carries, so both read the same.
-                    j.recordFailure("Staged into session " + staged.sessionId()
-                                    + ", whose trust review was already rejected",
-                            ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name(),
-                            ErrorCode.RetryPolicy.FAIL_FAST, Instant.now());
+                if (rejectedBefore || settled == com.finora.entity.HeldStatement.Status.REJECTED) {
+                    // Left exactly as reject() leaves a job riding the review it decided: failed
+                    // with the review's own code, still pointing at the session. Not blocking --
+                    // the session's block is the rejected review's -- and, if that review is
+                    // reopened (HeldStatementService.reopen), held again with it, so approving it
+                    // then releases this upload too rather than leaving it failed.
+                    Instant now = Instant.now();
+                    j.holdForTrustReview(staged.sessionId(), null, now);
+                    j.rejectAfterTrustReview(ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name(), now);
+                } else if (settled == com.finora.entity.HeldStatement.Status.IMPORTED) {
+                    // The review it rode was approved while this pass ran: the rows are released.
+                    j.complete(staged.sessionId(), Instant.now());
                 } else if (decision.hold()) {
                     // Keeps the session: the rows are real, and comparing them against the
                     // document is the entire review.
@@ -365,6 +383,8 @@ public class ImportJobWorker {
                         telemetry.isEmpty() ? null : telemetry.warningCount(),
                         parserVersionProvider.current());
                 if (!decision.hold() && !rejectedBefore) {
+                    // (A riding job settled as approved is not announced here either: approving the
+                    // review it rode already told the user their statement is ready.)
                     // A held import is not finished, so it announces nothing -- the same rule the
                     // other hold follows. Telling someone their statement is ready and then
                     // withholding it would be worse than saying nothing.

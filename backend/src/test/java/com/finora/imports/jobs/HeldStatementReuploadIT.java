@@ -243,10 +243,37 @@ class HeldStatementReuploadIT extends AbstractIntegrationTest {
         assertThat(againId).isNotEqualTo(held.getId());
         assertThat(again.getStatus()).isEqualTo(ImportJob.Status.FAILED);
         assertThat(again.getFailureCode()).isEqualTo(ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name());
-        assertThat(again.getImportSessionId()).isNull();
+        assertThat(again.getImportSessionId())
+                .as("rides the rejected review, as reject() leaves a job it decides")
+                .isEqualTo(held.getImportSessionId());
         assertThat(again.getHeldStatementId()).isNull();
         assertThat(holdsOf(owner)).extracting(HeldStatement::getStatus)
                 .containsExactly(HeldStatement.Status.REJECTED);
+        assertThat(importSessionService.listResumableSessions(owner.getId()))
+                .extracting(ImportSession::getId).doesNotContain(held.getImportSessionId());
+    }
+
+    /** Reopening the rejected review (#1997) holds the later upload again with it, and approving
+     *  then releases both -- not one completed and one left failed for rows that were imported. */
+    @Test
+    void reopeningARejectedReviewCarriesTheLaterUploadOfTheSameRows() throws Exception {
+        User owner = user();
+        ImportJob held = heldUpload(owner);
+        String heldId = heldIdOf(held);
+        heldStatementService.reject(user().getId(), heldId, "rows do not match the document");
+        UUID againId = upload(owner);
+        worker.drainOnce();
+
+        heldStatementService.reopen(user().getId(), heldId, "parser fix shipped");
+        assertThat(jobRepository.findById(againId).orElseThrow().getStatus())
+                .isEqualTo(ImportJob.Status.HELD_FOR_TRUST_REVIEW);
+
+        heldStatementService.approve(user().getId(), heldId, null, null);
+        assertThat(jobRepository.findById(againId).orElseThrow().getStatus())
+                .isEqualTo(ImportJob.Status.COMPLETED);
+        assertThat(jobRepository.findById(held.getId()).orElseThrow().getStatus())
+                .isEqualTo(ImportJob.Status.COMPLETED);
+        assertConfirmable(owner, held.getImportSessionId());
     }
 
     @Test
@@ -505,5 +532,103 @@ class HeldStatementReuploadIT extends AbstractIntegrationTest {
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining(coveringHeldId);
         assertThat(holdsOf(owner)).hasSize(1);
+    }
+
+    /**
+     * The interleaving an admin opening a review can race: a re-upload's worker pass has already
+     * read "held with no record" and decided to hold, and the admin's review commits before that
+     * pass calls createHold. The pass must not write a second review on the same rows.
+     */
+    @Test
+    void aWorkerHoldRacingAnAdminOpenedReviewDoesNotWriteASecondOne() throws Exception {
+        User owner = user();
+        ImportJob held = heldWithNoReviewRecord(owner);
+        ImportJob reupload = new ImportJob(owner.getId(), "statement.csv", held.getContentHash(),
+                held.getObjectKey(), "CSV", held.getEncryptionKeyId());
+        reupload.markClaimed("worker", Instant.now());
+        reupload = jobRepository.save(reupload);
+        StagedForJob replayed = new StagedForJob(held.getImportSessionId(), 2, 2, null, List.of(), List.of());
+
+        String adminHeldId = heldStatementService.openReviewForHoldWithoutRecord(user().getId(), held.getId()).heldId();
+        ImportJob racing = reupload;
+        Throwable refused = org.assertj.core.api.Assertions.catchThrowable(() -> heldStatementService.createHold(
+                racing, replayed, new com.finora.imports.trust.HoldDecision(true, List.of("forced")), "v1"));
+
+        assertThat(heldStatementRepository.findByImportJobId(reupload.getId()))
+                .as("no second review on rows %s already covers", adminHeldId).isEmpty();
+        assertThat(refused).as("the pass is told which review covers it")
+                .isInstanceOf(HeldStatementService.HoldCoveredException.class)
+                .hasMessageContaining(adminHeldId);
+    }
+
+    /** What the worker leaves for that pass -- held, riding the covering review -- is decided with
+     *  it, and a later re-upload follows the job that owns the review, not the rider. */
+    @Test
+    void aJobRidingAnotherReviewIsDecidedWithItAndReuploadsFollowTheOwner() throws Exception {
+        User owner = user();
+        ImportJob held = heldWithNoReviewRecord(owner);
+        String heldId = heldStatementService.openReviewForHoldWithoutRecord(user().getId(), held.getId()).heldId();
+        ImportJob rider = new ImportJob(owner.getId(), "statement.csv", held.getContentHash(),
+                held.getObjectKey(), "CSV", held.getEncryptionKeyId());
+        rider.markClaimed("worker", Instant.now());
+        rider.holdForTrustReview(held.getImportSessionId(), null, Instant.now());
+        rider = jobRepository.save(rider);
+
+        assertThat(upload(owner)).as("follows the job whose review is open").isEqualTo(held.getId());
+
+        heldStatementService.approve(user().getId(), heldId, null, null);
+        assertThat(jobRepository.findById(rider.getId()).orElseThrow().getStatus())
+                .isEqualTo(ImportJob.Status.COMPLETED);
+        assertConfirmable(owner, held.getImportSessionId());
+    }
+
+    /**
+     * The lock itself, measured with two real transactions: while an operator's open-review
+     * transaction holds the session, the worker's createHold waits for it -- and once it commits,
+     * sees the review and refuses to write a second one.
+     */
+    @Test
+    void createHoldWaitsForAConcurrentOpenReviewAndThenSeesIt() throws Exception {
+        User owner = user();
+        ImportJob held = heldWithNoReviewRecord(owner);
+        ImportJob reupload = new ImportJob(owner.getId(), "statement.csv", held.getContentHash(),
+                held.getObjectKey(), "CSV", held.getEncryptionKeyId());
+        reupload.markClaimed("worker", Instant.now());
+        ImportJob racing = jobRepository.save(reupload);
+        StagedForJob replayed = new StagedForJob(held.getImportSessionId(), 2, 2, null, List.of(), List.of());
+        UUID admin = user().getId();
+
+        java.util.concurrent.CountDownLatch adminHoldsLock = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch releaseAdmin = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            java.util.concurrent.Future<String> adminSide = pool.submit(() -> transactionTemplate.execute(status -> {
+                String heldId = heldStatementService.openReviewForHoldWithoutRecord(admin, held.getId()).heldId();
+                adminHoldsLock.countDown();
+                try {
+                    releaseAdmin.await(30, java.util.concurrent.TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                return heldId;
+            }));
+            assertThat(adminHoldsLock.await(30, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+
+            java.util.concurrent.Future<Throwable> workerSide = pool.submit(() ->
+                    org.assertj.core.api.Assertions.catchThrowable(() -> heldStatementService.createHold(racing,
+                            replayed, new com.finora.imports.trust.HoldDecision(true, List.of("forced")), "v1")));
+            Thread.sleep(1500);
+            assertThat(workerSide.isDone()).as("createHold waits on the operator's lock").isFalse();
+
+            releaseAdmin.countDown();
+            String adminHeldId = adminSide.get(30, java.util.concurrent.TimeUnit.SECONDS);
+            assertThat(workerSide.get(30, java.util.concurrent.TimeUnit.SECONDS))
+                    .isInstanceOf(HeldStatementService.HoldCoveredException.class)
+                    .hasMessageContaining(adminHeldId);
+            assertThat(heldStatementRepository.findByImportJobId(racing.getId())).isEmpty();
+        } finally {
+            releaseAdmin.countDown();
+            pool.shutdownNow();
+        }
     }
 }

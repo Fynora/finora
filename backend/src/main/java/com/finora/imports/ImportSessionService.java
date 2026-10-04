@@ -721,6 +721,20 @@ public class ImportSessionService {
                 .filter(session -> !session.getId().equals(ownSessionId));
     }
 
+    /**
+     * Takes a row lock on this session for the caller's transaction (joined, not opened: the lock
+     * is only worth anything while the caller's check-then-write runs under it). Opening a review
+     * on a session happens on two paths that can race -- the worker holding a replay of it
+     * ({@code HeldStatementService.createHold}) and an operator opening the review a held import
+     * never got ({@code openReviewForHoldWithoutRecord}) -- and each must see the other's review
+     * once it holds the lock, or the rows end up under two reviews. A missing session locks
+     * nothing; there is nothing for a replay to stage onto.
+     */
+    @Transactional
+    public void lockForReview(UUID sessionId) {
+        if (sessionId != null) importSessionRepository.findByIdForUpdate(sessionId);
+    }
+
     /** A session by id whatever its owner, expiry or status -- for an operator opening the review a
      *  held import never got. A held session has usually outlived its TTL (the sweep exempts it),
      *  which {@link #getOwnedSession} refuses. */

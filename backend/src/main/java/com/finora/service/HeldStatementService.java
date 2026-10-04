@@ -128,8 +128,48 @@ public class HeldStatementService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public HeldStatement createHold(ImportJob job, StagedForJob staged, HoldDecision decision,
                                     String parserVersion) {
-        return repository.findByImportJobId(job.getId())
-                .orElseGet(() -> openHold(job, staged, decision, parserVersion));
+        return repository.findByImportJobId(job.getId()).orElseGet(() -> {
+            // Under the session's lock, the same one openReviewForHoldWithoutRecord takes: the
+            // worker decided to hold a replay of these rows before this call, and an operator may
+            // have opened a review on them since. Re-checked here, where it can no longer change.
+            importSessionService.lockForReview(staged.sessionId());
+            openReviewCovering(staged.sessionId(), job.getId()).ifPresent(covering -> {
+                throw new HoldCoveredException(covering.getHeldId());
+            });
+            return openHold(job, staged, decision, parserVersion);
+        });
+    }
+
+    /**
+     * Where the review a worker job rides on stands now, read under the session's lock -- for the
+     * worker's own final update of a job {@link #createHold} found covered
+     * ({@link HoldCoveredException}). Joins the caller's transaction so the lock lasts until the
+     * job's new status commits: approve and reject take the same lock before carrying riders with
+     * them, so either the decision commits first and this reads it, or the job is held first and
+     * the decision carries it. Without the lock a decision landing between the two would leave
+     * the job held behind a review already decided.
+     */
+    @Transactional
+    public Optional<HeldStatement.Status> settleRidingJob(UUID importSessionId, UUID jobId) {
+        importSessionService.lockForReview(importSessionId);
+        return priorReviewOf(importSessionId, jobId);
+    }
+
+    /**
+     * {@link #createHold} found these rows already under another job's open review -- opened by an
+     * operator between the worker deciding to hold and this call. The worker holds its job riding
+     * that review ({@link #coveredBy}) instead of opening a second one; deciding the review decides
+     * it. Not a failure, so the worker does not page for it.
+     */
+    public static class HoldCoveredException extends RuntimeException {
+        private final String heldId;
+
+        public HoldCoveredException(String heldId) {
+            super("These rows are already under review in " + heldId);
+            this.heldId = heldId;
+        }
+
+        public String heldId() { return heldId; }
     }
 
     /**
@@ -197,9 +237,13 @@ public class HeldStatementService {
      * the duplicate the whole re-upload fix exists to stop.
      */
     private Optional<HeldStatement> openReviewCovering(ImportJob job) {
-        if (job.getImportSessionId() == null) return Optional.empty();
-        List<UUID> others = importJobRepository.findByImportSessionId(job.getImportSessionId()).stream()
-                .filter(other -> !other.getId().equals(job.getId()))
+        return openReviewCovering(job.getImportSessionId(), job.getId());
+    }
+
+    private Optional<HeldStatement> openReviewCovering(UUID sessionId, UUID excludingJobId) {
+        if (sessionId == null) return Optional.empty();
+        List<UUID> others = importJobRepository.findByImportSessionId(sessionId).stream()
+                .filter(other -> !other.getId().equals(excludingJobId))
                 .map(ImportJob::getHeldStatementId)
                 .filter(java.util.Objects::nonNull)
                 .toList();
@@ -238,6 +282,9 @@ public class HeldStatementService {
                     ? "This import already has a review record; open it from the held-statements queue."
                     : "This import is " + job.getStatus() + ", not held for review; there is nothing to open.");
         }
+        // Under the session's lock before the check, so a worker pass holding a replay of these
+        // rows cannot write its review in between (createHold takes the same lock).
+        importSessionService.lockForReview(job.getImportSessionId());
         Optional<HeldStatement> covering = openReviewCovering(job);
         if (covering.isPresent()) {
             throw new ApiException(HttpStatus.CONFLICT, "This import's rows are already under review in "
@@ -673,6 +720,9 @@ public class HeldStatementService {
         refuseIfResolved(held, "approved");
 
         ImportJob job = requireJob(held);
+        // Before anything is decided, so a worker job riding this review is either already held
+        // (and carried below) or settles against the decision once it commits -- settleRidingJob.
+        importSessionService.lockForReview(job.getImportSessionId());
         refuseIfUploadedAgain(held, job, "approved");
         // A rejected-then-reopened hold's session may have been swept while its job was failed;
         // releasing it would send the user to rows that no longer exist.
@@ -732,6 +782,7 @@ public class HeldStatementService {
         refuseIfResolved(held, "rejected");
 
         ImportJob job = requireJob(held);
+        importSessionService.lockForReview(job.getImportSessionId()); // as in approve
         Instant now = Instant.now();
         HeldStatement.Status from = held.getStatus();
 

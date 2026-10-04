@@ -370,10 +370,9 @@ public class AdminHeldImportService {
 
     private boolean hasNoLiveDuplicate(ImportJob job) {
         if (job.getContentHash() == null) return true;
-        return repository.findFirstByUserIdAndContentHashAndStatusNotInOrderByCreatedAtDesc(
-                        job.getUserId(), job.getContentHash(), ImportJob.Status.OPEN_TO_RESUBMISSION)
-                .filter(ImportJob::ownsItsDocument)
-                .isEmpty();
+        return repository.findByUserIdAndContentHashAndStatusNotInOrderByCreatedAtDesc(
+                        job.getUserId(), job.getContentHash(), ImportJob.Status.OPEN_TO_RESUBMISSION).stream()
+                .noneMatch(ImportJob::ownsItsDocument);
     }
 
     /** Wakes the worker once the requeue has committed -- the same afterCommit discipline

@@ -79,6 +79,13 @@ public interface ImportJobRepository extends JpaRepository<ImportJob, UUID> {
      * excluded so re-uploading a statement whose earlier import finished, failed or was cancelled
      * still starts fresh work.
      */
+    /** Every job on this document outside these statuses, newest first -- for the callers that
+     *  need the newest one that OWNS the document ({@code ImportJob.ownsItsDocument}), which a
+     *  status alone cannot pick: a job riding another job's review is newer and owns nothing. A
+     *  user has a handful of jobs per document at most. */
+    List<ImportJob> findByUserIdAndContentHashAndStatusNotInOrderByCreatedAtDesc(
+            UUID userId, String contentHash, java.util.Collection<ImportJob.Status> excludedStatuses);
+
     Optional<ImportJob> findFirstByUserIdAndContentHashAndStatusNotInOrderByCreatedAtDesc(
             UUID userId, String contentHash, java.util.Collection<ImportJob.Status> excludedStatuses);
 

@@ -719,6 +719,41 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
     }
 
     /**
+     * Points a held job at rows re-read by the current parser build, replacing the session staged
+     * when it was first held. Only while held: once released or rejected, the rows the user gets
+     * (or was told they would not get) are decided.
+     *
+     * <p>The verification telemetry ({@link #recordVerificationTelemetry}) is left as the worker
+     * recorded it: it describes the pass that held this import, which is what the hold-rate
+     * readout counts. The re-read is recorded on the hold's own events and audit entry.
+     */
+    public void replaceHeldSession(UUID importSessionId, int rowsTotal, int rowsProcessed) {
+        if (status != Status.HELD_FOR_TRUST_REVIEW) {
+            throw new IllegalStateException(
+                    "Import job " + id + " is at " + status + "; only a HELD_FOR_TRUST_REVIEW job "
+                            + "can have its staged rows replaced.");
+        }
+        this.importSessionId = importSessionId;
+        this.rowsTotal = rowsTotal;
+        this.rowsProcessed = rowsProcessed;
+    }
+
+    /**
+     * Undoes {@link #rejectAfterTrustReview}: the review is open again, so the import is held
+     * again rather than failed. Only from that rejection -- any other failure was the import's
+     * own, and is not a review's to reopen.
+     */
+    public void reopenTrustReview(String rejectedFailureCode) {
+        if (status != Status.FAILED || !java.util.Objects.equals(failureCode, rejectedFailureCode)) {
+            throw new IllegalStateException(
+                    "Import job " + id + " is at " + status + " (" + failureCode + "); only a job a "
+                            + "trust review rejected can be held for review again.");
+        }
+        this.status = Status.HELD_FOR_TRUST_REVIEW;
+        this.failureCode = null;
+    }
+
+    /**
      * An admin closes a held import without fixing it, telling the user why.
      *
      * <p>Takes the message the user is told, unlike the earlier version of this method: resolving

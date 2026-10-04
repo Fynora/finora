@@ -100,8 +100,10 @@ public class ManagementPortSeparationGuard {
         }
     }
 
-    @EventListener
-    public void onApplicationReady(ApplicationReadyEvent event) {
+    // The event type is named on the annotation rather than taken as a parameter: the method never
+    // reads the event, and Spring routes a no-argument listener by `classes` just the same.
+    @EventListener(ApplicationReadyEvent.class)
+    public void onApplicationReady() {
         if (applicationPort == null) {
             return; // No servlet container -- see the MOCK note above.
         }

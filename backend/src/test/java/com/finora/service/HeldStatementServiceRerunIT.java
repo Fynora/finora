@@ -2,9 +2,11 @@ package com.finora.service;
 
 import com.finora.AbstractIntegrationTest;
 import com.finora.dto.HeldStatementRerunResultDto;
+import com.finora.entity.Account;
 import com.finora.entity.HeldStatement;
 import com.finora.entity.HeldStatementEvent;
 import com.finora.entity.ImportJob;
+import com.finora.entity.StatementImport;
 import com.finora.entity.User;
 import com.finora.exception.ApiException;
 import com.finora.imports.analysis.ImportVerificationFindingRepository;
@@ -14,6 +16,10 @@ import com.finora.repository.HeldStatementEventRepository;
 import com.finora.repository.HeldStatementRepository;
 import com.finora.repository.ImportJobRepository;
 import com.finora.repository.UserRepository;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.encryption.AccessPermission;
+import org.apache.pdfbox.pdmodel.encryption.StandardProtectionPolicy;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -36,7 +42,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 @TestPropertySource(properties = {
         "app.statement-storage.provider=filesystem",
-        "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-held-statement-rerun-it"
+        "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-held-statement-rerun-it",
+        "app.statement-passwords.save.enabled=true"
 })
 class HeldStatementServiceRerunIT extends AbstractIntegrationTest {
 
@@ -47,6 +54,11 @@ class HeldStatementServiceRerunIT extends AbstractIntegrationTest {
     @Autowired private ImportVerificationFindingRepository findingRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private StatementStorage storage;
+    @Autowired private com.finora.imports.ImportSessionService importSessionService;
+    @Autowired private com.finora.repository.ImportSessionRepository importSessionRepository;
+    @Autowired private com.finora.repository.StatementImportRepository statementImportRepository;
+    @Autowired private com.finora.repository.AccountRepository accountRepository;
+    @Autowired private com.finora.imports.passwords.StatementPasswordService statementPasswordService;
 
     private static final byte[] CLEAN_CSV = ("Date,Description,Amount,Balance\n"
             + "01/01/2026,Opening balance,,1000.00\n"
@@ -82,11 +94,15 @@ class HeldStatementServiceRerunIT extends AbstractIntegrationTest {
     }
 
     private HeldStatement seedHold(byte[] bytes) {
+        return seedHold(bytes, "statement.csv", "CSV");
+    }
+
+    private HeldStatement seedHold(byte[] bytes, String fileName, String sourceFormat) {
         User owner = user();
         ContentAddress address = storage.store(bytes);
-        ImportJob job = new ImportJob(owner.getId(), "statement.csv", address.hash(), address.key(), "CSV");
+        ImportJob job = new ImportJob(owner.getId(), fileName, address.hash(), address.key(), sourceFormat);
         job.markClaimed("worker", Instant.now());
-        UUID sessionId = UUID.randomUUID();
+        UUID sessionId = stagedSession(owner.getId(), bytes);
         job.holdForTrustReview(sessionId, null, Instant.now());
         importJobRepository.save(job);
 
@@ -288,5 +304,247 @@ class HeldStatementServiceRerunIT extends AbstractIntegrationTest {
         copyB.addNotes("second admin's stale note");
         assertThatThrownBy(() -> heldStatementRepository.saveAndFlush(copyB))
                 .isInstanceOf(OptimisticLockingFailureException.class);
+    }
+
+    // --- rerunParser: the rows approving releases --------------------------------------------------
+
+    private ImportJob jobOf(HeldStatement held) {
+        return importJobRepository.findById(held.getImportJobId()).orElseThrow();
+    }
+
+    @Test
+    void aRerunThatClearsReplacesTheRowsStagedWhenHeldWithThisBuildsReading() {
+        HeldStatement held = seedHold(CLEAN_CSV);
+        UUID heldSession = jobOf(held).getImportSessionId();
+        assertThat(importSessionService.readStagedRows(importSessionRepository.findById(heldSession).orElseThrow()))
+                .isEmpty();
+
+        heldStatementService.rerunParser(admin(), held.getHeldId());
+
+        ImportJob job = jobOf(held);
+        assertThat(job.getImportSessionId()).isNotEqualTo(heldSession);
+        assertThat(importSessionRepository.existsById(heldSession)).isFalse();
+        var rows = importSessionService.readStagedRows(importSessionRepository.findById(job.getImportSessionId()).orElseThrow());
+        assertThat(rows).extracting(row -> row.description()).anyMatch(d -> d.contains("Coffee shop"));
+        assertThat(job.getRowsProcessed()).isEqualTo(rows.size());
+        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_TRUST_REVIEW);
+    }
+
+    @Test
+    void approvingAfterAClearingRerunReleasesTheReReadRows() {
+        HeldStatement held = seedHold(CLEAN_CSV);
+        heldStatementService.rerunParser(admin(), held.getHeldId());
+        UUID reRead = jobOf(held).getImportSessionId();
+
+        heldStatementService.approve(admin(), held.getHeldId(), null, null);
+
+        ImportJob job = jobOf(held);
+        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.COMPLETED);
+        assertThat(job.getImportSessionId()).isEqualTo(reRead);
+    }
+
+    @Test
+    void aRerunThatStillHoldsLeavesTheStagedRowsAlone() {
+        HeldStatement held = seedHold(FUTURE_PERIOD_CSV);
+        UUID heldSession = jobOf(held).getImportSessionId();
+
+        heldStatementService.rerunParser(admin(), held.getHeldId());
+
+        assertThat(jobOf(held).getImportSessionId()).isEqualTo(heldSession);
+        assertThat(importSessionRepository.existsById(heldSession)).isTrue();
+    }
+
+    @Test
+    void approveRefusesWhenTheStagedRowsAreGone() {
+        HeldStatement held = seedHold(CLEAN_CSV);
+        importSessionRepository.deleteById(jobOf(held).getImportSessionId());
+
+        assertThatThrownBy(() -> heldStatementService.approve(admin(), held.getHeldId(), null, null))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("Re-run the parser");
+        assertThat(jobOf(held).getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_TRUST_REVIEW);
+    }
+
+    // --- reopen -------------------------------------------------------------------------------------
+
+    @Test
+    void reopenReturnsARejectedHoldToTheQueueAndItsImportToHeld() {
+        HeldStatement held = seedHold(CLEAN_CSV);
+        heldStatementService.reject(admin(), held.getHeldId(), "misread");
+        assertThat(jobOf(held).getStatus()).isEqualTo(ImportJob.Status.FAILED);
+
+        heldStatementService.reopen(admin(), held.getHeldId(), "parser fixed");
+
+        HeldStatement reloaded = heldStatementRepository.findByHeldId(held.getHeldId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(HeldStatement.Status.INVESTIGATING);
+        assertThat(reloaded.getResolvedAt()).isNull();
+        ImportJob job = jobOf(held);
+        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_TRUST_REVIEW);
+        assertThat(job.getFailureCode()).isNull();
+        assertThat(eventRepository.findByHeldStatementIdOrderByCreatedAtAsc(held.getId()))
+                .extracting(HeldStatementEvent::getEventType).containsSubsequence("REJECTED", "REOPENED");
+    }
+
+    @Test
+    void aReopenedHoldWhoseRowsWereSweptIsReReadAndApproved() {
+        HeldStatement held = seedHold(CLEAN_CSV);
+        heldStatementService.reject(admin(), held.getHeldId(), null);
+        importSessionRepository.deleteById(jobOf(held).getImportSessionId());
+        heldStatementService.reopen(admin(), held.getHeldId(), null);
+
+        assertThatThrownBy(() -> heldStatementService.approve(admin(), held.getHeldId(), null, null))
+                .isInstanceOf(ApiException.class);
+        heldStatementService.rerunParser(admin(), held.getHeldId());
+        heldStatementService.approve(admin(), held.getHeldId(), null, null);
+
+        assertThat(jobOf(held).getStatus()).isEqualTo(ImportJob.Status.COMPLETED);
+        assertThat(importSessionRepository.existsById(jobOf(held).getImportSessionId())).isTrue();
+    }
+
+    @Test
+    void reopenRefusesAHoldThatWasNotRejected() {
+        HeldStatement open = seedHold(CLEAN_CSV);
+        assertThatThrownBy(() -> heldStatementService.reopen(admin(), open.getHeldId(), null))
+                .isInstanceOf(ApiException.class).hasMessageContaining("only a rejected hold");
+
+        HeldStatement imported = seedHold(CLEAN_CSV);
+        heldStatementService.approve(admin(), imported.getHeldId(), null, null);
+        assertThatThrownBy(() -> heldStatementService.reopen(admin(), imported.getHeldId(), null))
+                .isInstanceOf(ApiException.class);
+        assertThat(jobOf(imported).getStatus()).isEqualTo(ImportJob.Status.COMPLETED);
+    }
+
+    // --- the user uploaded the statement again -----------------------------------------------------
+
+    @Test
+    void reopenRefusesWhenTheUserImportedTheStatementAgainSinceAndAnEarlierImportDoesNot() {
+        HeldStatement held = seedHold(CLEAN_CSV);
+        heldStatementService.reject(admin(), held.getHeldId(), null);
+        ImportJob job = jobOf(held);
+        confirmedImportOf(job, job.getCreatedAt().minusSeconds(60));
+
+        heldStatementService.reopen(admin(), held.getHeldId(), null);
+        heldStatementService.reject(admin(), held.getHeldId(), null);
+        confirmedImportOf(job, job.getCreatedAt().plusSeconds(60));
+
+        assertThatThrownBy(() -> heldStatementService.reopen(admin(), held.getHeldId(), null))
+                .isInstanceOf(ApiException.class).hasMessageContaining("imported this statement again");
+        assertThat(jobOf(held).getStatus()).isEqualTo(ImportJob.Status.FAILED);
+    }
+
+    @Test
+    void approveRefusesWhenTheUserImportedTheStatementAgainSince() {
+        HeldStatement held = seedHold(CLEAN_CSV);
+        confirmedImportOf(jobOf(held), Instant.now().plusSeconds(60));
+
+        assertThatThrownBy(() -> heldStatementService.approve(admin(), held.getHeldId(), null, null))
+                .isInstanceOf(ApiException.class).hasMessageContaining("imported this statement again");
+        assertThat(jobOf(held).getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_TRUST_REVIEW);
+    }
+
+    /** A re-upload under a newer build deletes the held session as stale and stages its own, which
+     *  then holds the one V79 slot: without the check the re-read's insert hits the constraint. */
+    @Test
+    void aRerunRefusesWhenAnotherUploadOfTheStatementIsStaged() {
+        HeldStatement held = seedHold(CLEAN_CSV);
+        ImportJob job = jobOf(held);
+        importSessionRepository.deleteById(job.getImportSessionId());
+        UUID usersOwn = stagedSession(job.getUserId(), CLEAN_CSV);
+
+        assertThatThrownBy(() -> heldStatementService.rerunParser(admin(), held.getHeldId()))
+                .isInstanceOf(ApiException.class).hasMessageContaining("rows are still staged");
+        assertThat(importSessionRepository.existsById(usersOwn)).isTrue();
+        assertThat(jobOf(held).getImportSessionId()).isEqualTo(job.getImportSessionId());
+        assertThat(heldStatementRepository.findByHeldId(held.getHeldId()).orElseThrow().getStatus())
+                .isEqualTo(HeldStatement.Status.HELD);
+    }
+
+    @Test
+    void reopenRefusesWhileAnotherUploadOfTheStatementIsStillRunning() {
+        HeldStatement held = seedHold(CLEAN_CSV);
+        heldStatementService.reject(admin(), held.getHeldId(), null);
+        ImportJob job = jobOf(held);
+        importJobRepository.save(new ImportJob(job.getUserId(), "again.csv", job.getContentHash(),
+                job.getObjectKey(), "CSV"));
+
+        assertThatThrownBy(() -> heldStatementService.reopen(admin(), held.getHeldId(), null))
+                .isInstanceOf(ApiException.class).hasMessageContaining("still running");
+    }
+
+    // --- a locked statement whose saved password is gone ---------------------------------------------
+
+    @Test
+    void reopenRefusesALockedStatementWhoseSavedPasswordWasDeleted() throws Exception {
+        HeldStatement held = seedHold(lockedPdf("open-sesame"), "statement.pdf", "PDF");
+        heldStatementService.reject(admin(), held.getHeldId(), null);
+
+        assertThatThrownBy(() -> heldStatementService.reopen(admin(), held.getHeldId(), null))
+                .isInstanceOf(ApiException.class).hasMessageContaining("password-protected");
+        assertThat(jobOf(held).getStatus()).isEqualTo(ImportJob.Status.FAILED);
+    }
+
+    @Test
+    void reopenKeepsALockedStatementWhosePasswordIsStillSaved() throws Exception {
+        HeldStatement held = seedHold(lockedPdf("open-sesame"), "statement.pdf", "PDF");
+        statementPasswordService.saveForJob(held.getUserId(), held.getImportJobId(), "open-sesame");
+        heldStatementService.reject(admin(), held.getHeldId(), null);
+
+        heldStatementService.reopen(admin(), held.getHeldId(), null);
+
+        assertThat(jobOf(held).getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_TRUST_REVIEW);
+    }
+
+    private StatementImport confirmedImportOf(ImportJob job, Instant importedAt) {
+        Account account = new Account();
+        account.setUserId(job.getUserId());
+        account.setName("Rerun IT Savings");
+        account.setAccountType(Account.Type.SAVINGS);
+        account.setBalance(java.math.BigDecimal.ZERO);
+        StatementImport statement = new StatementImport();
+        statement.setUserId(job.getUserId());
+        statement.setAccountId(accountRepository.save(account).getId());
+        statement.setFileName(job.getFileName());
+        statement.setSourceFormat(job.getSourceFormat());
+        statement.setFileContent(new byte[]{1});
+        statement.setContentHash(job.getContentHash());
+        statement.setImportedAt(importedAt);
+        return statementImportRepository.save(statement);
+    }
+
+    private static byte[] lockedPdf(String password) throws java.io.IOException {
+        try (PDDocument document = new PDDocument();
+             java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream()) {
+            document.addPage(new PDPage());
+            StandardProtectionPolicy policy =
+                    new StandardProtectionPolicy("owner-" + password, password, new AccessPermission());
+            policy.setEncryptionKeyLength(128);
+            document.protect(policy);
+            document.save(out);
+            return out.toByteArray();
+        }
+    }
+
+    // --- the resolved list --------------------------------------------------------------------------
+
+    @Test
+    void aRejectedHoldLeavesTheOpenListAndAppearsInTheResolvedOne() {
+        HeldStatement held = seedHold(CLEAN_CSV);
+        heldStatementService.reject(admin(), held.getHeldId(), null);
+        var filter = new HeldStatementFilter(null, null, null, null);
+
+        assertThat(heldStatementService.list(0, 200, filter).content())
+                .extracting(dto -> dto.heldId()).doesNotContain(held.getHeldId());
+        assertThat(heldStatementService.listResolved(0, 200, filter).content())
+                .extracting(dto -> dto.heldId()).contains(held.getHeldId());
+        assertThat(heldStatementService.listResolved(0, 200,
+                new HeldStatementFilter(HeldStatement.Status.HELD, null, null, null)).content())
+                .extracting(dto -> dto.heldId()).doesNotContain(held.getHeldId());
+    }
+
+    /** A real staged session, as the worker leaves behind a held import: approving a hold whose
+     *  session does not exist is refused, so a made-up id would make every approval a 409. */
+    private UUID stagedSession(UUID ownerId, byte[] content) {
+        return importSessionService.createSession(ownerId, "statement.csv", content,
+                java.util.List.of(), null).getId();
     }
 }

@@ -1,6 +1,5 @@
 package com.finora.uploads;
 
-import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -32,6 +31,7 @@ public class ClamAvScanner implements MalwareScanner {
 
     private static final byte[] INSTREAM = "zINSTREAM\0".getBytes(StandardCharsets.US_ASCII);
     private static final int CHUNK_SIZE = 8192;
+    private static final int LENGTH_PREFIX = 4;
     private static final int MAX_REPLY_LENGTH = 1024;
 
     private final String host;
@@ -47,19 +47,26 @@ public class ClamAvScanner implements MalwareScanner {
     }
 
     @Override
-    public ScanResult scan(InputStream content, long size) {
+    public ScanResult scan(InputStream content) {
         try (Socket socket = new Socket()) {
             socket.connect(new InetSocketAddress(host, port), connectTimeoutMs);
             socket.setSoTimeout(readTimeoutMs);
-            OutputStream out = new BufferedOutputStream(socket.getOutputStream());
+            // The socket's own stream, not wrapped in a BufferedOutputStream: closing a wrapper
+            // here would close the socket before the reply below is read, and leaving it open was
+            // what CodeQL (java/output-resource-leak) flagged. The socket is closed by the
+            // try-with-resources, which releases this stream with it.
+            OutputStream out = socket.getOutputStream();
             out.write(INSTREAM);
-            byte[] buffer = new byte[CHUNK_SIZE];
+            // One frame per chunk, written in a single call: the 4-byte big-endian length, then the
+            // bytes read straight into the same array. The same bytes on the wire as before, with
+            // no per-chunk allocation.
+            byte[] frame = new byte[LENGTH_PREFIX + CHUNK_SIZE];
             int read;
-            while ((read = content.read(buffer)) > 0) {
-                out.write(ByteBuffer.allocate(4).putInt(read).array());
-                out.write(buffer, 0, read);
+            while ((read = content.read(frame, LENGTH_PREFIX, CHUNK_SIZE)) > 0) {
+                ByteBuffer.wrap(frame).putInt(0, read);
+                out.write(frame, 0, LENGTH_PREFIX + read);
             }
-            out.write(new byte[4]);
+            out.write(new byte[LENGTH_PREFIX]);
             out.flush();
             return parse(readReply(socket.getInputStream()));
         } catch (IOException e) {

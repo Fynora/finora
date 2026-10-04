@@ -67,9 +67,12 @@ public class AdminHeldStatementController {
             @RequestParam(required = false) HeldStatement.Status status,
             @RequestParam(required = false) String bank,
             @RequestParam(required = false) Integer olderThanHours,
-            @RequestParam(required = false) UUID engineerId) {
-        return ApiResponse.ok(heldStatementService.list(page, size,
-                new HeldStatementFilter(status, bank, olderThanHours, engineerId)));
+            @RequestParam(required = false) UUID engineerId,
+            @RequestParam(defaultValue = "false") boolean resolved) {
+        HeldStatementFilter filter = new HeldStatementFilter(status, bank, olderThanHours, engineerId);
+        return ApiResponse.ok(resolved
+                ? heldStatementService.listResolved(page, size, filter)
+                : heldStatementService.list(page, size, filter));
     }
 
     /** The evidence behind the trigger, the extraction snapshot, and the audit timeline. Still no
@@ -180,6 +183,16 @@ public class AdminHeldStatementController {
                 ? null : Boolean.valueOf(body.get("falsePositive"));
         return ApiResponse.ok(heldStatementService.approve(currentUser.id(), heldId, note, falsePositive),
                 "Import released");
+    }
+
+    /** Takes back a rejection so the statement can be re-read after a parser fix: the hold is
+     *  open again and the import held again. A 409 for anything but a rejected hold. */
+    @PostMapping("/{heldId}/reopen")
+    public ApiResponse<HeldStatementDto> reopen(@PathVariable String heldId,
+                                                @RequestBody(required = false) Map<String, String> body) {
+        String reason = body == null ? null : body.get("reason");
+        return ApiResponse.ok(heldStatementService.reopen(currentUser.id(), heldId, reason),
+                "Hold reopened");
     }
 
     /** Ends the review the other way: these rows never reach the ledger, and the import lands in

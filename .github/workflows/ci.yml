@@ -25,6 +25,13 @@ name: CI
 # PR opened as a draft and later marked ready would never re-trigger a run at all, leaving those
 # six jobs permanently skipped for that PR unless someone happens to push again first. Confirmed
 # against GitHub's own docs before adding this, not assumed.
+#
+# Deliberately NOT `labeled`, even though the `full-ci` label drives the private profile (see
+# "Repository visibility" above `jobs:`). Tried on #1974 (2026-10-04): a `labeled` run that skips
+# everything still creates a check run for every job, and the PR's check list shows the NEWEST run
+# per check name -- so labelling a PR after its real run replaced that run's results on the PR with
+# "skipped", which counts as passing. A label added to a PR with a red check would have turned it
+# green.
 on:
   push:
     branches: [main]
@@ -35,8 +42,17 @@ on:
 # A new push to the same branch makes the in-flight run obsolete. Cancelling it keeps queue times
 # down on a shared runner allowance -- but never for main, where every commit's result is a record
 # worth keeping rather than something to discard when the next one lands.
+#
+# On main each run gets its own group (the run id), so nothing on main is ever cancelled. With one
+# shared group, `cancel-in-progress: false` only protects the RUNNING run: GitHub still cancels a
+# run that is PENDING in the group as soon as a newer one queues. Measured 2026-10-04: 8 of the
+# last 300 main push runs were cancelled, and 5 of them never started a job. That silently skips
+# the diff-range checks for the cancelled commit -- repo-hygiene's customer-PII scan and
+# secret-scan read before..sha, so the next push's run never covers it. In the private profile
+# that PII scan on main is the only automatic one there is. Runs on main share no state that
+# needs serialising: no deploys, no registry pushes, per-run artifacts.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # Least privilege for GITHUB_TOKEN, stated rather than inherited.
@@ -97,6 +113,46 @@ permissions:
 # Testcontainers integration tests and the `smoke`/full-suite Postgres service both work with no
 # extra provisioning step -- unlike the self-hosted Mac, which needed Docker Desktop kept running
 # by hand.
+
+# Repository visibility: two profiles, chosen per run from `github.event.repository.private`, so
+# flipping the repository between public and private needs no edit to any workflow file.
+#
+#   * Public (full profile): every job below runs exactly as it always has. GitHub-hosted
+#     standard runners cost nothing in a public repository.
+#   * Private (lean profile): only repo-hygiene runs, and only on push to main. Everything runs for
+#     a PR carrying the `full-ci` label, and for a run started by hand (workflow_dispatch). The
+#     Fynora org is on GitHub Free: 2,000 Actions minutes a month for private repositories, each job
+#     billed rounded up to the minute. Measured 2026-09-27..10-04, this workflow used ~9,150 minutes
+#     in one week (~300 PR events, ~94 pushes to main), so no automatic per-PR subset fits; a full
+#     run when asked for does.
+#
+# Full run for a PR while private -- label it, then start a pull_request run that sees the label:
+#     gh pr edit <number> --add-label full-ci
+#     git commit --allow-empty -m "ci: full run" && git push
+# (or open the PR with `gh pr create --label full-ci`). Any push to a labelled PR runs in full,
+# until the label is removed; the empty commit disappears in the squash merge. The `changes` job
+# diffs the PR's base..head, so the run covers the whole PR, not the empty commit. The label is a
+# condition, never a trigger -- see the `on:` comment for why `labeled` itself is not one. Not a
+# draft/ready toggle: `gh pr ready --undo` documents draft PRs as plan-dependent, and this has to
+# work on the Free plan's private repositories.
+#
+# Not `gh workflow run ci.yml --ref <branch>` for a PR, measured on #1974 (2026-10-04): a
+# workflow_dispatch run's checks attach to the commit, but the PR's check list keeps showing the
+# pull_request run's (in this profile, the skipped ones). A dispatch run also tests the branch
+# alone rather than its merge with main, and gives repo-hygiene no base commit, so the
+# customer-PII scan narrows to the last commit. A labelled pull_request run has none of those
+# problems. workflow_dispatch stays for main.
+#
+# On push, github.event.pull_request is null, so contains() over its labels is false.
+#
+# The expression reads null, not false, if an event ever lacks the repository object; `!null` is
+# true, so a missing value falls toward the full profile -- more minutes, never less checking.
+#
+# A skipped job reports "Success" to required checks (GitHub's documented behaviour), so in the
+# private profile a PR's skipped checks are not evidence that anything ran. Main's ruleset is not
+# enforced at all on a private repository under GitHub Free. The full account -- every workflow's
+# behaviour in each profile, the minute budget, and the checklist before flipping back to public --
+# is docs/architecture/infrastructure/ci-visibility-profiles.md.
 jobs:
   # Feeds job-level `if:` conditions on the jobs below that are safe to path-filter -- see
   # scripts/detect-changed-areas.py's own module docstring for the full list and history.
@@ -131,6 +187,14 @@ jobs:
   # itself broke" the same as "everything changed."
   changes:
     name: Detect changed areas
+    # Private profile: nothing reads this job's outputs except jobs that are skipped anyway, so it
+    # runs only for a full run (a `full-ci` PR or workflow_dispatch). See "Repository visibility"
+    # above `jobs:` for this condition, which every job below repeats.
+    if: >-
+      (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        contains(github.event.pull_request.labels.*.name, 'full-ci')
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -210,6 +274,15 @@ jobs:
   # computing a diff range needs the base commit, and a shallow checkout doesn't have it.
   repo-hygiene:
     name: Repository hygiene (all clients)
+    # Private profile: runs on every push to main, by hand, and on `full-ci` PRs. What lands on
+    # main while the repository is private becomes public history the day it flips back, and the
+    # customer-PII check is diff-based, so main is where it must not miss a commit. See
+    # "Repository visibility" above `jobs:`.
+    if: >-
+      (
+        !github.event.repository.private || github.event_name != 'pull_request' ||
+        contains(github.event.pull_request.labels.*.name, 'full-ci')
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -386,119 +459,17 @@ jobs:
       - name: Reporting period labels
         run: python3 scripts/check-reporting-period-labels.py
 
-  # Flyway runs with outOfOrder=false, so production refuses to deploy a migration numbered at or
-  # below one it has already applied. On 2026-09-27 #1798 (V236) merged and deployed before #1811
-  # (V235); every deploy after that failed "Detected resolved migration not applied to database:
-  # 235" -- fixed by #1818, which renames it V236_1. No other job can see this: they all migrate a FRESH
-  # database, where any order applies cleanly.
-  #
-  # The floor is origin/main as fetched when this job runs -- not the PR's base SHA, which is
-  # frozen at the event -- so a re-run always judges against the main that exists now. What makes
-  # it re-run when main moves is migration-order-recheck below: the main ruleset's required checks
-  # are not "strict" (branches need not be up to date to merge), so without that job a PR that was
-  # green when opened would stay green after a higher version landed.
-  #
-  # Not draft-gated and not path-filtered: a PR with no migrations exits in seconds, so there is
-  # nothing to save by skipping it. fetch-depth: 0 because the merge base is needed.
-  migration-order:
-    name: Migration version order
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      # Self-test first: a diff that silently finds nothing would pass every PR and look exactly
-      # like a clean one. It asserts lower/equal versions fail, higher and sub-versions pass, and a
-      # rename above the floor (#1818's shape) passes.
-      - name: Migration order (self-test)
-        run: python3 scripts/test-check-migration-order.py
-
-      - name: Migration order against current main
-        run: |
-          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
-          python3 scripts/check-migration-order.py --base origin/main --head "${{ github.event.pull_request.head.sha }}"
-
-  # When a push to main changes its migrations, the floor every open PR is judged against has
-  # moved. Re-run each affected open PR's migration-order job so its check turns red on the PR
-  # itself, before anyone merges it. A re-run keeps the original event payload (same head SHA) but
-  # fetches origin/main fresh, which is exactly the comparison wanted.
-  #
-  # The compare API lists at most 300 files; a push that hits that cap is treated as having
-  # changed migrations rather than trusted to be clean.
-  #
-  # Only PRs that touch the migration directory are re-run -- plus any PR whose file list the API
-  # truncated (changedFiles > files returned), so a large PR is never silently skipped.
-  #
-  # actions: write is scoped to this job only: it is what the job re-run endpoint requires, and
-  # this job only ever runs on a push to main, never on PR-controlled code.
-  migration-order-recheck:
-    name: Re-check open PRs' migration order
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    # Mostly idle: long enough to wait out open PRs' in-progress CI runs (median ~4 min).
-    timeout-minutes: 30
-    permissions:
-      actions: write
-      contents: read
-      pull-requests: read
-    steps:
-      - name: Re-run migration-order on open PRs that add migrations
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          BEFORE: ${{ github.event.before }}
-          AFTER: ${{ github.sha }}
-          DIR: backend/src/main/resources/db/migration/
-        run: |
-          set -euo pipefail
-          changed=$(gh api "repos/$GH_REPO/compare/$BEFORE...$AFTER" \
-            --jq "if (.files | length) >= 300 then 300 else [.files[].filename | select(startswith(\"$DIR\"))] | length end")
-          if [ "$changed" = 0 ]; then
-            echo "This push did not change main's migrations; every open PR's floor is unchanged."
-            exit 0
-          fi
-          prs=$(gh pr list --state open --limit 300 --json number,headRefOid,changedFiles,files \
-            --jq ".[] | select(.changedFiles > (.files | length) or any(.files[]; .path | startswith(\"$DIR\")))
-                  | \"\(.number) \(.headRefOid)\"")
-          if [ -z "$prs" ]; then
-            echo "No open PR touches $DIR."
-            exit 0
-          fi
-          status=0
-          while read -r pr sha; do
-            run=$(gh run list --workflow ci.yml --event pull_request --commit "$sha" --limit 1 \
-              --json databaseId --jq '.[0].databaseId // empty')
-            if [ -z "$run" ]; then
-              echo "::warning::#$pr ($sha): no CI run found to re-run."
-              continue
-            fi
-            job=$(gh run view "$run" --json jobs \
-              --jq '.jobs[] | select(.name == "Migration version order") | .databaseId')
-            if [ -z "$job" ]; then
-              echo "::warning::#$pr: run $run has no Migration version order job (predates it?)."
-              continue
-            fi
-            # GitHub refuses to re-run a job while its run is still going (403 "The workflow run
-            # containing this job is already running" -- measured on #1819), and this job may have
-            # finished before main moved. So wait for the run, then re-run it.
-            if [ "$(gh run view "$run" --json status --jq .status)" != completed ]; then
-              echo "#$pr: run $run still in progress; waiting for it before re-running."
-              gh run watch "$run" --interval 20 > /dev/null || true
-            fi
-            if gh api -X POST "repos/$GH_REPO/actions/jobs/$job/rerun" --silent; then
-              echo "#$pr: re-running Migration version order (run $run, job $job)."
-            else
-              echo "::warning::#$pr: could not re-run job $job of run $run -- push to the PR or re-run it by hand."
-              status=1
-            fi
-          done <<< "$prs"
-          exit $status
-
   secret-scan:
     name: Secret scan (gitleaks)
+    # Private profile: full runs only. gitleaks-nightly.yml scans main's full history every night in
+    # both profiles, .husky/pre-commit runs gitleaks on each local commit wherever it is installed,
+    # and scripts/check-branches-since.sh scans every branch before any flip back to public. See
+    # "Repository visibility" above `jobs:`.
+    if: >-
+      (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        contains(github.event.pull_request.labels.*.name, 'full-ci')
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -561,6 +532,9 @@ jobs:
         needs.changes.outputs.frontend == 'true' ||
         needs.changes.outputs.admin_portal == 'true' ||
         needs.changes.outputs.shared_config == 'true'
+      ) && (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -603,6 +577,9 @@ jobs:
         needs.changes.result != 'success' ||
         needs.changes.outputs.backend == 'true' ||
         needs.changes.outputs.shared_config == 'true'
+      ) && (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
     # Without this a job runs to GitHub's 6-hour default. The realistic way to hit that is not a
@@ -773,6 +750,9 @@ jobs:
         needs.changes.result != 'success' ||
         needs.changes.outputs.backend == 'true' ||
         needs.changes.outputs.shared_config == 'true'
+      ) && (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
     # Six Mockito-only unit-test classes, no Spring context, no Testcontainers -- seconds, not
@@ -849,6 +829,9 @@ jobs:
         needs.changes.result != 'success' ||
         needs.changes.outputs.frontend == 'true' ||
         needs.changes.outputs.shared_config == 'true'
+      ) && (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
     # See the backend job for why. Shorter budget: no containers here, ~1m40s today.
@@ -918,6 +901,9 @@ jobs:
         needs.changes.result != 'success' ||
         needs.changes.outputs.admin_portal == 'true' ||
         needs.changes.outputs.shared_config == 'true'
+      ) && (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
     # See the backend job for why. Shorter budget: no containers here, ~1m40s today.
@@ -966,6 +952,9 @@ jobs:
         needs.changes.result != 'success' ||
         needs.changes.outputs.mobile == 'true' ||
         needs.changes.outputs.shared_config == 'true'
+      ) && (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
     # See the backend job for why. Shorter budget: no containers here, ~1m40s today.
@@ -1070,6 +1059,9 @@ jobs:
         needs.changes.outputs.admin_portal == 'true' ||
         needs.changes.outputs.e2e == 'true' ||
         needs.changes.outputs.shared_config == 'true'
+      ) && (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     # Each job below gets its own fresh, isolated GitHub-hosted VM, so unlike the old self-hosted
     # setup there is no host-level state (a shared Postgres container, fixed backend ports, a
@@ -1421,6 +1413,9 @@ jobs:
         needs.changes.outputs.admin_portal == 'true' ||
         needs.changes.outputs.frontend == 'true' ||
         needs.changes.outputs.shared_config == 'true'
+      ) && (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -1559,6 +1554,9 @@ jobs:
         github.event_name != 'pull_request' ||
         needs.changes.result != 'success' ||
         needs.changes.outputs.backend_image == 'true'
+      ) && (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
     # A cold build downloads the base images and every Maven dependency. This is a hang detector,

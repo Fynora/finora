@@ -466,13 +466,18 @@ project, its own service-account key, and its own Google Sign-In OAuth client, n
 Testing against Dev should never send a real SMS through Production's Firebase project or
 authenticate against a real Google account tied to Production's OAuth consent screen.
 
-**`dev` is a persistent git branch**, not a feature branch, protected with the same ruleset as
-`main` (required status checks, no direct pushes, `enforce_admins` on — see "Branch protection"
-below). `.github/workflows/sync-dev-branch.yml` keeps it caught up with `main`'s tip on every push
-to `main` by opening (or reusing) a `main → dev` PR and enabling auto-merge on it — a direct push
-would be rejected by the protection rule itself, so this goes through the same required checks
-(`Backend (Java 25)`, `User frontend`, `Admin portal`, `Mobile (Expo)`, `End-to-end smoke
-(Chromium)`) as any other change to a protected branch, rather than bypassing them. Cloudflare
+**`dev` is a persistent git branch**, not a feature branch, protected by its own ruleset with the
+same rules as `main`'s (see "Branch protection" below). `.github/workflows/sync-dev-branch.yml`
+keeps it caught up with `main`'s tip on every push to `main`. A direct push would be rejected by the
+ruleset, so the sync goes through a pull request:
+1. It opens, or reuses, a `main → dev` PR.
+2. It waits for `ci.yml`'s push run on that exact `main` commit to finish with `success`.
+3. It merges the PR with a merge commit (`gh pr merge --merge --match-head-commit`).
+
+It does not use auto-merge; that workflow's own header explains why. The sync PR still has to
+satisfy `dev`'s required checks, like any other change to a protected branch. While the repository
+is private, the sync runs only when started by hand; see
+[`ci-visibility-profiles.md`](../../architecture/infrastructure/ci-visibility-profiles.md). Cloudflare
 Pages binds `dev-app.fynora.net` (live, verified) / `dev-admin.finoratech.info` (not yet migrated —
 see the "Dev environment" section above) to this branch as a
 **branch-alias custom domain** (Pages project → Settings → Custom domains → set up a custom
@@ -481,12 +486,33 @@ bare `<pages-project>.pages.dev`) — not a second Pages project.
 
 ### Branch protection (`main` and `dev`)
 
-Both branches require: a pull request (no direct pushes, `enforce_admins` enabled so this applies
-to admins too), the same 5 CI checks passing, and `strict: true` (the PR's branch must be
-up-to-date with the base before merging). Deliberately **no required approving review count** —
-this repo has no second human reviewer today, and requiring one would block merging your own PRs
-entirely. Revisit this once that changes. The repo's "Allow auto-merge" setting is on, which
-`sync-dev-branch.yml` above depends on.
+Each branch has its own repository ruleset: "main branch protection" (targets the default branch)
+and "dev branch protection" (targets `refs/heads/dev`). Their rules are identical. Read from the
+GitHub API on 2026-10-04; re-check with `gh api repos/Fynora/finora/rulesets` before relying on
+this:
+
+- **A pull request is required**, so there are no direct pushes. Merge, squash and rebase merges
+  are all allowed.
+- **Deliberately no required approving reviews** (`required_approving_review_count: 0`). This repo
+  has no second human reviewer today, so requiring one would block merging your own PRs entirely.
+  Revisit this once that changes.
+- **Required status checks: `Detect changed areas`, `Repository hygiene (all clients)` and
+  `Secret scan (gitleaks)`.** These three are the `ci.yml` jobs that run on every PR (in the public
+  profile) regardless of which files changed. The heavier jobs (backend, frontend, admin portal, mobile, smoke) are
+  path-filtered, so they are not required checks. A required check that was skipped would be
+  reported as passing anyway.
+- **Not strict** (`strict_required_status_checks_policy: false`): a PR's branch does not have to
+  be up to date with the base before merging. `.github/workflows/migration-order.yml` re-checks
+  open PRs' Flyway versions whenever `main`'s migrations change, because nothing else would.
+- **Branch deletion and force-pushes are blocked.**
+- **No bypass actors**, so the rules apply to admins too.
+
+These rulesets are enforced only while the repository is **public**. On GitHub Free, rulesets
+apply to private repositories only on paid plans. See
+[`ci-visibility-profiles.md`](../../architecture/infrastructure/ci-visibility-profiles.md).
+
+The repo's "Allow auto-merge" setting is on. Today only `github-traffic-metrics.yml` uses it
+(`gh pr merge --auto`), and auto-merge is likewise public-only on GitHub Free.
 
 Cloudflare Pages' environment-variable UI has only two buckets, Production and Preview — there is
 no native per-branch scoping. The Dev-specific `VITE_*` values (the six `VITE_FIREBASE_*` keys,

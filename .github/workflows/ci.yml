@@ -712,12 +712,18 @@ jobs:
 
       # The XML behind the summary, for reading a stack trace without re-running the suite.
       # Failures only: on a green run nobody opens it, and it is ~2MB of XML per run.
+      #
+      # overwrite: true on this and every other upload in the backend jobs. upload-artifact@v4
+      # artifacts are immutable and, per its README, the action "will fail if an artifact for the
+      # given name already exists" -- and a re-run attempt uploads into the same run as the attempt
+      # it re-runs. Without overwrite, re-running a failed job would fail at its upload step.
       - name: Upload surefire reports
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: surefire-reports
           path: backend/target/surefire-reports/
+          overwrite: true
           retention-days: 14
 
       # For backend-integration-summary, on a run that also runs the integration tests: it merges
@@ -737,6 +743,7 @@ jobs:
             backend/target/surefire-reports/
             backend/target/guardian-rules.json
           if-no-files-found: error
+          overwrite: true
           retention-days: 7
 
   # The backend's integration tests (*IT, failsafe), split across three runners that run at the
@@ -812,6 +819,7 @@ jobs:
           name: backend-it-reports-${{ matrix.shard }}
           path: backend/target/surefire-reports/
           if-no-files-found: warn
+          overwrite: true
           retention-days: 7
 
   # One check that answers "did the integration tests pass, and did every one of them run", over

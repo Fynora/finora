@@ -30,7 +30,6 @@ if either ever changes, --check-reports fails rather than guessing.
 
 import argparse
 import sys
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -50,9 +49,14 @@ def shard(classes, shards, index):
 
 
 def reported_it_classes(report_dir):
+    # By file name (surefire/failsafe write TEST-<fully.qualified.Class>.xml), not by parsing the
+    # XML. The first CI run of this check (2026-10-04) crashed on a report that is not
+    # well-formed XML -- a UNIT test's, TEST-com.finora.architecture.LazyBinaryColumnTest.xml,
+    # which this check has no business reading at all. A report that exists means its class ran;
+    # whether it passed is the shard job's exit code, not this check's question.
     counts = {}
     for xml in sorted(Path(report_dir).glob("TEST-*.xml")):
-        name = ET.parse(xml).getroot().get("name", "")
+        name = xml.name[len("TEST-"):-len(".xml")]
         if name.endswith("IT"):
             counts[name] = counts.get(name, 0) + 1
     return counts

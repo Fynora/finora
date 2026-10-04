@@ -49,6 +49,9 @@ permissions:
 jobs:
   full-suite:
     name: Full Playwright suite (Chromium)
+    # Private profile: by hand only. ~9 minutes a night is ~280 of the 2,000 private minutes a
+    # month -- see docs/architecture/infrastructure/ci-visibility-profiles.md.
+    if: ${{ !github.event.repository.private || github.event_name == 'workflow_dispatch' }}
     # See the header: GitHub-hosted runners give every job its own isolated VM, so this and
     # ci.yml's smoke job can never contend over a container, port or teardown -- the `primary`
     # label that used to pin both to one self-hosted machine is gone.

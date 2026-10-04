@@ -71,6 +71,10 @@ permissions:
 jobs:
   maestro:
     name: Login / Dashboard / Import (Android emulator)
+    # Private profile: by hand only. Measured ~30 minutes a run, and it ran 27 times in one week
+    # (every mobile/ merge plus the nightly) -- several times the whole 2,000-minute private
+    # monthly allowance. docs/architecture/infrastructure/ci-visibility-profiles.md.
+    if: ${{ !github.event.repository.private || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     # Generous: a from-scratch native Android build (first-ever measured run: ~4 min for a debug
     # build, ~6.5 min for the release build these flows actually need) plus AVD boot plus three

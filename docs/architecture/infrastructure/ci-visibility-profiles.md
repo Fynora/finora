@@ -84,19 +84,34 @@ in the org's billing page early in any private spell.
 ## Working while private
 
 - **A PR's checks don't prove anything ran.** GitHub reports a skipped job as "Success", even
-  for a required check. Before merging, give the PR a full run by labelling it:
+  for a required check. Before merging, give the PR a full run: label it, then push.
 
   ```bash
   gh pr edit <number> --add-label full-ci
+  git commit --allow-empty -m "ci: full run" && git push
   ```
 
-  - Adding the label fires a `pull_request` run. While the label stays, every later push to the
-    PR runs in full too, so remove it if the PR will take many more pushes.
-  - Draft PRs still skip the heavy jobs, the same as in public. Mark the PR ready for review.
-  - Read the result on the PR. A green check is real when its job actually ran; in GitHub's UI a
-    skipped job shows a grey "skipped" icon, not a green tick.
+  - **The label alone starts nothing.** It's a condition the jobs check, not a trigger, so the
+    push is what starts the run. A PR opened with `gh pr create --label full-ci` runs in full from
+    its first push.
+  - **Every push to a labelled PR runs in full,** so remove the label if the PR will take many
+    more pushes.
+  - **The run covers the whole PR**, not just the empty commit: `changes` diffs the PR's
+    base..head. The empty commit disappears in the squash merge.
+  - **Draft PRs still skip the heavy jobs**, the same as in public. Mark the PR ready for review.
+  - **Read the result on the PR.** A green check is real only if its job actually ran. In GitHub's
+    UI a skipped job shows a grey "skipped" icon, not a green tick.
 
-  Why a label and not `gh workflow run ci.yml --ref <branch>` (measured on #1974, 2026-10-04):
+  Why the label isn't also a trigger (`on: pull_request: types: labeled`), measured on #1974:
+  - A run that skips every job still creates a check run per job.
+  - The PR's check list shows the *newest* run for each check name.
+  - So labelling a PR after its real run replaced the real results with "skipped", which counts
+    as passing. A red PR would have turned green.
+
+  Why not a draft/ready toggle to re-trigger: `gh pr ready --undo` documents draft PRs as
+  plan-dependent, and this has to work on a private repository on the Free plan.
+
+  Why not `gh workflow run ci.yml --ref <branch>` (measured on #1974, 2026-10-04):
   - **The results wouldn't show on the PR.** A `workflow_dispatch` run's checks attach to the
     commit, but the PR's check list keeps showing the `pull_request` run's results. In this
     profile those are the skipped ones.
@@ -104,7 +119,7 @@ in the org's billing page early in any private spell.
   - **It narrows the customer-PII scan.** It gives repo-hygiene no base commit, so the scan covers
     only the branch's last commit.
 
-  A labelled run has none of these problems, because it is an ordinary `pull_request` run.
+  A labelled PR's run has none of these problems, because it is an ordinary `pull_request` run.
 - **Production deploys don't wait for CI, in either profile.** Railway starts deploying each main
   commit as soon as it lands. Measured on 2026-10-03: commit `62f0ec5be` showed Railway "success"
   at 20:43 while its CI push run failed at 20:54. So the private profile doesn't weaken deploy

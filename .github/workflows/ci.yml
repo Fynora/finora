@@ -26,15 +26,17 @@ name: CI
 # six jobs permanently skipped for that PR unless someone happens to push again first. Confirmed
 # against GitHub's own docs before adding this, not assumed.
 #
-# `labeled` is there for the private profile only: adding the `full-ci` label to a PR is how that
-# PR gets a full run while the repository is private (see "Repository visibility" above `jobs:`).
-# Every job skips every other `labeled` event, and every `labeled` event in the public profile, so
-# labels cost nothing there.
+# Deliberately NOT `labeled`, even though the `full-ci` label drives the private profile (see
+# "Repository visibility" above `jobs:`). Tried on #1974 (2026-10-04): a `labeled` run that skips
+# everything still creates a check run for every job, and the PR's check list shows the NEWEST run
+# per check name -- so labelling a PR after its real run replaced that run's results on the PR with
+# "skipped", which counts as passing. A label added to a PR with a red check would have turned it
+# green.
 on:
   push:
     branches: [main]
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 # A new push to the same branch makes the in-flight run obsolete. Cancelling it keeps queue times
@@ -49,17 +51,8 @@ on:
 # secret-scan read before..sha, so the next push's run never covers it. In the private profile
 # that PII scan on main is the only automatic one there is. Runs on main share no state that
 # needs serialising: no deploys, no registry pushes, per-run artifacts.
-#
-# A `labeled` event that runs nothing (any label in the public profile, any label but `full-ci` in
-# the private one) also gets its own group. Sharing the PR's group would let a label added mid-run
-# cancel that PR's real in-progress run and replace it with an all-skipped one.
 concurrency:
-  group: >-
-    ${{ github.workflow }}-${{
-      (github.ref == 'refs/heads/main' ||
-        (github.event.action == 'labeled' &&
-          !(github.event.label.name == 'full-ci' && github.event.repository.private)))
-      && github.run_id || github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # Least privilege for GITHUB_TOKEN, stated rather than inherited.
@@ -133,19 +126,24 @@ permissions:
 #     in one week (~300 PR events, ~94 pushes to main), so no automatic per-PR subset fits; a full
 #     run when asked for does.
 #
-# Full run for a PR while private:  gh pr edit <number> --add-label full-ci
-# Adding the label fires a `labeled` pull_request event, and every later push to the labelled PR
-# runs in full too, until the label is removed. A label, not `gh workflow run --ref <branch>`,
-# because measured on #1974 (2026-10-04): a workflow_dispatch run's checks attach to the commit
-# but the PR's check list keeps showing the pull_request run's -- in this profile, the skipped
-# ones. A dispatch run also tests the branch alone rather than its merge with main, and gives
-# repo-hygiene no base commit, so the customer-PII scan narrows to the last commit. A `labeled`
-# run is an ordinary pull_request run on all three counts. workflow_dispatch stays for main.
+# Full run for a PR while private -- label it, then start a pull_request run that sees the label:
+#     gh pr edit <number> --add-label full-ci
+#     git commit --allow-empty -m "ci: full run" && git push
+# (or open the PR with `gh pr create --label full-ci`). Any push to a labelled PR runs in full,
+# until the label is removed; the empty commit disappears in the squash merge. The `changes` job
+# diffs the PR's base..head, so the run covers the whole PR, not the empty commit. The label is a
+# condition, never a trigger -- see the `on:` comment for why `labeled` itself is not one. Not a
+# draft/ready toggle: `gh pr ready --undo` documents draft PRs as plan-dependent, and this has to
+# work on the Free plan's private repositories.
 #
-# Every job's `if:` has two clauses for this. (1) A `labeled` event runs anything only when the
-# label is `full-ci` and the repository is private. (2) The run is in the full profile:
-# public, dispatched, or a PR labelled `full-ci`. On push, github.event.pull_request is null, so
-# contains() over its labels is false.
+# Not `gh workflow run ci.yml --ref <branch>` for a PR, measured on #1974 (2026-10-04): a
+# workflow_dispatch run's checks attach to the commit, but the PR's check list keeps showing the
+# pull_request run's (in this profile, the skipped ones). A dispatch run also tests the branch
+# alone rather than its merge with main, and gives repo-hygiene no base commit, so the
+# customer-PII scan narrows to the last commit. A labelled pull_request run has none of those
+# problems. workflow_dispatch stays for main.
+#
+# On push, github.event.pull_request is null, so contains() over its labels is false.
 #
 # The expression reads null, not false, if an event ever lacks the repository object; `!null` is
 # true, so a missing value falls toward the full profile -- more minutes, never less checking.
@@ -194,9 +192,6 @@ jobs:
     # above `jobs:` for this condition, which every job below repeats.
     if: >-
       (
-        github.event.action != 'labeled' ||
-        (github.event.label.name == 'full-ci' && github.event.repository.private)
-      ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
@@ -285,9 +280,6 @@ jobs:
     # "Repository visibility" above `jobs:`.
     if: >-
       (
-        github.event.action != 'labeled' ||
-        (github.event.label.name == 'full-ci' && github.event.repository.private)
-      ) && (
         !github.event.repository.private || github.event_name != 'pull_request' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
@@ -475,9 +467,6 @@ jobs:
     # "Repository visibility" above `jobs:`.
     if: >-
       (
-        github.event.action != 'labeled' ||
-        (github.event.label.name == 'full-ci' && github.event.repository.private)
-      ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
@@ -544,9 +533,6 @@ jobs:
         needs.changes.outputs.admin_portal == 'true' ||
         needs.changes.outputs.shared_config == 'true'
       ) && (
-        github.event.action != 'labeled' ||
-        (github.event.label.name == 'full-ci' && github.event.repository.private)
-      ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
@@ -591,9 +577,6 @@ jobs:
         needs.changes.result != 'success' ||
         needs.changes.outputs.backend == 'true' ||
         needs.changes.outputs.shared_config == 'true'
-      ) && (
-        github.event.action != 'labeled' ||
-        (github.event.label.name == 'full-ci' && github.event.repository.private)
       ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
@@ -768,9 +751,6 @@ jobs:
         needs.changes.outputs.backend == 'true' ||
         needs.changes.outputs.shared_config == 'true'
       ) && (
-        github.event.action != 'labeled' ||
-        (github.event.label.name == 'full-ci' && github.event.repository.private)
-      ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
@@ -850,9 +830,6 @@ jobs:
         needs.changes.outputs.frontend == 'true' ||
         needs.changes.outputs.shared_config == 'true'
       ) && (
-        github.event.action != 'labeled' ||
-        (github.event.label.name == 'full-ci' && github.event.repository.private)
-      ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
@@ -925,9 +902,6 @@ jobs:
         needs.changes.outputs.admin_portal == 'true' ||
         needs.changes.outputs.shared_config == 'true'
       ) && (
-        github.event.action != 'labeled' ||
-        (github.event.label.name == 'full-ci' && github.event.repository.private)
-      ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
@@ -978,9 +952,6 @@ jobs:
         needs.changes.result != 'success' ||
         needs.changes.outputs.mobile == 'true' ||
         needs.changes.outputs.shared_config == 'true'
-      ) && (
-        github.event.action != 'labeled' ||
-        (github.event.label.name == 'full-ci' && github.event.repository.private)
       ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
@@ -1088,9 +1059,6 @@ jobs:
         needs.changes.outputs.admin_portal == 'true' ||
         needs.changes.outputs.e2e == 'true' ||
         needs.changes.outputs.shared_config == 'true'
-      ) && (
-        github.event.action != 'labeled' ||
-        (github.event.label.name == 'full-ci' && github.event.repository.private)
       ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
@@ -1446,9 +1414,6 @@ jobs:
         needs.changes.outputs.frontend == 'true' ||
         needs.changes.outputs.shared_config == 'true'
       ) && (
-        github.event.action != 'labeled' ||
-        (github.event.label.name == 'full-ci' && github.event.repository.private)
-      ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
@@ -1589,9 +1554,6 @@ jobs:
         github.event_name != 'pull_request' ||
         needs.changes.result != 'success' ||
         needs.changes.outputs.backend_image == 'true'
-      ) && (
-        github.event.action != 'labeled' ||
-        (github.event.label.name == 'full-ci' && github.event.repository.private)
       ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')

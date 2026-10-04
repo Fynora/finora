@@ -63,11 +63,12 @@ pull request — see the trigger comment in `.github/workflows/ci.yml` for why.
 
 **While the repository is private, that changes.** The workflows switch themselves to a lean
 profile that fits GitHub Free's 2,000 private minutes a month. In that profile, a PR's CI jobs are
-skipped, and a skipped job still shows as passing. Give the PR a full run before merging by
-labelling it:
+skipped, and a skipped job still shows as passing. Before merging, give the PR a full run: label
+it, then push. The label is a condition, not a trigger, so the push is what starts the run.
 
 ```bash
 gh pr edit <number> --add-label full-ci
+git commit --allow-empty -m "ci: full run" && git push
 ```
 
 See [`docs/architecture/infrastructure/ci-visibility-profiles.md`](docs/architecture/infrastructure/ci-visibility-profiles.md)

@@ -6,6 +6,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.ResolverStyle;
+import java.time.temporal.ChronoField;
 import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
@@ -67,13 +68,18 @@ public final class StatementPeriodGridExtractor {
      *  is the identical "label row, value row below" panel, measured on the identical documents. */
     private static final float MAX_ROW_GAP = 40.0f;
 
+    // Year-of-era with the era defaulted to CE, not the proleptic "uuuu" these used to take. Both
+    // resolve STRICT, but measured, "uuuu" accepted "01/01/0000" and "01/01/-2026" as real dates
+    // (year 0 and year -2026); year-of-era starts at 1 and takes no sign, so both are rejected.
+    // Same choice as PdfMetadataExtractor.ci().
     private static final DateTimeFormatter[] DATE_FORMATS = {
-            strict("dd/MM/uuuu"), strict("d/M/uuuu"), strict("dd-MM-uuuu"),
-            strict("d MMM uuuu"), strict("d MMM, uuuu"), strict("dd-MMM-uuuu"),
+            strict("dd/MM/yyyy"), strict("d/M/yyyy"), strict("dd-MM-yyyy"),
+            strict("d MMM yyyy"), strict("d MMM, yyyy"), strict("dd-MMM-yyyy"),
     };
 
     private static DateTimeFormatter strict(String pattern) {
         return new DateTimeFormatterBuilder().parseCaseInsensitive().appendPattern(pattern)
+                .parseDefaulting(ChronoField.ERA, 1)
                 .toFormatter(Locale.ENGLISH).withResolverStyle(ResolverStyle.STRICT);
     }
 

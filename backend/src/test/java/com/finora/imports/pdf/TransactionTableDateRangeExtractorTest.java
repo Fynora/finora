@@ -61,4 +61,23 @@ class TransactionTableDateRangeExtractorTest {
         assertThat(range.start()).isEqualTo(LocalDate.of(2026, 1, 11));
         assertThat(range.end()).isEqualTo(LocalDate.of(2026, 2, 10));
     }
+
+    // SMART resolution used to clamp "31-Feb-2026" to 2026-02-28; an impossible bound is no bound.
+    @Test
+    void extract_returnsNone_whenABoundIsADayTheMonthDoesNotHave() {
+        var range = TransactionTableDateRangeExtractor.extract(
+                List.of(run("Date  Transaction details from 01-Feb-2026 to 31-Feb-2026  Spends Area  Amount (Rs.)")));
+
+        assertThat(range.start()).isNull();
+        assertThat(range.end()).isNull();
+    }
+
+    @Test
+    void extract_returnsNone_whenANumericBoundIsADayTheMonthDoesNotHave() {
+        var range = TransactionTableDateRangeExtractor.extract(
+                List.of(run("Date  Transaction details from 01-04-2026 to 31-04-2026  Spends Area  Amount (Rs.)")));
+
+        assertThat(range.start()).isNull();
+        assertThat(range.end()).isNull();
+    }
 }

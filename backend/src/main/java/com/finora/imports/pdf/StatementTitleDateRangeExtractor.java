@@ -5,6 +5,8 @@ import com.finora.imports.DocumentContext;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
+import java.time.format.ResolverStyle;
+import java.time.temporal.ChronoField;
 import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
@@ -77,10 +79,16 @@ public final class StatementTitleDateRangeExtractor {
     // inconsistent with isTitleRow's own equalsIgnoreCase just below. parseCaseInsensitive() makes
     // the two checks agree: same real fact, differently capitalized, should not change the
     // outcome.
+    //
+    // STRICT, era defaulted to CE: the SMART default clamped "30 Feb 2026" to 2026-02-28 and
+    // "31 Apr 2026" to 2026-04-30 (measured). Same fix, and the same reason for keeping "yyyy" over
+    // "uuuu", as PdfMetadataExtractor.ci().
     private static final DateTimeFormatter DATE_FORMAT = new DateTimeFormatterBuilder()
             .parseCaseInsensitive()
             .appendPattern("d MMM yyyy")
-            .toFormatter(Locale.ENGLISH);
+            .parseDefaulting(ChronoField.ERA, 1)
+            .toFormatter(Locale.ENGLISH)
+            .withResolverStyle(ResolverStyle.STRICT);
 
     public record PrintedDateRange(LocalDate start, LocalDate end) {
         public static final PrintedDateRange NONE = new PrintedDateRange(null, null);

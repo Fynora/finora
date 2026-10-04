@@ -1688,4 +1688,52 @@ class PdfMetadataExtractorTest {
         // A real labelled name is unchanged.
         assertThat(extractor.extract(List.of("Name: RAVI KUMAR")).accountHolderName()).isEqualTo("RAVI KUMAR"); // synthetic-ok
     }
+
+    // The date formats used to resolve SMART, which CLAMPS a day its month lacks to the month's last
+    // day: "31/02/2026" read as 2026-02-28 and "31/04/2026" as 2026-04-30. An impossible date is
+    // not a date, so each of these must leave its field unset rather than store a different one.
+    @Test
+    void extract_leavesThePeriodUnset_whenItsEndIsADayTheMonthDoesNotHave() {
+        var metadata = extractor.extract(List.of("Statement Period: 01/02/2026 to 31/02/2026"));
+
+        assertThat(metadata.statementPeriodStart()).isNull();
+        assertThat(metadata.statementPeriodEnd()).isNull();
+    }
+
+    @Test
+    void extract_leavesATwoDigitYearPeriodUnset_whenItsEndIsADayTheMonthDoesNotHave() {
+        var metadata = extractor.extract(List.of("Statement Period: 01 Feb 26 to 30 Feb 26"));
+
+        assertThat(metadata.statementPeriodStart()).isNull();
+        assertThat(metadata.statementPeriodEnd()).isNull();
+    }
+
+    @Test
+    void extract_stillReadsTheLastDayOfAMonth_whenTheMonthHasIt() {
+        var metadata = extractor.extract(List.of("Statement Period: 01/02/2024 to 29/02/2024"));
+
+        assertThat(metadata.statementPeriodStart()).isEqualTo(java.time.LocalDate.of(2024, 2, 1));
+        assertThat(metadata.statementPeriodEnd()).isEqualTo(java.time.LocalDate.of(2024, 2, 29));
+    }
+
+    // Already true before the formats went STRICT -- year-of-era starts at 1 -- and kept true by
+    // defaulting the era rather than switching to the proleptic "uuuu", which would accept it.
+    @Test
+    void extract_leavesThePeriodUnset_forYearZero() {
+        var metadata = extractor.extract(List.of("Statement Period: 01/01/0000 to 31/01/0000"));
+
+        assertThat(metadata.statementPeriodStart()).isNull();
+        assertThat(metadata.statementPeriodEnd()).isNull();
+    }
+
+    // looksLikeADate asks whether a cell is date-SHAPED, so an impossible day still counts: an
+    // impossible "31-02-2026" also passes the account-number shape checks, and must not be taken
+    // for one (see AccountNumberTransactionHeaderExtractorTest).
+    @Test
+    void looksLikeADate_stillAcceptsADateShapedCellWhoseDayTheMonthDoesNotHave() {
+        assertThat(PdfMetadataExtractor.looksLikeADate("31-02-2026")).isTrue();
+        assertThat(PdfMetadataExtractor.looksLikeADate("30 Feb 2026")).isTrue();
+        assertThat(PdfMetadataExtractor.looksLikeADate("32-01-2026")).isFalse();
+        assertThat(PdfMetadataExtractor.looksLikeADate("01-13-2026")).isFalse();
+    }
 }

@@ -219,7 +219,7 @@ class BankRegistryTest {
     void aSliceStatement_isNamedByItsOwnLabelledIfsc_notByAnAxisCodeInANarration() {
         BankRegistry.BankInfo bank = BankRegistry.detect("statement.pdf", List.of(
                 "Email sample@example.com IFSC NESF0XXXXXX",
-                "UPI-Debit-000000000001-Amazon India-UTIB0XXXXXX-amazonupi@apl"));
+                "UPI-Debit-000000000001-Amazon India-UTIB0XXXXXX-shopmerchant@apl"));
 
         assertThat(bank.id()).isEqualTo("SLICE");
         assertThat(bank.ifscPrefix()).isEqualTo("NESF");

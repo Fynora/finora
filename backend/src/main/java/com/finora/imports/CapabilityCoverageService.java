@@ -118,10 +118,12 @@ public class CapabilityCoverageService {
             "NARRATION_WRAP_JOINED_AT_HANDLE", "NARRATION_WRAP_JOINED_AT_SEPARATOR",
             "NARRATION_WRAP_JOINED_AT_IFSC",
             // A wrapped narration rejoined without a space inside a reference code, at a word the
-            // statement prints whole elsewhere, where the space would widen a field past every other
+            // statement prints whole elsewhere, at a merchant's one-word name Fynora already knows,
+            // where the space would widen a field past every other
             // one like it, or at a width wrap of a statement proven to cut through words. See
             // NarrationLineBreaks and LineGeometry (which keeps the space where the page shows one).
             "NARRATION_WRAP_JOINED_INSIDE_A_CODE", "NARRATION_WRAP_JOINED_BY_DOCUMENT_WORD",
+            "NARRATION_WRAP_JOINED_AT_KNOWN_MERCHANT",
             "NARRATION_WRAP_JOINED_BY_FIELD_WIDTH", "NARRATION_WRAP_JOINED_AT_WIDTH_WRAP",
             "NARRATION_WRAP_JOINED_AT_CHARACTER_WIDTH", "NARRATION_CHARACTER_WRAP_WIDTH_DETECTED",
             "NARRATION_WRAP_JOINED_WITHOUT_PRINTED_SPACE",

@@ -75,7 +75,7 @@ public final class CategoryRules {
         // a name, so it typed PERSON and fell to "Personal Transfer" on 7 corpus rows across 4
         // documents and 2 accounts, in both the HDFC and the slash UPI layout. The whole phrase, as
         // with the other brands here -- a bare "tea" names a drink, not a business.
-        RULES.put("Dining", List.of("swiggy", "zomato", "restaurant", "cafe", "starbucks", "dominos", "mcdonald", "kfc", "cinnabon", "gokhana", "tobox", "chinese factory", "cream house", "lassi wassi", "tea post"));
+        RULES.put("Dining", List.of("swiggy", "zomato", "eatclub", "restaurant", "cafe", "starbucks", "dominos", "mcdonald", "kfc", "cinnabon", "gokhana", "tobox", "chinese factory", "cream house", "lassi wassi", "tea post"));
         // "indian railways" (the national railway institution, named directly rather than
         // through its "irctc" booking portal already above) added after re-checking this
         // project's own real bank-statement corpus for additional vocabulary beyond the

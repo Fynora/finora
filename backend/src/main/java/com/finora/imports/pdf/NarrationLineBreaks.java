@@ -1,6 +1,7 @@
 package com.finora.imports.pdf;
 
 import com.finora.imports.DocumentContext;
+import com.finora.util.MerchantIdentityLookup;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -90,8 +91,8 @@ final class NarrationLineBreaks {
     private static final Pattern ENDS_WITH_DATE = Pattern.compile(".*\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4}$");
     private static final Pattern STARTS_WITH_TIME = Pattern.compile("^\\d{1,2}:\\d{2}.*");
 
-    enum Rule { HANDLE, SEPARATOR, IFSC, CODE, CHARACTER_WIDTH, WITHOUT_PRINTED_SPACE, DOCUMENT_WORD, FIELD_WIDTH,
-        WIDTH_WRAP }
+    enum Rule { HANDLE, SEPARATOR, IFSC, CODE, CHARACTER_WIDTH, WITHOUT_PRINTED_SPACE, DOCUMENT_WORD, KNOWN_MERCHANT,
+        FIELD_WIDTH, WIDTH_WRAP }
 
     private static final Pattern IFSC = Pattern.compile("[A-Z]{4}0[A-Z0-9]{6}");
     /** What may stand right before or after an IFSC field: the narration's own field separators. */
@@ -158,6 +159,7 @@ final class NarrationLineBreaks {
             if (fired.contains(Rule.IFSC)) ctx.record("NARRATION_WRAP_JOINED_AT_IFSC");
             if (fired.contains(Rule.CODE)) ctx.record("NARRATION_WRAP_JOINED_INSIDE_A_CODE");
             if (fired.contains(Rule.DOCUMENT_WORD)) ctx.record("NARRATION_WRAP_JOINED_BY_DOCUMENT_WORD");
+            if (fired.contains(Rule.KNOWN_MERCHANT)) ctx.record("NARRATION_WRAP_JOINED_AT_KNOWN_MERCHANT");
             if (fired.contains(Rule.FIELD_WIDTH)) ctx.record("NARRATION_WRAP_JOINED_BY_FIELD_WIDTH");
             if (fired.contains(Rule.WIDTH_WRAP)) ctx.record("NARRATION_WRAP_JOINED_AT_WIDTH_WRAP");
             if (fired.contains(Rule.CHARACTER_WIDTH)) ctx.record("NARRATION_WRAP_JOINED_AT_CHARACTER_WIDTH");
@@ -211,6 +213,30 @@ final class NarrationLineBreaks {
         boolean indented = startsWithMark(later, LineGeometry.INDENTED_ONE_SPACE);
         boolean stoppedShort = width == null && endsWithMark(earlier, LineGeometry.STOPPED_SHORT);
         return indented || stoppedShort;
+    }
+
+    /**
+     * The one-word merchant names Fynora already knows ({@link MerchantIdentityLookup}), of at least
+     * {@value #MIN_KNOWN_MERCHANT_LETTERS} letters -- the same floor that lookup sets for a brand read
+     * out of a UPI id, below which a name is too easily two ordinary words.
+     */
+    private static final int MIN_KNOWN_MERCHANT_LETTERS = 5;
+    private static final Set<String> KNOWN_MERCHANT_WORDS = MerchantIdentityLookup.knownEntityTerms().stream()
+            .filter(t -> t.length() >= MIN_KNOWN_MERCHANT_LETTERS && t.chars().allMatch(Character::isLetter))
+            .map(t -> t.toUpperCase(java.util.Locale.ROOT))
+            .collect(java.util.stream.Collectors.toUnmodifiableSet());
+
+    /**
+     * Whether the two words at the break make exactly a merchant's one-word name. Asked only where
+     * the document's own words say nothing: a statement that prints the merchant whole never needs
+     * it, and one that prints the two halves apart has already kept the space. Measured on a real
+     * Canara statement: a seven-letter food brand cut after its sixth letter, printed whole nowhere
+     * in that statement, and too short for its field's width to decide.
+     */
+    static boolean joinsAKnownMerchant(String line, String next) {
+        String a = Vocabulary.trailingToken(line), b = Vocabulary.leadingToken(next);
+        if (a == null || b == null) return false;
+        return KNOWN_MERCHANT_WORDS.contains((a + b).toUpperCase(java.util.Locale.ROOT));
     }
 
     private static boolean blankPrintedAt(String earlier, String later) {
@@ -336,6 +362,8 @@ final class NarrationLineBreaks {
                 Boolean joinedByTheDocument = vocabulary.evidence(line, next);
                 if (joinedByTheDocument != null) {
                     rule = joinedByTheDocument ? Rule.DOCUMENT_WORD : null;
+                } else if (joinsAKnownMerchant(line, next)) {
+                    rule = Rule.KNOWN_MERCHANT;
                 } else if (fieldWidths.tooWideWithASpace(pieces, i, width)) {
                     rule = Rule.FIELD_WIDTH;
                 } else if (widthWrap && vocabulary.isBetweenTwoWords(line, next)) {
@@ -451,14 +479,14 @@ final class NarrationLineBreaks {
 
         /** The word ending {@code line} right at the break, when the break falls between two letters
          *  or digits and that word carries a letter; else null. */
-        private static String trailingToken(String line) {
+        static String trailingToken(String line) {
             int i = line.length();
             while (i > 0 && Character.isLetterOrDigit(line.charAt(i - 1))) i--;
             String t = line.substring(i);
             return t.chars().anyMatch(Character::isLetter) ? t : null;
         }
 
-        private static String leadingToken(String next) {
+        static String leadingToken(String next) {
             int i = 0;
             while (i < next.length() && Character.isLetterOrDigit(next.charAt(i))) i++;
             String t = next.substring(0, i);

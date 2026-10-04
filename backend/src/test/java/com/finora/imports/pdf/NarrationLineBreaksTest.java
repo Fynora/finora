@@ -362,6 +362,30 @@ class NarrationLineBreaksTest {
         assertThat(narrationOf(out, 2).replaceAll(" +", " ")).isEqualTo("UPI-SAMPLE STORE-PAYMENT FROM PHO NE");
     }
 
+    // ---- A merchant Fynora already knows (measured: a food brand cut on a real Canara statement) ----
+
+    @Test
+    void aKnownMerchantsNameCutInTwo_glues() {
+        var ctx = new com.finora.imports.DocumentContext("PDF", "test");
+        var out = NarrationLineBreaks.resolveAll(docWithNarrations("UPI/DR/100000000001/SWIGG\nY/ABCD/x"), ctx);
+        assertThat(narrationOf(out, 0)).isEqualTo("UPI/DR/100000000001/SWIGGY/ABCD/x");
+        assertThat(capabilitiesOf(ctx)).contains("NARRATION_WRAP_JOINED_AT_KNOWN_MERCHANT");
+    }
+
+    @Test
+    void aKnownMerchantsName_yieldsToADocumentThatPrintsTheHalvesApart() {
+        var out = NarrationLineBreaks.resolveAll(docWithNarrations(
+                "UPI/DR/100000000001/SWIGG Y/ABCD/x", "UPI/DR/100000000002/SWIGG\nY/ABCD/x"), null);
+        assertThat(narrationOf(out, 1)).isEqualTo("UPI/DR/100000000002/SWIGG Y/ABCD/x");
+    }
+
+    @Test
+    void aShortKnownName_isTooEasilyTwoWordsToGlue() {
+        // Under five letters, as for a brand read out of a UPI id (MerchantIdentityLookup).
+        assertThat(NarrationLineBreaks.joinsAKnownMerchant("UPI/DR/100000000001/K", "FC/ABCD")).isFalse();
+        assertThat(NarrationLineBreaks.joinsAKnownMerchant("UPI/DR/100000000001/SWIG", "GY/ABCD")).isTrue();
+    }
+
     @Test
     void theMoreFrequentOfJoinedAndSpaced_wins() {
         var out = NarrationLineBreaks.resolveAll(docWithNarrations(

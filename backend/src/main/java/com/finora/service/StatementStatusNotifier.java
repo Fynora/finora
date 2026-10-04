@@ -71,6 +71,24 @@ public class StatementStatusNotifier {
     }
 
     /**
+     * Tells the user a statement held for trust review was rejected -- the "no" answer to the held
+     * email's "We'll notify you once it's ready". Fixed copy: the reviewer's reason is internal.
+     *
+     * <p>Keyed on the job, so a rejection after a reopen does not tell the user a second time what
+     * they were already told.
+     */
+    public void notifyRejected(ImportJob job) {
+        notificationService.request(NotificationRequest.of(
+                job.getUserId(),
+                NotificationType.IMPORT_STATEMENT_REJECTED,
+                NotificationCategory.FINANCIAL,
+                NotificationPriority.NORMAL,
+                "IMPORT_REJECTED_" + job.getId(),
+                Set.of(NotificationChannel.PUSH, NotificationChannel.EMAIL),
+                Map.of("jobId", job.getId().toString())));
+    }
+
+    /**
      * Tells the user what an admin decided about a held import, in the admin's own words.
      *
      * <p>Keyed on the job alone, so a double click, a retried request or a concurrent second

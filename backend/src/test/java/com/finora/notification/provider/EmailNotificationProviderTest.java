@@ -205,6 +205,18 @@ class EmailNotificationProviderTest {
         verify(emailProvider, never()).send(any());
     }
 
+    @Test
+    void send_delegatesToTheStatementRejectedBuilder() {
+        when(userRepository.findById(any())).thenReturn(Optional.of(activeUser()));
+        when(emailProvider.sendStatementRejectedEmail(any()))
+                .thenReturn(EmailResult.success(ProviderType.RESEND, "id-1"));
+
+        provider.send(notification(NotificationType.IMPORT_STATEMENT_REJECTED));
+
+        verify(emailProvider).sendStatementRejectedEmail("user@example.com");
+        verify(emailProvider, never()).send(any());
+    }
+
     /**
      * An admin's reply about a statement is exactly the email a person will answer, so it goes out as
      * support@ like the held and ready emails, not noreply@.

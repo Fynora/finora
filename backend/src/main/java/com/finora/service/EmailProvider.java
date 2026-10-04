@@ -89,4 +89,9 @@ public interface EmailProvider {
     /** See {@link #sendStatementReadyEmail}'s own doc for the outbox delivery path. No CTA button
      *  -- there is nothing yet to review, only to wait for. */
     EmailResult sendStatementHeldEmail(String toEmail);
+
+    /** The answer to the held email's "We'll notify you once it's ready" when a reviewer rejected
+     *  the statement. Same layout and sender as the held email, and no CTA button either: there is
+     *  nothing for the user to review or do. */
+    EmailResult sendStatementRejectedEmail(String toEmail);
 }

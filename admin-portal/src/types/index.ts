@@ -1257,6 +1257,19 @@ export type HeldStatementStatus =
  * reach this screen even indirectly. `bankName` is a snapshot from hold time and can be null when
  * the parser could not name a bank.
  */
+/**
+ * An import held for trust review whose review record was never written -- the worker holds it
+ * anyway when writing the record fails. It blocks the user's confirm but has no row in the queue;
+ * opening a review turns it into an ordinary `HeldStatementRow`. No statement content, same rule.
+ */
+export interface HoldWithoutReviewRecordRow {
+  jobId: string;
+  fileName: string | null;
+  heldAt: string | null;
+  /** False when the staged rows are gone -- the review still opens; a parser re-run reads it again. */
+  stagedRowsAvailable: boolean;
+}
+
 export interface HeldStatementRow {
   id: string;
   heldId: string;

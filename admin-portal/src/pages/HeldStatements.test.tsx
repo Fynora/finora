@@ -7,7 +7,7 @@ import HeldStatements from './HeldStatements';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { mockAdminAuthState } from '../test/mockAdminAuth';
 import { adminHeldStatementApi } from '../api/endpoints';
-import type { HeldStatementRow } from '../types';
+import type { HeldStatementRow, HoldWithoutReviewRecordRow } from '../types';
 
 // Same reason HeldImports.test.tsx mocks these two: AdminLayout renders ThemeToggle (calls
 // useTheme()) and there's no real ThemeProvider mounted here.
@@ -20,7 +20,15 @@ vi.mock('../context/AdminAuthContext', () => ({
 vi.mock('../api/endpoints', () => ({
   adminHeldStatementApi: {
     list: vi.fn(),
+    listWithoutReviewRecord: vi.fn(),
+    openReview: vi.fn(),
   },
+}));
+
+const mockNavigate = vi.fn();
+vi.mock('react-router-dom', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-router-dom')>()),
+  useNavigate: () => mockNavigate,
 }));
 
 const olderRow: HeldStatementRow = {
@@ -82,6 +90,9 @@ describe('HeldStatements', () => {
     vi.clearAllMocks();
     vi.mocked(adminHeldStatementApi.list).mockResolvedValue({
       content: [olderRow, newerRow], page: 0, size: 25, totalElements: 2, totalPages: 1,
+    });
+    vi.mocked(adminHeldStatementApi.listWithoutReviewRecord).mockResolvedValue({
+      content: [], page: 0, size: 25, totalElements: 0, totalPages: 0,
     });
   });
 
@@ -194,5 +205,77 @@ describe('HeldStatements', () => {
 
     expect(adminHeldStatementApi.list).toHaveBeenLastCalledWith(
       expect.objectContaining({ olderThanHours: 48, page: 0 }));
+  });
+  describe('holds without a review record', () => {
+    const stuck: HoldWithoutReviewRecordRow = {
+      jobId: '66666666-6666-6666-6666-666666666666',
+      fileName: 'june-statement.pdf',
+      heldAt: '2026-09-03T08:00:00Z',
+      stagedRowsAvailable: true,
+    };
+
+    it('shows nothing extra while there are none', async () => {
+      mockAuth(['TRUST_REVIEW_MANAGE']);
+      renderPage();
+      await screen.findByText('HLD-2026-100001');
+
+      expect(screen.queryByText(/held without a review record/i)).not.toBeInTheDocument();
+    });
+
+    it('lists them above the queue and opens a review, then goes to it', async () => {
+      vi.mocked(adminHeldStatementApi.listWithoutReviewRecord).mockResolvedValue({
+        content: [stuck], page: 0, size: 25, totalElements: 1, totalPages: 1,
+      });
+      vi.mocked(adminHeldStatementApi.openReview).mockResolvedValue({ ...olderRow, heldId: 'HLD-2026-100077' });
+      mockAuth(['TRUST_REVIEW_MANAGE']);
+      renderPage();
+
+      expect(await screen.findByText('june-statement.pdf')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /held without a review record \(1\)/i })).toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole('button', { name: /open review/i }));
+
+      expect(adminHeldStatementApi.openReview).toHaveBeenCalledWith(stuck.jobId);
+      await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/held-statements/HLD-2026-100077'));
+    });
+
+    it('says when the staged rows are gone', async () => {
+      vi.mocked(adminHeldStatementApi.listWithoutReviewRecord).mockResolvedValue({
+        content: [{ ...stuck, stagedRowsAvailable: false }], page: 0, size: 25, totalElements: 1, totalPages: 1,
+      });
+      mockAuth(['TRUST_REVIEW_MANAGE']);
+      renderPage();
+
+      expect(await screen.findByText(/gone — re-run the parser after opening/i)).toBeInTheDocument();
+    });
+
+    /** Another operator opened it first: the server refuses with a 409, and the message shows. */
+    it('shows the server refusal instead of navigating', async () => {
+      vi.mocked(adminHeldStatementApi.listWithoutReviewRecord).mockResolvedValue({
+        content: [stuck], page: 0, size: 25, totalElements: 1, totalPages: 1,
+      });
+      vi.mocked(adminHeldStatementApi.openReview).mockRejectedValue({
+        response: { data: { message: 'This import already has a review record; open it from the held-statements queue.' } },
+      });
+      mockAuth(['TRUST_REVIEW_MANAGE']);
+      renderPage();
+      await userEvent.click(await screen.findByRole('button', { name: /open review/i }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(/already has a review record/i);
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
+    it('is not shown under Resolved', async () => {
+      vi.mocked(adminHeldStatementApi.listWithoutReviewRecord).mockResolvedValue({
+        content: [stuck], page: 0, size: 25, totalElements: 1, totalPages: 1,
+      });
+      mockAuth(['TRUST_REVIEW_MANAGE']);
+      renderPage();
+      await screen.findByText('june-statement.pdf');
+
+      await userEvent.click(screen.getByRole('tab', { name: 'Resolved' }));
+
+      expect(screen.queryByText('june-statement.pdf')).not.toBeInTheDocument();
+    });
   });
 });

@@ -6733,6 +6733,37 @@
                 }
             }
         },
+        "/api/v1/admin/held-statements/without-review-record/{jobId}/open-review": {
+            "post": {
+                "tags": [
+                    "admin-held-statement-controller"
+                ],
+                "operationId": "openReview",
+                "parameters": [
+                    {
+                        "name": "jobId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseHeldStatementDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/held-imports/{jobId}/resolve": {
             "post": {
                 "tags": [
@@ -11321,6 +11352,48 @@
                                 "schema": {
                                     "type": "string",
                                     "format": "byte"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/held-statements/without-review-record": {
+            "get": {
+                "tags": [
+                    "admin-held-statement-controller"
+                ],
+                "operationId": "listWithoutReviewRecord",
+                "parameters": [
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int32",
+                            "default": 0
+                        }
+                    },
+                    {
+                        "name": "size",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int32",
+                            "default": 25
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponsePagedResponseHoldWithoutReviewRecordDto"
                                 }
                             }
                         }
@@ -25595,6 +25668,80 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/HeldStatementDto"
+                        }
+                    },
+                    "page": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "size": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "totalElements": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "totalPages": {
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                }
+            },
+            "ApiResponsePagedResponseHoldWithoutReviewRecordDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/PagedResponseHoldWithoutReviewRecordDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "HoldWithoutReviewRecordDto": {
+                "type": "object",
+                "properties": {
+                    "jobId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "fileName": {
+                        "type": "string"
+                    },
+                    "heldAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "stagedRowsAvailable": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "PagedResponseHoldWithoutReviewRecordDto": {
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/HoldWithoutReviewRecordDto"
                         }
                     },
                     "page": {

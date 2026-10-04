@@ -7,6 +7,7 @@ import type {
   HeldImportRow, HeldImportDetail, HeldImportSummary,
   HeldStatementRow, HeldStatementQuery, HeldStatementDetail, HeldStatementRerunResult,
   HeldStatementTelemetrySummary,
+  HoldWithoutReviewRecordRow,
   SupportTicketRow, SupportTicketQuery, SupportTicketDetail, SupportTicketNote,
   FeedbackRow, FeedbackQuery, FeedbackBreakdown,
   CreateAccountRequest, CreateBankRequest, CreateMerchantTemplateRequest, CreateRelationshipRequest,
@@ -449,6 +450,14 @@ export const adminHeldStatementApi = {
     api.post<HeldStatementDetail>(`/admin/held-statements/${heldId}/suggest-diagnosis`).then((r) => r.data),
   telemetry: () =>
     api.get<HeldStatementTelemetrySummary>('/admin/held-statements/telemetry').then((r) => r.data),
+  /** Imports held with no review record -- invisible to `list` until a review is opened. */
+  listWithoutReviewRecord: (page = 0, size = 25) =>
+    api.get<PagedResponse<HoldWithoutReviewRecordRow>>('/admin/held-statements/without-review-record',
+      { params: { page, size } }).then((r) => r.data),
+  /** Writes the missing review record; the import is then an ordinary held statement. */
+  openReview: (jobId: string) =>
+    api.post<HeldStatementRow>(`/admin/held-statements/without-review-record/${jobId}/open-review`)
+      .then((r) => r.data),
   // A plain <a href> can't carry the Bearer token, so this goes through the same authenticated
   // axios instance as everything else and triggers the browser download client-side instead --
   // same pattern as the user frontend's statementImportsApi.downloadFile.

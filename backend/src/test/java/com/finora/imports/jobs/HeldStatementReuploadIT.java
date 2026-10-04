@@ -413,4 +413,45 @@ class HeldStatementReuploadIT extends AbstractIntegrationTest {
         assertThat(discarded.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(sessionRepository.findById(held.getImportSessionId())).isEmpty();
     }
+
+    @Test
+    void aRerunThatReplacesTheSessionCarriesTheRecordLessHoldWithIt() throws Exception {
+        User owner = user();
+        ImportJob held = cleanJobHeldWithNoReviewRecord(owner);
+        UUID againId = upload(owner, CLEAN_CSV);
+        worker.drainOnce();
+        String heldId = heldIdOf(jobRepository.findById(againId).orElseThrow());
+
+        // CLEAN_CSV passes the predicate, so the re-run clears and stages a new session.
+        assertThat(heldStatementService.rerunParser(user().getId(), heldId).stillHeld()).isFalse();
+
+        UUID restaged = jobRepository.findById(againId).orElseThrow().getImportSessionId();
+        assertThat(restaged).isNotEqualTo(held.getImportSessionId());
+        assertThat(jobRepository.findById(held.getId()).orElseThrow().getImportSessionId())
+                .as("the record-less hold follows its rows to the new session")
+                .isEqualTo(restaged);
+        heldStatementService.approve(user().getId(), heldId, null, null);
+        assertThat(jobRepository.findById(held.getId()).orElseThrow().getStatus())
+                .isEqualTo(ImportJob.Status.COMPLETED);
+        assertConfirmable(owner, restaged);
+    }
+
+    @Test
+    void reopeningTheRejectedReviewHoldsTheRecordLessJobAgain() throws Exception {
+        User owner = user();
+        ImportJob held = cleanJobHeldWithNoReviewRecord(owner);
+        UUID againId = upload(owner, CLEAN_CSV);
+        worker.drainOnce();
+        String heldId = heldIdOf(jobRepository.findById(againId).orElseThrow());
+        heldStatementService.reject(user().getId(), heldId, "rows do not match the document");
+
+        heldStatementService.reopen(user().getId(), heldId, "parser fix shipped");
+
+        assertThat(jobRepository.findById(held.getId()).orElseThrow().getStatus())
+                .isEqualTo(ImportJob.Status.HELD_FOR_TRUST_REVIEW);
+        heldStatementService.approve(user().getId(), heldId, null, null);
+        assertThat(jobRepository.findById(held.getId()).orElseThrow().getStatus())
+                .isEqualTo(ImportJob.Status.COMPLETED);
+        assertConfirmable(owner, held.getImportSessionId());
+    }
 }

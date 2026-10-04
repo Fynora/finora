@@ -513,11 +513,18 @@ public class HeldStatementService {
             // them after a re-run that cleared would hand the user exactly what was wrong. The
             // parse just made is staged in their place -- once, so a scanned statement's OCR is not
             // run twice. The old session goes first: one live session per user and document (V79).
+            // A job held on the same session with no review record moves with it: left on the
+            // discarded session it would stay held on rows that no longer exist, and approving
+            // would look for it on the new session and miss it.
+            List<ImportJob> riding = coveredBy(job, HeldStatementService::isHeldWithNoRecord);
             importSessionService.discardForRestage(job.getImportSessionId());
             ImportService.StagedReparse staged =
                     importService.stageReparsed(job.getUserId(), job.getFileName(), content, reparsed);
             job.replaceHeldSession(staged.sessionId(), staged.totalParsed(), staged.stagedRows());
             importJobRepository.save(job);
+            riding.forEach(other -> other.replaceHeldSession(
+                    staged.sessionId(), staged.totalParsed(), staged.stagedRows()));
+            importJobRepository.saveAll(riding);
             held.markReadyForImport(Instant.now());
             repository.save(held);
         }
@@ -682,6 +689,12 @@ public class HeldStatementService {
         job.reopenTrustReview(ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name());
         repository.save(held);
         importJobRepository.save(job);
+        // The jobs reject() failed alongside this one, because they had no review of their own,
+        // are held again with it -- otherwise approving the reopened review would leave them failed
+        // for rows that reached the ledger.
+        List<ImportJob> riding = coveredBy(job, HeldStatementService::isRejectedWithNoRecord);
+        riding.forEach(other -> other.reopenTrustReview(ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name()));
+        importJobRepository.saveAll(riding);
 
         eventRepository.save(new HeldStatementEvent(held.getId(), actingAdminId, "REOPENED",
                 from.name(), held.getStatus().name(), reason));
@@ -770,16 +783,32 @@ public class HeldStatementService {
      * @return the ids of the jobs it moved, for the audit entry
      */
     private List<UUID> resolveHoldsWithNoRecord(ImportJob decided, java.util.function.Consumer<ImportJob> decision) {
-        if (decided.getImportSessionId() == null) return List.of();
-        List<ImportJob> covered = importJobRepository
-                .findByImportSessionIdInAndStatus(List.of(decided.getImportSessionId()),
-                        ImportJob.Status.HELD_FOR_TRUST_REVIEW).stream()
-                .filter(other -> !other.getId().equals(decided.getId()))
-                .filter(HeldStatementService::isHeldWithNoRecord)
-                .toList();
+        List<ImportJob> covered = coveredBy(decided, HeldStatementService::isHeldWithNoRecord);
         covered.forEach(decision);
         importJobRepository.saveAll(covered);
         return covered.stream().map(ImportJob::getId).toList();
+    }
+
+    /**
+     * The jobs with no review record of their own that ride on {@code reviewed}'s review: same
+     * session, {@code heldStatementId} null, in the given state. They follow every move the review
+     * makes -- decided by approve and reject ({@link #resolveHoldsWithNoRecord}), re-pointed when a
+     * re-run replaces the session, and held again when a rejection is reopened -- or they are left
+     * behind on a job status nothing will ever change.
+     */
+    private List<ImportJob> coveredBy(ImportJob reviewed, java.util.function.Predicate<ImportJob> state) {
+        if (reviewed.getImportSessionId() == null) return List.of();
+        return importJobRepository.findByImportSessionId(reviewed.getImportSessionId()).stream()
+                .filter(other -> !other.getId().equals(reviewed.getId()))
+                .filter(other -> other.getHeldStatementId() == null)
+                .filter(state)
+                .toList();
+    }
+
+    /** What {@link #reject} did to a job riding on the review: failed with the review's own code. */
+    private static boolean isRejectedWithNoRecord(ImportJob job) {
+        return job.getStatus() == ImportJob.Status.FAILED
+                && ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name().equals(job.getFailureCode());
     }
 
     private HeldStatement require(String heldId) {

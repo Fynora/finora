@@ -41,7 +41,8 @@ import sys
 
 MARKER_JOB = "Detect changed areas"
 REMEDY = ("Test main now: `gh workflow run ci.yml --ref main` (or the Actions tab -> CI -> "
-          "Run workflow), and fix anything it finds before the next merge.")
+          "Run workflow) and fix anything it finds before the next merge. Once that run passes "
+          "on this commit, re-run this failed job and it turns green.")
 
 
 def gh(*args):
@@ -57,10 +58,54 @@ def fail(message):
     return 1
 
 
+# Pinned, not left to gh's default. REST API version 2026-03-10 removes `merge_commit_sha` from
+# pull request responses, naming GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls among the
+# affected endpoints (GitHub's breaking-changes changelog). gh selected 2022-11-28 when this was
+# written (2026-10-04, X-GitHub-Api-Version-Selected); if a gh upgrade ever moved its default, every
+# merge would silently stop matching and read as a direct push.
+API_VERSION = ["-H", "X-GitHub-Api-Version: 2022-11-28"]
+
+
 def merged_pr_for(repo, sha):
-    for pr in gh("api", f"repos/{repo}/commits/{sha}/pulls") or []:
-        if pr.get("merged_at") and pr.get("merge_commit_sha") == sha:
-            return pr
+    prs = [p for p in gh("api", *API_VERSION, f"repos/{repo}/commits/{sha}/pulls") or []
+           if p.get("merged_at")]
+    exact = [p for p in prs if p.get("merge_commit_sha") == sha]
+    if exact:
+        return exact[0]
+    # Only if the field is gone altogether (that API version, once 2022-11-28 is retired): the
+    # single merged PR into main this commit belongs to. More than one is ambiguous -- no match.
+    if prs and all("merge_commit_sha" not in p for p in prs):
+        into_main = [p for p in prs if p.get("base", {}).get("ref") == "main"]
+        if len(into_main) == 1:
+            return into_main[0]
+    return None
+
+
+def full_run_on(repo, sha, event):
+    """The latest ci.yml run of `event` on `sha`, if it finished `success` with the marker job
+    actually run -- the same test of "full and passing" the PR path below applies."""
+    runs = gh("run", "list", "-R", repo, "--workflow", "ci.yml", "--event", event,
+              "--commit", sha, "--limit", "50", "--json", "databaseId,status,conclusion,createdAt,url")
+    if not runs:
+        return None
+    latest = max(runs, key=lambda r: r["createdAt"])
+    if latest["status"] != "completed" or latest["conclusion"] != "success":
+        return None
+    jobs = gh("run", "view", str(latest["databaseId"]), "-R", repo, "--json", "jobs")["jobs"]
+    if any(j["name"] == MARKER_JOB and j["conclusion"] == "success" for j in jobs):
+        return latest
+    return None
+
+
+def tested_on_main_afterwards(repo, sha):
+    """A by-hand or weekly full run on this exact main commit, passing. It is what REMEDY asks
+    for, so once it exists, re-running this check clears main's red mark -- otherwise the remedy
+    could never turn this step green, and a red main nobody can clear is one people learn to
+    ignore."""
+    for event in ("workflow_dispatch", "schedule"):
+        run = full_run_on(repo, sha, event)
+        if run:
+            return run
     return None
 
 
@@ -74,8 +119,13 @@ def main():
         ap.error("need --repo and --sha (or GITHUB_REPOSITORY/GITHUB_SHA), or --pr")
 
     if args.pr is not None:
-        pr = gh("api", f"repos/{args.repo}/pulls/{args.pr}")
+        pr = gh("api", *API_VERSION, f"repos/{args.repo}/pulls/{args.pr}")
     else:
+        later = tested_on_main_afterwards(args.repo, args.sha)
+        if later:
+            print(f"{args.sha[:9]} was tested in full on main itself after it landed: "
+                  f"{later['url']}")
+            return 0
         pr = merged_pr_for(args.repo, args.sha)
         if pr is None:
             return fail(f"{args.sha[:9]} on main did not come from a merged pull request -- a "

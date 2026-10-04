@@ -57,18 +57,47 @@ filter could keep them from running on PRs that add no migration. Before the mov
 every PR event even though it exits in seconds when there is nothing to check. The reasoning is in
 that file's header.
 
+### Private runners are smaller and slower
+
+GitHub's standard Linux runner for a private repository is **2 CPUs / 8 GB**. For a public one it
+is **4 CPUs / 16 GB** (GitHub's "Standard GitHub-hosted runners" tables). This changes two things:
+
+- **Time.** Measured 2026-10-04 by comparing the same jobs: the last public full run against the
+  first private `full-ci` run.
+  - Most jobs took 1.4–2.6× as long: User frontend 196s → 519s, Backend (unit) 285s → 511s, Admin
+    portal 98s → 214s.
+  - The billed minutes for the run rose from **43 to 65**.
+- **Memory.** The mobile Jest suite ran out of heap on the private runner. It had never done so on
+  the public runner. See `ci.yml`'s mobile Test step for the cause and the fix.
+
 ### Estimated private usage at the measured week's pace
+
+Rescaled with the private runner timings above. These are still projections from one busy public
+week. Check real usage early; see "How to check real usage" below.
 
 | What | Per month (approx.) |
 |---|---|
-| Repository hygiene, every push to main (~94 a week) | ~420 |
+| Repository hygiene, every push to main (~94 a week, 1 billed minute each) | ~400 |
 | Migration order, PR events that touch migrations (42 of 193 PRs that week) | ~290 |
 | Migration re-check, main pushes that change migrations (22 that week) | ~100 |
-| Container image scan, nightly | ~80 |
+| Container image scan, nightly (~2.4× slower on private runners) | ~180 |
 | Secret scan, nightly | ~30 |
-| Weekly full run of main (~40 minutes, 4–5 a month) | ~180 |
-| **Baseline** | **~1,100** |
-| **Left for full runs** | **~900**: about 27–47 labelled PR runs at ~19–33 minutes each, or ~22 by-hand runs at ~40 |
+| Weekly full run of main (~65 billed minutes, 4–5 a month) | ~280 |
+| **Baseline** | **~1,280** |
+| **Left for full runs** | **~720**: about 15–25 labelled PR runs at ~28–50 minutes each |
+
+Repository hygiene stays at one billed minute only because its whole-tree ratchet is skipped on a
+private push to main (46s of the job's 65s on the private runner). See that step's comment in
+`ci.yml`.
+
+### How to check real usage
+
+```bash
+gh api organizations/Fynora/settings/billing/usage/summary
+```
+
+`actions_linux` → `grossQuantity` is minutes used this month. `netAmount` above 0 means the
+included minutes have run out.
 
 A labelled PR run is an ordinary pull_request run, so it is path-filtered. Its ~19 minutes is the
 measured week's average, 5,737 job-minutes over 302 PR runs.
@@ -81,14 +110,15 @@ The integration tests run in three parallel shards (`backend-integration`) plus 
 Measured on 2026-10-04, on the first full run of the split:
 - **Shards:** 209s, 266s and 296s.
 - **Summary job:** under 10s.
-- **Extra cost:** about 13 job-minutes on top of the unit-only backend job. So budget ~33 minutes
-  for a labelled backend PR.
+- **Extra cost:** about 13 job-minutes on top of the unit-only backend job, on public runners.
+  Budget ~33 minutes for a labelled backend PR there.
 
 The split runs faster but costs more minutes in total. Each shard compiles the backend and starts
 its own database. Before the split, one job ran everything in 781s.
 
-A by-hand (`workflow_dispatch`) run always runs everything: ~40 minutes, the old ~35-minute
-average main push plus the split's extra ~4.5. Every push to a PR that still carries `full-ci` costs another run.
+On the private runners, the first `full-ci` run (a change to `ci.yml`, so every area ran) billed
+65 minutes. A by-hand (`workflow_dispatch`) or weekly run always runs everything, so budget ~65
+minutes for one. Every push to a PR that still carries `full-ci` costs another run.
 
 Dependabot's own update jobs don't count toward the included minutes. GitHub's docs state this for
 standard hosted runners. The CI runs that Dependabot PRs trigger do count, like any other PR's

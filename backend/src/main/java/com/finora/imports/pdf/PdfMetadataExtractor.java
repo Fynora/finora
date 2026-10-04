@@ -617,6 +617,24 @@ public class PdfMetadataExtractor {
     private static final Pattern DATE_LIKE = Pattern.compile(
             "\\b\\d{1,2}[-/]\\d{1,2}[-/]\\d{2,4}\\b|\\b\\d{1,2}\\s+[A-Za-z]{3,9}\\.?,?\\s+\\d{4}\\b"
                     + "|\\b[A-Za-z]{3,9}\\s+\\d{1,2},?\\s+\\d{4}\\b|\\b\\d{1,2}-[A-Za-z]{3}-\\d{4}\\b");
+    // DATE_LIKE with an optional ordinal suffix on the day ("5th May 2026", "May 5th, 2026",
+    // "22nd-May-2026"), for the grid due-date label's SAME-LINE read only. parseDate already
+    // retries a value with the suffix stripped (CsvParser.stripOrdinalDaySuffix), and the anchored
+    // "Payment Due Date: 5th May 2026" line reaches it -- but this shape-finder never handed it an
+    // ordinal value, so "Pay Now Payment due date 5th May 2026" read nothing on its own line and
+    // fell through to the next line's date. The suffix list and its trailing word boundary are
+    // the same ones stripOrdinalDaySuffix removes, so whatever this matches, parseDate's retry
+    // sees as the plain date.
+    //
+    // Not used for the multi-line grid search. Measured over the real corpus with it used there
+    // too: two HDFC credit-card statements' due dates changed from the real one to the date of an
+    // "effective from <ordinal date>" fees notice two lines below a notice that merely mentions
+    // "the due date" -- DATE_LIKE never matched that notice's date, this does.
+    private static final Pattern SAME_LINE_DATE_LIKE = Pattern.compile(
+            "\\b\\d{1,2}[-/]\\d{1,2}[-/]\\d{2,4}\\b"
+                    + "|\\b\\d{1,2}(?:(?i:st|nd|rd|th))?\\s+[A-Za-z]{3,9}\\.?,?\\s+\\d{4}\\b"
+                    + "|\\b[A-Za-z]{3,9}\\s+\\d{1,2}(?:(?i:st|nd|rd|th))?,?\\s+\\d{4}\\b"
+                    + "|\\b\\d{1,2}(?:(?i:st|nd|rd|th))?-[A-Za-z]{3}-\\d{4}\\b");
     // A date immediately preceded or followed by " - " is one half of an explicit range (e.g. a
     // Statement Period column, "24/06/2026 - 22/07/2026") -- excluded from findGridValue's
     // date-shape scan so a standalone field like Payment Due Date is never confused with the
@@ -1231,20 +1249,34 @@ public class PdfMetadataExtractor {
                     // wherever "due date" was found -- not the start of the line -- finds the real
                     // value regardless of what precedes the label, the same "label, then the first
                     // date-shaped thing after it" contract findGridValue already uses across lines.
-                    String sameLineValue = firstMatchAfter(line, dueDateLabel.end(), DATE_LIKE, DATE_RANGE_MEMBER);
+                    String sameLineValue =
+                            firstMatchAfter(line, dueDateLabel.end(), SAME_LINE_DATE_LIKE, DATE_RANGE_MEMBER);
                     if (sameLineValue != null) {
+                        // Words between the label and the date make the line a sentence, and the
+                        // date an example: a real card statement's terms text gives the due date
+                        // of an example account ("Payment Due Date (<abbreviation>) of a ... account
+                        // is <date>"), and in the same corpus every real same-line due date sits
+                        // directly after its label. Neither this date nor one further down is the
+                        // statement's due date, so the line is skipped outright.
+                        if (!noInterveningProse(line, dueDateLabel.end(), sameLineValue)) continue;
                         paymentDueDate = readDueDate(unreadable, sameLineValue);
                         if (ctx != null && paymentDueDate != null) ctx.record("GRID_METADATA_FALLBACK");
-                        if (paymentDueDate != null) continue;
-                        // The label's own value is date-shaped but impossible: the date below it,
-                        // whatever it belongs to, is not this field's value.
-                        if (unreadable.dueDate) continue;
+                        // Read or not, this is the label's own value. An impossible date
+                        // (readDueDate marks it unreadable) and a value that is no date at all
+                        // ("05/13/2026") alike: the next date-shaped value further down --
+                        // typically the statement date -- is not a reading of it.
+                        continue;
                     }
+                    // Same reason, for a value this shape-finder does not recognise at all
+                    // ("5th of May 2026"): the label is followed directly by a number, so its line
+                    // carries its own value and the grid search below would take some other
+                    // field's date in its place.
+                    if (valueFollowsLabel(line, dueDateLabel.end())) continue;
 
                     // Genuine multi-line grid: label and value are on separate lines entirely (see
                     // GRID_DUE_DATE_LABEL's own doc comment for the real Axis/HDFC layouts this
-                    // covers) -- tried after the same-line search, not instead of it, so neither
-                    // shape regresses the other.
+                    // covers) -- tried only when the label's own line carries no value of its own,
+                    // so neither shape regresses the other.
                     String value = findGridValue(preTableLines, i, DATE_LIKE, DATE_RANGE_MEMBER);
                     if (value != null) paymentDueDate = readDueDate(unreadable, value);
                     if (ctx != null && paymentDueDate != null) ctx.record("GRID_METADATA_FALLBACK");
@@ -1589,6 +1621,20 @@ public class PdfMetadataExtractor {
         int valueStart = line.indexOf(value, fromIndex);
         if (valueStart < 0) return false; // defensive; caller already found this exact substring
         return line.substring(fromIndex, valueStart).chars().noneMatch(Character::isLetter);
+    }
+
+    /** Whether the first letter or digit after a label is a digit -- the label's own line carries a
+     *  value of its own, whether or not it is a shape any value pattern recognises. Same notion of
+     *  "directly after" as {@link #noInterveningProse}: whitespace and punctuation may separate
+     *  label and value, a letter may not. A grid header line ("Payment Due Date Statement Date")
+     *  or a label followed by prose is false; "Payment due date 5th of May 2026" is true. */
+    private static boolean valueFollowsLabel(String line, int fromIndex) {
+        for (int k = fromIndex; k < line.length(); k++) {
+            char c = line.charAt(k);
+            if (Character.isDigit(c)) return true;
+            if (Character.isLetter(c)) return false;
+        }
+        return false;
     }
 
     /** Whether a CARD_NUMBER_VALUE-shaped candidate is actually identifying, not noise picked up

@@ -1103,6 +1103,119 @@ class PdfMetadataExtractorTest {
         assertThat(metadata.paymentDueDate()).isEqualTo(java.time.LocalDate.of(2026, 9, 15));
     }
 
+    /** The same-line read after a mid-line label used to skip an ordinal day ("5th May 2026") --
+     *  only the anchored "Payment Due Date: ..." read reached parseDate's ordinal retry -- and the
+     *  multi-line search then took the next line's date, here the statement date. */
+    @Test
+    void extract_readsAMidLineOrdinalDueDate_insteadOfTheNextLinesStatementDate() {
+        var metadata = extractor.extract(List.of(
+                "Pay Now Payment due date 5th May 2026",
+                "Statement Date 14 Apr 2026"));
+
+        assertThat(metadata.paymentDueDate()).isEqualTo(java.time.LocalDate.of(2026, 5, 5));
+    }
+
+    @Test
+    void extract_readsAMidLineOrdinalDueDate_withNothingAfterIt() {
+        var metadata = extractor.extract(List.of("Pay Now Payment due date 5th May 2026"));
+
+        assertThat(metadata.paymentDueDate()).isEqualTo(java.time.LocalDate.of(2026, 5, 5));
+    }
+
+    /** Each DATE_LIKE shape that names a day takes the suffix: day first (any case, comma before
+     *  the year), month first, and hyphenated. */
+    @Test
+    void extract_readsAMidLineOrdinalDueDate_inEveryDayBearingShape() {
+        assertThat(extractor.extract(List.of("Pay Now Payment due date 1st May, 2026", "Statement Date 14 Apr 2026"))
+                .paymentDueDate()).isEqualTo(java.time.LocalDate.of(2026, 5, 1));
+        assertThat(extractor.extract(List.of("Pay Now Payment due date 5TH MAY 2026", "Statement Date 14 Apr 2026"))
+                .paymentDueDate()).isEqualTo(java.time.LocalDate.of(2026, 5, 5));
+        assertThat(extractor.extract(List.of("Pay Now Payment due date May 3rd, 2026", "Statement Date 14 Apr 2026"))
+                .paymentDueDate()).isEqualTo(java.time.LocalDate.of(2026, 5, 3));
+        assertThat(extractor.extract(List.of("Pay Now Payment due date 22nd-May-2026", "Statement Date 14 Apr 2026"))
+                .paymentDueDate()).isEqualTo(java.time.LocalDate.of(2026, 5, 22));
+    }
+
+    /** The label's line carries a value no pattern recognises: the due date stays unset rather
+     *  than becoming the next line's statement date. */
+    @Test
+    void extract_doesNotTakeTheNextLinesDate_whenTheLabelsOwnValueIsUnrecognised() {
+        var metadata = extractor.extract(List.of(
+                "Pay Now Payment due date 5th of May 2026",
+                "Statement Date 14 Apr 2026"));
+
+        assertThat(metadata.paymentDueDate()).isNull();
+    }
+
+    /** Same, for a value that is date-shaped but does not parse: month 13, and a misspelt month
+     *  (an OCR misread) whose line therefore starts with a letter, not a digit. */
+    @Test
+    void extract_doesNotTakeTheNextLinesDate_whenTheLabelsOwnDateDoesNotParse() {
+        var monthThirteen = extractor.extract(List.of(
+                "Pay Now Payment due date 05/13/2026",
+                "Statement Date 14 Apr 2026"));
+        var misspeltMonth = extractor.extract(List.of(
+                "Pay Now Payment due date Augustt 5, 2026",
+                "Statement Date 14 Apr 2026"));
+
+        assertThat(monthThirteen.paymentDueDate()).isNull();
+        assertThat(misspeltMonth.paymentDueDate()).isNull();
+    }
+
+    /** A later explicit due-date line is still read after an unreadable mid-line one: the guard
+     *  stops the grid search from guessing, not the remaining lines from being read. */
+    @Test
+    void extract_stillReadsALaterDueDateLine_afterAnUnreadableMidLineValue() {
+        var metadata = extractor.extract(List.of(
+                "Pay Now Payment due date 05/13/2026",
+                "Statement Date 14 Apr 2026",
+                "Payment Due Date: 05/05/2026"));
+
+        assertThat(metadata.paymentDueDate()).isEqualTo(java.time.LocalDate.of(2026, 5, 5));
+    }
+
+    /** Terms text naming the label and then an example account's date is a sentence, not this
+     *  statement's value (synthetic wording of a real card statement's shape): neither the
+     *  example date nor the next line's date is read. Abbreviated month, so the example would
+     *  parse if it were taken. */
+    @Test
+    void extract_skipsADueDateSentence_withAnExampleDateAfterTheLabel() {
+        var ordinal = extractor.extract(List.of(
+                "If the Payment Due Date (PDD) of an account is 28th Feb 2019, and the minimum is unpaid",
+                "Statement Date 14 Apr 2026"));
+        var plain = extractor.extract(List.of(
+                "If the Payment Due Date (PDD) of an account is 28 Feb 2019, and the minimum is unpaid",
+                "Statement Date 14 Apr 2026"));
+
+        assertThat(ordinal.paymentDueDate()).isNull();
+        assertThat(plain.paymentDueDate()).isNull();
+    }
+
+    /** Skipping a sentence leaves the later lines readable: a real due-date line below it is
+     *  still read. */
+    @Test
+    void extract_stillReadsALaterDueDateLine_afterADueDateSentence() {
+        var metadata = extractor.extract(List.of(
+                "If the Payment Due Date (PDD) of an account is 28th Feb 2019, and the minimum is unpaid",
+                "Pay Now Payment due date 5th May 2026"));
+
+        assertThat(metadata.paymentDueDate()).isEqualTo(java.time.LocalDate.of(2026, 5, 5));
+    }
+
+    /** The multi-line search keeps the plain shapes. A real credit-card statement's notices
+     *  mention "the due date" in passing and, two lines below, announce fee changes "effective"
+     *  an ordinal date (synthetic wording here); with the ordinal shapes, the search read that
+     *  date as the due date. */
+    @Test
+    void extract_doesNotTakeAnOrdinalNoticeDate_fromBelowAProseMentionOfTheDueDate() {
+        var metadata = extractor.extract(List.of(
+                "l If the minimum is not paid within 3 days of the due date it is reported",
+                "to the credit bureaus.",
+                "l Effective 15th Jan 2027, fees on your card will be revised."));
+
+        assertThat(metadata.paymentDueDate()).isNull();
+    }
+
     /** Real ICICI Bank credit-card statement evidence: label and value both survive intact into
      *  separate nearby lines ("PAYMENT DUE DATE" ... "July 29, 2026 Scan to Pay using"), well
      *  within GRID_VALUE_SEARCH_WINDOW -- but DATE_LIKE only recognised "Day MonthName Year"

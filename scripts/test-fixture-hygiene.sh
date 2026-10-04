@@ -91,6 +91,65 @@ else
 fi
 cd "$REPO" || exit 1; rm -rf "$D"
 
+# --------------------------------------- 2b. add in one commit, delete the whole FILE in the next
+
+# The same leak shape when the cleanup deletes the file instead of editing it. Each commit was
+# scanned against its parent, but a file was only read if it existed in the WORKING TREE -- and a
+# checkout of the branch tip (what CI scans from) no longer has it. Found 2026-10-04.
+new_repo
+commit_file leak.md "account $FAKE_ACCOUNT" "add pii file"
+git rm -q leak.md
+git commit -q -m "delete pii file"
+if sh "$SCRIPT" --each HEAD~2 HEAD >/dev/null 2>&1; then
+  bad "--each catches a value whose file a later commit deletes"
+else
+  ok "--each catches a value whose file a later commit deletes"
+fi
+cd "$REPO" || exit 1; rm -rf "$D"
+
+# ------------------------------------------- 2c. a commit on a branch that is not checked out
+
+# scripts/check-branches-since.sh scans other branches' commits from whatever is checked out.
+new_repo
+git checkout -q -b side
+commit_file leak.md "account $FAKE_ACCOUNT" "pii on a side branch"
+side=$(git rev-parse HEAD)
+git checkout -q -
+if sh "$SCRIPT" --each "$side^" "$side" >/dev/null 2>&1; then
+  bad "--each catches a value in a commit that is not checked out"
+else
+  ok "--each catches a value in a commit that is not checked out"
+fi
+cd "$REPO" || exit 1; rm -rf "$D"
+
+# ------------------------------------------------- 2d. a rename that also adds a value is scanned
+
+# git diff detects renames by default, and the file list used to keep only Added/Copied/Modified,
+# so a commit that renamed a file and added a value to it was never read. Found 2026-10-04.
+new_repo
+for i in 1 2 3 4 5 6 7 8 9 10; do echo "Line $i of an ordinary design note." >> old.md; done
+git add old.md
+git commit -q -m "ordinary note"
+git mv old.md new.md
+echo "account $FAKE_ACCOUNT" >> new.md
+git add new.md
+git commit -q -m "rename and add"
+if sh "$SCRIPT" --each HEAD^ HEAD >/dev/null 2>&1; then
+  bad "--each catches a value added in the same commit as a rename"
+else
+  ok "--each catches a value added in the same commit as a rename"
+fi
+# The other side: a rename alone adds nothing, so a value that was already there (here marked, as
+# an old allowed line would be, by being committed before the rename) must not be re-flagged as new.
+git mv new.md newer.md
+git commit -q -m "plain rename"
+if sh "$SCRIPT" --each HEAD^ HEAD >/dev/null 2>&1; then
+  ok "a plain rename is not re-scanned as all-new content"
+else
+  bad "a plain rename is not re-scanned as all-new content"
+fi
+cd "$REPO" || exit 1; rm -rf "$D"
+
 # ------------------------------------------------------------------- 3. a clean branch still passes
 
 new_repo

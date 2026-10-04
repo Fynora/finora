@@ -30,7 +30,7 @@ in one week**, or roughly 56,000 a month:
 
 That week had ~300 pull_request CI runs and ~94 pushes to main. At that rate, even a single
 1-minute job on every PR event uses ~1,300 minutes a month. So no automatic per-PR subset of CI
-fits the private allowance. A full run started on demand does fit.
+fits the private allowance. A full run when someone asks for one (the `full-ci` label) does fit.
 
 The last time the repository was private on hosted runners, the allowance ran out and GitHub
 stopped starting jobs at all ("recent account payments have failed or your spending limit needs to
@@ -40,14 +40,14 @@ be increased", 2026-08-07). See [self-hosted-runner.md](self-hosted-runner.md).
 
 | Workflow / job | Public (full) | Private (lean) |
 |---|---|---|
-| `ci.yml` — Repository hygiene | every PR event and push | push to main and on demand only |
-| `ci.yml` — every other job | as before | on demand only |
+| `ci.yml` — Repository hygiene | every PR event and push | push to main, `full-ci` PRs, by hand |
+| `ci.yml` — every other job | as before | `full-ci` PRs and by hand only |
 | `migration-order.yml` — both jobs | only when migrations (or the checker) change | same |
 | `codeql.yml` | as before | skipped (code scanning needs GitHub Code Security on private repos) |
-| `maestro-nightly.yml` | mobile merges, nightly | on demand only |
-| `e2e-nightly.yml` | nightly | on demand only |
-| `corpus-coverage-nightly.yml` | path-filtered PRs, nightly | on demand only |
-| `sync-dev-branch.yml` | every push to main | on demand only, and needs a passing on-demand CI run on main |
+| `maestro-nightly.yml` | mobile merges, nightly | by hand only |
+| `e2e-nightly.yml` | nightly | by hand only |
+| `corpus-coverage-nightly.yml` | path-filtered PRs, nightly | path-filtered pushes to `full-ci` PRs, by hand |
+| `sync-dev-branch.yml` | every push to main | by hand only, and needs a passing by-hand CI run on main |
 | `github-traffic-metrics.yml` | every 6 hours | skipped (no outside traffic; auto-merge is public-only on Free) |
 | `gitleaks-nightly.yml` | nightly | nightly (unchanged) |
 | `image-scan-nightly.yml` | nightly | nightly (unchanged) |
@@ -67,7 +67,12 @@ that file's header.
 | Container image scan, nightly | ~80 |
 | Secret scan, nightly | ~30 |
 | **Baseline** | **~920** |
-| **Left for on-demand runs** | **~1,080**, about 30 full `ci.yml` runs at ~35 minutes each |
+| **Left for full runs** | **~1,080**: about 55 labelled PR runs at ~19 minutes each, or ~30 by-hand runs at ~35 |
+
+A labelled PR run is an ordinary pull_request run, so it is path-filtered. Its ~19 minutes is the
+measured week's average, 5,737 job-minutes over 302 PR runs. A by-hand (`workflow_dispatch`) run
+always runs everything; its ~35 minutes is the average main push run. Every push to a PR that
+still carries `full-ci` costs another run.
 
 Dependabot's own update jobs don't count toward the included minutes. GitHub's docs state this for
 standard hosted runners. The CI runs that Dependabot PRs trigger do count, like any other PR's
@@ -79,14 +84,32 @@ in the org's billing page early in any private spell.
 ## Working while private
 
 - **A PR's checks don't prove anything ran.** GitHub reports a skipped job as "Success", even
-  for a required check. Before merging, run the full suite on the PR's branch:
+  for a required check. Before merging, give the PR a full run by labelling it:
 
   ```bash
-  gh workflow run ci.yml --ref <branch>
+  gh pr edit <number> --add-label full-ci
   ```
 
-  The run attaches to the branch's head commit, so its results show on the PR. Pushing again
-  afterwards needs another run.
+  - Adding the label fires a `pull_request` run. While the label stays, every later push to the
+    PR runs in full too, so remove it if the PR will take many more pushes.
+  - Draft PRs still skip the heavy jobs, the same as in public. Mark the PR ready for review.
+  - Read the result on the PR. A green check is real when its job actually ran; in GitHub's UI a
+    skipped job shows a grey "skipped" icon, not a green tick.
+
+  Why a label and not `gh workflow run ci.yml --ref <branch>` (measured on #1974, 2026-10-04):
+  - **The results wouldn't show on the PR.** A `workflow_dispatch` run's checks attach to the
+    commit, but the PR's check list keeps showing the `pull_request` run's results. In this
+    profile those are the skipped ones.
+  - **It tests the branch alone,** not GitHub's merge of the PR into main.
+  - **It narrows the customer-PII scan.** It gives repo-hygiene no base commit, so the scan covers
+    only the branch's last commit.
+
+  A labelled run has none of these problems, because it is an ordinary `pull_request` run.
+- **Production deploys don't wait for CI, in either profile.** Railway starts deploying each main
+  commit as soon as it lands. Measured on 2026-10-03: commit `62f0ec5be` showed Railway "success"
+  at 20:43 while its CI push run failed at 20:54. So the private profile doesn't weaken deploy
+  gating, because there wasn't any. The labelled run before merging is the only full check a
+  change gets before it reaches production.
 - **Main's ruleset isn't enforced.** On GitHub Free, rulesets (required checks, no force-push, no
   deletion) only apply to public repositories. Nothing blocks a merge with failing or missing
   checks.
@@ -100,19 +123,61 @@ in the org's billing page early in any private spell.
 
 1. Nothing in the workflows needs to change.
 2. Expect `codeql.yml` and `github-traffic-metrics.yml` to show skipped jobs. That's by design.
+3. Note the date. The checklist below scans everything pushed after it.
+4. The first night after the flip, check `gitleaks-nightly.yml`. Its last step prints
+   `github.event.repository.private=true (schedule event)`. If that step fails instead, scheduled
+   payloads don't carry the field, and every scheduled job is running in the full profile and
+   spending minutes.
 
 ## Checklist: before making the repository public again
 
-Everything committed while private becomes public history the moment the repository flips.
+Everything pushed while private becomes public the moment the repository flips. That includes
+branches that never merged, which no private-profile CI job scans.
 
 1. Confirm the latest `gitleaks-nightly.yml` run on main passed. It scans main's full history.
    Run it now if the last one is stale: `gh workflow run gitleaks-nightly.yml`.
-2. Run full CI on main and confirm it passes: `gh workflow run ci.yml --ref main`.
-3. After flipping: open PRs keep the skipped results from their last private-profile run. Those
+2. Scan the branches for secrets and customer PII, giving the day the repository went private:
+
+   ```bash
+   sh scripts/check-branches-since.sh YYYY-MM-DD
+   ```
+
+   What it scans:
+   - **Secrets:** gitleaks over every commit on every origin branch, with no date filter.
+   - **Customer PII:** every non-merge commit on an origin branch that is not on main, committed
+     since the date.
+
+   It exits non-zero and names each finding. Delete, or rewrite and force-push, any branch it
+   names before flipping.
+
+   PII selection goes by committer date. A commit made *before* the repository went private but
+   pushed *while* it was private is missed, so pass an earlier date when unsure.
+
+   Verified 2026-10-04 in a throwaway clone with three planted findings: a secret, a customer email,
+   and a customer email in a file a later commit deleted. All three were reported and the script
+   exited 1. Against the real repository it reported clean in 51 seconds.
+3. Run full CI on main and confirm it passes: `gh workflow run ci.yml --ref main`.
+4. After flipping: open PRs keep the skipped results from their last private-profile run. Those
    count as passing required checks. For each open PR, push a commit or close and reopen it, so
    the full profile actually checks it. **Re-running the old run is not enough.** A re-run replays
    the original event: same commit, same ref, and the same payload. `migration-order-recheck`
    relies on that to keep a PR's `head.sha`. That payload still says `private: true`, so the re-run
    runs the lean profile again.
-4. Main's ruleset is enforced again automatically. CodeQL and traffic metrics resume on their next
+5. Main's ruleset is enforced again automatically. CodeQL and traffic metrics resume on their next
    trigger.
+
+## Why runs on main never share a concurrency group
+
+`ci.yml` and `migration-order.yml` give every run on main its own concurrency group (the run id).
+With one shared group, `cancel-in-progress: false` only protects the run that is already running.
+GitHub still cancels a *pending* run in the group as soon as a newer one queues. Measured on
+2026-10-04: 8 of the last 300 main push runs had been cancelled, and 5 of those never started a
+job.
+
+That matters because three checks read only their own push's `before..sha` range:
+- the customer-PII scan,
+- the secret scan,
+- the migration re-check.
+
+A cancelled run skips those checks for its commit for good. In the private profile, that PII scan
+on main is the only automatic one.

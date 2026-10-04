@@ -41,7 +41,7 @@ permissions:
 
 jobs:
   sync:
-    # Private profile: on demand only (`gh workflow run sync-dev-branch.yml`). Every run sits on a
+    # Private profile: by hand only (`gh workflow run sync-dev-branch.yml`). Every run sits on a
     # runner polling for ci.yml's push run -- measured 1,076 minutes in one week, more than half the
     # 2,000-minute private monthly allowance -- and in the private profile that push run is only
     # repo-hygiene, so its success would no longer mean main's code passed CI. Run full CI on main
@@ -52,8 +52,11 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       # Which ci.yml run proves main's code passed: its push run in the full profile; in the
-      # private profile, where that push run is only repo-hygiene, a full on-demand run.
+      # private profile, where that push run is only repo-hygiene, a full by-hand run on main.
       CI_EVENT: ${{ github.event.repository.private && 'workflow_dispatch' || 'push' }}
+      # A commit has one push run, but can collect several by-hand runs (a flaky one, then a
+      # retry); only the newest speaks for it, or one old failure would block every later sync.
+      CI_RUNS: ${{ github.event.repository.private && '1' || '20' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -117,15 +120,15 @@ jobs:
           deadline=$((SECONDS + 40 * 60))
           while :; do
             if ! runs=$(gh run list --workflow ci.yml --commit "$head" --event "$CI_EVENT" \
-                  --json status,conclusion --limit 20); then
+                  --json status,conclusion --limit "$CI_RUNS"); then
               echo "gh run list failed -- not merging."
               exit 1
             fi
             total=$(jq 'length' <<<"$runs")
-            # A push run always exists for main's head; an on-demand run exists only if someone
+            # A push run always exists for main's head; a by-hand run exists only if someone
             # started one, so waiting 40 billed minutes for it would be waiting for nothing.
             if [ "$total" -eq 0 ] && [ "$CI_EVENT" = workflow_dispatch ]; then
-              echo "No on-demand CI run on $head -- not merging. Run \`gh workflow run ci.yml --ref main\`, then this workflow again once it passes."
+              echo "No by-hand CI run on $head -- not merging. Run \`gh workflow run ci.yml --ref main\`, then this workflow again once it passes."
               exit 1
             fi
             if [ "$total" -gt 0 ] && [ "$(jq '[.[] | select(.status != "completed")] | length' <<<"$runs")" -eq 0 ]; then

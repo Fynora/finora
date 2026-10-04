@@ -25,18 +25,41 @@ name: CI
 # PR opened as a draft and later marked ready would never re-trigger a run at all, leaving those
 # six jobs permanently skipped for that PR unless someone happens to push again first. Confirmed
 # against GitHub's own docs before adding this, not assumed.
+#
+# `labeled` is there for the private profile only: adding the `full-ci` label to a PR is how that
+# PR gets a full run while the repository is private (see "Repository visibility" above `jobs:`).
+# Every job skips every other `labeled` event, and every `labeled` event in the public profile, so
+# labels cost nothing there.
 on:
   push:
     branches: [main]
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
   workflow_dispatch:
 
 # A new push to the same branch makes the in-flight run obsolete. Cancelling it keeps queue times
 # down on a shared runner allowance -- but never for main, where every commit's result is a record
 # worth keeping rather than something to discard when the next one lands.
+#
+# On main each run gets its own group (the run id), so nothing on main is ever cancelled. With one
+# shared group, `cancel-in-progress: false` only protects the RUNNING run: GitHub still cancels a
+# run that is PENDING in the group as soon as a newer one queues. Measured 2026-10-04: 8 of the
+# last 300 main push runs were cancelled, and 5 of them never started a job. That silently skips
+# the diff-range checks for the cancelled commit -- repo-hygiene's customer-PII scan and
+# secret-scan read before..sha, so the next push's run never covers it. In the private profile
+# that PII scan on main is the only automatic one there is. Runs on main share no state that
+# needs serialising: no deploys, no registry pushes, per-run artifacts.
+#
+# A `labeled` event that runs nothing (any label in the public profile, any label but `full-ci` in
+# the private one) also gets its own group. Sharing the PR's group would let a label added mid-run
+# cancel that PR's real in-progress run and replace it with an all-skipped one.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: >-
+    ${{ github.workflow }}-${{
+      (github.ref == 'refs/heads/main' ||
+        (github.event.action == 'labeled' &&
+          !(github.event.label.name == 'full-ci' && github.event.repository.private)))
+      && github.run_id || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # Least privilege for GITHUB_TOKEN, stated rather than inherited.
@@ -103,15 +126,26 @@ permissions:
 #
 #   * Public (full profile): every job below runs exactly as it always has. GitHub-hosted
 #     standard runners cost nothing in a public repository.
-#   * Private (lean profile): on pull_request and on push, only repo-hygiene runs, and only on push
-#     to main. Every other job here is skipped unless the run was started by hand (workflow_dispatch),
-#     which runs the full set. The Fynora org is on GitHub Free: 2,000 Actions minutes a month for
-#     private repositories, each job billed rounded up to the minute. Measured 2026-09-27..10-04,
-#     this workflow used ~9,150 minutes in one week (~300 PR events, ~94 pushes to main), so no
-#     automatic per-PR subset fits; a full run on demand does.
+#   * Private (lean profile): only repo-hygiene runs, and only on push to main. Everything runs for
+#     a PR carrying the `full-ci` label, and for a run started by hand (workflow_dispatch). The
+#     Fynora org is on GitHub Free: 2,000 Actions minutes a month for private repositories, each job
+#     billed rounded up to the minute. Measured 2026-09-27..10-04, this workflow used ~9,150 minutes
+#     in one week (~300 PR events, ~94 pushes to main), so no automatic per-PR subset fits; a full
+#     run when asked for does.
 #
-# On-demand full run for a PR while private (results attach to the branch's head commit, so they
-# show on the PR):  gh workflow run ci.yml --ref <branch>
+# Full run for a PR while private:  gh pr edit <number> --add-label full-ci
+# Adding the label fires a `labeled` pull_request event, and every later push to the labelled PR
+# runs in full too, until the label is removed. A label, not `gh workflow run --ref <branch>`,
+# because measured on #1974 (2026-10-04): a workflow_dispatch run's checks attach to the commit
+# but the PR's check list keeps showing the pull_request run's -- in this profile, the skipped
+# ones. A dispatch run also tests the branch alone rather than its merge with main, and gives
+# repo-hygiene no base commit, so the customer-PII scan narrows to the last commit. A `labeled`
+# run is an ordinary pull_request run on all three counts. workflow_dispatch stays for main.
+#
+# Every job's `if:` has two clauses for this. (1) A `labeled` event runs anything only when the
+# label is `full-ci` and the repository is private. (2) The run is in the full profile:
+# public, dispatched, or a PR labelled `full-ci`. On push, github.event.pull_request is null, so
+# contains() over its labels is false.
 #
 # The expression reads null, not false, if an event ever lacks the repository object; `!null` is
 # true, so a missing value falls toward the full profile -- more minutes, never less checking.
@@ -156,8 +190,16 @@ jobs:
   changes:
     name: Detect changed areas
     # Private profile: nothing reads this job's outputs except jobs that are skipped anyway, so it
-    # runs only for the on-demand full run. See "Repository visibility" above `jobs:`.
-    if: ${{ !github.event.repository.private || github.event_name == 'workflow_dispatch' }}
+    # runs only for a full run (a `full-ci` PR or workflow_dispatch). See "Repository visibility"
+    # above `jobs:` for this condition, which every job below repeats.
+    if: >-
+      (
+        github.event.action != 'labeled' ||
+        (github.event.label.name == 'full-ci' && github.event.repository.private)
+      ) && (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        contains(github.event.pull_request.labels.*.name, 'full-ci')
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -237,11 +279,18 @@ jobs:
   # computing a diff range needs the base commit, and a shallow checkout doesn't have it.
   repo-hygiene:
     name: Repository hygiene (all clients)
-    # Private profile: runs on every push to main (and on demand), not on PR events. What lands on
+    # Private profile: runs on every push to main, by hand, and on `full-ci` PRs. What lands on
     # main while the repository is private becomes public history the day it flips back, and the
     # customer-PII check is diff-based, so main is where it must not miss a commit. See
     # "Repository visibility" above `jobs:`.
-    if: ${{ !github.event.repository.private || github.event_name != 'pull_request' }}
+    if: >-
+      (
+        github.event.action != 'labeled' ||
+        (github.event.label.name == 'full-ci' && github.event.repository.private)
+      ) && (
+        !github.event.repository.private || github.event_name != 'pull_request' ||
+        contains(github.event.pull_request.labels.*.name, 'full-ci')
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -420,12 +469,18 @@ jobs:
 
   secret-scan:
     name: Secret scan (gitleaks)
-    # Private profile: on demand only. gitleaks-nightly.yml scans main's full history every night
-    # in both profiles, and .husky/pre-commit runs gitleaks on each local commit wherever it is
-    # installed, so while the
-    # repository is private a secret reaching main is caught within a day -- before any flip back
-    # to public could expose it. See "Repository visibility" above `jobs:`.
-    if: ${{ !github.event.repository.private || github.event_name == 'workflow_dispatch' }}
+    # Private profile: full runs only. gitleaks-nightly.yml scans main's full history every night in
+    # both profiles, .husky/pre-commit runs gitleaks on each local commit wherever it is installed,
+    # and scripts/check-branches-since.sh scans every branch before any flip back to public. See
+    # "Repository visibility" above `jobs:`.
+    if: >-
+      (
+        github.event.action != 'labeled' ||
+        (github.event.label.name == 'full-ci' && github.event.repository.private)
+      ) && (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        contains(github.event.pull_request.labels.*.name, 'full-ci')
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -489,7 +544,11 @@ jobs:
         needs.changes.outputs.admin_portal == 'true' ||
         needs.changes.outputs.shared_config == 'true'
       ) && (
-        !github.event.repository.private || github.event_name == 'workflow_dispatch'
+        github.event.action != 'labeled' ||
+        (github.event.label.name == 'full-ci' && github.event.repository.private)
+      ) && (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -533,7 +592,11 @@ jobs:
         needs.changes.outputs.backend == 'true' ||
         needs.changes.outputs.shared_config == 'true'
       ) && (
-        !github.event.repository.private || github.event_name == 'workflow_dispatch'
+        github.event.action != 'labeled' ||
+        (github.event.label.name == 'full-ci' && github.event.repository.private)
+      ) && (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
     # Without this a job runs to GitHub's 6-hour default. The realistic way to hit that is not a
@@ -705,7 +768,11 @@ jobs:
         needs.changes.outputs.backend == 'true' ||
         needs.changes.outputs.shared_config == 'true'
       ) && (
-        !github.event.repository.private || github.event_name == 'workflow_dispatch'
+        github.event.action != 'labeled' ||
+        (github.event.label.name == 'full-ci' && github.event.repository.private)
+      ) && (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
     # Six Mockito-only unit-test classes, no Spring context, no Testcontainers -- seconds, not
@@ -783,7 +850,11 @@ jobs:
         needs.changes.outputs.frontend == 'true' ||
         needs.changes.outputs.shared_config == 'true'
       ) && (
-        !github.event.repository.private || github.event_name == 'workflow_dispatch'
+        github.event.action != 'labeled' ||
+        (github.event.label.name == 'full-ci' && github.event.repository.private)
+      ) && (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
     # See the backend job for why. Shorter budget: no containers here, ~1m40s today.
@@ -854,7 +925,11 @@ jobs:
         needs.changes.outputs.admin_portal == 'true' ||
         needs.changes.outputs.shared_config == 'true'
       ) && (
-        !github.event.repository.private || github.event_name == 'workflow_dispatch'
+        github.event.action != 'labeled' ||
+        (github.event.label.name == 'full-ci' && github.event.repository.private)
+      ) && (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
     # See the backend job for why. Shorter budget: no containers here, ~1m40s today.
@@ -904,7 +979,11 @@ jobs:
         needs.changes.outputs.mobile == 'true' ||
         needs.changes.outputs.shared_config == 'true'
       ) && (
-        !github.event.repository.private || github.event_name == 'workflow_dispatch'
+        github.event.action != 'labeled' ||
+        (github.event.label.name == 'full-ci' && github.event.repository.private)
+      ) && (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
     # See the backend job for why. Shorter budget: no containers here, ~1m40s today.
@@ -1010,7 +1089,11 @@ jobs:
         needs.changes.outputs.e2e == 'true' ||
         needs.changes.outputs.shared_config == 'true'
       ) && (
-        !github.event.repository.private || github.event_name == 'workflow_dispatch'
+        github.event.action != 'labeled' ||
+        (github.event.label.name == 'full-ci' && github.event.repository.private)
+      ) && (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     # Each job below gets its own fresh, isolated GitHub-hosted VM, so unlike the old self-hosted
     # setup there is no host-level state (a shared Postgres container, fixed backend ports, a
@@ -1363,7 +1446,11 @@ jobs:
         needs.changes.outputs.frontend == 'true' ||
         needs.changes.outputs.shared_config == 'true'
       ) && (
-        !github.event.repository.private || github.event_name == 'workflow_dispatch'
+        github.event.action != 'labeled' ||
+        (github.event.label.name == 'full-ci' && github.event.repository.private)
+      ) && (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -1503,7 +1590,11 @@ jobs:
         needs.changes.result != 'success' ||
         needs.changes.outputs.backend_image == 'true'
       ) && (
-        !github.event.repository.private || github.event_name == 'workflow_dispatch'
+        github.event.action != 'labeled' ||
+        (github.event.label.name == 'full-ci' && github.event.repository.private)
+      ) && (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
     # A cold build downloads the base images and every Maven dependency. This is a hang detector,

@@ -148,10 +148,12 @@ replay as duplicates against the squashed content on `main`. Start a fresh workt
 CI picks its profile from the repository's visibility (see
 `docs/architecture/infrastructure/ci-visibility-profiles.md`). When the repository is private, a
 PR's CI jobs are **skipped**, and GitHub reports skipped jobs as passing. Check visibility with
-`gh repo view --json visibility`. If it is `PRIVATE`, run the full suite on the PR's branch with
-`gh workflow run ci.yml --ref <branch>` and wait for that run to pass before calling the PR
-verified or merge-ready. Every on-demand run costs real minutes from a 2,000-a-month allowance, so
-run it once the branch is ready, not after every push.
+`gh repo view --json visibility`. If it is `PRIVATE`, give the PR a full run with
+`gh pr edit <number> --add-label full-ci` and wait for that run's jobs to actually run and pass
+before calling the PR verified or merge-ready. Don't use `gh workflow run ci.yml --ref <branch>`
+for a PR: its results never show on the PR, and it tests the branch without main merged in. Every
+full run costs real minutes from a 2,000-a-month allowance. Label the PR once it is ready, not
+while it is still taking pushes; every push to a labelled PR runs in full again.
 
 ## Exception
 

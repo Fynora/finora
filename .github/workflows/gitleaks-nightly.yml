@@ -51,3 +51,23 @@ jobs:
           # without this line naming it explicitly, the same way GITHUB_TOKEN above has to be. This
           # workflow never got that fix, since it's a separate file from ci.yml's own gitleaks step.
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+      # Every scheduled workflow's visibility gate reads github.event.repository.private. GitHub
+      # added `repository` to scheduled-run payloads on 2022-09-27 (changelog), but the
+      # gitleaks-action source pinned above still says it is undefined there (written two weeks
+      # earlier). This job runs on schedule in both profiles, so it is where that gets proven
+      # rather than assumed: a missing field turns this run red. A missing field fails safe (every
+      # gate reads null as public, so jobs run), but in the private profile that would quietly
+      # spend the minute allowance. docs/architecture/infrastructure/ci-visibility-profiles.md.
+      # always(): reported even when the scan above fails.
+      - name: Visibility field present in this event
+        if: always()
+        env:
+          REPO_PRIVATE: ${{ github.event.repository.private }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$REPO_PRIVATE" != true ] && [ "$REPO_PRIVATE" != false ]; then
+            echo "::error::github.event.repository.private is missing from this $EVENT event, so every visibility gate treats the repository as public."
+            exit 1
+          fi
+          echo "github.event.repository.private=$REPO_PRIVATE ($EVENT event)"

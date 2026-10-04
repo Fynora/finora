@@ -38,9 +38,12 @@ on:
       - 'scripts/test-check-migration-order.py'
       - '.github/workflows/migration-order.yml'
 
-# Same policy as ci.yml: a superseded PR run is cancelled, a run on main is a record worth keeping.
+# Same policy as ci.yml: a superseded PR run is cancelled, and each run on main gets its own group
+# so it can never be cancelled while pending (see ci.yml's concurrency comment). That matters here:
+# the re-check compares only its own push's before..after, so a cancelled one would never re-check
+# the open PRs against the migrations that push added.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # Least privilege, as in ci.yml; migration-order-recheck widens only what the re-run endpoint needs.
@@ -133,11 +136,17 @@ jobs:
           while read -r pr sha; do
             run=$(gh run list --workflow migration-order.yml --event pull_request --commit "$sha" --limit 1 \
               --json databaseId --jq '.[0].databaseId // empty')
-            # No run is expected for a PR picked only because its file list was truncated and that
-            # adds no migration (the path filter never triggered), or for one last pushed before
-            # this workflow existed (its check ran in ci.yml) -- push to it to get one.
+            # A PR last pushed before this workflow existed had its check inside ci.yml's run. A
+            # re-run executes the workflow file at that run's own commit, where ci.yml still has the
+            # job, so that run is re-run instead.
             if [ -z "$run" ]; then
-              echo "::warning::#$pr ($sha): no Migration order run found to re-run."
+              run=$(gh run list --workflow ci.yml --event pull_request --commit "$sha" --limit 1 \
+                --json databaseId --jq '.[0].databaseId // empty')
+            fi
+            # Still nothing for a PR picked only because its file list was truncated and that adds
+            # no migration (the path filter never triggered it) -- nothing to re-check there.
+            if [ -z "$run" ]; then
+              echo "::warning::#$pr ($sha): no Migration version order run found to re-run."
               continue
             fi
             job=$(gh run view "$run" --json jobs \

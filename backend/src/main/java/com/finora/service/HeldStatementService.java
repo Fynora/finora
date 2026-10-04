@@ -565,9 +565,11 @@ public class HeldStatementService {
     /**
      * Ends the review the other way: these rows never reach the ledger.
      *
-     * <p>Deliberately no notification, which matches every other import failure in this system --
-     * a success after a hold announces itself, a failure does not. The user's progress screen shows
-     * the failure and the reason carried by {@code IMPORT_TRUST_REVIEW_REJECTED}.
+     * <p>The user is told, by push and email. The held email promised "We'll notify you once it's
+     * ready", and a rejection is the other answer to that wait: without a notification the user only
+     * learned of it by opening the app. Same reasoning, and the same fix, as the parser-gap hold's
+     * resolve (V216). The copy is fixed -- the operator's reason is internal -- and matches the
+     * failure the user's progress screen shows from {@code IMPORT_TRUST_REVIEW_REJECTED}.
      *
      * <p>The operator's reason goes on the audit entry and the event, never onto the row's
      * {@code engineerNotes}: there is one notes column, and overwriting it here would destroy the
@@ -594,6 +596,9 @@ public class HeldStatementService {
                         "subjectUserId", held.getUserId().toString(),
                         "heldId", held.getHeldId(),
                         "reason", reason == null ? "" : reason));
+        // An outbox write in this transaction, like notifyStatementReady in approve: a rejection
+        // that rolls back tells nobody.
+        statementStatusNotifier.notifyRejected(job);
         return HeldStatementDto.from(held);
     }
 

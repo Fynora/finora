@@ -78,6 +78,17 @@ describe('usePushNotificationNavigation', () => {
     expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Statements' });
   });
 
+  it('navigates to Statements for IMPORT_STATEMENT_REJECTED', async () => {
+    const navigationRef = fakeNavigationRef();
+    const messaging = fakeMessaging();
+    renderHook(() => usePushNotificationNavigation(navigationRef, true, true, { messaging }));
+    await Promise.resolve();
+
+    messaging.__emitOpened(readyMessage('IMPORT_STATEMENT_REJECTED'));
+
+    expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Statements' });
+  });
+
   it('navigates to Statements for STATEMENT_REFRESH_AVAILABLE, where the update banner is', async () => {
     const navigationRef = fakeNavigationRef();
     const messaging = fakeMessaging();

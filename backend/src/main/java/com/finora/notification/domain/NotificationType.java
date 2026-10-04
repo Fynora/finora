@@ -23,6 +23,10 @@ public enum NotificationType {
     // other type the wording is operator-authored; the email path escapes it as text and the
     // service caps and cleans it before it gets here. Keyed "IMPORT_RESOLVED_" + job id.
     IMPORT_STATEMENT_RESOLVED,
+    // Sent when a reviewer rejects a statement held for trust review -- see
+    // HeldStatementService.reject. The trust-review counterpart of IMPORT_STATEMENT_RESOLVED, with
+    // fixed copy (V256): the reviewer's reason is internal. Keyed "IMPORT_REJECTED_" + job id.
+    IMPORT_STATEMENT_REJECTED,
     // Referral milestone rewards (design spec at docs/superpowers/specs/
     // 2026-09-14-referral-milestone-rewards-design.md). Template rows for all three, per channel,
     // were seeded in V207 alongside this addition -- see this enum's own class comment on why

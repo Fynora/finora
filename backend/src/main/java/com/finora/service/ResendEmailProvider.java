@@ -386,6 +386,25 @@ public class ResendEmailProvider implements EmailProvider {
         return EmailMessage.html(toEmail, "We're checking your statement", html, EmailMessage.Sender.SUPPORT);
     }
 
+    @Override
+    public EmailResult sendStatementRejectedEmail(String toEmail) {
+        return send(buildStatementRejectedMessage(toEmail));
+    }
+
+    EmailMessage buildStatementRejectedMessage(String toEmail) {
+        String bodyHtml = """
+                <p>We've finished the additional checks on your statement.</p>
+                <p>To keep your accounts accurate, we haven't imported it: we couldn't confirm that
+                every transaction in it was read correctly.</p>
+                <p>Nothing was added to your accounts.</p>
+                <p>If we're able to import it later, we'll let you know.</p>
+                """;
+        String html = EmailLayout.wrap("Your statement wasn't imported", bodyHtml, null,
+                EmailLayout.Footer.SUPPORT_REPLY, emailProperties.getSupportFromAddress(),
+                notificationSettingsUrl());
+        return EmailMessage.html(toEmail, "Your statement wasn't imported", html, EmailMessage.Sender.SUPPORT);
+    }
+
     /** Both statement emails are FINANCIAL notifications (StatementStatusNotifier), which the user
      *  can switch off, so both carry the opt-out line. */
     private String notificationSettingsUrl() {

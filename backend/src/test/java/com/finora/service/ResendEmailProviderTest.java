@@ -164,15 +164,27 @@ class ResendEmailProviderTest {
         assertThat(message.sender()).isEqualTo(EmailMessage.Sender.SUPPORT);
     }
 
+    @Test
+    void statementRejected_saysNothingWasAddedHasNoButtonAndSendsFromSupport() {
+        EmailMessage message = provider.buildStatementRejectedMessage("user@example.test");
+
+        assertThat(message.subject()).isEqualTo("Your statement wasn't imported");
+        assertThat(message.html()).contains("Nothing was added to your accounts.");
+        assertThat(message.html()).doesNotContain("Review Statement");
+        assertThat(message.sender()).isEqualTo(EmailMessage.Sender.SUPPORT);
+    }
+
     /** Both statement emails are FINANCIAL notifications a user can switch off, so both say where. */
     @Test
     void statementEmails_linkToTheNotificationSettingsWhereTheyCanBeTurnedOff() {
         String ready = provider.buildStatementReadyMessage(
                 "user@example.test", "HDFC Bank", "11111111-1111-1111-1111-111111111111").html();
         String held = provider.buildStatementHeldMessage("user@example.test").html();
+        String rejected = provider.buildStatementRejectedMessage("user@example.test").html();
 
         assertThat(ready).contains("https://app.fynora.net/app/settings?tab=notifications");
         assertThat(held).contains("https://app.fynora.net/app/settings?tab=notifications");
+        assertThat(rejected).contains("https://app.fynora.net/app/settings?tab=notifications");
         assertThat(ready).contains("notification settings");
     }
 

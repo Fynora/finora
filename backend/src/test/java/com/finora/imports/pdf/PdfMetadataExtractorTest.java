@@ -1173,6 +1173,42 @@ class PdfMetadataExtractorTest {
         assertThat(wordAfterTheLabel.paymentDueDate()).isNull();
     }
 
+    /** The sentence shapes real terms pages also use that a lowercase neighbour alone does not
+     *  reveal, each with a readable date below that the grid search would otherwise take: a
+     *  sentence in capitals, a quoted label, a capitalised conjunction before the label, and a label
+     *  whose bracketed abbreviation ends the sentence. */
+    @Test
+    void extract_doesNotTakeANearbyNoticeDate_fromSentencesTheLowercaseCheckAloneMisses() {
+        var inCapitals = extractor.extract(List.of(
+                "AMOUNTS UNPAID WITHIN 3 DAYS OF DUE DATE WILL BE REPORTED",
+                "Effective 04 Mar 2015, payments are applied in a new order."));
+        var quoted = extractor.extract(List.of(
+                "Please ensure the minimum reaches us by the \"Due Date\".",
+                "Effective 04 Mar 2015, payments are applied in a new order."));
+        var capitalisedConjunction = extractor.extract(List.of(
+                "If Payment Due Date (XDD) of an account falls on a holiday, pay earlier.",
+                "Effective 04 Mar 2015, payments are applied in a new order."));
+        var abbreviationEndsTheSentence = extractor.extract(List.of(
+                "Payment Due Date (XDD). Paying only the minimum keeps interest running.",
+                "Effective 04 Mar 2015, payments are applied in a new order."));
+
+        assertThat(inCapitals.paymentDueDate()).isNull();
+        assertThat(quoted.paymentDueDate()).isNull();
+        assertThat(capitalisedConjunction.paymentDueDate()).isNull();
+        assertThat(abbreviationEndsTheSentence.paymentDueDate()).isNull();
+    }
+
+    /** A grid label may carry its own bracketed abbreviation; that alone is not a sentence, so the
+     *  value on the next line is still read. */
+    @Test
+    void extract_stillReadsTheGridValue_whenTheLabelCarriesABracketedAbbreviation() {
+        var metadata = extractor.extract(List.of(
+                "PAYMENT DUE DATE (XDD)",
+                "15 Sep 2026"));
+
+        assertThat(metadata.paymentDueDate()).isEqualTo(java.time.LocalDate.of(2026, 9, 15));
+    }
+
     /** The same fine-print shape with the notice's month spelled in full ("5 August 2013"), which
      *  is how the real terms text writes it. No date format reads day-then-full-month today, so this
      *  holds on parsing alone. It is here so that adding such a format cannot turn the notice into a

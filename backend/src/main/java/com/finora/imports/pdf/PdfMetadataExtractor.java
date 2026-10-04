@@ -1572,47 +1572,71 @@ public class PdfMetadataExtractor {
 
     private static final Pattern PAYMENT_BEFORE_LABEL = Pattern.compile("(?i)\\bpayment\\s+$");
 
-    /** Whether a "due date" label is being used inside a sentence rather than as a field label:
-     *  an ordinary lowercase word sits directly before it (a leading "payment" counts as part of
-     *  the label) or directly after it. A grid header names its fields in title or upper case, so a
-     *  lowercase neighbour means running text -- and running text has no value on the lines below.
+    /** Closed-class English words -- articles, prepositions, conjunctions, auxiliaries,
+     *  possessives. A field header is made of nouns ("Statement Period", "Minimum Due"), so one of
+     *  these beside the label means a sentence, whatever its case. */
+    private static final java.util.Set<String> SENTENCE_WORDS = java.util.Set.of(
+            "a", "an", "the", "of", "by", "on", "in", "at", "to", "for", "from", "after", "before",
+            "within", "upto", "and", "or", "if", "is", "are", "was", "will", "shall", "be", "as",
+            "his", "her", "its", "your", "their", "our", "my");
+
+    /** Whether a "due date" label is being used inside a sentence rather than as a field label.
+     *  It is when the word directly before it (a leading "payment" counts as part of the label) or
+     *  directly after it is an ordinary lowercase word or one of {@link #SENTENCE_WORDS} in any
+     *  case, or when sentence punctuation (full stop, comma, semicolon) directly follows it.
+     *  Quote marks around the label, and a bracketed abbreviation after it ("(PDD)"), are looked
+     *  past. A grid header names its fields in title or upper case with nouns, so any of these
+     *  means running text -- and running text has no value on the lines below.
      *
      *  <p>Measured on every line of the real corpus that reached the multi-line grid search: each
      *  real grid label (a label alone on its line, an upper-case label followed by a one-letter
-     *  bullet glyph) has no such neighbour, nor do the title- and upper-case header rows
-     *  GRID_DUE_DATE_LABEL documents; the terms-and-conditions sentences on two real credit-card
-     *  statements, whose nearby dated notices the search took as the due date, both do. Words of one
-     *  letter are ignored because a bullet glyph extracts as a single lowercase letter next to a
-     *  real label.
-     *
-     *  <p>Not caught: a sentence written entirely in capitals, one whose words beside the label
-     *  happen to be capitalised, or one with punctuation rather than a word beside it (a quoted
-     *  label). The corpus has all three, none with a date within the grid search's reach; they
-     *  fall through to it exactly as before. */
+     *  bullet glyph) has none of these, nor do the title- and upper-case header rows
+     *  GRID_DUE_DATE_LABEL documents; every terms-and-conditions sentence does, including the two
+     *  on real credit-card statements whose nearby dated notices the search took as the due date.
+     *  Words of one letter other than "a" are ignored because a bullet glyph extracts as a single
+     *  lowercase letter next to a real label. */
     private static boolean labelSitsInsideASentence(String line, int labelStart, int labelEnd) {
         String before = line.substring(0, labelStart);
         Matcher payment = PAYMENT_BEFORE_LABEL.matcher(before);
         if (payment.find()) before = before.substring(0, payment.start());
-        return isLowercaseWord(wordEndingAt(before)) || isLowercaseWord(wordStartingAt(line.substring(labelEnd)));
+        if (isSentenceWord(wordEndingAt(before))) return true;
+
+        String after = line.substring(labelEnd);
+        int k = skipSpacesAndQuotes(after, 0);
+        if (k < after.length() && after.charAt(k) == '(') {
+            int close = after.indexOf(')', k);
+            if (close >= 0) k = skipSpacesAndQuotes(after, close + 1);
+        }
+        if (k < after.length() && ".,;".indexOf(after.charAt(k)) >= 0) return true;
+        return isSentenceWord(wordStartingAt(after, k));
+    }
+
+    private static boolean isQuote(char c) {
+        return c == '"' || c == '\'' || c == '\u2018' || c == '\u2019' || c == '\u201C' || c == '\u201D';
+    }
+
+    private static int skipSpacesAndQuotes(String text, int from) {
+        int k = from;
+        while (k < text.length() && (Character.isWhitespace(text.charAt(k)) || isQuote(text.charAt(k)))) k++;
+        return k;
     }
 
     private static String wordEndingAt(String text) {
         int end = text.length();
-        while (end > 0 && Character.isWhitespace(text.charAt(end - 1))) end--;
+        while (end > 0 && (Character.isWhitespace(text.charAt(end - 1)) || isQuote(text.charAt(end - 1)))) end--;
         int start = end;
         while (start > 0 && Character.isLetter(text.charAt(start - 1))) start--;
         return text.substring(start, end);
     }
 
-    private static String wordStartingAt(String text) {
-        int start = 0;
-        while (start < text.length() && Character.isWhitespace(text.charAt(start))) start++;
-        int end = start;
+    private static String wordStartingAt(String text, int from) {
+        int end = from;
         while (end < text.length() && Character.isLetter(text.charAt(end))) end++;
-        return text.substring(start, end);
+        return text.substring(from, end);
     }
 
-    private static boolean isLowercaseWord(String word) {
+    private static boolean isSentenceWord(String word) {
+        if (SENTENCE_WORDS.contains(word.toLowerCase(Locale.ROOT))) return true;
         return word.length() > 1 && Character.isLowerCase(word.charAt(0));
     }
 

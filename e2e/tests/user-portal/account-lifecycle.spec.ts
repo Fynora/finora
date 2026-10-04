@@ -61,6 +61,8 @@ test.describe('account lifecycle', () => {
       'fyn_chat_conversations.json', 'fyn_chat_messages.json', 'health_score_history.json',
       'financial_focus.json', 'onboarding_checklist.json', 'recurring_dismissals.json',
       'account_aggregator_links.json', 'merchant_category_corrections.json',
+      // The required setup answer (V256); the fixture's user answers it before onboarding.
+      'spending_tracking.json',
     ]));
 
     // ExportDataModal.submitWithCredential() calls onClose() on success -- no separate success

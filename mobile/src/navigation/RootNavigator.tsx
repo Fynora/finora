@@ -214,7 +214,20 @@ export function RootNavigator() {
         // Single screen, like VerifyPhone above: nothing else is reachable until it is answered.
         <AppStack.Navigator screenOptions={{ headerShown: false }}>
           <AppStack.Screen name="SpendingTrackingQuestion">
-            {() => <SpendingTrackingQuestionScreen onSubmit={spendingQuestion.submit} />}
+            {() => <SpendingTrackingQuestionScreen onSubmit={spendingQuestion.submit} onSignOut={logout} />}
+          </AppStack.Screen>
+        </AppStack.Navigator>
+      ) : spendingQuestion.pending && !onboardingCompleted && onboardingStep !== 'tour' ? (
+        // Someone who has not finished onboarding waits for the lookup rather than seeing Welcome:
+        // on a slow network they could otherwise skip or finish onboarding before the question
+        // arrives, and finishing is refused until it is answered. A returning user is not held.
+        <AppStack.Navigator screenOptions={{ headerShown: false }}>
+          <AppStack.Screen name="SpendingQuestionLoading">
+            {() => (
+              <View testID="spending-question-loading" style={[styles.splash, { backgroundColor: c.bg }]}>
+                <ActivityIndicator size="large" color={c.primary} />
+              </View>
+            )}
           </AppStack.Screen>
         </AppStack.Navigator>
       ) : !onboardingCompleted ? (

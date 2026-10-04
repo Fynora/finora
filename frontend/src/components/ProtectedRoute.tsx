@@ -76,5 +76,7 @@ export function ProtectedRoute({ children, allowUnverified = false }: ProtectedR
   }
   // The required spending question comes first, before onboarding and the app alike -- see
   // SpendingQuestionGate. Never on allowUnverified routes (VerifyPhone), for the reason above.
-  return allowUnverified ? content : <SpendingQuestionGate>{content}</SpendingQuestionGate>;
+  return allowUnverified
+    ? content
+    : <SpendingQuestionGate holdWhileLoading={!onboardingCompleted && step !== 'tour'}>{content}</SpendingQuestionGate>;
 }

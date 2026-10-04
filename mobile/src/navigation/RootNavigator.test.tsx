@@ -201,6 +201,26 @@ describe('RootNavigator', () => {
     expect(screen.queryByTestId('onboarding-navigator')).toBeNull();
   });
 
+  it('holds someone not yet onboarded on a loading screen while the answer is looked up', () => {
+    mockedUseAuth.mockReturnValue(authState({ token: 'tok', phoneVerified: true, onboardingCompleted: false }));
+    mockSpendingQuestion.pending = true;
+
+    render(<RootNavigator />);
+
+    expect(screen.getByTestId('spending-question-loading')).toBeTruthy();
+    expect(screen.queryByTestId('onboarding-navigator')).toBeNull();
+  });
+
+  it('does not hold a returning user while the answer is looked up', () => {
+    mockedUseAuth.mockReturnValue(authState({ token: 'tok', phoneVerified: true, onboardingCompleted: true }));
+    mockSpendingQuestion.pending = true;
+
+    render(<RootNavigator />);
+
+    expect(screen.getByTestId('app-tabs')).toBeTruthy();
+    expect(screen.queryByTestId('spending-question-loading')).toBeNull();
+  });
+
   it('asks only a signed-in, verified account, keyed to that account', () => {
     mockedUseAuth.mockReturnValue(authState({ token: 'tok', phoneVerified: false, onboardingCompleted: false }));
     render(<RootNavigator />);

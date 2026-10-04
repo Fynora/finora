@@ -27,8 +27,8 @@ vi.mock('./ReferralCodePrompt', () => ({
 // A marked pass-through: this file checks WHERE the required spending question's gate wraps the
 // page, not the gate itself (SpendingQuestionGate.test.tsx covers that).
 vi.mock('../onboarding/SpendingQuestionGate', () => ({
-  SpendingQuestionGate: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="spending-question-gate">{children}</div>
+  SpendingQuestionGate: ({ children, holdWhileLoading }: { children: React.ReactNode; holdWhileLoading?: boolean }) => (
+    <div data-testid="spending-question-gate" data-hold={String(!!holdWhileLoading)}>{children}</div>
   ),
 }));
 
@@ -105,6 +105,8 @@ describe('ProtectedRoute', () => {
     expect(screen.getByTestId('referral-code-prompt')).toBeInTheDocument();
     // Behind the required spending question, for an onboarded user too.
     expect(screen.getByTestId('spending-question-gate')).toContainElement(screen.getByText('Protected content'));
+    // A returning user is never held on a loader while the answer is looked up.
+    expect(screen.getByTestId('spending-question-gate')).toHaveAttribute('data-hold', 'false');
   });
 
   it('puts the required spending question in front of onboarding as well', () => {
@@ -114,6 +116,8 @@ describe('ProtectedRoute', () => {
     renderProtected();
 
     expect(screen.getByTestId('spending-question-gate')).toContainElement(screen.getByText('Welcome to Fynora 👋'));
+    // Someone not yet onboarded waits for the answer rather than seeing Welcome first.
+    expect(screen.getByTestId('spending-question-gate')).toHaveAttribute('data-hold', 'true');
   });
 
   it('allows an unverified user through when allowUnverified is set (e.g. the verify-phone screen itself)', () => {

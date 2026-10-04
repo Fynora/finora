@@ -14,13 +14,16 @@ export const SPENDING_TRACKING_OPTIONS: { key: string; label: string }[] = [
 
 interface Props {
   onSubmit: (method: string) => Promise<void>;
+  /** The way out without answering -- like VerifyPhone's, so nobody is trapped on a shared
+   *  device. It never lets anyone past the question. */
+  onSignOut: () => void;
 }
 
 /**
  * The required question "How do you keep track of your spending today?". One answer, and nothing
  * moves on until one is chosen and saved: there is no skip. Shown by SpendingQuestionGate.
  */
-export function SpendingTrackingQuestion({ onSubmit }: Props) {
+export function SpendingTrackingQuestion({ onSubmit, onSignOut }: Props) {
   const [selected, setSelected] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +69,9 @@ export function SpendingTrackingQuestion({ onSubmit }: Props) {
       <Button variant="primary" onClick={() => void submit()} disabled={!selected || saving}>
         {saving ? 'Saving…' : 'Continue'}
       </Button>
+      <button type="button" onClick={onSignOut} className="mt-6 text-xs text-muted hover:text-ink font-medium underline">
+        Sign out
+      </button>
     </div>
   );
 }

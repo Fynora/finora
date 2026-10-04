@@ -8,13 +8,14 @@ import { onboardingApi } from '../api/endpoints';
 vi.mock('../api/endpoints', () => ({
   onboardingApi: { status: vi.fn(), setSpendingTracking: vi.fn() },
 }));
-vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ email: 'gate-test@example.com' }) }));
+const { logout } = vi.hoisted(() => ({ logout: vi.fn() }));
+vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ email: 'gate-test@example.com', logout }) }));
 
-function renderGate() {
+function renderGate(holdWhileLoading = false) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <SpendingQuestionGate>
+      <SpendingQuestionGate holdWhileLoading={holdWhileLoading}>
         <p>The app</p>
       </SpendingQuestionGate>
     </QueryClientProvider>
@@ -26,6 +27,7 @@ const unanswered = { onboardingCompleted: true, financialFocus: [], spendingTrac
 beforeEach(() => {
   vi.mocked(onboardingApi.status).mockReset();
   vi.mocked(onboardingApi.setSpendingTracking).mockReset();
+  logout.mockReset();
 });
 
 afterEach(() => {
@@ -82,6 +84,41 @@ describe('SpendingQuestionGate', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Check your connection');
     expect(screen.queryByText('The app')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
+  });
+
+  it('offers a way to sign out without answering, which saves nothing', async () => {
+    vi.mocked(onboardingApi.status).mockResolvedValue(unanswered);
+    renderGate();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
+
+    expect(logout).toHaveBeenCalledTimes(1);
+    expect(onboardingApi.setSpendingTracking).not.toHaveBeenCalled();
+  });
+
+  it('holds someone who has not finished onboarding on the loader until the answer is known', async () => {
+    let resolve!: (v: typeof unanswered) => void;
+    vi.mocked(onboardingApi.status).mockReturnValue(new Promise((r) => { resolve = r; }));
+    renderGate(true);
+
+    expect(screen.getByRole('status')).toHaveTextContent('Loading');
+    expect(screen.queryByText('The app')).not.toBeInTheDocument();
+    await act(async () => resolve(unanswered));
+    expect(await screen.findByText('How do you keep track of your spending today?')).toBeInTheDocument();
+  });
+
+  it('does not hold a returning user: the page shows while the answer is looked up', () => {
+    vi.mocked(onboardingApi.status).mockReturnValue(new Promise(() => {}));
+    renderGate(false);
+
+    expect(screen.getByText('The app')).toBeInTheDocument();
+  });
+
+  it('a held user whose lookup fails is let through, not left on the loader', async () => {
+    vi.mocked(onboardingApi.status).mockRejectedValue(new Error('offline'));
+    renderGate(true);
+
+    expect(await screen.findByText('The app')).toBeInTheDocument();
   });
 
   it('does not lock anyone out when the status cannot be loaded', async () => {

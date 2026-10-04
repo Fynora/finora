@@ -17,6 +17,9 @@ export const SPENDING_TRACKING_OPTIONS: { key: string; label: string }[] = [
 
 interface Props {
   onSubmit: (method: string) => Promise<void>;
+  /** The way out without answering -- like VerifyPhoneScreen's, so nobody is trapped on a shared
+   *  device. It never lets anyone past the question. */
+  onSignOut: () => void;
 }
 
 /**
@@ -24,7 +27,7 @@ interface Props {
  * moves on until one is chosen and saved: there is no skip. Shown by RootNavigator while
  * useSpendingQuestion says it is unanswered.
  */
-export function SpendingTrackingQuestionScreen({ onSubmit }: Props) {
+export function SpendingTrackingQuestionScreen({ onSubmit, onSignOut }: Props) {
   const c = useTheme();
   const [selected, setSelected] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -67,6 +70,8 @@ export function SpendingTrackingQuestionScreen({ onSubmit }: Props) {
       {error ? <Text accessibilityRole="alert" style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
       <View style={{ height: 16 }} />
       <Button label="Continue" onPress={() => void submit()} disabled={!selected} loading={saving} />
+      <View style={{ height: 8 }} />
+      <Button label="Sign out" variant="link" onPress={onSignOut} />
     </ScrollView>
   );
 }

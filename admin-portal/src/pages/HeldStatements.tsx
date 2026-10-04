@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { Link, useNavigate } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AdminLayout } from '../components/AdminLayout';
 import { RequirePermission } from '../components/ProtectedRoute';
 import { DataTable, type DataTableColumn } from '../components/DataTable';
@@ -8,7 +8,7 @@ import { Pagination } from '../components/Pagination';
 import { FilterBar } from '../components/FilterBar';
 import { adminHeldStatementApi } from '../api/endpoints';
 import { formatWhen } from '../lib/formatWhen';
-import type { HeldStatementRow, HeldStatementStatus } from '../types';
+import type { HeldStatementRow, HeldStatementStatus, HoldWithoutReviewRecordRow } from '../types';
 
 const PAGE_SIZE = 25;
 
@@ -25,6 +25,99 @@ const RESOLVED_STATUS_OPTIONS: { label: string; value: HeldStatementStatus }[] =
 ];
 
 type View = 'open' | 'resolved';
+
+function actionErrorMessage(error: unknown): string {
+  const response = (error as { response?: { data?: { message?: string } } })?.response;
+  return response?.data?.message ?? 'That action could not be completed.';
+}
+
+/**
+ * Imports the worker held for trust review without writing a review record -- it holds them anyway
+ * when that write fails, so their rows stay off the ledger, but nothing in the queue below stands
+ * for them and the user waits on a review nobody can see. Opening one writes the record; the import
+ * then joins the queue and is released or rejected like any other, from its detail page, with its
+ * evidence. Renders nothing while there are none, which is the normal state.
+ */
+function HoldsWithoutReviewRecord() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+  const stuck = useQuery({
+    queryKey: ['held-statements-without-review-record'],
+    queryFn: () => adminHeldStatementApi.listWithoutReviewRecord(0, PAGE_SIZE),
+  });
+  const openReview = useMutation({
+    mutationFn: (jobId: string) => adminHeldStatementApi.openReview(jobId),
+    onSuccess: (held) => {
+      setError(null);
+      void queryClient.invalidateQueries({ queryKey: ['held-statements-without-review-record'] });
+      void queryClient.invalidateQueries({ queryKey: ['held-statements-list'] });
+      void navigate(`/held-statements/${held.heldId}`);
+    },
+    // A second operator opening the same one gets a 409 -- refresh so the row disappears.
+    onError: (e) => {
+      setError(actionErrorMessage(e));
+      void queryClient.invalidateQueries({ queryKey: ['held-statements-without-review-record'] });
+    },
+  });
+
+  const rows = stuck.data?.content ?? [];
+  if (rows.length === 0) return null;
+
+  const columns: DataTableColumn<HoldWithoutReviewRecordRow>[] = [
+    { header: 'File', render: (row) => <span className="text-ink">{row.fileName ?? '—'}</span> },
+    { header: 'Held At', render: (row) => (row.heldAt ? formatWhen(row.heldAt) : '—') },
+    {
+      header: 'Staged rows',
+      render: (row) => (
+        <span className="text-muted text-xs">
+          {row.stagedRowsAvailable ? 'Available' : 'Gone — re-run the parser after opening'}
+        </span>
+      ),
+    },
+    {
+      header: '',
+      // Already covered by another upload's review on the same rows: decided there, not here --
+      // a second review would block the rows until both were approved.
+      render: (row) => row.coveredByHeldId ? (
+        <span className="text-muted text-xs">
+          Covered by{' '}
+          <Link to={`/held-statements/${row.coveredByHeldId}`} className="font-mono text-accent hover:underline">
+            {row.coveredByHeldId}
+          </Link>
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={() => openReview.mutate(row.jobId)}
+          disabled={openReview.isPending}
+          className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+        >
+          Open review
+        </button>
+      ),
+    },
+  ];
+
+  return (
+    <section aria-labelledby="holds-without-review-record" className="space-y-3 rounded-lg border border-border p-4">
+      <h2 id="holds-without-review-record" className="text-ink text-sm font-semibold">
+        Held without a review record ({stuck.data?.totalElements ?? rows.length})
+      </h2>
+      <p className="text-muted text-sm">
+        These imports were held, but their review could not be recorded, so they are not in the
+        queue below and their users cannot confirm them. Open a review to move one into the queue,
+        then release or reject it there.
+      </p>
+      {(stuck.data?.totalElements ?? 0) > rows.length && (
+        // Oldest first; opening one brings the next into view.
+        <p className="text-muted text-xs">Showing the oldest {rows.length}.</p>
+      )}
+      {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+      <DataTable columns={columns} rows={rows} keyFor={(row) => row.jobId} loading={false} emptyMessage="" />
+    </section>
+  );
+}
 
 /**
  * The trust-review queue -- statements the pipeline held back not because parsing failed, but
@@ -130,6 +223,8 @@ function HeldStatementsContent() {
         period that does not hold together. Nothing here is shown to the user beyond &quot;running
         additional checks&quot;.
       </p>
+
+      {view === 'open' && <HoldsWithoutReviewRecord />}
 
       <div role="tablist" aria-label="Which holds" className="inline-flex rounded-lg border border-border p-0.5 text-sm">
         {(['open', 'resolved'] as View[]).map((v) => (

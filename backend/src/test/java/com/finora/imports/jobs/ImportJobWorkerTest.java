@@ -59,6 +59,7 @@ class ImportJobWorkerTest {
     private ImportJobWorker worker;
 
     private ImportJob job;
+    private SimpleMeterRegistry meters;
 
     @BeforeEach
     void setUp() {
@@ -69,7 +70,8 @@ class ImportJobWorkerTest {
         // directly -- see ImportJobWorker.readContent's own doc for why.
         statementContentService = mock(StatementContentService.class);
         stageRecorder = mock(ImportStageRecorder.class);
-        WorkerObservability observability = new WorkerObservability(new SimpleMeterRegistry());
+        meters = new SimpleMeterRegistry();
+        WorkerObservability observability = new WorkerObservability(meters);
 
         statementStatusNotifier = mock(StatementStatusNotifier.class);
         verificationRecorder = mock(ImportVerificationRecorder.class);
@@ -808,6 +810,64 @@ class ImportJobWorkerTest {
         assertThat(job.getHeldStatementId())
                 .as("no review record exists, and the job must not claim one does")
                 .isNull();
+        // The worker's log line reaches no one (sentry.logging.enabled is off), so the failure
+        // is reported through the worker's own channel -- the counter is the observable half.
+        assertThat(meters.find("finora.worker.failures").counter())
+                .as("a hold nobody can act on is reported, not only logged")
+                .isNotNull()
+                .extracting(io.micrometer.core.instrument.Counter::count)
+                .isEqualTo(1.0);
+    }
+
+    /**
+     * createHold found the rows already under another job's review (an operator opened it after
+     * this pass decided to hold): the job rides that review, settled against where it stands at
+     * the final update. None of these is a failure, so none is reported as one.
+     */
+    @Test
+    void aCoveredHoldRidesTheOpenReviewWithoutPaging() throws IOException {
+        when(importService.parseAndStageWithSession(any(), any(), any())).thenReturn(stagedWithCountMismatch());
+        org.mockito.Mockito.doThrow(new com.finora.service.HeldStatementService.HoldCoveredException("HLD-2026-000009"))
+                .when(heldStatementService).createHold(any(), any(), any(), any());
+        when(heldStatementService.settleRidingJob(any(), any()))
+                .thenReturn(java.util.Optional.of(com.finora.entity.HeldStatement.Status.HELD));
+
+        worker.drainOnce();
+
+        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_TRUST_REVIEW);
+        assertThat(job.getHeldStatementId()).isNull();
+        assertThat(job.getImportSessionId()).isNotNull();
+        assertThat(meters.find("finora.worker.failures").counter()).isNull();
+    }
+
+    @Test
+    void aCoveredHoldWhoseReviewWasApprovedMeanwhileCompletes() throws IOException {
+        when(importService.parseAndStageWithSession(any(), any(), any())).thenReturn(stagedWithCountMismatch());
+        org.mockito.Mockito.doThrow(new com.finora.service.HeldStatementService.HoldCoveredException("HLD-2026-000009"))
+                .when(heldStatementService).createHold(any(), any(), any(), any());
+        when(heldStatementService.settleRidingJob(any(), any()))
+                .thenReturn(java.util.Optional.of(com.finora.entity.HeldStatement.Status.IMPORTED));
+
+        worker.drainOnce();
+
+        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.COMPLETED);
+        assertThat(job.getImportSessionId()).isNotNull();
+    }
+
+    @Test
+    void aCoveredHoldWhoseReviewWasRejectedMeanwhileFailsOnTheSession() throws IOException {
+        when(importService.parseAndStageWithSession(any(), any(), any())).thenReturn(stagedWithCountMismatch());
+        org.mockito.Mockito.doThrow(new com.finora.service.HeldStatementService.HoldCoveredException("HLD-2026-000009"))
+                .when(heldStatementService).createHold(any(), any(), any(), any());
+        when(heldStatementService.settleRidingJob(any(), any()))
+                .thenReturn(java.util.Optional.of(com.finora.entity.HeldStatement.Status.REJECTED));
+
+        worker.drainOnce();
+
+        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.FAILED);
+        assertThat(job.getFailureCode()).isEqualTo(ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name());
+        assertThat(job.getImportSessionId()).as("still rides the review, so a reopen carries it").isNotNull();
+        assertThat(meters.find("finora.worker.failures").counter()).isNull();
     }
 
     /** Telemetry is recorded for a held import too -- it is the evidence the reviewer works from,

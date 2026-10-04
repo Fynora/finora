@@ -26,6 +26,7 @@ import com.finora.imports.trust.HeldStatementIdGenerator;
 import com.finora.imports.trust.HoldDecision;
 import com.finora.imports.trust.TrustPredicate;
 import com.finora.dto.HeldStatementRerunResultDto;
+import com.finora.dto.HoldWithoutReviewRecordDto;
 import com.finora.repository.HeldStatementEventRepository;
 import com.finora.repository.HeldStatementRepository;
 import com.finora.repository.ImportJobRepository;
@@ -45,6 +46,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -126,8 +128,197 @@ public class HeldStatementService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public HeldStatement createHold(ImportJob job, StagedForJob staged, HoldDecision decision,
                                     String parserVersion) {
-        return repository.findByImportJobId(job.getId())
-                .orElseGet(() -> openHold(job, staged, decision, parserVersion));
+        return repository.findByImportJobId(job.getId()).orElseGet(() -> {
+            // Under the session's lock, the same one openReviewForHoldWithoutRecord takes: the
+            // worker decided to hold a replay of these rows before this call, and an operator may
+            // have opened a review on them since. Re-checked here, where it can no longer change.
+            importSessionService.lockForReview(staged.sessionId());
+            openReviewCovering(staged.sessionId(), job.getId()).ifPresent(covering -> {
+                throw new HoldCoveredException(covering.getHeldId());
+            });
+            return openHold(job, staged, decision, parserVersion);
+        });
+    }
+
+    /**
+     * Where the review a worker job rides on stands now, read under the session's lock -- for the
+     * worker's own final update of a job {@link #createHold} found covered
+     * ({@link HoldCoveredException}). Joins the caller's transaction so the lock lasts until the
+     * job's new status commits: approve and reject take the same lock before carrying riders with
+     * them, so either the decision commits first and this reads it, or the job is held first and
+     * the decision carries it. Without the lock a decision landing between the two would leave
+     * the job held behind a review already decided.
+     */
+    @Transactional
+    public Optional<HeldStatement.Status> settleRidingJob(UUID importSessionId, UUID jobId) {
+        importSessionService.lockForReview(importSessionId);
+        return priorReviewOf(importSessionId, jobId);
+    }
+
+    /**
+     * {@link #createHold} found these rows already under another job's open review -- opened by an
+     * operator between the worker deciding to hold and this call. The worker holds its job riding
+     * that review ({@link #coveredBy}) instead of opening a second one; deciding the review decides
+     * it. Not a failure, so the worker does not page for it.
+     */
+    public static class HoldCoveredException extends RuntimeException {
+        private final String heldId;
+
+        public HoldCoveredException(String heldId) {
+            super("These rows are already under review in " + heldId);
+            this.heldId = heldId;
+        }
+
+        public String heldId() { return heldId; }
+    }
+
+    /**
+     * Where the trust review another upload opened on this staged session stands, if one did.
+     *
+     * <p>Staging replays a live session for the same bytes under the same build, so a later job can
+     * arrive holding a session that has already been reviewed. Reviewing it again is wrong both
+     * ways: {@code ImportSessionService.sessionsBlockedByTrustReview} keeps the session blocked
+     * while ANY hold on it is not IMPORTED, so a second hold re-blocks a session an operator
+     * already approved, and approving the second does nothing for a session an operator rejected.
+     * The worker uses this to carry the existing decision over instead.
+     *
+     * <p>A job held with no review record -- the worker's fail-closed path when it could not write
+     * one -- counts as an open review (HELD): its session is blocked, and nothing in the operator
+     * queue can release it.
+     *
+     * <p>REJECTED wins over everything, then any unresolved status, then IMPORTED -- the same
+     * order the blocking rule implies. {@code excludingJobId} is the caller's own job: a retried
+     * pass may already have opened its own hold, and that one is not "another upload".
+     */
+    @Transactional(readOnly = true)
+    public Optional<HeldStatement.Status> priorReviewOf(UUID importSessionId, UUID excludingJobId) {
+        List<ImportJob> others = importJobRepository.findByImportSessionId(importSessionId).stream()
+                .filter(other -> !other.getId().equals(excludingJobId))
+                .toList();
+        List<UUID> heldIds = others.stream()
+                .map(ImportJob::getHeldStatementId)
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        List<HeldStatement.Status> statuses = new java.util.ArrayList<>(repository.findAllById(heldIds).stream()
+                .map(HeldStatement::getStatus)
+                .toList());
+        if (others.stream().anyMatch(HeldStatementService::isHeldWithNoRecord)) {
+            statuses.add(HeldStatement.Status.HELD);
+        }
+        if (statuses.isEmpty()) return Optional.empty();
+        if (statuses.contains(HeldStatement.Status.REJECTED)) return Optional.of(HeldStatement.Status.REJECTED);
+        return statuses.stream().filter(status -> !status.isResolved()).findFirst()
+                .or(() -> Optional.of(HeldStatement.Status.IMPORTED));
+    }
+
+    // --- holds the worker could not write a record for ------------------------------------------
+
+    /**
+     * Imports held for trust review with no review record, oldest first. The worker holds an
+     * import even when it cannot write the {@code held_statements} row (fail closed), and such a
+     * hold blocks the user's confirm while appearing nowhere in the queue -- this is where an
+     * operator finds it. {@code WorkerExecution.heldWithoutReviewRecord} pages when one is made.
+     */
+    @Transactional(readOnly = true)
+    public PagedResponse<HoldWithoutReviewRecordDto> listHoldsWithoutReviewRecord(int page, int size) {
+        Page<ImportJob> jobs = importJobRepository.findByStatusAndHeldStatementIdIsNull(
+                ImportJob.Status.HELD_FOR_TRUST_REVIEW,
+                PageRequest.of(PageBounds.safePage(page), PageBounds.safeSize(size > 0 ? size : 25),
+                        Sort.by(Sort.Direction.ASC, "finishedAt")));
+        return PagedResponse.of(jobs.map(job -> HoldWithoutReviewRecordDto.from(job,
+                importSessionService.exists(job.getImportSessionId()),
+                openReviewCovering(job).map(HeldStatement::getHeldId).orElse(null))));
+    }
+
+    /**
+     * Another job's unresolved review on the same session, if one exists -- the review the worker
+     * opened for a later upload of the statement, which this record-less job rides on
+     * ({@link #coveredBy}). Opening a review of its own would put a second review on the same rows,
+     * the duplicate the whole re-upload fix exists to stop.
+     */
+    private Optional<HeldStatement> openReviewCovering(ImportJob job) {
+        return openReviewCovering(job.getImportSessionId(), job.getId());
+    }
+
+    private Optional<HeldStatement> openReviewCovering(UUID sessionId, UUID excludingJobId) {
+        if (sessionId == null) return Optional.empty();
+        List<UUID> others = importJobRepository.findByImportSessionId(sessionId).stream()
+                .filter(other -> !other.getId().equals(excludingJobId))
+                .map(ImportJob::getHeldStatementId)
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        return repository.findAllById(others).stream()
+                .filter(held -> !held.getStatus().isResolved())
+                .findFirst();
+    }
+
+    /**
+     * Writes the review record a held import never got, so it becomes an ordinary held statement:
+     * in the queue, with its evidence, a parser re-run, and approve or reject like any other.
+     * Deliberately not a release or reject of its own -- a decision about a customer's ledger is
+     * made where the evidence is, and there is one approve and one reject to keep correct.
+     *
+     * <p>Goes through {@link #openHold}, the worker's own path, so the record, its first event, the
+     * user's "being checked" notification (which the failed attempt never sent) and the admin alert
+     * are the ones every hold gets. The trigger is read back from the staged session the worker
+     * held, with the predicate anchored to the day it was held -- the same anchoring
+     * {@link #rerunParser} uses. If those rows are gone, the review still opens, saying so; a
+     * re-run stages the statement again.
+     *
+     * <p>Refused, too, when another job's open review already covers the same session: deciding
+     * that review decides this job ({@link #coveredBy}), and a second review would block the rows
+     * until both were approved.
+     *
+     * <p>Two operators opening the same one: the second sees the record the first wrote and gets a
+     * 409; if both get past that read, {@code held_statements.import_job_id} is UNIQUE (V144) and
+     * the loser's insert is refused, also as a 409.
+     */
+    @Transactional
+    public HeldStatementDto openReviewForHoldWithoutRecord(UUID actingAdminId, UUID jobId) {
+        ImportJob job = importJobRepository.findById(jobId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "No such import job."));
+        if (!isHeldWithNoRecord(job)) {
+            throw new ApiException(HttpStatus.CONFLICT, job.getStatus() == ImportJob.Status.HELD_FOR_TRUST_REVIEW
+                    ? "This import already has a review record; open it from the held-statements queue."
+                    : "This import is " + job.getStatus() + ", not held for review; there is nothing to open.");
+        }
+        // Under the session's lock before the check, so a worker pass holding a replay of these
+        // rows cannot write its review in between (createHold takes the same lock).
+        importSessionService.lockForReview(job.getImportSessionId());
+        Optional<HeldStatement> covering = openReviewCovering(job);
+        if (covering.isPresent()) {
+            throw new ApiException(HttpStatus.CONFLICT, "This import's rows are already under review in "
+                    + covering.get().getHeldId() + "; deciding that review decides this import too.");
+        }
+
+        Optional<com.finora.entity.ImportSession> session =
+                importSessionService.findHeldSession(job.getImportSessionId());
+        StagedForJob staged = session
+                .map(s -> StagedForJob.of(importService.stagedResponseOf(job.getUserId(), s)))
+                .orElseGet(() -> new StagedForJob(job.getImportSessionId(), 0, 0, null, List.of(), List.of()));
+        java.time.LocalDate heldOn = (job.getFinishedAt() != null ? job.getFinishedAt() : Instant.now())
+                .atZone(java.time.ZoneOffset.UTC).toLocalDate();
+        HoldDecision evaluated = TrustPredicate.evaluate(staged.verificationReports(), staged.statementPeriods(), heldOn);
+        List<String> reasons = new java.util.ArrayList<>();
+        reasons.add(session.isPresent()
+                ? "Held without a review record; review opened by an operator"
+                : "Held without a review record, and its staged rows are gone; re-run the parser to read it again");
+        reasons.addAll(evaluated.reasons());
+        HoldDecision decision = new HoldDecision(true, reasons, evaluated.categories());
+
+        HeldStatement held = openHold(job, staged, decision, job.getParserVersion());
+        job.attachReviewRecord(held.getId());
+        importJobRepository.save(job);
+
+        eventRepository.save(new HeldStatementEvent(held.getId(), actingAdminId, "REVIEW_RECORD_OPENED",
+                null, held.getStatus().name(), null));
+        auditService.record(actingAdminId, "TRUST_REVIEW_RECORD_OPENED", "HeldStatement", held.getId(),
+                Map.of("actorId", actingAdminId.toString(),
+                        "subjectUserId", held.getUserId().toString(),
+                        "heldId", held.getHeldId(),
+                        "importJobId", job.getId().toString(),
+                        "stagedRowsAvailable", session.isPresent()));
+        return HeldStatementDto.from(held);
     }
 
     private HeldStatement openHold(ImportJob job, StagedForJob staged, HoldDecision decision,
@@ -473,11 +664,18 @@ public class HeldStatementService {
             // them after a re-run that cleared would hand the user exactly what was wrong. The
             // parse just made is staged in their place -- once, so a scanned statement's OCR is not
             // run twice. The old session goes first: one live session per user and document (V79).
+            // A job held on the same session with no review record moves with it: left on the
+            // discarded session it would stay held on rows that no longer exist, and approving
+            // would look for it on the new session and miss it.
+            List<ImportJob> riding = coveredBy(job, HeldStatementService::isHeldWithNoRecord);
             importSessionService.discardForRestage(job.getImportSessionId());
             ImportService.StagedReparse staged =
                     importService.stageReparsed(job.getUserId(), job.getFileName(), content, reparsed);
             job.replaceHeldSession(staged.sessionId(), staged.totalParsed(), staged.stagedRows());
             importJobRepository.save(job);
+            riding.forEach(other -> other.replaceHeldSession(
+                    staged.sessionId(), staged.totalParsed(), staged.stagedRows()));
+            importJobRepository.saveAll(riding);
             held.markReadyForImport(Instant.now());
             repository.save(held);
         }
@@ -522,6 +720,9 @@ public class HeldStatementService {
         refuseIfResolved(held, "approved");
 
         ImportJob job = requireJob(held);
+        // Before anything is decided, so a worker job riding this review is either already held
+        // (and carried below) or settles against the decision once it commits -- settleRidingJob.
+        importSessionService.lockForReview(job.getImportSessionId());
         refuseIfUploadedAgain(held, job, "approved");
         // A rejected-then-reopened hold's session may have been swept while its job was failed;
         // releasing it would send the user to rows that no longer exist.
@@ -536,6 +737,7 @@ public class HeldStatementService {
         job.releaseAfterTrustReview(now);
         repository.save(held);
         importJobRepository.save(job);
+        List<UUID> covered = resolveHoldsWithNoRecord(job, other -> other.releaseAfterTrustReview(now));
 
         String eventNote = (falsePositive != null && falsePositive)
                 ? (note == null || note.isBlank() ? "Marked false positive." : note + " (marked false positive)")
@@ -549,7 +751,8 @@ public class HeldStatementService {
                         // Map.of rejects nulls, and an operator is not required to explain
                         // themselves -- the empty string keeps the entry writable either way.
                         "note", note == null ? "" : note,
-                        "falsePositive", falsePositive == null ? "unmarked" : falsePositive.toString()));
+                        "falsePositive", falsePositive == null ? "unmarked" : falsePositive.toString(),
+                        "coveredJobIds", covered.toString()));
 
         // Before the notification, deliberately. The sweep's exemption lifts the moment this job
         // leaves HELD_FOR_TRUST_REVIEW, and the session's expiresAt is still whatever staging set
@@ -579,6 +782,7 @@ public class HeldStatementService {
         refuseIfResolved(held, "rejected");
 
         ImportJob job = requireJob(held);
+        importSessionService.lockForReview(job.getImportSessionId()); // as in approve
         Instant now = Instant.now();
         HeldStatement.Status from = held.getStatus();
 
@@ -586,6 +790,8 @@ public class HeldStatementService {
         job.rejectAfterTrustReview(ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name(), now);
         repository.save(held);
         importJobRepository.save(job);
+        List<UUID> covered = resolveHoldsWithNoRecord(job,
+                other -> other.rejectAfterTrustReview(ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name(), now));
 
         eventRepository.save(new HeldStatementEvent(held.getId(), actingAdminId, "REJECTED",
                 from.name(), held.getStatus().name(), reason));
@@ -593,7 +799,8 @@ public class HeldStatementService {
                 Map.of("actorId", actingAdminId.toString(),
                         "subjectUserId", held.getUserId().toString(),
                         "heldId", held.getHeldId(),
-                        "reason", reason == null ? "" : reason));
+                        "reason", reason == null ? "" : reason,
+                        "coveredJobIds", covered.toString()));
         return HeldStatementDto.from(held);
     }
 
@@ -637,6 +844,12 @@ public class HeldStatementService {
         job.reopenTrustReview(ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name());
         repository.save(held);
         importJobRepository.save(job);
+        // The jobs reject() failed alongside this one, because they had no review of their own,
+        // are held again with it -- otherwise approving the reopened review would leave them failed
+        // for rows that reached the ledger.
+        List<ImportJob> riding = coveredBy(job, HeldStatementService::isRejectedWithNoRecord);
+        riding.forEach(other -> other.reopenTrustReview(ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name()));
+        importJobRepository.saveAll(riding);
 
         eventRepository.save(new HeldStatementEvent(held.getId(), actingAdminId, "REOPENED",
                 from.name(), held.getStatus().name(), reason));
@@ -708,6 +921,50 @@ public class HeldStatementService {
     }
 
     // --- internals -------------------------------------------------------------------------------
+
+    private static boolean isHeldWithNoRecord(ImportJob job) {
+        return job.getStatus() == ImportJob.Status.HELD_FOR_TRUST_REVIEW && job.getHeldStatementId() == null;
+    }
+
+    /**
+     * Applies this review's decision to any job held on the same session with no review record.
+     *
+     * <p>Such a job blocks the session on its own status (see {@code
+     * ImportSessionService.sessionsBlockedByTrustReview}) and has nothing an operator can decide,
+     * so it can only be released by the review that covers its rows -- the one the worker opens for
+     * the re-upload that replayed them. Without this, approving that review would leave the session
+     * blocked behind a job nobody can reach.
+     *
+     * @return the ids of the jobs it moved, for the audit entry
+     */
+    private List<UUID> resolveHoldsWithNoRecord(ImportJob decided, java.util.function.Consumer<ImportJob> decision) {
+        List<ImportJob> covered = coveredBy(decided, HeldStatementService::isHeldWithNoRecord);
+        covered.forEach(decision);
+        importJobRepository.saveAll(covered);
+        return covered.stream().map(ImportJob::getId).toList();
+    }
+
+    /**
+     * The jobs with no review record of their own that ride on {@code reviewed}'s review: same
+     * session, {@code heldStatementId} null, in the given state. They follow every move the review
+     * makes -- decided by approve and reject ({@link #resolveHoldsWithNoRecord}), re-pointed when a
+     * re-run replaces the session, and held again when a rejection is reopened -- or they are left
+     * behind on a job status nothing will ever change.
+     */
+    private List<ImportJob> coveredBy(ImportJob reviewed, java.util.function.Predicate<ImportJob> state) {
+        if (reviewed.getImportSessionId() == null) return List.of();
+        return importJobRepository.findByImportSessionId(reviewed.getImportSessionId()).stream()
+                .filter(other -> !other.getId().equals(reviewed.getId()))
+                .filter(other -> other.getHeldStatementId() == null)
+                .filter(state)
+                .toList();
+    }
+
+    /** What {@link #reject} did to a job riding on the review: failed with the review's own code. */
+    private static boolean isRejectedWithNoRecord(ImportJob job) {
+        return job.getStatus() == ImportJob.Status.FAILED
+                && ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name().equals(job.getFailureCode());
+    }
 
     private HeldStatement require(String heldId) {
         return repository.findByHeldId(heldId)

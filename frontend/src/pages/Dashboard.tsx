@@ -30,7 +30,7 @@ import {
   dashboardApi, accountsApi, transactionsApi, categoriesApi, goalsApi, insightsApi, userApi, budgetsApi, reportsApi, recurringApi,
   type CategoryOption, type RecurringItem,
 } from '../api/endpoints';
-import type { DashboardRangeType, SavingsRateGateReason } from '../types';
+import type { DashboardRangeType, DashboardSummary, SavingsRateGateReason } from '../types';
 import { trackNavigation } from '../lib/trackNavigation';
 import { StatementRefreshBanner } from '../components/statementRefresh/StatementRefreshBanner';
 
@@ -204,6 +204,34 @@ const RANGE_TYPE_LABEL: Record<DashboardRangeType, string> = {
   LAST_24_MONTHS: 'Last 24 Months', CUSTOM: 'Custom',
 };
 
+// The picker's choices: the server's range presets plus THIS_MONTH, the default. THIS_MONTH is the
+// month the dashboard summary reports on -- the same month, and the same figures, as mobile's
+// dashboard cards -- so it reads `summary`, not the range endpoint. Web used to open on Last 6
+// Months while mobile opened on the month, and the two apps showed different numbers on their
+// first screen. The Cash Flow chart has nothing to show for one month, so under THIS_MONTH it keeps
+// the 6-month trend (CHART_RANGE_FOR_THIS_MONTH), the same default mobile's chart uses.
+type DashboardPeriod = DashboardRangeType | 'THIS_MONTH';
+const CHART_RANGE_FOR_THIS_MONTH: DashboardRangeType = 'LAST_6_MONTHS';
+
+// The "Why?" text for a month-over-month comparison the summary withheld (DashboardService's
+// priorMonthGateReason).
+function monthComparisonGateText(reason: DashboardSummary['comparisonGateReason'], minTransactions: number): string | null {
+  if (reason === 'PARTIAL_PRIOR_MONTH') {
+    return "The month before is only partly covered by your imported statements, so it wouldn't be a fair comparison.";
+  }
+  if (reason === 'TOO_FEW_PRIOR_TRANSACTIONS') {
+    return `The month before has fewer than ${minTransactions} transactions, too few to compare reliably.`;
+  }
+  return null;
+}
+
+// "2026-02" -> ["2026-02-01", "2026-02-28"], for linking a month's figures to the review page.
+function monthBounds(month: string): [string, string] {
+  const [y, m] = month.split('-').map(Number);
+  const lastDay = new Date(y, m, 0).getDate();
+  return [`${month}-01`, `${month}-${String(lastDay).padStart(2, '0')}`];
+}
+
 function monthLabel(monthStr: string) {
   const [y, m] = monthStr.split('-').map(Number);
   return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
@@ -234,7 +262,10 @@ export default function Dashboard() {
   const { fullName } = useAuth();
   const colors = useChartColors();
   const queryClient = useQueryClient();
-  const [dashboardRange, setDashboardRange] = useState<DashboardRangeType>('LAST_6_MONTHS');
+  const [dashboardPeriod, setDashboardPeriod] = useState<DashboardPeriod>('THIS_MONTH');
+  const isThisMonth = dashboardPeriod === 'THIS_MONTH';
+  // The range the Cash Flow chart (and, outside THIS_MONTH, the KPI cards) are fetched for.
+  const dashboardRange: DashboardRangeType = isThisMonth ? CHART_RANGE_FOR_THIS_MONTH : dashboardPeriod;
   // Only meaningful (and only sent to the server) when dashboardRange === 'CUSTOM' -- see the
   // range-picker UI below, which shows these two native date inputs only in that case.
   const [customStart, setCustomStart] = useState('');
@@ -460,9 +491,10 @@ export default function Dashboard() {
   // used to assert "this month" and "vs last month" over whichever month that happened to be, so a
   // user who hadn't yet imported August read July's figures as August's. The backend now says which
   // month it is reporting on; this stops guessing and renders it.
-  const periodLabel = summary.reportingMonthIsCurrent || !summary.reportingMonth
+  const periodIsCurrent = summary.reportingMonthIsCurrent || !summary.reportingMonth;
+  const periodLabel = periodIsCurrent
     ? 'this month'
-    : monthLabel(summary.reportingMonth);
+    : monthLabel(summary.reportingMonth!);
   const categoryEntries = Object.entries(summary.spendByCategory).sort((a, b) => b[1] - a[1]);
   const totalSpend = categoryEntries.reduce((s, [, v]) => s + v, 0);
   const donutColors = ['#3b82f6', '#16a34a', '#f59e0b', '#8b5cf6', '#ef4444', '#94a3b8'];
@@ -511,7 +543,44 @@ export default function Dashboard() {
       : RANGE_TYPE_LABEL[rangeSummary.rangeType]
     : '';
 
-  const kpis = rangeSummary ? [
+  // THIS_MONTH's cards: the summary's own month, labelled the way mobile labels it
+  // (useDashboardKpis) -- "This Month" only when that month is the current one, the month's name
+  // otherwise. A Net worth delta has no month-over-month figure in the summary, so none is shown.
+  const monthCardSuffix = periodIsCurrent ? 'This Month' : monthLabel(summary.reportingMonth!);
+  const monthDeltaLabel = periodIsCurrent ? 'vs last month' : `vs the month before ${monthLabel(summary.reportingMonth!)}`;
+  const monthGateReasonText = monthComparisonGateText(summary.comparisonGateReason, summary.comparisonGateMinTransactions);
+  const monthKpis = [
+    {
+      label: 'Net worth',
+      value: fmt(summary.netWorth),
+      caption: periodIsCurrent ? 'as of today' : `as of ${monthLabel(summary.reportingMonth!)}`,
+      delta: null as number | null, deltaLabel: '',
+      icon: Wallet, iconBg: 'bg-accent-blue-bg', iconColor: 'text-accent-blue', gateReasonText: null as string | null,
+    },
+    { label: `Income (${monthCardSuffix})`, value: fmt(summary.monthlyIncome), delta: summary.incomeDeltaPct, deltaLabel: monthDeltaLabel, icon: ArrowDownCircle, iconBg: 'bg-success-bg', iconColor: 'text-success', gateReasonText: monthGateReasonText },
+    { label: `Expenses (${monthCardSuffix})`, value: fmt(summary.monthlyExpense), delta: summary.expenseDeltaPct, deltaLabel: monthDeltaLabel, icon: ArrowUpCircle, iconBg: 'bg-danger-bg', iconColor: 'text-danger', invertDelta: true, gateReasonText: monthGateReasonText },
+    { label: `Net Savings (${monthCardSuffix})`, value: fmt(summary.netCashFlow), delta: summary.netDeltaPct, deltaLabel: monthDeltaLabel, icon: PiggyBank, iconBg: 'bg-primary-light', iconColor: 'text-primary', gateReasonText: monthGateReasonText },
+    {
+      label: `Savings Rate (${monthCardSuffix})`,
+      value: summary.savingsRatePct !== null ? summary.savingsRatePct.toFixed(0) + '%' : '—',
+      caption: summary.savingsRatePct === null ? savingsRateGateText(summary.savingsRateGateReason) : undefined,
+      delta: null as number | null, deltaLabel: monthDeltaLabel, icon: PieChart, iconBg: 'bg-accent-purple-bg', iconColor: 'text-accent-purple',
+    },
+  ];
+  // The money-in that is not counted as income, for whichever period the cards show.
+  const unresolved = isThisMonth
+    ? {
+        count: summary.unresolvedInflowCount, amount: summary.unresolvedInflow, topReason: summary.unresolvedTopReason,
+        bounds: summary.reportingMonth ? monthBounds(summary.reportingMonth) : null,
+      }
+    : rangeSummary
+      ? {
+          count: rangeSummary.unresolvedInflowCount, amount: rangeSummary.unresolvedInflow, topReason: rangeSummary.unresolvedTopReason,
+          bounds: [rangeSummary.startDate, rangeSummary.endDate] as [string, string],
+        }
+      : null;
+
+  const rangeKpis = rangeSummary ? [
     // Bug fix: fmt() coerces null to 0 (Math.abs(null) === 0 in JS), which would silently
     // re-fabricate the exact "₹0 instead of no data" bug DashboardRangeService.java's own doc
     // comment describes fixing on the backend. currentBalance must be null-checked here, not
@@ -549,6 +618,7 @@ export default function Dashboard() {
       delta: null as number | null, deltaLabel: rangeComparisonLabel, icon: PieChart, iconBg: 'bg-accent-purple-bg', iconColor: 'text-accent-purple',
     },
   ] : [];
+  const kpis = isThisMonth ? monthKpis : rangeKpis;
 
   return (
     <div>
@@ -649,8 +719,9 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* KPI cards -- driven by the unified range picker (dashboardRange), a separate query from
-          `summary` above (see rangeSummaryQ). Each card carries its OWN deltaLabel now: Balance
+      {/* KPI cards -- under THIS_MONTH (the default) straight from `summary`, the same figures
+          mobile shows; under a range preset or Custom, driven by the range picker, a separate
+          query from `summary` above (see rangeSummaryQ). Each card carries its OWN deltaLabel now: Balance
           compares an ending-balance snapshot ("vs previous period"), the other three compare
           summed totals over the same range length ("vs previous 6 months" / "vs previous N
           days" for a custom range) -- see DashboardRangeService's own doc comment for why the
@@ -660,9 +731,9 @@ export default function Dashboard() {
           the isError-or-no-data branch below and show "Couldn't load your KPI cards", a false
           error for a state where nothing has actually gone wrong. Checked first, and explicitly,
           rather than folded into the loading/error branches below. */}
-      {!isCustomRangeReady ? (
+      {!isThisMonth && !isCustomRangeReady ? (
         <p className="text-sm text-muted mb-6">Pick a start and end date to see your KPI cards.</p>
-      ) : rangeSummaryQ.isLoading ? (
+      ) : !isThisMonth && rangeSummaryQ.isLoading ? (
         showRangeSummarySkeleton && (
           <Skeleton.Region label="Loading KPI cards">
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
@@ -675,7 +746,7 @@ export default function Dashboard() {
             </div>
           </Skeleton.Region>
         )
-      ) : rangeSummaryQ.isError || !rangeSummary ? (
+      ) : !isThisMonth && (rangeSummaryQ.isError || !rangeSummary) ? (
         // Bug fix: a fixed string here didn't say WHY the request failed (network vs. a genuine
         // 400 from an invalid custom range, say) -- (e as any).response?.data?.message ?? fallback
         // is the same pattern Budgets.tsx/Billing.tsx already use for a failed mutation, applied
@@ -707,7 +778,7 @@ export default function Dashboard() {
             from a person, an unexplained credit on a card (see FlowClassifier on the backend).
             Without this line a user whose income drops because a parent's transfer stopped
             counting sees the number fall with no explanation. Links to the review page (Plan 2). */}
-        {rangeSummary.unresolvedInflowCount > 0 && (
+        {unresolved && unresolved.count > 0 && (
           <div
             className="bg-card border border-border rounded-xl2 px-5 py-3.5 flex items-start gap-2.5 mb-6"
             data-testid="unresolved-inflow-banner"
@@ -715,19 +786,21 @@ export default function Dashboard() {
             <Info size={16} className="text-muted flex-shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
               <p className="text-sm text-ink">
-                {rangeSummary.unresolvedInflowCount}{' '}
-                {rangeSummary.unresolvedInflowCount === 1 ? 'transaction needs' : 'transactions need'} classification
-                {' · '}{fmt(rangeSummary.unresolvedInflow)} not counted as income
+                {unresolved.count}{' '}
+                {unresolved.count === 1 ? 'transaction needs' : 'transactions need'} classification
+                {' · '}{fmt(unresolved.amount)} not counted as income
               </p>
-              {rangeSummary.unresolvedTopReason && UNRESOLVED_REASON_LINE[rangeSummary.unresolvedTopReason] && (
-                <p className="text-xs text-muted mt-0.5">{UNRESOLVED_REASON_LINE[rangeSummary.unresolvedTopReason]}</p>
+              {unresolved.topReason && UNRESOLVED_REASON_LINE[unresolved.topReason] && (
+                <p className="text-xs text-muted mt-0.5">{UNRESOLVED_REASON_LINE[unresolved.topReason]}</p>
               )}
-              <Link
-                to={`/app/money-review?start=${rangeSummary.startDate}&end=${rangeSummary.endDate}`}
-                className="text-xs text-primary font-medium mt-1 inline-block"
-              >
-                Review these payments
-              </Link>
+              {unresolved.bounds && (
+                <Link
+                  to={`/app/money-review?start=${unresolved.bounds[0]}&end=${unresolved.bounds[1]}`}
+                  className="text-xs text-primary font-medium mt-1 inline-block"
+                >
+                  Review these payments
+                </Link>
+              )}
             </div>
           </div>
         )}
@@ -1008,14 +1081,21 @@ export default function Dashboard() {
       <div className="grid lg:grid-cols-[1.6fr_1fr] gap-6 mb-6">
         <FinoraCard padding="lg">
           {/* Not SectionHeader -- the right side is a range filter, not a "View All" link. Same
-              dashboardRange control the KPI cards above use -- one picker for both. */}
+              control the KPI cards above use -- one picker for both (under THIS_MONTH the chart
+              keeps the 6-month trend; see DashboardPeriod). */}
           <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
             <h2 className="font-semibold text-ink">Cash Flow Overview</h2>
             <select
-              value={dashboardRange}
-              onChange={(e) => setDashboardRange(e.target.value as DashboardRangeType)}
+              value={dashboardPeriod}
+              onChange={(e) => setDashboardPeriod(e.target.value as DashboardPeriod)}
+              aria-label="Dashboard period"
               className="text-xs border border-border rounded-lg px-2.5 py-1.5 text-muted"
             >
+              {/* Named after the month the summary reports on: "This Month" only when it is the
+                  current one, so the option never claims a month the cards are not showing. */}
+              <option value="THIS_MONTH">
+                {periodIsCurrent ? 'This Month' : `Latest month (${monthLabel(summary.reportingMonth!)})`}
+              </option>
               <option value="LAST_3_MONTHS">Last 3 Months</option>
               <option value="LAST_6_MONTHS">Last 6 Months</option>
               <option value="LAST_12_MONTHS">Last 12 Months</option>

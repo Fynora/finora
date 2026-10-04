@@ -19,9 +19,14 @@ const LOGODEV_TOKEN = process.env.EXPO_PUBLIC_LOGODEV_TOKEN;
 // Same budget as web's MerchantLogo/BankLogo -- see those components' own comments for why.
 const LOGODEV_TIMEOUT_MS = 1500;
 
+/** The label the server gives every interest credit (backend CategoryRules.INTEREST_LABEL). It
+ *  names what the money is, not who paid it, so it is no brand to look up: a Logo.dev name search
+ *  returns whichever company matches the word best. Mirrors web's MerchantLogo. */
+export const INTEREST_LABEL = 'interest';
+
 export function logoDevUrl(merchant: string, sizePx: number, token: string | undefined): string | null {
   const name = merchant?.trim();
-  if (!token || !name) return null;
+  if (!token || !name || name.toLowerCase() === INTEREST_LABEL) return null;
   // https://www.logo.dev/docs/logo-images/get -- `name/` is the explicit identifier type for a
   // bare company name (unlike a domain, which needs no prefix).
   return `https://img.logo.dev/name/${encodeURIComponent(name)}?token=${token}&size=${sizePx}&format=png&fallback=404`;

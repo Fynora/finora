@@ -303,6 +303,32 @@ public final class CategoryRules {
         return null;
     }
 
+    /** The label {@link #extractMerchantLabel(String, com.finora.entity.Transaction.Type)} gives every interest
+     *  credit. The web and mobile MerchantLogo components hold a copy, so they never look it up on Logo.dev. */
+    public static final String INTEREST_LABEL = "interest";
+
+    /**
+     * {@link #extractMerchantLabel(String)} for a row whose direction is known -- the label stored on
+     * Transaction.merchant. The one difference: interest the bank credited
+     * ({@link BankActivityCategory#isInterestEarned}) is labelled {@link #INTEREST_LABEL}.
+     *
+     * <p>The narration of an interest credit carries the date it was earned for, and only
+     * references of four digits or more are stripped, so the day survived into the label: a bank
+     * that credits interest daily gave every row a label of its own, and a quarterly credit's label
+     * named the quarter's last day. Measured on the real corpus (2026-10-04): 9 interest credits
+     * across 8 statements carried 5 different labels, and one had lost the word "interest"
+     * altogether (only the first four words of a narration are kept).
+     *
+     * <p>Money in only: a debit worded the same way keeps the label it always had. Refund matching
+     * pairs a credit with a debit on the same account by this label, so ReconciliationService
+     * never takes a name match on an interest credit as evidence -- a debit narrated just
+     * "INTEREST" reduces to the same label.
+     */
+    public static String extractMerchantLabel(String desc, com.finora.entity.Transaction.Type direction) {
+        if (BankActivityCategory.isInterestEarned(desc, direction)) return INTEREST_LABEL;
+        return extractMerchantLabel(desc);
+    }
+
     /**
      * The payee field of a structured narration, or null when the narration is not structured or
      * its payee field names nobody. The same field {@link #extractMerchantLabel} shows; it is also

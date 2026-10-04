@@ -22,6 +22,12 @@ describe('logoDevUrl', () => {
   it('returns null for a blank merchant name', () => {
     expect(logoDevUrl('   ', 80, 'test-token')).toBeNull();
   });
+
+  it('never looks up the interest label, which names no company', () => {
+    expect(logoDevUrl('interest', 80, 'test-token')).toBeNull();
+    expect(logoDevUrl(' Interest ', 80, 'test-token')).toBeNull();
+    expect(logoDevUrl('interest paid till 31', 80, 'test-token')).not.toBeNull();
+  });
 });
 
 /**
@@ -88,6 +94,16 @@ describe('MerchantLogo fallback', () => {
     const { container } = render(<WithToken merchant="Sample Person" person />);
     expect(container.querySelector('img')).toBeNull();
     expect(screen.getByText('SP')).toBeTruthy();
+    vi.unstubAllEnvs();
+  });
+
+  it('shows initials for an interest credit and makes no request, even with a token configured', async () => {
+    vi.stubEnv('VITE_LOGODEV_TOKEN', 'test-token');
+    vi.resetModules();
+    const { MerchantLogo: WithToken } = await import('./MerchantLogo');
+    const { container } = render(<WithToken merchant="interest" />);
+    expect(container.querySelector('img')).toBeNull();
+    expect(screen.getByText('IN')).toBeTruthy();
     vi.unstubAllEnvs();
   });
 

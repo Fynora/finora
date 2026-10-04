@@ -295,7 +295,6 @@ public class TransactionService {
         t.setAccountId(account.getId());
         t.setTxnDate(req.date());
         t.setDescription(req.description());
-        t.setMerchant(CategoryRules.extractMerchantLabel(req.description()));
         // Who was on the other side -- a separate question from what the money was for, and one
         // the narration answers far more often (79.2% of the real corpus, against ~47% for
         // category). Deliberately ABOVE and outside the category decision further down: this is
@@ -307,6 +306,7 @@ public class TransactionService {
         requireAmountWithinBounds(req.amount());
         t.setAmount(req.amount());
         t.setTxnType(com.finora.util.EnumParsing.parse(Transaction.Type.class, req.type(), "type"));
+        t.setMerchant(CategoryRules.extractMerchantLabel(req.description(), t.getTxnType()));
         t.setTags(req.tags());
         t.setSource(Transaction.Source.MANUAL);
         t.setIdempotencyKey(idempotencyKey);

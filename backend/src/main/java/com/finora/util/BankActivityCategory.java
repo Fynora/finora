@@ -39,13 +39,16 @@ public final class BankActivityCategory {
     // every non-alphanumeric into a space ("Int.Pd:01-05" reads "int pd 01 05").
     // A change here that can move a row off "Other" or "Personal Transfer": raise
     // CategorizationService.SUGGESTION_VERSION so rows already waiting are re-checked.
-    private static final Pattern EARNED = words(
-            "cashback", "cash back",
-            // The bank's own interest credit, in each spelling measured. Never a bare "interest":
-            // a card's instalment-plan credit reads "... INSTALLMENTS INTEREST" and is not interest
-            // the bank paid you.
-            "interest paid", "credit interest", "interest credit", "int pd", "sb int", "int cr", "intcr",
-            "savings interest");
+    private static final Pattern CASHBACK = words("cashback", "cash back");
+    // The bank's own interest credit, in each spelling measured. Never a bare "interest": a card's
+    // instalment-plan credit reads "... INSTALLMENTS INTEREST" and is not interest the bank paid
+    // you. "interest cr": a small finance bank credits interest daily as "Interest Cr. for <date>",
+    // which none of the other spellings matched, so every one of those rows was "Other" (2026-10-04).
+    // V254 relabelled stored rows with this list as it stood then; a phrase added later applies to
+    // new rows only.
+    private static final Pattern INTEREST_EARNED = words(
+            "interest paid", "credit interest", "interest credit", "interest cr", "int pd", "sb int", "int cr",
+            "intcr", "savings interest");
     private static final Pattern CARD_BILL_RECEIVED = words("bbps");
     private static final Pattern CHARGED = words(
             "sms charges", "sms charge", "sms chrg", "sms alert", "emi interest", "interest on emi");
@@ -65,7 +68,9 @@ public final class BankActivityCategory {
         if (counterparty == CounterpartyType.PERSON) return Optional.empty();
         String text = CategoryRules.normalize(description);
         if (direction == Transaction.Type.INCOME) {
-            if (EARNED.matcher(text).find()) return Optional.of(INTEREST_AND_CASHBACK);
+            if (INTEREST_EARNED.matcher(text).find() || CASHBACK.matcher(text).find()) {
+                return Optional.of(INTEREST_AND_CASHBACK);
+            }
             if (CARD_BILL_RECEIVED.matcher(text).find()) return Optional.of("Transfer");
             return Optional.empty();
         }
@@ -76,6 +81,18 @@ public final class BankActivityCategory {
         if (GST.matcher(text).find()) return Optional.of("Taxes");
         if (counterparty == CounterpartyType.GOVERNMENT) return Optional.of("Taxes");
         return Optional.empty();
+    }
+
+    /**
+     * Whether the row is interest the bank credited to you: money in, worded as one of the bank's
+     * own interest credits, and not from a person. These are the interest rows {@link #of} files
+     * under {@link #INTEREST_AND_CASHBACK}, and the rows
+     * {@link CategoryRules#extractMerchantLabel(String, Transaction.Type)} gives a single label.
+     */
+    public static boolean isInterestEarned(String description, Transaction.Type direction) {
+        if (description == null || description.isBlank() || direction != Transaction.Type.INCOME) return false;
+        if (CounterpartyTyping.of(description).type() == CounterpartyType.PERSON) return false;
+        return INTEREST_EARNED.matcher(CategoryRules.normalize(description)).find();
     }
 
     /** Phrases are lowercase letters, digits and single spaces -- the alphabet normalize() leaves. */

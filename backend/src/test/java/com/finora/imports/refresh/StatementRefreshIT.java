@@ -408,6 +408,48 @@ class StatementRefreshIT extends AbstractIntegrationTest {
                 Integer.class, second.id())).as("recognised next time").isEqualTo(1);
     }
 
+    /** An interest credit is labelled "interest" on import, and again after a corrected narration or direction. */
+    @Test
+    void aCorrectedInterestCredit_isLabelledAsACleanImportLabelsIt() throws Exception {
+        byte[] dailyInterest = ("Date,Description,Amount,Type\n"
+                + "2026-07-01,Interest Cr. for 30-Jun-2026,12.34,CREDIT\n"
+                + "2026-07-02,Interest Cr. for 01-Jul-2026,12.35,CREDIT\n"
+                + "2026-07-03,SAMPLE CAFE,120.00,DEBIT\n").getBytes(StandardCharsets.UTF_8);
+        Imported i = importFile(dailyInterest, null, null, null);
+        assertThat(transactionRepository.findByStatementImportId(i.id()))
+                .extracting(Transaction::getDescription, Transaction::getMerchant)
+                .containsExactlyInAnyOrder(
+                        tuple("Interest Cr. for 30-Jun-2026", "interest"),
+                        tuple("Interest Cr. for 01-Jul-2026", "interest"),
+                        tuple("SAMPLE CAFE", "sample cafe"));
+
+        // How an older parser left them: one narration cut short, the other credit read as a debit,
+        // each carrying the label its reading gave.
+        UUID cutShort = row(i, "Interest Cr. for 30-Jun-2026").getId();
+        jdbcTemplate.update("UPDATE transactions SET description = 'Interest Cr. for 30-Jun', merchant = 'interest cr for 30' WHERE id = ?",
+                cutShort);
+        UUID misread = row(i, "Interest Cr. for 01-Jul-2026").getId();
+        jdbcTemplate.update("UPDATE transactions SET txn_type = 'EXPENSE', merchant = 'interest cr for 01' WHERE id = ?", misread);
+        moveBalance(i, "-24.70");
+
+        StatementRefreshOutcome outcome = refreshService.refresh(i.userId(), i.id(), null);
+
+        assertThat(outcome.status()).isEqualTo(StatementRefreshRun.Status.APPLIED);
+        // A corrected narration is a change to the row; a corrected direction is never matched to
+        // the old row (every matching pass keys on the direction), so it is read again as a new one.
+        assertThat(outcome.rowsChanged()).isEqualTo(1);
+        assertThat(outcome.rowsRemoved()).isEqualTo(1);
+        assertThat(outcome.rowsAdded()).isEqualTo(1);
+        Transaction narrationFixed = transactionRepository.findById(cutShort).orElseThrow();
+        assertThat(narrationFixed.getDescription()).isEqualTo("Interest Cr. for 30-Jun-2026");
+        assertThat(narrationFixed.getMerchant()).isEqualTo("interest");
+        Transaction directionFixed = row(i, "Interest Cr. for 01-Jul-2026");
+        assertThat(directionFixed.getId()).isNotEqualTo(misread);
+        assertThat(directionFixed.getTxnType()).isEqualTo(Transaction.Type.INCOME);
+        assertThat(directionFixed.getMerchant()).isEqualTo("interest");
+        assertThat(balance(i)).isEqualByComparingTo("-95.31");
+    }
+
     @Test
     void aSecondIdenticalRowOnTheSameStatement_isAdded_notMistakenForADuplicate() throws Exception {
         byte[] twoFares = ("Date,Description,Amount,Type\n"

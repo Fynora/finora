@@ -509,8 +509,12 @@ public class PdfMetadataExtractor {
     // all, unlike STATEMENT_PERIOD_IN_SENTENCE's AU-evidenced shape (which requires a
     // parenthesised range). Same "date-range immediately after a fixed phrase" idea as every
     // other pattern in this class, just a different fixed phrase and no parens to anchor on.
+    // "from" optional, as STATEMENT_PERIOD_ANYWHERE and STATEMENT_OF_ACCOUNT_PERIOD already allow: a
+    // real Union Bank of India statement prints "STATEMENT OF ACCOUNT FOR THE PERIOD FROM <date> TO
+    // <date>", which neither this pattern (no "from") nor STATEMENT_OF_ACCOUNT_PERIOD ("for the
+    // period" between) matched, so the statement staged with no period at all.
     private static final Pattern STATEMENT_PERIOD_PROSE = Pattern.compile(
-            "(?i)\\bfor\\s+the\\s+period\\s+("
+            "(?i)\\bfor\\s+the\\s+period\\s+(?:from\\s+)?("
                     + DATE_TOKEN_SRC + "\\s*(?:to|[-\u2013])\\s*" + DATE_TOKEN_SRC + ")");
 
     // FOR_PERIOD_LABELED. A real PNB ONE savings statement's own heading line reads "Statement
@@ -1600,6 +1604,13 @@ public class PdfMetadataExtractor {
      */
     static String leadingAccountToken(String captured) {
         if (captured == null) return null;
+        // The next field's own label ends the number however it is spaced: "1234 5678 9012 IFSC
+        // ..." is a grouped number followed by a field, and its first group alone is not the number.
+        Matcher nextField = NEXT_FIELD_LABEL.matcher(captured);
+        if (nextField.find() && nextField.start() > 0
+                && captured.substring(0, nextField.start()).replaceAll("\\D", "").length() >= 4) {
+            captured = captured.substring(0, nextField.start()).trim();
+        }
         String[] tokens = captured.trim().split("\\s+");
         if (tokens.length > 1 && tokens[0].matches("[0-9Xx*]{9,}")
                 && tokens[0].replaceAll("\\D", "").length() >= 4) {
@@ -1607,6 +1618,10 @@ public class PdfMetadataExtractor {
         }
         return captured;
     }
+
+    /** Labels of the fields statements print beside an account number on the same line. */
+    private static final Pattern NEXT_FIELD_LABEL = Pattern.compile(
+            "\\s(?i:IFSC|MICR|Branch|Customer\\s*ID|CIF|Account\\s*Type|Phone|E-?Mail)\\b");
 
     private String firstGroup(Pattern pattern, String line) {
         Matcher m = pattern.matcher(line);

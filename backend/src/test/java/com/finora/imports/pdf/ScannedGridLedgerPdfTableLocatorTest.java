@@ -90,6 +90,26 @@ class ScannedGridLedgerPdfTableLocatorTest {
         assertThat(capabilities(ctx)).contains("TABLE_TOTALS_SUMMARY_CLOSED");
     }
 
+    /** A "Total Debits &lt;amount&gt;" line with no closing balance after it -- the shape of another
+     *  bank's per-page subtotal -- must not close the table: every transaction after it still stages. */
+    @Test
+    void aTotalsLineWithNoClosingBalanceAfterItDoesNotCloseTheTable() {
+        List<PositionedText> runs = new ArrayList<>();
+        header(runs, 87.6f, 0, true);
+        transaction(runs, 104.9f, 0, "7", "UPIAR/000000000020/DR/SAMPLE", "SA/YESB/sample20@ybl",
+                "37.00", null, "0.99 Cr");
+        runs.add(run("Total Debits", 250.6f, 291.6f, 130.0f, 0));
+        runs.add(run("37.00", 346.8f, 369.1f, 130.0f, 0));
+        transaction(runs, 160.0f, 0, "8", "UPIAB/000000000021/CR/SAMPLE", "S/HDFC/sample21@ybl",
+                null, "50.00", "50.99 Cr");
+        DocumentContext ctx = new DocumentContext("PDF", "ScannedGridLedgerPdfTableLocatorTest");
+
+        List<Map<String, String>> rows = rows(runs, ctx);
+
+        assertThat(rows).extracting(r -> r.get("Deposit")).contains("50.00");
+        assertThat(capabilities(ctx)).doesNotContain("TABLE_TOTALS_SUMMARY_CLOSED");
+    }
+
     /** Mutation guard: any other label in the same place is still read as the last row's
      *  continuation, so the test above exercises the trigger, not the fixture's geometry. */
     @Test
@@ -121,11 +141,22 @@ class ScannedGridLedgerPdfTableLocatorTest {
     @Test
     void aBarePageNumberIsNeitherNarrationNorACostToTheNextPagesFirstLine() {
         DocumentContext ctx = new DocumentContext("PDF", "ScannedGridLedgerPdfTableLocatorTest");
-        List<Map<String, String>> rows = rows(twoPages("1of 10"), ctx);
+        // Page 1 of this two-page fixture, read the way OCR reads it.
+        List<Map<String, String>> rows = rows(twoPages("1of 2"), ctx);
 
         assertThat(rows).hasSize(3);
-        assertThat(String.join(" ", rows.get(1).values())).doesNotContain("of 10");
+        assertThat(String.join(" ", rows.get(1).values())).doesNotContain("of 2");
         assertThat(rows.get(2).get("Particulars")).startsWith("UPIAR/000000000005/DR/SAMPLE");
+    }
+
+    /** A bare "N of M" that is NOT this page's own number -- here a wrapped EMI narration's last
+     *  line, "3 of 6" on page 1 of 2 -- is narration, and stays with its transaction. */
+    @Test
+    void aBareNOfMThatIsNotThisPagesNumberStaysNarration() {
+        DocumentContext ctx = new DocumentContext("PDF", "ScannedGridLedgerPdfTableLocatorTest");
+        List<Map<String, String>> rows = rows(twoPages("3 of 6"), ctx);
+
+        assertThat(String.join(" ", rows.get(1).values())).contains("3 of 6");
     }
 
     // ---- The first transaction after "Opening Balance" -------------------------------------------
@@ -148,6 +179,69 @@ class ScannedGridLedgerPdfTableLocatorTest {
         assertThat(rows.get(1).get("Particulars")).startsWith("UPIAB/000000000006/CR/SAMPLE");
     }
 
+    // ---- A repeated header OCR re-read with one letter wrong, or one label lost -----------------
+
+    private static PositionedText ocr(String text, float x, float endX, float y, int page) {
+        return new PositionedText(text, x, y, page, endX - x, 6f, 0.9f, TextSource.OCR);
+    }
+
+    private static void ocrHeader(List<PositionedText> runs, float y, int page, String chequeLabel, boolean withDate) {
+        runs.add(ocr("Si", 32.2f, 38.6f, y, page));
+        if (withDate) runs.add(ocr("Date", 64.1f, 80.4f, y, page));
+        runs.add(ocr("Particulars", 143.5f, 180.7f, y, page));
+        runs.add(ocr(chequeLabel, 247.9f, 278.9f, y, page));
+        runs.add(ocr("Withdrawal", 317.3f, 357.8f, y, page));
+        runs.add(ocr("Deposit", 397.7f, 424.3f, y, page));
+        runs.add(ocr("Balance", 477.8f, 505.0f, y, page));
+    }
+
+    private static void ocrTransaction(List<PositionedText> runs, float y, int page, String si, String line1,
+                                       String line2, String withdrawal, String balance) {
+        runs.add(ocr(line1, 102.5f, 219.1f, y + LINE1, page));
+        runs.add(ocr(si, 30.0f, 42.0f, y, page));
+        runs.add(ocr("01-09-2026", 51.6f, 90.0f, y, page));
+        runs.add(ocr(withdrawal, 346.8f, 369.1f, y, page));
+        runs.add(ocr(balance, 499.0f, 530.4f, y, page));
+        runs.add(ocr(line2, 102.0f, 191.0f, y + LINE2, page));
+    }
+
+    private static List<PositionedText> threeOcrPages() {
+        List<PositionedText> runs = new ArrayList<>();
+        ocrHeader(runs, 299.8f, 0, "Chq Num", true);
+        ocrTransaction(runs, 335.8f, 0, "2", "UPIAR/000000000010/DR/SAMPLE", "XX/HDFC/sample10@hdf", "40.00", "500.97 Cr");
+        ocrHeader(runs, 87.6f, 1, "Chg Num", true);
+        ocrTransaction(runs, 106.1f, 1, "3", "UPIAR/000000000011/DR/SAMPLE", "XX/YESB/sample11@yb", "56.00", "444.97 Cr");
+        ocrHeader(runs, 87.6f, 2, "Chg Num", false);
+        ocrTransaction(runs, 104.9f, 2, "4", "UPIAR/000000000012/DR/SAMPLE", "XX/YESB/sample12@", "37.00", "407.97 Cr");
+        return runs;
+    }
+
+    @Test
+    void anOcrRereadOfTheHeaderIsStillTheSameTable() {
+        DocumentContext ctx = new DocumentContext("PDF", "ScannedGridLedgerPdfTableLocatorTest");
+        PdfTableLocator.LocatedDocument doc = new PdfTableLocator().locateAll(threeOcrPages(), ctx);
+
+        assertThat(doc.sections()).hasSize(1);
+        List<Map<String, String>> rows = doc.sections().get(0).rows();
+        assertThat(rows).hasSize(3);
+        // The page whose header lost "Date" keeps its transaction's first narration line.
+        assertThat(rows.get(2).get("Particulars")).startsWith("UPIAR/000000000012/DR/SAMPLE");
+        assertThat(capabilities(ctx)).contains("OCR_REPEATED_HEADER_TOLERATED");
+    }
+
+    /** Mutation guard: the same header text read natively is exact-matched as before, so the
+     *  misread page still opens a section of its own -- the tolerance is OCR's alone. */
+    @Test
+    void nativeTextGetsNoTolerance() {
+        List<PositionedText> nativeRuns = threeOcrPages().stream()
+                .map(t -> new PositionedText(t.text(), t.x(), t.y(), t.pageIndex(), t.width()))
+                .toList();
+        DocumentContext ctx = new DocumentContext("PDF", "ScannedGridLedgerPdfTableLocatorTest");
+
+        assertThat(new PdfTableLocator().locateAll(nativeRuns, ctx).sections()).hasSizeGreaterThan(1);
+        assertThat(capabilities(ctx)).doesNotContain("OCR_REPEATED_HEADER_TOLERATED");
+    }
+
     // ---- The next page's letterhead, above a header OCR could not read whole ---------------------
 
     @Test
@@ -156,7 +250,7 @@ class ScannedGridLedgerPdfTableLocatorTest {
         header(runs, 299.8f, 0, true);
         transaction(runs, 724.1f, 0, "9", "UPIAR/000000000008/DR/SAMPLE", "XX/YESB/sample8@",
                 "15.00", null, "37.99 Cr");
-        runs.add(run("9 of 10", 493.4f, 517.7f, 751.9f, 0));
+        runs.add(run("1 of 2", 493.4f, 517.7f, 751.9f, 0));
         runs.add(run("A Government of India Undertaking", 313.9f, 370.3f, 48.0f, 1));
         // OCR dropped "Date" from this page's header, so it is not recognised as a repeat.
         header(runs, 87.6f, 1, false);

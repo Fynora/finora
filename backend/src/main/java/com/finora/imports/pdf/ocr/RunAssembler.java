@@ -78,6 +78,23 @@ public final class RunAssembler {
      */
     static final float JOIN_WITHIN = 0.85f;
 
+    /**
+     * A run more than this many times the document's median run height is placed by its BASELINE,
+     * not by vertical overlap.
+     *
+     * <p>Measured on a phone-scanned Union Bank of India statement through the production engine: OCR
+     * boxed a wrapped narration's tail ("…@" on one line, "pty" just below) and a table-border
+     * fragment ("|") as single runs 11.5-12.2pt tall against a median near 5.5pt. Grouped by
+     * overlap, each joined the transaction's date line above it -- the first line it overlapped --
+     * and {@link #snapToLineBaseline} then moved that whole date line down to the tall run's
+     * baseline, onto the narration line below. Four transactions' first narration lines were read
+     * as the previous transaction's, because their own date line now sat further from them. A tall
+     * run's baseline is still exact (it is where its ink ends), so it is placed with the line that
+     * shares that baseline. Ordinary text on that statement stays under 1.6x the median (headers,
+     * descender-heavy narration), so 1.8x leaves it untouched.
+     */
+    static final float TALL_RUN = 1.8f;
+
     /** Fraction of the shorter run's height that two runs must share vertically to be one line. */
     private static final float SAME_LINE_OVERLAP = 0.5f;
 
@@ -88,10 +105,11 @@ public final class RunAssembler {
 
         Map<Integer, List<RecognisedText>> byPage = new LinkedHashMap<>();
         for (RecognisedText r : runs) byPage.computeIfAbsent(r.pageIndex(), p -> new ArrayList<>()).add(r);
+        float median = medianHeight(runs);
         List<List<RecognisedText>> allLines = new ArrayList<>();
-        for (List<RecognisedText> page : byPage.values()) allLines.addAll(lines(page));
+        for (List<RecognisedText> page : byPage.values()) allLines.addAll(lines(page, median));
 
-        float join = JOIN_WITHIN * medianHeight(runs);
+        float join = JOIN_WITHIN * median;
 
         List<RecognisedText> assembled = new ArrayList<>();
         for (List<RecognisedText> line : allLines) assembled.addAll(joinAlong(snapToLineBaseline(line), join));
@@ -148,17 +166,42 @@ public final class RunAssembler {
      * reasons that have nothing to do with the page. Overlap asks the question directly: two runs
      * printed side by side share most of their vertical extent whatever their ascenders do.
      */
-    private static List<List<RecognisedText>> lines(List<RecognisedText> page) {
+    private static List<List<RecognisedText>> lines(List<RecognisedText> page, float medianHeight) {
         List<RecognisedText> byY = new ArrayList<>(page);
         byY.sort(Comparator.comparing(RecognisedText::y));
 
         List<List<RecognisedText>> lines = new ArrayList<>();
+        List<RecognisedText> tall = new ArrayList<>();
         for (RecognisedText r : byY) {
+            if (r.height() > TALL_RUN * medianHeight) {
+                // A tall run of nothing but vertical bars is a fragment of the table's ruling, not
+                // text: measured on the same scan, it landed in a narration as a stray "|".
+                if (!r.text().strip().matches("[|¦]+")) tall.add(r);
+                continue;
+            }
             List<RecognisedText> home = null;
             for (List<RecognisedText> line : lines) {
                 if (overlapsVertically(line.get(0), r)) {
                     home = line;
                     break;
+                }
+            }
+            if (home == null) {
+                home = new ArrayList<>();
+                lines.add(home);
+            }
+            home.add(r);
+        }
+        // A tall run joins the line whose baseline is nearest its own -- see TALL_RUN -- or stands
+        // as a line of its own when none is within a median text height of it.
+        for (RecognisedText r : tall) {
+            List<RecognisedText> home = null;
+            float nearest = medianHeight;
+            for (List<RecognisedText> line : lines) {
+                float distance = Math.abs(line.get(0).y() - r.y());
+                if (distance <= nearest) {
+                    nearest = distance;
+                    home = line;
                 }
             }
             if (home == null) {

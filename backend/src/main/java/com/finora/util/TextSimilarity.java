@@ -26,6 +26,12 @@ public final class TextSimilarity {
         return 1.0 - (double) levenshteinDistance(a, b) / maxLen;
     }
 
+    /** Raw Levenshtein distance -- the number of single-character edits between {@code a} and
+     *  {@code b}. For a caller whose tolerance is a count of OCR misreads rather than a ratio. */
+    public static int editDistance(String a, String b) {
+        return levenshteinDistance(a, b);
+    }
+
     private static int levenshteinDistance(String a, String b) {
         int[] previousRow = new int[b.length() + 1];
         int[] currentRow = new int[b.length() + 1];

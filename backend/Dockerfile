@@ -36,6 +36,21 @@ WORKDIR /app
 # English into the base install.
 RUN apk add --no-cache tesseract-ocr tesseract-ocr-data-eng
 
+# The English model OCR was evaluated and tuned against: tessdata_fast 4.1.0, pinned by checksum.
+# Alpine's tesseract-ocr-data-eng ships the larger standard model instead, and every OCR measurement
+# in this repo -- the engine evaluation, the sparse-retry thresholds in TesseractEngine, the scanned
+# statement fixtures -- was taken on the fast one (Homebrew's default). Measured through the real
+# pipeline with this image's own engine (5.5.2), on a phone-scanned Union Bank of India statement:
+# the package's model read 9 as 8 in over a hundred dates, 2026 as 2006, mangled the letterhead into
+# another bank's name and dropped the "IFSC" label; with this model the same engine staged all 289
+# transactions with every date in period, identical to the evaluated local run. On the HSBC scan in
+# the corpus the package's model also inserted a stray digit into every UPI reference; this one did
+# not. The package stays installed for its configs; only the model file is replaced.
+RUN wget -q -O /usr/share/tessdata/eng.traineddata \
+        https://github.com/tesseract-ocr/tessdata_fast/raw/4.1.0/eng.traineddata \
+    && echo "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2  /usr/share/tessdata/eng.traineddata" \
+        | sha256sum -c -
+
 # Which commit this image was built from, surfaced by Platform Diagnostics.
 #
 # git-commit-id-maven-plugin cannot supply it here: it reads a .git directory at build time, and

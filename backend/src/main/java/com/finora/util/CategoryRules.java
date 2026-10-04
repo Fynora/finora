@@ -75,7 +75,7 @@ public final class CategoryRules {
         // a name, so it typed PERSON and fell to "Personal Transfer" on 7 corpus rows across 4
         // documents and 2 accounts, in both the HDFC and the slash UPI layout. The whole phrase, as
         // with the other brands here -- a bare "tea" names a drink, not a business.
-        RULES.put("Dining", List.of("swiggy", "zomato", "restaurant", "cafe", "starbucks", "dominos", "mcdonald", "kfc", "cinnabon", "gokhana", "tobox", "chinese factory", "cream house", "lassi wassi", "tea post"));
+        RULES.put("Dining", List.of("swiggy", "zomato", "eatclub", "restaurant", "cafe", "starbucks", "dominos", "mcdonald", "kfc", "cinnabon", "gokhana", "tobox", "chinese factory", "cream house", "lassi wassi", "tea post"));
         // "indian railways" (the national railway institution, named directly rather than
         // through its "irctc" booking portal already above) added after re-checking this
         // project's own real bank-statement corpus for additional vocabulary beyond the
@@ -370,6 +370,12 @@ public final class CategoryRules {
     /** An IFSC, matched from the start of a field with its spaces removed: a line wrap can split it
      *  ("U TIB0...", "IOB A0001 ...") and an account number can follow it. */
     private static final Pattern IFSC_FIELD = Pattern.compile("(?i)^[a-z]{4}0[a-z0-9]{6}");
+    /** A field that is only the money's direction, spelt out: the real slice small finance bank
+     *  layout, "UPI-Debit-REF-NAME-IFSC-HANDLE-NOTE" (and "UPI-Credit-..."). Read as a name, it
+     *  labelled every UPI row on that statement "debit" or "credit". Only the WHOLE field: a payee
+     *  whose name merely starts with one of these words keeps it. Measured on the corpus: the slice
+     *  statement is the only one printing either word as a field of its own. */
+    private static final Pattern DIRECTION_FIELD = Pattern.compile("(?i)debit|credit");
     /** A code mixing letters and digits with no space in it: a transaction or merchant ID. */
     private static final Pattern CODE_FIELD = Pattern.compile("^(?=.*\\d)(?=.*[A-Za-z])\\S{6,}$");
 
@@ -392,6 +398,7 @@ public final class CategoryRules {
         for (int i = 1; i < fields.length; i++) {
             String field = fields[i].trim();
             if (field.isEmpty()) continue;
+            if (DIRECTION_FIELD.matcher(field).matches()) continue;
             if (field.contains("@")) {
                 // The payee is printed before the handle in almost every corpus layout; what follows
                 // is a note, a bank or an IFSC, often cut off or split by a line wrap ("UP", "IOB

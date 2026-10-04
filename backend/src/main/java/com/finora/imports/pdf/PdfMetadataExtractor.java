@@ -274,8 +274,10 @@ public class PdfMetadataExtractor {
     // same family as) purely because Java requires the referenced constant to already be declared.
     // Unanchored (find(), not matches()) since "for the period ..." always trails the value on the
     // same line -- same shape STATEMENT_OF_ACCOUNT_SAME_LINE already uses for PNB's own wording.
+    // "No"/"Number" optional after "A/c": a real slice small finance bank statement labels the field
+    // "A/C number", mid-line after the phone number, and staged with no account number at all.
     private static final Pattern A_C_ACCOUNT_NUMBER_SAME_LINE =
-            Pattern.compile("(?i)\\bA/c\\s*:?\\s*(" + CARD_NUMBER_VALUE_SRC + ")\\b");
+            Pattern.compile("(?i)\\bA/c(?:\\s*(?:no\\.?|number))?\\s*:?\\s*(" + CARD_NUMBER_VALUE_SRC + ")\\b");
 
     // CARDHOLDER_FOR_BANNER: a real IndusInd Bank (CRED RuPay) credit-card statement names its
     // cardholder and masked card in the banner that opens each of its two ledger sub-tables --
@@ -476,8 +478,16 @@ public class PdfMetadataExtractor {
     // pre-table lines -- both real HSBC credit-card statements print the billing cycle on the
     // address block's line, unlabelled. A last resort, applied only when no labelled period was
     // found on the whole document, and only when both halves parse and the range runs forward.
+    //
+    // A spaced hyphen separates the halves too, as PERIOD_SEPARATOR already accepts for AU: a real
+    // slice small finance bank statement prints its period alone at the top of each page as
+    // "01 Sep '26 - 30 Sep '26" -- matched with the year's apostrophe dropped (see
+    // APOSTROPHE_YEAR), since no date token here accepts it.
     private static final Pattern UNLABELLED_DATE_RANGE = Pattern.compile(
-            "(" + DATE_TOKEN_SRC + ")\\s+(?i:to)\\s+(" + DATE_TOKEN_SRC + ")");
+            "(" + DATE_TOKEN_SRC + ")\\s+(?:(?i:to)|[-–])\\s+(" + DATE_TOKEN_SRC + ")");
+
+    /** An apostrophe standing in for a year's century ("'26"), right after a month name. */
+    private static final Pattern APOSTROPHE_YEAR = Pattern.compile("(?<=[A-Za-z]\\s)['‘’](?=\\d{2}\\b)");
     private static final int UNLABELLED_DATE_RANGE_SEARCH_WINDOW = 8;
 
     // UNLABELLED_MASKED_CARD_NUMBER: "48xx xxxx xxxx 6048" -- both real HSBC credit-card statements
@@ -1479,7 +1489,8 @@ public class PdfMetadataExtractor {
 
         if (periodStart == null && periodEnd == null) {
             for (int i = 0; i < Math.min(preTableLines.size(), UNLABELLED_DATE_RANGE_SEARCH_WINDOW); i++) {
-                Matcher range = UNLABELLED_DATE_RANGE.matcher(preTableLines.get(i));
+                Matcher range = UNLABELLED_DATE_RANGE.matcher(
+                        APOSTROPHE_YEAR.matcher(preTableLines.get(i)).replaceAll(""));
                 if (!range.find()) continue;
                 LocalDate start = parsePeriodDate(range.group(1).trim());
                 LocalDate end = parsePeriodDate(range.group(2).trim());

@@ -126,6 +126,10 @@ class CapabilityCorpusCoverageTest {
     private static final Map<String, String> DECLARED_WITHOUT_A_TRACE = new LinkedHashMap<>();
     static {
         DECLARED_WITHOUT_A_TRACE.put("RUNNING_BALANCE", "no trace");
+        DECLARED_WITHOUT_A_TRACE.put("NARRATION_WRAP_JOINED_AT_KNOWN_MERCHANT",
+                "no trace can exercise it -- committed traces mask every letter, so no brand name survives "
+                        + "in one. Measured instead on the real corpus (the two Canara rows it exists for, and "
+                        + "nothing else changed) and by NarrationLineBreaksTest.");
         DECLARED_WITHOUT_A_TRACE.put("DR_CR_SUFFIX", "no trace");
         DECLARED_WITHOUT_A_TRACE.put("DATE_TIME_COLUMN", "no trace");
         DECLARED_WITHOUT_A_TRACE.put("CREDIT_CARD_SUMMARY_SIGNAL", "no trace");
@@ -302,6 +306,14 @@ class CapabilityCorpusCoverageTest {
         DECLARED_WITHOUT_A_TRACE.put("TABLE_TOTALS_SUMMARY_CLOSED",
                 "no trace -- the evidencing document is a customer's scanned statement, never captured. "
                         + "Covered by ScannedGridLedgerPdfTableLocatorTest (mutation-checked)." + realCorpusVerified);
+        DECLARED_WITHOUT_A_TRACE.put("SIGNED_AMOUNT_COLUMN",
+                "no trace CAN cover it: it fires in PdfPreviewGenerator, never in PdfTableLocator.locateAll, "
+                        + "and the evidencing slice statement is a customer's, never captured. Covered by "
+                        + "SignedAmountColumnTest (mutation-checked)." + realCorpusVerified);
+        DECLARED_WITHOUT_A_TRACE.put("REPEATED_PERIOD_BANNER_DIVERTED",
+                "no trace -- the evidencing slice statement is a customer's, never captured. Covered by "
+                        + "SignedAmountLedgerPdfPreviewGeneratorTest and PageBannerPdfTableLocatorTest "
+                        + "(mutation-checked)." + realCorpusVerified);
         DECLARED_WITHOUT_A_TRACE.put("OCR_REPEATED_HEADER_TOLERATED",
                 "no trace -- fires only on OCR text, and the evidencing document is a customer's scanned "
                         + "statement, never captured. Covered by ScannedGridLedgerPdfTableLocatorTest "

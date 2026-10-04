@@ -397,8 +397,22 @@ public class CsvParser {
         // nothing else. Defensive coverage, not tied to a specific reproduced document -- see
         // ORDINAL_DAY_SUFFIX's own comment above.
         String deOrdinalized = stripOrdinalDaySuffix(withoutTime);
-        return deOrdinalized.equals(withoutTime) ? null : tryEveryFormat(deOrdinalized);
+        if (!deOrdinalized.equals(withoutTime)) {
+            parsed = tryEveryFormat(deOrdinalized);
+            if (parsed != null) return parsed;
+        }
+
+        // Third retry, same discipline: an apostrophe-abbreviated year. A real slice small finance
+        // bank savings statement prints every date as "15 Sep '26"; no format accepts the
+        // apostrophe, so no row ever anchored and the whole ledger staged as nothing. Dropping it
+        // leaves "15 Sep 26", which "dd MMM yy" already reads -- and only when the apostrophe sits
+        // directly before a final two-digit year, so nothing else in a cell is touched.
+        String unabbreviatedYear = APOSTROPHE_TWO_DIGIT_YEAR.matcher(withoutTime).replaceFirst("$1");
+        return unabbreviatedYear.equals(withoutTime) ? null : tryEveryFormat(unabbreviatedYear);
     }
+
+    private static final java.util.regex.Pattern APOSTROPHE_TWO_DIGIT_YEAR =
+            java.util.regex.Pattern.compile("(?<=\\s)['\u2018\u2019](\\d{2})\\s*$");
 
     /**
      * Strips a trailing ordinal day suffix ("04th" -> "04", "2nd" -> "02"), zero-padding a

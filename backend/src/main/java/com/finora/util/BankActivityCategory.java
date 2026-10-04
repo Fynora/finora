@@ -68,7 +68,7 @@ public final class BankActivityCategory {
         if (counterparty == CounterpartyType.PERSON) return Optional.empty();
         String text = CategoryRules.normalize(description);
         if (direction == Transaction.Type.INCOME) {
-            if (INTEREST_EARNED.matcher(text).find() || CASHBACK.matcher(text).find()) {
+            if (namesInterestEarned(text, description) || CASHBACK.matcher(text).find()) {
                 return Optional.of(INTEREST_AND_CASHBACK);
             }
             if (CARD_BILL_RECEIVED.matcher(text).find()) return Optional.of("Transfer");
@@ -85,14 +85,27 @@ public final class BankActivityCategory {
 
     /**
      * Whether the row is interest the bank credited to you: money in, worded as one of the bank's
-     * own interest credits, and not from a person. These are the interest rows {@link #of} files
-     * under {@link #INTEREST_AND_CASHBACK}, and the rows
-     * {@link CategoryRules#extractMerchantLabel(String, Transaction.Type)} gives a single label.
+     * own interest credits, not a refund or reversal, and not from a person. These are the interest
+     * rows {@link #of} files under {@link #INTEREST_AND_CASHBACK}.
      */
     public static boolean isInterestEarned(String description, Transaction.Type direction) {
         if (description == null || description.isBlank() || direction != Transaction.Type.INCOME) return false;
         if (CounterpartyTyping.of(description).type() == CounterpartyType.PERSON) return false;
-        return INTEREST_EARNED.matcher(CategoryRules.normalize(description)).find();
+        return namesInterestEarned(CategoryRules.normalize(description), description);
+    }
+
+    /** Whether {@code text} -- a narration, or a field of one -- reads as one of the bank's interest credits. */
+    static boolean namesInterest(String text) {
+        return text != null && INTEREST_EARNED.matcher(CategoryRules.normalize(text)).find();
+    }
+
+    /**
+     * An interest phrase, and no refund or reversal word: interest charged and then refunded or
+     * reversed ("INTEREST CR REVERSAL") is money coming back, which FlowClassifier already reads
+     * ahead of interest -- it is not interest earned.
+     */
+    private static boolean namesInterestEarned(String normalized, String description) {
+        return INTEREST_EARNED.matcher(normalized).find() && !MoneyBackWords.readsAsMoneyBack(description);
     }
 
     /** Phrases are lowercase letters, digits and single spaces -- the alphabet normalize() leaves. */

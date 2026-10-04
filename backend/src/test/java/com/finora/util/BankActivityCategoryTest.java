@@ -57,6 +57,19 @@ class BankActivityCategoryTest {
         assertThat(of("SAMPLE STORE 2ND OF 3 INSTALLMENTS INTEREST", INCOME)).isNull();
     }
 
+    /** Interest charged and then refunded or reversed comes back; it was not earned. FlowClassifier
+     *  reads these as a reversal or a refund ahead of interest, and so does this. */
+    @Test
+    void aRefundOrReversalOfInterest_isNotInterestEarned() {
+        for (String description : new String[]{"INTEREST CR REVERSAL", "INTEREST REFUND CR", "INT CR REVERS",
+                "INTEREST PAID - PAYMENT REVERSED"}) {
+            assertThat(of(description, INCOME)).as(description).isNull();
+            assertThat(BankActivityCategory.isInterestEarned(description, INCOME)).as(description).isFalse();
+        }
+        // "REVERSE SWEEP" is a deposit coming back, not a reversal: FlowClassifier's own reading.
+        assertThat(BankActivityCategory.isInterestEarned("INT CR REVERSE SWEEP", INCOME)).isTrue();
+    }
+
     @Test
     void theSameWordsOnMoneyLeaving_areNotMoneyEarned() {
         assertThat(of("CASHBACK EARNED", EXPENSE)).isNull();

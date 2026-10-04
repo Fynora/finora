@@ -88,6 +88,30 @@ class CategoryRulesTest {
                 .isEqualTo("interest");
     }
 
+    /** Interest from a named lender or another bank is told apart by who paid it, not by the word "interest". */
+    @Test
+    void extractMerchantLabel_keepsThePayersName_whenTheNarrationNamesOne() {
+        assertThat(CategoryRules.extractMerchantLabel("NEFT CR-YESB0000000-SAMPLE FINANCE LTD-INTEREST PAID",
+                Transaction.Type.INCOME)).isEqualTo("sample finance ltd");
+        assertThat(CategoryRules.extractMerchantLabel("UPI/CR/000000000000/SAMPLE CAPITAL/samplecap@ybl/interest paid",
+                Transaction.Type.INCOME)).isEqualTo("sample capital");
+        // A payee field that is the interest phrase itself names nobody.
+        assertThat(CategoryRules.extractMerchantLabel("MMT/IMPS/000000000000/INTEREST PAID/SAMPLE NBFC",
+                Transaction.Type.INCOME)).isEqualTo("interest");
+        // A payee field with no name in it (a phone-number UPI id) names nobody either.
+        assertThat(CategoryRules.extractMerchantLabel("UPI/CR/000000000000/0000000000@ybl/interest paid",
+                Transaction.Type.INCOME)).isEqualTo("interest");
+    }
+
+    /** Interest charged and then refunded or reversed is money coming back, not interest earned. */
+    @Test
+    void extractMerchantLabel_aRefundOrReversalOfInterest_keepsItsOwnLabel() {
+        for (String description : new String[]{"INTEREST CR REVERSAL", "INTEREST REFUND CR", "INT CR REVERS"}) {
+            assertThat(CategoryRules.extractMerchantLabel(description, Transaction.Type.INCOME))
+                    .as(description).isEqualTo(CategoryRules.extractMerchantLabel(description));
+        }
+    }
+
     /** A debit keeps its own label, so refund matching never reads an interest credit as its refund. */
     @Test
     void extractMerchantLabel_leavesEveryOtherRowAsTheDirectionlessLabelHasIt() {

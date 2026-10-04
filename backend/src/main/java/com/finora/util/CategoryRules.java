@@ -310,7 +310,8 @@ public final class CategoryRules {
     /**
      * {@link #extractMerchantLabel(String)} for a row whose direction is known -- the label stored on
      * Transaction.merchant. The one difference: interest the bank credited
-     * ({@link BankActivityCategory#isInterestEarned}) is labelled {@link #INTEREST_LABEL}.
+     * ({@link BankActivityCategory#isInterestEarned}) is labelled {@link #INTEREST_LABEL}, unless the
+     * narration names who paid it.
      *
      * <p>The narration of an interest credit carries the date it was earned for, and only
      * references of four digits or more are stripped, so the day survived into the label: a bank
@@ -319,13 +320,21 @@ public final class CategoryRules {
      * across 8 statements carried 5 different labels, and one had lost the word "interest"
      * altogether (only the first four words of a narration are kept).
      *
+     * <p>A structured narration whose payee field names someone ("NEFT CR-&lt;IFSC&gt;-&lt;LENDER&gt;-INTEREST
+     * PAID") keeps that name: interest from a lender or another bank's deposit is told apart from
+     * the account's own by who paid it, and the name carries no date. A payee field that is itself
+     * the interest phrase names nobody, and gets the one label.
+     *
      * <p>Money in only: a debit worded the same way keeps the label it always had. Refund matching
      * pairs a credit with a debit on the same account by this label, so ReconciliationService
      * never takes a name match on an interest credit as evidence -- a debit narrated just
      * "INTEREST" reduces to the same label.
      */
     public static String extractMerchantLabel(String desc, com.finora.entity.Transaction.Type direction) {
-        if (BankActivityCategory.isInterestEarned(desc, direction)) return INTEREST_LABEL;
+        if (BankActivityCategory.isInterestEarned(desc, direction)) {
+            String payee = structuredPayee(desc);
+            if (payee == null || BankActivityCategory.namesInterest(payee)) return INTEREST_LABEL;
+        }
         return extractMerchantLabel(desc);
     }
 

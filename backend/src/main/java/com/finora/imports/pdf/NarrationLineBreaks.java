@@ -518,7 +518,6 @@ final class NarrationLineBreaks {
             Map<String, List<Integer>> lengths = new java.util.HashMap<>();
             for (List<String> cell : cells) {
                 StringBuilder text = new StringBuilder();
-                boolean undecidedInField = false;
                 int slashes = 0;
                 String head = headOf(cell);
                 if (head == null) continue;

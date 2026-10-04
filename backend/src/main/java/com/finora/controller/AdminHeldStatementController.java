@@ -4,6 +4,7 @@ import com.finora.dto.ApiResponse;
 import com.finora.dto.HeldStatementDetailDto;
 import com.finora.dto.HeldStatementDto;
 import com.finora.dto.HeldStatementRerunResultDto;
+import com.finora.dto.HoldWithoutReviewRecordDto;
 import com.finora.dto.PagedResponse;
 import com.finora.entity.HeldStatement;
 import com.finora.dto.HeldStatementDetailDto;
@@ -73,6 +74,23 @@ public class AdminHeldStatementController {
         return ApiResponse.ok(resolved
                 ? heldStatementService.listResolved(page, size, filter)
                 : heldStatementService.list(page, size, filter));
+    }
+
+    /** Imports held for trust review with no review record -- the worker's fail-closed hold when
+     *  it could not write one. Literal path, so it takes precedence over {@code /{heldId}}. Same
+     *  no-content rule as {@link #list}, so browsing is not audited either. */
+    @GetMapping("/without-review-record")
+    public ApiResponse<PagedResponse<HoldWithoutReviewRecordDto>> listWithoutReviewRecord(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "25") int size) {
+        return ApiResponse.ok(heldStatementService.listHoldsWithoutReviewRecord(page, size));
+    }
+
+    /** Writes the missing review record, after which the import is an ordinary held statement --
+     *  released or rejected from the queue with its evidence, like any other. Audited. */
+    @PostMapping("/without-review-record/{jobId}/open-review")
+    public ApiResponse<HeldStatementDto> openReview(@PathVariable UUID jobId) {
+        return ApiResponse.ok(heldStatementService.openReviewForHoldWithoutRecord(currentUser.id(), jobId));
     }
 
     /** The evidence behind the trigger, the extraction snapshot, and the audit timeline. Still no

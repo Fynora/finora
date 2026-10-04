@@ -763,6 +763,60 @@ class ImportJobTest {
 
     private static final UUID SESSION = UUID.randomUUID();
 
+    /** The worker's fail-closed hold gets its review record later, from an operator; the job
+     *  otherwise stays exactly as held -- same status, same staged session. */
+    @Test
+    void attachReviewRecord_givesAHoldWithoutARecordItsReview() {
+        ImportJob job = job();
+        job.markClaimed("worker", Instant.now());
+        job.holdForTrustReview(SESSION, null, Instant.now());
+        UUID record = UUID.randomUUID();
+
+        job.attachReviewRecord(record);
+
+        assertThat(job.getHeldStatementId()).isEqualTo(record);
+        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_TRUST_REVIEW);
+        assertThat(job.getImportSessionId()).isEqualTo(SESSION);
+        assertThat(job.ownsItsDocument()).as("now a reviewable hold, a re-upload follows it").isTrue();
+    }
+
+    /** Never replaces a record, and never revives a job that is no longer held. */
+    @Test
+    void attachReviewRecord_refusesAJobThatHasOneOrIsNotHeld() {
+        ImportJob alreadyRecorded = trustHeldJob();
+        assertThatThrownBy(() -> alreadyRecorded.attachReviewRecord(UUID.randomUUID()))
+                .isInstanceOf(IllegalStateException.class);
+
+        ImportJob released = job();
+        released.markClaimed("worker", Instant.now());
+        released.holdForTrustReview(SESSION, null, Instant.now());
+        released.releaseAfterTrustReview(Instant.now());
+        assertThatThrownBy(() -> released.attachReviewRecord(UUID.randomUUID()))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(released.getHeldStatementId()).isNull();
+    }
+
+    /** {@link ImportJob#ownsItsDocument}: a held job without a review record lets a re-upload
+     *  through; with one, or while in flight, it does not; once finished, nothing owns it. */
+    @Test
+    void ownsItsDocument_followsTheReviewNotJustTheStatus() {
+        ImportJob withoutRecord = job();
+        withoutRecord.markClaimed("worker", Instant.now());
+        withoutRecord.holdForTrustReview(SESSION, null, Instant.now());
+        assertThat(withoutRecord.ownsItsDocument()).isFalse();
+
+        assertThat(trustHeldJob().ownsItsDocument()).isTrue();
+
+        ImportJob inFlight = job();
+        inFlight.markClaimed("worker", Instant.now());
+        assertThat(inFlight.ownsItsDocument()).isTrue();
+
+        ImportJob completed = job();
+        completed.markClaimed("worker", Instant.now());
+        completed.complete(SESSION, Instant.now());
+        assertThat(completed.ownsItsDocument()).isFalse();
+    }
+
     /**
      * The release, and why it is its own transition rather than a call to {@link
      * ImportJob#complete}.

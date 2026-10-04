@@ -357,7 +357,7 @@ public class AdminHeldImportService {
      *
      * <p>A re-upload held for trust review counts as live too, though the index would allow it:
      * reprocessing this job would replay that upload's staged session and open a second review of
-     * it. See {@link ImportJob.Status#OPEN_TO_RESUBMISSION}.
+     * it. See {@link ImportJob.Status#OPEN_TO_RESUBMISSION} and {@link ImportJob#ownsItsDocument}.
      */
     private void requireNoLiveDuplicate(ImportJob job) {
         if (!hasNoLiveDuplicate(job)) {
@@ -372,6 +372,7 @@ public class AdminHeldImportService {
         if (job.getContentHash() == null) return true;
         return repository.findFirstByUserIdAndContentHashAndStatusNotInOrderByCreatedAtDesc(
                         job.getUserId(), job.getContentHash(), ImportJob.Status.OPEN_TO_RESUBMISSION)
+                .filter(ImportJob::ownsItsDocument)
                 .isEmpty();
     }
 

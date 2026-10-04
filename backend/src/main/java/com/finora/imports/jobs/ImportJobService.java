@@ -266,10 +266,14 @@ public class ImportJobService {
         // constraint violation. Same reasoning V67 gives for preferring constraints to checks.
         //
         // A job held for trust review counts as already happening -- see
-        // ImportJob.Status.OPEN_TO_RESUBMISSION for what a second job on its bytes did.
+        // ImportJob.Status.OPEN_TO_RESUBMISSION for what a second job on its bytes did, and
+        // ImportJob.ownsItsDocument for the held job that does not count. Filtering the newest row
+        // is enough: no job is created while one that owns the document exists, so nothing older
+        // can own it either.
         Optional<ImportJob> alreadyQueued = repository
                 .findFirstByUserIdAndContentHashAndStatusNotInOrderByCreatedAtDesc(
-                        userId, address.hash(), ImportJob.Status.OPEN_TO_RESUBMISSION);
+                        userId, address.hash(), ImportJob.Status.OPEN_TO_RESUBMISSION)
+                .filter(ImportJob::ownsItsDocument);
         if (alreadyQueued.isPresent()) {
             return alreadyQueued.get();
         }

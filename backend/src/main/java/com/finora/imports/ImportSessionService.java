@@ -685,6 +685,20 @@ public class ImportSessionService {
     @Transactional
     public void deleteSession(UUID userId, UUID sessionId) {
         ImportSession session = getOwnedSession(userId, sessionId);
+        // Not while a trust review is open on it -- the third place that rule lives, beside
+        // sweepExpiredSessions and findLiveSessionByContentHash. The session is the reviewer's
+        // evidence and the rows approving hands the user; deleting it left the hold to be approved
+        // against nothing, telling the user their statement was ready when there was nothing to
+        // confirm. Its id is not hidden from the user (the job's progress carries it, and a
+        // re-upload replays it), so the endpoint has to refuse, not merely not offer it. Once the
+        // review is decided the job leaves HELD_FOR_TRUST_REVIEW and the session can be discarded
+        // like any other.
+        if (importJobRepository.existsByImportSessionIdAndStatusIn(
+                sessionId, SESSIONS_PROTECTED_FROM_CLEANUP)) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "This statement is being reviewed for accuracy, so it can't be discarded yet. "
+                            + "We'll let you know when it's ready.");
+        }
         // A password the user let Fynora keep for this upload (statement refresh, step 4) goes with
         // it now, rather than waiting for the hourly sweep: nothing is left for it to open.
         statementPasswordRepository.deleteHeldByJobsOfSession(sessionId);

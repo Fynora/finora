@@ -74,6 +74,7 @@ class HeldStatementReuploadIT extends AbstractIntegrationTest {
     @Autowired private ImportJobWorker worker;
     @Autowired private JwtService jwtService;
     @Autowired private com.finora.repository.RefreshTokenRepository refreshTokens;
+    @Autowired private com.finora.repository.HeldStatementEventRepository heldStatementEventRepository;
     private final ObjectMapper mapper = new ObjectMapper();
 
     private static final byte[] FUTURE_PERIOD_CSV = ("Date,Description,Amount,Balance,Statement Period\n"
@@ -261,5 +262,67 @@ class HeldStatementReuploadIT extends AbstractIntegrationTest {
                 .as("a retried pass of the held job itself").isEmpty();
         assertThat(heldStatementService.priorReviewOf(held.getImportSessionId(), UUID.randomUUID()))
                 .contains(HeldStatement.Status.HELD);
+    }
+
+    /**
+     * The worker fails closed when it cannot write the hold record: the job is held anyway, with
+     * {@code heldStatementId} null and nothing in the operator queue. A re-upload is that user's
+     * only way to a review an operator can act on, so it must still start one rather than follow
+     * the record-less job forever.
+     */
+    @Test
+    void reuploadOfAJobHeldWithNoReviewRecordStillReachesAReview() throws Exception {
+        User owner = user();
+        ImportJob held = heldUpload(owner);
+        HeldStatement record = heldStatementRepository.findByImportJobId(held.getId()).orElseThrow();
+        heldStatementEventRepository.deleteAll(
+                heldStatementEventRepository.findByHeldStatementIdOrderByCreatedAtAsc(record.getId()));
+        heldStatementRepository.delete(record);
+        ImportJob reloaded = jobRepository.findById(held.getId()).orElseThrow();
+        ReflectionTestUtils.setField(reloaded, "heldStatementId", null);
+        jobRepository.save(reloaded);
+
+        UUID againId = upload(owner);
+        worker.drainOnce();
+
+        ImportJob again = jobRepository.findById(againId).orElseThrow();
+        assertThat(againId).isNotEqualTo(held.getId());
+        assertThat(again.getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_TRUST_REVIEW);
+        assertThat(again.getImportSessionId()).isEqualTo(held.getImportSessionId());
+        heldStatementService.approve(user().getId(), heldIdOf(again), null, null);
+        assertConfirmable(owner, held.getImportSessionId());
+    }
+
+    private ResponseEntity<String> discard(User owner, UUID sessionId) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(
+                com.finora.testsupport.TestSessions.accessTokenFor(jwtService, refreshTokens, owner));
+        return restTemplate.exchange("/api/v1/import/sessions/" + sessionId, HttpMethod.DELETE,
+                new HttpEntity<>(headers), String.class);
+    }
+
+    @Test
+    void theUserCannotDiscardASessionWhileItsTrustReviewIsOpen() throws Exception {
+        User owner = user();
+        ImportJob held = heldUpload(owner);
+
+        ResponseEntity<String> refused = discard(owner, held.getImportSessionId());
+
+        assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(sessionRepository.findById(held.getImportSessionId())).isPresent();
+        heldStatementService.approve(user().getId(), heldIdOf(held), null, null);
+        assertConfirmable(owner, held.getImportSessionId());
+    }
+
+    @Test
+    void theUserCanDiscardTheSessionOnceTheReviewIsDecided() throws Exception {
+        User owner = user();
+        ImportJob held = heldUpload(owner);
+        heldStatementService.approve(user().getId(), heldIdOf(held), null, null);
+
+        ResponseEntity<String> discarded = discard(owner, held.getImportSessionId());
+
+        assertThat(discarded.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(sessionRepository.findById(held.getImportSessionId())).isEmpty();
     }
 }

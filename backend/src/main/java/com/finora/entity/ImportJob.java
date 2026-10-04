@@ -107,6 +107,8 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
          */
         public static final Set<Status> OPEN_TO_RESUBMISSION =
                 EnumSet.of(COMPLETED, FAILED, HELD_FOR_REVIEW, CANCELLED);
+        // A trust-held job with no review record is the exception, decided per row in
+        // ImportJob.ownsItsDocument -- a status set cannot see heldStatementId.
 
         public boolean isTerminal() { return TERMINAL.contains(this); }
         public boolean isInFlight() { return IN_FLIGHT.contains(this); }
@@ -794,6 +796,22 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
     /** Cancellable only before user-visible data exists -- see the class comment. */
     public boolean isCancellable() {
         return status == Status.QUEUED || status.isBefore(Status.IMPORTING);
+    }
+
+    /**
+     * Whether a new upload of this job's document must follow this job rather than start another
+     * -- {@link Status#OPEN_TO_RESUBMISSION}, plus the one case a status cannot decide.
+     *
+     * <p>A trust-held job with no review record does not own its document. The worker holds the
+     * import anyway when it cannot write the {@code held_statements} row (fail closed), so such a
+     * job sits in HELD_FOR_TRUST_REVIEW with nothing in the operator queue to approve or reject.
+     * Handing it back to every re-upload would leave the user following a review that does not
+     * exist; letting the re-upload through gives the worker another chance to open one, on the same
+     * session, that an operator can act on.
+     */
+    public boolean ownsItsDocument() {
+        if (Status.OPEN_TO_RESUBMISSION.contains(status)) return false;
+        return status != Status.HELD_FOR_TRUST_REVIEW || heldStatementId != null;
     }
 
     public void cancel(Instant now) {

@@ -16,7 +16,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -39,7 +38,7 @@ class UploadScanGateTest {
 
     private static MalwareScanner answering(ScanResult result) {
         MalwareScanner scanner = mock(MalwareScanner.class);
-        when(scanner.scan(any(), anyLong())).thenReturn(result);
+        when(scanner.scan(any())).thenReturn(result);
         when(scanner.describe()).thenReturn("fake scanner");
         return scanner;
     }
@@ -122,7 +121,7 @@ class UploadScanGateTest {
         assertThatCode(() -> gate.requireClean(null, userId, "support-attachment")).doesNotThrowAnyException();
         assertThatCode(() -> gate.requireClean(new MockMultipartFile("file", new byte[0]), userId, "x"))
                 .doesNotThrowAnyException();
-        verify(scanner, never()).scan(any(), anyLong());
+        verify(scanner, never()).scan(any());
     }
 
     @Test

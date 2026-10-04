@@ -105,6 +105,28 @@ public class RecurringAnswerService {
         }
     }
 
+    /** The amounts a saved payee rule already covers. */
+    private static Range savedRange(CategoryRule rule) {
+        return new Range(rule.getAmountMin(), rule.getAmountMax());
+    }
+
+    /** The range the detector's grouped payments span, around their average. */
+    private Range detectedRange(RecurringDto group, List<Transaction> payeeRows) {
+        BigDecimal average = group.averageAmount();
+        Range range = Range.around(average, tolerance(average));
+        // Cover every payment the detector grouped -- the exact label, money out, not a transfer,
+        // not a duplicate (RecurringService's own grouping). They already sit within the
+        // tolerance by the detector's construction; this only guards rounding at the edges, and
+        // never widens over a payment outside the group.
+        String grouped = group.merchant();
+        for (Transaction t : payeeRows) {
+            if (grouped.equals(t.getMerchant()) && !t.isTransfer() && t.getIsDuplicateOf() == null) {
+                range = range.cover(t.getAmount());
+            }
+        }
+        return range;
+    }
+
     @Transactional
     public Result categorize(UUID userId, String merchant, String categoryName) {
         if (!featureFlagService.isEnabled(FEATURE_FLAG)) throw notFound();
@@ -120,24 +142,15 @@ public class RecurringAnswerService {
         if (group.isEmpty() && existing.isEmpty()) throw notFound();
 
         List<Transaction> payeeRows = payeeExpenseRows(userId, label);
-        Range range = null;
-        if (group.isPresent()) {
-            BigDecimal average = group.get().averageAmount();
-            range = Range.around(average, tolerance(average));
-            // Cover every payment the detector grouped -- the exact label, money out, not a transfer,
-            // not a duplicate (RecurringService's own grouping). They already sit within the
-            // tolerance by the detector's construction; this only guards rounding at the edges, and
-            // never widens over a payment outside the group.
-            String grouped = group.get().merchant();
-            for (Transaction t : payeeRows) {
-                if (grouped.equals(t.getMerchant()) && !t.isTransfer() && t.getIsDuplicateOf() == null) {
-                    range = range.cover(t.getAmount());
-                }
-            }
+        // Never null: with a detected group the range is built from it; without one, the check above
+        // guarantees a saved rule exists and its own range is the answer.
+        Range range = group.isPresent()
+                ? detectedRange(group.get(), payeeRows)
+                : savedRange(existing.get());
+        if (group.isPresent() && existing.isPresent()) {
+            range = range.union(savedRange(existing.get()));
         }
         if (existing.isPresent()) {
-            Range saved = new Range(existing.get().getAmountMin(), existing.get().getAmountMax());
-            range = range == null ? saved : range.union(saved);
             // "Still Rent?" for a payee whose amount moved: the answer now covers the latest payment.
             Optional<Transaction> latest = latestNotFiledByHand(payeeRows);
             if (latest.isPresent()) {

@@ -1,7 +1,6 @@
 package com.finora.config;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.web.context.WebServerApplicationContext;
 import org.springframework.boot.web.context.WebServerInitializedEvent;
 import org.springframework.boot.web.server.WebServer;
@@ -48,7 +47,7 @@ class ManagementPortSeparationGuardTest {
         guard.onWebServerInitialized(event(null, 8080));
         guard.onWebServerInitialized(event("management", 9091));
 
-        assertThatCode(() -> guard.onApplicationReady(mock(ApplicationReadyEvent.class)))
+        assertThatCode(() -> guard.onApplicationReady())
                 .doesNotThrowAnyException();
     }
 
@@ -60,7 +59,7 @@ class ManagementPortSeparationGuardTest {
         guard.onWebServerInitialized(event(null, 8080));
 
         assertThatIllegalStateException()
-                .isThrownBy(() -> guard.onApplicationReady(mock(ApplicationReadyEvent.class)))
+                .isThrownBy(() -> guard.onApplicationReady())
                 .withMessageContaining("MANAGEMENT_SERVER_PORT");
     }
 
@@ -71,7 +70,7 @@ class ManagementPortSeparationGuardTest {
         guard.onWebServerInitialized(event("management", 8080));
 
         assertThatIllegalStateException()
-                .isThrownBy(() -> guard.onApplicationReady(mock(ApplicationReadyEvent.class)))
+                .isThrownBy(() -> guard.onApplicationReady())
                 .withMessageContaining("must differ");
     }
 
@@ -79,7 +78,7 @@ class ManagementPortSeparationGuardTest {
     void aTestWithNoServletContainerIsLeftAlone() {
         // webEnvironment = MOCK raises no WebServerInitializedEvent at all. There is no listening
         // socket, so there is nothing to protect and nothing to fail.
-        assertThatCode(() -> guard.onApplicationReady(mock(ApplicationReadyEvent.class)))
+        assertThatCode(() -> guard.onApplicationReady())
                 .doesNotThrowAnyException();
     }
 

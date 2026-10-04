@@ -815,7 +815,11 @@ public class TransactionNormalizer {
         // same decision is made here, with the merchant name resolved just above, so the row
         // arrives showing what confirm will store; a change made on the review screen is then the
         // user's choice, which no investment rule replaces.
-        if (categorizationService != null && rules != null) {
+        // No `categorizationService != null` here: it is a required constructor argument that the
+        // normalizer dereferences unconditionally further up (the suggestion above) and in
+        // resolutionIndexFor/categoryNamesFor, so a null one would already have failed before this
+        // point. The guard contradicted that (CodeQL java/dereferenced-value-may-be-null).
+        if (rules != null) {
             var investment = categorizationService.investmentRuleFor(rules,
                     CategorizationService.decisionSourceFor(source), description, amount, merchant);
             if (investment.isPresent()) {

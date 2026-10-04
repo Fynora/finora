@@ -27,7 +27,6 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.when;
 
 /**
@@ -80,7 +79,7 @@ class UploadScanGateIT extends AbstractIntegrationTest {
 
     @Test
     void anInfectedUploadIsRefusedWith400_andTheRejectionIsAudited() {
-        when(scanner.scan(any(), anyLong())).thenReturn(ScanResult.infected("Eicar-Test-Signature"));
+        when(scanner.scan(any())).thenReturn(ScanResult.infected("Eicar-Test-Signature"));
         when(scanner.describe()).thenReturn("mock scanner");
         User user = createUser();
 
@@ -101,7 +100,7 @@ class UploadScanGateIT extends AbstractIntegrationTest {
 
     @Test
     void aCleanUploadProceedsToParse() {
-        when(scanner.scan(any(), anyLong())).thenReturn(ScanResult.clean());
+        when(scanner.scan(any())).thenReturn(ScanResult.clean());
         when(scanner.describe()).thenReturn("mock scanner");
 
         ResponseEntity<String> response = stage(createUser(), "july.csv");
@@ -111,7 +110,7 @@ class UploadScanGateIT extends AbstractIntegrationTest {
 
     @Test
     void anUnreachableScannerRefusesTheUploadWith503_underTheDefaultPolicy() {
-        when(scanner.scan(any(), anyLong())).thenReturn(ScanResult.unavailable("connection refused"));
+        when(scanner.scan(any())).thenReturn(ScanResult.unavailable("connection refused"));
         when(scanner.describe()).thenReturn("mock scanner");
 
         ResponseEntity<String> response = stage(createUser(), "july.csv");

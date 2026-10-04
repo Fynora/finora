@@ -1,7 +1,6 @@
 package com.finora.imports.pdf;
 
 import com.finora.imports.CsvParser;
-import com.finora.imports.DocumentContext;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -80,13 +79,10 @@ public final class UnlabelledCardPaymentSummaryExtractor {
         public static final CardPaymentSummary NONE = new CardPaymentSummary(null, null, null);
     }
 
+    /** Takes no {@code DocumentContext}: the caller records the capability, because only the caller
+     *  knows whether a value read here was actually used. (A context parameter used to be accepted
+     *  "for symmetry" and never read; CodeQL java/unused-parameter flagged it.) */
     public static CardPaymentSummary extract(List<PositionedText> runs) {
-        return extract(runs, null);
-    }
-
-    /** {@code ctx} is accepted for symmetry with the other extractors; the caller records the
-     *  capability, because only the caller knows whether a value read here was actually used. */
-    public static CardPaymentSummary extract(List<PositionedText> runs, DocumentContext ctx) {
         if (runs == null || runs.isEmpty()) return CardPaymentSummary.NONE;
         List<List<PositionedText>> rows = StatementSummaryExtractor.groupIntoRows(runs);
         for (int i = 0; i < rows.size(); i++) {

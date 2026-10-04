@@ -88,7 +88,7 @@ class ClamAvScannerTest {
         byte[] file = new byte[20_000];
         for (int i = 0; i < file.length; i++) file[i] = (byte) (i % 251);
         try (FakeClamd clamd = FakeClamd.start(bytes -> "stream: OK\0")) {
-            ScanResult result = clamd.scanner().scan(bytes(file), file.length);
+            ScanResult result = clamd.scanner().scan(bytes(file));
 
             assertThat(result.status()).isEqualTo(ScanResult.Status.CLEAN);
             assertThat(clamd.received().get(5, TimeUnit.SECONDS))
@@ -100,7 +100,7 @@ class ClamAvScannerTest {
     @Test
     void aFoundReplyIsInfected_withTheSignatureExtracted() throws Exception {
         try (FakeClamd clamd = FakeClamd.start(bytes -> "stream: Win.Test.EICAR_HDB-1 FOUND\0")) {
-            ScanResult result = clamd.scanner().scan(bytes(EICAR), EICAR.length);
+            ScanResult result = clamd.scanner().scan(bytes(EICAR));
 
             assertThat(result.status()).isEqualTo(ScanResult.Status.INFECTED);
             assertThat(result.detail()).isEqualTo("Win.Test.EICAR_HDB-1");
@@ -110,7 +110,7 @@ class ClamAvScannerTest {
     @Test
     void anErrorReplyIsUnavailable_neverClean() throws Exception {
         try (FakeClamd clamd = FakeClamd.start(bytes -> "INSTREAM size limit exceeded. ERROR\0")) {
-            ScanResult result = clamd.scanner().scan(bytes(EICAR), EICAR.length);
+            ScanResult result = clamd.scanner().scan(bytes(EICAR));
 
             assertThat(result.status()).isEqualTo(ScanResult.Status.UNAVAILABLE);
             assertThat(result.detail()).contains("ERROR");
@@ -120,7 +120,7 @@ class ClamAvScannerTest {
     @Test
     void aClosedConnectionWithNoReplyIsUnavailable() throws Exception {
         try (FakeClamd clamd = FakeClamd.start(bytes -> null)) {
-            ScanResult result = clamd.scanner().scan(bytes(EICAR), EICAR.length);
+            ScanResult result = clamd.scanner().scan(bytes(EICAR));
 
             assertThat(result.status()).isEqualTo(ScanResult.Status.UNAVAILABLE);
         }
@@ -134,7 +134,7 @@ class ClamAvScannerTest {
         }
         ClamAvScanner scanner = new ClamAvScanner("127.0.0.1", freePort, 500, 500);
 
-        ScanResult result = scanner.scan(bytes(EICAR), EICAR.length);
+        ScanResult result = scanner.scan(bytes(EICAR));
 
         assertThat(result.status()).isEqualTo(ScanResult.Status.UNAVAILABLE);
         assertThat(result.detail()).contains("127.0.0.1:" + freePort);
@@ -147,7 +147,7 @@ class ClamAvScannerTest {
             ClamAvScanner scanner = new ClamAvScanner("127.0.0.1", silent.getLocalPort(), 500, 300);
             long started = System.nanoTime();
 
-            ScanResult result = scanner.scan(bytes(EICAR), EICAR.length);
+            ScanResult result = scanner.scan(bytes(EICAR));
 
             assertThat(result.status()).isEqualTo(ScanResult.Status.UNAVAILABLE);
             assertThat(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)).isLessThan(5_000);

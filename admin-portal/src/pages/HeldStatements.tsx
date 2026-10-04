@@ -19,6 +19,13 @@ const STATUS_OPTIONS: { label: string; value: HeldStatementStatus }[] = [
   { label: 'Ready for import', value: 'READY_FOR_IMPORT' },
 ];
 
+const RESOLVED_STATUS_OPTIONS: { label: string; value: HeldStatementStatus }[] = [
+  { label: 'Imported', value: 'IMPORTED' },
+  { label: 'Rejected', value: 'REJECTED' },
+];
+
+type View = 'open' | 'resolved';
+
 /**
  * The trust-review queue -- statements the pipeline held back not because parsing failed, but
  * because the extraction's own evidence contradicted it: a printed-versus-parsed count mismatch,
@@ -26,11 +33,12 @@ const STATUS_OPTIONS: { label: string; value: HeldStatementStatus }[] = [
  * does not hold together. `HeldImports.tsx` is the same shape of tool for the OTHER kind of hold
  * (a parser gap); this one is for a parse that worked but whose numbers do not add up.
  *
- * Every filter is optional and applies within the open queue only -- the server never returns a
- * resolved (imported or rejected) hold from this endpoint regardless of which filters are passed,
- * so there is nothing here that can accidentally expose one.
+ * Every filter is optional and applies within the open queue -- or, under "Resolved", within the
+ * decided holds (imported or rejected), most recently decided first. That second view is where a
+ * rejected hold is found again to reopen it; without it, its URL was the only way back.
  */
 function HeldStatementsContent() {
+  const [view, setView] = useState<View>('open');
   const [page, setPage] = useState(0);
   const [status, setStatus] = useState<HeldStatementStatus | ''>('');
   const [bank, setBank] = useState('');
@@ -40,8 +48,9 @@ function HeldStatementsContent() {
   const [olderThanHours, setOlderThanHours] = useState('');
 
   const list = useQuery({
-    queryKey: ['held-statements-list', page, status, bank, engineerId, olderThanHours],
+    queryKey: ['held-statements-list', view, page, status, bank, engineerId, olderThanHours],
     queryFn: () => adminHeldStatementApi.list({
+      resolved: view === 'resolved' || undefined,
       page,
       size: PAGE_SIZE,
       status: status || undefined,
@@ -104,6 +113,9 @@ function HeldStatementsContent() {
       header: 'Status',
       render: (row) => <span className="text-ink text-xs">{row.status.replace(/_/g, ' ')}</span>,
     },
+    ...(view === 'resolved'
+      ? [{ header: 'Decided', render: (row: HeldStatementRow) => (row.resolvedAt ? formatWhen(row.resolvedAt) : '—') }]
+      : []),
     {
       header: 'Assigned',
       render: (row) => <span className="text-muted text-xs font-mono">{row.assignedEngineerId ?? '—'}</span>,
@@ -119,14 +131,29 @@ function HeldStatementsContent() {
         additional checks&quot;.
       </p>
 
+      <div role="tablist" aria-label="Which holds" className="inline-flex rounded-lg border border-border p-0.5 text-sm">
+        {(['open', 'resolved'] as View[]).map((v) => (
+          <button
+            key={v}
+            type="button"
+            role="tab"
+            aria-selected={view === v}
+            onClick={() => { setView(v); setStatus(''); setPage(0); }}
+            className={`rounded-md px-3 py-1.5 ${view === v ? 'bg-accent text-white' : 'text-muted hover:text-ink'}`}
+          >
+            {v === 'open' ? 'Open' : 'Resolved'}
+          </button>
+        ))}
+      </div>
+
       <FilterBar
         fields={[
           {
             type: 'select', key: 'status', value: status,
             onChange: (v) => { setStatus(v as HeldStatementStatus | ''); setPage(0); },
-            placeholder: 'All open statuses',
+            placeholder: view === 'open' ? 'All open statuses' : 'All resolved statuses',
             label: 'Filter by status',
-            options: STATUS_OPTIONS,
+            options: view === 'open' ? STATUS_OPTIONS : RESOLVED_STATUS_OPTIONS,
           },
           {
             type: 'search', key: 'bank', value: bankInput, onChange: setBankInput,

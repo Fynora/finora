@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -142,6 +142,23 @@ describe('HeldStatements', () => {
 
     expect(await screen.findByText('HDFC Bank')).toBeInTheDocument();
     expect(screen.getByText(olderRow.userId)).toBeInTheDocument();
+  });
+
+  it('lists the decided holds under Resolved, with resolved statuses to filter by', async () => {
+    mockAuth(['TRUST_REVIEW_MANAGE']);
+    renderPage();
+    await screen.findByText('HLD-2026-100001');
+    expect(adminHeldStatementApi.list).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ resolved: true }));
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Resolved' }));
+
+    await waitFor(() => expect(adminHeldStatementApi.list).toHaveBeenLastCalledWith(
+      expect.objectContaining({ resolved: true, page: 0 })));
+    await userEvent.selectOptions(screen.getByLabelText(/filter by status/i), 'REJECTED');
+    expect(adminHeldStatementApi.list).toHaveBeenLastCalledWith(
+      expect.objectContaining({ resolved: true, status: 'REJECTED' }));
+    expect(screen.getByRole('columnheader', { name: 'Decided' })).toBeInTheDocument();
   });
 
   it('applies the status filter and refetches', async () => {

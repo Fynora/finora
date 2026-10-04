@@ -32,6 +32,13 @@ class BankActivityCategoryTest {
         assertThat(of("Int.Pd:01-05-2026 to 31-07-2026: 000000000000000", INCOME)).isEqualTo("Interest & Cashback");
         assertThat(of("SB INT CREDIT", INCOME)).isEqualTo("Interest & Cashback");
         assertThat(of("Interest Cr. for 03-Jan-2026", INCOME)).isEqualTo("Interest & Cashback");
+        // No corpus statement prints these four; added because FlowClassifier already reads them as
+        // interest income (Sid's decision, 2026-10-04).
+        assertThat(of("INTEREST CREDITED 30-06-2026", INCOME)).isEqualTo("Interest & Cashback");
+        assertThat(of("FD INTEREST 0000000000", INCOME)).isEqualTo("Interest & Cashback");
+        assertThat(of("INT CREDIT JUN 2026", INCOME)).isEqualTo("Interest & Cashback");
+        assertThat(of("INTEREST PAYMENT", INCOME)).isEqualTo("Interest & Cashback");
+        assertThat(of("INTEREST PAYMENT", EXPENSE)).as("money leaving").isNull();
     }
 
     @Test
@@ -55,6 +62,19 @@ class BankActivityCategoryTest {
     @Test
     void anInstalmentPlanCreditMentioningInterest_isNotInterestEarned() {
         assertThat(of("SAMPLE STORE 2ND OF 3 INSTALLMENTS INTEREST", INCOME)).isNull();
+    }
+
+    /** Interest charged and then refunded or reversed comes back; it was not earned. FlowClassifier
+     *  reads these as a reversal or a refund ahead of interest, and so does this. */
+    @Test
+    void aRefundOrReversalOfInterest_isNotInterestEarned() {
+        for (String description : new String[]{"INTEREST CR REVERSAL", "INTEREST REFUND CR", "INT CR REVERS",
+                "INTEREST PAID - PAYMENT REVERSED"}) {
+            assertThat(of(description, INCOME)).as(description).isNull();
+            assertThat(BankActivityCategory.isInterestEarned(description, INCOME)).as(description).isFalse();
+        }
+        // "REVERSE SWEEP" is a deposit coming back, not a reversal: FlowClassifier's own reading.
+        assertThat(BankActivityCategory.isInterestEarned("INT CR REVERSE SWEEP", INCOME)).isTrue();
     }
 
     @Test

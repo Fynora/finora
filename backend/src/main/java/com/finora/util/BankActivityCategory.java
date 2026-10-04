@@ -44,11 +44,14 @@ public final class BankActivityCategory {
     // instalment-plan credit reads "... INSTALLMENTS INTEREST" and is not interest the bank paid
     // you. "interest cr": a small finance bank credits interest daily as "Interest Cr. for <date>",
     // which none of the other spellings matched, so every one of those rows was "Other" (2026-10-04).
-    // V254 relabelled stored rows with this list as it stood then; a phrase added later applies to
-    // new rows only.
+    // "interest credited", "fd interest", "int credit", "interest payment": spellings no corpus
+    // statement prints, added on Sid's decision (2026-10-04) because FlowClassifier already counts a
+    // non-card credit carrying them as interest income, so the category and the label disagreed
+    // with it. V254 relabelled stored rows with the list as it stood then; V255 queued the rows these
+    // four add.
     private static final Pattern INTEREST_EARNED = words(
-            "interest paid", "credit interest", "interest credit", "interest cr", "int pd", "sb int", "int cr",
-            "intcr", "savings interest");
+            "interest paid", "credit interest", "interest credit", "interest credited", "interest cr", "int pd",
+            "sb int", "int cr", "int credit", "intcr", "savings interest", "fd interest", "interest payment");
     private static final Pattern CARD_BILL_RECEIVED = words("bbps");
     private static final Pattern CHARGED = words(
             "sms charges", "sms charge", "sms chrg", "sms alert", "emi interest", "interest on emi");
@@ -68,7 +71,7 @@ public final class BankActivityCategory {
         if (counterparty == CounterpartyType.PERSON) return Optional.empty();
         String text = CategoryRules.normalize(description);
         if (direction == Transaction.Type.INCOME) {
-            if (INTEREST_EARNED.matcher(text).find() || CASHBACK.matcher(text).find()) {
+            if (namesInterestEarned(text, description) || CASHBACK.matcher(text).find()) {
                 return Optional.of(INTEREST_AND_CASHBACK);
             }
             if (CARD_BILL_RECEIVED.matcher(text).find()) return Optional.of("Transfer");
@@ -85,14 +88,27 @@ public final class BankActivityCategory {
 
     /**
      * Whether the row is interest the bank credited to you: money in, worded as one of the bank's
-     * own interest credits, and not from a person. These are the interest rows {@link #of} files
-     * under {@link #INTEREST_AND_CASHBACK}, and the rows
-     * {@link CategoryRules#extractMerchantLabel(String, Transaction.Type)} gives a single label.
+     * own interest credits, not a refund or reversal, and not from a person. These are the interest
+     * rows {@link #of} files under {@link #INTEREST_AND_CASHBACK}.
      */
     public static boolean isInterestEarned(String description, Transaction.Type direction) {
         if (description == null || description.isBlank() || direction != Transaction.Type.INCOME) return false;
         if (CounterpartyTyping.of(description).type() == CounterpartyType.PERSON) return false;
-        return INTEREST_EARNED.matcher(CategoryRules.normalize(description)).find();
+        return namesInterestEarned(CategoryRules.normalize(description), description);
+    }
+
+    /** Whether {@code text} -- a narration, or a field of one -- reads as one of the bank's interest credits. */
+    static boolean namesInterest(String text) {
+        return text != null && INTEREST_EARNED.matcher(CategoryRules.normalize(text)).find();
+    }
+
+    /**
+     * An interest phrase, and no refund or reversal word: interest charged and then refunded or
+     * reversed ("INTEREST CR REVERSAL") is money coming back, which FlowClassifier already reads
+     * ahead of interest -- it is not interest earned.
+     */
+    private static boolean namesInterestEarned(String normalized, String description) {
+        return INTEREST_EARNED.matcher(normalized).find() && !MoneyBackWords.readsAsMoneyBack(description);
     }
 
     /** Phrases are lowercase letters, digits and single spaces -- the alphabet normalize() leaves. */

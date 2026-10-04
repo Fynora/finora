@@ -91,6 +91,12 @@ app:
   category-suggestion-sweep:
     enabled: false
 
+  # Same again: InterestLabelRecheckSweepService rewrites merchant labels on transactions. Tests
+  # call sweep() directly, which does not consult this flag.
+  interest-label-recheck:
+    sweep:
+      enabled: false
+
   # Same reasoning again: a background thread writing net_worth_snapshots mid-test is the
   # cross-test pollution BH-058 was about. Tests that exercise the sweep call
   # NetWorthSnapshotSweepService.sweep() directly, which does not consult this flag.

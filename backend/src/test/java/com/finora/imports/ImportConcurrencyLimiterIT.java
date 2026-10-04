@@ -1,11 +1,15 @@
 package com.finora.imports;
 
 import com.finora.AbstractIntegrationTest;
+import eu.rekawek.toxiproxy.model.ToxicDirection;
+import eu.rekawek.toxiproxy.model.toxic.Latency;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
+import java.time.Duration;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
@@ -23,6 +27,8 @@ class ImportConcurrencyLimiterIT extends AbstractIntegrationTest {
     @Autowired
     private StringRedisTemplate redisTemplate;
 
+    private static final String LEASE_SET_KEY = "import:concurrency:active";
+
     // Production deliberately hardcodes ONE global lease-set key (there is exactly one app-wide
     // import concurrency limit, unlike RateLimiter's per-endpoint keyspace) -- so every test
     // method in this class shares that same Redis key with no isolation of its own. Several tests
@@ -32,7 +38,7 @@ class ImportConcurrencyLimiterIT extends AbstractIntegrationTest {
     // AbstractIntegrationTest's own emptyTheSharedWorkQueues()/resetRedisProxy() already apply.
     @BeforeEach
     void resetLeaseSet() {
-        redisTemplate.delete("import:concurrency:active");
+        redisTemplate.delete(LEASE_SET_KEY);
     }
 
     private ImportConcurrencyLimiter newLimiter(int maxConcurrent) {
@@ -64,27 +70,244 @@ class ImportConcurrencyLimiterIT extends AbstractIntegrationTest {
         assertThat(limiter.acquireRedisLease()).isNotNull();
     }
 
+    /** The Redis clock (TIME) the acquire script itself scores and prunes against, in microseconds. */
+    private long redisNowMicros() {
+        return redisTemplate.execute((RedisCallback<Long>) connection ->
+                connection.serverCommands().time(TimeUnit.MICROSECONDS));
+    }
+
+    /** Backdates an existing lease so it reads as acquired `ageSeconds` ago on the Redis clock --
+     *  the deterministic stand-in for sleeping past (or short of) the safety TTL.
+     *
+     *  Why not sleep: these tests used a 1-second TTL and slept past it, which only works if the
+     *  calls around the sleep take well under a second. Worse, the acquire script then scored
+     *  leases in whole seconds, so a lease acquired at x.999 was pruned by an acquire at
+     *  (x+1).000 -- measured: about 1 in 1,000 back-to-back acquire pairs, under a millisecond
+     *  apart, every one straddling a second boundary. That is how a "slot genuinely full right
+     *  now" assertion failed under full-suite load. A 300-second TTL with backdated scores keeps
+     *  every lease the test means to be live hundreds of seconds clear of the edge. */
+    private void ageLease(String leaseId, double ageSeconds) {
+        assertThat(redisTemplate.opsForZSet().score(LEASE_SET_KEY, leaseId))
+                .as("lease %s must exist before it is aged", leaseId).isNotNull();
+        redisTemplate.opsForZSet().add(LEASE_SET_KEY, leaseId, redisNowMicros() / 1e6 - ageSeconds);
+    }
+
     /** The precise failure this design closes, found tracing a shared-counter design during
      *  review: a lease whose holder never releases (a simulated crash) must be pruned by a LATER
      *  acquire's own housekeeping, without disturbing a different, still-live lease. */
     @Test
-    void aLeakedLeaseIsPrunedByALaterAcquireWithoutDisturbingOtherLiveLeases() throws InterruptedException {
-        // maxConcurrent=1 deliberately: the only way a third acquire can succeed at all is if the
-        // leaked lease was genuinely pruned, not just tolerated by having room to spare.
-        ImportConcurrencyLimiter limiter = new ImportConcurrencyLimiter(1, 1, redisTemplate); // 1s safety TTL
+    void aLeakedLeaseIsPrunedByALaterAcquireWithoutDisturbingOtherLiveLeases() {
+        // maxConcurrent=2, both slots taken: the only way a third acquire can succeed at all is if
+        // one of them was genuinely pruned, not just tolerated by having room to spare -- and the
+        // assertions below pin down that it was the leaked one.
+        ImportConcurrencyLimiter limiter = newLimiter(2); // 300s safety TTL
+        String live = limiter.acquireRedisLease();
         String leaked = limiter.acquireRedisLease();
+        assertThat(live).isNotNull();
         assertThat(leaked).isNotNull();
         // "leaked" is never released -- simulating a crashed holder.
-        assertThat(limiter.acquireRedisLease()).isNull(); // slot genuinely full right now
+        assertThat(limiter.acquireRedisLease()).isNull(); // both slots genuinely full right now
 
-        Thread.sleep(1_100); // past the 1-second safety TTL
+        // Bracket the 300s TTL: "leaked" is just past it, "live" is still well inside it, so a prune
+        // that ignored the TTL (removing everything older than "now") would wrongly take "live" too.
+        ageLease(leaked, 301);
+        ageLease(live, 270);
 
-        // The prune step inside THIS acquire is what removes "leaked" -- if it didn't, this
-        // would still be null (maxConcurrent=1, one lease already occupying the only slot).
+        // The prune step inside THIS acquire is what removes "leaked" -- if it didn't, this would
+        // still be null (maxConcurrent=2, both slots occupied).
         String third = limiter.acquireRedisLease();
         assertThat(third).isNotNull();
+        assertThat(redisTemplate.opsForZSet().score(LEASE_SET_KEY, leaked)).isNull();
+        assertThat(redisTemplate.opsForZSet().score(LEASE_SET_KEY, live)).isNotNull();
+        assertThat(limiter.acquireRedisLease()).isNull(); // "live" and "third" still hold both slots
 
+        limiter.releaseRedisLease(live);
         limiter.releaseRedisLease(third);
+    }
+
+    /** A lease's score is the Redis time it was granted, to the microsecond. It used to be TIME's
+     *  whole seconds, which is what let a lease be pruned up to a second before its TTL. */
+    @Test
+    void aLeaseIsScoredWithTheRedisTimeItWasGrantedToTheMicrosecond() {
+        ImportConcurrencyLimiter limiter = newLimiter(1);
+
+        long before = redisNowMicros();
+        String lease = limiter.acquireRedisLease();
+        long after = redisNowMicros();
+
+        assertThat(lease).isNotNull();
+        Double score = redisTemplate.opsForZSet().score(LEASE_SET_KEY, lease);
+        assertThat(score).isNotNull();
+        // A double holds these seconds to well under a microsecond; 1us either side covers rounding.
+        assertThat(Math.round(score * 1e6)).isBetween(before - 1, after + 1);
+        limiter.releaseRedisLease(lease);
+    }
+
+    /** The prune cut-off has the same precision: a lease one millisecond past its TTL is gone at the
+     *  next acquire. With the cut-off on whole seconds it survived unless the Redis clock happened
+     *  to be within the first millisecond of a second. */
+    @Test
+    void aLeaseOneMillisecondPastItsTtlIsPrunedByTheNextAcquire() {
+        ImportConcurrencyLimiter limiter = newLimiter(1); // 300s safety TTL
+        String leaked = limiter.acquireRedisLease();
+        assertThat(leaked).isNotNull();
+        ageLease(leaked, 300.001);
+
+        String next = limiter.acquireRedisLease();
+
+        assertThat(next).isNotNull();
+        assertThat(redisTemplate.opsForZSet().score(LEASE_SET_KEY, leaked)).isNull();
+        limiter.releaseRedisLease(next);
+    }
+
+    /** A reply that arrives after the client's timeout: the acquire script ran and wrote its
+     *  lease, but the caller saw an exception and fell back to the local semaphore. Nothing
+     *  released that lease, so it held a fleet-wide slot for the whole safety TTL and the next
+     *  import was refused with Redis perfectly healthy (measured before the fix). */
+    @Test
+    void anAcquireWhoseReplyArrivesAfterTheTimeoutLeavesNoLeaseBehind() throws Exception {
+        ImportConcurrencyLimiter limiter = newLimiter(1);
+        // Load the script into Redis's cache first. A cold cache answers the first EVALSHA with
+        // NOSCRIPT, so under the delay below the script would never run and the test would pass
+        // without the fix.
+        limiter.releaseRedisLease(limiter.acquireRedisLease());
+        assertThat(redisTemplate.opsForZSet().size(LEASE_SET_KEY)).isZero();
+
+        // Replies from Redis delayed past the test profile's 1000ms command timeout; requests are not.
+        Latency slowReplies = REDIS_PROXY.toxics().latency("slow-replies", ToxicDirection.DOWNSTREAM, 1_500);
+        String result;
+        try {
+            result = limiter.runGated(() -> "admitted via the local fallback");
+        } finally {
+            slowReplies.remove();
+        }
+
+        assertThat(result).isEqualTo("admitted via the local fallback");
+        // The delayed replies still in flight can hold this read past the timeout on a loaded
+        // machine, so it is retried for a few seconds. A leaked lease would stay for 300.
+        assertThat(leaseCountOnceRedisAnswers()).isZero();
+        assertThat(limiter.runGated(() -> "next")).isEqualTo("next");
+    }
+
+    /** Starts `limiter.runGated` on its own thread and returns once the work is running; the work
+     *  then holds until `finish` is counted down. */
+    private Thread holdGatedWork(ImportConcurrencyLimiter limiter, CountDownLatch finish) throws InterruptedException {
+        CountDownLatch running = new CountDownLatch(1);
+        Thread holder = new Thread(() -> {
+            try {
+                limiter.runGated(() -> {
+                    running.countDown();
+                    finish.await();
+                    return null;
+                });
+            } catch (Exception ignored) { }
+        });
+        holder.start();
+        assertThat(running.await(10, TimeUnit.SECONDS)).isTrue();
+        return holder;
+    }
+
+    private String onlyLease() {
+        Set<String> leases = redisTemplate.opsForZSet().range(LEASE_SET_KEY, 0, -1);
+        assertThat(leases).hasSize(1);
+        return leases.iterator().next();
+    }
+
+    /** Polls until the lease's score is within `seconds` of the Redis clock, i.e. was renewed. */
+    private boolean renewedWithin(String leaseId, double seconds) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (System.nanoTime() < deadline) {
+            Double score = redisTemplate.opsForZSet().score(LEASE_SET_KEY, leaseId);
+            if (score != null && score >= redisNowMicros() / 1e6 - seconds) return true;
+            Thread.sleep(20);
+        }
+        return false;
+    }
+
+    /** The safety TTL cannot tell a dead holder from a slow one. Before renewal, an import still
+     *  running past the TTL lost its lease to the next acquire's prune, and a second replica was
+     *  granted a slot past the fleet-wide ceiling (measured: max 1, both running). */
+    @Test
+    void aRunningImportKeepsItsLeaseFreshSoAnotherReplicaIsStillRefused() throws Exception {
+        ImportConcurrencyLimiter replicaA = new ImportConcurrencyLimiter(1, 300, redisTemplate, Duration.ofMillis(100));
+        ImportConcurrencyLimiter replicaB = newLimiter(1);
+        CountDownLatch finish = new CountDownLatch(1);
+        Thread holder = holdGatedWork(replicaA, finish);
+        try {
+            String lease = onlyLease();
+            ageLease(lease, 250); // as if the import had been running 250s with no renewal
+
+            assertThat(renewedWithin(lease, 5)).as("renewed while its import runs").isTrue();
+            ageLease(lease, 301); // and even if renewal then stalled past the TTL...
+            assertThat(renewedWithin(lease, 5)).as("...the next renewal brings it back").isTrue();
+            assertThat(replicaB.acquireRedisLease()).isNull();
+        } finally {
+            finish.countDown();
+            holder.join();
+        }
+        assertThat(redisTemplate.opsForZSet().size(LEASE_SET_KEY)).isZero();
+        assertThat(replicaA.scheduledRenewals()).isZero();
+        replicaA.stopRenewing();
+    }
+
+    /** Renewal only ever touches a lease that is still in the set. Writing back one that was pruned
+     *  (renewals failing for longer than the TTL) or lost (Redis restart) could push the count past
+     *  maxConcurrent; the import carries on under its local permit instead, and renewal stops. */
+    @Test
+    void renewalNeverWritesBackALeaseThatIsGone() throws Exception {
+        ImportConcurrencyLimiter limiter = new ImportConcurrencyLimiter(1, 300, redisTemplate, Duration.ofMillis(50));
+        CountDownLatch finish = new CountDownLatch(1);
+        Thread holder = holdGatedWork(limiter, finish);
+        try {
+            String lease = onlyLease();
+            redisTemplate.opsForZSet().remove(LEASE_SET_KEY, lease);
+
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            while (limiter.scheduledRenewals() > 0 && System.nanoTime() < deadline) Thread.sleep(20);
+            assertThat(limiter.scheduledRenewals()).as("renewal stops once the lease is gone").isZero();
+            assertThat(redisTemplate.opsForZSet().score(LEASE_SET_KEY, lease)).isNull();
+        } finally {
+            finish.countDown();
+            holder.join();
+        }
+        limiter.stopRenewing();
+    }
+
+    /** A failed renewal must not end renewal: an exception escaping a scheduled task cancels every
+     *  later run, and the lease would then age out under a running import after all. */
+    @Test
+    void renewalCarriesOnAfterRedisWasUnreachableForAWhile() throws Exception {
+        ImportConcurrencyLimiter limiter = new ImportConcurrencyLimiter(1, 300, redisTemplate, Duration.ofMillis(100));
+        CountDownLatch finish = new CountDownLatch(1);
+        Thread holder = holdGatedWork(limiter, finish);
+        try {
+            String lease = onlyLease();
+            REDIS_PROXY.setConnectionCut(true);
+            try {
+                Thread.sleep(2_500); // several renewals fail (1s command timeout under test)
+            } finally {
+                REDIS_PROXY.setConnectionCut(false);
+            }
+            ageLease(lease, 250);
+
+            assertThat(renewedWithin(lease, 5)).isTrue();
+        } finally {
+            finish.countDown();
+            holder.join();
+        }
+        limiter.stopRenewing();
+    }
+
+    private long leaseCountOnceRedisAnswers() throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (true) {
+            try {
+                return redisTemplate.opsForZSet().size(LEASE_SET_KEY);
+            } catch (org.springframework.dao.QueryTimeoutException e) {
+                if (System.nanoTime() > deadline) throw e;
+                Thread.sleep(100);
+            }
+        }
     }
 
     @Test
@@ -119,13 +342,14 @@ class ImportConcurrencyLimiterIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void releasingALeaseAfterItWasAlreadyPrunedDoesNotAffectLaterLeases() throws InterruptedException {
-        ImportConcurrencyLimiter limiter = new ImportConcurrencyLimiter(1, 1, redisTemplate); // 1s safety TTL
+    void releasingALeaseAfterItWasAlreadyPrunedDoesNotAffectLaterLeases() {
+        ImportConcurrencyLimiter limiter = newLimiter(1); // 300s safety TTL; see ageLease() for why
         String pruned = limiter.acquireRedisLease();
         assertThat(pruned).isNotNull();
-        Thread.sleep(1_100);
+        ageLease(pruned, 301);
         String replacement = limiter.acquireRedisLease(); // this acquire's own prune step removes "pruned"
         assertThat(replacement).isNotNull();
+        assertThat(redisTemplate.opsForZSet().score(LEASE_SET_KEY, pruned)).isNull();
 
         limiter.releaseRedisLease(pruned); // late release of the already-pruned lease
 

@@ -10,8 +10,14 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
+import jakarta.annotation.PreDestroy;
+
+import java.time.Duration;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Bounds how many statement imports (CSV or PDF) can actually be mid-parse at the same time.
@@ -61,6 +67,13 @@ public class ImportConcurrencyLimiter {
 
     private static final Logger log = LoggerFactory.getLogger(ImportConcurrencyLimiter.class);
 
+    // Scores are seconds on the Redis clock with the microseconds kept. They used to be TIME's
+    // whole seconds alone, and pruning "score <= now - ttl" on whole seconds removed a lease
+    // anywhere from just over ttl - 1 to ttl seconds after it was granted (measured with a 1s TTL:
+    // two acquires 0.6 ms apart pruned each other whenever they straddled a second boundary).
+    // Both numbers are built as exact decimal strings rather than Lua arithmetic, so no float
+    // formatting decides the precision. The unit stays seconds so leases written by the previous
+    // version during a deploy still compare correctly.
     private static final DefaultRedisScript<String> ACQUIRE_SCRIPT = new DefaultRedisScript<>("""
             local key = KEYS[1]
             local leaseId = ARGV[1]
@@ -68,10 +81,13 @@ public class ImportConcurrencyLimiter {
             local maxConcurrent = tonumber(ARGV[3])
 
             local time = redis.call('TIME')
-            local now = tonumber(time[1])
+            local seconds = tonumber(time[1])
+            local micros = tonumber(time[2])
+            local now = string.format('%d.%06d', seconds, micros)
+            local cutoff = string.format('%d.%06d', seconds - safetyTtlSeconds, micros)
 
             redis.call('ZADD', key, 'NX', now, leaseId)
-            redis.call('ZREMRANGEBYSCORE', key, '-inf', now - safetyTtlSeconds)
+            redis.call('ZREMRANGEBYSCORE', key, '-inf', cutoff)
             local count = redis.call('ZCARD', key)
             if count > maxConcurrent then
               redis.call('ZREM', key, leaseId)
@@ -80,6 +96,17 @@ public class ImportConcurrencyLimiter {
             return leaseId
             """, String.class);
 
+    // Moves a lease that is still held to "now" on the Redis clock, in the same exact
+    // seconds.micros form ACQUIRE_SCRIPT scores with. XX: only a lease that is still in the set is
+    // touched -- one already released, or pruned after renewals failed for longer than the TTL, is
+    // never written back, which could push the count past maxConcurrent. CH makes the reply 1 when
+    // the lease was there and 0 when it was gone.
+    private static final DefaultRedisScript<Long> RENEW_SCRIPT = new DefaultRedisScript<>("""
+            local time = redis.call('TIME')
+            local now = string.format('%d.%06d', tonumber(time[1]), tonumber(time[2]))
+            return redis.call('ZADD', KEYS[1], 'XX', 'CH', now, ARGV[1])
+            """, Long.class);
+
     private static final String LEASE_SET_KEY = "import:concurrency:active";
 
     private final Semaphore permits;
@@ -87,6 +114,8 @@ public class ImportConcurrencyLimiter {
     private final long safetyTtlSeconds;
     private final StringRedisTemplate redisTemplate;
     private final RedisFailureLogThrottle failureLog;
+    private final Duration renewEvery;
+    private final ScheduledThreadPoolExecutor renewer;
 
     // @Autowired is required now that a second (package-private, test-only) constructor exists:
     // Spring's implicit "use the only constructor" rule only applies when a class has exactly
@@ -97,6 +126,20 @@ public class ImportConcurrencyLimiter {
     public ImportConcurrencyLimiter(@Value("${app.import.max-concurrent:6}") int maxConcurrent,
                                      @Value("${app.import.concurrency-lease-ttl-seconds:300}") long safetyTtlSeconds,
                                      StringRedisTemplate redisTemplate) {
+        // A third of the TTL: while renewals succeed a held lease is never much older than that,
+        // and two in a row can fail before the safety TTL could prune it while its import runs.
+        this(maxConcurrent, safetyTtlSeconds, redisTemplate, Duration.ofMillis(Math.max(1, safetyTtlSeconds * 1000 / 3)));
+    }
+
+    /** Package-private so tests can renew in milliseconds rather than wait a third of the TTL. */
+    ImportConcurrencyLimiter(int maxConcurrent, long safetyTtlSeconds, StringRedisTemplate redisTemplate,
+                             Duration renewEvery) {
+        // At least 1: with 0 the acquire script's own prune removes the lease it has just added,
+        // so the count never includes it and the fleet-wide ceiling is never enforced.
+        if (safetyTtlSeconds < 1) {
+            throw new IllegalArgumentException(
+                    "app.import.concurrency-lease-ttl-seconds must be at least 1, was " + safetyTtlSeconds);
+        }
         // BH-043: fairness is deliberately NOT requested here (plain `new Semaphore(int)`, the
         // non-fair/default constructor). Fairness only ever mattered for ordering threads that
         // actually parked waiting on the semaphore -- and per Semaphore's own javadoc, the no-arg
@@ -108,22 +151,87 @@ public class ImportConcurrencyLimiter {
         this.safetyTtlSeconds = safetyTtlSeconds;
         this.redisTemplate = redisTemplate;
         this.failureLog = new RedisFailureLogThrottle(log, 60_000);
+        this.renewEvery = renewEvery;
+        // One daemon thread, started on the first renewal and stopped at shutdown. A cancelled
+        // renewal is taken off the queue at once rather than left until its next run time.
+        this.renewer = new ScheduledThreadPoolExecutor(1, runnable -> {
+            Thread thread = new Thread(runnable, "import-lease-renewal");
+            thread.setDaemon(true);
+            return thread;
+        });
+        this.renewer.setRemoveOnCancelPolicy(true);
         log.info("Import concurrency limiter initialized: max {} concurrent imports, rejects immediately with 'busy' once the limit is reached",
                 maxConcurrent);
     }
 
-    /** Attempts a Redis-backed lease. Returns the lease id if granted, null if the limit is
-     *  already reached OR Redis itself could not be reached -- callers distinguish those two
-     *  cases by checking Redis reachability separately (Task 7's fallback wiring), not by this
-     *  method's return value alone, since both currently return null. */
+    /** Attempts a Redis-backed lease. Returns the lease id if granted, null if the fleet-wide
+     *  limit is already reached; throws a DataAccessException if Redis could not be reached. */
     String acquireRedisLease() {
-        String leaseId = java.util.UUID.randomUUID().toString();
+        return acquireRedisLease(java.util.UUID.randomUUID().toString());
+    }
+
+    private String acquireRedisLease(String leaseId) {
         return redisTemplate.execute(ACQUIRE_SCRIPT, java.util.List.of(LEASE_SET_KEY),
                 leaseId, String.valueOf(safetyTtlSeconds), String.valueOf(maxConcurrent));
     }
 
     void releaseRedisLease(String leaseId) {
         redisTemplate.opsForZSet().remove(LEASE_SET_KEY, leaseId);
+    }
+
+    /** Renewals currently scheduled -- one per running import that holds a Redis lease. */
+    int scheduledRenewals() {
+        return renewer.getQueue().size();
+    }
+
+    @PreDestroy
+    void stopRenewing() {
+        renewer.shutdownNow();
+    }
+
+    /**
+     * Keeps a held lease fresh while its work runs. The safety TTL exists to clear the lease of a
+     * holder that died without releasing it, but it cannot tell a dead holder from a slow one:
+     * without renewal, any import still running after the TTL lost its lease to the next acquire's
+     * prune, and another replica could then start an import past the fleet-wide ceiling (measured
+     * with two limiters on one Redis, max 1: the second was granted while the first still ran).
+     * Gated work is not bounded by the TTL -- "update all" refreshes up to ten statements in one
+     * gated call, and a scanned statement is OCR'd page by page. Renewal stops when the work ends,
+     * or when the process dies, which is exactly when the TTL should take over.
+     */
+    private ScheduledFuture<?> keepRenewing(String leaseId) {
+        long periodMillis = renewEvery.toMillis();
+        ScheduledFuture<?>[] self = new ScheduledFuture<?>[1];
+        Runnable renew = () -> {
+            try {
+                Long renewed = redisTemplate.execute(RENEW_SCRIPT, java.util.List.of(LEASE_SET_KEY), leaseId);
+                if (renewed != null && renewed == 0L) {
+                    // Gone: pruned after renewals failed for longer than the TTL, or Redis lost
+                    // its data. Writing it back could exceed the ceiling, so this import carries on
+                    // under the local permit alone, as it would had Redis been down at acquire.
+                    log.warn("Import concurrency lease {} is no longer in Redis -- the import continues "
+                            + "under this instance's local limit only", leaseId);
+                    synchronized (self) {
+                        if (self[0] != null) self[0].cancel(false);
+                    }
+                }
+            } catch (RuntimeException e) {
+                // Caught, not thrown: an exception would silently cancel every later renewal. The
+                // next attempt runs on schedule; the TTL is three renewal periods long.
+                failureLog.warn("Could not renew import concurrency lease {}: {}", leaseId, e.toString());
+            }
+        };
+        synchronized (self) {
+            try {
+                self[0] = renewer.scheduleWithFixedDelay(renew, periodMillis, periodMillis, TimeUnit.MILLISECONDS);
+            } catch (java.util.concurrent.RejectedExecutionException e) {
+                // Only after stopRenewing(), at shutdown. The import still runs; its lease falls
+                // back to the safety TTL, as every lease did before renewal existed.
+                log.warn("Import concurrency lease {} will not be renewed -- the renewer has stopped", leaseId);
+                return null;
+            }
+            return self[0];
+        }
     }
 
     /** Which mechanism ALSO granted this permit, on top of the local semaphore every acquire
@@ -146,9 +254,14 @@ public class ImportConcurrencyLimiter {
                     maxConcurrent - permits.availablePermits(), maxConcurrent);
             throw new ApiException(ErrorCode.IMPORT_SYSTEM_BUSY);
         }
+        ScheduledFuture<?> renewal = null;
         try {
+            if (permit instanceof Permit.RedisLease redisLease) {
+                renewal = keepRenewing(redisLease.leaseId());
+            }
             return work.call();
         } finally {
+            if (renewal != null) renewal.cancel(false);
             releasePermit(permit);
         }
     }
@@ -172,9 +285,9 @@ public class ImportConcurrencyLimiter {
         if (!permits.tryAcquire()) {
             return null;
         }
+        String leaseId = java.util.UUID.randomUUID().toString();
         try {
-            String leaseId = acquireRedisLease();
-            if (leaseId != null) {
+            if (acquireRedisLease(leaseId) != null) {
                 return new Permit.RedisLease(leaseId);
             }
             // Redis is reachable but the fleet-wide ceiling is already full -- give back the
@@ -184,7 +297,34 @@ public class ImportConcurrencyLimiter {
         } catch (org.springframework.dao.DataAccessException e) {
             failureLog.warn("Redis unreachable for import concurrency limiter -- falling back to "
                     + "the local semaphore: {}", e.toString());
+            discardLeaseOfFailedAcquire(leaseId);
             return new Permit.LocalOnly();
+        } catch (RuntimeException e) {
+            // Anything else is not a Redis outage to fall back from, so it propagates -- but the
+            // local permit taken above must not go with it: nothing would ever release it, and
+            // once maxConcurrent of them were lost every import would be refused until a restart.
+            permits.release();
+            throw e;
+        }
+    }
+
+    /**
+     * A timeout does not mean the script did not run. The command can reach Redis and execute,
+     * with only its reply arriving after the client gave up (measured: a 1.5s reply delay against
+     * a 1s timeout left the lease in the set, and the next import was refused with Redis healthy).
+     * Nothing would release that lease, so it held a fleet-wide slot for the whole safety TTL
+     * while this request ran on its local permit alone. Removing it by id is harmless if it was
+     * never added. The removal goes out on the same connection after the script, so Redis applies
+     * it after the script. If Redis really is down this fails too, at the cost of one more command
+     * timeout on a path that has already waited one, and the safety TTL remains the backstop for
+     * a lease that did get written.
+     */
+    private void discardLeaseOfFailedAcquire(String leaseId) {
+        try {
+            releaseRedisLease(leaseId);
+        } catch (RuntimeException e) {
+            failureLog.warn("Could not remove import concurrency lease {} after a failed acquire "
+                    + "-- if it was written, it will self-heal via its safety TTL: {}", leaseId, e.toString());
         }
     }
 
@@ -195,8 +335,10 @@ public class ImportConcurrencyLimiter {
         if (permit instanceof Permit.RedisLease redisLease) {
             try {
                 releaseRedisLease(redisLease.leaseId());
-            } catch (org.springframework.dao.DataAccessException e) {
-                failureLog.warn("Redis unreachable while releasing an import concurrency lease "
+            } catch (RuntimeException e) {
+                // Any failure, not only a DataAccessException: this runs in runGated()'s finally,
+                // so an exception here would replace the finished work's result with an error.
+                failureLog.warn("Could not release an import concurrency lease "
                         + "{} -- it will self-heal via its safety TTL: {}", redisLease.leaseId(), e.toString());
             }
         }

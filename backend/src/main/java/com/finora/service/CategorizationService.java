@@ -44,7 +44,7 @@ public class CategorizationService {
 
     /**
      * Where a detected person-to-person payment lands. A system category in every user's default
-     * taxonomy (see {@code AuthService.DEFAULT_CATEGORIES}), seeded at registration and backfilled
+     * taxonomy (see {@code DefaultCategories}), seeded at registration and backfilled
      * for existing users by {@code V123__paid_a_person_category.sql}.
      *
      * <p><b>This was "Transfer" when the detector first shipped, and that was wrong for what the
@@ -1011,9 +1011,9 @@ public class CategorizationService {
         }
         String trimmed = name.trim();
         String safeName = trimmed.length() <= MAX_CATEGORY_NAME_LENGTH ? trimmed : truncateForColumn(trimmed);
-        List<Category> matches = categoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc(userId, safeName);
-        if (!matches.isEmpty()) {
-            return matches.get(0);
+        Optional<Category> existing = findCategoryNamed(userId, safeName);
+        if (existing.isPresent()) {
+            return existing.get();
         }
         Category c = new Category();
         c.setUserId(userId);
@@ -1021,6 +1021,24 @@ public class CategorizationService {
         c.setSystem(false);
         c.setAiCreationReason(aiCreationReason);
         return categoryRepository.save(c);
+    }
+
+    /**
+     * The user's category by this name, matched the way {@link #resolveOrCreateCategory} matches
+     * (trimmed, ignoring case), or empty -- the lookup half of it, for a caller that must not
+     * create the category when it is missing (ImportService: a staged category the user deleted
+     * before confirming).
+     */
+    public Optional<Category> findCategory(UUID userId, String name) {
+        if (name == null || name.isBlank()) return Optional.empty();
+        String trimmed = name.trim();
+        // Longer than the column, it cannot be any category's name.
+        if (trimmed.length() > MAX_CATEGORY_NAME_LENGTH) return Optional.empty();
+        return findCategoryNamed(userId, trimmed);
+    }
+
+    private Optional<Category> findCategoryNamed(UUID userId, String name) {
+        return categoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc(userId, name).stream().findFirst();
     }
 
     private static String truncateForColumn(String trimmed) {

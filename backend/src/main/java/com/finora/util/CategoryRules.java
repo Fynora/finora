@@ -183,7 +183,7 @@ public final class CategoryRules {
         // TRANSFER-...") rather than the bare word "self", which is common enough in unrelated
         // narrations that a bare-word match would carry real false-positive risk.
         RULES.put("Transfer", List.of("credit card payment", "card bill payment", "cc payment", "autopay", "neft to", "imps to", "billdesk", "rtgs", "self transfer"));
-        // Appended after the original set (see AuthService.DEFAULT_CATEGORIES, which this list
+        // Appended after the original set (see DefaultCategories, which this list
         // now mirrors) rather than interleaved — insertion order is match priority for
         // suggestCategory's first-match-wins loop, and none of these keywords collide with the
         // rules above, so appending can't change any existing categorization.

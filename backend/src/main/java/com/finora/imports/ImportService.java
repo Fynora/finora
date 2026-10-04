@@ -1281,7 +1281,22 @@ public class ImportService {
             // site the bug report identifies as reachable with unbounded, possibly-blank raw
             // parser output.
             String rowCategory = (row.category() == null || row.category().isBlank()) ? "Other" : row.category();
-            Category category = categorizationService.resolveOrCreateCategory(userId, rowCategory);
+            Optional<Category> existingCategory = categorizationService.findCategory(userId, rowCategory);
+            // The engine named one of the user's own categories when the file was read, and the
+            // user renamed or deleted it before confirming. Creating it again would bring back what
+            // they just removed, so the row waits in "Other" for them to sort instead. A default
+            // category cannot be renamed or deleted, so one the engine named is created as before;
+            // so is a category picked or typed on the review screen, or printed in the user's file.
+            if (existingCategory.isEmpty() && namedByTheEngine(row)
+                    && com.finora.util.DefaultCategories.canonical(rowCategory).isEmpty()
+                    && !aRuleStillNames(confirmRules, row.ruleId(), rowCategory)) {
+                row = row.withNothingMatched();
+                rowCategory = row.category();
+                existingCategory = categorizationService.findCategory(userId, rowCategory);
+            }
+            String categoryToCreate = rowCategory;
+            Category category = existingCategory
+                    .orElseGet(() -> categorizationService.resolveOrCreateCategory(userId, categoryToCreate));
             var decision = ruleLearningService.recordDecision(row);
             boolean isUnresolvedGuess = decision.unresolvedGuess();
 
@@ -2008,6 +2023,35 @@ public class ImportService {
         }
         AccountCoverage coverage = accountCoverageFor(userId, accountId);
         return CoverageWarnings.duplicateOverlaps(coverage.report(), statementId, coverage.importedAtById());
+    }
+
+    /**
+     * Whether a confirmed row's category is still the one the engine gave it at staging: the
+     * user did not change it on the review screen ("review", see
+     * ConfirmedRowIntegrity.withStatementFacts) and it is not the file's own Category column
+     * ("file"). A row with no source at all is left as it always was.
+     */
+    private static boolean namedByTheEngine(ConfirmedRow row) {
+        String source = row.categorySource();
+        return source != null && !CategorizationService.REVIEW_SOURCE.equals(source) && !"file".equals(source);
+    }
+
+    /**
+     * Whether the rule that filed a row still files under {@code category}. A user's rule may name
+     * a category that does not exist yet (support can type one on the admin portal's user rules
+     * screen) and creates it on its first match; that is the rule's answer, not a removed category.
+     * A rename or delete points the rule at another category (CategoryService), so a row still
+     * carrying the old name no longer matches its rule.
+     */
+    private static boolean aRuleStillNames(List<com.finora.entity.CategoryRule> rules, UUID ruleId, String category) {
+        if (ruleId == null) return false;
+        return rules.stream()
+                .filter(rule -> ruleId.equals(rule.getId()))
+                .anyMatch(rule -> {
+                    String named = rule.getActionType() == com.finora.entity.CategoryRule.ActionType.MARK_INVESTMENT
+                            ? CategorizationService.investmentCategoryName(rule) : rule.getActionValue();
+                    return named != null && named.trim().equalsIgnoreCase(category.trim());
+                });
     }
 
     /**

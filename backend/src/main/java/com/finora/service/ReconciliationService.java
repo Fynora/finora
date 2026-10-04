@@ -115,7 +115,7 @@ public class ReconciliationService {
 
     /**
      * The category that excludes an EXPENSE row from spend as {@code INVESTMENT_TRANSFER}. It is the
-     * seeded system category of this name (AuthService.DEFAULT_CATEGORIES); a system category cannot
+     * seeded system category of this name (DefaultCategories); a system category cannot
      * be renamed or deleted (CategoryService), so this name is a stable key rather than something a
      * user can change out from under the pass. Public so TransactionService can tell whether a
      * category edit could change a row's exclusion without a reconciliation lookup of its own.

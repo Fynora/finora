@@ -932,6 +932,15 @@ public class ImportDto {
                     international, foreignCurrency, foreignAmount);
         }
 
+        /** A copy filed the way the engine files a row it found nothing for: "Other", from no rule,
+         *  with no confidence -- so it waits for the user to sort it. Used for a row whose staged
+         *  category the user renamed or deleted before confirming; see ImportService. */
+        public ConfirmedRow withNothingMatched() {
+            return new ConfirmedRow(date, description, amount, type, "Other", include, "default", null,
+                    likelyDuplicate, referenceNumber, balanceAfter, confirmedNotDuplicate, null, rowPosition,
+                    international, foreignCurrency, foreignAmount);
+        }
+
         /** Pre-international arity. */
         public ConfirmedRow(LocalDate date, String description, BigDecimal amount, String type,
                             String category, boolean include, String categorySource, UUID ruleId,

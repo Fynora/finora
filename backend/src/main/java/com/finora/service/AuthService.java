@@ -39,7 +39,6 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -71,57 +70,6 @@ public class AuthService {
      */
     private final String timingParityHash;
 
-    // Default categories seeded for every new user — mirrors the prototype's starter category
-    // list, expanded (see V11 migration, which backfills the same additions for existing users)
-    // beyond the original 13 to cover common real-life cases the first pass didn't: repaying a
-    // friend, EMIs, insurance premiums, and so on, so users aren't stuck recategorizing
-    // everything as "Other" or hand-creating categories one at a time.
-    private static final Map<String, String[]> DEFAULT_CATEGORIES = new LinkedHashMap<>();
-    static {
-        DEFAULT_CATEGORIES.put("Salary", new String[]{"arrow-down-circle", "green"});
-        // Money a bank or card pays you -- interest credited, cashback (V246, Sid 2026-10-02). Next
-        // to Salary as the other money-in category; same icon, a different colour so the two stay
-        // tellable apart. Routed by BankActivityCategory.
-        DEFAULT_CATEGORIES.put("Interest & Cashback", new String[]{"arrow-down-circle", "teal"});
-        DEFAULT_CATEGORIES.put("Rent", new String[]{"home", "blue"});
-        DEFAULT_CATEGORIES.put("Groceries", new String[]{"shopping-cart", "green"});
-        DEFAULT_CATEGORIES.put("Dining", new String[]{"utensils", "orange"});
-        DEFAULT_CATEGORIES.put("Transport", new String[]{"car", "gray"});
-        DEFAULT_CATEGORIES.put("Utilities", new String[]{"zap", "yellow"});
-        DEFAULT_CATEGORIES.put("Shopping", new String[]{"shopping-bag", "purple"});
-        DEFAULT_CATEGORIES.put("Health", new String[]{"heart-pulse", "red"});
-        // Salons and beauty parlours (V247, Sid 2026-10-02). Routed by ShopTradeCategory.
-        DEFAULT_CATEGORIES.put("Personal Care", new String[]{"scissors", "pink"});
-        DEFAULT_CATEGORIES.put("Entertainment", new String[]{"film", "pink"});
-        DEFAULT_CATEGORIES.put("Investments", new String[]{"trending-up", "teal"});
-        DEFAULT_CATEGORIES.put("Fees/Interest", new String[]{"percent", "gray"});
-        DEFAULT_CATEGORIES.put("Transfer", new String[]{"repeat", "blue"});
-        DEFAULT_CATEGORIES.put("Friend Repayment", new String[]{"users", "teal"});
-        // The 26th category (named "Paid a Person" in V123, renamed direction-neutral by V124 --
-        // the detector never looked at direction, so an outbound-sounding name was wrong for the
-        // ~23% of its rows that are money received). Placed next to its two nearest neighbours so a
-        // user reading their category list meets the three people-shaped options together. This is
-        // where CategorizationService.P2P_CATEGORY routes a structurally-detected payment to a
-        // named individual. Deliberately a WEAKER claim than either neighbour -- "Transfer" asserts
-        // no spending occurred and "Friend Repayment" asserts a debt was settled, and the detector
-        // has evidence for neither. See P2P_CATEGORY's own comment for why this stopped being
-        // "Transfer". Reuses the existing `users` icon token (CategoryPalette.ICONS is a closed
-        // vocabulary and both clients map icons by TOKEN, not by category name, so no client change
-        // is needed), in a different colour from Friend Repayment so the two stay tellable apart.
-        DEFAULT_CATEGORIES.put("Personal Transfer", new String[]{"users", "orange"});
-        DEFAULT_CATEGORIES.put("Loan EMI", new String[]{"landmark", "red"});
-        DEFAULT_CATEGORIES.put("Insurance", new String[]{"shield", "blue"});
-        DEFAULT_CATEGORIES.put("Education", new String[]{"graduation-cap", "purple"});
-        DEFAULT_CATEGORIES.put("Subscriptions", new String[]{"refresh-cw", "pink"});
-        DEFAULT_CATEGORIES.put("Travel", new String[]{"plane", "teal"});
-        DEFAULT_CATEGORIES.put("Gifts & Donations", new String[]{"gift", "pink"});
-        DEFAULT_CATEGORIES.put("Pets", new String[]{"paw-print", "orange"});
-        DEFAULT_CATEGORIES.put("Home & Furnishing", new String[]{"sofa", "yellow"});
-        DEFAULT_CATEGORIES.put("Taxes", new String[]{"receipt", "gray"});
-        DEFAULT_CATEGORIES.put("Cash Withdrawal", new String[]{"banknote", "green"});
-        DEFAULT_CATEGORIES.put("Business Expenses", new String[]{"briefcase", "blue"});
-        DEFAULT_CATEGORIES.put("Other", new String[]{"tag", "gray"});
-    }
     private static final long RESET_TOKEN_TTL_MINUTES = 30;
     // OTP login, email channel (docs/superpowers/specs/2026-09-22-otp-login-design.md).
     private static final long EMAIL_LOGIN_OTP_TTL_MINUTES = 5;
@@ -1791,12 +1739,12 @@ public class AuthService {
         return prt;
     }
 
-    // Bug fix: this issued DEFAULT_CATEGORIES.size() individual INSERTs (one save() call per
+    // Bug fix: this issued one INSERT per default category (one save() call per
     // category) on every registration -- an easily-avoidable per-signup latency cost fixed by
     // building the whole batch in memory and writing it in one saveAll() call.
     private void seedDefaultCategories(java.util.UUID userId) {
         List<Category> categories = new ArrayList<>();
-        for (var entry : DEFAULT_CATEGORIES.entrySet()) {
+        for (var entry : com.finora.util.DefaultCategories.iconAndColor().entrySet()) {
             Category c = new Category();
             c.setUserId(userId);
             c.setName(entry.getKey());

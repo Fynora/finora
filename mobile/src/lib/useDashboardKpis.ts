@@ -15,6 +15,10 @@ export function useDashboardKpis(summary: DashboardSummary | undefined) {
   return useMemo(() => {
     const periodIsCurrent = summary ? (summary.reportingMonthIsCurrent || !summary.reportingMonth) : true;
     const periodLabel = periodIsCurrent ? 'this month' : monthLabel(summary!.reportingMonth!);
+    // The heading over the month's figures (Dashboard's snapshot card, Ledger's month card). It
+    // used to be a hardcoded "This Month" in both, so figures from an earlier month were titled as
+    // the current one while web named the month.
+    const periodTitle = periodIsCurrent ? 'This Month' : monthLabel(summary!.reportingMonth!);
     const deltaLabel = periodIsCurrent
       ? 'vs last month'
       : `vs the month before ${monthLabel(summary!.reportingMonth!)}`;
@@ -68,6 +72,6 @@ export function useDashboardKpis(summary: DashboardSummary | undefined) {
     const balanceKpi = kpis.find((k) => k.label === 'Total Balance') ?? null;
     const snapshotKpis = kpis.filter((k) => k.label !== 'Total Balance');
 
-    return { kpis, balanceKpi, snapshotKpis, periodIsCurrent, periodLabel, deltaLabel, deltaSpokenLabel };
+    return { kpis, balanceKpi, snapshotKpis, periodIsCurrent, periodLabel, periodTitle, deltaLabel, deltaSpokenLabel };
   }, [summary]);
 }

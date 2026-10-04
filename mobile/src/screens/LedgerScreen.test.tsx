@@ -1478,6 +1478,19 @@ describe('LedgerScreen "This Month" summary', () => {
     expect(screen.getByTestId('kpi-Expenses')).toBeTruthy();
   });
 
+  it('names the month instead of "This Month" when the figures are from an earlier month', async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+    dashboard.summary.mockResolvedValue({
+      monthlyIncome: 145000, monthlyExpense: 18672, incomeDeltaPct: null, expenseDeltaPct: null,
+      netCashFlow: 126328, netDeltaPct: null, savingsRatePct: 87, currentBalance: 50000,
+      reportingMonth: '2026-08', reportingMonthIsCurrent: false,
+    } as never);
+    renderScreen();
+
+    expect(await screen.findByText('Aug 26')).toBeTruthy();
+    expect(screen.queryByText('This Month')).toBeNull();
+  });
+
   it('renders nothing extra while the summary is still loading', async () => {
     transactions.search.mockResolvedValue(page([]) as never);
     dashboard.summary.mockReturnValue(new Promise(() => {})); // never resolves

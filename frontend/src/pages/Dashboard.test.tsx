@@ -206,6 +206,15 @@ function rangeSummary(overrides: Partial<DashboardRangeSummary> = {}): Dashboard
   };
 }
 
+// The dashboard opens on This Month (KPI cards from the summary). Tests of the range-driven cards
+// pick a range first, the way a user would.
+async function renderOnRange(range: string = 'LAST_6_MONTHS') {
+  const user = userEvent.setup();
+  const result = renderDashboard();
+  await user.selectOptions(await screen.findByLabelText('Dashboard period'), range);
+  return result;
+}
+
 function renderDashboard() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -1007,7 +1016,7 @@ describe('Dashboard — comparison gate "Why?" disclosure', () => {
       incomeDeltaPct: null, expenseDeltaPct: null, netDeltaPct: null,
       comparisonGateReason: 'PRIOR_PERIOD_BEFORE_HISTORY',
     }));
-    renderDashboard();
+    await renderOnRange();
 
     await screen.findByText('Financial Health Score'); // wait for the dashboard to finish loading
     expect(screen.getAllByRole('button', { name: 'Why?' })).toHaveLength(3);
@@ -1019,7 +1028,7 @@ describe('Dashboard — comparison gate "Why?" disclosure', () => {
       incomeDeltaPct: null, expenseDeltaPct: null, netDeltaPct: null,
       comparisonGateReason: 'TOO_FEW_PRIOR_TRANSACTIONS', comparisonGateMinTransactions: 5,
     }));
-    renderDashboard();
+    await renderOnRange();
 
     const [whyButton] = await screen.findAllByRole('button', { name: 'Why?' });
     await userEvent.click(whyButton);
@@ -1609,8 +1618,8 @@ describe('Dashboard — unified date-range picker', () => {
     vi.mocked(recurringApi.list).mockReset().mockResolvedValue([]);
   });
 
-  it('renders the 5 KPI cards from dashboardApi.rangeSummary, labelled with the default Last 6 Months range', async () => {
-    renderDashboard();
+  it('renders the 5 KPI cards from dashboardApi.rangeSummary, labelled with the Last 6 Months range', async () => {
+    await renderOnRange();
 
     expect(await screen.findByText('Net worth')).toBeInTheDocument();
     expect(screen.getByText('₹50,000')).toBeInTheDocument();
@@ -1629,7 +1638,7 @@ describe('Dashboard — unified date-range picker', () => {
       incomeDeltaPct: 20, expenseDeltaPct: 10, netDeltaPct: 30, balanceDeltaPct: 5,
       previousBalance: 47500, previousBalanceAsOf: '2026-02-28',
     }));
-    renderDashboard();
+    await renderOnRange();
 
     await screen.findByText('Net worth');
     expect(screen.getByText('vs previous period')).toBeInTheDocument();
@@ -1646,7 +1655,7 @@ describe('Dashboard — unified date-range picker', () => {
       comparisonGateReason: null, // income/expense/net compare fine
       previousBalance: null, balanceGateReason: 'NO_SNAPSHOT_AT_PRIOR_DATE', // balance can't
     }));
-    renderDashboard();
+    await renderOnRange();
 
     const whyButton = await screen.findByRole('button', { name: 'Why?' });
     await userEvent.click(whyButton);
@@ -1658,7 +1667,7 @@ describe('Dashboard — unified date-range picker', () => {
     // the picker is visible both in the call args AND in the label the response then drives.
     vi.mocked(dashboardApi.rangeSummary).mockImplementation(async (rangeType) => rangeSummary({ rangeType }));
     const user = userEvent.setup();
-    renderDashboard();
+    await renderOnRange();
     await screen.findByText('Net worth');
 
     vi.mocked(dashboardApi.rangeSummary).mockClear();
@@ -1672,7 +1681,7 @@ describe('Dashboard — unified date-range picker', () => {
 
   it('selecting Custom reveals two date inputs and, once both are filled, fetches rangeSummary with them', async () => {
     const user = userEvent.setup();
-    renderDashboard();
+    await renderOnRange();
     await screen.findByText('Net worth');
 
     await user.selectOptions(screen.getByDisplayValue('Last 6 Months'), 'CUSTOM');
@@ -1697,7 +1706,7 @@ describe('Dashboard — unified date-range picker', () => {
   // and confirmed against the real component before this test was written.
   it('shows a neutral prompt, not an error, when Custom is selected but no dates are filled in yet', async () => {
     const user = userEvent.setup();
-    renderDashboard();
+    await renderOnRange();
     await screen.findByText('Net worth');
 
     await user.selectOptions(screen.getByDisplayValue('Last 6 Months'), 'CUSTOM');
@@ -1710,7 +1719,7 @@ describe('Dashboard — unified date-range picker', () => {
     vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
       currentBalance: 62000, currentBalanceAsOf: '2026-08-15',
     }));
-    renderDashboard();
+    await renderOnRange();
 
     await screen.findByText('Net worth');
     expect(screen.getByText('₹62,000')).toBeInTheDocument();
@@ -1725,7 +1734,7 @@ describe('Dashboard — unified date-range picker', () => {
       currentBalance: null, currentBalanceAsOf: null, balanceDeltaPct: null,
       currentBalanceGateReason: 'NO_SNAPSHOT_AT_OR_BEFORE_DATE',
     }));
-    renderDashboard();
+    await renderOnRange();
 
     await screen.findByText('Net worth');
     expect(screen.queryByText('₹0')).not.toBeInTheDocument();
@@ -1741,7 +1750,7 @@ describe('Dashboard — unified date-range picker', () => {
       rangeType: 'CUSTOM', startDate: '2026-03-15', endDate: '2026-08-20',
     }));
     const user = userEvent.setup();
-    renderDashboard();
+    await renderOnRange();
     await screen.findByText('Net worth');
 
     await user.selectOptions(screen.getByDisplayValue('Last 6 Months'), 'CUSTOM');
@@ -1760,7 +1769,7 @@ describe('Dashboard — unified date-range picker', () => {
   it('shows "Pick a date range", not "No data yet", for the Cash Flow chart while Custom is selected but incomplete', async () => {
     vi.mocked(reportsApi.availableMonths).mockReset().mockResolvedValue(['2026-06', '2026-07', '2026-08']);
     const user = userEvent.setup();
-    renderDashboard();
+    await renderOnRange();
     await screen.findByText('Net worth');
 
     await user.selectOptions(screen.getByDisplayValue('Last 6 Months'), 'CUSTOM');
@@ -1774,6 +1783,163 @@ describe('Dashboard — unified date-range picker', () => {
     await waitFor(() => {
       expect(screen.queryByText('Pick a date range')).not.toBeInTheDocument();
     });
+  });
+});
+
+// Web and mobile used to open on different periods (web: Last 6 Months, mobile: this month). Both
+// now open on the month mobile reports: the KPI cards read the same dashboard summary mobile's
+// cards read, so the two apps show the same numbers by construction, while the Cash Flow chart
+// keeps its 6-month trend (a one-bar chart says nothing).
+describe('Dashboard — This Month default', () => {
+  beforeEach(() => {
+    vi.mocked(dashboardApi.summary).mockReset().mockResolvedValue(summary());
+    vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [], page: 0, size: 4, totalElements: 12, totalPages: 3,
+    });
+    vi.mocked(goalsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(insightsApi.get).mockReset().mockResolvedValue({ sentences: [], movers: [] });
+    vi.mocked(userApi.get).mockReset().mockResolvedValue({
+      email: 'amy@example.test', fullName: 'Amy Santiago', lowBalanceThreshold: 2000,
+      theme: 'system', timezone: 'Asia/Kolkata', phoneNumber: '+919876500000',
+      phoneVerified: true, createdAt: '2026-01-01T00:00:00Z', passwordChangedAt: null, signInMethod: 'PASSWORD',
+      onboardingCompleted: true,
+    });
+    vi.mocked(budgetsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(reportsApi.availableMonths).mockReset().mockResolvedValue([]);
+    vi.mocked(reportsApi.forMonth).mockReset();
+    vi.mocked(recurringApi.list).mockReset().mockResolvedValue([]);
+    // Deliberately different from summary()'s figures, so a card that read the range endpoint
+    // instead of the summary would show a number these tests do not expect.
+    vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
+      incomeTotal: 480000, expenseTotal: 270000, netSavingsTotal: 210000, savingsRatePct: 12,
+      currentBalance: 99999,
+    }));
+  });
+
+  it('opens on This Month, with the cards showing the dashboard summary mobile shows', async () => {
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({ netWorth: 61000, savingsRatePct: 43.75 }));
+    renderDashboard();
+
+    expect(await screen.findByText('Income (This Month)')).toBeInTheDocument();
+    expect(screen.getByLabelText('Dashboard period')).toHaveDisplayValue('This Month');
+    expect(screen.getByText('₹80,000')).toBeInTheDocument();
+    expect(screen.getByText('Expenses (This Month)')).toBeInTheDocument();
+    expect(screen.getByText('₹45,000')).toBeInTheDocument();
+    expect(screen.getByText('Net Savings (This Month)')).toBeInTheDocument();
+    expect(screen.getByText('₹35,000')).toBeInTheDocument();
+    expect(screen.getByText('Savings Rate (This Month)')).toBeInTheDocument();
+    expect(screen.getByText('44%')).toBeInTheDocument();
+    expect(screen.getByText('Net worth')).toBeInTheDocument();
+    expect(screen.getByText('₹61,000')).toBeInTheDocument();
+    expect(screen.getByText('as of today')).toBeInTheDocument();
+    expect(screen.queryByText('₹4,80,000')).not.toBeInTheDocument();
+    expect(screen.queryByText('₹99,999')).not.toBeInTheDocument();
+  });
+
+  it('compares with last month using the summary deltas', async () => {
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
+      incomeDeltaPct: 20, expenseDeltaPct: 10, netDeltaPct: 30,
+    }));
+    renderDashboard();
+
+    await screen.findByText('Income (This Month)');
+    expect(screen.getAllByText('vs last month')).toHaveLength(3);
+  });
+
+  it('names the month when the newest figures are from an earlier month, never calling it This Month', async () => {
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
+      reportingMonth: '2026-08', reportingMonthIsCurrent: false, incomeDeltaPct: 20, expenseDeltaPct: 10, netDeltaPct: 30,
+    }));
+    renderDashboard();
+
+    expect(await screen.findByText('Income (Aug 26)')).toBeInTheDocument();
+    expect(screen.getByLabelText('Dashboard period')).toHaveDisplayValue('Latest month (Aug 26)');
+    expect(screen.getAllByText('vs the month before Aug 26')).toHaveLength(3);
+    expect(screen.getByText('as of Aug 26')).toBeInTheDocument();
+    expect(screen.queryByText(/This Month/)).not.toBeInTheDocument();
+  });
+
+  it("explains a withheld comparison with the summary's own gate reason", async () => {
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
+      comparisonGateReason: 'TOO_FEW_PRIOR_TRANSACTIONS', comparisonGateMinTransactions: 3,
+    }));
+    renderDashboard();
+
+    const [whyButton] = await screen.findAllByRole('button', { name: 'Why?' });
+    await userEvent.click(whyButton);
+    expect(screen.getByText('The month before has fewer than 3 transactions, too few to compare reliably.')).toBeInTheDocument();
+  });
+
+  it('explains a partial previous month', async () => {
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({ comparisonGateReason: 'PARTIAL_PRIOR_MONTH' }));
+    renderDashboard();
+
+    const [whyButton] = await screen.findAllByRole('button', { name: 'Why?' });
+    await userEvent.click(whyButton);
+    expect(screen.getByText(
+      "The month before is only partly covered by your imported statements, so it wouldn't be a fair comparison.",
+    )).toBeInTheDocument();
+  });
+
+  it('shows "—" with the reason when the savings rate is withheld', async () => {
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({ savingsRatePct: null, savingsRateGateReason: 'NO_INCOME' }));
+    renderDashboard();
+
+    await screen.findByText('Savings Rate (This Month)');
+    expect(screen.getByText('—')).toBeInTheDocument();
+  });
+
+  // Mobile rounds with Math.round; toFixed(0) rounds a negative half away from zero, so the same
+  // -12.5% read -13% on web and -12% on mobile.
+  it('rounds a negative savings rate the way mobile does', async () => {
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({ savingsRatePct: -12.5 }));
+    renderDashboard();
+
+    await screen.findByText('Savings Rate (This Month)');
+    expect(screen.getByText('-12%')).toBeInTheDocument();
+  });
+
+  it('keeps the Cash Flow chart on the last 6 months', async () => {
+    vi.mocked(reportsApi.availableMonths).mockResolvedValue([
+      '2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08',
+    ]);
+    vi.mocked(reportsApi.forMonth).mockImplementation(async (month: string) => ({
+      month, income: 10000, expense: 6000, categories: [],
+    }));
+    renderDashboard();
+
+    await screen.findByTestId('cash-flow-chart');
+    const fetched = vi.mocked(reportsApi.forMonth).mock.calls.map(([m]) => m).sort();
+    expect(fetched).toEqual(['2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08']);
+    expect(dashboardApi.rangeSummary).toHaveBeenCalledWith('LAST_6_MONTHS', undefined, undefined);
+    expect(await screen.findByText(/You've earned ₹4,80,000 and spent ₹2,70,000 in the last 6 months\./)).toBeInTheDocument();
+  });
+
+  it("shows the month's unresolved money and links to that month's review", async () => {
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
+      reportingMonth: '2026-02', reportingMonthIsCurrent: false,
+      unresolvedInflow: 1479, unresolvedInflowCount: 1, unresolvedTopReason: 'PERSON_INFLOW',
+    }));
+    renderDashboard();
+
+    expect(await screen.findByText('1 transaction needs classification · ₹1,479 not counted as income')).toBeInTheDocument();
+    expect(screen.getByText('Mostly money received from people')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Review these payments' }))
+      .toHaveAttribute('href', '/app/money-review?start=2026-02-01&end=2026-02-28');
+  });
+
+  it('switching to Last 6 Months moves the cards to the range figures', async () => {
+    const user = userEvent.setup();
+    renderDashboard();
+    await screen.findByText('Income (This Month)');
+
+    await user.selectOptions(screen.getByLabelText('Dashboard period'), 'LAST_6_MONTHS');
+
+    expect(await screen.findByText('Income (Last 6 Months)')).toBeInTheDocument();
+    expect(screen.getByText('₹4,80,000')).toBeInTheDocument();
+    expect(screen.queryByText('Income (This Month)')).not.toBeInTheDocument();
   });
 });
 
@@ -1830,7 +1996,7 @@ describe('Dashboard — design review fixes', () => {
     vi.mocked(dashboardApi.rangeSummary).mockRejectedValue({
       response: { data: { message: 'Your session has expired. Please sign in again.' } },
     });
-    renderDashboard();
+    await renderOnRange();
 
     expect(await screen.findByText('Your session has expired. Please sign in again.')).toBeInTheDocument();
     expect(screen.queryByText("Couldn't load your KPI cards — please try again later.")).not.toBeInTheDocument();
@@ -1838,7 +2004,7 @@ describe('Dashboard — design review fixes', () => {
 
   it('falls back to a generic message when the failed request carries no API error text', async () => {
     vi.mocked(dashboardApi.rangeSummary).mockRejectedValue(new Error('Network Error'));
-    renderDashboard();
+    await renderOnRange();
 
     expect(await screen.findByText("Couldn't load your KPI cards — please try again later.")).toBeInTheDocument();
   });
@@ -1977,7 +2143,7 @@ describe('Dashboard — unresolved inflow banner', () => {
       savingsRatePct: null, savingsRateGateReason: 'UNRESOLVED_EXCEEDS_INCOME',
       unresolvedInflow: 450000, unresolvedInflowCount: 80, unresolvedTopReason: 'PERSON_INFLOW',
     }));
-    renderDashboard();
+    await renderOnRange();
 
     expect(await screen.findByText('Classify money received to see this')).toBeInTheDocument();
     expect(screen.queryByText(/%$/, { selector: 'p' })).not.toBeInTheDocument();
@@ -1988,7 +2154,7 @@ describe('Dashboard — unresolved inflow banner', () => {
       incomeTotal: 0, expenseTotal: 500, netSavingsTotal: -500,
       savingsRatePct: null, savingsRateGateReason: 'NO_INCOME',
     }));
-    renderDashboard();
+    await renderOnRange();
 
     expect(await screen.findByText('No income counted yet')).toBeInTheDocument();
   });
@@ -1997,7 +2163,7 @@ describe('Dashboard — unresolved inflow banner', () => {
     vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
       unresolvedInflow: 84500, unresolvedInflowCount: 12, unresolvedTopReason: null,
     }));
-    renderDashboard();
+    await renderOnRange();
 
     expect(await screen.findByText('12 transactions need classification · ₹84,500 not counted as income'))
       .toBeInTheDocument();
@@ -2007,7 +2173,7 @@ describe('Dashboard — unresolved inflow banner', () => {
     vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
       unresolvedInflow: 84500, unresolvedInflowCount: 12, unresolvedTopReason: null,
     }));
-    renderDashboard();
+    await renderOnRange();
 
     expect(await screen.findByRole('link', { name: 'Review these payments' }))
       .toHaveAttribute('href', '/app/money-review?start=2026-03-01&end=2026-08-31');
@@ -2017,7 +2183,7 @@ describe('Dashboard — unresolved inflow banner', () => {
     vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
       unresolvedInflow: 1479, unresolvedInflowCount: 1, unresolvedTopReason: null,
     }));
-    renderDashboard();
+    await renderOnRange();
 
     expect(await screen.findByText('1 transaction needs classification · ₹1,479 not counted as income'))
       .toBeInTheDocument();
@@ -2043,7 +2209,7 @@ describe('Dashboard — unresolved inflow banner', () => {
     vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
       unresolvedInflow: 5000, unresolvedInflowCount: 2, unresolvedTopReason: reason,
     }));
-    renderDashboard();
+    await renderOnRange();
 
     expect(await screen.findByText(line)).toBeInTheDocument();
   });
@@ -2052,7 +2218,7 @@ describe('Dashboard — unresolved inflow banner', () => {
     vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
       unresolvedInflow: 5000, unresolvedInflowCount: 2, unresolvedTopReason: 'SOME_FUTURE_REASON',
     }));
-    renderDashboard();
+    await renderOnRange();
 
     const banner = await screen.findByTestId('unresolved-inflow-banner');
     expect(banner.querySelectorAll('p')).toHaveLength(1);

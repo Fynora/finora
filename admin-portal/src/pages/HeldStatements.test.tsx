@@ -212,6 +212,7 @@ describe('HeldStatements', () => {
       fileName: 'june-statement.pdf',
       heldAt: '2026-09-03T08:00:00Z',
       stagedRowsAvailable: true,
+      coveredByHeldId: null,
     };
 
     it('shows nothing extra while there are none', async () => {
@@ -263,6 +264,18 @@ describe('HeldStatements', () => {
 
       expect(await screen.findByRole('alert')).toHaveTextContent(/already has a review record/i);
       expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
+    it('links to the review that already covers it instead of offering a second one', async () => {
+      vi.mocked(adminHeldStatementApi.listWithoutReviewRecord).mockResolvedValue({
+        content: [{ ...stuck, coveredByHeldId: 'HLD-2026-100088' }], page: 0, size: 25, totalElements: 1, totalPages: 1,
+      });
+      mockAuth(['TRUST_REVIEW_MANAGE']);
+      renderPage();
+
+      expect(await screen.findByRole('link', { name: 'HLD-2026-100088' }))
+        .toHaveAttribute('href', '/held-statements/HLD-2026-100088');
+      expect(screen.queryByRole('button', { name: /open review/i })).not.toBeInTheDocument();
     });
 
     it('is not shown under Resolved', async () => {

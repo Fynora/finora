@@ -17,12 +17,16 @@ import java.util.UUID;
  * @param heldAt when the worker held it
  * @param stagedRowsAvailable whether its staged session still exists; when it does not, the review
  *                            opens anyway and a parser re-run stages the statement again
+ * @param coveredByHeldId the open review that already covers this import's rows -- a later upload
+ *                        of the same statement held on the same session -- or null. Deciding that
+ *                        review decides this import too, so no second review is opened for it.
  */
 public record HoldWithoutReviewRecordDto(UUID jobId, String fileName, Instant heldAt,
-                                         boolean stagedRowsAvailable) {
+                                         boolean stagedRowsAvailable, String coveredByHeldId) {
 
-    public static HoldWithoutReviewRecordDto from(ImportJob job, boolean stagedRowsAvailable) {
+    public static HoldWithoutReviewRecordDto from(ImportJob job, boolean stagedRowsAvailable,
+                                                  String coveredByHeldId) {
         return new HoldWithoutReviewRecordDto(job.getId(), job.getFileName(), job.getFinishedAt(),
-                stagedRowsAvailable);
+                stagedRowsAvailable, coveredByHeldId);
     }
 }

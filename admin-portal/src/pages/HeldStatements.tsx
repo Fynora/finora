@@ -77,7 +77,16 @@ function HoldsWithoutReviewRecord() {
     },
     {
       header: '',
-      render: (row) => (
+      // Already covered by another upload's review on the same rows: decided there, not here --
+      // a second review would block the rows until both were approved.
+      render: (row) => row.coveredByHeldId ? (
+        <span className="text-muted text-xs">
+          Covered by{' '}
+          <Link to={`/held-statements/${row.coveredByHeldId}`} className="font-mono text-accent hover:underline">
+            {row.coveredByHeldId}
+          </Link>
+        </span>
+      ) : (
         <button
           type="button"
           onClick={() => openReview.mutate(row.jobId)}

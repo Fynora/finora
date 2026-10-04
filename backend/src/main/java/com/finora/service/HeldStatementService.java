@@ -185,8 +185,27 @@ public class HeldStatementService {
                 ImportJob.Status.HELD_FOR_TRUST_REVIEW,
                 PageRequest.of(PageBounds.safePage(page), PageBounds.safeSize(size > 0 ? size : 25),
                         Sort.by(Sort.Direction.ASC, "finishedAt")));
-        return PagedResponse.of(jobs.map(job ->
-                HoldWithoutReviewRecordDto.from(job, importSessionService.exists(job.getImportSessionId()))));
+        return PagedResponse.of(jobs.map(job -> HoldWithoutReviewRecordDto.from(job,
+                importSessionService.exists(job.getImportSessionId()),
+                openReviewCovering(job).map(HeldStatement::getHeldId).orElse(null))));
+    }
+
+    /**
+     * Another job's unresolved review on the same session, if one exists -- the review the worker
+     * opened for a later upload of the statement, which this record-less job rides on
+     * ({@link #coveredBy}). Opening a review of its own would put a second review on the same rows,
+     * the duplicate the whole re-upload fix exists to stop.
+     */
+    private Optional<HeldStatement> openReviewCovering(ImportJob job) {
+        if (job.getImportSessionId() == null) return Optional.empty();
+        List<UUID> others = importJobRepository.findByImportSessionId(job.getImportSessionId()).stream()
+                .filter(other -> !other.getId().equals(job.getId()))
+                .map(ImportJob::getHeldStatementId)
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        return repository.findAllById(others).stream()
+                .filter(held -> !held.getStatus().isResolved())
+                .findFirst();
     }
 
     /**
@@ -202,6 +221,10 @@ public class HeldStatementService {
      * {@link #rerunParser} uses. If those rows are gone, the review still opens, saying so; a
      * re-run stages the statement again.
      *
+     * <p>Refused, too, when another job's open review already covers the same session: deciding
+     * that review decides this job ({@link #coveredBy}), and a second review would block the rows
+     * until both were approved.
+     *
      * <p>Two operators opening the same one: the second sees the record the first wrote and gets a
      * 409; if both get past that read, {@code held_statements.import_job_id} is UNIQUE (V144) and
      * the loser's insert is refused, also as a 409.
@@ -214,6 +237,11 @@ public class HeldStatementService {
             throw new ApiException(HttpStatus.CONFLICT, job.getStatus() == ImportJob.Status.HELD_FOR_TRUST_REVIEW
                     ? "This import already has a review record; open it from the held-statements queue."
                     : "This import is " + job.getStatus() + ", not held for review; there is nothing to open.");
+        }
+        Optional<HeldStatement> covering = openReviewCovering(job);
+        if (covering.isPresent()) {
+            throw new ApiException(HttpStatus.CONFLICT, "This import's rows are already under review in "
+                    + covering.get().getHeldId() + "; deciding that review decides this import too.");
         }
 
         Optional<com.finora.entity.ImportSession> session =

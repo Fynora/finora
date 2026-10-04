@@ -25732,6 +25732,9 @@
                     },
                     "stagedRowsAvailable": {
                         "type": "boolean"
+                    },
+                    "coveredByHeldId": {
+                        "type": "string"
                     }
                 }
             },

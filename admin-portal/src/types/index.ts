@@ -1268,6 +1268,9 @@ export interface HoldWithoutReviewRecordRow {
   heldAt: string | null;
   /** False when the staged rows are gone -- the review still opens; a parser re-run reads it again. */
   stagedRowsAvailable: boolean;
+  /** The open review that already covers these rows (a later upload held on the same session);
+   *  deciding it decides this import too, so no review is opened for this one. */
+  coveredByHeldId: string | null;
 }
 
 export interface HeldStatementRow {

@@ -10633,6 +10633,7 @@ export interface components {
             /** Format: date-time */
             heldAt?: string;
             stagedRowsAvailable?: boolean;
+            coveredByHeldId?: string;
         };
         PagedResponseHoldWithoutReviewRecordDto: {
             content?: components["schemas"]["HoldWithoutReviewRecordDto"][];

@@ -485,4 +485,25 @@ class HeldStatementReuploadIT extends AbstractIntegrationTest {
         assertThat(importSessionService.listResumableSessions(owner.getId()))
                 .extracting(ImportSession::getId).doesNotContain(held.getImportSessionId());
     }
+
+    /** A record-less hold whose rows a re-upload's review already covers: listed as covered, and
+     *  opening a second review on the same session is refused. */
+    @Test
+    void aRecordLessHoldAlreadyCoveredByAReviewIsNotGivenASecondOne() throws Exception {
+        User owner = user();
+        ImportJob held = cleanJobHeldWithNoReviewRecord(owner);
+        UUID againId = upload(owner, CLEAN_CSV);
+        worker.drainOnce();
+        String coveringHeldId = heldIdOf(jobRepository.findById(againId).orElseThrow());
+
+        assertThat(heldStatementService.listHoldsWithoutReviewRecord(0, 200).content())
+                .filteredOn(row -> row.jobId().equals(held.getId()))
+                .singleElement()
+                .extracting(com.finora.dto.HoldWithoutReviewRecordDto::coveredByHeldId)
+                .isEqualTo(coveringHeldId);
+        assertThatThrownBy(() -> heldStatementService.openReviewForHoldWithoutRecord(user().getId(), held.getId()))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining(coveringHeldId);
+        assertThat(holdsOf(owner)).hasSize(1);
+    }
 }

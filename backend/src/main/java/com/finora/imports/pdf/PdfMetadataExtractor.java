@@ -377,6 +377,21 @@ public class PdfMetadataExtractor {
             // the "MMM" (abbreviated) forms above cannot parse. Unambiguous, so it is safe to share.
             ci("MMMM d, yyyy"),
             ci("MMMM d yyyy"),
+            // "5 August 2026" (a day before a FULL month name) and "Aug 5, 2026" (an abbreviated
+            // month before the day). DATE_LIKE already located both shapes, and parseDate's ordinal
+            // retry turns "5th August 2026" / "Aug 5th, 2026" into them, but no format above parsed
+            // either, so the value was dropped. Last in the array, so a string any format above
+            // already parses is unaffected. A BOB statement's period range ("Jun 01, 2026") was the
+            // first real use of "MMM d, yyyy"; it was a periods-only entry until now.
+            //
+            // Added only once the due-date search stopped reading sentences: measured with these
+            // formats and without those guards, two HSBC card statements took a 2013 date from a
+            // terms notice below a sentence mentioning "the due date", and an SBI statement took the
+            // example date in its terms text, as their due dates.
+            ci("d MMMM yyyy"),
+            ci("d MMMM, yyyy"),
+            ci("MMM d, yyyy"),
+            ci("MMM d yyyy"),
     };
 
     /**
@@ -390,17 +405,12 @@ public class PdfMetadataExtractor {
      */
     private static final DateTimeFormatter[] PERIOD_DATE_FORMATS;
     static {
-        PERIOD_DATE_FORMATS = new DateTimeFormatter[DATE_FORMATS.length + 3];
+        PERIOD_DATE_FORMATS = new DateTimeFormatter[DATE_FORMATS.length + 2];
         System.arraycopy(DATE_FORMATS, 0, PERIOD_DATE_FORMATS, 0, DATE_FORMATS.length);
         PERIOD_DATE_FORMATS[DATE_FORMATS.length] = ci("d MMM yy");
-        // "Jun 01, 2026" -- a real BOB.pdf statement's period range, abbreviated month FIRST with
-        // a comma before the year. DATE_FORMATS already has "d MMM, yyyy" (day first) and
-        // "MMMM d, yyyy" (full month name) but neither covers this exact token order; scoped to
-        // periods only, same reasoning as "d MMM yy" above.
-        PERIOD_DATE_FORMATS[DATE_FORMATS.length + 1] = ci("MMM d, yyyy");
         // "2026-07-13 to 2026-08-13" -- a real Indian Overseas Bank statement's period line, ISO
-        // dates under a "FOR THE PERIOD OF :" label. Periods only, like the two above.
-        PERIOD_DATE_FORMATS[DATE_FORMATS.length + 2] = ci("yyyy-MM-dd");
+        // dates under a "FOR THE PERIOD OF :" label. Periods only, like the one above.
+        PERIOD_DATE_FORMATS[DATE_FORMATS.length + 1] = ci("yyyy-MM-dd");
     }
 
     // One date-shaped token, in any form the formats above accept. Used to pull a date out of a

@@ -175,9 +175,18 @@ public class AmazonEmailParser implements MerchantEmailParser {
         }
 
         // The body's own date when it prints one; otherwise the day the confirmation arrived. In
-        // the current layout there is no order date in the body at all.
-        LocalDate date = extractDate(text);
-        if (date == null) {
+        // the current layout there is no order date in the body at all. A printed order date that
+        // does not read as a real date is malformed: falling back to the arrival day there would
+        // date the order by a different day than the one the email states, silently.
+        LocalDate date;
+        Matcher dateMatch = DATE_TEXT.matcher(text);
+        if (dateMatch.find()) {
+            date = ReceiptDateFormats.tryParse(dateMatch.group(1));
+            if (date == null) {
+                return ParserResult.malformed("order date matched \"" + dateMatch.group(1)
+                        + "\" but did not parse as a recognised date format");
+            }
+        } else {
             date = message.receivedOn();
         }
         if (date == null) {
@@ -209,11 +218,5 @@ public class AmazonEmailParser implements MerchantEmailParser {
             }
         }
         return found == 0 ? null : Money.of(sum);
-    }
-
-    private static LocalDate extractDate(String text) {
-        Matcher dateMatch = DATE_TEXT.matcher(text);
-        if (!dateMatch.find()) return null;
-        return ReceiptDateFormats.tryParse(dateMatch.group(1));
     }
 }

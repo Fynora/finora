@@ -113,4 +113,17 @@ class PaymentDueDateGridExtractorTest {
     void extract_returnsNull_onEmptyInput() {
         assertThat(PaymentDueDateGridExtractor.extract(List.of())).isNull();
     }
+
+    // The formats resolve STRICT, which never clamped; but they used the proleptic year "uuuu",
+    // which took "0000" as year 0 and "-2026" as year -2026. Year-of-era rejects both.
+    @Test
+    void extract_rejectsYearZeroAndSignedYears() {
+        for (String due : List.of("11/08/0000", "11 Aug -2026", "11 Aug, -2026")) {
+            var runs = List.of(
+                    run("Payment Due Date", 381.00f, 443.01f, 224.00f),
+                    run(due, 393.00f, 431.01f, 236.50f));
+
+            assertThat(PaymentDueDateGridExtractor.extract(runs)).as(due).isNull();
+        }
+    }
 }

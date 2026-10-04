@@ -915,7 +915,12 @@ public class ReconciliationService {
             // share of a bill, and stays income (product decision, 2026-09-27). UNKNOWN is not an
             // organisation either: on the corpus, a friend paying through a wallet handle reads
             // UNKNOWN, and so name-only matching counted it as a refund of the payment to them.
-            boolean nameCanShowARefund = isFromAnOrganisation(income);
+            // Nor is interest the bank credited: it is earned, never money back for a purchase, and
+            // every interest credit carries the one label "interest" -- the same label a debit
+            // narrated just "INTEREST" reduces to, so a name match there would read the credit as
+            // that debit's refund.
+            boolean nameCanShowARefund = isFromAnOrganisation(income)
+                    && !com.finora.util.BankActivityCategory.isInterestEarned(income.getDescription(), income.getTxnType());
             Transaction bestMatch = null;
             boolean bestMatchSameMerchant = false;
             String bestMatchSharedReference = null;

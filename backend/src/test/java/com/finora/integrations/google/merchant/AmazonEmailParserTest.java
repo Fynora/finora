@@ -209,6 +209,32 @@ class AmazonEmailParserTest {
     }
 
     @Test
+    @DisplayName("a printed order date that is not a real date is malformed, not dated by the arrival day")
+    void anImpossibleBodyDateIsMalformedNotTheArrivalDay() {
+        SanitizedGmailMessage message = sanitizer.sanitize("msg-16", "amazon.in",
+                "<p>Order #123-0000000-0000000</p><p>Order Date: Feb 30, 2026</p><p>Order Total: Rs. 500.00</p>",
+                ARRIVED);
+
+        ParserResult result = parser.parse(message);
+
+        assertThat(result.status()).isEqualTo(ParserResult.Status.MALFORMED);
+        assertThat(result.reason()).contains("Feb 30, 2026");
+    }
+
+    @Test
+    @DisplayName("a printed order date in a format nobody knows is malformed, not dated by the arrival day")
+    void anUnreadableBodyDateIsMalformedNotTheArrivalDay() {
+        SanitizedGmailMessage message = sanitizer.sanitize("msg-17", "amazon.in",
+                "<p>Order #123-0000000-0000000</p><p>Order Date: Smarch 3, 2026</p><p>Order Total: Rs. 500.00</p>",
+                ARRIVED);
+
+        ParserResult result = parser.parse(message);
+
+        assertThat(result.status()).isEqualTo(ParserResult.Status.MALFORMED);
+        assertThat(result.reason()).contains("Smarch 3, 2026");
+    }
+
+    @Test
     @DisplayName("Subtotal is not a total: only the labelled Total is counted")
     void aSubtotalIsNotCounted() {
         SanitizedGmailMessage message = sanitizer.sanitize("msg-16", "amazon.in",

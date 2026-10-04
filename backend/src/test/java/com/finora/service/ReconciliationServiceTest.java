@@ -1683,6 +1683,31 @@ class ReconciliationServiceTest {
         assertThat(partialCredit.getRefundOfTransactionId()).isEqualTo(purchase.getId());
     }
 
+    /** Interest the bank credits is earned, never money back for a purchase -- even when a debit on
+     *  the account reads "interest" as well. Without this, the credit vanished from income as a refund. */
+    @Test
+    void reconcileForUser_neverNetsAnInterestCreditAgainstADebit_byTheLabelAlone() {
+        UUID accountId = UUID.randomUUID();
+
+        String chargedNarration = "INTEREST";
+        Transaction charged = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 7, 1),
+                new BigDecimal("300.00"), Transaction.Type.EXPENSE, chargedNarration, Instant.now());
+        charged.setMerchant(com.finora.util.CategoryRules.extractMerchantLabel(chargedNarration, Transaction.Type.EXPENSE));
+        String earnedNarration = "Interest Cr. for 02-Jul-2026";
+        Transaction earned = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 7, 3),
+                new BigDecimal("12.34"), Transaction.Type.INCOME, earnedNarration, Instant.now());
+        earned.setMerchant(com.finora.util.CategoryRules.extractMerchantLabel(earnedNarration, Transaction.Type.INCOME));
+        earned.setCounterpartyType(CounterpartyType.FINANCIAL_INSTITUTION);
+        assertThat(earned.getMerchant()).as("the labels this test is about").isEqualTo(charged.getMerchant());
+
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(charged, earned));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(earned.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+        assertThat(earned.getRefundOfTransactionId()).isNull();
+    }
+
     // Money a person sends back after being paid is a repayment or their share of a bill, not a
     // refund (product decision, 2026-09-27). A name match alone must not net it against the payment.
     @Test

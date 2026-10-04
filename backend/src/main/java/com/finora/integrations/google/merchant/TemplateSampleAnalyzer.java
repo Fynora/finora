@@ -8,6 +8,7 @@ import java.time.LocalDate;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.time.format.ResolverStyle;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
@@ -186,13 +187,18 @@ public class TemplateSampleAnalyzer {
 
     // ------------------------------------------------------------------------------------------
 
+    /** RFC 1123 resolves SMART, which reads "31 Feb 2026" as 28 February; STRICT refuses it. Its
+     *  year field is {@code YEAR}, not year-of-era, so no era default is needed. */
+    private static final DateTimeFormatter DATE_HEADER =
+            DateTimeFormatter.RFC_1123_DATE_TIME.withResolverStyle(ResolverStyle.STRICT);
+
     /** The Date header as an India-time day, or null. The header can carry a trailing comment
      *  such as "(UTC)", which RFC 1123 parsing rejects. */
     private static LocalDate receivedOn(String dateHeader) {
         if (dateHeader == null || dateHeader.isBlank()) return null;
         String cleaned = dateHeader.replaceAll("\\s*\\([^)]*\\)\\s*$", "").strip();
         try {
-            return ZonedDateTime.parse(cleaned, DateTimeFormatter.RFC_1123_DATE_TIME)
+            return ZonedDateTime.parse(cleaned, DATE_HEADER)
                     .withZoneSameInstant(GmailReceiptExtractionService.RECEIPT_DAY_ZONE)
                     .toLocalDate();
         } catch (DateTimeParseException unreadable) {

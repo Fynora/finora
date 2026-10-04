@@ -188,4 +188,14 @@ class UnlabelledCardPaymentSummaryExtractorTest {
         assertThat(read(List.of()).paymentDueDate()).isNull();
         assertThat(read(null).creditLimit()).isNull();
     }
+
+    // SMART resolution used to clamp "31 APR 2026" to 2026-04-30, which then passed every
+    // other check here as a due date sixteen days after the period end.
+    @Test
+    void leavesTheDueDateUnset_whenItIsADayTheMonthDoesNotHave() {
+        var summary = read(layout("31 APR 2026", "15 MAR 2026", "14 APR 2026", "50,000.00", "10,000.00"));
+
+        assertThat(summary.paymentDueDate()).isNull();
+        assertThat(summary.creditLimit()).isEqualByComparingTo("50000.00");
+    }
 }

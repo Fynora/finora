@@ -12,7 +12,14 @@ import {
   PDF_PASSWORD_REQUIRED, PDF_PASSWORD_INVALID, IMPORT_SESSION_ALREADY_CONFIRMED,
   ACCOUNT_LIMIT_REACHED, STATEMENT_PERIOD_TOO_LONG,
 } from '../api/errorCodes';
-import { importFailureMessage } from '../api/importFailureMessages';
+import {
+  importFailureMessage,
+  isUnreadStatementLayout,
+  UNREAD_LAYOUT_MESSAGE,
+  UNREAD_LAYOUT_REVIEW_CONSENT,
+  UNREAD_LAYOUT_REVIEW_MESSAGE,
+  UNREAD_LAYOUT_TITLE,
+} from '../api/importFailureMessages';
 import importHero from '../assets/import/import-hero.png';
 import { BankLogo } from '../components/BankLogo';
 import { PasswordInput } from '../components/PasswordInput';
@@ -293,6 +300,12 @@ export default function Import() {
   // CSV keeps its original one-action upload -- it has no password to ask about, and adding a
   // step there would slow the common case down for nothing.
   const [pendingPdf, setPendingPdf] = useState<File | null>(null);
+  // A protected PDF that looked like a statement but could not be read, on the path that keeps
+  // nothing: the offer to keep its password and send it through the queue, where an unread
+  // statement is held for the team instead of failing with nobody seeing it. Belongs to the file
+  // it was made for: picking another one, or none, withdraws it.
+  const [reviewOfferFor, setReviewOfferFor] = useState<File | null>(null);
+  const reviewOffer = reviewOfferFor !== null && reviewOfferFor === pendingPdf;
   const [pdfPassword, setPdfPassword] = useState('');
   // Which of the two backend password outcomes we last saw, or null before we've tried. Drives
   // the copy in the password panel; see PDF_PASSWORD_REQUIRED/INVALID in endpoints.ts.
@@ -626,13 +639,16 @@ export default function Import() {
   }
 
   // `mayKeep` is false only on the one retry below, after the server refused to keep a password.
-  async function upload(file: File, isPdf: boolean, password: string | undefined, mayKeep = true) {
+  // `keepAnyway` is the review offer's own button: the user's yes to keeping it, given there.
+  async function upload(file: File, isPdf: boolean, password: string | undefined, mayKeep = true,
+                        keepAnyway = false) {
     clearError();
+    setReviewOfferFor(null);
     setUploadProgress(0);
     // Set once a synchronous stage call succeeds, so the finally block below skips its usual
     // reset and leaves uploadProgress/uploadCompleted for celebrateThenAdvance to clear itself.
     let holdForCompletion = false;
-    const keepPassword = mayKeep && !!password && savePassword && savePasswordOffered;
+    const keepPassword = mayKeep && !!password && (savePassword || keepAnyway) && savePasswordOffered;
     let retryWithoutKeeping = false;
     try {
       // The queue, when this deployment has one and the file does not need a password -- or when
@@ -712,6 +728,13 @@ export default function Import() {
         // Focus after the panel has re-rendered with the new state, so the user can type straight
         // away instead of hunting for the field they were just asked to fill in.
         setTimeout(() => passwordInput.current?.focus(), 0);
+      } else if (isUnreadStatementLayout(code, e.response?.data?.details)) {
+        // A statement we could not read is ours to fix, not the user's file to re-check. With a
+        // password this path keeps nothing, so nobody would see it: offer to keep the password
+        // and send it through the queue, which holds it for review. Where that cannot be offered,
+        // still say what happened rather than "double-check this is your statement".
+        if (isPdf && password && savePasswordOffered) setReviewOfferFor(file);
+        else showError(UNREAD_LAYOUT_MESSAGE);
       } else if (contractMessage) {
         // Premium Import Reliability v1 failure UX contract: for a code we have curated copy for,
         // that copy is what the user reads, not the server's `message` -- the whole point of the
@@ -1169,6 +1192,21 @@ export default function Import() {
                       problem on our side. Remove it any time in Settings → Data.
                     </p>
                   </div>
+                </div>
+              )}
+
+              {reviewOffer && (
+                <div data-testid="unread-layout-review-offer" role="status" className="rounded border border-border p-4 space-y-2">
+                  <p className="text-sm font-semibold text-ink">{UNREAD_LAYOUT_TITLE}</p>
+                  <p className="text-sm text-ink">{UNREAD_LAYOUT_REVIEW_MESSAGE}</p>
+                  <p className="text-xs text-muted">{UNREAD_LAYOUT_REVIEW_CONSENT}</p>
+                  <Button
+                    type="button"
+                    disabled={uploading || !pdfPassword}
+                    onClick={() => void upload(pendingPdf, true, pdfPassword || undefined, true, true)}
+                  >
+                    Keep password and send for review
+                  </Button>
                 </div>
               )}
 

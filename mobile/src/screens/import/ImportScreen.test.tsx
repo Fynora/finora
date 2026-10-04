@@ -1250,6 +1250,62 @@ describe('ImportScreen — async import job (Phase 4)', () => {
       expect(screen.queryByTestId('password-not-kept')).not.toBeOnTheScreen();
     });
 
+    function unreadStatement(looksLikeAStatement: boolean) {
+      return Object.assign(new Error('Request failed with status code 422'), {
+        isAxiosError: true,
+        response: {
+          status: 422,
+          data: {
+            success: false, errorCode: 'IMPORT_007', message: 'server copy',
+            details: { looksLikeAStatement, recoveredLines: 2, transactionShapedLines: 2 },
+          },
+        },
+      });
+    }
+
+    async function uploadWithPasswordNotKept() {
+      fireEvent.press(await screen.findByText('Choose a file'));
+      await settle();
+      fireEvent.changeText(screen.getByLabelText('Statement password'), 'SYNTH1234');
+      fireEvent.press(screen.getByText('Upload statement'));
+      await settle();
+    }
+
+    it('offers to send a statement it could not read for review, keeping the password', async () => {
+      api.import.stagePdf.mockRejectedValue(unreadStatement(true));
+      api.importJobs.submit.mockResolvedValue({ jobId: 'job-1', statusUrl: '/import/jobs/job-1', passwordSaved: true });
+      render(treeSaveOffered());
+      await uploadWithPasswordNotKept();
+
+      expect(await screen.findByTestId('unread-layout-review-offer')).toBeTruthy();
+      // Not the "double-check this is your statement" copy: the file is not the problem.
+      expect(screen.queryByText(/double-check/)).toBeNull();
+
+      fireEvent.press(screen.getByText('Keep password and send for review'));
+      await settle();
+      await waitFor(() => expect(api.importJobs.submit).toHaveBeenCalledTimes(1));
+      expect(api.importJobs.submit.mock.calls[0][3]).toEqual({ password: 'SYNTH1234' });
+    });
+
+    it('keeps the usual message for a file that does not look like a statement', async () => {
+      api.import.stagePdf.mockRejectedValue(unreadStatement(false));
+      render(treeSaveOffered());
+      await uploadWithPasswordNotKept();
+
+      expect(await screen.findByText(/double-check/)).toBeTruthy();
+      expect(screen.queryByTestId('unread-layout-review-offer')).toBeNull();
+    });
+
+    it('says what happened, without the offer, where passwords cannot be kept', async () => {
+      api.importJobs.availability.mockResolvedValue({ asyncImportAvailable: true });
+      api.import.stagePdf.mockRejectedValue(unreadStatement(true));
+      render(treeSaveOffered(false));
+      await uploadWithPasswordNotKept();
+
+      expect(await screen.findByText(/hasn't learned yet, so its transactions weren't imported/)).toBeTruthy();
+      expect(screen.queryByTestId('unread-layout-review-offer')).toBeNull();
+    });
+
     it('does not offer to keep it where the server cannot', async () => {
       // The mount refetches availability, so the mock must agree with the seeded cache.
       api.importJobs.availability.mockResolvedValue({ asyncImportAvailable: true });

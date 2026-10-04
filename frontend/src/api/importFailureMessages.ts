@@ -118,3 +118,28 @@ export const IMPORT_FAILURE_TITLES: Record<string, string> = {
 export function importFailureTitle(code: string | null | undefined): string | undefined {
   return code ? IMPORT_FAILURE_TITLES[code] : undefined;
 }
+
+/**
+ * A failure that looks like a statement Fynora could not read rather than the wrong file: no
+ * transactions read (or no table found), yet the backend recovered at least two lines carrying
+ * both a date and an amount (`details.looksLikeAStatement`, ExtractionCheck). That is a parser gap
+ * on our side -- the queue holds such a file for the team (ImportJobWorker.holdsForTriage) -- so
+ * the user is not told to check their file. Only the synchronous path, which keeps nothing, needs
+ * this: it is where a protected PDF goes when its password was not kept.
+ */
+export function isUnreadStatementLayout(code: string | null | undefined, details: unknown): boolean {
+  if (code !== NO_TRANSACTIONS_FOUND && code !== NO_HEADER_DETECTED) return false;
+  return (details as { looksLikeAStatement?: unknown } | null)?.looksLikeAStatement === true;
+}
+
+export const UNREAD_LAYOUT_TITLE = "We'd like to take a closer look";
+/** Shown with the offer to keep the password and send the statement through the queue. */
+export const UNREAD_LAYOUT_REVIEW_MESSAGE =
+  "This statement uses a layout Fynora hasn't learned yet. Keep the password and send it to our " +
+  "team. We'll review it and let you know when it's ready to import.";
+/** The consent the offer's button gives, said where the button is. */
+export const UNREAD_LAYOUT_REVIEW_CONSENT =
+  'The password is stored encrypted, only for this statement. Remove it any time in Settings → Data.';
+/** Where the offer cannot be made (this deployment keeps no passwords, or has no queue). */
+export const UNREAD_LAYOUT_MESSAGE =
+  "This statement uses a layout Fynora hasn't learned yet, so its transactions weren't imported.";

@@ -687,6 +687,22 @@ public class ImportSessionService {
         });
     }
 
+    /**
+     * This user's staged session for the same document other than {@code ownSessionId} -- a later
+     * upload of the statement a held session came from. A re-upload under a newer build deletes
+     * the held session as stale ({@link #findLiveSessionByContentHash}) and stages its own, and
+     * V79 allows one per user and document, so while this one exists the held statement cannot be
+     * staged again. Expired or not: an expired row still occupies the index until it is swept.
+     */
+    @Transactional(readOnly = true)
+    public Optional<ImportSession> stagedSessionOfAnotherUpload(UUID userId, String contentHash, UUID ownSessionId) {
+        if (contentHash == null) return Optional.empty();
+        return importSessionRepository
+                .findFirstByUserIdAndContentHashAndStatusOrderByCreatedAtDesc(userId, contentHash,
+                        ImportSession.STATUS_STAGED)
+                .filter(session -> !session.getId().equals(ownSessionId));
+    }
+
     /** Whether a session still exists -- a held statement's can be swept once its job stops being
      *  held (a rejection), and approving it then would release rows that are gone. */
     @Transactional(readOnly = true)

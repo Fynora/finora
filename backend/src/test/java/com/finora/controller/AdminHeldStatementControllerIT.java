@@ -446,6 +446,65 @@ class AdminHeldStatementControllerIT extends AbstractIntegrationTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
+    // ---------------------------------------------------------------------------- resolved list / reopen
+
+    @Test
+    void reopenRefusesAUserWithoutTheTrustReviewPermission() {
+        HeldStatement held = seedHoldWithRealBytes("HLD-2026-395001");
+        post("/api/v1/admin/held-statements/" + held.getHeldId() + "/reject", createUser("ADMIN"), "{}");
+
+        ResponseEntity<String> response = post(
+                "/api/v1/admin/held-statements/" + held.getHeldId() + "/reopen", createUser("USER"), "{}");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(heldStatementRepository.findById(held.getId()).orElseThrow().getStatus())
+                .isEqualTo(HeldStatement.Status.REJECTED);
+    }
+
+    @Test
+    void aRejectedHoldIsListedUnderResolvedAndCanBeReopened() throws Exception {
+        HeldStatement held = seedHoldWithRealBytes("HLD-2026-395002");
+        User admin = createUser("ADMIN");
+        post("/api/v1/admin/held-statements/" + held.getHeldId() + "/reject", admin, "{}");
+
+        JsonNode resolved = mapper.readTree(get("/api/v1/admin/held-statements?resolved=true", admin).getBody())
+                .path("data").path("content");
+        assertThat(resolved.findValuesAsText("heldId")).contains(held.getHeldId());
+        JsonNode open = mapper.readTree(get("/api/v1/admin/held-statements", admin).getBody())
+                .path("data").path("content");
+        assertThat(open.findValuesAsText("heldId")).doesNotContain(held.getHeldId());
+
+        ResponseEntity<String> reopened = post("/api/v1/admin/held-statements/" + held.getHeldId() + "/reopen",
+                admin, "{\"reason\":\"parser fixed\"}");
+
+        assertThat(reopened.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(heldStatementRepository.findById(held.getId()).orElseThrow().getStatus())
+                .isEqualTo(HeldStatement.Status.INVESTIGATING);
+        assertThat(importJobRepository.findById(held.getImportJobId()).orElseThrow().getStatus())
+                .isEqualTo(ImportJob.Status.HELD_FOR_TRUST_REVIEW);
+    }
+
+    /** The seeded PDF's object was never stored: reopening has to read it (is it locked?), and so
+     *  does a re-run. Both answer with the reason, not a 500. */
+    @Test
+    void aStatementFileThatCannotBeReadIsAConflictNotAServerError() {
+        HeldStatement held = seedHold("HLD-2026-395003");
+        User admin = createUser("ADMIN");
+
+        ResponseEntity<String> rerun = post(
+                "/api/v1/admin/held-statements/" + held.getHeldId() + "/rerun-parser", admin, "{}");
+        assertThat(rerun.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(rerun.getBody()).contains("could not be read");
+
+        post("/api/v1/admin/held-statements/" + held.getHeldId() + "/reject", admin, "{}");
+        ResponseEntity<String> reopen = post(
+                "/api/v1/admin/held-statements/" + held.getHeldId() + "/reopen", admin, "{}");
+        assertThat(reopen.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(reopen.getBody()).contains("could not be read");
+        assertThat(heldStatementRepository.findById(held.getId()).orElseThrow().getStatus())
+                .isEqualTo(HeldStatement.Status.REJECTED);
+    }
+
     // ---------------------------------------------------------------------------- Plan 3: rerun-parser / findings
 
     @Test

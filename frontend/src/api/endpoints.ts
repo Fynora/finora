@@ -879,6 +879,12 @@ export interface InsightsData {
   // are both "nothing to show" to every consumer, which only ever checks truthiness.
   biggestCategory?: CategoryHighlight | null;
   topMerchant?: MerchantHighlight | null;
+  // The month every figure above describes: the newest month with a PURCHASE (InsightsService),
+  // not necessarily DashboardSummary.reportingMonth (newest month with ANY data) -- label these
+  // figures from this pair, never from the summary's. Absent or null month reads as "no month to
+  // name", same as the fields above.
+  reportingMonth?: string | null;
+  reportingMonthIsCurrent?: boolean;
 }
 export type RecurringQuestionState = 'NEEDS_ANSWER' | 'ANSWERED' | 'AMOUNT_CHANGED' | 'NONE';
 export interface RecurringItem {

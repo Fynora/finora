@@ -58,7 +58,8 @@ class FynInsightsNarrationServiceTest {
                         new BigDecimal("3000"), 40.0)),
                 null,
                 new InsightsDto.CategoryHighlight("Dining", new BigDecimal("4200")),
-                new InsightsDto.MerchantHighlight("Some Restaurant", new BigDecimal("1500")));
+                new InsightsDto.MerchantHighlight("Some Restaurant", new BigDecimal("1500")),
+                "2026-07", false);
     }
 
     @Test
@@ -76,7 +77,7 @@ class FynInsightsNarrationServiceTest {
     @Test
     void nothingToNarrateThrowsNotFoundWithoutCallingTheLlm() {
         when(insightsService.build(userId, null)).thenReturn(
-                new InsightsDto(List.of(), List.of(), null, null, null));
+                new InsightsDto(List.of(), List.of(), null, null, null, null, true));
 
         assertThatThrownBy(() -> service.narrate(userId, null))
                 .isInstanceOf(ApiException.class)
@@ -118,7 +119,7 @@ class FynInsightsNarrationServiceTest {
                         new BigDecimal("3000"), 40.0)),
                 null,
                 new InsightsDto.CategoryHighlight("Priya Sharma", new BigDecimal("4200")),
-                null));
+                null, "2026-07", false));
         when(llmClient.complete(any())).thenReturn(
                 new LlmCompletion("[name-1] was your biggest category.", List.of(), "claude-haiku-4-5-20251001", 10, 10, "end_turn"));
 
@@ -177,7 +178,7 @@ class FynInsightsNarrationServiceTest {
                 List.of(new InsightsDto.CoverageCaveat.GapWindow(
                         java.time.LocalDate.of(2026, 7, 10), java.time.LocalDate.of(2026, 7, 20))));
         when(insightsService.build(userId, null)).thenReturn(new InsightsDto(
-                List.of(), List.of(), caveat, null, null));
+                List.of(), List.of(), caveat, null, null, null, true));
         when(llmClient.complete(any())).thenReturn(
                 new LlmCompletion("Some transactions may be missing this month.",
                         List.of(), "claude-haiku-4-5-20251001", 50, 20, "end_turn"));

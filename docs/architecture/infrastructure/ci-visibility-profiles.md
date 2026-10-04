@@ -67,12 +67,27 @@ that file's header.
 | Container image scan, nightly | ~80 |
 | Secret scan, nightly | ~30 |
 | **Baseline** | **~920** |
-| **Left for full runs** | **~1,080**: about 55 labelled PR runs at ~19 minutes each, or ~30 by-hand runs at ~35 |
+| **Left for full runs** | **~1,080**: about 35–55 labelled PR runs at ~19–33 minutes each, or ~27 by-hand runs at ~40 |
 
 A labelled PR run is an ordinary pull_request run, so it is path-filtered. Its ~19 minutes is the
-measured week's average, 5,737 job-minutes over 302 PR runs. A by-hand (`workflow_dispatch`) run
-always runs everything; its ~35 minutes is the average main push run. Every push to a PR that
-still carries `full-ci` costs another run.
+measured week's average, 5,737 job-minutes over 302 PR runs.
+
+There is one difference from a public PR run. When the PR touches the backend, the labelled run
+also runs the backend's integration tests (`./mvnw verify`, not `./mvnw test`). In the private
+profile a push to main runs only repo-hygiene, so otherwise the integration tests would never run.
+
+The integration tests run in three parallel shards (`backend-integration`) plus a summary job.
+Measured on 2026-10-04, on the first full run of the split:
+- **Shards:** 209s, 266s and 296s.
+- **Summary job:** under 10s.
+- **Extra cost:** about 13 job-minutes on top of the unit-only backend job. So budget ~33 minutes
+  for a labelled backend PR.
+
+The split runs faster but costs more minutes in total. Each shard compiles the backend and starts
+its own database. Before the split, one job ran everything in 781s.
+
+A by-hand (`workflow_dispatch`) run always runs everything: ~40 minutes, the old ~35-minute
+average main push plus the split's extra ~4.5. Every push to a PR that still carries `full-ci` costs another run.
 
 Dependabot's own update jobs don't count toward the included minutes. GitHub's docs state this for
 standard hosted runners. The CI runs that Dependabot PRs trigger do count, like any other PR's
@@ -98,6 +113,9 @@ in the org's billing page early in any private spell.
     more pushes.
   - **The run covers the whole PR**, not just the empty commit: `changes` diffs the PR's
     base..head. The empty commit disappears in the squash merge.
+  - **It includes the backend's integration tests,** which a public PR run skips because main
+    runs them after merge. In the private profile, main doesn't run them, so the labelled run is
+    the only place they run.
   - **Draft PRs still skip the heavy jobs**, the same as in public. Mark the PR ready for review.
   - **Read the result on the PR.** A green check is real only if its job actually ran. In GitHub's
     UI a skipped job shows a grey "skipped" icon, not a green tick.

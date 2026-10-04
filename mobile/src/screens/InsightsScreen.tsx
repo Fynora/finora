@@ -14,7 +14,8 @@ import { VerticalBarChart } from '../components/charts/VerticalBarChart';
 import { OnTrackIllustration } from '../components/insights/OnTrackIllustration';
 import { SkeletonCard, SkeletonChart } from '../components/skeletons/Skeletons';
 import {
-  categoriesApi, dashboardApi, insightsApi, onboardingApi, recurringApi, reportsApi, usageApi, type RecurringItem,
+  categoriesApi, dashboardApi, insightsApi, onboardingApi, recurringApi, reportsApi, usageApi, type InsightsData,
+  type RecurringItem,
 } from '../api/endpoints';
 import { OptionPickerModal } from '../components/OptionPickerModal';
 import { RecurringQuestion } from '../components/RecurringQuestion';
@@ -39,6 +40,28 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'recurring', label: 'Recurring' },
   { key: 'trends', label: 'Trends' },
 ];
+
+/**
+ * The period an insights response describes. Not the dashboard summary's: InsightsService picks
+ * the newest month with a PURCHASE (or the requested month), the summary the newest month with
+ * ANY data, and an income-only latest month makes them differ -- so these figures are labelled
+ * from their own response, never from the summary. No month means no spending to report on,
+ * which reads as current (ReportingPeriod's no-data rule); a month without an explicit
+ * reportingMonthIsCurrent is named rather than assumed current.
+ */
+function insightsPeriod(data: Pick<InsightsData, 'reportingMonth' | 'reportingMonthIsCurrent'> | undefined) {
+  const reportingMonth = data?.reportingMonth ?? null;
+  const reportingMonthIsCurrent = !reportingMonth || data?.reportingMonthIsCurrent === true;
+  return {
+    reportingMonth,
+    reportingMonthIsCurrent,
+    // "this month" / "in June 2026", for prose.
+    phrase: reportingMonthIsCurrent ? 'this month' : `in ${monthLabelLong(reportingMonth!)}`,
+    emptyMessage: reportingMonthIsCurrent
+      ? 'Nothing stands out this month yet — observations appear as more transactions land.'
+      : `Nothing stands out in ${monthLabelLong(reportingMonth!)} — observations appear as more transactions land.`,
+  };
+}
 
 /** Port of frontend/src/pages/Insights.tsx. */
 export function InsightsScreen() {
@@ -84,7 +107,9 @@ export function InsightsScreen() {
     queryKey: ['dashboard-summary'],
     queryFn: () => dashboardApi.summary(),
   });
-  const { snapshotKpis } = useDashboardKpis(summary);
+  // The summary's own period, for the figures that come from it (banner, glance card, donut,
+  // income card) -- see insightsPeriod above for the insights endpoint's, which can differ.
+  const { snapshotKpis, periodIsCurrent, periodTitleLong, priorPeriodLabel } = useDashboardKpis(summary);
   const expenseDelta = snapshotKpis.find((k) => k.label === 'Expenses')?.delta ?? null;
   const incomeDelta = snapshotKpis.find((k) => k.label === 'Income')?.delta ?? null;
 
@@ -98,12 +123,14 @@ export function InsightsScreen() {
     staleTime: 5 * 60_000,
   });
   const [showAllInsights, setShowAllInsights] = useState(false);
-  const trackBannerTitle = expenseDelta === null ? 'This month' : expenseDelta <= 0 ? "You're on track!" : 'Heads up';
+  const trackBannerTitle = expenseDelta === null
+    ? (periodIsCurrent ? 'This month' : periodTitleLong)
+    : expenseDelta <= 0 ? "You're on track!" : 'Heads up';
   const trackBannerBody = expenseDelta === null
-    ? 'Keep an eye on your spending this month.'
+    ? (periodIsCurrent ? 'Keep an eye on your spending this month.' : `Keep an eye on your spending in ${periodTitleLong}.`)
     : expenseDelta <= 0
-      ? `Your spending is ${Math.abs(expenseDelta).toFixed(0)}% lower than last month. Keep it up!`
-      : `Your spending is ${expenseDelta.toFixed(0)}% higher than last month.`;
+      ? `Your spending is ${Math.abs(expenseDelta).toFixed(0)}% lower than ${priorPeriodLabel}. Keep it up!`
+      : `Your spending is ${expenseDelta.toFixed(0)}% higher than ${priorPeriodLabel}.`;
 
   const donutSlices: Slice[] = useMemo(() => {
     if (!summary) return [];
@@ -152,9 +179,19 @@ export function InsightsScreen() {
   }, [monthsNewestFirst]);
   // Before any explicit pick, show the same current reporting month Overview's own summary
   // already carries -- avoids a second source of truth for "what month is this by default".
+  // A picked month whose insights have not arrived (or failed) is still the month on screen; with
+  // neither a pick nor a response there is no month to claim at all (spendingHeading below).
+  const spendingPeriod = insightsPeriod(spendingInsightsQ.data ?? (month ? { reportingMonth: month } : undefined));
+  const spendingHeading = !spendingInsightsQ.data && !month
+    ? 'Observations'
+    : spendingPeriod.reportingMonthIsCurrent
+      ? "This Month's Observations"
+      : `Observations for ${monthLabelLong(spendingPeriod.reportingMonth!)}`;
+  // Before any explicit pick, the month the insights response itself reports on -- not the
+  // summary's reportingMonth, which is a different month whenever the newest one is income-only.
   const selectedMonthLabel = month
     ? monthLabelLong(month)
-    : summary?.reportingMonth ? monthLabelLong(summary.reportingMonth) : '';
+    : spendingPeriod.reportingMonth ? monthLabelLong(spendingPeriod.reportingMonth) : '';
   const spendingSentences = spendingInsightsQ.data?.sentences ?? [];
   const spendingMoversAll = (spendingInsightsQ.data?.movers ?? []).filter((m) => m.pctChange !== null);
   const spendingMoversShown = showAllMovers ? spendingMoversAll : spendingMoversAll.slice(0, 5);
@@ -198,6 +235,7 @@ export function InsightsScreen() {
     insightsQ.isLoading || recurringQ.isLoading,
   );
   const insightsData = insightsQ.data;
+  const overviewPeriod = insightsPeriod(insightsData);
   const sentences = insightsData?.sentences ?? [];
   const recurring = recurringQ.data ?? [];
   // Already sorted by the backend, most significant first (InsightsService.java's own
@@ -210,6 +248,14 @@ export function InsightsScreen() {
     categories.find((cat) => cat.name === categoryName)?.icon ?? 'tag';
   const colorTokenForCategory = (categoryName: string) =>
     categories.find((cat) => cat.name === categoryName)?.color ?? 'gray';
+
+  // A row's figure is that month's, so its drill-through narrows to that month too (same shape as
+  // the donut's own). No month in the response, no range -- an invented one would be a guess.
+  function monthScoped(reportingMonth: string | null, name: string) {
+    return reportingMonth
+      ? { ...monthDateRange(reportingMonth), label: `${name} · ${monthLabel(reportingMonth)}` }
+      : { label: name };
+  }
 
   function openTransactionsFiltered(filters: Omit<LedgerDrillThroughFilters, 'nonce'>) {
     trackNavigation('transactions', 'contextual');
@@ -311,7 +357,7 @@ export function InsightsScreen() {
 
       {summary ? (
         <View style={[styles.glanceCard, { backgroundColor: c.card, borderColor: c.border }]}>
-          <Text style={[styles.glanceHeading, { color: c.ink }]}>This Month at a Glance</Text>
+          <Text style={[styles.glanceHeading, { color: c.ink }]}>{`${periodTitleLong} at a Glance`}</Text>
           <View style={styles.glanceRow}>
             {[
               { label: 'Income', value: summary.monthlyIncome, delta: summary.incomeDeltaPct, invert: false, isCount: false },
@@ -371,7 +417,7 @@ export function InsightsScreen() {
               Couldn&apos;t load your insights — pull down to try again.
             </Text>
           ) : !insightsData?.biggestCategory && !insightsData?.topMerchant && movers.length === 0 && sentences.length === 0 ? (
-            <EmptyState message="Nothing stands out this month yet — observations appear as more transactions land." />
+            <EmptyState message={overviewPeriod.emptyMessage} />
           ) : (
             <>
               {insightsData?.biggestCategory ? (
@@ -383,7 +429,7 @@ export function InsightsScreen() {
                   android_ripple={{ color: c.border }}
                   onPress={() => openTransactionsFiltered({
                     categoryName: insightsData.biggestCategory!.name,
-                    label: insightsData.biggestCategory!.name,
+                    ...monthScoped(overviewPeriod.reportingMonth, insightsData.biggestCategory!.name),
                   })}
                 >
                   <View style={[styles.insightIcon, { backgroundColor: colorHexFor(colorTokenForCategory(insightsData.biggestCategory.name)) }]}>
@@ -406,14 +452,14 @@ export function InsightsScreen() {
                   android_ripple={{ color: c.border }}
                   onPress={() => openTransactionsFiltered({
                     keyword: insightsData.topMerchant!.name,
-                    label: insightsData.topMerchant!.name,
+                    ...monthScoped(overviewPeriod.reportingMonth, insightsData.topMerchant!.name),
                   })}
                 >
                   <View style={[styles.insightIcon, { backgroundColor: c.mutedInk }]}>
                     <Ionicons name="trophy-outline" size={16} color="#fff" />
                   </View>
                   <Text style={[styles.insightText, { color: c.ink }]} numberOfLines={largeText ? 3 : 2}>
-                    Your top merchant this month was{' '}
+                    Your top merchant {overviewPeriod.phrase} was{' '}
                     <Text style={styles.insightBold}>"{insightsData.topMerchant.name}"</Text> at{' '}
                     <Text style={styles.insightBold}>{fmtCurrency(insightsData.topMerchant.amount)}</Text>.
                   </Text>
@@ -422,11 +468,8 @@ export function InsightsScreen() {
               ) : null}
 
               {movers.map((m) => (
-                // Track C/C4. categoryName only, no date range: this endpoint reports a category
-                // mover, not which calendar month it moved in (InsightsData carries no month
-                // field at all, unlike DashboardSummary), so there is no server-given period here
-                // to anchor a range to -- an invented one would be a guess dressed up as a fact.
-                // The category alone is still a real, honest narrowing.
+                // Track C/C4. Narrowed to the month the response reports on (see monthScoped);
+                // a response without one gets the category alone, still a real narrowing.
                 <Pressable
                   key={m.category}
                   style={[styles.insightRow, { borderBottomColor: c.border }]}
@@ -436,7 +479,9 @@ export function InsightsScreen() {
                   } than your recent average, ${fmtCurrency(m.current)} versus usual ${fmtCurrency(m.priorAverage)}`}
                   accessibilityHint="Opens these transactions"
                   android_ripple={{ color: c.border }}
-                  onPress={() => openTransactionsFiltered({ categoryName: m.category, label: m.category })}
+                  onPress={() => openTransactionsFiltered({
+                    categoryName: m.category, ...monthScoped(overviewPeriod.reportingMonth, m.category),
+                  })}
                 >
                   <View style={[styles.insightIcon, { backgroundColor: colorHexFor(colorTokenForCategory(m.category)) }]}>
                     <Ionicons name={iconNameFor(iconTokenForCategory(m.category))} size={16} color="#fff" />
@@ -472,7 +517,9 @@ export function InsightsScreen() {
         <Card style={styles.section}>
           <SectionHeading title="Spending by Category" />
           {donutSlices.length === 0 ? (
-            <EmptyState message="No spending recorded this month yet." />
+            <EmptyState
+              message={periodIsCurrent ? 'No spending recorded this month yet.' : `No spending recorded in ${periodTitleLong}.`}
+            />
           ) : (
             <DonutChart
               slices={donutSlices}
@@ -518,15 +565,15 @@ export function InsightsScreen() {
         </Card>
       ) : null}
 
-      {/* Reuses the same expenseDelta the top banner and This Month at a Glance already computed
+      {/* Reuses the same expenseDelta the top banner and the glance card already computed
           -- see that const's own comment. Deliberately repeated content (per the mockup, kept
           rather than dropped): "View Details" is a real, new destination, not a placeholder. */}
       {expenseDelta !== null ? (
         <View style={[styles.bottomBanner, { backgroundColor: c.primaryLight }]}>
           <Text style={[styles.bottomBannerText, { color: c.ink }]}>
             {expenseDelta <= 0
-              ? `You're spending ${Math.abs(expenseDelta).toFixed(0)}% less than last month.`
-              : `You're spending ${expenseDelta.toFixed(0)}% more than last month.`}
+              ? `You're spending ${Math.abs(expenseDelta).toFixed(0)}% less than ${priorPeriodLabel}.`
+              : `You're spending ${expenseDelta.toFixed(0)}% more than ${priorPeriodLabel}.`}
           </Text>
           <Pressable onPress={() => { trackNavigation('reports', 'contextual'); navigation.navigate('More', { screen: 'Reports' }); }} accessibilityRole="button">
             <Text style={[styles.bottomBannerLink, { color: c.primary }]}>View Details →</Text>
@@ -550,7 +597,7 @@ export function InsightsScreen() {
           ) : (
             <Card style={styles.section}>
               <SectionHeading
-                title="This Month's Observations"
+                title={spendingHeading}
                 action={
                   <Pressable
                     onPress={() => setMonthPickerOpen(true)}
@@ -570,7 +617,7 @@ export function InsightsScreen() {
                   Couldn&apos;t load your insights — pull down to try again.
                 </Text>
               ) : spendingSentences.length === 0 ? (
-                <EmptyState message="Nothing stands out this month yet — observations appear as more transactions land." />
+                <EmptyState message={spendingPeriod.emptyMessage} />
               ) : (
                 spendingSentences.map((s, i) => (
                   <View key={i} style={[styles.observation, { borderLeftColor: c.border }]}>
@@ -686,7 +733,9 @@ export function InsightsScreen() {
                     } than your recent average, ${fmtCurrency(m.current)} versus usual ${fmtCurrency(m.priorAverage)}`}
                     accessibilityHint="Opens these transactions"
                     android_ripple={{ color: c.border }}
-                    onPress={() => openTransactionsFiltered({ categoryName: m.category, label: m.category })}
+                    onPress={() => openTransactionsFiltered({
+                      categoryName: m.category, ...monthScoped(spendingPeriod.reportingMonth, m.category),
+                    })}
                   >
                     <View style={[styles.insightIcon, { backgroundColor: colorHexFor(colorTokenForCategory(m.category)) }]}>
                       <Ionicons name={iconNameFor(iconTokenForCategory(m.category))} size={16} color="#fff" />
@@ -721,7 +770,7 @@ export function InsightsScreen() {
 
           {summary ? (
             <Card style={styles.section}>
-              <SectionHeading title="This Month's Income" />
+              <SectionHeading title={periodIsCurrent ? "This Month's Income" : `Income for ${periodTitleLong}`} />
               {summary.reportingMonth ? (
                 <Text style={[styles.incomeDateRange, { color: c.muted }]}>
                   {monthDayRangeLabel(summary.reportingMonth)}
@@ -735,7 +784,7 @@ export function InsightsScreen() {
                   {incomeDelta >= 0 ? '▲' : '▼'} {Math.abs(incomeDelta).toFixed(0)}%
                   {summary.priorMonth && summary.incomePrior !== null
                     ? ` vs ${monthLabel(summary.priorMonth)} (${fmtCurrency(summary.incomePrior)})`
-                    : ' vs last month'}
+                    : ` vs ${priorPeriodLabel}`}
                 </Text>
               ) : null}
             </Card>
@@ -766,8 +815,8 @@ export function InsightsScreen() {
             <View style={[styles.bottomBanner, { backgroundColor: c.primaryLight }]}>
               <Text style={[styles.bottomBannerText, { color: c.ink }]}>
                 {incomeDelta >= 0
-                  ? `Your income is ${incomeDelta.toFixed(0)}% higher than last month.`
-                  : `Your income is ${Math.abs(incomeDelta).toFixed(0)}% lower than last month.`}
+                  ? `Your income is ${incomeDelta.toFixed(0)}% higher than ${priorPeriodLabel}.`
+                  : `Your income is ${Math.abs(incomeDelta).toFixed(0)}% lower than ${priorPeriodLabel}.`}
               </Text>
               <Pressable onPress={() => { trackNavigation('reports', 'contextual'); navigation.navigate('More', { screen: 'Reports' }); }} accessibilityRole="button">
                 <Text style={[styles.bottomBannerLink, { color: c.primary }]}>View Details →</Text>

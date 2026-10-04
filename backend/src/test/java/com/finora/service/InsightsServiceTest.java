@@ -543,4 +543,70 @@ class InsightsServiceTest {
 
         assertThat(result.sentences()).anyMatch(s -> s.contains("In 2026-07, total spend was ₹600"));
     }
+
+    // --- the response names the month it reports on --------------------------------------------
+    //
+    // These insights resolve their own month (the newest one with a PURCHASE), which can differ
+    // from the dashboard summary's (the newest one with ANY data). Both clients used to borrow the
+    // summary's month, or assert "this month", over these figures; they now read it from here.
+
+    @Test
+    void reportingMonth_isTheNewestMonthWithAPurchase_notALaterIncomeOnlyMonth() {
+        givenTransactions(List.of(
+                expense(LocalDate.of(2026, 6, 5), BigDecimal.valueOf(600), dining, "Cafe"),
+                income(LocalDate.of(2026, 7, 1), BigDecimal.valueOf(50000))));
+
+        var result = insightsService.build(userId);
+
+        assertThat(result.reportingMonth()).isEqualTo("2026-06");
+        assertThat(result.reportingMonthIsCurrent()).isFalse();
+    }
+
+    @Test
+    void reportingMonth_isTheRequestedMonth_whenOneIsPicked() {
+        givenTransactions(List.of(
+                expense(LocalDate.of(2026, 6, 5), BigDecimal.valueOf(500), dining, "Cafe"),
+                expense(LocalDate.of(2026, 7, 5), BigDecimal.valueOf(900), dining, "Cafe")));
+
+        var result = insightsService.build(userId, "2026-06");
+
+        assertThat(result.reportingMonth()).isEqualTo("2026-06");
+        assertThat(result.reportingMonthIsCurrent()).isFalse();
+    }
+
+    @Test
+    void reportingMonthIsCurrent_whenTheReportedMonthIsTheUsersCalendarMonth() {
+        // UserZone.DEFAULT, same as incomeOnlyPeriod_... above: the mocked UserRepository has no
+        // user to read a zone from.
+        LocalDate today = LocalDate.now(com.finora.util.UserZone.DEFAULT);
+        givenTransactions(List.of(expense(today, BigDecimal.valueOf(500), dining, "Cafe")));
+
+        var result = insightsService.build(userId);
+
+        assertThat(result.reportingMonth()).isEqualTo(YearMonth.from(today).toString());
+        assertThat(result.reportingMonthIsCurrent()).isTrue();
+    }
+
+    @Test
+    void noPurchases_butAMonthWasPicked_reportsThePickedMonth() {
+        // Mobile's Spending picker names the picked month; the heading over these (empty)
+        // insights must not fall back to "This Month" just because there is no spending at all.
+        givenTransactions(List.of(income(LocalDate.of(2026, 7, 15), BigDecimal.valueOf(50000))));
+
+        var result = insightsService.build(userId, "2026-06");
+
+        assertThat(result.reportingMonth()).isEqualTo("2026-06");
+        assertThat(result.reportingMonthIsCurrent()).isFalse();
+    }
+
+    @Test
+    void noPurchases_reportsNoMonth_andCountsAsCurrent() {
+        // Same shape as ReportingPeriod.resolve's no-data case: nothing stale to warn about.
+        givenTransactions(List.of(income(LocalDate.of(2026, 7, 15), BigDecimal.valueOf(50000))));
+
+        var result = insightsService.build(userId);
+
+        assertThat(result.reportingMonth()).isNull();
+        assertThat(result.reportingMonthIsCurrent()).isTrue();
+    }
 }

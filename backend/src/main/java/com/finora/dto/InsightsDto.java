@@ -9,7 +9,14 @@ public record InsightsDto(
         List<CategoryMover> movers,
         CoverageCaveat coverageCaveat,
         CategoryHighlight biggestCategory,
-        MerchantHighlight topMerchant
+        MerchantHighlight topMerchant,
+        // The month every figure above describes ("yyyy-MM"): the requested month, or by default
+        // the newest month with a PURCHASE -- which is not necessarily the dashboard summary's
+        // reportingMonth (newest month with ANY data), so clients must label these figures from
+        // this field, never from the summary's. Null when there is no spending to report on.
+        // Same pair, same semantics as DashboardSummaryDto's -- see ReportingPeriod.
+        String reportingMonth,
+        boolean reportingMonthIsCurrent
 ) {
     public record CategoryMover(String category, BigDecimal current, BigDecimal priorAverage, Double pctChange) {}
 

@@ -181,6 +181,16 @@ class CsvParserTest {
     }
 
     @Test
+    void parseDate_readsAnApostropheAbbreviatedYear() {
+        // A real slice small finance bank statement prints every date this way.
+        assertThat(CsvParser.parseDate("15 Sep '26")).isEqualTo(java.time.LocalDate.of(2026, 9, 15));
+        assertThat(CsvParser.parseDate("15 Sep ’26")).isEqualTo(java.time.LocalDate.of(2026, 9, 15));
+        // Only directly before a final two-digit year: anything else is not rewritten.
+        assertThat(CsvParser.parseDate("15 Sep '2026")).isNull();
+        assertThat(CsvParser.parseDate("'15 Sep 26")).isNull();
+    }
+
+    @Test
     void parseDate_stripsATrailingTimeComponent() {
         // HDFC's "DATE & TIME" column combines a date and a 24-hour time in one cell, joined by
         // a literal "|" glyph in at least one real export ("30/06/2026| 14:18").

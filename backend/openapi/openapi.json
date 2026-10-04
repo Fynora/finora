@@ -20853,6 +20853,12 @@
                     },
                     "topMerchant": {
                         "$ref": "#/components/schemas/MerchantHighlight"
+                    },
+                    "reportingMonth": {
+                        "type": "string"
+                    },
+                    "reportingMonthIsCurrent": {
+                        "type": "boolean"
                     }
                 }
             },

@@ -46,6 +46,19 @@ class StructuredNarrationPayeeTest {
     }
 
     @Test
+    void aDirectionSpeltOutAsItsOwnFieldIsNoPayee() {
+        // UPI-Debit-REF-NAME-IFSC-HANDLE-NOTE: the slice small finance bank layout. Every UPI row
+        // used to be labelled "debit" or "credit".
+        assertThat(label("UPI-Debit-100000000001-SAMPLE STORE-ABCD0XXXXXX-samplestore@okaxis-You are paying for a"))
+                .isEqualTo("sample store");
+        assertThat(label("UPI-Credit-100000000001-SAMPLE PAYEE-ABCD0XXXXXX-sample.refunds@okaxis-Refund"))
+                .isEqualTo("sample payee");
+        // A payee whose name starts with the word keeps it.
+        assertThat(label("UPI-CREDIT SAMPLE SERVICES-samplecredit@okaxis-ABCD0XXXXXX-100000000001-PAYMENT"))
+                .isEqualTo("credit sample services");
+    }
+
+    @Test
     void anImpsNarrationTakesThePayee() {
         assertThat(label("MOB-IMPS-CR/SAMPLE PERSON/KKBK /1000000001/IMPS/1000000002")).isEqualTo("sample person");
         assertThat(label("NEFT CR-SBIN0XXXXXX-SAMPLE EMPLOYER LTD-SAMPLE PERSON-SBINN00000000001"))

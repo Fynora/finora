@@ -8673,6 +8673,8 @@ export interface components {
             coverageCaveat?: components["schemas"]["CoverageCaveat"];
             biggestCategory?: components["schemas"]["CategoryHighlight"];
             topMerchant?: components["schemas"]["MerchantHighlight"];
+            reportingMonth?: string;
+            reportingMonthIsCurrent?: boolean;
         };
         MerchantHighlight: {
             name?: string;

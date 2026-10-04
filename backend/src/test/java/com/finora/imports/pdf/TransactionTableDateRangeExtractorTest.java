@@ -80,4 +80,15 @@ class TransactionTableDateRangeExtractorTest {
         assertThat(range.start()).isNull();
         assertThat(range.end()).isNull();
     }
+
+    @Test
+    void extract_returnsNone_ratherThanALaterRange_whenTheFirstStatedRangeIsImpossible() {
+        var range = TransactionTableDateRangeExtractor.extract(List.of(
+                run("Date  Transaction details from 01-Feb-2026 to 31-Feb-2026  Spends Area  Amount (Rs.)"),
+                new PositionedText("Date  Transaction details from 01-Jan-2026 to 31-Jan-2026  Spends Area  Amount (Rs.)",
+                        0f, 400f, 0)));
+
+        assertThat(range.start()).isNull();
+        assertThat(range.end()).isNull();
+    }
 }

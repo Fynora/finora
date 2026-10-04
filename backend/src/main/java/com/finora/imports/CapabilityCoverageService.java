@@ -116,6 +116,15 @@ public class CapabilityCoverageService {
             // line a text layer that prints its own line ends shows ending in neither that line end
             // nor a blank. See NarrationLineBreaks.
             "NARRATION_WRAP_JOINED_AT_HANDLE", "NARRATION_WRAP_JOINED_AT_SEPARATOR",
+            "NARRATION_WRAP_JOINED_AT_IFSC",
+            // A wrapped narration rejoined without a space inside a reference code, at a word the
+            // statement prints whole elsewhere, at a merchant's one-word name Fynora already knows,
+            // where the space would widen a field past every other
+            // one like it, or at a width wrap of a statement proven to cut through words. See
+            // NarrationLineBreaks and LineGeometry (which keeps the space where the page shows one).
+            "NARRATION_WRAP_JOINED_INSIDE_A_CODE", "NARRATION_WRAP_JOINED_BY_DOCUMENT_WORD",
+            "NARRATION_WRAP_JOINED_AT_KNOWN_MERCHANT",
+            "NARRATION_WRAP_JOINED_BY_FIELD_WIDTH", "NARRATION_WRAP_JOINED_AT_WIDTH_WRAP",
             "NARRATION_WRAP_JOINED_AT_CHARACTER_WIDTH", "NARRATION_CHARACTER_WRAP_WIDTH_DETECTED",
             "NARRATION_WRAP_JOINED_WITHOUT_PRINTED_SPACE",
             // A line separator inside a PDF text run (a real Standard Chartered export prints its
@@ -125,6 +134,10 @@ public class CapabilityCoverageService {
             // letterhead line) kept out of the rows as page furniture -- the real HDFC bank-name
             // footer and Standard Chartered's footer date. See PdfTableLocator.repeatedPageFurniture.
             "LEADING_BUFFER_REPEATED_PAGE_FURNITURE_DIVERTED",
+            // A statement period printed alone at the same height on two or more pages (the real
+            // slice small finance bank statement's page banner) kept out of the rows, on a statement
+            // too short for the furniture rule above. See PdfTableLocator.repeatedPeriodBanners.
+            "REPEATED_PERIOD_BANNER_DIVERTED",
             // A dateless line whose only text is a totals label ("Total") beside figures in the
             // amount columns -- the real Standard Chartered export's closing column-total line --
             // kept as auxiliary text instead of merged into the last transaction. See
@@ -409,6 +422,10 @@ public class CapabilityCoverageService {
             // last real transaction's trailing narration before this trigger existed. See
             // PdfTableLocator.TRANSACTION_TIME_FOOTNOTE_MARKER.
             "TRANSACTION_TIME_FOOTNOTE_CLOSED",
+            // One AMOUNT column whose sign is the direction ("-₹" debits, unsigned credits), proved
+            // by the statement's own running balance. A real slice small finance bank statement
+            // staged every credit as an expense before it. See SignedAmountColumn.
+            "SIGNED_AMOUNT_COLUMN",
             // A real Union Bank of India statement's in-grid "Summary :" block -- "Total Debits :",
             // "Closing Balance :", "Total Credits :" -- folded into the last transaction and forming a
             // phantom one of its own before this trigger existed. See

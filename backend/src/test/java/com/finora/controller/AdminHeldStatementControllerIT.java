@@ -350,6 +350,36 @@ class AdminHeldStatementControllerIT extends AbstractIntegrationTest {
                 "IMPORT_READY_" + held.getImportJobId() + ":EMAIL")).isEmpty();
     }
 
+    /** The held email promised "We'll notify you once it's ready"; a rejection is the other answer,
+     *  and the user hears it without opening the app. Once: a rejection after a reopen repeats
+     *  nothing they were not already told. */
+    @Test
+    void rejectingTellsTheUserOnceByPushAndEmail() {
+        HeldStatement held = seedHoldWithRealBytes("HLD-2026-395004");
+        User admin = createUser("ADMIN");
+        String key = "IMPORT_REJECTED_" + held.getImportJobId();
+
+        ResponseEntity<String> rejected =
+                post("/api/v1/admin/held-statements/HLD-2026-395004/reject", admin, "{\"reason\":\"internal only\"}");
+
+        assertThat(rejected.getStatusCode()).as(rejected.getBody()).isEqualTo(HttpStatus.OK);
+        assertThat(notificationRepository.findByNotificationKey(key + ":PUSH")).isPresent();
+        assertThat(notificationRepository.findByNotificationKey(key + ":EMAIL")).isPresent();
+        assertThat(notificationRepository.findByNotificationKey(key + ":EMAIL").orElseThrow().getMessage())
+                .doesNotContain("internal only");
+
+        assertThat(post("/api/v1/admin/held-statements/HLD-2026-395004/reopen", admin, "{}")
+                .getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(post("/api/v1/admin/held-statements/HLD-2026-395004/reject", admin, "{}")
+                .getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(notificationRepository.findAll()).filteredOn(n -> key.equals(stripChannel(n.getNotificationKey())))
+                .hasSize(2);
+    }
+
+    private static String stripChannel(String notificationKey) {
+        return notificationKey == null ? null : notificationKey.replaceFirst(":(PUSH|EMAIL)$", "");
+    }
+
     /**
      * The reason this task needed its own job transition.
      *

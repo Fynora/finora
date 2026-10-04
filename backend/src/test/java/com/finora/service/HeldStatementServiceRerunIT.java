@@ -58,6 +58,7 @@ class HeldStatementServiceRerunIT extends AbstractIntegrationTest {
     @Autowired private com.finora.repository.ImportSessionRepository importSessionRepository;
     @Autowired private com.finora.repository.StatementImportRepository statementImportRepository;
     @Autowired private com.finora.repository.AccountRepository accountRepository;
+    @Autowired private com.finora.notification.repository.NotificationRepository notificationRepository;
     @Autowired private com.finora.imports.passwords.StatementPasswordService statementPasswordService;
 
     private static final byte[] CLEAN_CSV = ("Date,Description,Amount,Balance\n"
@@ -440,6 +441,26 @@ class HeldStatementServiceRerunIT extends AbstractIntegrationTest {
         assertThatThrownBy(() -> heldStatementService.approve(admin(), held.getHeldId(), null, null))
                 .isInstanceOf(ApiException.class).hasMessageContaining("imported this statement again");
         assertThat(jobOf(held).getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_TRUST_REVIEW);
+    }
+
+    /** The re-upload guards tell the operator to reject a superseded hold; that rejection must not
+     *  tell the user "your statement wasn't imported" about a statement they have imported. */
+    @Test
+    void rejectingAHoldTheUserImportedAgainSendsNoNoticeAndAnOrdinaryRejectionDoes() {
+        HeldStatement superseded = seedHold(CLEAN_CSV);
+        confirmedImportOf(jobOf(superseded), Instant.now().plusSeconds(60));
+        HeldStatement ordinary = seedHold(CLEAN_CSV);
+
+        heldStatementService.reject(admin(), superseded.getHeldId(), null);
+        heldStatementService.reject(admin(), ordinary.getHeldId(), null);
+
+        assertThat(jobOf(superseded).getStatus()).isEqualTo(ImportJob.Status.FAILED);
+        assertThat(notificationRepository.findByNotificationKey(
+                "IMPORT_REJECTED_" + superseded.getImportJobId() + ":EMAIL")).isEmpty();
+        assertThat(notificationRepository.findByNotificationKey(
+                "IMPORT_REJECTED_" + superseded.getImportJobId() + ":PUSH")).isEmpty();
+        assertThat(notificationRepository.findByNotificationKey(
+                "IMPORT_REJECTED_" + ordinary.getImportJobId() + ":EMAIL")).isPresent();
     }
 
     /** A re-upload under a newer build deletes the held session as stale and stages its own, which

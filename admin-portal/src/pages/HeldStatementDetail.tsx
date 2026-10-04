@@ -436,6 +436,13 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
             This hold was already {summary.status.replace(/_/g, ' ')}; it cannot be resolved again.
           </p>
         )}
+        {!resolved && (
+          <p className="text-xs text-muted" data-testid="decision-notice">
+            The user is told either way, by push and email unless they have turned these
+            notifications off: Approve says their statement is ready, Reject says it wasn&apos;t
+            imported (not sent if they have uploaded it again). Notes and reasons stay internal.
+          </p>
+        )}
         {summary.status === 'REJECTED' && (
           <div className="space-y-2 rounded-lg border border-border p-3" data-testid="reopen-panel">
             <p className="text-xs text-muted">
@@ -491,7 +498,7 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
           <input
             value={rejectReason}
             onChange={(e) => setRejectReason(e.target.value)}
-            placeholder="Reason (optional)…"
+            placeholder="Internal reason (optional)…"
             disabled={resolved}
             className="flex-1 min-w-[16rem] rounded-lg border border-border bg-bg px-3 py-1.5 text-sm text-ink disabled:opacity-50"
           />

@@ -193,6 +193,23 @@ describe('HeldStatementDetail', () => {
       .toHaveBeenCalledWith('HLD-2026-100001', 'parser fixed'));
   });
 
+  it('tells the reviewer an open hold\'s decision reaches the user and the reason does not', async () => {
+    mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
+    const { unmount } = renderPage();
+    const notice = await screen.findByTestId('decision-notice');
+    expect(notice).toHaveTextContent(/Reject says it wasn.t imported/);
+    expect(notice).toHaveTextContent(/not sent if they have uploaded it again/);
+    expect(screen.getByPlaceholderText(/internal reason/i)).toBeInTheDocument();
+    unmount();
+
+    vi.mocked(adminHeldStatementApi.get).mockResolvedValue({
+      ...detail, summary: { ...summary, status: 'REJECTED', resolvedAt: '2026-09-02T08:00:00Z' },
+    });
+    renderPage();
+    await screen.findByTestId('reopen-panel');
+    expect(screen.queryByTestId('decision-notice')).not.toBeInTheDocument();
+  });
+
   it('offers no Reopen on an open or an imported hold', async () => {
     mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
     const { unmount } = renderPage();

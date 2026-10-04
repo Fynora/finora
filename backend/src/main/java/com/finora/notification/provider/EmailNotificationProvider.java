@@ -31,7 +31,7 @@ public class EmailNotificationProvider implements NotificationChannelProvider {
 
     /**
      * Product decision, 2026-09-06: an email a customer might reasonably want to reply to and
-     * reach a person -- a statement held for review, or one released and ready -- goes out as
+     * reach a person -- a statement held for review, released and ready, or rejected -- goes out as
      * {@code support@}, not {@code noreply@}. {@code PASSWORD_CHANGED}'s template row exists
      * ({@code V127}) but has no live caller (the actual password-changed email is
      * {@code ResendEmailProvider.sendPasswordChangedEmail}, a hand-built send outside this outbox
@@ -40,7 +40,7 @@ public class EmailNotificationProvider implements NotificationChannelProvider {
      */
     private static final Set<NotificationType> SUPPORT_SENDER_TYPES =
             EnumSet.of(NotificationType.IMPORT_STATEMENT_HELD, NotificationType.IMPORT_STATEMENT_READY,
-                    NotificationType.IMPORT_STATEMENT_RESOLVED);
+                    NotificationType.IMPORT_STATEMENT_RESOLVED, NotificationType.IMPORT_STATEMENT_REJECTED);
 
     private final EmailProvider emailProvider;
     private final UserRepository userRepository;
@@ -99,9 +99,9 @@ public class EmailNotificationProvider implements NotificationChannelProvider {
     }
 
     /**
-     * Dispatches to {@link EmailProvider}'s own rich-HTML builders for the two types that have
-     * one, instead of this class's generic DB-template path -- see {@code EmailProvider
-     * .sendStatementReadyEmail}'s own doc for why these two carry a branded, CTA-button email that
+     * Dispatches to {@link EmailProvider}'s own rich-HTML builders for the types that have one
+     * (statement held, ready and rejected), instead of this class's generic DB-template path -- see
+     * {@code EmailProvider.sendStatementReadyEmail}'s own doc for why these carry a branded email that
      * a plain {{placeholder}} template row cannot express. {@code notification.getParams()} is the
      * {@code NotificationRequest.params()} map {@code StatementStatusNotifier} built, persisted
      * verbatim (V194) precisely so it survives past {@code TemplateRenderer.render}'s flattening
@@ -114,6 +114,7 @@ public class EmailNotificationProvider implements NotificationChannelProvider {
             case IMPORT_STATEMENT_READY -> emailProvider.sendStatementReadyEmail(
                     to, params.get("bank"), params.get("jobId"));
             case IMPORT_STATEMENT_HELD -> emailProvider.sendStatementHeldEmail(to);
+            case IMPORT_STATEMENT_REJECTED -> emailProvider.sendStatementRejectedEmail(to);
             default -> emailProvider.send(buildMessage(to, notification.getType(),
                     notification.getCategory(), notification.getTitle(), notification.getMessage()));
         };

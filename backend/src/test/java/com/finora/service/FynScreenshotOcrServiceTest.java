@@ -2,6 +2,7 @@ package com.finora.service;
 
 import com.finora.exception.ApiException;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -12,6 +13,12 @@ import java.awt.Font;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
+import java.time.Duration;
+import java.util.Optional;
 import java.util.concurrent.Semaphore;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -315,5 +322,51 @@ class FynScreenshotOcrServiceTest {
         service.describeForChat(image, "hi");
 
         assertThat(permits.availablePermits()).isEqualTo(before);
+    }
+
+    /** A stand-in executable, so the process handling can be exercised without a real Tesseract. */
+    private static Path script(Path dir, String name, String body) throws Exception {
+        Path file = dir.resolve(name);
+        Files.writeString(file, "#!/bin/sh\n" + body + "\n");
+        Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rwx------"));
+        return file;
+    }
+
+    @Test
+    void ocrProcess_runsWithOpenMpHeldToOneThread(@TempDir Path dir) throws Exception {
+        Path printsLimit = script(dir, "prints-limit", "printf %s \"$OMP_THREAD_LIMIT\"");
+
+        Process process = FynScreenshotOcrService.tesseractProcess(printsLimit.toString()).start();
+
+        assertThat(new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8)).isEqualTo("1");
+        assertThat(process.waitFor()).isZero();
+    }
+
+    @Test
+    void versionProbe_givesUpAndKillsTheProcess_whenItDoesNotExitInTime(@TempDir Path dir) throws Exception {
+        Path hangs = script(dir, "hangs", "exec sleep 30");
+
+        long start = System.nanoTime();
+        boolean available = FynScreenshotOcrService.probeAvailability(
+                Optional.of(hangs.toString()), Duration.ofMillis(200));
+        Duration elapsed = Duration.ofNanos(System.nanoTime() - start);
+
+        assertThat(available).isFalse();
+        assertThat(elapsed).isLessThan(Duration.ofSeconds(5));
+        assertThat(ProcessHandle.allProcesses()
+                .filter(p -> p.info().commandLine().map(c -> c.contains(hangs.toString())).orElse(false))
+                .filter(ProcessHandle::isAlive))
+                .isEmpty();
+    }
+
+    @Test
+    void versionProbe_reportsTheExitStatus(@TempDir Path dir) throws Exception {
+        assertThat(FynScreenshotOcrService.probeAvailability(
+                Optional.of(script(dir, "ok", "exit 0").toString()), Duration.ofSeconds(10))).isTrue();
+        assertThat(FynScreenshotOcrService.probeAvailability(
+                Optional.of(script(dir, "fails", "exit 1").toString()), Duration.ofSeconds(10))).isFalse();
+        assertThat(FynScreenshotOcrService.probeAvailability(Optional.empty(), Duration.ofSeconds(10))).isFalse();
+        assertThat(FynScreenshotOcrService.probeAvailability(
+                Optional.of(dir.resolve("missing").toString()), Duration.ofSeconds(10))).isFalse();
     }
 }

@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Iterator;
 import java.util.Optional;
 import java.util.Set;
@@ -88,6 +89,11 @@ public class FynScreenshotOcrService {
     // self-contained path resolution is cheaper than coupling them to a shared utility neither
     // otherwise needs.
     private static final Optional<String> RESOLVED_TESSERACT_PATH = resolveOnPath("tesseract");
+
+    // Bounds the class-load probe below. `tesseract --version` took 10-20 ms (150 ms on the first,
+    // cold run) in a local build of the production image held to one CPU; the bound only catches a
+    // binary that never exits.
+    private static final Duration VERSION_PROBE_TIMEOUT = Duration.ofSeconds(10);
 
     // Found in the same audit as the redaction fix above (F-05): this used to spawn a fresh
     // `tesseract --version` process on EVERY call to available(), which ChatController calls on
@@ -168,12 +174,43 @@ public class FynScreenshotOcrService {
     }
 
     private static boolean probeAvailability() {
-        if (RESOLVED_TESSERACT_PATH.isEmpty()) return false;
+        return probeAvailability(RESOLVED_TESSERACT_PATH, VERSION_PROBE_TIMEOUT);
+    }
+
+    /**
+     * {@code tesseract --version}, bounded. It runs once, at class initialisation, so an unbounded
+     * wait on a binary that never exits would hang whichever thread first touches this class, and
+     * every thread after it that waits for the class to finish initialising. Output is discarded
+     * rather than left in an undrained pipe; only the exit status is used.
+     */
+    static boolean probeAvailability(Optional<String> tesseractPath, Duration timeout) {
+        if (tesseractPath.isEmpty()) return false;
+        Process process = null;
         try {
-            return new ProcessBuilder(RESOLVED_TESSERACT_PATH.get(), "--version").start().waitFor() == 0;
-        } catch (IOException | InterruptedException e) {
+            process = new ProcessBuilder(tesseractPath.get(), "--version")
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                    .redirectError(ProcessBuilder.Redirect.DISCARD)
+                    .start();
+            return process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS) && process.exitValue() == 0;
+        } catch (IOException e) {
             return false;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        } finally {
+            // No-op once the process has exited.
+            if (process != null) process.destroyForcibly();
         }
+    }
+
+    /**
+     * The OCR process, held to one OpenMP thread -- see {@code TesseractEngine.tesseractProcess},
+     * which measured why. This class runs the same binary for the same reason, independently.
+     */
+    static ProcessBuilder tesseractProcess(String... command) {
+        ProcessBuilder builder = new ProcessBuilder(command).redirectErrorStream(false);
+        builder.environment().put("OMP_THREAD_LIMIT", "1");
+        return builder;
     }
 
     /** Whether the {@code tesseract} binary is on PATH -- callers must check this before {@link
@@ -377,9 +414,7 @@ public class FynScreenshotOcrService {
             File image = work.resolve("screenshot." + extension).toFile();
             Files.write(image.toPath(), imageBytes);
 
-            Process process = new ProcessBuilder(tesseract, image.getAbsolutePath(), "stdout")
-                    .redirectErrorStream(false)
-                    .start();
+            Process process = tesseractProcess(tesseract, image.getAbsolutePath(), "stdout").start();
             CompletableFuture<byte[]> stdout = CompletableFuture.supplyAsync(() -> {
                 try {
                     return process.getInputStream().readAllBytes();

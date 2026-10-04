@@ -103,9 +103,9 @@ public final class TesseractEngine implements OcrEngine {
      * each with {@code OMP_THREAD_LIMIT=1}, and 164-187 s each without it -- the container still
      * reported all ten host cores, and the thread limit alone removed the difference. 60 s is
      * roughly ten times the slowest uncontended run and twice the contended, thread-limited one.
-     * The image does not set that limit, so six concurrent scans on a single CPU would exceed this
-     * bound and fail; such a scan would also spend most of {@link #DOCUMENT_BUDGET} on its first
-     * page. The bound is there to catch a process that will never finish, not to bound normal
+     * {@link #tesseractProcess} sets that limit for every process; without it, six concurrent scans
+     * on a single CPU would exceed this bound and fail, and such a scan would also spend most of
+     * {@link #DOCUMENT_BUDGET} on its first page. The bound is there to catch a process that will never finish, not to bound normal
      * latency -- that is {@link #DOCUMENT_BUDGET}'s job.
      */
     static final Duration PROCESS_TIMEOUT = Duration.ofSeconds(60);
@@ -316,7 +316,7 @@ public final class TesseractEngine implements OcrEngine {
         List<String> command = new ArrayList<>(List.of(tesseract, png.getAbsolutePath(), "stdout"));
         if (psm != null) command.addAll(List.of("--psm", psm));
         command.add("tsv");
-        Process process = new ProcessBuilder(command)
+        Process process = tesseractProcess(command)
                 .redirectError(ProcessBuilder.Redirect.DISCARD)
                 .start();
         try {
@@ -354,6 +354,35 @@ public final class TesseractEngine implements OcrEngine {
     private static void kill(Process process) {
         process.descendants().forEach(ProcessHandle::destroyForcibly);
         process.destroyForcibly();
+    }
+
+    /**
+     * A recognition process, held to one OpenMP thread.
+     *
+     * <p>Alpine's Tesseract, the one the production image installs, links libgomp, and each process
+     * ran up to four threads -- four whether the container showed ten cores or OpenMP was told 48.
+     * A container's CPU limit does not hide the host's cores: held to one CPU, {@code nproc} still
+     * reported all ten of the local machine's, and production's container reports 48 under a 24
+     * vCPU replica limit. Measured in a local build of the production image (Tesseract 5.5.2,
+     * pinned model), one 300 DPI statement page per process, each time without the limit and then
+     * with it:
+     * <ul>
+     *   <li>six at once on 1 CPU: 164-187 s each, then 32 s (a real scanned page);</li>
+     *   <li>six at once on 2, 4 and 8 CPUs: 47-51, 34-36 and 51-53 s each, then 22, 11 and 8 s;</li>
+     *   <li>two at once on 8 CPUs: 13 s each, then 7 s;</li>
+     *   <li>one at a time, the twelve pages of the two real scans: 96 s in all on 1 CPU, then 56 s,
+     *       and no faster without the limit at 2 or 4 CPUs.</li>
+     * </ul>
+     * The TSV output of those twelve pages was byte-identical with and without the limit, in both
+     * segmentation modes this class uses. Set here rather than as an image {@code ENV} so it holds
+     * wherever this code runs Tesseract, and is scoped to the subprocess instead of the JVM.
+     * Homebrew's Tesseract does not link an OpenMP runtime, so on a development machine the
+     * variable changes nothing.
+     */
+    static ProcessBuilder tesseractProcess(List<String> command) {
+        ProcessBuilder builder = new ProcessBuilder(command);
+        builder.environment().put("OMP_THREAD_LIMIT", "1");
+        return builder;
     }
 
     /**

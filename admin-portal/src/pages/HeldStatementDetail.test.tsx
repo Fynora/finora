@@ -196,7 +196,9 @@ describe('HeldStatementDetail', () => {
   it('tells the reviewer an open hold\'s decision reaches the user and the reason does not', async () => {
     mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
     const { unmount } = renderPage();
-    expect(await screen.findByTestId('decision-notice')).toHaveTextContent(/Reject says it wasn.t imported/);
+    const notice = await screen.findByTestId('decision-notice');
+    expect(notice).toHaveTextContent(/Reject says it wasn.t imported/);
+    expect(notice).toHaveTextContent(/not sent if they have uploaded it again/);
     expect(screen.getByPlaceholderText(/internal reason/i)).toBeInTheDocument();
     unmount();
 

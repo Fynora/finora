@@ -438,8 +438,9 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
         )}
         {!resolved && (
           <p className="text-xs text-muted" data-testid="decision-notice">
-            The user is told either way, by push and email: Approve says their statement is ready,
-            Reject says it wasn&apos;t imported. Notes and reasons stay internal.
+            The user is told either way, by push and email unless they have turned these
+            notifications off: Approve says their statement is ready, Reject says it wasn&apos;t
+            imported (not sent if they have uploaded it again). Notes and reasons stay internal.
           </p>
         )}
         {summary.status === 'REJECTED' && (

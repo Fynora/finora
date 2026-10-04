@@ -570,6 +570,7 @@ public class HeldStatementService {
      * learned of it by opening the app. Same reasoning, and the same fix, as the parser-gap hold's
      * resolve (V216). The copy is fixed -- the operator's reason is internal -- and matches the
      * failure the user's progress screen shows from {@code IMPORT_TRUST_REVIEW_REJECTED}.
+     * Not sent when the user has since uploaded the statement again ({@link #uploadedAgain}).
      *
      * <p>The operator's reason goes on the audit entry and the event, never onto the row's
      * {@code engineerNotes}: there is one notes column, and overwriting it here would destroy the
@@ -581,6 +582,9 @@ public class HeldStatementService {
         refuseIfResolved(held, "rejected");
 
         ImportJob job = requireJob(held);
+        // Read before the job fails: a superseded hold is the one the re-upload guards tell the
+        // operator to reject, and its user has already moved on with their own upload.
+        String uploadedAgain = uploadedAgain(job);
         Instant now = Instant.now();
         HeldStatement.Status from = held.getStatus();
 
@@ -595,10 +599,15 @@ public class HeldStatementService {
                 Map.of("actorId", actingAdminId.toString(),
                         "subjectUserId", held.getUserId().toString(),
                         "heldId", held.getHeldId(),
-                        "reason", reason == null ? "" : reason));
+                        "reason", reason == null ? "" : reason,
+                        "userNotified", uploadedAgain == null));
         // An outbox write in this transaction, like notifyStatementReady in approve: a rejection
-        // that rolls back tells nobody.
-        statementStatusNotifier.notifyRejected(job);
+        // that rolls back tells nobody. Not when the user has uploaded the statement again: "your
+        // statement wasn't imported, nothing was added" would be wrong about the copy they have
+        // imported or are importing now.
+        if (uploadedAgain == null) {
+            statementStatusNotifier.notifyRejected(job);
+        }
         return HeldStatementDto.from(held);
     }
 
@@ -752,14 +761,26 @@ public class HeldStatementService {
      * would fail on the constraint. Checked before any parse, so nothing is spent on a refusal.
      */
     private void refuseIfUploadedAgain(HeldStatement held, ImportJob job, String verb) {
+        String uploadedAgain = uploadedAgain(job);
+        if (uploadedAgain != null) {
+            String instead = held.getStatus() == HeldStatement.Status.REJECTED
+                    ? " Leave it rejected." : " Reject it instead.";
+            throw new ApiException(HttpStatus.CONFLICT,
+                    held.getHeldId() + " cannot be " + verb + ": the user " + uploadedAgain + instead);
+        }
+    }
+
+    /**
+     * How the user has taken this statement up again themselves since this hold's upload, or null
+     * if they have not: imported it again, another upload of it still running, or another upload's
+     * rows still staged. Phrased to follow "the user ".
+     */
+    private String uploadedAgain(ImportJob job) {
         String hash = job.getContentHash();
-        if (hash == null) return;
-        String refusal = held.getHeldId() + " cannot be " + verb + ": the user ";
-        String instead = held.getStatus() == HeldStatement.Status.REJECTED ? " Leave it rejected." : " Reject it instead.";
+        if (hash == null) return null;
         var imported = importService.previousImportOf(job.getUserId(), hash);
         if (imported != null && imported.importedAt() != null && imported.importedAt().isAfter(job.getCreatedAt())) {
-            throw new ApiException(HttpStatus.CONFLICT, refusal + "imported this statement again on "
-                    + imported.importedAt() + ", so it would reach them twice." + instead);
+            return "imported this statement again on " + imported.importedAt() + ", so it would reach them twice.";
         }
         boolean inFlight = importJobRepository
                 .findFirstByUserIdAndContentHashAndStatusNotInOrderByCreatedAtDesc(
@@ -767,14 +788,13 @@ public class HeldStatementService {
                 .filter(other -> !other.getId().equals(job.getId()))
                 .isPresent();
         if (inFlight) {
-            throw new ApiException(HttpStatus.CONFLICT, refusal
-                    + "has uploaded this statement again and that import is still running.");
+            return "has uploaded this statement again and that import is still running.";
         }
-        importSessionService.stagedSessionOfAnotherUpload(job.getUserId(), hash, job.getImportSessionId())
-                .ifPresent(other -> {
-                    throw new ApiException(HttpStatus.CONFLICT, refusal + "has uploaded this statement "
-                            + "again, and that upload's rows are still staged." + instead);
-                });
+        if (importSessionService.stagedSessionOfAnotherUpload(job.getUserId(), hash, job.getImportSessionId())
+                .isPresent()) {
+            return "has uploaded this statement again, and that upload's rows are still staged.";
+        }
+        return null;
     }
 
     /**

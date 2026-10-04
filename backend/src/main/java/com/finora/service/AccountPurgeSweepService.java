@@ -898,6 +898,8 @@ public class AccountPurgeSweepService {
         // deactivationReason is kept -- churn analytics, the same "persists indefinitely"
         // precedent reactivation not clearing it already established.
         user.setDeactivationNote(null);
+        // The setup answer goes with the account, like the financial-focus answers deleted above.
+        user.recordSpendingTracking(null, null);
         // Explicit RBAC grants (user_roles) -- functionally inert on a DELETED account (login()
         // rejects it unconditionally, so nothing can ever exercise them again), but a self-service
         // account-scope check already blocks admin accounts from this flow, so this is only ever

@@ -342,6 +342,15 @@ public class AdminDtos {
      *  actual platform-wide spend, which MerchantStatDto deliberately doesn't. */
     public record PlatformMerchantSpendDto(String merchantName, BigDecimal totalSpend, long transactionCount) {}
 
+    /** One answer to the required setup question "How do you keep track of your spending today?"
+     *  and how many live consumer accounts gave it. */
+    public record SpendingTrackingMethodCount(String method, long count) {}
+
+    /** {@code answered} is the sum of {@code methods}; {@code notAnswered} counts the accounts
+     *  that have not been asked yet or have not answered. Every answer is listed, a zero included. */
+    public record SpendingTrackingBreakdown(long answered, long notAnswered,
+                                            List<SpendingTrackingMethodCount> methods) {}
+
     public record PlatformAnalyticsDto(
             List<PlatformCategorySpendDto> topCategories,
             List<PlatformMerchantSpendDto> topMerchants

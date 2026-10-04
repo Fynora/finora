@@ -670,6 +670,11 @@ public class DataExportService {
         List<UserFinancialFocusExportDto> financialFocus = userFinancialFocusRepository.findByUserId(userId).stream()
                 .map(UserFinancialFocusExportDto::from)
                 .toList();
+        // Zero or one entry: none until the user has answered.
+        List<com.finora.dto.DataExportDto.SpendingTrackingExportDto> spendingTracking =
+                user.getSpendingTrackingMethod() == null ? List.of()
+                        : List.of(new com.finora.dto.DataExportDto.SpendingTrackingExportDto(
+                                user.getSpendingTrackingMethod(), user.getSpendingTrackingAnsweredAt()));
         List<UserChecklistEventExportDto> checklistEvents = userChecklistEventRepository.findByUserId(userId).stream()
                 .map(UserChecklistEventExportDto::from)
                 .toList();
@@ -762,7 +767,7 @@ public class DataExportService {
                 inflowKinds, senderInflowRules, paymentInflowChoices, savedStatementPasswords, featureViews,
                 paymentExports, subscriptionOrderExports, referrals, referralCode, referralRewards, wallet,
                 notifications, notificationPreferences, timeline, transactionLinks, statementExcludedRows,
-                merchantCategoryVotes, statementRefreshRuns, activityDays);
+                merchantCategoryVotes, statementRefreshRuns, activityDays, spendingTracking);
     }
 
     /**
@@ -830,6 +835,7 @@ public class DataExportService {
             writeJsonEntry(zos, "merchant_category_votes.json", bundle.merchantCategoryVotes());
             writeJsonEntry(zos, "statement_refresh_runs.json", bundle.statementRefreshRuns());
             writeJsonEntry(zos, "activity_days.json", bundle.activityDays());
+            writeJsonEntry(zos, "spending_tracking.json", bundle.spendingTracking());
 
             for (Summary statement : bundle.statementSummaries()) {
                 writeStoredFile(zos, "statements/" + statement.id() + "-" + sanitize(statement.fileName()),
@@ -973,7 +979,8 @@ public class DataExportService {
                 new ManifestEntry("statement_excluded_rows.json", "Statement rows you chose to leave out of your ledger.", bundle.statementExcludedRows().size()),
                 new ManifestEntry("merchant_category_votes.json", "Categories you chose for merchants' payments.", bundle.merchantCategoryVotes().size()),
                 new ManifestEntry("statement_refresh_runs.json", "Every time Finora re-read one of your statements, and exactly what that changed -- including transactions it removed.", bundle.statementRefreshRuns().size()),
-                new ManifestEntry("activity_days.json", "The dates you used Fynora -- the date only, never the time or what you did.", bundle.activityDays().size())
+                new ManifestEntry("activity_days.json", "The dates you used Fynora -- the date only, never the time or what you did.", bundle.activityDays().size()),
+                new ManifestEntry("spending_tracking.json", "How you told us you kept track of your spending before Fynora, and when.", bundle.spendingTracking().size())
         );
         List<ManifestEntry> excluded = List.of(
                 new ManifestEntry("audit_logs", "Your own actions are logged for security, not collected as your data.", null),
@@ -1076,7 +1083,8 @@ public class DataExportService {
             List<StatementExcludedRowExportDto> statementExcludedRows,
             List<MerchantCategoryVoteExportDto> merchantCategoryVotes,
             List<RefreshRunDetail> statementRefreshRuns,
-            List<String> activityDays
+            List<String> activityDays,
+            List<com.finora.dto.DataExportDto.SpendingTrackingExportDto> spendingTracking
     ) {}
 
     /** An {@code imports/} entry to write: just enough for {@link #writeZip} to re-fetch the row

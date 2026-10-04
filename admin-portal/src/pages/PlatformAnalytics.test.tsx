@@ -18,8 +18,15 @@ vi.mock('../context/AdminAuthContext', () => ({
   useAdminAuth: vi.fn(),
 }));
 vi.mock('../api/endpoints', () => ({
-  adminPlatformAnalyticsApi: { get: vi.fn() },
+  adminPlatformAnalyticsApi: { get: vi.fn(), spendingTracking: vi.fn() },
 }));
+
+const NO_ANSWERS = {
+  answered: 0,
+  notAnswered: 0,
+  methods: ['NOT_TRACKED', 'IN_MY_HEAD', 'PAPER', 'SPREADSHEET', 'EXPENSE_APP', 'BANK_APP', 'OTHER']
+    .map((method) => ({ method, count: 0 })),
+};
 
 function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -47,6 +54,35 @@ describe('PlatformAnalytics', () => {
   beforeEach(() => {
     vi.mocked(useAdminAuth).mockReset();
     vi.mocked(adminPlatformAnalyticsApi.get).mockReset();
+    vi.mocked(adminPlatformAnalyticsApi.spendingTracking).mockReset().mockResolvedValue(NO_ANSWERS);
+  });
+
+  it('shows how users tracked spending before Fynora, each answer as a share of all answers', async () => {
+    mockAuth(['PLATFORM_ANALYTICS_VIEW']);
+    vi.mocked(adminPlatformAnalyticsApi.get).mockResolvedValue({ topCategories: [], topMerchants: [] });
+    vi.mocked(adminPlatformAnalyticsApi.spendingTracking).mockResolvedValue({
+      answered: 8,
+      notAnswered: 5,
+      methods: NO_ANSWERS.methods.map((m) =>
+        m.method === 'SPREADSHEET' ? { ...m, count: 2 } : m.method === 'IN_MY_HEAD' ? { ...m, count: 6 } : m),
+    });
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText('Spreadsheet (Excel, Google Sheets)')).toBeInTheDocument());
+    expect(screen.getByText('25.0%')).toBeInTheDocument();
+    expect(screen.getByText('75.0%')).toBeInTheDocument();
+    expect(screen.getByText(/8 answered, 5 not yet asked or not yet answered/)).toBeInTheDocument();
+  });
+
+  it('shows a dash, not a percentage, before anyone has answered', async () => {
+    mockAuth(['PLATFORM_ANALYTICS_VIEW']);
+    vi.mocked(adminPlatformAnalyticsApi.get).mockResolvedValue({ topCategories: [], topMerchants: [] });
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Don't really track it")).toBeInTheDocument());
+    expect(screen.getAllByText('—')).toHaveLength(7);
   });
 
   it('shows an access-denied message when the account lacks PLATFORM_ANALYTICS_VIEW', () => {

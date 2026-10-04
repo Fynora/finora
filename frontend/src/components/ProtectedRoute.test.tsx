@@ -1,3 +1,4 @@
+import type React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
@@ -21,6 +22,14 @@ vi.mock('../onboarding/OnboardingUIContext', () => ({
 // (ReferralCodePrompt.test.tsx covers that).
 vi.mock('./ReferralCodePrompt', () => ({
   ReferralCodePrompt: () => <div data-testid="referral-code-prompt" />,
+}));
+
+// A marked pass-through: this file checks WHERE the required spending question's gate wraps the
+// page, not the gate itself (SpendingQuestionGate.test.tsx covers that).
+vi.mock('../onboarding/SpendingQuestionGate', () => ({
+  SpendingQuestionGate: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="spending-question-gate">{children}</div>
+  ),
 }));
 
 function renderProtected(allowUnverified?: boolean) {
@@ -94,6 +103,17 @@ describe('ProtectedRoute', () => {
 
     expect(screen.getByText('Protected content')).toBeInTheDocument();
     expect(screen.getByTestId('referral-code-prompt')).toBeInTheDocument();
+    // Behind the required spending question, for an onboarded user too.
+    expect(screen.getByTestId('spending-question-gate')).toContainElement(screen.getByText('Protected content'));
+  });
+
+  it('puts the required spending question in front of onboarding as well', () => {
+    vi.mocked(useAuth).mockReturnValue({ token: 'tok', bootstrapping: false, phoneVerified: true, onboardingCompleted: false } as ReturnType<typeof useAuth>);
+    vi.mocked(useOnboardingUI).mockReturnValue({ step: 'welcome', setStep: vi.fn() });
+
+    renderProtected();
+
+    expect(screen.getByTestId('spending-question-gate')).toContainElement(screen.getByText('Welcome to Fynora 👋'));
   });
 
   it('allows an unverified user through when allowUnverified is set (e.g. the verify-phone screen itself)', () => {
@@ -104,6 +124,7 @@ describe('ProtectedRoute', () => {
     expect(screen.getByText('Protected content')).toBeInTheDocument();
     // Never over VerifyPhone.
     expect(screen.queryByTestId('referral-code-prompt')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('spending-question-gate')).not.toBeInTheDocument();
   });
 
   it('renders the onboarding flow instead of children when onboarding is not complete and step is not tour', () => {

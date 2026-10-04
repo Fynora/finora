@@ -26,6 +26,8 @@ import { usePushNotificationNavigation } from './usePushNotificationNavigation';
 import { useChangePolling } from '../lib/useChangePolling';
 import { useShareIntentDeepLink } from './useShareIntentDeepLink';
 import type { AuthStackParamList, RootParamList } from './types';
+import { useSpendingQuestion } from '../onboarding/useSpendingQuestion';
+import { SpendingTrackingQuestionScreen } from '../onboarding/SpendingTrackingQuestionScreen';
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const AppStack = createNativeStackNavigator();
@@ -61,7 +63,10 @@ const linkingPrefixes = ['finora://'];
  * what the client renders.
  */
 export function RootNavigator() {
-  const { bootstrapping, token, phoneVerified, onboardingCompleted, logout } = useAuth();
+  const { bootstrapping, token, phoneVerified, onboardingCompleted, logout, email } = useAuth();
+  // The required "How do you keep track of your spending today?" question, shown in place of
+  // onboarding and the app alike until answered -- see the hook.
+  const spendingQuestion = useSpendingQuestion(token !== null && phoneVerified, email);
   const { step: onboardingStep, setStep: setOnboardingStep } = useOnboardingStep();
   const authInitialRoute = useAuthStackInitialRoute(token);
   const c = useTheme();
@@ -74,7 +79,10 @@ export function RootNavigator() {
   // specifically 'tour' -- that step renders the REAL AppTabs (plus TourOverlay on top), not a
   // substitute, so it counts as active too. Shared below by every deep-link hook (each one's own
   // "ready" gate needs exactly this condition, not a slightly different one).
-  const isAppTabsActive = token !== null && phoneVerified && (onboardingCompleted || onboardingStep === 'tour');
+  // Not while the spending question is showing in place of the app, nor while it is still being
+  // looked up (see useSpendingQuestion's own comment on `pending`).
+  const isAppTabsActive = token !== null && phoneVerified && !spendingQuestion.needsAnswer
+    && !spendingQuestion.pending && (onboardingCompleted || onboardingStep === 'tour');
   // Picks up changes made on another device (the web app) while this one is open -- see the hook.
   useChangePolling(isAppTabsActive);
   const { onNavigationReady: onEmailChangeReady } = useEmailChangeDeepLink(navigationRef, isAppTabsActive, token !== null);
@@ -201,6 +209,13 @@ export function RootNavigator() {
         // sign-out as the way back.
         <AppStack.Navigator screenOptions={{ headerShown: false }}>
           <AppStack.Screen name="VerifyPhone" component={VerifyPhoneScreen} />
+        </AppStack.Navigator>
+      ) : spendingQuestion.needsAnswer ? (
+        // Single screen, like VerifyPhone above: nothing else is reachable until it is answered.
+        <AppStack.Navigator screenOptions={{ headerShown: false }}>
+          <AppStack.Screen name="SpendingTrackingQuestion">
+            {() => <SpendingTrackingQuestionScreen onSubmit={spendingQuestion.submit} />}
+          </AppStack.Screen>
         </AppStack.Navigator>
       ) : !onboardingCompleted ? (
         onboardingStep === 'tour' ? (

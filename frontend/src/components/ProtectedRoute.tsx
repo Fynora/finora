@@ -3,6 +3,7 @@ import { ReferralCodePrompt } from './ReferralCodePrompt';
 import { useAuth } from '../context/AuthContext';
 import { useOnboardingUI } from '../onboarding/OnboardingUIContext';
 import { OnboardingFlow } from '../onboarding/OnboardingFlow';
+import { SpendingQuestionGate } from '../onboarding/SpendingQuestionGate';
 import { TourOverlay } from '../onboarding/TourOverlay';
 import { TOUR_STEPS } from '../onboarding/tourSteps';
 import { safeReturnTo } from '../lib/returnTo';
@@ -47,26 +48,33 @@ export function ProtectedRoute({ children, allowUnverified = false }: ProtectedR
   // see docs/superpowers/specs/2026-09-06-first-login-onboarding-tour-design.md §7. So for that
   // one step, this renders the real children plus TourOverlay on top; every other incomplete step
   // (Welcome/FinancialFocus/TourIntro/Success) takes over the whole screen via OnboardingFlow.
+  let content: ReactNode;
   if (!allowUnverified && !onboardingCompleted) {
     if (step === 'tour') {
       // onFinish/onSkip both just advance to 'success': neither the tour finishing nor being
       // skipped completes onboarding by itself -- only SuccessScreen's own buttons do that.
       const goToSuccess = () => setStep('success');
-      return (
+      content = (
         <>
           {children}
           <TourOverlay steps={TOUR_STEPS} onFinish={goToSuccess} onSkip={goToSuccess} />
         </>
       );
+    } else {
+      content = <OnboardingFlow />;
     }
-    return <OnboardingFlow />;
+  } else {
+    // The one-time "Have a referral code?" after a Google/Apple sign-up: only here, once verified
+    // and onboarded, so it never covers VerifyPhone, onboarding, or the tour. Renders nothing
+    // otherwise.
+    content = (
+      <>
+        {children}
+        {!allowUnverified && <ReferralCodePrompt />}
+      </>
+    );
   }
-  // The one-time "Have a referral code?" after a Google/Apple sign-up: only here, once verified and
-  // onboarded, so it never covers VerifyPhone, onboarding, or the tour. Renders nothing otherwise.
-  return (
-    <>
-      {children}
-      {!allowUnverified && <ReferralCodePrompt />}
-    </>
-  );
+  // The required spending question comes first, before onboarding and the app alike -- see
+  // SpendingQuestionGate. Never on allowUnverified routes (VerifyPhone), for the reason above.
+  return allowUnverified ? content : <SpendingQuestionGate>{content}</SpendingQuestionGate>;
 }

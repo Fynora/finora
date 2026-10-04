@@ -2793,6 +2793,36 @@
                 }
             }
         },
+        "/api/v1/onboarding/spending-tracking": {
+            "post": {
+                "tags": [
+                    "onboarding-controller"
+                ],
+                "operationId": "setSpendingTracking",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SpendingTrackingRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseStatusResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/onboarding/reset": {
             "post": {
                 "tags": [
@@ -11776,6 +11806,26 @@
                 }
             }
         },
+        "/api/v1/admin/analytics/spending-tracking": {
+            "get": {
+                "tags": [
+                    "admin-spending-tracking-controller"
+                ],
+                "operationId": "spendingTrackingBreakdown",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseSpendingTrackingBreakdown"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/analytics/platform": {
             "get": {
                 "tags": [
@@ -15453,14 +15503,11 @@
                     }
                 }
             },
-            "FinancialFocusRequest": {
+            "SpendingTrackingRequest": {
                 "type": "object",
                 "properties": {
-                    "focusKeys": {
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        }
+                    "method": {
+                        "type": "string"
                     }
                 }
             },
@@ -15499,6 +15546,20 @@
                         "type": "boolean"
                     },
                     "financialFocus": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "spendingTrackingMethod": {
+                        "type": "string"
+                    }
+                }
+            },
+            "FinancialFocusRequest": {
+                "type": "object",
+                "properties": {
+                    "focusKeys": {
                         "type": "array",
                         "items": {
                             "type": "string"
@@ -26299,6 +26360,65 @@
                     "totalPages": {
                         "type": "integer",
                         "format": "int32"
+                    }
+                }
+            },
+            "ApiResponseSpendingTrackingBreakdown": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/SpendingTrackingBreakdown"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "SpendingTrackingBreakdown": {
+                "type": "object",
+                "properties": {
+                    "answered": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "notAnswered": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "methods": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SpendingTrackingMethodCount"
+                        }
+                    }
+                }
+            },
+            "SpendingTrackingMethodCount": {
+                "type": "object",
+                "properties": {
+                    "method": {
+                        "type": "string"
+                    },
+                    "count": {
+                        "type": "integer",
+                        "format": "int64"
                     }
                 }
             },

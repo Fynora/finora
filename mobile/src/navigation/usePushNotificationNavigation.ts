@@ -58,6 +58,7 @@ const TYPE_ROUTE: Record<string, PushRoute> = {
   IMPORT_STATEMENT_READY: 'Statements',
   IMPORT_STATEMENT_HELD: 'Statements',
   IMPORT_STATEMENT_RESOLVED: 'Statements',
+  IMPORT_STATEMENT_REJECTED: 'Statements',
   // Statement refresh, step 5: the banner that updates them is on the Statements screen.
   STATEMENT_REFRESH_AVAILABLE: 'Statements',
 };

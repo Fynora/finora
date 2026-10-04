@@ -93,6 +93,23 @@ class StatementStatusNotifierTest {
                 .containsExactly("IMPORT_HELD_" + job.getId(), "IMPORT_HELD_" + job.getId());
     }
 
+    /** The "no" answer to the held email's promise, keyed on the job so a rejection after a reopen
+     *  does not tell the user twice. */
+    @Test
+    void notifyRejected_requestsBothPushAndEmailKeyedOnTheJob() {
+        ImportJob job = job();
+
+        notifier.notifyRejected(job);
+
+        NotificationRequest sent = captureRequest();
+        assertThat(sent.type()).isEqualTo(NotificationType.IMPORT_STATEMENT_REJECTED);
+        assertThat(sent.category()).isEqualTo(NotificationCategory.FINANCIAL);
+        assertThat(sent.userId()).isEqualTo(job.getUserId());
+        assertThat(sent.channels())
+                .containsExactlyInAnyOrder(NotificationChannel.PUSH, NotificationChannel.EMAIL);
+        assertThat(sent.notificationKey()).isEqualTo("IMPORT_REJECTED_" + job.getId());
+    }
+
     @Test
     void notifyResolved_requestsBothPushAndEmailCarryingTheAdminsMessage() {
         ImportJob job = job();

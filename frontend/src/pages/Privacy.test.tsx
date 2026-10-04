@@ -32,6 +32,10 @@ function policyText(): string {
  *     would promise an outcome the code cannot guarantee.
  */
 describe('Privacy policy matches what the product does', () => {
+  it('discloses the setup answers it collects, the required spending question included', () => {
+    expect(policyText()).toMatch(/your answers to the short questions when you first set up Fynora: how you\s+keep track of your spending today, which everyone is asked once/i);
+  });
+
   it('discloses that a hand-typed transaction can reach the AI for categorisation', () => {
     expect(policyText()).toMatch(/add a transaction by hand without choosing a category/i);
   });

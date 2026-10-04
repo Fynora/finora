@@ -69,12 +69,25 @@ const mockScreenProps: Record<string, { getId?: (arg: { params?: { token?: strin
 jest.mock('@react-navigation/native-stack', () => ({
   createNativeStackNavigator: () => ({
     Navigator: ({ children }: { children: ReactNode }) => children,
-    Screen: (props: { name: string; component: ComponentType }) => {
+    Screen: (props: { name: string; component?: ComponentType; children?: () => ReactNode }) => {
       const Component = props.component;
       mockScreenProps[props.name] = props as never;
-      return <Component />;
+      return Component ? <Component /> : <>{props.children?.()}</>;
     },
   }),
+}));
+
+// The required spending question: a marker for the screen, and the hook's answer set per test.
+jest.mock('../onboarding/SpendingTrackingQuestionScreen', () => ({
+  SpendingTrackingQuestionScreen: () => {
+    const { Text } = require('react-native');
+    return <Text testID="spending-question">SpendingQuestion</Text>;
+  },
+}));
+const mockSpendingQuestion = { needsAnswer: false, pending: false, submit: jest.fn() };
+const mockUseSpendingQuestion = jest.fn((_enabled: boolean, _userKey: string | null) => mockSpendingQuestion);
+jest.mock('../onboarding/useSpendingQuestion', () => ({
+  useSpendingQuestion: (enabled: boolean, userKey: string | null) => mockUseSpendingQuestion(enabled, userKey),
 }));
 
 jest.mock('./AppTabs', () => ({
@@ -162,6 +175,62 @@ function authState(overrides: Partial<ReturnType<typeof useAuth>> = {}): ReturnT
 describe('RootNavigator', () => {
   beforeEach(() => {
     mockedUseOnboardingStep.mockReturnValue({ step: 'welcome', setStep: jest.fn() });
+    mockSpendingQuestion.needsAnswer = false;
+    mockSpendingQuestion.pending = false;
+    mockUseSpendingQuestion.mockClear();
+  });
+
+  it('shows only the required spending question, in place of the app, until it is answered', () => {
+    mockedUseAuth.mockReturnValue(authState({ token: 'tok', phoneVerified: true, onboardingCompleted: true }));
+    mockSpendingQuestion.needsAnswer = true;
+
+    render(<RootNavigator />);
+
+    expect(screen.getByTestId('spending-question')).toBeTruthy();
+    expect(screen.queryByTestId('app-tabs')).toBeNull();
+    expect(screen.queryByTestId('referral-code-prompt')).toBeNull();
+  });
+
+  it('shows the spending question before onboarding too', () => {
+    mockedUseAuth.mockReturnValue(authState({ token: 'tok', phoneVerified: true, onboardingCompleted: false }));
+    mockSpendingQuestion.needsAnswer = true;
+
+    render(<RootNavigator />);
+
+    expect(screen.getByTestId('spending-question')).toBeTruthy();
+    expect(screen.queryByTestId('onboarding-navigator')).toBeNull();
+  });
+
+  it('holds someone not yet onboarded on a loading screen while the answer is looked up', () => {
+    mockedUseAuth.mockReturnValue(authState({ token: 'tok', phoneVerified: true, onboardingCompleted: false }));
+    mockSpendingQuestion.pending = true;
+
+    render(<RootNavigator />);
+
+    expect(screen.getByTestId('spending-question-loading')).toBeTruthy();
+    expect(screen.queryByTestId('onboarding-navigator')).toBeNull();
+  });
+
+  it('does not hold a returning user while the answer is looked up', () => {
+    mockedUseAuth.mockReturnValue(authState({ token: 'tok', phoneVerified: true, onboardingCompleted: true }));
+    mockSpendingQuestion.pending = true;
+
+    render(<RootNavigator />);
+
+    expect(screen.getByTestId('app-tabs')).toBeTruthy();
+    expect(screen.queryByTestId('spending-question-loading')).toBeNull();
+  });
+
+  it('asks only a signed-in, verified account, keyed to that account', () => {
+    mockedUseAuth.mockReturnValue(authState({ token: 'tok', phoneVerified: false, onboardingCompleted: false }));
+    render(<RootNavigator />);
+    expect(mockUseSpendingQuestion.mock.calls.at(-1)?.[0]).toBe(false);
+    // Unverified: VerifyPhone comes first even if the question would be needed.
+    expect(screen.queryByTestId('spending-question')).toBeNull();
+
+    mockedUseAuth.mockReturnValue(authState({ token: 'tok', phoneVerified: true, onboardingCompleted: true, email: 'a@example.com' }));
+    render(<RootNavigator />);
+    expect(mockUseSpendingQuestion.mock.calls.at(-1)).toEqual([true, 'a@example.com']);
   });
 
   it('mounts AppTabs when signed in, verified, and onboarded', () => {
@@ -253,6 +322,20 @@ describe('RootNavigator', () => {
     const lastEnabled = () => mockedUseChangePolling.mock.calls.at(-1)?.[0];
 
     beforeEach(() => mockedUseChangePolling.mockClear());
+
+    it('is off while the spending question replaces the app, and while it is still being looked up', () => {
+      mockedUseAuth.mockReturnValue(authState({ token: 'tok', phoneVerified: true, onboardingCompleted: true }));
+      mockSpendingQuestion.needsAnswer = true;
+      render(<RootNavigator />);
+      expect(lastEnabled()).toBe(false);
+
+      mockSpendingQuestion.needsAnswer = false;
+      mockSpendingQuestion.pending = true;
+      render(<RootNavigator />);
+      // The usual screens show while it is looked up, but nothing navigates into them yet.
+      expect(screen.getAllByTestId('app-tabs').length).toBeGreaterThan(0);
+      expect(lastEnabled()).toBe(false);
+    });
 
     it('is on when the app tabs are showing', () => {
       mockedUseAuth.mockReturnValue(authState({ token: 'tok', phoneVerified: true, onboardingCompleted: true }));

@@ -54,6 +54,15 @@ env:
 # dashboard.yaml/import.yaml need no equivalent step: onboardingCompleted is persisted against this
 # same account server-side, so their own logins (after this flow's skip has run) land on Home
 # directly, same as any returning user.
+#
+# Before onboarding comes the required "How do you keep track of your spending today?" question
+# (useSpendingQuestion / SpendingTrackingQuestionScreen): a brand-new account has not answered it,
+# so it replaces everything until one answer is chosen and saved. Answered through the real screen,
+# for the same reason onboarding is skipped through the real button below.
+- assertVisible: "How do you keep track of your spending today?"
+- tapOn: "In a spreadsheet (Excel, Google Sheets)"
+- tapOn: "Continue"
+
 - assertVisible: "Welcome to Fynora 👋"
 - tapOn: "Skip for Now"
 

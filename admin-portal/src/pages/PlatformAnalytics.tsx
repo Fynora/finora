@@ -6,6 +6,22 @@ import { DataTable, type DataTableColumn } from '../components/DataTable';
 import { adminPlatformAnalyticsApi } from '../api/endpoints';
 import type { PlatformCategorySpendDto, PlatformMerchantSpendDto } from '../types';
 
+/** The required setup question's answers, in the order users see them (SpendingTrackingQuestion). */
+const SPENDING_TRACKING_LABELS: Record<string, string> = {
+  NOT_TRACKED: "Don't really track it",
+  IN_MY_HEAD: 'Roughly, in their head',
+  PAPER: 'Notebook or paper',
+  SPREADSHEET: 'Spreadsheet (Excel, Google Sheets)',
+  EXPENSE_APP: 'Expense or budgeting app',
+  BANK_APP: "Their bank's app or statements",
+  OTHER: 'Something else',
+};
+
+/** Each answer's share of everyone who has answered, to one decimal place; a dash before anyone has. */
+function shareOf(count: number, answered: number) {
+  return answered === 0 ? '—' : `${((count / answered) * 100).toFixed(1)}%`;
+}
+
 // Matches every other money formatter in both apps: the currency symbol before the digits but
 // after the sign, and 'en-IN' pinned explicitly. This used to omit the symbol entirely and pass
 // undefined as the locale, so an unlabelled spend figure sat beside an unlabelled transaction
@@ -28,6 +44,19 @@ function PlatformAnalyticsContent() {
     queryKey: ['admin-platform-analytics'],
     queryFn: () => adminPlatformAnalyticsApi.get(),
   });
+  const tracking = useQuery({
+    queryKey: ['admin-spending-tracking'],
+    queryFn: () => adminPlatformAnalyticsApi.spendingTracking(),
+  });
+  const answered = tracking.data?.answered ?? 0;
+  const trackingColumns: DataTableColumn<{ method: string; count: number }>[] = [
+    {
+      header: 'Answer',
+      render: (m) => <span className="font-medium text-ink">{SPENDING_TRACKING_LABELS[m.method] ?? m.method}</span>,
+    },
+    { header: 'Users', render: (m) => m.count, cellClassName: 'text-muted' },
+    { header: 'Share of answers', render: (m) => shareOf(m.count, answered), cellClassName: 'text-muted' },
+  ];
 
   const categoryColumns: DataTableColumn<PlatformCategorySpendDto>[] = [
     {
@@ -68,6 +97,21 @@ function PlatformAnalyticsContent() {
         internal transfers, and refunded income, the same exclusion rules the self-service
         Analytics views already apply per account.
       </p>
+
+      <div>
+        <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-1">How users tracked spending before Fynora</h2>
+        <p className="text-sm text-muted mb-3">
+          Answers to the required setup question, across live user accounts.
+          {tracking.data && ` ${tracking.data.answered} answered, ${tracking.data.notAnswered} not yet asked or not yet answered.`}
+        </p>
+        <DataTable
+          columns={trackingColumns}
+          rows={tracking.data?.methods}
+          keyFor={(m) => m.method}
+          loading={tracking.isLoading}
+          emptyMessage="No answers yet."
+        />
+      </div>
 
       <div>
         <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-3">Top categories</h2>

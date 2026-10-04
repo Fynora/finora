@@ -117,6 +117,7 @@ class OnboardingServiceTest {
     @Test
     void completeSetsOnboardingCompletedAtOnlyOnce() {
         User user = new User();
+        user.recordSpendingTracking("SPREADSHEET", java.time.Instant.now());
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
 
         service.complete(userId);
@@ -124,6 +125,56 @@ class OnboardingServiceTest {
         service.complete(userId);
 
         assertThat(user.getOnboardingCompletedAt()).isEqualTo(firstCompletedAt);
+    }
+
+    /** The spending question is required: onboarding cannot finish around it, from any client. */
+    @Test
+    void completeIsRefusedUntilTheSpendingQuestionIsAnswered() {
+        User user = new User();
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> service.complete(userId))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("how you keep track of your spending");
+        assertThat(user.getOnboardingCompletedAt()).isNull();
+    }
+
+    @Test
+    void setSpendingTracking_recordsTheAnswerAndItsTime_andStatusReportsIt() {
+        User user = new User();
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(focusRepository.findByUserId(userId)).thenReturn(List.of());
+        assertThat(service.getStatus(userId).spendingTrackingMethod()).isNull();
+
+        OnboardingDto.StatusResponse status = service.setSpendingTracking(userId, " spreadsheet ");
+
+        assertThat(status.spendingTrackingMethod()).isEqualTo("SPREADSHEET");
+        assertThat(user.getSpendingTrackingMethod()).isEqualTo("SPREADSHEET");
+        assertThat(user.getSpendingTrackingAnsweredAt()).isNotNull();
+        // Answering again replaces the answer.
+        service.setSpendingTracking(userId, "BANK_APP");
+        assertThat(user.getSpendingTrackingMethod()).isEqualTo("BANK_APP");
+    }
+
+    @Test
+    void setSpendingTracking_rejectsAMissingOrUnknownAnswer() {
+        for (String bad : new String[] {null, "", "  ", "NOT_A_METHOD"}) {
+            assertThatThrownBy(() -> service.setSpendingTracking(userId, bad))
+                    .as(String.valueOf(bad))
+                    .isInstanceOf(ApiException.class);
+        }
+    }
+
+    @Test
+    void resetKeepsTheSpendingAnswer() {
+        User user = new User();
+        user.recordSpendingTracking("PAPER", java.time.Instant.now());
+        user.setOnboardingCompletedAt(java.time.Instant.now());
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+
+        service.reset(userId);
+
+        assertThat(user.getSpendingTrackingMethod()).isEqualTo("PAPER");
     }
 
     @Test

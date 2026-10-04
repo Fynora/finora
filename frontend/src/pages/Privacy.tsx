@@ -25,7 +25,9 @@ export default function Privacy() {
       <PublicSection title="Information We Collect">
         <p>
           Fynora collects the information you provide directly (registration details, account and transaction
-          data you add or import) and a small amount of technical information needed to operate the Service
+          data you add or import, and your answers to the short questions when you first set up Fynora: how you
+          keep track of your spending today, which everyone is asked once, and what you hope to achieve with
+          Fynora) and a small amount of technical information needed to operate the Service
           securely (login timestamps, IP address at login, device/browser information for session security).
         </p>
       </PublicSection>

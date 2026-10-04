@@ -1310,6 +1310,8 @@ export interface HeldStatementQuery {
   bank?: string;
   olderThanHours?: number;
   engineerId?: string;
+  /** The decided holds (imported or rejected) instead of the open queue. */
+  resolved?: boolean;
 }
 
 /** One verification rule's outcome for one section -- the printed-versus-parsed numbers behind

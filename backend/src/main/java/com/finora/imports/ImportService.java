@@ -455,28 +455,82 @@ public class ImportService {
     /** As above; {@code password} opens a protected PDF whose password the user saved (step 4), else null. */
     public DryRunResult dryRunParse(UUID userId, String fileName, byte[] fileContent, String sourceFormat,
                                     String password) throws IOException {
+        return reparse(userId, fileName, fileContent, sourceFormat, password).dryRun();
+    }
+
+    /**
+     * A dry run that keeps what it parsed, so a held statement's rows can be replaced by this
+     * build's reading without parsing the document a second time -- a scanned statement's OCR
+     * takes minutes. Writes nothing; {@link #stageReparsed} is the one step that does.
+     */
+    public ReparsedStatement reparse(UUID userId, String fileName, byte[] fileContent, String sourceFormat,
+                                     String password) throws IOException {
         if (StatementUpload.Format.PDF.name().equals(sourceFormat)) {
             var result = pdfPreviewGenerator.generateSectionsWithContext(userId, fileName, fileContent, password);
             List<StagedAccountSection> sections = onlySectionsThatAreActuallyAccounts(result.sections());
             ExtractionCheck.rejectIfNothingWasExtracted(sections, result.documentContext());
+            DryRunResult dryRun;
             if (sections.size() <= 1) {
                 StagingResponse staged = sections.isEmpty()
                         ? new StagingResponse(List.of(), 0, 0, null, List.of())
                         : toStagingResponse(sections.get(0));
-                return new DryRunResult(reportsOf(staged.verification()),
+                dryRun = new DryRunResult(reportsOf(staged.verification()),
                         List.<LocalDate[]>of(periodOf(staged.detectedAccount())));
+            } else {
+                dryRun = new DryRunResult(
+                        sections.stream().map(StagedAccountSection::verification)
+                                .filter(java.util.Objects::nonNull).toList(),
+                        sections.stream().map(s -> periodOf(s.detectedAccount())).toList());
             }
-            return new DryRunResult(
-                    sections.stream().map(StagedAccountSection::verification)
-                            .filter(java.util.Objects::nonNull).toList(),
-                    sections.stream().map(s -> periodOf(s.detectedAccount())).toList());
+            return new ReparsedStatement(dryRun, sections, null, result.documentContext(), result.creditCardSummary());
         }
         var result = previewGenerator.generateWithContext(userId, fileName,
                 new java.io.ByteArrayInputStream(fileContent));
         StagingResponse staged = result.response();
         ExtractionCheck.rejectIfNothingWasExtracted(staged, result.documentContext());
-        return new DryRunResult(reportsOf(staged.verification()), List.<LocalDate[]>of(periodOf(staged.detectedAccount())));
+        return new ReparsedStatement(
+                new DryRunResult(reportsOf(staged.verification()), List.<LocalDate[]>of(periodOf(staged.detectedAccount()))),
+                null, staged, result.documentContext(), null);
     }
+
+    /**
+     * Stages a {@link #reparse} result as a new session, exactly as the upload paths would have
+     * staged it: one section or a CSV as a single-account session, several as a multi-section one.
+     * Skips the duplicate-upload lookup on purpose -- the caller is replacing the one live session
+     * for this document and has already removed it (the V79 index allows one per user and file).
+     */
+    public StagedReparse stageReparsed(UUID userId, String fileName, byte[] fileContent, ReparsedStatement parsed) {
+        if (parsed.csv() != null) {
+            StagingResponse staged = parsed.csv();
+            var session = importSessionService.createSession(userId, fileName, fileContent, staged.rows(),
+                    staged.detectedAccount(), parsed.documentContext(), null, null, null, staged.verification());
+            return new StagedReparse(session.getId(), staged.totalParsed(), staged.rows().size());
+        }
+        List<StagedAccountSection> sections = parsed.sections();
+        if (sections.size() <= 1) {
+            StagingResponse staged = sections.isEmpty()
+                    ? new StagingResponse(List.of(), 0, 0, null, List.of())
+                    : toStagingResponse(sections.get(0));
+            var session = importSessionService.createSession(userId, fileName, fileContent, staged.rows(),
+                    staged.detectedAccount(), parsed.documentContext(), null, null, parsed.creditCardSummary(),
+                    staged.verification());
+            return new StagedReparse(session.getId(), staged.totalParsed(), staged.rows().size());
+        }
+        var session = importSessionService.createMultiSection(userId, fileName, fileContent, sections,
+                parsed.documentContext(), parsed.creditCardSummary());
+        return new StagedReparse(session.getId(),
+                sections.stream().mapToInt(StagedAccountSection::totalParsed).sum(),
+                sections.stream().mapToInt(section -> section.rows().size()).sum());
+    }
+
+    /** What {@link #reparse} read: the dry-run verdict, plus the parse itself for {@link
+     *  #stageReparsed}. {@code sections} for a PDF, {@code csv} for a CSV -- exactly one is set. */
+    public record ReparsedStatement(DryRunResult dryRun, List<StagedAccountSection> sections, StagingResponse csv,
+                                    com.finora.imports.DocumentContext documentContext,
+                                    com.finora.imports.pdf.CreditCardSummaryExtractor.CreditCardSummaryEvidence creditCardSummary) {}
+
+    /** The session {@link #stageReparsed} created and the figures a job's progress carries. */
+    public record StagedReparse(UUID sessionId, int totalParsed, int stagedRows) {}
 
     /** One report per section for the caller ({@code TrustPredicate}), same convention {@code
      *  StagedForJob} already uses -- absent verification and verification that found nothing are

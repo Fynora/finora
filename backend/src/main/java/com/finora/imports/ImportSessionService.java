@@ -672,6 +672,28 @@ public class ImportSessionService {
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Import session not found."));
     }
 
+    /**
+     * Removes a held statement's staged session so a re-read can stage the current build's rows in
+     * its place. Flushed at once: the V79 index allows one live session per user and document, so
+     * the new one cannot be inserted while this row still exists. Unlike {@link #deleteSession} it
+     * keeps the job's saved password -- the import goes on, and the password opens the same file.
+     */
+    @Transactional
+    public void discardForRestage(UUID sessionId) {
+        if (sessionId == null) return;
+        importSessionRepository.findById(sessionId).ifPresent(session -> {
+            importSessionRepository.delete(session);
+            importSessionRepository.flush();
+        });
+    }
+
+    /** Whether a session still exists -- a held statement's can be swept once its job stops being
+     *  held (a rejection), and approving it then would release rows that are gone. */
+    @Transactional(readOnly = true)
+    public boolean exists(UUID sessionId) {
+        return sessionId != null && importSessionRepository.existsById(sessionId);
+    }
+
     @Transactional
     public void deleteSession(UUID userId, UUID sessionId) {
         ImportSession session = getOwnedSession(userId, sessionId);

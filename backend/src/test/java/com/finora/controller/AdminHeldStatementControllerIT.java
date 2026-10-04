@@ -63,6 +63,7 @@ class AdminHeldStatementControllerIT extends AbstractIntegrationTest {
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
     @Autowired private StatementStorage storage;
+    @Autowired private com.finora.imports.ImportSessionService importSessionService;
     private final ObjectMapper mapper = new ObjectMapper();
 
     private static final byte[] CLEAN_CSV = ("Date,Description,Amount,Balance\n"
@@ -77,7 +78,7 @@ class AdminHeldStatementControllerIT extends AbstractIntegrationTest {
         ContentAddress address = storage.store(CLEAN_CSV);
         ImportJob job = new ImportJob(owner.getId(), "statement.csv", address.hash(), address.key(), "CSV");
         job.markClaimed("worker", Instant.now());
-        UUID sessionId = UUID.randomUUID();
+        UUID sessionId = stagedSession(owner.getId(), CLEAN_CSV);
         job.holdForTrustReview(sessionId, null, Instant.now());
         importJobRepository.save(job);
 
@@ -113,7 +114,7 @@ class AdminHeldStatementControllerIT extends AbstractIntegrationTest {
         ImportJob job = new ImportJob(owner.getId(), "hdfc-june.pdf",
                 "hash-" + UUID.randomUUID(), "objects/key-" + UUID.randomUUID(), "PDF");
         job.markClaimed("worker", Instant.now());
-        UUID sessionId = UUID.randomUUID();
+        UUID sessionId = stagedSession(owner.getId(), ("seed-" + UUID.randomUUID()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
         job.holdForTrustReview(sessionId, null, Instant.now());
         importJobRepository.save(job);
 
@@ -498,5 +499,12 @@ class AdminHeldStatementControllerIT extends AbstractIntegrationTest {
                 "{\"rootCause\":\"x\"}");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    /** A real staged session, as the worker leaves behind a held import: approving a hold whose
+     *  session does not exist is refused, so a made-up id would make every approval a 409. */
+    private UUID stagedSession(UUID ownerId, byte[] content) {
+        return importSessionService.createSession(ownerId, "statement.csv", content,
+                java.util.List.of(), null).getId();
     }
 }

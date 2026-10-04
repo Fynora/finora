@@ -420,8 +420,8 @@ export const adminHeldImportApi = {
 
 /** The trust-review queue -- statements the pipeline held back because the extraction's own
  *  evidence contradicted it, not because parsing failed. Every filter is optional; the server
- *  narrows within the open queue and never returns a resolved hold regardless of which filters
- *  are passed. */
+ *  narrows within the open queue, or within the decided holds when `resolved` is set -- never a
+ *  mix of the two. */
 export const adminHeldStatementApi = {
   list: (params: HeldStatementQuery) =>
     api.get<PagedResponse<HeldStatementRow>>('/admin/held-statements', { params }).then((r) => r.data),
@@ -432,6 +432,8 @@ export const adminHeldStatementApi = {
       .then((r) => r.data),
   reject: (heldId: string, reason?: string) =>
     api.post<HeldStatementRow>(`/admin/held-statements/${heldId}/reject`, { reason }).then((r) => r.data),
+  reopen: (heldId: string, reason?: string) =>
+    api.post<HeldStatementRow>(`/admin/held-statements/${heldId}/reopen`, { reason }).then((r) => r.data),
   assign: (heldId: string, engineerId?: string) =>
     api.post<HeldStatementRow>(`/admin/held-statements/${heldId}/assign`, { engineerId }).then((r) => r.data),
   investigate: (heldId: string) =>

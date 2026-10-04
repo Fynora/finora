@@ -60,6 +60,7 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
   const [approveNote, setApproveNote] = useState('');
   const [markFalsePositive, setMarkFalsePositive] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+  const [reopenReason, setReopenReason] = useState('');
   const [engineerIdInput, setEngineerIdInput] = useState('');
   const [notesDraft, setNotesDraft] = useState('');
   const [rootCauseDraft, setRootCauseDraft] = useState('');
@@ -130,6 +131,11 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
     onSuccess: () => { setActionError(null); invalidate(); },
     onError,
   });
+  const reopen = useMutation({
+    mutationFn: () => adminHeldStatementApi.reopen(heldId, reopenReason || undefined),
+    onSuccess: () => { setActionError(null); setReopenReason(''); invalidate(); },
+    onError,
+  });
   const assignToMe = useMutation({
     mutationFn: () => adminHeldStatementApi.assign(heldId, undefined),
     onSuccess: () => { setActionError(null); invalidate(); },
@@ -187,7 +193,7 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
 
   const { summary, findings, timeline } = detail.data;
   const resolved = RESOLVED_STATUSES.has(summary.status);
-  const busy = approve.isPending || reject.isPending || assignToMe.isPending
+  const busy = approve.isPending || reject.isPending || reopen.isPending || assignToMe.isPending
     || assignToEngineer.isPending || investigate.isPending || rerunParser.isPending
     || suggestDiagnosis.isPending;
 
@@ -279,7 +285,9 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
         <h3 className="text-sm font-semibold text-ink">Re-run parser</h3>
         <p className="text-xs text-muted">
           Re-parses this statement's original bytes with the parser build running right now, and
-          checks whether it would still be flagged. Writes nothing to the staged rows.
+          checks whether it would still be flagged. If it clears, its rows replace the ones staged
+          when the statement was held, so approving releases this build&apos;s reading. If it is
+          still flagged, nothing changes.
         </p>
         <button
           type="button"
@@ -427,6 +435,31 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
           <p className="text-xs text-muted">
             This hold was already {summary.status.replace(/_/g, ' ')}; it cannot be resolved again.
           </p>
+        )}
+        {summary.status === 'REJECTED' && (
+          <div className="space-y-2 rounded-lg border border-border p-3" data-testid="reopen-panel">
+            <p className="text-xs text-muted">
+              Reopen it to read the statement again once its parser fix is live: it goes back to the
+              open queue, and the user&apos;s import shows &quot;running additional checks&quot; again.
+              Re-run the parser before approving.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <input
+                value={reopenReason}
+                onChange={(e) => setReopenReason(e.target.value)}
+                placeholder="Reason (optional)…"
+                className="flex-1 min-w-[16rem] rounded-lg border border-border bg-bg px-3 py-1.5 text-sm text-ink"
+              />
+              <button
+                type="button"
+                onClick={() => reopen.mutate()}
+                disabled={busy}
+                className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-ink disabled:opacity-50"
+              >
+                Reopen
+              </button>
+            </div>
+          </div>
         )}
         <div className="flex flex-wrap gap-2">
           <input

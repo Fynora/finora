@@ -194,6 +194,19 @@ public class HeldStatementService {
         return PagedResponse.of(result.map(HeldStatementDto::from));
     }
 
+    /** One page of decided holds (imported or rejected), most recently decided first -- where a
+     *  rejected hold is found again to {@link #reopen} it. Same filters as {@link #list}; a
+     *  {@code status} filter naming an open status matches nothing here. */
+    @Transactional(readOnly = true)
+    public PagedResponse<HeldStatementDto> listResolved(int page, int size, HeldStatementFilter filter) {
+        Instant olderThan = filter.olderThanHours() == null
+                ? null : Instant.now().minus(Duration.ofHours(filter.olderThanHours()));
+        Page<HeldStatement> result = repository.findResolvedForAdmin(HeldStatement.Status.RESOLVED,
+                filter.status(), filter.bankName(), olderThan, filter.assignedEngineerId(),
+                PageRequest.of(PageBounds.safePage(page), PageBounds.safeSize(size > 0 ? size : 25)));
+        return PagedResponse.of(result.map(HeldStatementDto::from));
+    }
+
     /**
      * The summary plus the evidence behind {@code triggerSummary} and the hold's own history.
      *
@@ -381,9 +394,10 @@ public class HeldStatementService {
      * Re-parses this hold's original bytes with the CURRENT parser build and reports whether the
      * trust predicate would still flag it.
      *
-     * <p>Reads through {@link ImportService#dryRunParse} exclusively -- see that method's own doc
-     * for why the live staging path is unsafe here: it would delete the {@code ImportSession} a
-     * later {@link #approve} still needs.
+     * <p>Parses through {@link ImportService#reparse}, never the live staging path -- that one
+     * would delete the {@code ImportSession} a later {@link #approve} still needs whatever the
+     * verdict. Only a run that clears replaces it: its own parse is staged in place of the rows
+     * staged when held, so approving releases this build's reading, not the one that was held.
      *
      * <p>{@code today} is {@code held.getCreatedAt()}'s date, not the date this method runs on --
      * using the current date would let a genuinely future-dated statement period stop being
@@ -423,12 +437,14 @@ public class HeldStatementService {
         ImportJob job = requireJob(held);
 
         byte[] content = statementContentService.read(job);
+        ImportService.ReparsedStatement reparsed = null;
         ImportService.DryRunResult dryRun;
         String extractionError = null;
         try {
             // A locked upload reached this queue only with a password the user saved (step 4).
-            dryRun = importService.dryRunParse(job.getUserId(), job.getFileName(), content, job.getSourceFormat(),
+            reparsed = importService.reparse(job.getUserId(), job.getFileName(), content, job.getSourceFormat(),
                     statementPasswordService.forJob(job.getId()).orElse(null));
+            dryRun = reparsed.dryRun();
         } catch (ApiException e) {
             dryRun = new ImportService.DryRunResult(List.of(), List.of());
             String code = e.getCode() != null ? e.getCode().name() : "UNKNOWN";
@@ -449,13 +465,23 @@ public class HeldStatementService {
         boolean versionChanged = currentVersion != null && !currentVersion.equals(previousVersion);
         HeldStatement.Status from = held.getStatus();
         if (!decision.hold()) {
+            // The rows approving releases are this build's reading, not the ones staged when the
+            // statement was held: those came from the parser whose output held it, and releasing
+            // them after a re-run that cleared would hand the user exactly what was wrong. The
+            // parse just made is staged in their place -- once, so a scanned statement's OCR is not
+            // run twice. The old session goes first: one live session per user and document (V79).
+            importSessionService.discardForRestage(job.getImportSessionId());
+            ImportService.StagedReparse staged =
+                    importService.stageReparsed(job.getUserId(), job.getFileName(), content, reparsed);
+            job.replaceHeldSession(staged.sessionId(), staged.totalParsed(), staged.stagedRows());
+            importJobRepository.save(job);
             held.markReadyForImport(Instant.now());
             repository.save(held);
         }
 
         String summaryNote = (decision.hold()
                 ? "Still held: " + String.join("; ", decision.reasons())
-                : "Clears under the current parser build.")
+                : "Clears under the current parser build; its rows replace the ones staged when held.")
                 + " Parser version: " + previousVersion + " -> " + currentVersion
                 + " (" + (versionChanged ? "changed" : "unchanged") + ").";
         eventRepository.save(new HeldStatementEvent(held.getId(), actingAdminId, PARSER_RERUN_EVENT,
@@ -493,6 +519,12 @@ public class HeldStatementService {
         refuseIfResolved(held, "approved");
 
         ImportJob job = requireJob(held);
+        // A rejected-then-reopened hold's session may have been swept while its job was failed;
+        // releasing it would send the user to rows that no longer exist.
+        if (!importSessionService.exists(job.getImportSessionId())) {
+            throw new ApiException(HttpStatus.CONFLICT, "The staged rows behind " + held.getHeldId()
+                    + " are gone. Re-run the parser to read the statement again before approving.");
+        }
         Instant now = Instant.now();
         HeldStatement.Status from = held.getStatus();
 
@@ -554,6 +586,42 @@ public class HeldStatementService {
         eventRepository.save(new HeldStatementEvent(held.getId(), actingAdminId, "REJECTED",
                 from.name(), held.getStatus().name(), reason));
         auditService.record(actingAdminId, "TRUST_REVIEW_REJECTED", "HeldStatement", held.getId(),
+                Map.of("actorId", actingAdminId.toString(),
+                        "subjectUserId", held.getUserId().toString(),
+                        "heldId", held.getHeldId(),
+                        "reason", reason == null ? "" : reason));
+        return HeldStatementDto.from(held);
+    }
+
+    /**
+     * Takes back a rejection so the statement can be re-read once its parser fix ships: the hold
+     * returns to {@code INVESTIGATING} and the import to held, so the user sees "running
+     * additional checks" again rather than a failure. Re-run the parser, then approve, as for any
+     * open hold -- approving straight away is refused if the staged rows were swept meanwhile.
+     */
+    @Transactional
+    public HeldStatementDto reopen(UUID actingAdminId, String heldId, String reason) {
+        HeldStatement held = require(heldId);
+        if (held.getStatus() != HeldStatement.Status.REJECTED) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    held.getHeldId() + " is " + held.getStatus() + "; only a rejected hold can be reopened.");
+        }
+        ImportJob job = requireJob(held);
+        if (job.getStatus() != ImportJob.Status.FAILED
+                || !ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name().equals(job.getFailureCode())) {
+            throw new ApiException(HttpStatus.CONFLICT, "The import behind " + held.getHeldId()
+                    + " is " + job.getStatus() + ", not the rejection this would undo.");
+        }
+
+        HeldStatement.Status from = held.getStatus();
+        held.reopen();
+        job.reopenTrustReview(ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name());
+        repository.save(held);
+        importJobRepository.save(job);
+
+        eventRepository.save(new HeldStatementEvent(held.getId(), actingAdminId, "REOPENED",
+                from.name(), held.getStatus().name(), reason));
+        auditService.record(actingAdminId, "TRUST_REVIEW_REOPENED", "HeldStatement", held.getId(),
                 Map.of("actorId", actingAdminId.toString(),
                         "subjectUserId", held.getUserId().toString(),
                         "heldId", held.getHeldId(),

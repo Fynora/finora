@@ -2484,6 +2484,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/held-statements/{heldId}/reopen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["reopen"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/held-statements/{heldId}/reject": {
         parameters: {
             query?: never;
@@ -15570,6 +15586,34 @@ export interface operations {
             };
         };
     };
+    reopen: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                heldId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    [key: string]: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseHeldStatementDto"];
+                };
+            };
+        };
+    };
     reject_1: {
         parameters: {
             query?: never;
@@ -19087,6 +19131,7 @@ export interface operations {
                 bank?: string;
                 olderThanHours?: number;
                 engineerId?: string;
+                resolved?: boolean;
             };
             header?: never;
             path?: never;

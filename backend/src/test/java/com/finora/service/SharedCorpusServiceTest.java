@@ -379,6 +379,31 @@ class SharedCorpusServiceTest {
     }
 
     @Test
+    void reevaluateTimedOutRevalidations_aRowWhoseVotesWereAllForACustomCategory_isRemoved() {
+        // A trusted custom-name row a default vote contradicted. Its recount now has fewer than 3
+        // voters; left as it was, it stayed Revalidating with the same date and was picked again by
+        // every sweep -- and 500 of them made the sweep's page-until-partial loop never end.
+        SharedMerchantCategory revalidating = new SharedMerchantCategory();
+        revalidating.setCounterpartyKey("vpa:kronos");
+        revalidating.setDirection(Transaction.Type.INCOME);
+        revalidating.setStatus(SharedMerchantCategory.Status.REVALIDATING);
+        revalidating.setCategory("Quick Bites");
+        revalidating.setRevalidatingSince(Instant.now().minus(Duration.ofDays(95)));
+        when(corpus.findByStatusAndRevalidatingSinceBefore(any(), any(), any())).thenReturn(List.of(revalidating));
+        when(corpus.findByCounterpartyKeyAndDirection("vpa:kronos", Transaction.Type.INCOME))
+                .thenReturn(Optional.of(revalidating));
+        List<CounterpartyCategoryObservation> history = new ArrayList<>();
+        for (int i = 0; i < 3; i++) history.add(observationOf("Quick Bites", Instant.now().minus(Duration.ofDays(200))));
+        history.add(observationOf("Dining", Instant.now().minus(Duration.ofDays(95))));
+        when(observations.findByCounterpartyKeyAndDirection("vpa:kronos", Transaction.Type.INCOME)).thenReturn(history);
+
+        service.reevaluateTimedOutRevalidations(500);
+
+        verify(corpus).delete(revalidating);
+        verify(corpus, never()).save(any());
+    }
+
+    @Test
     void reevaluateTimedOutRevalidations_noneDue_returnsZeroWithoutTouchingCorpus() {
         when(corpus.findByStatusAndRevalidatingSinceBefore(any(), any(), any()))
                 .thenReturn(List.of());

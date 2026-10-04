@@ -148,7 +148,14 @@ public class SharedCorpusService {
         List<CounterpartyCategoryObservation> all =
                 observations.findByCounterpartyKeyAndDirection(counterpartyKey, direction);
         Tier tier = computeTier(all);
-        if (tier == null) return; // still Empty/Provisional -- fewer than 3 distinct voters
+        if (tier == null) {
+            // Fewer than 3 distinct voters: Empty/Provisional, which has no corpus row. A row can
+            // still exist when its votes were all for a category a user made themselves (no vote
+            // since recordObservation was limited to defaults). It names nothing it may suggest,
+            // and left as it was a Revalidating one would be picked again by every sweep.
+            corpus.findByCounterpartyKeyAndDirection(counterpartyKey, direction).ifPresent(corpus::delete);
+            return;
+        }
 
         SharedMerchantCategory row = corpus.findByCounterpartyKeyAndDirection(counterpartyKey, direction)
                 .orElseGet(() -> {

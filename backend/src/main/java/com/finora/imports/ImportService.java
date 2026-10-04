@@ -1288,7 +1288,8 @@ public class ImportService {
             // category cannot be renamed or deleted, so one the engine named is created as before;
             // so is a category picked or typed on the review screen, or printed in the user's file.
             if (existingCategory.isEmpty() && namedByTheEngine(row)
-                    && com.finora.util.DefaultCategories.canonical(rowCategory).isEmpty()) {
+                    && com.finora.util.DefaultCategories.canonical(rowCategory).isEmpty()
+                    && !aRuleStillNames(confirmRules, row.ruleId(), rowCategory)) {
                 row = row.withNothingMatched();
                 rowCategory = row.category();
                 existingCategory = categorizationService.findCategory(userId, rowCategory);
@@ -2033,6 +2034,24 @@ public class ImportService {
     private static boolean namedByTheEngine(ConfirmedRow row) {
         String source = row.categorySource();
         return source != null && !CategorizationService.REVIEW_SOURCE.equals(source) && !"file".equals(source);
+    }
+
+    /**
+     * Whether the rule that filed a row still files under {@code category}. A user's rule may name
+     * a category that does not exist yet (support can type one on the admin portal's user rules
+     * screen) and creates it on its first match; that is the rule's answer, not a removed category.
+     * A rename or delete points the rule at another category (CategoryService), so a row still
+     * carrying the old name no longer matches its rule.
+     */
+    private static boolean aRuleStillNames(List<com.finora.entity.CategoryRule> rules, UUID ruleId, String category) {
+        if (ruleId == null) return false;
+        return rules.stream()
+                .filter(rule -> ruleId.equals(rule.getId()))
+                .anyMatch(rule -> {
+                    String named = rule.getActionType() == com.finora.entity.CategoryRule.ActionType.MARK_INVESTMENT
+                            ? CategorizationService.investmentCategoryName(rule) : rule.getActionValue();
+                    return named != null && named.trim().equalsIgnoreCase(category.trim());
+                });
     }
 
     /**

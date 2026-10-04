@@ -145,7 +145,7 @@ class RuleEngineServiceTest {
     @Test
     void matches_equals_isCaseInsensitiveButRequiresFullMatch() {
         CategoryRule r = rule(CategoryRule.Scope.GLOBAL, CategoryRule.Field.ACCOUNT_TYPE, CategoryRule.Operator.EQUALS,
-                "CREDIT_CARD", CategoryRule.ActionType.ASSIGN_CATEGORY, "Card Spend", 100);
+                "CREDIT_CARD", CategoryRule.ActionType.ASSIGN_CATEGORY, "Shopping", 100);
         stub(List.of(), List.of(r));
 
         assertThat(ruleEngineService.evaluateCategoryRule(userId, "desc", null, null, "credit_card")).isPresent();
@@ -155,7 +155,7 @@ class RuleEngineServiceTest {
     @Test
     void matches_startsWith() {
         CategoryRule r = rule(CategoryRule.Scope.GLOBAL, CategoryRule.Field.DESCRIPTION, CategoryRule.Operator.STARTS_WITH,
-                "UPI/DR/", CategoryRule.ActionType.ASSIGN_CATEGORY, "UPI Debit", 100);
+                "UPI/DR/", CategoryRule.ActionType.ASSIGN_CATEGORY, "Shopping", 100);
         stub(List.of(), List.of(r));
 
         assertThat(ruleEngineService.evaluateCategoryRule(userId, "UPI/DR/900077778888/MERCHANT", null, null, null)).isPresent();
@@ -167,6 +167,36 @@ class RuleEngineServiceTest {
     private CategoryRule globalContains(String keyword, String category) {
         return rule(CategoryRule.Scope.GLOBAL, CategoryRule.Field.DESCRIPTION, CategoryRule.Operator.CONTAINS,
                 keyword, CategoryRule.ActionType.ASSIGN_CATEGORY, category, 100);
+    }
+
+    // --- A global rule files under a default category only ---
+
+    @Test
+    void aGlobalRuleNamingACategoryThatIsNotADefault_isNeverApplied() {
+        // A global rule reaches every user: one saved with any other name (before RuleService
+        // refused them) would create that category in every account it matched.
+        CategoryRule typo = globalContains("bigbasket", "Grocery");
+        CategoryRule investment = rule(CategoryRule.Scope.GLOBAL, CategoryRule.Field.DESCRIPTION, CategoryRule.Operator.CONTAINS,
+                "bigbasket", CategoryRule.ActionType.MARK_INVESTMENT, "Stocks", 100);
+        CategoryRule transfer = rule(CategoryRule.Scope.GLOBAL, CategoryRule.Field.DESCRIPTION, CategoryRule.Operator.CONTAINS,
+                "bigbasket", CategoryRule.ActionType.MARK_TRANSFER, null, 100);
+        CategoryRule lowerCase = globalContains("bigbasket", "groceries");
+        stub(List.of(), List.of(typo, investment, transfer, lowerCase));
+
+        assertThat(ruleEngineService.ruleSet(userId)).containsExactly(transfer, lowerCase);
+        assertThat(ruleEngineService.evaluateCategoryRule(userId, "BIGBASKET ORDER", null, null, null))
+                .map(m -> m.rule()).contains(lowerCase);
+        assertThat(ruleEngineService.evaluate(userId, "BIGBASKET ORDER", null, null, null))
+                .map(m -> m.rule()).contains(transfer);
+    }
+
+    @Test
+    void aUsersOwnRule_mayNameTheirOwnCategory() {
+        CategoryRule own = rule(CategoryRule.Scope.USER, CategoryRule.Field.DESCRIPTION, CategoryRule.Operator.CONTAINS,
+                "bigbasket", CategoryRule.ActionType.ASSIGN_CATEGORY, "Quick Bites", 100);
+        stub(List.of(own), List.of());
+
+        assertThat(ruleEngineService.ruleSet(userId)).containsExactly(own);
     }
 
     @Test
@@ -212,7 +242,7 @@ class RuleEngineServiceTest {
 
     @Test
     void globalContains_aKeywordContainingAt_keepsPlainSubstringMatching() {
-        stub(List.of(), List.of(globalContains("@zzairtel", "Payment App")));
+        stub(List.of(), List.of(globalContains("@zzairtel", "Transfer")));
 
         assertThat(ruleEngineService.evaluateCategoryRule(userId,
                 "UPI/shopname@zzairtel/900011112222", null, null, null)).isPresent();
@@ -250,7 +280,7 @@ class RuleEngineServiceTest {
     @Test
     void matches_gt_and_lt_onAmount() {
         CategoryRule bigTicket = rule(CategoryRule.Scope.GLOBAL, CategoryRule.Field.AMOUNT, CategoryRule.Operator.GT,
-                "50000", CategoryRule.ActionType.ASSIGN_CATEGORY, "Big Ticket", 100);
+                "50000", CategoryRule.ActionType.ASSIGN_CATEGORY, "Shopping", 100);
         stub(List.of(), List.of(bigTicket));
 
         assertThat(ruleEngineService.evaluateCategoryRule(userId, "desc", BigDecimal.valueOf(75000), null, null)).isPresent();
@@ -261,7 +291,7 @@ class RuleEngineServiceTest {
     @Test
     void matches_between_onAmount() {
         CategoryRule r = rule(CategoryRule.Scope.GLOBAL, CategoryRule.Field.AMOUNT, CategoryRule.Operator.BETWEEN,
-                "1000,5000", CategoryRule.ActionType.ASSIGN_CATEGORY, "Mid Range", 100);
+                "1000,5000", CategoryRule.ActionType.ASSIGN_CATEGORY, "Shopping", 100);
         stub(List.of(), List.of(r));
 
         assertThat(ruleEngineService.evaluateCategoryRule(userId, "desc", BigDecimal.valueOf(2500), null, null)).isPresent();
@@ -277,7 +307,7 @@ class RuleEngineServiceTest {
     @Test
     void matches_equals_onAmount_comparesNumericValue_notFormattedString() {
         CategoryRule r = rule(CategoryRule.Scope.GLOBAL, CategoryRule.Field.AMOUNT, CategoryRule.Operator.EQUALS,
-                "2500", CategoryRule.ActionType.ASSIGN_CATEGORY, "Exact Amount", 100);
+                "2500", CategoryRule.ActionType.ASSIGN_CATEGORY, "Shopping", 100);
         stub(List.of(), List.of(r));
 
         assertThat(ruleEngineService.evaluateCategoryRule(userId, "desc", BigDecimal.valueOf(2500), null, null)).isPresent();
@@ -288,7 +318,7 @@ class RuleEngineServiceTest {
     @Test
     void matches_equals_onAmount_failsClosed_whenComparisonValueIsMalformed() {
         CategoryRule r = rule(CategoryRule.Scope.GLOBAL, CategoryRule.Field.AMOUNT, CategoryRule.Operator.EQUALS,
-                "not-a-number", CategoryRule.ActionType.ASSIGN_CATEGORY, "Broken Rule", 100);
+                "not-a-number", CategoryRule.ActionType.ASSIGN_CATEGORY, "Shopping", 100);
         stub(List.of(), List.of(r));
 
         assertThat(ruleEngineService.evaluateCategoryRule(userId, "desc", BigDecimal.valueOf(2500), null, null)).isEmpty();
@@ -324,7 +354,7 @@ class RuleEngineServiceTest {
     @Test
     void evaluateSideEffectRules_excludesAssignCategoryRules() {
         CategoryRule assignCategory = rule(CategoryRule.Scope.GLOBAL, CategoryRule.Field.DESCRIPTION,
-                CategoryRule.Operator.CONTAINS, "swiggy", CategoryRule.ActionType.ASSIGN_CATEGORY, "Food", 100);
+                CategoryRule.Operator.CONTAINS, "swiggy", CategoryRule.ActionType.ASSIGN_CATEGORY, "Shopping", 100);
         CategoryRule markTransfer = rule(CategoryRule.Scope.GLOBAL, CategoryRule.Field.DESCRIPTION,
                 CategoryRule.Operator.CONTAINS, "swiggy", CategoryRule.ActionType.MARK_TRANSFER, null, 200);
         stub(List.of(), List.of(assignCategory, markTransfer));

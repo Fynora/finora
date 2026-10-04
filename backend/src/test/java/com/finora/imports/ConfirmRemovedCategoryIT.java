@@ -10,7 +10,9 @@ import com.finora.entity.ImportSession;
 import com.finora.entity.Transaction;
 import com.finora.entity.User;
 import com.finora.repository.AccountRepository;
+import com.finora.entity.CategoryRule;
 import com.finora.repository.CategoryRepository;
+import com.finora.repository.CategoryRuleRepository;
 import com.finora.repository.MerchantLearningEventRepository;
 import com.finora.repository.TransactionRepository;
 import com.finora.repository.UserRepository;
@@ -43,23 +45,67 @@ class ConfirmRemovedCategoryIT extends AbstractIntegrationTest {
     @Autowired private TransactionRepository transactionRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private MerchantLearningEventRepository learningEventRepository;
+    @Autowired private CategoryRuleRepository ruleRepository;
 
     private static final byte[] FILE =
             "Date,Description,Amount,Type\n2026-07-01,SAMPLE,1.00,DEBIT\n".getBytes(StandardCharsets.UTF_8);
 
     private final List<UUID> createdUserIds = new ArrayList<>();
+    private final List<UUID> createdRuleIds = new ArrayList<>();
 
     @AfterEach
     void removeQueuedLearningEvents() {
+        ruleRepository.deleteAllById(createdRuleIds);
+        createdRuleIds.clear();
         learningEventRepository.deleteAll(learningEventRepository.findAll().stream()
                 .filter(e -> createdUserIds.contains(e.getUserId())).toList());
         createdUserIds.clear();
     }
 
     private StagedRow staged(String description, String category, String source, int position) {
+        return staged(description, category, source, null, position);
+    }
+
+    private StagedRow staged(String description, String category, String source, UUID ruleId, int position) {
         return new StagedRow(LocalDate.of(2026, 7, 1), description, new BigDecimal("120.00"), "EXPENSE",
-                category, source, null, false, null, null, null, RowKind.TRANSACTION, null, null, null, 80)
+                category, source, ruleId, false, null, null, null, RowKind.TRANSACTION, null, null, null, 80)
                 .withRowPosition(position);
+    }
+
+    private User user() {
+        User user = new User();
+        user.setEmail("confirm-removed-category-" + UUID.randomUUID() + "@example.com");
+        user.setPasswordHash("irrelevant-for-this-test");
+        user.setFullName("Confirm Removed Category IT User");
+        user.setPhoneVerified(true);
+        user = userRepository.save(user);
+        createdUserIds.add(user.getId());
+        return user;
+    }
+
+    private Account account(User user) {
+        Account account = new Account();
+        account.setUserId(user.getId());
+        account.setName("Savings");
+        account.setAccountType(Account.Type.SAVINGS);
+        account.setBalance(BigDecimal.ZERO);
+        return accountRepository.save(account);
+    }
+
+    private CategoryRule userRule(User user, String keyword, String category) {
+        CategoryRule r = new CategoryRule();
+        r.setUserId(user.getId());
+        r.setScope(CategoryRule.Scope.USER);
+        r.setField(CategoryRule.Field.DESCRIPTION);
+        r.setOperator(CategoryRule.Operator.CONTAINS);
+        r.setComparisonValue(keyword);
+        r.setActionType(CategoryRule.ActionType.ASSIGN_CATEGORY);
+        r.setActionValue(category);
+        r.setPriority(100);
+        r.setEnabled(true);
+        CategoryRule saved = ruleRepository.save(r);
+        createdRuleIds.add(saved.getId());
+        return saved;
     }
 
     private ConfirmedRow confirmed(StagedRow r, String category) {
@@ -121,5 +167,39 @@ class ConfirmRemovedCategoryIT extends AbstractIntegrationTest {
 
         Transaction bookshop = rows.stream().filter(t -> "SAMPLE BOOKSHOP".equals(t.getDescription())).findFirst().orElseThrow();
         assertThat(bookshop.isCategoryManuallySet()).as("typed on the review screen: the user's choice").isTrue();
+    }
+
+    /**
+     * A user's own rule may name a category that does not exist yet -- support can type one on the
+     * admin portal's user rules screen, and it was always created the first time the rule matched.
+     * That is the rule's answer, not a removed category. Once the category is renamed the rule
+     * follows the new name (CategoryService.rename), so a row still carrying the old one is stale.
+     */
+    @Test
+    void aUsersOwnRule_stillCreatesTheCategoryItNames_butNotOneItNoLongerNames() {
+        User user = user();
+        Account account = account(user);
+        CategoryRule fuelRule = userRule(user, "sample fuel", "Fuel");
+        CategoryRule mealRule = userRule(user, "sample meal", "Meals");
+
+        StagedRow fuel = staged("SAMPLE FUEL STATION", "Fuel", "user_rule", fuelRule.getId(), 0);
+        // Staged as "Lunch"; the user renamed Lunch to Meals before confirming, and the rename
+        // pointed the rule at "Meals".
+        StagedRow meal = staged("SAMPLE MEAL STOP", "Lunch", "user_rule", mealRule.getId(), 1);
+        ImportSession session = importSessionService.createSession(
+                user.getId(), "statement.csv", FILE, List.of(fuel, meal), null);
+
+        importService.confirmSession(user.getId(), new ConfirmRequest(session.getId(),
+                List.of(confirmed(fuel, "Fuel"), confirmed(meal, "Lunch")), account.getId(), null, null, null, null));
+
+        List<String> names = categoryRepository.findByUserId(user.getId()).stream().map(Category::getName).toList();
+        assertThat(names).contains("Fuel").doesNotContain("Lunch");
+        List<Transaction> rows = transactionRepository.findByUserId(user.getId());
+        Transaction fuelRow = rows.stream().filter(t -> "SAMPLE FUEL STATION".equals(t.getDescription())).findFirst().orElseThrow();
+        assertThat(fuelRow.getDecisionSource()).isEqualTo(Transaction.DecisionSource.USER_RULE);
+        assertThat(fuelRow.getDecisionRuleId()).isEqualTo(fuelRule.getId());
+        Transaction mealRow = rows.stream().filter(t -> "SAMPLE MEAL STOP".equals(t.getDescription())).findFirst().orElseThrow();
+        assertThat(mealRow.getDecisionSource()).isEqualTo(Transaction.DecisionSource.MERCHANT_DEFAULT);
+        assertThat(mealRow.isNeedsCategoryReview()).isTrue();
     }
 }

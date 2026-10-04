@@ -19,8 +19,15 @@ import {
   type ImportJobProgress, type PreviousImport, type RNFile, type StagingResult,
 } from '../../api/endpoints';
 import { PDF_PASSWORD_INVALID, PDF_PASSWORD_REQUIRED } from '../../api/errorCodes';
-import { importFailureMessage } from '../../api/importFailureMessages';
-import { apiErrorCode, isCanceled, toUserMessage } from '../../lib/apiError';
+import {
+  importFailureMessage,
+  isUnreadStatementLayout,
+  UNREAD_LAYOUT_MESSAGE,
+  UNREAD_LAYOUT_REVIEW_CONSENT,
+  UNREAD_LAYOUT_REVIEW_MESSAGE,
+  UNREAD_LAYOUT_TITLE,
+} from '../../api/importFailureMessages';
+import { apiErrorCode, apiErrorDetails, isCanceled, toUserMessage } from '../../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
 import { fmtCurrency, fmtDate, fmtRelativeTime } from '../../lib/format';
 import { hapticError, hapticSuccess } from '../../lib/haptics';
@@ -207,6 +214,12 @@ export function ImportScreen() {
   // and so a wrong password retries against the SAME file instead of sending the user back to the
   // document picker. CSV keeps its original pick-and-go behaviour -- there's nothing to unlock.
   const [pendingPdf, setPendingPdf] = useState<RNFile | null>(null);
+  // A protected PDF that looked like a statement but could not be read, on the path that keeps
+  // nothing: the offer to keep its password and send it through the queue, where an unread
+  // statement is held for the team instead of failing with nobody seeing it. Belongs to the file
+  // it was made for: picking another one, or none, withdraws it.
+  const [reviewOfferFor, setReviewOfferFor] = useState<RNFile | null>(null);
+  const reviewOffer = reviewOfferFor !== null && reviewOfferFor === pendingPdf;
   const [pdfPassword, setPdfPassword] = useState('');
   // The show/hide toggle's own state -- the same control TextField renders for `secure`, inlined
   // here because this field keeps its own help line under the input where TextField reserves an
@@ -561,15 +574,18 @@ export function ImportScreen() {
   }
 
   // `mayKeep` is false only on the one retry below, after the server refused to keep a password.
-  async function upload(file: RNFile, isPdf: boolean, password: string | undefined, mayKeep = true) {
+  // `keepAnyway` is the review offer's own button: the user's yes to keeping it, given there.
+  async function upload(file: RNFile, isPdf: boolean, password: string | undefined, mayKeep = true,
+                        keepAnyway = false) {
     setError(null);
+    setReviewOfferFor(null);
     setUploadProgress(0);
 
     // The queue, when this deployment has one and the file does not need a password -- or when the
     // user chose to let Fynora keep the password (statement refresh, step 4), which lets the worker
     // open the file later. Otherwise a password goes to the synchronous path, which uses it once and
     // keeps nothing: the job would carry no password, and the worker would have nobody to ask.
-    const keepPassword = mayKeep && !!password && savePassword && savePasswordOffered;
+    const keepPassword = mayKeep && !!password && (savePassword || keepAnyway) && savePasswordOffered;
     if (asyncAvailable && (!password || keepPassword)) {
       let retryWithoutKeeping = false;
       const startedAt = requestStartedAt();
@@ -669,6 +685,13 @@ export function ImportScreen() {
         // yet. The card stays put with this same file so the retry is one field and one tap.
         setPasswordState(code === PDF_PASSWORD_INVALID ? 'invalid' : 'required');
         setPendingPdf(file);
+      } else if (isUnreadStatementLayout(code, apiErrorDetails(e))) {
+        // A statement we could not read is ours to fix, not the user's file to re-check. With a
+        // password this path keeps nothing, so nobody would see it: offer to keep the password
+        // and send it through the queue, which holds it for review. Where that cannot be offered,
+        // still say what happened rather than "double-check this is your statement".
+        if (isPdf && password && savePasswordOffered) setReviewOfferFor(file);
+        else setError(UNREAD_LAYOUT_MESSAGE);
       } else {
         setError(importFailureMessage(apiErrorCode(e)) ?? toUserMessage(e, 'Could not read that statement.'));
       }
@@ -950,6 +973,18 @@ export function ImportScreen() {
                       thumbColor={savePassword ? c.onPrimary : undefined}
                       accessibilityLabel="Keep this password"
                       testID="pdf-save-password"
+                    />
+                  </View>
+                ) : null}
+                {reviewOffer ? (
+                  <View testID="unread-layout-review-offer" style={[styles.reviewOffer, { borderColor: c.border }]}>
+                    <Text style={[styles.body, { color: c.ink, fontWeight: '600' }]}>{UNREAD_LAYOUT_TITLE}</Text>
+                    <Text style={[styles.body, { color: c.ink }]}>{UNREAD_LAYOUT_REVIEW_MESSAGE}</Text>
+                    <Text style={[styles.helpText, { color: c.muted }]}>{UNREAD_LAYOUT_REVIEW_CONSENT}</Text>
+                    <Button
+                      label="Keep password and send for review"
+                      disabled={!pdfPassword}
+                      onPress={() => void upload(pendingPdf, true, pdfPassword || undefined, true, true)}
                     />
                   </View>
                 ) : null}
@@ -1516,6 +1551,7 @@ const styles = StyleSheet.create({
   // gap is smaller than the field label's own marginBottom, so the label stays visually attached
   // to its input rather than floating midway between it and the filename above.
   passwordWrap: { marginTop: spacing.sm, gap: spacing.sm },
+  reviewOffer: { borderWidth: 1, borderRadius: radius.md, padding: spacing.md, gap: spacing.sm },
   savePasswordRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   savePasswordText: { flex: 1, gap: 2 },
   helpText: { fontSize: 12, lineHeight: 17 },

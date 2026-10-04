@@ -610,7 +610,8 @@ public class PdfMetadataExtractor {
     // parsing. (DATE_LIKE below, despite the name, cannot substitute for this: none of its
     // alternatives (digit-only-separated, space-separated day-then-month-name, or
     // space-separated month-name-then-day) matches this document's own hyphenated day-Mon-year
-    // shape, "02-Apr-2026".)
+    // shape, "02-Apr-2026".) A date written with spaces after "pay by" ("5 August 2026") is read
+    // separately, from where this token starts -- see the extract() branch that uses this.
     private static final Pattern PAYMENT_DUE_DATE_SENTENCE = Pattern.compile(
             "(?i)remember\\s+to\\s+pay\\s+by\\s+(\\S+)");
     // Bug fix: real ICICI Bank credit-card statement evidence prints the grid's own Payment Due
@@ -1240,6 +1241,19 @@ public class PdfMetadataExtractor {
                     // pattern, so a genuine trailing digit is never mistaken for punctuation to strip.
                     String token = dueDateSentence.group(1).replaceAll("[.,;:]+$", "");
                     paymentDueDate = readDueDate(unreadable, token);
+                    // A date written with spaces ("5 August 2026", "Aug 5, 2026") is cut to its
+                    // first word by the single-token capture. Tried only when that read nothing,
+                    // so the hyphenated shape above is untouched, and only for a date starting
+                    // right where that token did -- a date further along the sentence is not this
+                    // one.
+                    if (paymentDueDate == null && !unreadable.dueDate) {
+                        Matcher spaced = SAME_LINE_DATE_LIKE.matcher(line);
+                        spaced.region(dueDateSentence.start(1), line.length());
+                        if (spaced.lookingAt() && !DATE_RANGE_MEMBER.matcher(line.substring(
+                                spaced.start(), Math.min(line.length(), spaced.end() + 3))).find()) {
+                            paymentDueDate = readDueDate(unreadable, spaced.group());
+                        }
+                    }
                     if (paymentDueDate != null) {
                         if (ctx != null) ctx.record("GRID_METADATA_FALLBACK");
                         continue;

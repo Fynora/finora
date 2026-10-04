@@ -1319,6 +1319,30 @@ class PdfMetadataExtractorTest {
         assertThat(withTrailingClause.paymentDueDate()).isEqualTo(java.time.LocalDate.of(2026, 4, 2));
     }
 
+    /** A date written with spaces after "pay by" used to be cut to its first word ("5") and
+     *  read nothing. Every spaced shape the due-date label reads is read here too. */
+    @Test
+    void extract_recognizesPaymentDueDate_inThePayBySentence_writtenWithSpaces() {
+        java.time.LocalDate expected = java.time.LocalDate.of(2026, 8, 5);
+        for (String line : List.of(
+                "Remember to pay by 5 August 2026",
+                "Remember to pay by 5 Aug 2026 to avoid late fees",
+                "Remember to pay by Aug 5, 2026.",
+                "Remember to pay by 5th August 2026",
+                "Remember to pay by August 5, 2026")) {
+            assertThat(extractor.extract(List.of(line)).paymentDueDate()).as(line).isEqualTo(expected);
+        }
+    }
+
+    /** Only a date starting right after "pay by" is the due date: a date later in the same
+     *  sentence is not, and an impossible spaced date still leaves the field unset. */
+    @Test
+    void extract_payBySentence_readsOnlyADateStartingRightAfterPayBy() {
+        assertThat(extractor.extract(List.of(
+                "Remember to pay by the due date; statement generated on 14 Apr 2026")).paymentDueDate()).isNull();
+        assertThat(extractor.extract(List.of("Remember to pay by 31 June 2026")).paymentDueDate()).isNull();
+    }
+
     /** Negative case: a due-date mention with no date-shaped value anywhere nearby (an
      *  explanatory sentence, not a real field) must stay null rather than guessing. */
     @Test

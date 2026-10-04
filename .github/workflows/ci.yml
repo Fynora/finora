@@ -629,13 +629,28 @@ jobs:
       # fails if the *IT count is ever zero on a run that was supposed to include them -- see its
       # own --unit-only handling, and backend/pom.xml's surefire-plugin comment for the full
       # incident history this split is designed not to reopen.
+      #
+      # One exception to "a PR runs unit only": a `full-ci` PR while the repository is private.
+      # The private profile (see "Repository visibility" above `jobs:`) runs only repo-hygiene on a
+      # push to main, so without this the integration tests -- every Testcontainers *IT, including
+      # the Flyway migration ITs -- would never run anywhere while private, except on a by-hand run.
+      # Found 2026-10-04, the day after the private profile merged (#1974), by reading these two
+      # conditions; the labelled PR's run is the one full run a change gets, so it runs `verify`.
+      # The three conditions below (these two steps and Test summary's --unit-only) must stay in
+      # step with each other.
       - name: Run tests (PR - unit only, fast)
-        if: github.event_name == 'pull_request'
+        if: >-
+          github.event_name == 'pull_request' &&
+          !(github.event.repository.private &&
+            contains(github.event.pull_request.labels.*.name, 'full-ci'))
         working-directory: backend
         run: ./mvnw -B --no-transfer-progress test
 
-      - name: Run tests (merge to main - full suite, incl. integration tests)
-        if: github.event_name != 'pull_request'
+      - name: Run tests (merge to main, or a private full-ci PR - full suite, incl. integration tests)
+        if: >-
+          github.event_name != 'pull_request' ||
+          (github.event.repository.private &&
+            contains(github.event.pull_request.labels.*.name, 'full-ci'))
         working-directory: backend
         run: ./mvnw -B --no-transfer-progress verify
 
@@ -676,7 +691,12 @@ jobs:
       # case. See the Guardian step below for the incident that changed it.
       - name: Test summary
         if: ${{ !cancelled() }}
-        run: python3 scripts/summarize-surefire.py ${{ github.event_name == 'pull_request' && '--unit-only' || '' }}
+        run: >-
+          python3 scripts/summarize-surefire.py ${{
+            (github.event_name == 'pull_request' &&
+              !(github.event.repository.private &&
+                contains(github.event.pull_request.labels.*.name, 'full-ci')))
+            && '--unit-only' || '' }}
 
       # guardian-report.py was the last checker referenced only in documentation -- never in CI,
       # a hook, or a package script. That is precisely the anti-pattern the XML-comment check in

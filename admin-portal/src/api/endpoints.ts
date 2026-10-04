@@ -6,7 +6,7 @@ import type {
   CoverageDto,
   HeldImportRow, HeldImportDetail, HeldImportSummary,
   HeldStatementRow, HeldStatementQuery, HeldStatementDetail, HeldStatementRerunResult,
-  HeldStatementTelemetrySummary,
+  HeldStatementTelemetrySummary, HeldStatementStagedRows,
   HoldWithoutReviewRecordRow,
   SupportTicketRow, SupportTicketQuery, SupportTicketDetail, SupportTicketNote,
   FeedbackRow, FeedbackQuery, FeedbackBreakdown,
@@ -446,6 +446,10 @@ export const adminHeldStatementApi = {
       .then((r) => r.data),
   rerunParser: (heldId: string) =>
     api.post<HeldStatementRerunResult>(`/admin/held-statements/${heldId}/rerun-parser`).then((r) => r.data),
+  /** The rows this hold staged. Audited server-side on every call, so it is fetched only when an
+   *  operator asks for it, never on page load. */
+  stagedRows: (heldId: string) =>
+    api.get<HeldStatementStagedRows>(`/admin/held-statements/${heldId}/staged-rows`).then((r) => r.data),
   suggestDiagnosis: (heldId: string) =>
     api.post<HeldStatementDetail>(`/admin/held-statements/${heldId}/suggest-diagnosis`).then((r) => r.data),
   telemetry: () =>

@@ -498,6 +498,10 @@ interface PdfStagingSessionResult {
   staging: StagingResult | null;
   sections: StagedAccountSection[] | null;
   previousImport?: PreviousImport | null;
+  // Set when the server's accuracy check held this statement, as the queue holds one: its rows can't
+  // be confirmed until a reviewer approves them, so the caller follows this import job instead of
+  // opening the review. Absent from an older backend, which never held a statement staged here.
+  heldForReviewJobId?: string | null;
 }
 
 type ProgressCallback = (percent: number) => void;
@@ -583,7 +587,13 @@ export const importApi = {
     form.append('file', file as unknown as Blob);
     return stageWithRetry(() =>
       api
-        .post<{ sessionId: string; staging: StagingResult; previousImport?: PreviousImport | null }>('/import/csv/stage', form, toUploadProgressConfig(onProgress, signal))
+        .post<{
+          sessionId: string;
+          staging: StagingResult;
+          previousImport?: PreviousImport | null;
+          // See PdfStagingSessionResult.heldForReviewJobId.
+          heldForReviewJobId?: string | null;
+        }>('/import/csv/stage', form, toUploadProgressConfig(onProgress, signal))
         .then((r) => r.data)
     );
   },

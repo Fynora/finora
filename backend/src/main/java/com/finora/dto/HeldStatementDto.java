@@ -29,6 +29,9 @@ import java.util.UUID;
  * @param aiSuggestedDiagnosis Fyn's most recent suggested root cause (Phase 2, plan §6) -- a
  *                             separate field from {@code engineerNotes}/{@code rootCause}, not a
  *                             replacement for either; see {@code HeldStatement.recordAiSuggestion}.
+ * @param lockedWithoutPassword the held file is a password-protected PDF and no password was kept
+ *                              with it (V258), so it cannot be downloaded in a readable form or
+ *                              re-parsed; the review is made from the staged rows and findings.
  */
 public record HeldStatementDto(
         UUID id,
@@ -53,7 +56,8 @@ public record HeldStatementDto(
         Instant readyAt,
         Instant resolvedAt,
         String aiSuggestedDiagnosis,
-        Instant aiSuggestedDiagnosisAt) {
+        Instant aiSuggestedDiagnosisAt,
+        boolean lockedWithoutPassword) {
 
     public static HeldStatementDto from(HeldStatement held) {
         return new HeldStatementDto(
@@ -79,6 +83,7 @@ public record HeldStatementDto(
                 held.getReadyAt(),
                 held.getResolvedAt(),
                 held.getAiSuggestedDiagnosis(),
-                held.getAiSuggestedDiagnosisAt());
+                held.getAiSuggestedDiagnosisAt(),
+                held.isLockedWithoutPassword());
     }
 }

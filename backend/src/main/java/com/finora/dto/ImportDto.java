@@ -510,12 +510,23 @@ public class ImportDto {
      *  before posting {@link MultiAccountConfirmRequest}. */
     public record PdfStagingSessionResponse(UUID sessionId, boolean multiAccount,
                                              StagingResponse staging, List<StagedAccountSection> sections,
-                                             PreviousImport previousImport) {
+                                             PreviousImport previousImport, UUID heldForReviewJobId) {
         /** Every construction site that predates the re-upload notice; null means "no earlier
          *  import of these exact bytes". */
         public PdfStagingSessionResponse(UUID sessionId, boolean multiAccount, StagingResponse staging,
                                          List<StagedAccountSection> sections) {
-            this(sessionId, multiAccount, staging, sections, null);
+            this(sessionId, multiAccount, staging, sections, null, null);
+        }
+
+        /** Every construction site that predates the trust check on this endpoint: not held. */
+        public PdfStagingSessionResponse(UUID sessionId, boolean multiAccount, StagingResponse staging,
+                                         List<StagedAccountSection> sections, PreviousImport previousImport) {
+            this(sessionId, multiAccount, staging, sections, previousImport, null);
+        }
+
+        /** See {@link StagingSessionResponse#heldForReviewJobId()}. */
+        public PdfStagingSessionResponse heldForReview(UUID jobId) {
+            return new PdfStagingSessionResponse(sessionId, multiAccount, staging, sections, previousImport, jobId);
         }
     }
 
@@ -593,10 +604,26 @@ public class ImportDto {
      *  sessionId field) so the internal byte-stream parseAndStage() overload used by
      *  StatementImportService's reimport flow (which has no session concept -- it's replaying an
      *  already-stored file, not a fresh upload that could be interrupted) doesn't need to change. */
-    public record StagingSessionResponse(UUID sessionId, StagingResponse staging, PreviousImport previousImport) {
+    /**
+     * @param heldForReviewJobId set when the trust check held this statement: its rows cannot be
+     *        confirmed until an operator approves them, exactly as for a queued upload the worker
+     *        held. The client follows this import job ({@code GET /api/v1/import/jobs/{id}}) to the
+     *        same "being checked" state, instead of opening the review screen. Null otherwise.
+     */
+    public record StagingSessionResponse(UUID sessionId, StagingResponse staging, PreviousImport previousImport,
+                                         UUID heldForReviewJobId) {
         /** See {@link PdfStagingSessionResponse}'s matching constructor. */
         public StagingSessionResponse(UUID sessionId, StagingResponse staging) {
-            this(sessionId, staging, null);
+            this(sessionId, staging, null, null);
+        }
+
+        /** Every construction site that predates the trust check on this endpoint: not held. */
+        public StagingSessionResponse(UUID sessionId, StagingResponse staging, PreviousImport previousImport) {
+            this(sessionId, staging, previousImport, null);
+        }
+
+        public StagingSessionResponse heldForReview(UUID jobId) {
+            return new StagingSessionResponse(sessionId, staging, previousImport, jobId);
         }
     }
 

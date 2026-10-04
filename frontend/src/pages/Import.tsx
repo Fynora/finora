@@ -678,6 +678,20 @@ export default function Import() {
       const res = isPdf
         ? await importApi.stagePdf(file, setUploadProgress, password)
         : await importApi.stageCsv(file, setUploadProgress);
+      if (res.heldForReviewJobId) {
+        // The accuracy check held this statement, as the queue would have: its rows wait for a
+        // reviewer, so there is nothing to review here. Follow the held job exactly as a queued
+        // upload is followed -- ImportProgress shows the same "being checked" state, and the review
+        // once a reviewer approves it.
+        setFileFormat(isPdf ? 'PDF' : 'CSV');
+        setPendingPdf(null);
+        setPdfPassword('');
+        setPasswordState(null);
+        setSavePassword(false);
+        setJobId(res.heldForReviewJobId);
+        void queryClient.invalidateQueries({ queryKey: ['import-jobs-recent'] });
+        return;
+      }
       setSessionId(res.sessionId);
       setPreviousImport(res.previousImport ?? null);
       setFileFormat(isPdf ? 'PDF' : 'CSV');

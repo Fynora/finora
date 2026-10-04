@@ -533,6 +533,7 @@ interface PdfStagingSessionResult {
   staging: StagingResult | null;
   sections: StagedAccountSection[] | null;
   previousImport?: PreviousImport | null;
+  heldForReviewJobId?: string | null;
 }
 
 // Reports 0-100 upload progress via axios's onUploadProgress -- purely the network-transfer
@@ -550,6 +551,11 @@ function toUploadProgressConfig(onProgress?: ProgressCallback) {
     : {};
 }
 
+// heldForReviewJobId (both stage endpoints): set when the server's accuracy check held this statement
+// for review, exactly as the queue holds one. Its rows can't be confirmed until a reviewer approves
+// them, so the caller follows that import job (ImportProgress) instead of opening the review screen.
+// Absent from an older backend, which never held a statement staged here.
+//
 // ADR-0002: the staged review now survives a dropped session -- the backend persists what gets
 // staged (file bytes included) rather than that state living only in this response and whatever
 // this page holds in memory afterward. sessionId is what ties stage -> confirm together now,
@@ -559,7 +565,12 @@ export const importApi = {
     const form = new FormData();
     form.append('file', file);
     return api
-      .post<{ sessionId: string; staging: StagingResult; previousImport?: PreviousImport | null }>('/import/csv/stage', form, {
+      .post<{
+        sessionId: string;
+        staging: StagingResult;
+        previousImport?: PreviousImport | null;
+        heldForReviewJobId?: string | null;
+      }>('/import/csv/stage', form, {
         headers: { 'Content-Type': 'multipart/form-data' },
         ...toUploadProgressConfig(onProgress),
       })

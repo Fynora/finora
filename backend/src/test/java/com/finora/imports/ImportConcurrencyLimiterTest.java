@@ -54,6 +54,22 @@ class ImportConcurrencyLimiterTest {
         assertThat(limiter.runGated(() -> "imported again")).isEqualTo("imported again");
     }
 
+    /** After shutdown the renewer refuses new renewals. That refusal used to be able to escape
+     *  runGated() before its try block -- holding the local permit and the lease with nothing to
+     *  release them. The import runs without renewal instead, and both are released as usual. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void anImportStillRunsAndReleasesWhenRenewalCannotBeScheduled() throws Exception {
+        StringRedisTemplate redis = mock(StringRedisTemplate.class);
+        when(redis.execute(any(RedisScript.class), anyList(), any(Object[].class))).thenReturn("granted");
+        when(redis.opsForZSet()).thenReturn(mock(ZSetOperations.class));
+        ImportConcurrencyLimiter limiter = new ImportConcurrencyLimiter(1, 300, redis);
+        limiter.stopRenewing();
+
+        assertThat(limiter.runGated(() -> "imported")).isEqualTo("imported");
+        assertThat(limiter.runGated(() -> "imported again")).isEqualTo("imported again");
+    }
+
     /** A zero TTL makes the acquire script prune the lease it has just added, so the count never
      *  includes it and the fleet-wide ceiling is never enforced. */
     @Test

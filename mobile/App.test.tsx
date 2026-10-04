@@ -1,4 +1,5 @@
-import { render } from '@testing-library/react-native';
+import { act, render, screen } from '@testing-library/react-native';
+import { LAUNCH_TIMELINE, resetLaunchAnimationForTests } from './src/components/LaunchAnimation';
 import { createLaunchUrlGuard } from './src/lib/appLinks';
 import App from './App';
 
@@ -39,5 +40,26 @@ describe('App', () => {
     render(<App />);
 
     expect(isFirstDelivery('https://app.fynora.net/app/settings')).toBe(true);
+  });
+
+  it('covers the app with the launch animation on a cold start, and not again on a remount', () => {
+    jest.useFakeTimers();
+    try {
+      resetLaunchAnimationForTests();
+      const first = render(<App />);
+      expect(screen.getByTestId('launch-animation')).toBeOnTheScreen();
+
+      act(() => {
+        jest.advanceTimersByTime(LAUNCH_TIMELINE.exitStart + LAUNCH_TIMELINE.liftDelay + LAUNCH_TIMELINE.liftDuration + 100);
+      });
+      expect(screen.queryByTestId('launch-animation')).not.toBeOnTheScreen();
+
+      // A re-created Android activity remounts App inside the same JS runtime.
+      first.unmount();
+      render(<App />);
+      expect(screen.queryByTestId('launch-animation')).not.toBeOnTheScreen();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

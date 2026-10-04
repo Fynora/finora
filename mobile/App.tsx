@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
@@ -6,6 +6,7 @@ import { ShareIntentProvider } from 'expo-share-intent';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { queryClient, startForegroundRefetch, startNetworkMonitoring, startQueryPersistence } from './src/api/queryClient';
 import { AppLockGate } from './src/components/AppLockGate';
+import { LaunchAnimation, shouldPlayLaunchAnimation } from './src/components/LaunchAnimation';
 import { OfflineBoundary } from './src/components/OfflineBanner';
 import { RootErrorBoundary } from './src/components/RootErrorBoundary';
 import { RootWarningBoundary } from './src/components/RootWarningBanner';
@@ -53,6 +54,14 @@ function App() {
   // splash-hide effect actually waits on it, so any font-loading gap is spent behind the splash
   // rather than in front of it.
   const [fontsLoaded, fontError] = useAppFonts();
+  const splashReleased = fontsLoaded || fontError != null;
+
+  // The launch animation covers the app from the very first commit, so the native splash (the same
+  // graphite, see app.config.ts) hands over to it with no visible change. It starts moving only once
+  // the splash is released below, and the whole tree mounts and bootstraps underneath it meanwhile.
+  // Once per JS runtime: a re-created Android activity remounts App but does not replay it.
+  const [showLaunch, setShowLaunch] = useState(shouldPlayLaunchAnimation);
+  const hideLaunch = useCallback(() => setShowLaunch(false), []);
 
   // Subscribing here rather than at module scope keeps the NetInfo listener tied to the app's
   // lifetime and torn down cleanly, instead of leaking across fast-refresh reloads in development.
@@ -85,10 +94,10 @@ function App() {
   // RootNavigator already shows for exactly that wait. IS gated on fonts, per this function's own
   // opening comment.
   useEffect(() => {
-    if (fontsLoaded || fontError) {
+    if (splashReleased) {
       void SplashScreen.hideAsync();
     }
-  }, [fontsLoaded, fontError]);
+  }, [splashReleased]);
 
   return (
     // Must be the outermost provider, before any other -- expo-share-intent's own README:
@@ -126,6 +135,8 @@ function App() {
               </AuthProvider>
             </RootWarningBoundary>
           </ThemeProvider>
+          {/* Last child, so it paints over everything above, the app-lock screen included. */}
+          {showLaunch ? <LaunchAnimation ready={splashReleased} onDone={hideLaunch} /> : null}
         </SafeAreaProvider>
       </QueryClientProvider>
     </ShareIntentProvider>

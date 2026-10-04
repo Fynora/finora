@@ -31,6 +31,24 @@ class BankActivityCategoryTest {
         assertThat(of("CREDIT INTEREST", INCOME)).isEqualTo("Interest & Cashback");
         assertThat(of("Int.Pd:01-05-2026 to 31-07-2026: 000000000000000", INCOME)).isEqualTo("Interest & Cashback");
         assertThat(of("SB INT CREDIT", INCOME)).isEqualTo("Interest & Cashback");
+        assertThat(of("Interest Cr. for 03-Jan-2026", INCOME)).isEqualTo("Interest & Cashback");
+    }
+
+    @Test
+    void isInterestEarned_onlyForTheBanksInterestCredited() {
+        assertThat(BankActivityCategory.isInterestEarned("Interest Cr. for 03-Jan-2026", INCOME)).isTrue();
+        assertThat(BankActivityCategory.isInterestEarned("INTEREST PAID TILL 30-JUN-2026", INCOME)).isTrue();
+        assertThat(BankActivityCategory.isInterestEarned("SAVING A/C CREDIT INTEREST", INCOME)).isTrue();
+
+        assertThat(BankActivityCategory.isInterestEarned("Interest Cr. for 03-Jan-2026", EXPENSE))
+                .as("money leaving").isFalse();
+        assertThat(BankActivityCategory.isInterestEarned("Interest Cr. for 03-Jan-2026", null))
+                .as("no direction given").isFalse();
+        assertThat(BankActivityCategory.isInterestEarned("CASHBACK EARNED", INCOME)).as("cashback is not interest").isFalse();
+        assertThat(BankActivityCategory.isInterestEarned("SAMPLE STORE 2ND OF 3 INSTALLMENTS INTEREST", INCOME)).isFalse();
+        assertThat(BankActivityCategory.isInterestEarned("INTEREST ON EMI", INCOME)).isFalse();
+        assertThat(BankActivityCategory.isInterestEarned(null, INCOME)).isFalse();
+        assertThat(BankActivityCategory.isInterestEarned(" ", INCOME)).isFalse();
     }
 
     /** A card's instalment-plan line names interest without the bank paying any to you. */
@@ -131,6 +149,8 @@ class BankActivityCategoryTest {
         assertThat(of("UPI-AMIT KUMAR-amitkumar@okaxis-HDFC0000000-000000000000-INTEREST PAID", INCOME)).isNull();
         assertThat(of("UPI-AMIT KUMAR-amitkumar@okaxis-HDFC0000000-000000000000-CASHBACK", INCOME)).isNull();
         assertThat(of("UPI-AMIT KUMAR-amitkumar@okaxis-HDFC0000000-000000000000-GST", EXPENSE)).isNull();
+        assertThat(BankActivityCategory.isInterestEarned(
+                "UPI-AMIT KUMAR-amitkumar@okaxis-HDFC0000000-000000000000-INTEREST PAID", INCOME)).isFalse();
     }
 
     // --- Everything else is left to the rest of the engine ---

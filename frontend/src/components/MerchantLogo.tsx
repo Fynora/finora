@@ -22,9 +22,14 @@ const LOGODEV_TOKEN = import.meta.env.VITE_LOGODEV_TOKEN;
 // Same budget as BankLogo -- see that component's own comment for why.
 const LOGODEV_TIMEOUT_MS = 1500;
 
+/** The label the server gives every interest credit (backend CategoryRules.INTEREST_LABEL). It
+ *  names what the money is, not who paid it, so it is no brand to look up: a Logo.dev name search
+ *  returns whichever company matches the word best. */
+export const INTEREST_LABEL = 'interest';
+
 export function logoDevUrl(merchant: string, sizePx: number, token: string | undefined): string | null {
   const name = merchant?.trim();
-  if (!token || !name) return null;
+  if (!token || !name || name.toLowerCase() === INTEREST_LABEL) return null;
   // https://www.logo.dev/docs/logo-images/get -- `name/` is the explicit identifier type for a
   // bare company name (unlike a domain, which needs no prefix). Same format=png/fallback=404
   // reasoning as BankLogo.logoDevUrl.

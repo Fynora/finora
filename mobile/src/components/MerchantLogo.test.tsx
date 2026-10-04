@@ -16,6 +16,12 @@ describe('logoDevUrl', () => {
   it('returns null for a blank merchant', () => {
     expect(logoDevUrl('  ', 64, 'tok')).toBeNull();
   });
+
+  it('never looks up the interest label, which names no company', () => {
+    expect(logoDevUrl('interest', 64, 'tok')).toBeNull();
+    expect(logoDevUrl(' Interest ', 64, 'tok')).toBeNull();
+    expect(logoDevUrl('interest paid till 31', 64, 'tok')).not.toBeNull();
+  });
 });
 
 describe('MerchantLogo', () => {
@@ -41,6 +47,10 @@ describe('logoSourceFor', () => {
     // A payment to a friend is named after the friend; a name search for a person's name returns
     // whichever company matches best. A person gets initials and no request.
     expect(logoSourceFor('Sample Person', 64, 'test-token', true)).toBeNull();
+  });
+
+  it('never builds one for an interest credit, even with a token configured', () => {
+    expect(logoSourceFor('interest', 64, 'test-token', false)).toBeNull();
   });
 
   it('still builds one for a business', () => {

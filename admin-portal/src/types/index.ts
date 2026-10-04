@@ -950,6 +950,14 @@ export interface PlatformMerchantSpendDto {
   transactionCount: number;
 }
 
+/** How users kept track of their spending before Fynora -- the required setup question's answers
+ *  (AdminSpendingTrackingController). Every answer is listed, a zero included. */
+export interface SpendingTrackingBreakdown {
+  answered: number;
+  notAnswered: number;
+  methods: { method: string; count: number }[];
+}
+
 export interface PlatformAnalyticsDto {
   topCategories: PlatformCategorySpendDto[];
   topMerchants: PlatformMerchantSpendDto[];

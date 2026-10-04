@@ -778,6 +778,9 @@ export const goalsApi = {
 export interface OnboardingStatus {
   onboardingCompleted: boolean;
   financialFocus: string[];
+  /** The answer to the required "How do you keep track of your spending today?" question, or
+   *  null until answered -- see onboarding/SpendingQuestionGate. */
+  spendingTrackingMethod: string | null;
 }
 
 export interface ChecklistItem {
@@ -795,6 +798,8 @@ export const onboardingApi = {
   status: () => api.get<OnboardingStatus>('/onboarding/status').then((r) => r.data),
   setFinancialFocus: (focusKeys: string[]) =>
     api.post<OnboardingStatus>('/onboarding/financial-focus', { focusKeys }).then((r) => r.data),
+  setSpendingTracking: (method: string) =>
+    api.post<OnboardingStatus>('/onboarding/spending-tracking', { method }).then((r) => r.data),
   complete: () => api.post<void>('/onboarding/complete', {}),
   reset: () => api.post<void>('/onboarding/reset', {}),
   getChecklist: () => api.get<ChecklistStatus>('/onboarding/checklist').then((r) => r.data),

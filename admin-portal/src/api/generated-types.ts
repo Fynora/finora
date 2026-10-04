@@ -964,6 +964,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/onboarding/spending-tracking": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["setSpendingTracking"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/onboarding/reset": {
         parameters: {
             query?: never;
@@ -5204,6 +5220,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/analytics/spending-tracking": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["spendingTrackingBreakdown"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/analytics/platform": {
         parameters: {
             query?: never;
@@ -6617,8 +6649,8 @@ export interface components {
         VerifyPhoneResponse: {
             message?: string;
         };
-        FinancialFocusRequest: {
-            focusKeys?: string[];
+        SpendingTrackingRequest: {
+            method?: string;
         };
         ApiResponseStatusResponse: {
             success?: boolean;
@@ -6635,6 +6667,10 @@ export interface components {
         StatusResponse: {
             onboardingCompleted?: boolean;
             financialFocus?: string[];
+            spendingTrackingMethod?: string;
+        };
+        FinancialFocusRequest: {
+            focusKeys?: string[];
         };
         ApiResponseNetWorthDto: {
             success?: boolean;
@@ -10861,6 +10897,30 @@ export interface components {
             /** Format: int32 */
             totalPages?: number;
         };
+        ApiResponseSpendingTrackingBreakdown: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["SpendingTrackingBreakdown"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        SpendingTrackingBreakdown: {
+            /** Format: int64 */
+            answered?: number;
+            /** Format: int64 */
+            notAnswered?: number;
+            methods?: components["schemas"]["SpendingTrackingMethodCount"][];
+        };
+        SpendingTrackingMethodCount: {
+            method?: string;
+            /** Format: int64 */
+            count?: number;
+        };
         ApiResponsePlatformAnalyticsDto: {
             success?: boolean;
             message?: string;
@@ -12898,6 +12958,30 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseVerifyPhoneResponse"];
+                };
+            };
+        };
+    };
+    setSpendingTracking: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SpendingTrackingRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseStatusResponse"];
                 };
             };
         };
@@ -19491,6 +19575,26 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponsePagedResponseAuditLogDto"];
+                };
+            };
+        };
+    };
+    spendingTrackingBreakdown: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseSpendingTrackingBreakdown"];
                 };
             };
         };

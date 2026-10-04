@@ -208,6 +208,10 @@ public final class DataExportDto {
         }
     }
 
+    /** The answer to the required setup question "How do you keep track of your spending today?"
+     *  -- a SpendingTrackingMethod name -- and when it was given (V256). */
+    public record SpendingTrackingExportDto(String method, Instant answeredAt) {}
+
     /** F-03. One onboarding financial-focus selection. */
     public record UserFinancialFocusExportDto(UUID id, String focusKey, Instant createdAt) {
         public static UserFinancialFocusExportDto from(UserFinancialFocus f) {

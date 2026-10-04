@@ -28,6 +28,13 @@ public class OnboardingController {
                 "Financial focus saved");
     }
 
+    @PostMapping("/spending-tracking")
+    public ApiResponse<OnboardingDto.StatusResponse> setSpendingTracking(
+            @RequestBody OnboardingDto.SpendingTrackingRequest request) {
+        return ApiResponse.ok(onboardingService.setSpendingTracking(currentUser.id(), request.method()),
+                "Answer saved");
+    }
+
     @PostMapping("/complete")
     public ApiResponse<Void> complete() {
         onboardingService.complete(currentUser.id());

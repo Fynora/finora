@@ -27,6 +27,9 @@ from collections import defaultdict
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MANIFEST = os.path.join(REPO, "backend", "target", "guardian-rules.json")
 SUREFIRE = os.path.join(REPO, "backend", "target", "surefire-reports")
+# Characters XML 1.0 forbids anywhere in a document; see the report read below.
+_XML_INVALID = dict.fromkeys(
+    [c for c in range(0x20) if c not in (0x09, 0x0A, 0x0D)] + [0xFFFE, 0xFFFF])
 
 GREEN, RED, YELLOW, DIM, BOLD, RESET = (
     "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[1m", "\033[0m")
@@ -58,8 +61,14 @@ def load_results():
     for fn in os.listdir(SUREFIRE):
         if not (fn.startswith("TEST-") and fn.endswith(".xml")):
             continue
+        # Same sanitising read as summarize-surefire.py's _read_report: surefire copies captured
+        # output verbatim, a PDFBox warning in this suite carries U+FFFF (illegal in XML 1.0), and
+        # whichever report captured it would otherwise be skipped here -- turning its rules into
+        # "NOT RUN" instead of their real result.
         try:
-            root = ET.parse(os.path.join(SUREFIRE, fn)).getroot()
+            with open(os.path.join(SUREFIRE, fn), "rb") as fh:
+                text = fh.read().decode("utf-8", errors="replace").translate(_XML_INVALID)
+            root = ET.fromstring(text)
         except ET.ParseError:
             continue
         for case in root.iter("testcase"):

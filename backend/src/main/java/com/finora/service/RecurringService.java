@@ -213,8 +213,12 @@ public class RecurringService {
         Map<UUID, String> categoryNames = new HashMap<>();
         categoryRepository.findByUserId(userId).forEach(c -> categoryNames.put(c.getId(), c.getName()));
         Map<String, CategoryRule> answers = new HashMap<>();
-        categoryRuleRepository.findUserPayeeRules(userId).forEach(r ->
-                answers.putIfAbsent(r.getComparisonValue().trim().toLowerCase(Locale.ROOT), r));
+        List<CategoryRule> payeeRules = categoryRuleRepository.findUserPayeeRules(userId);
+        payeeRules.forEach(r -> answers.putIfAbsent(r.getComparisonValue().trim().toLowerCase(Locale.ROOT), r));
+        // Then the printed names each answer knows its payee by: later payments are stored under
+        // them, and are the same payee (see RecurringAnswerService.payeeLabelsOf). A name some answer
+        // was asked about directly keeps that answer.
+        payeeRules.forEach(r -> RecurringAnswerService.payeeLabelsOf(r).forEach(l -> answers.putIfAbsent(l, r)));
 
         List<RecurringDto> results = new ArrayList<>();
         for (var entry : byMerchant.entrySet()) {

@@ -12824,6 +12824,12 @@
                     },
                     "amountMax": {
                         "type": "number"
+                    },
+                    "payeeAliases": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
                     }
                 }
             },

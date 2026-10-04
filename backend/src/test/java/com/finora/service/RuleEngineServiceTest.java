@@ -518,6 +518,44 @@ class RuleEngineServiceTest {
         assertThat(matchesOut(List.of(payeeRule("sample landlord", "8000", "12000")), RENT, null)).isFalse();
     }
 
+    // --- A saved answer's other names for its payee (V259) ---
+
+    private CategoryRule answerFor(String askedAbout, String... aliases) {
+        CategoryRule r = payeeRule(askedAbout, "8000", "12000");
+        r.setPayeeAliases(List.of(aliases));
+        return r;
+    }
+
+    @Test
+    void anAnswerGivenUnderAnEditedName_matchesThePayeeAsTheBankPrintsIt() {
+        assertThat(matchesOut(List.of(answerFor("My Flat", "label:sample landlord")), RENT, "10000")).isTrue();
+        assertThat(matchesOut(List.of(answerFor("My Flat")), RENT, "10000")).as("without the alias").isFalse();
+    }
+
+    @Test
+    void anAnswerMatchesItsPayeesUpiId_whenTheBankPrintsTheNameDifferently() {
+        String drifted = "UPI-S LANDLORD-sample.landlord@okaxis-YESB0XXXXXX-000000000002-RENT";
+        assertThat(matchesOut(List.of(answerFor("My Flat", "key:vpa:sample.landlord")), drifted, "10000")).isTrue();
+        String otherPayee = "UPI-SAMPLE GROCER-sample.grocer@okaxis-YESB0XXXXXX-000000000003-RENT";
+        assertThat(matchesOut(List.of(answerFor("My Flat", "key:vpa:sample.landlord")), otherPayee, "10000")).isFalse();
+    }
+
+    @Test
+    void aUpiIdThatIsNotOnePayee_isNeverMatchedOn() {
+        // A gateway's own id carries many shops' payments; an answer for one of them must not
+        // reach the rest, even if such an id was saved.
+        String gateway = "UPI-SAMPLE SHOP-pg.razorpay@okaxis-YESB0XXXXXX-000000000004-ORDER";
+        assertThat(matchesOut(List.of(answerFor("My Flat", "key:vpa:pg.razorpay")), gateway, "10000")).isFalse();
+    }
+
+    @Test
+    void anAnswersOtherNames_keepItsAmountRangeAndMoneyOutOnly() {
+        List<CategoryRule> rules = List.of(answerFor("My Flat", "label:sample landlord", "key:vpa:sample.landlord"));
+        assertThat(matchesOut(rules, RENT, "25000")).isFalse();
+        assertThat(ruleEngineService.evaluateCategoryRule(rules, RENT, new BigDecimal("10000"), null, null,
+                com.finora.entity.Transaction.Type.INCOME)).isEmpty();
+    }
+
     @Test
     void aNarrationWithNoPayee_neverMatchesAPayeeRule() {
         assertThat(matchesOut(List.of(payeeRule("upi", null, null)), "UPI/000000000000/UPI", "10")).isFalse();

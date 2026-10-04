@@ -41,9 +41,19 @@ permissions:
 
 jobs:
   sync:
+    # Private profile: on demand only (`gh workflow run sync-dev-branch.yml`). Every run sits on a
+    # runner polling for ci.yml's push run -- measured 1,076 minutes in one week, more than half the
+    # 2,000-minute private monthly allowance -- and in the private profile that push run is only
+    # repo-hygiene, so its success would no longer mean main's code passed CI. Run full CI on main
+    # first (`gh workflow run ci.yml --ref main`) when dev needs to be current.
+    # docs/architecture/infrastructure/ci-visibility-profiles.md.
+    if: ${{ !github.event.repository.private || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
+      # Which ci.yml run proves main's code passed: its push run in the full profile; in the
+      # private profile, where that push run is only repo-hygiene, a full on-demand run.
+      CI_EVENT: ${{ github.event.repository.private && 'workflow_dispatch' || 'push' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -103,15 +113,21 @@ jobs:
             exit 0
           fi
 
-          echo "Waiting for CI (push run) on $head to finish..."
+          echo "Waiting for CI ($CI_EVENT run) on $head to finish..."
           deadline=$((SECONDS + 40 * 60))
           while :; do
-            if ! runs=$(gh run list --workflow ci.yml --commit "$head" --event push \
+            if ! runs=$(gh run list --workflow ci.yml --commit "$head" --event "$CI_EVENT" \
                   --json status,conclusion --limit 20); then
               echo "gh run list failed -- not merging."
               exit 1
             fi
             total=$(jq 'length' <<<"$runs")
+            # A push run always exists for main's head; an on-demand run exists only if someone
+            # started one, so waiting 40 billed minutes for it would be waiting for nothing.
+            if [ "$total" -eq 0 ] && [ "$CI_EVENT" = workflow_dispatch ]; then
+              echo "No on-demand CI run on $head -- not merging. Run \`gh workflow run ci.yml --ref main\`, then this workflow again once it passes."
+              exit 1
+            fi
             if [ "$total" -gt 0 ] && [ "$(jq '[.[] | select(.status != "completed")] | length' <<<"$runs")" -eq 0 ]; then
               if [ "$(jq '[.[] | select(.conclusion != "success")] | length' <<<"$runs")" -eq 0 ]; then
                 echo "CI passed on $head."

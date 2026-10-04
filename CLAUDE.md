@@ -143,6 +143,16 @@ If `headRefOid` is behind your branch tip, commits you pushed after the merge wa
 replay as duplicates against the squashed content on `main`. Start a fresh worktree from
 `origin/main` and cherry-pick anything that did not land.
 
+## While the repository is private, green PR checks prove nothing
+
+CI picks its profile from the repository's visibility (see
+`docs/architecture/infrastructure/ci-visibility-profiles.md`). When the repository is private, a
+PR's CI jobs are **skipped**, and GitHub reports skipped jobs as passing. Check visibility with
+`gh repo view --json visibility`. If it is `PRIVATE`, run the full suite on the PR's branch with
+`gh workflow run ci.yml --ref <branch>` and wait for that run to pass before calling the PR
+verified or merge-ready. Every on-demand run costs real minutes from a 2,000-a-month allowance, so
+run it once the branch is ready, not after every push.
+
 ## Exception
 
 Read-only exploration — reading code, answering questions about the repo, reviewing docs —

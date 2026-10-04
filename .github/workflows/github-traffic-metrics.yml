@@ -42,6 +42,12 @@ permissions:
 jobs:
   snapshot-traffic:
     name: Snapshot GitHub traffic
+    # Public only. A private repository has no outside traffic to record, and its last step cannot
+    # work there: auto-merge (`gh pr merge --auto`) is available on GitHub Free only for public
+    # repositories, so every run would leave another unmerged snapshot PR behind. The traffic API
+    # keeps 14 days, so a private spell shorter than that loses nothing a later public run cannot
+    # still read. docs/architecture/infrastructure/ci-visibility-profiles.md.
+    if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

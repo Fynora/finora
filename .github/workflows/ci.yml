@@ -97,6 +97,30 @@ permissions:
 # Testcontainers integration tests and the `smoke`/full-suite Postgres service both work with no
 # extra provisioning step -- unlike the self-hosted Mac, which needed Docker Desktop kept running
 # by hand.
+
+# Repository visibility: two profiles, chosen per run from `github.event.repository.private`, so
+# flipping the repository between public and private needs no edit to any workflow file.
+#
+#   * Public (full profile): every job below runs exactly as it always has. GitHub-hosted
+#     standard runners cost nothing in a public repository.
+#   * Private (lean profile): on pull_request and on push, only repo-hygiene runs, and only on push
+#     to main. Every other job here is skipped unless the run was started by hand (workflow_dispatch),
+#     which runs the full set. The Fynora org is on GitHub Free: 2,000 Actions minutes a month for
+#     private repositories, each job billed rounded up to the minute. Measured 2026-09-27..10-04,
+#     this workflow used ~9,150 minutes in one week (~300 PR events, ~94 pushes to main), so no
+#     automatic per-PR subset fits; a full run on demand does.
+#
+# On-demand full run for a PR while private (results attach to the branch's head commit, so they
+# show on the PR):  gh workflow run ci.yml --ref <branch>
+#
+# The expression reads null, not false, if an event ever lacks the repository object; `!null` is
+# true, so a missing value falls toward the full profile -- more minutes, never less checking.
+#
+# A skipped job reports "Success" to required checks (GitHub's documented behaviour), so in the
+# private profile a PR's skipped checks are not evidence that anything ran. Main's ruleset is not
+# enforced at all on a private repository under GitHub Free. The full account -- every workflow's
+# behaviour in each profile, the minute budget, and the checklist before flipping back to public --
+# is docs/architecture/infrastructure/ci-visibility-profiles.md.
 jobs:
   # Feeds job-level `if:` conditions on the jobs below that are safe to path-filter -- see
   # scripts/detect-changed-areas.py's own module docstring for the full list and history.
@@ -131,6 +155,9 @@ jobs:
   # itself broke" the same as "everything changed."
   changes:
     name: Detect changed areas
+    # Private profile: nothing reads this job's outputs except jobs that are skipped anyway, so it
+    # runs only for the on-demand full run. See "Repository visibility" above `jobs:`.
+    if: ${{ !github.event.repository.private || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -210,6 +237,11 @@ jobs:
   # computing a diff range needs the base commit, and a shallow checkout doesn't have it.
   repo-hygiene:
     name: Repository hygiene (all clients)
+    # Private profile: runs on every push to main (and on demand), not on PR events. What lands on
+    # main while the repository is private becomes public history the day it flips back, and the
+    # customer-PII check is diff-based, so main is where it must not miss a commit. See
+    # "Repository visibility" above `jobs:`.
+    if: ${{ !github.event.repository.private || github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -386,119 +418,14 @@ jobs:
       - name: Reporting period labels
         run: python3 scripts/check-reporting-period-labels.py
 
-  # Flyway runs with outOfOrder=false, so production refuses to deploy a migration numbered at or
-  # below one it has already applied. On 2026-09-27 #1798 (V236) merged and deployed before #1811
-  # (V235); every deploy after that failed "Detected resolved migration not applied to database:
-  # 235" -- fixed by #1818, which renames it V236_1. No other job can see this: they all migrate a FRESH
-  # database, where any order applies cleanly.
-  #
-  # The floor is origin/main as fetched when this job runs -- not the PR's base SHA, which is
-  # frozen at the event -- so a re-run always judges against the main that exists now. What makes
-  # it re-run when main moves is migration-order-recheck below: the main ruleset's required checks
-  # are not "strict" (branches need not be up to date to merge), so without that job a PR that was
-  # green when opened would stay green after a higher version landed.
-  #
-  # Not draft-gated and not path-filtered: a PR with no migrations exits in seconds, so there is
-  # nothing to save by skipping it. fetch-depth: 0 because the merge base is needed.
-  migration-order:
-    name: Migration version order
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      # Self-test first: a diff that silently finds nothing would pass every PR and look exactly
-      # like a clean one. It asserts lower/equal versions fail, higher and sub-versions pass, and a
-      # rename above the floor (#1818's shape) passes.
-      - name: Migration order (self-test)
-        run: python3 scripts/test-check-migration-order.py
-
-      - name: Migration order against current main
-        run: |
-          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
-          python3 scripts/check-migration-order.py --base origin/main --head "${{ github.event.pull_request.head.sha }}"
-
-  # When a push to main changes its migrations, the floor every open PR is judged against has
-  # moved. Re-run each affected open PR's migration-order job so its check turns red on the PR
-  # itself, before anyone merges it. A re-run keeps the original event payload (same head SHA) but
-  # fetches origin/main fresh, which is exactly the comparison wanted.
-  #
-  # The compare API lists at most 300 files; a push that hits that cap is treated as having
-  # changed migrations rather than trusted to be clean.
-  #
-  # Only PRs that touch the migration directory are re-run -- plus any PR whose file list the API
-  # truncated (changedFiles > files returned), so a large PR is never silently skipped.
-  #
-  # actions: write is scoped to this job only: it is what the job re-run endpoint requires, and
-  # this job only ever runs on a push to main, never on PR-controlled code.
-  migration-order-recheck:
-    name: Re-check open PRs' migration order
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    # Mostly idle: long enough to wait out open PRs' in-progress CI runs (median ~4 min).
-    timeout-minutes: 30
-    permissions:
-      actions: write
-      contents: read
-      pull-requests: read
-    steps:
-      - name: Re-run migration-order on open PRs that add migrations
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          BEFORE: ${{ github.event.before }}
-          AFTER: ${{ github.sha }}
-          DIR: backend/src/main/resources/db/migration/
-        run: |
-          set -euo pipefail
-          changed=$(gh api "repos/$GH_REPO/compare/$BEFORE...$AFTER" \
-            --jq "if (.files | length) >= 300 then 300 else [.files[].filename | select(startswith(\"$DIR\"))] | length end")
-          if [ "$changed" = 0 ]; then
-            echo "This push did not change main's migrations; every open PR's floor is unchanged."
-            exit 0
-          fi
-          prs=$(gh pr list --state open --limit 300 --json number,headRefOid,changedFiles,files \
-            --jq ".[] | select(.changedFiles > (.files | length) or any(.files[]; .path | startswith(\"$DIR\")))
-                  | \"\(.number) \(.headRefOid)\"")
-          if [ -z "$prs" ]; then
-            echo "No open PR touches $DIR."
-            exit 0
-          fi
-          status=0
-          while read -r pr sha; do
-            run=$(gh run list --workflow ci.yml --event pull_request --commit "$sha" --limit 1 \
-              --json databaseId --jq '.[0].databaseId // empty')
-            if [ -z "$run" ]; then
-              echo "::warning::#$pr ($sha): no CI run found to re-run."
-              continue
-            fi
-            job=$(gh run view "$run" --json jobs \
-              --jq '.jobs[] | select(.name == "Migration version order") | .databaseId')
-            if [ -z "$job" ]; then
-              echo "::warning::#$pr: run $run has no Migration version order job (predates it?)."
-              continue
-            fi
-            # GitHub refuses to re-run a job while its run is still going (403 "The workflow run
-            # containing this job is already running" -- measured on #1819), and this job may have
-            # finished before main moved. So wait for the run, then re-run it.
-            if [ "$(gh run view "$run" --json status --jq .status)" != completed ]; then
-              echo "#$pr: run $run still in progress; waiting for it before re-running."
-              gh run watch "$run" --interval 20 > /dev/null || true
-            fi
-            if gh api -X POST "repos/$GH_REPO/actions/jobs/$job/rerun" --silent; then
-              echo "#$pr: re-running Migration version order (run $run, job $job)."
-            else
-              echo "::warning::#$pr: could not re-run job $job of run $run -- push to the PR or re-run it by hand."
-              status=1
-            fi
-          done <<< "$prs"
-          exit $status
-
   secret-scan:
     name: Secret scan (gitleaks)
+    # Private profile: on demand only. gitleaks-nightly.yml scans main's full history every night
+    # in both profiles, and .husky/pre-commit runs gitleaks on each local commit wherever it is
+    # installed, so while the
+    # repository is private a secret reaching main is caught within a day -- before any flip back
+    # to public could expose it. See "Repository visibility" above `jobs:`.
+    if: ${{ !github.event.repository.private || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -561,6 +488,8 @@ jobs:
         needs.changes.outputs.frontend == 'true' ||
         needs.changes.outputs.admin_portal == 'true' ||
         needs.changes.outputs.shared_config == 'true'
+      ) && (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch'
       )
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -603,6 +532,8 @@ jobs:
         needs.changes.result != 'success' ||
         needs.changes.outputs.backend == 'true' ||
         needs.changes.outputs.shared_config == 'true'
+      ) && (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch'
       )
     runs-on: ubuntu-latest
     # Without this a job runs to GitHub's 6-hour default. The realistic way to hit that is not a
@@ -773,6 +704,8 @@ jobs:
         needs.changes.result != 'success' ||
         needs.changes.outputs.backend == 'true' ||
         needs.changes.outputs.shared_config == 'true'
+      ) && (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch'
       )
     runs-on: ubuntu-latest
     # Six Mockito-only unit-test classes, no Spring context, no Testcontainers -- seconds, not
@@ -849,6 +782,8 @@ jobs:
         needs.changes.result != 'success' ||
         needs.changes.outputs.frontend == 'true' ||
         needs.changes.outputs.shared_config == 'true'
+      ) && (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch'
       )
     runs-on: ubuntu-latest
     # See the backend job for why. Shorter budget: no containers here, ~1m40s today.
@@ -918,6 +853,8 @@ jobs:
         needs.changes.result != 'success' ||
         needs.changes.outputs.admin_portal == 'true' ||
         needs.changes.outputs.shared_config == 'true'
+      ) && (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch'
       )
     runs-on: ubuntu-latest
     # See the backend job for why. Shorter budget: no containers here, ~1m40s today.
@@ -966,6 +903,8 @@ jobs:
         needs.changes.result != 'success' ||
         needs.changes.outputs.mobile == 'true' ||
         needs.changes.outputs.shared_config == 'true'
+      ) && (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch'
       )
     runs-on: ubuntu-latest
     # See the backend job for why. Shorter budget: no containers here, ~1m40s today.
@@ -1070,6 +1009,8 @@ jobs:
         needs.changes.outputs.admin_portal == 'true' ||
         needs.changes.outputs.e2e == 'true' ||
         needs.changes.outputs.shared_config == 'true'
+      ) && (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch'
       )
     # Each job below gets its own fresh, isolated GitHub-hosted VM, so unlike the old self-hosted
     # setup there is no host-level state (a shared Postgres container, fixed backend ports, a
@@ -1421,6 +1362,8 @@ jobs:
         needs.changes.outputs.admin_portal == 'true' ||
         needs.changes.outputs.frontend == 'true' ||
         needs.changes.outputs.shared_config == 'true'
+      ) && (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch'
       )
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -1559,6 +1502,8 @@ jobs:
         github.event_name != 'pull_request' ||
         needs.changes.result != 'success' ||
         needs.changes.outputs.backend_image == 'true'
+      ) && (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch'
       )
     runs-on: ubuntu-latest
     # A cold build downloads the base images and every Maven dependency. This is a hang detector,

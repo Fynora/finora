@@ -55,6 +55,9 @@ permissions:
 jobs:
   corpus-coverage:
     name: Corpus coverage
+    # Private profile: on demand only (~70 minutes a week measured, PR + nightly).
+    # docs/architecture/infrastructure/ci-visibility-profiles.md.
+    if: ${{ !github.event.repository.private || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     # A hang detector, not a performance budget -- this test's own corpus is small and in-memory,
     # so a run anywhere near this long means something is actually stuck, not just slow.

@@ -57,11 +57,27 @@ REPORT_DIR = REPO_ROOT / "backend" / "target" / "surefire-reports"
 IT_SUFFIX = "IT"
 
 
+# Characters XML 1.0 does not allow anywhere in a document. Surefire copies a test's captured
+# output into its report verbatim, and a PDFBox warning in this suite carries U+FFFF -- so whichever
+# class happens to be capturing output when it is logged gets a report no XML parser accepts.
+# Measured 2026-10-04 across two runs of the same tree: a different class each time (unit tests run
+# in parallel), and its tests silently missing from the totals below (6,555 unit tests one run,
+# 6,512 the next). Dropping those characters before parsing keeps every class counted; the
+# characters themselves only ever appear inside captured log text, never in the counts read here.
+_XML_INVALID = dict.fromkeys(
+    [c for c in range(0x20) if c not in (0x09, 0x0A, 0x0D)] + [0xFFFE, 0xFFFF])
+
+
+def _read_report(path):
+    text = path.read_bytes().decode("utf-8", errors="replace").translate(_XML_INVALID)
+    return ET.fromstring(text)
+
+
 def parse():
     suites = []
     for path in sorted(REPORT_DIR.glob("TEST-*.xml")):
         try:
-            root = ET.parse(path).getroot()
+            root = _read_report(path)
         except ET.ParseError as exc:
             print(f"warning: could not parse {path.name}: {exc}", file=sys.stderr)
             continue

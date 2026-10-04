@@ -22,12 +22,12 @@ export interface KpiItem {
  * replaces (copied verbatim -- this is a layout change, not a logic change).
  */
 export function LedgerSnapshotCard({
-  kpis, deltaLabel, deltaSpokenLabel,
-}: { kpis: KpiItem[]; deltaLabel: string; deltaSpokenLabel: string }) {
+  kpis, title, deltaLabel, deltaSpokenLabel,
+}: { kpis: KpiItem[]; title: string; deltaLabel: string; deltaSpokenLabel: string }) {
   const c = useTheme();
   return (
     <DashboardCard>
-      <SectionHeading title="This Month" />
+      <SectionHeading title={title} />
       {kpis.map((k, i) => {
         const displayValue = k.value === null ? '—'
           : k.isPercent ? `${Math.round(k.value)}%` : fmtCurrency(k.value);

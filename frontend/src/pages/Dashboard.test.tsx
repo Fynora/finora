@@ -1891,6 +1891,16 @@ describe('Dashboard — This Month default', () => {
     expect(screen.getByText('—')).toBeInTheDocument();
   });
 
+  // Mobile rounds with Math.round; toFixed(0) rounds a negative half away from zero, so the same
+  // -12.5% read -13% on web and -12% on mobile.
+  it('rounds a negative savings rate the way mobile does', async () => {
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({ savingsRatePct: -12.5 }));
+    renderDashboard();
+
+    await screen.findByText('Savings Rate (This Month)');
+    expect(screen.getByText('-12%')).toBeInTheDocument();
+  });
+
   it('keeps the Cash Flow chart on the last 6 months', async () => {
     vi.mocked(reportsApi.availableMonths).mockResolvedValue([
       '2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08',

@@ -562,7 +562,8 @@ export default function Dashboard() {
     { label: `Net Savings (${monthCardSuffix})`, value: fmt(summary.netCashFlow), delta: summary.netDeltaPct, deltaLabel: monthDeltaLabel, icon: PiggyBank, iconBg: 'bg-primary-light', iconColor: 'text-primary', gateReasonText: monthGateReasonText },
     {
       label: `Savings Rate (${monthCardSuffix})`,
-      value: summary.savingsRatePct !== null ? summary.savingsRatePct.toFixed(0) + '%' : '—',
+      // Math.round, as mobile's card does: toFixed(0) rounds a negative half the other way.
+      value: summary.savingsRatePct !== null ? Math.round(summary.savingsRatePct) + '%' : '—',
       caption: summary.savingsRatePct === null ? savingsRateGateText(summary.savingsRateGateReason) : undefined,
       delta: null as number | null, deltaLabel: monthDeltaLabel, icon: PieChart, iconBg: 'bg-accent-purple-bg', iconColor: 'text-accent-purple',
     },

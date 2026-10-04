@@ -119,4 +119,18 @@ class AccountNumberTransactionHeaderExtractorTest {
     void extract_returnsNull_onEmptyInput() {
         assertThat(AccountNumberTransactionHeaderExtractor.extract(List.of(), null)).isNull();
     }
+
+    /** An impossible hyphenated date (an OCR misread, say) passes CARD_NUMBER_VALUE and
+     *  looksLikeCardOrAccountNumber exactly as a real one does, so the date check in front of them
+     *  must still recognise it as a date even though no date field would accept its value. */
+    @Test
+    void extract_returnsNull_whenTheRowBelowTheHeaderHasADateWhoseDayTheMonthDoesNotHave() {
+        var runs = List.of(
+                run("Date", 207.8f, 221.0f, 376.2f),
+                run("Amount (in`)", 521.9f, 556.9f, 376.2f),
+                run("31-02-2026", 207.8f, 239.1f, 411.7f),
+                run("1,652.00", 533.3f, 556.9f, 411.7f));
+
+        assertThat(AccountNumberTransactionHeaderExtractor.extract(runs, null)).isNull();
+    }
 }

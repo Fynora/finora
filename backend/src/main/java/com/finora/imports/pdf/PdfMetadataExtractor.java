@@ -8,6 +8,9 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
+import java.time.format.ResolverStyle;
+import java.time.temporal.ChronoField;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
@@ -335,10 +338,27 @@ public class PdfMetadataExtractor {
      *  statement prints its period as "24 JUN 2026", which fails a pattern that parses
      *  "24 Jun 2026" perfectly. Case-insensitivity cannot introduce a WRONG parse -- it only
      *  admits spellings that were already meant to match -- so it is applied to every format
-     *  rather than bolted onto the one that needed it. */
+     *  rather than bolted onto the one that needed it.
+     *
+     *  <p>Every format also resolves STRICTLY. The default (SMART) resolver does not reject a day
+     *  its month lacks -- it CLAMPS it to the month's last day. Measured on these arrays when they
+     *  still resolved SMART: "31/02/2026", "30 Feb 2026", "February 30, 2026" and (periods only)
+     *  "30 Feb 26" and "2026-02-30" all read as 2026-02-28, and "31-Apr-2026" as 2026-04-30. So an
+     *  impossible period, due or statement date -- an OCR misread is the realistic source -- was
+     *  stored as a different, real date with nothing to say it had happened. STRICT rejects it and
+     *  the field stays unset, as for any other text that is not a date.
+     *
+     *  <p>STRICT refuses to resolve a year-of-era ("yyyy"/"yy") without an era, and none of these
+     *  patterns print one, so the era is defaulted to CE. Not "uuuu": the proleptic year starts at
+     *  0 and takes a sign. Measured on StatementPeriodGridExtractor and PaymentDueDateGridExtractor,
+     *  which did use it, "uuuu" accepted "01/01/0000" as year 0 and "01/01/-2026" as year -2026 --
+     *  both of which year-of-era, and so every format here, has always rejected. */
     private static DateTimeFormatter ci(String pattern) {
         return new DateTimeFormatterBuilder().parseCaseInsensitive()
-                .appendPattern(pattern).toFormatter(Locale.ENGLISH);
+                .appendPattern(pattern)
+                .parseDefaulting(ChronoField.ERA, 1)
+                .toFormatter(Locale.ENGLISH)
+                .withResolverStyle(ResolverStyle.STRICT);
     }
 
     private static final DateTimeFormatter[] DATE_FORMATS = {
@@ -1771,8 +1791,19 @@ public class PdfMetadataExtractor {
     // statement's "16-Feb-2026") fully matches the masked-number shape too. Static, unlike
     // tryEveryFormat/tryFormats above, since this has no instance state to share with them -- kept
     // separate rather than widening those two to avoid changing an existing, already-tested path.
+    //
+    // Deliberately the SMART-resolving twins of DATE_FORMATS, not DATE_FORMATS itself. The question
+    // here is "is this cell date-SHAPED?", not "is it a real date?": an impossible "31-02-2026" in
+    // a Date column is still a date cell, and it also passes CARD_NUMBER_VALUE and
+    // looksLikeCardOrAccountNumber (measured), so under STRICT it would be returned as an account
+    // number. SMART keeps this check accepting exactly what it accepted before DATE_FORMATS went
+    // STRICT.
+    private static final DateTimeFormatter[] DATE_SHAPES = Arrays.stream(DATE_FORMATS)
+            .map(fmt -> fmt.withResolverStyle(ResolverStyle.SMART))
+            .toArray(DateTimeFormatter[]::new);
+
     static boolean looksLikeADate(String candidate) {
-        for (DateTimeFormatter fmt : DATE_FORMATS) {
+        for (DateTimeFormatter fmt : DATE_SHAPES) {
             try { LocalDate.parse(candidate, fmt); return true; } catch (Exception ignored) {}
         }
         return false;

@@ -4,6 +4,9 @@ import com.finora.imports.DocumentContext;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
+import java.time.format.ResolverStyle;
+import java.time.temporal.ChronoField;
 import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
@@ -48,11 +51,23 @@ public final class TransactionTableDateRangeExtractor {
     // actually match through this class's own regex, silently masking that no real document using
     // that phrasing has ever been evidenced through this specific trigger sentence -- the one real
     // document this extractor is evidenced from (Kotak) hyphenates its dates.
+    //
+    // STRICT, era defaulted to CE: the SMART default clamped "31-02-2026" and "31-Apr-2026" to the
+    // month's last day (measured). Same fix, and the same reason for keeping "yyyy" over "uuuu", as
+    // PdfMetadataExtractor.ci().
     private static final DateTimeFormatter[] DATE_FORMATS = {
-            DateTimeFormatter.ofPattern("dd-MM-yyyy"),
-            DateTimeFormatter.ofPattern("dd/MM/yyyy"),
-            DateTimeFormatter.ofPattern("d-MMM-yyyy", Locale.ENGLISH),
+            strict("dd-MM-yyyy"),
+            strict("dd/MM/yyyy"),
+            strict("d-MMM-yyyy"),
     };
+
+    /** Case-sensitive, as these were before; ENGLISH for every pattern, which a numeric field
+     *  parses identically under. */
+    private static DateTimeFormatter strict(String pattern) {
+        return new DateTimeFormatterBuilder().appendPattern(pattern)
+                .parseDefaulting(ChronoField.ERA, 1)
+                .toFormatter(Locale.ENGLISH).withResolverStyle(ResolverStyle.STRICT);
+    }
 
     public record PrintedDateRange(LocalDate start, LocalDate end) {
         public static final PrintedDateRange NONE = new PrintedDateRange(null, null);

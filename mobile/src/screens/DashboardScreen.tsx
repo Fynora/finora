@@ -371,7 +371,7 @@ export function DashboardScreen() {
   // Hooks can never be called only on some renders. summary can still be undefined here -- a
   // settled failure returns right after this, but a still-loading first fetch falls through to the
   // shell, which renders these off default values.
-  const { balanceKpi, snapshotKpis, periodIsCurrent, periodLabel, deltaLabel, deltaSpokenLabel } =
+  const { balanceKpi, snapshotKpis, periodIsCurrent, periodLabel, periodTitle, deltaLabel, deltaSpokenLabel } =
     useDashboardKpis(summary);
 
   // summaryQ can fail on its own (the whole point of useQueries above) -- say so rather than
@@ -554,7 +554,7 @@ export function DashboardScreen() {
 
       <View style={styles.section}>
         {summary ? (
-          <LedgerSnapshotCard kpis={snapshotKpis} deltaLabel={deltaLabel} deltaSpokenLabel={deltaSpokenLabel} />
+          <LedgerSnapshotCard kpis={snapshotKpis} title={periodTitle} deltaLabel={deltaLabel} deltaSpokenLabel={deltaSpokenLabel} />
         ) : (
           <SkeletonCard lines={4} />
         )}

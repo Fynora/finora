@@ -60,6 +60,11 @@ permissions:
 jobs:
   javascript-typescript:
     name: CodeQL (JavaScript/TypeScript)
+    # Public only. Code scanning on a private repository needs GitHub Code Security, which the
+    # org's Free plan does not have, so the SARIF upload fails every run ("Advanced Security must
+    # be enabled for this repository to use code scanning" -- see the file-level comment). Skipped
+    # rather than left to fail. docs/architecture/infrastructure/ci-visibility-profiles.md.
+    if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -87,8 +92,9 @@ jobs:
     name: CodeQL (Java)
     # Weekly, on-demand, or on merge to main -- never on the PR path itself. See the file-level
     # comment on why PR-time Java scanning stays deliberately excluded, and why `push` is exempt
-    # from that reasoning (merge frequency, not PR-update frequency).
-    if: github.event_name != 'pull_request'
+    # from that reasoning (merge frequency, not PR-update frequency). Public only, for the same
+    # reason as javascript-typescript above.
+    if: ${{ github.event_name != 'pull_request' && !github.event.repository.private }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:

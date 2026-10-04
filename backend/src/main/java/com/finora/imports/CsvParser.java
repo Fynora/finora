@@ -10,6 +10,9 @@ import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
+import java.time.format.ResolverStyle;
+import java.time.temporal.ChronoField;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -29,21 +32,39 @@ import java.util.Map;
 @Component
 public class CsvParser {
 
+    // EVERY formatter below resolves STRICTLY -- built through strict(), caseInsensitive() or
+    // monthNameFirst(), never a bare DateTimeFormatter.ofPattern.
+    //
+    // The default (SMART) resolver does not reject a day that its month lacks -- it CLAMPS it to
+    // the month's last day. Measured on this list when it still resolved SMART: "31/02/2026",
+    // "30 Feb 2026" and "31 Feb 26" all read as 2026-02-28, and "31-Apr-2026" as 2026-04-30. So
+    // an impossible date -- an OCR misread on a scanned statement is the realistic source --
+    // staged as a different, real date with nothing to say it had happened. It also meant
+    // "dd/MM/yyyy" could win over "MM/dd/yyyy" by clamping rather than by being valid. STRICT
+    // rejects the day instead, the cell parses as no date at all, and every format after it in
+    // this list gets its turn exactly as it would for any other non-matching cell.
+    //
+    // STRICT also refuses to resolve a year-of-era ("yyyy"/"yy") without an era, and none of
+    // these patterns print one, so every builder below defaults the era to CE. The obvious
+    // alternative -- the proleptic year, "uuuu"/"uu" -- was tried and measured, and it is NOT
+    // equivalent: year-of-era starts at 1, the proleptic year does not, so "uuuu" newly accepted
+    // "0000-01-01" and a signed "-2026-01-01", both of which this list had always rejected.
+    // Keeping year-of-era keeps that range check exactly where it was.
     private static final List<DateTimeFormatter> DATE_FORMATS = List.of(
-            DateTimeFormatter.ofPattern("yyyy-MM-dd"),
-            DateTimeFormatter.ofPattern("dd/MM/yyyy"),
-            DateTimeFormatter.ofPattern("dd-MM-yyyy"),
-            DateTimeFormatter.ofPattern("MM/dd/yyyy"),
+            strict("yyyy-MM-dd"),
+            strict("dd/MM/yyyy"),
+            strict("dd-MM-yyyy"),
+            strict("MM/dd/yyyy"),
             // Dot-separated, verified against a real ICICI Bank savings-account transaction
             // history ("28.07.2026"). Same day-month-year order as the slash and dash forms above
             // and no more ambiguous than either -- only the separator differs -- but it was not
             // listed, so every row on that export failed to anchor.
-            DateTimeFormatter.ofPattern("dd.MM.yyyy"),
+            strict("dd.MM.yyyy"),
             // Bug fix: verified against a real Kotak Mahindra Bank statement -- "01 Jul 2026," a
             // day-month(abbreviated name)-year format none of the above patterns match. Locale.ENGLISH
             // pinned explicitly so parsing this format doesn't depend on the JVM's default locale
             // (which may not even use Latin month abbreviations on a different machine).
-            DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.ENGLISH),
+            strict("dd MMM yyyy"),
 
             // TWO-DIGIT YEARS. Every pattern above requires four, so "01/07/26" -- the single most
             // common date rendering in Indian bank statements -- did not parse at all. Measured on
@@ -59,8 +80,8 @@ public class CsvParser {
             // right answer here and not a coincidence worth leaving implicit: a bank statement is
             // a recent document, and the alternative reading would place transactions a century
             // before the product existed.
-            DateTimeFormatter.ofPattern("dd/MM/yy"),
-            DateTimeFormatter.ofPattern("dd-MM-yy"),
+            strict("dd/MM/yy"),
+            strict("dd-MM-yy"),
             caseInsensitive("dd MMM yy"),
             caseInsensitive("dd-MMM-yy"),
             caseInsensitive("dd-MMM-yyyy"),
@@ -93,6 +114,23 @@ public class CsvParser {
     );
 
     /**
+     * A case-sensitive pattern, resolved strictly with the era defaulted to CE -- see the comment
+     * above {@link #DATE_FORMATS}.
+     *
+     * <p>Locale.ENGLISH for every pattern, including the purely numeric ones that used to take the
+     * JVM default through {@code ofPattern(String)}: a numeric field parses identically under any
+     * locale (digits come from {@code DecimalStyle.STANDARD} either way), and the one month-name
+     * pattern built here needed ENGLISH pinned already.
+     */
+    private static DateTimeFormatter strict(String pattern) {
+        return new DateTimeFormatterBuilder()
+                .appendPattern(pattern)
+                .parseDefaulting(ChronoField.ERA, 1)
+                .toFormatter(Locale.ENGLISH)
+                .withResolverStyle(ResolverStyle.STRICT);
+    }
+
+    /**
      * A month-name pattern that accepts any capitalisation.
      *
      * <p>{@code DateTimeFormatter.ofPattern} matches month names case-sensitively, so a formatter
@@ -100,10 +138,12 @@ public class CsvParser {
      * in caps, and the rejection is silent -- the row simply never anchors.
      */
     private static DateTimeFormatter caseInsensitive(String pattern) {
-        return new java.time.format.DateTimeFormatterBuilder()
+        return new DateTimeFormatterBuilder()
                 .parseCaseInsensitive()
                 .appendPattern(pattern)
-                .toFormatter(Locale.ENGLISH);
+                .parseDefaulting(ChronoField.ERA, 1)
+                .toFormatter(Locale.ENGLISH)
+                .withResolverStyle(ResolverStyle.STRICT);
     }
 
     /**
@@ -122,11 +162,13 @@ public class CsvParser {
      * need of and which would quietly widen what they accept.
      */
     private static DateTimeFormatter monthNameFirst(String pattern) {
-        return new java.time.format.DateTimeFormatterBuilder()
+        return new DateTimeFormatterBuilder()
                 .parseCaseInsensitive()
                 .parseLenient()
                 .appendPattern(pattern)
-                .toFormatter(Locale.ENGLISH);
+                .parseDefaulting(ChronoField.ERA, 1)
+                .toFormatter(Locale.ENGLISH)
+                .withResolverStyle(ResolverStyle.STRICT);
     }
 
     // Column-name hints used to locate the real header row, wherever it falls in the file. Real

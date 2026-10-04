@@ -123,14 +123,21 @@ if [ -n "$MODE_RANGE" ]; then
     exit 0
   fi
   DIFF_ARGS="$BASE $HEAD"
-  staged=$(git diff --name-only --diff-filter=ACM $DIFF_ARGS)
+  # shellcheck disable=SC2086
+  staged=$(git diff --name-only --diff-filter=ACMR $DIFF_ARGS)
 elif [ -n "$MODE_TREE" ]; then
   DIFF_ARGS=""
   staged=$(git ls-files)
 else
   DIFF_ARGS="--cached"
-  staged=$(git diff --cached --name-only --diff-filter=ACM)
+  staged=$(git diff --cached --name-only --diff-filter=ACMR)
 fi
+# R (renamed) is in both filters: `git diff` detects renames by default, and with ACM alone a commit
+# that renamed a file AND added a value to it was never scanned at all (found 2026-10-04,
+# test-fixture-hygiene.sh case 2d). Each renamed file is diffed against its old path below, so only
+# the lines the rename actually added are read -- not the moved content as if it were all new.
+# shellcheck disable=SC2086
+renames=$( [ -n "$MODE_TREE" ] || git diff --name-status --diff-filter=R $DIFF_ARGS)
 # Lockfiles are excluded deliberately, and they are the one exception worth making: they are
 # generated dependency metadata that no human pastes into, they routinely contain maintainer
 # email addresses (npm records them), and being strict JSON they cannot carry a synthetic-ok
@@ -206,7 +213,12 @@ if [ -n "$staged_pdfs" ]; then
 fi
 
 printf '%s\n' "$targets" | while IFS= read -r f; do
-  [ -f "$f" ] || continue
+  # Only the whole-tree mode reads the file from disk. The diff modes read git's objects, so a file
+  # absent from the working tree must NOT be skipped there: this guard used to apply to every mode,
+  # and --each then passed a commit that added a value in a file a later commit deleted (CI scans
+  # from the branch tip's checkout, which no longer has the file) -- the add-then-remove leak shape
+  # --each exists for. test-fixture-hygiene.sh cases 2b and 2c.
+  if [ -n "$MODE_TREE" ] && [ ! -f "$f" ]; then continue; fi
   # `grep -E '^\+\+\+ (a/|b/|/dev/null)'` excludes only the file-header line unified diff always
   # emits verbatim as "+++ b/<path>" (or "+++ /dev/null" for a delete) -- never a content line.
   #
@@ -235,7 +247,9 @@ printf '%s\n' "$targets" | while IFS= read -r f; do
     # the sanitization stays annotated here rather than needing a second exception mechanism.
     added=$(grep -v 'synthetic-ok' "$f" 2>/dev/null)
   else
-    added=$(git diff $DIFF_ARGS -- "$f" | grep -E '^\+' | grep -vE '^\+\+\+ (a/|b/|/dev/null)' | grep -v 'synthetic-ok' | cut -c2-)
+    # A renamed file's old path, from `R<score>\t<old>\t<new>` lines; empty for anything else.
+    old=$(printf '%s\n' "$renames" | awk -F '\t' -v n="$f" '$3 == n { print $2; exit }')
+    added=$(git diff $DIFF_ARGS -- ${old:+"$old"} "$f" | grep -E '^\+' | grep -vE '^\+\+\+ (a/|b/|/dev/null)' | grep -v 'synthetic-ok' | cut -c2-)
   fi
   [ -z "$added" ] && continue
 

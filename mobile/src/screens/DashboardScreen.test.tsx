@@ -1537,6 +1537,28 @@ describe('Spending by Category donut drill-through (Track C/C4)', () => {
   });
 });
 
+describe('month card heading', () => {
+  it('says This Month when the figures are from the current month', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary({ reportingMonth: '2026-10', reportingMonthIsCurrent: true }));
+
+    renderScreen();
+
+    expect(await screen.findByText('This Month')).toBeTruthy();
+  });
+
+  // The card used to be titled "This Month" whatever month the summary reported on, so a user who
+  // had imported up to June read June's figures under "This Month" in October -- while the web
+  // dashboard named the month.
+  it('names the month instead when the figures are from an earlier month', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary({ reportingMonth: '2026-06', reportingMonthIsCurrent: false }));
+
+    renderScreen();
+
+    expect(await screen.findByText('Jun 26')).toBeTruthy();
+    expect(screen.queryByText('This Month')).toBeNull();
+  });
+});
+
 describe('"As of" staleness caption on Total Balance (Track C/C5)', () => {
   it('reads "As of today" when the reporting month is the current one', async () => {
     dashboard.summary.mockResolvedValue(emptySummary({ reportingMonthIsCurrent: true }));

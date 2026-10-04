@@ -10,7 +10,7 @@ const KPIS: KpiItem[] = [
 function renderCard(kpis: KpiItem[] = KPIS) {
   return render(
     <ThemeProvider>
-      <LedgerSnapshotCard kpis={kpis} deltaLabel="vs last month" deltaSpokenLabel="versus last month" />
+      <LedgerSnapshotCard kpis={kpis} title="This Month" deltaLabel="vs last month" deltaSpokenLabel="versus last month" />
     </ThemeProvider>
   );
 }

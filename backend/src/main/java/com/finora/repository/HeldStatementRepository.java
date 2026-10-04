@@ -76,6 +76,28 @@ public interface HeldStatementRepository extends JpaRepository<HeldStatement, UU
                                      Pageable pageable);
 
     /**
+     * Decided holds, most recently decided first -- the same optional filters as {@link
+     * #findForAdmin}, over {@code resolvedStatuses} instead of the open ones. Without it a rejected
+     * or imported hold could only be found by typing its id into the URL.
+     */
+    @Query("""
+            SELECT h FROM HeldStatement h
+             WHERE h.status IN :resolvedStatuses
+               AND (:status IS NULL OR h.status = :status)
+               AND (:bankName IS NULL OR h.bankName = :bankName)
+               AND (CAST(:olderThan AS timestamp) IS NULL OR h.createdAt <= :olderThan)
+               AND (:assignedEngineerId IS NULL OR h.assignedEngineerId = :assignedEngineerId)
+             ORDER BY h.resolvedAt DESC, h.createdAt DESC
+            """)
+    Page<HeldStatement> findResolvedForAdmin(
+            @Param("resolvedStatuses") Collection<HeldStatement.Status> resolvedStatuses,
+            @Param("status") HeldStatement.Status status,
+            @Param("bankName") String bankName,
+            @Param("olderThan") Instant olderThan,
+            @Param("assignedEngineerId") UUID assignedEngineerId,
+            Pageable pageable);
+
+    /**
      * The raw sequence value. Formatting is {@code HeldStatementIdGenerator}'s job -- the same
      * split {@code StatementAnalysisRecorder} uses for its {@code SA-} references.
      *

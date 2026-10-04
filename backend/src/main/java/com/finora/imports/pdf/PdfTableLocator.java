@@ -272,8 +272,25 @@ public class PdfTableLocator {
         if (row.isEmpty()) return false;
         Matcher m = BARE_PAGE_NUMBER.matcher(rowLine);
         return m.matches()
-                && Integer.parseInt(m.group(1)) == row.get(0).pageIndex() + 1
-                && Integer.parseInt(m.group(2)) == pageCount;
+                && pageNumberOf(m.group(1)) == row.get(0).pageIndex() + 1
+                && pageNumberOf(m.group(2)) == pageCount;
+    }
+
+    /**
+     * The value of a page-number group the two footer patterns above captured ({@code \d{1,3}}).
+     * Those patterns cannot hand over anything {@link Integer#parseInt} rejects -- one to three
+     * ASCII digits -- so the {@code catch} is unreachable today. It is here so that stays true when
+     * someone widens a pattern: a footer that no longer parses must read as "not this page's
+     * number" (-1 equals no page index plus one, and no page count), never abort the whole
+     * statement's parse with an exception from a line of page furniture. CodeQL
+     * (java/uncaught-number-format-exception) flagged the four bare calls this replaces.
+     */
+    private static int pageNumberOf(String digits) {
+        try {
+            return Integer.parseInt(digits);
+        } catch (NumberFormatException e) {
+            return -1;
+        }
     }
 
     private static int pageCountOf(List<List<PositionedText>> rows) {
@@ -1556,8 +1573,10 @@ public class PdfTableLocator {
                     // as row text instead of going to auxiliary (the golden snapshot caught it). No
                     // document in the real corpus prints a repeat mid-table; that half of the gate
                     // is exercised synthetically.
-                    boolean pageTopRepeat = currentRows != null
-                            && (pendingLeading != null || lastAnchorPage == null || lastAnchorPage != rowPageIndex);
+                    // (currentRows is non-null here: this branch only runs for a repeat of the open
+                    // section's own account, whose test above requires it.)
+                    boolean pageTopRepeat =
+                            pendingLeading != null || lastAnchorPage == null || lastAnchorPage != rowPageIndex;
                     if (pageTopRepeat && pendingLeading != null) {
                         pendingAuxiliary.add(String.join(" ", pendingLeading.values()));
                         pendingLeading = null;
@@ -1681,8 +1700,10 @@ public class PdfTableLocator {
                     // as row text instead of going to auxiliary (the golden snapshot caught it). No
                     // document in the real corpus prints a repeat mid-table; that half of the gate
                     // is exercised synthetically.
-                    boolean pageTopRepeat = currentRows != null
-                            && (pendingLeading != null || lastAnchorPage == null || lastAnchorPage != rowPageIndex);
+                    // (currentRows is non-null here: this branch only runs for a repeat of the open
+                    // section's own account, whose test above requires it.)
+                    boolean pageTopRepeat =
+                            pendingLeading != null || lastAnchorPage == null || lastAnchorPage != rowPageIndex;
                     if (pageTopRepeat && pendingLeading != null) {
                         pendingAuxiliary.add(String.join(" ", pendingLeading.values()));
                         pendingLeading = null;
@@ -1846,7 +1867,8 @@ public class PdfTableLocator {
                     // -- the same footer text, cut into more pieces. Auxiliary is where page
                     // furniture already goes (see the abandoned-rows branch and the page-footer
                     // block), and PdfMetadataExtractor still reads it.
-                    if (currentRows != null && pendingLeading != null) {
+                    // (currentRows is non-null: this is inside the repeated-header branch above.)
+                    if (pendingLeading != null) {
                         pendingAuxiliary.add(String.join(" ", pendingLeading.values()));
                         pendingLeading = null;
                         pendingLeadingFromProximity = false;
@@ -2207,7 +2229,10 @@ public class PdfTableLocator {
                     boolean divertAsTotals = rowIndex == totalsPairRowIndex;
                     if (!divertAsTotals) {
                         TotalsLinePart part = totalsLinePart(bucketed, headerNames);
-                        Map<String, String> openTransaction = currentRows == null || currentRows.isEmpty()
+                        // currentRows is non-null on this path: the `currentRows == null` branch of
+                        // this row's if/else chain is the first one, and the chain's other branches
+                        // (the `currentRows.isEmpty()` one among them) already dereference it.
+                        Map<String, String> openTransaction = currentRows.isEmpty()
                                 ? null : currentRows.get(currentRows.size() - 1);
                         if (part != TotalsLinePart.NONE && !awaitsItsAmount(openTransaction)) {
                             if (part == TotalsLinePart.WHOLE) {
@@ -3073,8 +3098,8 @@ public class PdfTableLocator {
     static boolean isOwnPageCounter(String rowLine, List<PositionedText> row, int pageCount) {
         if (row.isEmpty()) return false;
         Matcher m = PAGE_COUNTER.matcher(rowLine);
-        return m.matches() && Integer.parseInt(m.group(2)) == pageCount
-                && Integer.parseInt(m.group(1)) == row.get(0).pageIndex() + 1;
+        return m.matches() && pageNumberOf(m.group(2)) == pageCount
+                && pageNumberOf(m.group(1)) == row.get(0).pageIndex() + 1;
     }
 
     /** The x of this row's leftmost non-blank run, or null for a row with nothing in it. */

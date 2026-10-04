@@ -42,6 +42,7 @@ class AdminHeldStatementAssignmentIT extends AbstractIntegrationTest {
     @Autowired private HeldStatementEventRepository eventRepository;
     @Autowired private ImportJobRepository importJobRepository;
     @Autowired private UserRepository userRepository;
+    @Autowired private com.finora.imports.ImportSessionService importSessionService;
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
     private final ObjectMapper mapper = new ObjectMapper();
@@ -70,7 +71,7 @@ class AdminHeldStatementAssignmentIT extends AbstractIntegrationTest {
         ImportJob job = new ImportJob(owner.getId(), "hdfc-june.pdf",
                 "hash-" + UUID.randomUUID(), "objects/key-" + UUID.randomUUID(), "PDF");
         job.markClaimed("worker", Instant.now());
-        UUID sessionId = UUID.randomUUID();
+        UUID sessionId = stagedSession(owner.getId(), ("seed-" + UUID.randomUUID()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
         job.holdForTrustReview(sessionId, null, Instant.now());
         importJobRepository.save(job);
 
@@ -270,5 +271,12 @@ class AdminHeldStatementAssignmentIT extends AbstractIntegrationTest {
                 new HttpEntity<>("{}"), String.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    /** A real staged session, as the worker leaves behind a held import: approving a hold whose
+     *  session does not exist is refused, so a made-up id would make every approval a 409. */
+    private UUID stagedSession(UUID ownerId, byte[] content) {
+        return importSessionService.createSession(ownerId, "statement.csv", content,
+                java.util.List.of(), null).getId();
     }
 }

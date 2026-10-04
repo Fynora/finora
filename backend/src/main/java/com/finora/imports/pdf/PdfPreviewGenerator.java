@@ -299,7 +299,7 @@ public class PdfPreviewGenerator {
         // total: that table's headline there is "Net Outstanding Balance", which also counts a
         // loan's future instalments (see CardStatementBalances.withBoxTotalPaymentDue).
         UnlabelledCardPaymentSummaryExtractor.CardPaymentSummary unlabelled =
-                UnlabelledCardPaymentSummaryExtractor.extract(positioned, ctx);
+                UnlabelledCardPaymentSummaryExtractor.extract(positioned);
         boolean unlabelledUsed = false;
         if (gridPaymentDueDate == null && unlabelled.paymentDueDate() != null) {
             gridPaymentDueDate = unlabelled.paymentDueDate();
@@ -314,7 +314,8 @@ public class PdfPreviewGenerator {
                     printedCreditCardSummary, unlabelled.totalPaymentDue());
             unlabelledUsed = true;
         }
-        if (unlabelledUsed && ctx != null) ctx.record("CARD_PAYMENT_SUMMARY_UNLABELLED_VALUES");
+        // (ctx is the DocumentContext this method created above, so it is never null here.)
+        if (unlabelledUsed) ctx.record("CARD_PAYMENT_SUMMARY_UNLABELLED_VALUES");
         // Same reasoning, same document-wide/ungated-on-section-count scope, for the account/card
         // number itself: a real Axis credit-card statement's own "Credit Card Number" field is
         // scrambled the same way its Payment Due Date is -- see AccountNumberGridExtractor's own

@@ -86,7 +86,7 @@ public class UploadScanGate {
 
         ScanResult result;
         try (InputStream in = file.getInputStream()) {
-            result = active.scan(in, file.getSize());
+            result = active.scan(in);
         } catch (IOException e) {
             result = ScanResult.unavailable("could not read the upload for scanning: " + e);
         }

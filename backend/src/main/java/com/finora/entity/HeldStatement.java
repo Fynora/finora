@@ -242,6 +242,22 @@ public class HeldStatement {
         this.resolvedAt = now;
     }
 
+    /**
+     * Takes back a rejection, so the statement can be re-read once its parser fix ships. Only a
+     * rejection: an imported statement's rows are already in the user's ledger. Back to
+     * {@code INVESTIGATING}, and who resolved it and when are cleared -- the rejection itself
+     * stays in {@code held_statement_events}.
+     */
+    public void reopen() {
+        if (status != Status.REJECTED) {
+            throw new IllegalStateException(
+                    "Held statement " + heldId + " is " + status + "; only a rejected one can be reopened.");
+        }
+        this.status = Status.INVESTIGATING;
+        this.resolvedBy = null;
+        this.resolvedAt = null;
+    }
+
     /** Replaces wholesale, same shape as {@link #addNotes} -- an engineer re-requesting a
      *  suggestion after new evidence (e.g. a {@code rerunParser} call) should see the latest one,
      *  not an accumulating list. Not guarded by {@code refuseIfResolved} for the same reason

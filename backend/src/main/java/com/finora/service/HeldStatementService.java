@@ -14,11 +14,13 @@ import com.finora.exception.ApiException;
 import com.finora.exception.ErrorCode;
 import com.finora.imports.ImportService;
 import com.finora.imports.ImportSessionService;
+import com.finora.imports.StatementUpload;
 import com.finora.imports.analysis.ImportVerificationFinding;
 import com.finora.imports.analysis.ImportVerificationFindingRepository;
 import com.finora.imports.jobs.ParserVersionProvider;
 import com.finora.imports.jobs.StagedForJob;
 import com.finora.imports.jobs.VerificationTelemetry;
+import com.finora.imports.pdf.PdfTextExtractor;
 import com.finora.imports.storage.StatementContentService;
 import com.finora.imports.trust.HeldStatementIdGenerator;
 import com.finora.imports.trust.HoldDecision;
@@ -234,6 +236,19 @@ public class HeldStatementService {
         return PagedResponse.of(result.map(HeldStatementDto::from));
     }
 
+    /** One page of decided holds (imported or rejected), most recently decided first -- where a
+     *  rejected hold is found again to {@link #reopen} it. Same filters as {@link #list}; a
+     *  {@code status} filter naming an open status matches nothing here. */
+    @Transactional(readOnly = true)
+    public PagedResponse<HeldStatementDto> listResolved(int page, int size, HeldStatementFilter filter) {
+        Instant olderThan = filter.olderThanHours() == null
+                ? null : Instant.now().minus(Duration.ofHours(filter.olderThanHours()));
+        Page<HeldStatement> result = repository.findResolvedForAdmin(HeldStatement.Status.RESOLVED,
+                filter.status(), filter.bankName(), olderThan, filter.assignedEngineerId(),
+                PageRequest.of(PageBounds.safePage(page), PageBounds.safeSize(size > 0 ? size : 25)));
+        return PagedResponse.of(result.map(HeldStatementDto::from));
+    }
+
     /**
      * The summary plus the evidence behind {@code triggerSummary} and the hold's own history.
      *
@@ -421,9 +436,10 @@ public class HeldStatementService {
      * Re-parses this hold's original bytes with the CURRENT parser build and reports whether the
      * trust predicate would still flag it.
      *
-     * <p>Reads through {@link ImportService#dryRunParse} exclusively -- see that method's own doc
-     * for why the live staging path is unsafe here: it would delete the {@code ImportSession} a
-     * later {@link #approve} still needs.
+     * <p>Parses through {@link ImportService#reparse}, never the live staging path -- that one
+     * would delete the {@code ImportSession} a later {@link #approve} still needs whatever the
+     * verdict. Only a run that clears replaces it: its own parse is staged in place of the rows
+     * staged when held, so approving releases this build's reading, not the one that was held.
      *
      * <p>{@code today} is {@code held.getCreatedAt()}'s date, not the date this method runs on --
      * using the current date would let a genuinely future-dated statement period stop being
@@ -461,14 +477,17 @@ public class HeldStatementService {
         HeldStatement held = require(heldId);
         refuseIfResolved(held, "re-parsed");
         ImportJob job = requireJob(held);
+        refuseIfUploadedAgain(held, job, "re-parsed");
 
-        byte[] content = statementContentService.read(job);
+        byte[] content = readStatement(held, job);
+        ImportService.ReparsedStatement reparsed = null;
         ImportService.DryRunResult dryRun;
         String extractionError = null;
         try {
             // A locked upload reached this queue only with a password the user saved (step 4).
-            dryRun = importService.dryRunParse(job.getUserId(), job.getFileName(), content, job.getSourceFormat(),
+            reparsed = importService.reparse(job.getUserId(), job.getFileName(), content, job.getSourceFormat(),
                     statementPasswordService.forJob(job.getId()).orElse(null));
+            dryRun = reparsed.dryRun();
         } catch (ApiException e) {
             dryRun = new ImportService.DryRunResult(List.of(), List.of());
             String code = e.getCode() != null ? e.getCode().name() : "UNKNOWN";
@@ -489,13 +508,23 @@ public class HeldStatementService {
         boolean versionChanged = currentVersion != null && !currentVersion.equals(previousVersion);
         HeldStatement.Status from = held.getStatus();
         if (!decision.hold()) {
+            // The rows approving releases are this build's reading, not the ones staged when the
+            // statement was held: those came from the parser whose output held it, and releasing
+            // them after a re-run that cleared would hand the user exactly what was wrong. The
+            // parse just made is staged in their place -- once, so a scanned statement's OCR is not
+            // run twice. The old session goes first: one live session per user and document (V79).
+            importSessionService.discardForRestage(job.getImportSessionId());
+            ImportService.StagedReparse staged =
+                    importService.stageReparsed(job.getUserId(), job.getFileName(), content, reparsed);
+            job.replaceHeldSession(staged.sessionId(), staged.totalParsed(), staged.stagedRows());
+            importJobRepository.save(job);
             held.markReadyForImport(Instant.now());
             repository.save(held);
         }
 
         String summaryNote = (decision.hold()
                 ? "Still held: " + String.join("; ", decision.reasons())
-                : "Clears under the current parser build.")
+                : "Clears under the current parser build; its rows replace the ones staged when held.")
                 + " Parser version: " + previousVersion + " -> " + currentVersion
                 + " (" + (versionChanged ? "changed" : "unchanged") + ").";
         eventRepository.save(new HeldStatementEvent(held.getId(), actingAdminId, PARSER_RERUN_EVENT,
@@ -533,6 +562,13 @@ public class HeldStatementService {
         refuseIfResolved(held, "approved");
 
         ImportJob job = requireJob(held);
+        refuseIfUploadedAgain(held, job, "approved");
+        // A rejected-then-reopened hold's session may have been swept while its job was failed;
+        // releasing it would send the user to rows that no longer exist.
+        if (!importSessionService.exists(job.getImportSessionId())) {
+            throw new ApiException(HttpStatus.CONFLICT, "The staged rows behind " + held.getHeldId()
+                    + " are gone. Re-run the parser to read the statement again before approving.");
+        }
         Instant now = Instant.now();
         HeldStatement.Status from = held.getStatus();
 
@@ -606,6 +642,57 @@ public class HeldStatementService {
         return HeldStatementDto.from(held);
     }
 
+    /**
+     * Takes back a rejection so the statement can be re-read once its parser fix ships: the hold
+     * returns to {@code INVESTIGATING} and the import to held, so the user sees "running
+     * additional checks" again rather than a failure. Re-run the parser, then approve, as for any
+     * open hold -- approving straight away is refused if the staged rows were swept meanwhile.
+     *
+     * <p>Refused when the user has since uploaded the statement again ({@link #refuseIfUploadedAgain}),
+     * and for a locked PDF whose saved password the hourly sweep has already deleted: neither hold
+     * could be carried to an import, so reopening one would only take it off the resolved list.
+     */
+    @Transactional
+    public HeldStatementDto reopen(UUID actingAdminId, String heldId, String reason) {
+        HeldStatement held = require(heldId);
+        if (held.getStatus() != HeldStatement.Status.REJECTED) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    held.getHeldId() + " is " + held.getStatus() + "; only a rejected hold can be reopened.");
+        }
+        ImportJob job = requireJob(held);
+        if (job.getStatus() != ImportJob.Status.FAILED
+                || !ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name().equals(job.getFailureCode())) {
+            throw new ApiException(HttpStatus.CONFLICT, "The import behind " + held.getHeldId()
+                    + " is " + job.getStatus() + ", not the rejection this would undo.");
+        }
+        refuseIfUploadedAgain(held, job, "reopened");
+        // A locked statement reached the queue only with the password its user saved, and the
+        // hourly sweep deletes a failed job's password (deleteUnusableJobPasswords). Once it is
+        // gone nothing can read the file again, so reopening would only strand the hold.
+        if (StatementUpload.Format.PDF.name().equals(job.getSourceFormat())
+                && !statementPasswordService.hasJobPassword(job.getId())
+                && PdfTextExtractor.needsPassword(new java.io.ByteArrayInputStream(readStatement(held, job)))) {
+            throw new ApiException(HttpStatus.CONFLICT, held.getHeldId() + " cannot be reopened: the statement "
+                    + "is password-protected and the password saved with it was deleted after the rejection, "
+                    + "so it cannot be read again. Ask the user to upload it again.");
+        }
+
+        HeldStatement.Status from = held.getStatus();
+        held.reopen();
+        job.reopenTrustReview(ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name());
+        repository.save(held);
+        importJobRepository.save(job);
+
+        eventRepository.save(new HeldStatementEvent(held.getId(), actingAdminId, "REOPENED",
+                from.name(), held.getStatus().name(), reason));
+        auditService.record(actingAdminId, "TRUST_REVIEW_REOPENED", "HeldStatement", held.getId(),
+                Map.of("actorId", actingAdminId.toString(),
+                        "subjectUserId", held.getUserId().toString(),
+                        "heldId", held.getHeldId(),
+                        "reason", reason == null ? "" : reason));
+        return HeldStatementDto.from(held);
+    }
+
     /** What the download endpoint hands back -- everything the controller needs to set the
      *  response headers, in one value. Same shape as {@code StatementImportService.FileDownload},
      *  for the same reason. */
@@ -645,7 +732,7 @@ public class HeldStatementService {
                         "heldId", held.getHeldId(),
                         "savedPasswordOnFile", savedPassword));
 
-        byte[] content = statementContentService.read(job);
+        byte[] content = readStatement(held, job);
         if (savedPassword) {
             // A protected PDF whose password the user saved is unlocked in memory for this download
             // only, so the reviewer can read it; no unlocked copy is stored.
@@ -709,6 +796,53 @@ public class HeldStatementService {
         return importJobRepository.findById(held.getImportJobId())
                 .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT,
                         "The import behind " + held.getHeldId() + " no longer exists."));
+    }
+
+    /** The held upload's stored file. A missing or unreadable object is a 409 naming the hold
+     *  rather than a 500: nothing about the request was wrong, and the reviewer needs to know the
+     *  file itself is what is gone. */
+    private byte[] readStatement(HeldStatement held, ImportJob job) {
+        try {
+            return statementContentService.read(job);
+        } catch (com.finora.imports.storage.StatementStorageException e) {
+            log.warn("Stored statement behind {} could not be read", held.getHeldId(), e);
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "The stored statement file behind " + held.getHeldId() + " could not be read.");
+        }
+    }
+
+    /**
+     * Refuses to carry a hold forward when the user has since uploaded the same statement again
+     * themselves -- a hold does not stop them (V134/V144 keep held jobs out of the live-content
+     * index), and a rejection tells them it failed. Carrying the hold on would hand them a second
+     * copy of a statement they already imported, or collide with the upload they are reviewing:
+     * that upload's session holds the one V79 slot for this document, so staging the re-read
+     * would fail on the constraint. Checked before any parse, so nothing is spent on a refusal.
+     */
+    private void refuseIfUploadedAgain(HeldStatement held, ImportJob job, String verb) {
+        String hash = job.getContentHash();
+        if (hash == null) return;
+        String refusal = held.getHeldId() + " cannot be " + verb + ": the user ";
+        String instead = held.getStatus() == HeldStatement.Status.REJECTED ? " Leave it rejected." : " Reject it instead.";
+        var imported = importService.previousImportOf(job.getUserId(), hash);
+        if (imported != null && imported.importedAt() != null && imported.importedAt().isAfter(job.getCreatedAt())) {
+            throw new ApiException(HttpStatus.CONFLICT, refusal + "imported this statement again on "
+                    + imported.importedAt() + ", so it would reach them twice." + instead);
+        }
+        boolean inFlight = importJobRepository
+                .findFirstByUserIdAndContentHashAndStatusNotInOrderByCreatedAtDesc(
+                        job.getUserId(), hash, ImportJob.Status.TERMINAL)
+                .filter(other -> !other.getId().equals(job.getId()))
+                .isPresent();
+        if (inFlight) {
+            throw new ApiException(HttpStatus.CONFLICT, refusal
+                    + "has uploaded this statement again and that import is still running.");
+        }
+        importSessionService.stagedSessionOfAnotherUpload(job.getUserId(), hash, job.getImportSessionId())
+                .ifPresent(other -> {
+                    throw new ApiException(HttpStatus.CONFLICT, refusal + "has uploaded this statement "
+                            + "again, and that upload's rows are still staged." + instead);
+                });
     }
 
     /**

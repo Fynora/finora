@@ -690,6 +690,44 @@ public class ImportSessionService {
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Import session not found."));
     }
 
+    /**
+     * Removes a held statement's staged session so a re-read can stage the current build's rows in
+     * its place. Flushed at once: the V79 index allows one live session per user and document, so
+     * the new one cannot be inserted while this row still exists. Unlike {@link #deleteSession} it
+     * keeps the job's saved password -- the import goes on, and the password opens the same file.
+     */
+    @Transactional
+    public void discardForRestage(UUID sessionId) {
+        if (sessionId == null) return;
+        importSessionRepository.findById(sessionId).ifPresent(session -> {
+            importSessionRepository.delete(session);
+            importSessionRepository.flush();
+        });
+    }
+
+    /**
+     * This user's staged session for the same document other than {@code ownSessionId} -- a later
+     * upload of the statement a held session came from. A re-upload under a newer build deletes
+     * the held session as stale ({@link #findLiveSessionByContentHash}) and stages its own, and
+     * V79 allows one per user and document, so while this one exists the held statement cannot be
+     * staged again. Expired or not: an expired row still occupies the index until it is swept.
+     */
+    @Transactional(readOnly = true)
+    public Optional<ImportSession> stagedSessionOfAnotherUpload(UUID userId, String contentHash, UUID ownSessionId) {
+        if (contentHash == null) return Optional.empty();
+        return importSessionRepository
+                .findFirstByUserIdAndContentHashAndStatusOrderByCreatedAtDesc(userId, contentHash,
+                        ImportSession.STATUS_STAGED)
+                .filter(session -> !session.getId().equals(ownSessionId));
+    }
+
+    /** Whether a session still exists -- a held statement's can be swept once its job stops being
+     *  held (a rejection), and approving it then would release rows that are gone. */
+    @Transactional(readOnly = true)
+    public boolean exists(UUID sessionId) {
+        return sessionId != null && importSessionRepository.existsById(sessionId);
+    }
+
     @Transactional
     public void deleteSession(UUID userId, UUID sessionId) {
         ImportSession session = getOwnedSession(userId, sessionId);

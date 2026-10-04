@@ -19,6 +19,7 @@ vi.mock('../api/endpoints', () => ({
     get: vi.fn(),
     approve: vi.fn(),
     reject: vi.fn(),
+    reopen: vi.fn(),
     assign: vi.fn(),
     investigate: vi.fn(),
     notes: vi.fn(),
@@ -174,6 +175,37 @@ describe('HeldStatementDetail', () => {
 
     const events = screen.getAllByText(/^(HELD_CREATED|ASSIGNED)$/);
     expect(events.map((el) => el.textContent)).toEqual(['HELD_CREATED', 'ASSIGNED']);
+  });
+
+  it('offers Reopen on a rejected hold and sends the reason', async () => {
+    vi.mocked(adminHeldStatementApi.get).mockResolvedValue({
+      ...detail, summary: { ...summary, status: 'REJECTED', resolvedAt: '2026-09-02T08:00:00Z' },
+    });
+    vi.mocked(adminHeldStatementApi.reopen).mockResolvedValue({ ...summary, status: 'INVESTIGATING' });
+    mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
+    renderPage();
+    await screen.findByTestId('reopen-panel');
+
+    fireEvent.change(screen.getAllByPlaceholderText(/reason \(optional\)/i)[0], { target: { value: 'parser fixed' } });
+    fireEvent.click(screen.getByRole('button', { name: /^reopen$/i }));
+
+    await waitFor(() => expect(adminHeldStatementApi.reopen)
+      .toHaveBeenCalledWith('HLD-2026-100001', 'parser fixed'));
+  });
+
+  it('offers no Reopen on an open or an imported hold', async () => {
+    mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
+    const { unmount } = renderPage();
+    await screen.findByText(/count disagree/i);
+    expect(screen.queryByTestId('reopen-panel')).not.toBeInTheDocument();
+    unmount();
+
+    vi.mocked(adminHeldStatementApi.get).mockResolvedValue({
+      ...detail, summary: { ...summary, status: 'IMPORTED', resolvedAt: '2026-09-02T08:00:00Z' },
+    });
+    renderPage();
+    await screen.findByText(/already IMPORTED/i);
+    expect(screen.queryByTestId('reopen-panel')).not.toBeInTheDocument();
   });
 
   it('sends falsePositive when the checkbox is checked at approve time', async () => {

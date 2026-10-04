@@ -96,4 +96,30 @@ class StatementPeriodGridExtractorTest {
     void extract_returnsNoneForAnEmptyDocument() {
         assertThat(StatementPeriodGridExtractor.extract(List.of()).start()).isNull();
     }
+
+    // The formats resolve STRICT, which never clamped; but they used the proleptic year "uuuu",
+    // which took "0000" as year 0 and "-2026" as year -2026. Year-of-era rejects both.
+    @Test
+    void extract_rejectsYearZeroAndSignedYears() {
+        for (String value : List.of("01/06/0000 - 30/06/0000", "1 Jun -2026 to 30 Jun -2026")) {
+            var runs = List.of(
+                    run("Statement Period", 259.50f, 329.51f, 224.00f),
+                    run(value, 259.50f, 341.51f, 236.50f));
+
+            var period = StatementPeriodGridExtractor.extract(runs);
+            assertThat(period.start()).as(value).isNull();
+            assertThat(period.end()).as(value).isNull();
+        }
+    }
+
+    @Test
+    void extract_stillReadsAnOrdinaryPeriod_inTheSameMinimalGrid() {
+        var runs = List.of(
+                run("Statement Period", 259.50f, 329.51f, 224.00f),
+                run("01/06/2026 - 30/06/2026", 259.50f, 341.51f, 236.50f));
+
+        var period = StatementPeriodGridExtractor.extract(runs);
+        assertThat(period.start()).isEqualTo(LocalDate.of(2026, 6, 1));
+        assertThat(period.end()).isEqualTo(LocalDate.of(2026, 6, 30));
+    }
 }

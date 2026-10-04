@@ -7,6 +7,8 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
+import java.time.format.ResolverStyle;
+import java.time.temporal.ChronoField;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Locale;
@@ -60,10 +62,15 @@ public final class UnlabelledCardPaymentSummaryExtractor {
     private static final Pattern BARE_DATE = Pattern.compile("^(" + DATE + ")$");
     private static final Pattern PERIOD_START = Pattern.compile("^(" + DATE + ")\\s+To$", Pattern.CASE_INSENSITIVE);
     private static final Pattern MASKED_CARD = Pattern.compile("^\\d{2}xx xxxx xxxx \\d{4}$", Pattern.CASE_INSENSITIVE);
+    // STRICT, era defaulted to CE: the SMART default clamped "30 Feb 2026" to 2026-02-28 and
+    // "31 Apr 2026" to 2026-04-30 (measured). Same fix, and the same reason for keeping "yyyy" over
+    // "uuuu", as PdfMetadataExtractor.ci().
     private static final DateTimeFormatter DATE_FORMAT = new DateTimeFormatterBuilder()
             .parseCaseInsensitive()
             .appendPattern("d MMM yyyy")
-            .toFormatter(Locale.ENGLISH);
+            .parseDefaulting(ChronoField.ERA, 1)
+            .toFormatter(Locale.ENGLISH)
+            .withResolverStyle(ResolverStyle.STRICT);
 
     /** {@code totalPaymentDue} is the box's "Total payment due": what the card bills this cycle.
      *  The same statement's summary table prints a "Net Outstanding Balance" that also counts a

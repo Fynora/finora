@@ -6,6 +6,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.ResolverStyle;
+import java.time.temporal.ChronoField;
 import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
@@ -60,15 +61,21 @@ public final class PaymentDueDateGridExtractor {
     // value row below" shape.
     private static final float MAX_ROW_GAP = 40.0f;
 
+    // Year-of-era with the era defaulted to CE, not the proleptic "uuuu" these used to take. Both
+    // resolve STRICT, but measured, "uuuu" accepted "01/01/0000" and "1 Jan -2026" as real dates
+    // (year 0 and year -2026); year-of-era starts at 1 and takes no sign, so both are rejected.
+    // Same choice as PdfMetadataExtractor.ci().
     private static final DateTimeFormatter[] DATE_FORMATS = {
-            new DateTimeFormatterBuilder().appendPattern("dd/MM/uuuu")
+            new DateTimeFormatterBuilder().appendPattern("dd/MM/yyyy").parseDefaulting(ChronoField.ERA, 1)
                     .toFormatter(Locale.ENGLISH).withResolverStyle(ResolverStyle.STRICT),
-            new DateTimeFormatterBuilder().parseCaseInsensitive().appendPattern("d MMM uuuu")
+            new DateTimeFormatterBuilder().parseCaseInsensitive().appendPattern("d MMM yyyy")
+                    .parseDefaulting(ChronoField.ERA, 1)
                     .toFormatter(Locale.ENGLISH).withResolverStyle(ResolverStyle.STRICT),
             // HDFC evidence: "09 Aug, 2026" -- a comma between the month and year, same
             // comma-optional coexistence PdfMetadataExtractor.DATE_FORMATS already establishes for
             // this exact shape ("d MMM, yyyy" alongside "d MMM yyyy").
-            new DateTimeFormatterBuilder().parseCaseInsensitive().appendPattern("d MMM, uuuu")
+            new DateTimeFormatterBuilder().parseCaseInsensitive().appendPattern("d MMM, yyyy")
+                    .parseDefaulting(ChronoField.ERA, 1)
                     .toFormatter(Locale.ENGLISH).withResolverStyle(ResolverStyle.STRICT),
     };
 

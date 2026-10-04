@@ -135,4 +135,15 @@ class StatementTitleDateRangeExtractorTest {
         assertThat(StatementTitleDateRangeExtractor.extract(List.of()))
                 .isSameAs(StatementTitleDateRangeExtractor.PrintedDateRange.NONE);
     }
+
+    // SMART resolution used to clamp "30 Feb 2026" to 2026-02-28.
+    @Test
+    void extract_returnsNone_whenAnEndIsADayTheMonthDoesNotHave() {
+        var range = StatementTitleDateRangeExtractor.extract(List.of(
+                run("Account Statement", 33.86f, 110.52f),
+                run("01 Feb 2026 - 30 Feb 2026", 33.86f, 126.04f)));
+
+        assertThat(range.start()).isNull();
+        assertThat(range.end()).isNull();
+    }
 }

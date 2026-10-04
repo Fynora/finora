@@ -307,8 +307,11 @@ class AdminHeldImportServiceTest {
         when(repository.countByStatus(ImportJob.Status.HELD_FOR_REVIEW)).thenReturn(2L);
         when(repository.findFirstByUserIdAndContentHashAndStatusNotInOrderByCreatedAtDesc(
                 eq(reprocessable.getUserId()), anyString(), any())).thenReturn(Optional.empty());
+        // The user's re-upload of the same document, still queued. Not `blocked` itself: the real
+        // query excludes HELD_FOR_REVIEW, so a held job can never come back as its own live duplicate.
+        ImportJob liveReupload = new ImportJob(blocked.getUserId(), "statement.pdf", "hash", "objects/key", "PDF");
         when(repository.findFirstByUserIdAndContentHashAndStatusNotInOrderByCreatedAtDesc(
-                eq(blocked.getUserId()), anyString(), any())).thenReturn(Optional.of(blocked));
+                eq(blocked.getUserId()), anyString(), any())).thenReturn(Optional.of(liveReupload));
 
         int reprocessed = service.reprocessAll(adminUserId);
 

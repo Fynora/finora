@@ -511,19 +511,27 @@ public class ImportSessionService {
      */
     private java.util.Set<UUID> sessionsBlockedByTrustReview(java.util.Collection<UUID> sessionIds) {
         if (sessionIds.isEmpty()) return java.util.Set.of();
+        // A job still held blocks on its own status, record or not. The worker holds the import
+        // even when it cannot write the held_statements row (fail closed), and the record-keyed
+        // check below cannot see a hold that has no record -- without this the session was offered
+        // for resume and confirmed as if nothing had been held.
+        java.util.Set<UUID> blocked = new java.util.HashSet<>();
+        importJobRepository.findByImportSessionIdInAndStatus(sessionIds, ImportJob.Status.HELD_FOR_TRUST_REVIEW)
+                .forEach(job -> blocked.add(job.getImportSessionId()));
         List<ImportJob> jobsWithAHold =
                 importJobRepository.findByImportSessionIdInAndHeldStatementIdIsNotNull(sessionIds);
-        if (jobsWithAHold.isEmpty()) return java.util.Set.of();
+        if (jobsWithAHold.isEmpty()) return blocked;
         java.util.Map<UUID, UUID> heldStatementIdToSessionId = jobsWithAHold.stream()
                 .collect(java.util.stream.Collectors.toMap(
                         ImportJob::getHeldStatementId, ImportJob::getImportSessionId));
-        return heldStatementRepository
+        heldStatementRepository
                 .findByImportJobIdInAndStatusNot(
                         jobsWithAHold.stream().map(ImportJob::getId).toList(),
                         HeldStatement.Status.IMPORTED)
                 .stream()
                 .map(hs -> heldStatementIdToSessionId.get(hs.getId()))
-                .collect(java.util.stream.Collectors.toSet());
+                .forEach(blocked::add);
+        return blocked;
     }
 
     /** Whether the resume UI can reopen a session of this kind. A {@code switch} rather than a

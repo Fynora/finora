@@ -132,6 +132,13 @@ public interface ImportJobRepository extends JpaRepository<ImportJob, UUID> {
     boolean existsByImportSessionIdAndStatusIn(UUID importSessionId,
                                                java.util.Collection<ImportJob.Status> statuses);
 
+    /** The jobs behind these sessions sitting in one status -- for
+     *  {@code ImportSessionService.sessionsBlockedByTrustReview}, which must see a trust hold whose
+     *  review record was never written, and for {@code HeldStatementService}, which resolves such a
+     *  job alongside the review that covers its session. */
+    List<ImportJob> findByImportSessionIdInAndStatus(java.util.Collection<UUID> importSessionIds,
+                                                     ImportJob.Status status);
+
     /**
      * The jobs behind these sessions that ever went through a trust hold, whatever became of it --
      * {@link com.finora.imports.ImportSessionService#claimForConfirmation} and {@code

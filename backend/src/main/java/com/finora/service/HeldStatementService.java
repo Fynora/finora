@@ -139,20 +139,29 @@ public class HeldStatementService {
      * already approved, and approving the second does nothing for a session an operator rejected.
      * The worker uses this to carry the existing decision over instead.
      *
+     * <p>A job held with no review record -- the worker's fail-closed path when it could not write
+     * one -- counts as an open review (HELD): its session is blocked, and nothing in the operator
+     * queue can release it.
+     *
      * <p>REJECTED wins over everything, then any unresolved status, then IMPORTED -- the same
      * order the blocking rule implies. {@code excludingJobId} is the caller's own job: a retried
      * pass may already have opened its own hold, and that one is not "another upload".
      */
     @Transactional(readOnly = true)
     public Optional<HeldStatement.Status> priorReviewOf(UUID importSessionId, UUID excludingJobId) {
-        List<UUID> heldIds = importJobRepository
-                .findByImportSessionIdInAndHeldStatementIdIsNotNull(List.of(importSessionId)).stream()
+        List<ImportJob> others = importJobRepository.findByImportSessionId(importSessionId).stream()
                 .filter(other -> !other.getId().equals(excludingJobId))
+                .toList();
+        List<UUID> heldIds = others.stream()
                 .map(ImportJob::getHeldStatementId)
+                .filter(java.util.Objects::nonNull)
                 .toList();
-        List<HeldStatement.Status> statuses = repository.findAllById(heldIds).stream()
+        List<HeldStatement.Status> statuses = new java.util.ArrayList<>(repository.findAllById(heldIds).stream()
                 .map(HeldStatement::getStatus)
-                .toList();
+                .toList());
+        if (others.stream().anyMatch(HeldStatementService::isHeldWithNoRecord)) {
+            statuses.add(HeldStatement.Status.HELD);
+        }
         if (statuses.isEmpty()) return Optional.empty();
         if (statuses.contains(HeldStatement.Status.REJECTED)) return Optional.of(HeldStatement.Status.REJECTED);
         return statuses.stream().filter(status -> !status.isResolved()).findFirst()
@@ -531,6 +540,7 @@ public class HeldStatementService {
         job.releaseAfterTrustReview(now);
         repository.save(held);
         importJobRepository.save(job);
+        List<UUID> covered = resolveHoldsWithNoRecord(job, other -> other.releaseAfterTrustReview(now));
 
         String eventNote = (falsePositive != null && falsePositive)
                 ? (note == null || note.isBlank() ? "Marked false positive." : note + " (marked false positive)")
@@ -544,7 +554,8 @@ public class HeldStatementService {
                         // Map.of rejects nulls, and an operator is not required to explain
                         // themselves -- the empty string keeps the entry writable either way.
                         "note", note == null ? "" : note,
-                        "falsePositive", falsePositive == null ? "unmarked" : falsePositive.toString()));
+                        "falsePositive", falsePositive == null ? "unmarked" : falsePositive.toString(),
+                        "coveredJobIds", covered.toString()));
 
         // Before the notification, deliberately. The sweep's exemption lifts the moment this job
         // leaves HELD_FOR_TRUST_REVIEW, and the session's expiresAt is still whatever staging set
@@ -581,6 +592,8 @@ public class HeldStatementService {
         job.rejectAfterTrustReview(ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name(), now);
         repository.save(held);
         importJobRepository.save(job);
+        List<UUID> covered = resolveHoldsWithNoRecord(job,
+                other -> other.rejectAfterTrustReview(ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name(), now));
 
         eventRepository.save(new HeldStatementEvent(held.getId(), actingAdminId, "REJECTED",
                 from.name(), held.getStatus().name(), reason));
@@ -588,7 +601,8 @@ public class HeldStatementService {
                 Map.of("actorId", actingAdminId.toString(),
                         "subjectUserId", held.getUserId().toString(),
                         "heldId", held.getHeldId(),
-                        "reason", reason == null ? "" : reason));
+                        "reason", reason == null ? "" : reason,
+                        "coveredJobIds", covered.toString()));
         return HeldStatementDto.from(held);
     }
 
@@ -652,6 +666,34 @@ public class HeldStatementService {
     }
 
     // --- internals -------------------------------------------------------------------------------
+
+    private static boolean isHeldWithNoRecord(ImportJob job) {
+        return job.getStatus() == ImportJob.Status.HELD_FOR_TRUST_REVIEW && job.getHeldStatementId() == null;
+    }
+
+    /**
+     * Applies this review's decision to any job held on the same session with no review record.
+     *
+     * <p>Such a job blocks the session on its own status (see {@code
+     * ImportSessionService.sessionsBlockedByTrustReview}) and has nothing an operator can decide,
+     * so it can only be released by the review that covers its rows -- the one the worker opens for
+     * the re-upload that replayed them. Without this, approving that review would leave the session
+     * blocked behind a job nobody can reach.
+     *
+     * @return the ids of the jobs it moved, for the audit entry
+     */
+    private List<UUID> resolveHoldsWithNoRecord(ImportJob decided, java.util.function.Consumer<ImportJob> decision) {
+        if (decided.getImportSessionId() == null) return List.of();
+        List<ImportJob> covered = importJobRepository
+                .findByImportSessionIdInAndStatus(List.of(decided.getImportSessionId()),
+                        ImportJob.Status.HELD_FOR_TRUST_REVIEW).stream()
+                .filter(other -> !other.getId().equals(decided.getId()))
+                .filter(HeldStatementService::isHeldWithNoRecord)
+                .toList();
+        covered.forEach(decision);
+        importJobRepository.saveAll(covered);
+        return covered.stream().map(ImportJob::getId).toList();
+    }
 
     private HeldStatement require(String heldId) {
         return repository.findByHeldId(heldId)

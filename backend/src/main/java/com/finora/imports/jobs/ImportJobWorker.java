@@ -299,19 +299,19 @@ public class ImportJobWorker {
             // for the same bytes under the same build, so this job can be holding rows an operator
             // has already judged, and judging them again re-blocks an approved session or leaves a
             // rejected one blocked behind a fresh "ready". The decision already made carries over:
-            // approved completes, rejected fails the way the original job did. An open review
-            // cannot reach here -- ImportJobService.accept and AdminHeldImportService.reprocess both
-            // hand back or refuse while a job is held for trust review (see
-            // ImportJob.Status.OPEN_TO_RESUBMISSION) -- so it gets the ordinary evaluation.
+            // approved completes, rejected fails the way the original job did.
+            //
+            // An open review reaches here only as a job held with no review record:
+            // ImportJobService.accept and AdminHeldImportService.reprocess hand back or refuse while
+            // a job with a record is held (ImportJob.ownsItsDocument). That session is blocked and
+            // nothing in the operator queue can release it, so this job is held whatever the
+            // predicate says now -- its review is the record the first one never got, and deciding it
+            // decides both (HeldStatementService.resolveHoldsWithNoRecord).
             java.util.Optional<com.finora.entity.HeldStatement.Status> priorReview =
                     heldStatementService.priorReviewOf(staged.sessionId(), jobId);
             boolean rejectedBefore =
                     priorReview.orElse(null) == com.finora.entity.HeldStatement.Status.REJECTED;
-            HoldDecision decision = priorReview.isPresent() && priorReview.get().isResolved()
-                    ? HoldDecision.RELEASE
-                    : TrustPredicate.evaluate(
-                            staged.verificationReports(), staged.statementPeriods(),
-                            LocalDate.now(ZoneOffset.UTC));
+            HoldDecision decision = decide(priorReview, staged);
 
             // Created before the job transition so the job row can carry the hold's id.
             //
@@ -394,6 +394,26 @@ public class ImportJobWorker {
             stageRecorder.failedWhereverItWas(jobId, attempt);
             recordFailure(execution, jobId, e);
         }
+    }
+
+    /**
+     * The trust gate's answer for this pass, given the review another upload already opened on the
+     * same session, if any -- see the call site for why each case goes the way it does.
+     */
+    private static HoldDecision decide(
+            java.util.Optional<com.finora.entity.HeldStatement.Status> priorReview, StagedForJob staged) {
+        if (priorReview.isPresent() && priorReview.get().isResolved()) {
+            return HoldDecision.RELEASE;
+        }
+        // UTC rather than the server's zone so the future-period rule cannot depend on where this
+        // runs.
+        HoldDecision evaluated = TrustPredicate.evaluate(
+                staged.verificationReports(), staged.statementPeriods(), LocalDate.now(ZoneOffset.UTC));
+        if (priorReview.isPresent() && !evaluated.hold()) {
+            return new HoldDecision(true, List.of("An earlier upload of this statement is held with "
+                    + "no review record; this review covers both"));
+        }
+        return evaluated;
     }
 
     /**

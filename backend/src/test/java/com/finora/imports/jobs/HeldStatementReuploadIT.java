@@ -75,6 +75,13 @@ class HeldStatementReuploadIT extends AbstractIntegrationTest {
     @Autowired private JwtService jwtService;
     @Autowired private com.finora.repository.RefreshTokenRepository refreshTokens;
     @Autowired private com.finora.repository.HeldStatementEventRepository heldStatementEventRepository;
+    @Autowired private org.springframework.transaction.support.TransactionTemplate transactionTemplate;
+
+    /** Nothing in it trips the trust predicate -- the same document HeldStatementServiceRerunIT
+     *  uses for a statement that clears. */
+    private static final byte[] CLEAN_CSV = ("Date,Description,Amount,Balance\n"
+            + "01/01/2026,Opening balance,,1000.00\n"
+            + "05/01/2026,Coffee shop,-150.00,850.00\n").getBytes(StandardCharsets.UTF_8);
     private final ObjectMapper mapper = new ObjectMapper();
 
     private static final byte[] FUTURE_PERIOD_CSV = ("Date,Description,Amount,Balance,Statement Period\n"
@@ -91,12 +98,16 @@ class HeldStatementReuploadIT extends AbstractIntegrationTest {
     }
 
     private UUID upload(User user) throws Exception {
+        return upload(user, FUTURE_PERIOD_CSV);
+    }
+
+    private UUID upload(User user, byte[] content) throws Exception {
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(
                 com.finora.testsupport.TestSessions.accessTokenFor(jwtService, refreshTokens, user));
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-        body.add("file", new ByteArrayResource(FUTURE_PERIOD_CSV) {
+        body.add("file", new ByteArrayResource(content) {
             @Override public String getFilename() { return "statement.csv"; }
         });
         ResponseEntity<String> accepted = restTemplate.exchange(
@@ -270,9 +281,9 @@ class HeldStatementReuploadIT extends AbstractIntegrationTest {
      * only way to a review an operator can act on, so it must still start one rather than follow
      * the record-less job forever.
      */
-    @Test
-    void reuploadOfAJobHeldWithNoReviewRecordStillReachesAReview() throws Exception {
-        User owner = user();
+    /** The state ImportJobWorker leaves when createHold throws: its REQUIRES_NEW transaction rolls
+     *  back, so no held_statements row exists, and the job is held with heldStatementId null. */
+    private ImportJob heldWithNoReviewRecord(User owner) throws Exception {
         ImportJob held = heldUpload(owner);
         HeldStatement record = heldStatementRepository.findByImportJobId(held.getId()).orElseThrow();
         heldStatementEventRepository.deleteAll(
@@ -280,7 +291,33 @@ class HeldStatementReuploadIT extends AbstractIntegrationTest {
         heldStatementRepository.delete(record);
         ImportJob reloaded = jobRepository.findById(held.getId()).orElseThrow();
         ReflectionTestUtils.setField(reloaded, "heldStatementId", null);
-        jobRepository.save(reloaded);
+        return jobRepository.save(reloaded);
+    }
+
+    @Test
+    void aJobHeldWithNoReviewRecordStillKeepsItsRowsFromTheLedger() throws Exception {
+        User owner = user();
+        ImportJob held = heldWithNoReviewRecord(owner);
+
+        assertThat(importSessionService.listResumableSessions(owner.getId()))
+                .extracting(ImportSession::getId).doesNotContain(held.getImportSessionId());
+        assertThatThrownBy(() -> importSessionService.claimForConfirmation(owner.getId(), held.getImportSessionId()))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).getCode())
+                .isEqualTo(ErrorCode.IMPORT_SESSION_HELD_FOR_REVIEW);
+        // The atomic claim is the enforcement, not the read above it -- asked directly, so the
+        // service's fast-path check cannot answer for it.
+        Integer claimed = transactionTemplate.execute(
+                status -> sessionRepository.claimForConfirmation(held.getImportSessionId()));
+        assertThat(claimed).isZero();
+        assertThat(sessionRepository.findById(held.getImportSessionId()).orElseThrow().getStatus())
+                .isEqualTo(ImportSession.STATUS_STAGED);
+    }
+
+    @Test
+    void reuploadOfAJobHeldWithNoReviewRecordStillReachesAReview() throws Exception {
+        User owner = user();
+        ImportJob held = heldWithNoReviewRecord(owner);
 
         UUID againId = upload(owner);
         worker.drainOnce();
@@ -290,7 +327,58 @@ class HeldStatementReuploadIT extends AbstractIntegrationTest {
         assertThat(again.getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_TRUST_REVIEW);
         assertThat(again.getImportSessionId()).isEqualTo(held.getImportSessionId());
         heldStatementService.approve(user().getId(), heldIdOf(again), null, null);
+        assertThat(jobRepository.findById(held.getId()).orElseThrow().getStatus())
+                .as("the record-less hold is decided by the review that covers its rows")
+                .isEqualTo(ImportJob.Status.COMPLETED);
         assertConfirmable(owner, held.getImportSessionId());
+    }
+
+    /** A clean statement whose job was nevertheless held with no record -- so the replay's own
+     *  predicate would release it, which is exactly when the review must be forced. */
+    private ImportJob cleanJobHeldWithNoReviewRecord(User owner) throws Exception {
+        UUID jobId = upload(owner, CLEAN_CSV);
+        worker.drainOnce();
+        ImportJob job = jobRepository.findById(jobId).orElseThrow();
+        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.COMPLETED);
+        job.holdForTrustReview(job.getImportSessionId(), null, Instant.now());
+        return jobRepository.save(job);
+    }
+
+    @Test
+    void aReplayOverARecordLessHoldIsHeldEvenWhenItsOwnChecksPass() throws Exception {
+        User owner = user();
+        ImportJob held = cleanJobHeldWithNoReviewRecord(owner);
+
+        UUID againId = upload(owner, CLEAN_CSV);
+        worker.drainOnce();
+
+        ImportJob again = jobRepository.findById(againId).orElseThrow();
+        assertThat(again.getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_TRUST_REVIEW);
+        assertThat(again.getImportSessionId()).isEqualTo(held.getImportSessionId());
+        assertThat(heldStatementRepository.findByImportJobId(againId).orElseThrow().getTriggerSummary())
+                .contains("no review record");
+
+        heldStatementService.approve(user().getId(), heldIdOf(again), null, null);
+        assertThat(jobRepository.findById(held.getId()).orElseThrow().getStatus())
+                .isEqualTo(ImportJob.Status.COMPLETED);
+        assertConfirmable(owner, held.getImportSessionId());
+    }
+
+    @Test
+    void rejectingTheCoveringReviewRejectsTheRecordLessHoldToo() throws Exception {
+        User owner = user();
+        ImportJob held = cleanJobHeldWithNoReviewRecord(owner);
+        UUID againId = upload(owner, CLEAN_CSV);
+        worker.drainOnce();
+
+        heldStatementService.reject(user().getId(), heldIdOf(jobRepository.findById(againId).orElseThrow()),
+                "rows do not match the document");
+
+        ImportJob first = jobRepository.findById(held.getId()).orElseThrow();
+        assertThat(first.getStatus()).isEqualTo(ImportJob.Status.FAILED);
+        assertThat(first.getFailureCode()).isEqualTo(ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name());
+        assertThat(importSessionService.listResumableSessions(owner.getId()))
+                .extracting(ImportSession::getId).doesNotContain(held.getImportSessionId());
     }
 
     private ResponseEntity<String> discard(User owner, UUID sessionId) {

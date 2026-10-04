@@ -140,6 +140,11 @@ public interface ImportSessionRepository extends JpaRepository<ImportSession, UU
      * sole non-blocking status, matching {@code
      * HeldStatementRepository.findByImportJobIdInAndStatusNot}'s own reasoning for the same
      * fail-closed default.
+     *
+     * <p>The second {@code NOT EXISTS} is the hold with no review record: the worker holds a job
+     * even when it cannot write the {@code held_statements} row, and the join above cannot see a
+     * hold that has no row. A job still in HELD_FOR_TRUST_REVIEW is a pending review whatever its
+     * record says, so it blocks on its own status.
      */
     // clearAutomatically: a native bulk UPDATE writes through JDBC directly, bypassing the
     // persistence context entirely -- Hibernate has no way to know the ImportSession entity it
@@ -168,6 +173,11 @@ public interface ImportSessionRepository extends JpaRepository<ImportSession, UU
                      JOIN held_statements hs ON hs.id = j.held_statement_id
                     WHERE j.import_session_id = s.id
                       AND hs.status <> 'IMPORTED'
+                  )
+              AND NOT EXISTS (
+                    SELECT 1 FROM import_jobs j
+                    WHERE j.import_session_id = s.id
+                      AND j.status = 'HELD_FOR_TRUST_REVIEW'
                   )
            """, nativeQuery = true)
     int claimForConfirmation(@Param("id") UUID id);

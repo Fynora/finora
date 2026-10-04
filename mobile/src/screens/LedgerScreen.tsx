@@ -318,7 +318,7 @@ export function LedgerScreen() {
     queryKey: ['dashboard-summary'],
     queryFn: () => dashboardApi.summary(),
   });
-  const { snapshotKpis, deltaLabel } = useDashboardKpis(summary);
+  const { snapshotKpis, periodTitle, deltaLabel } = useDashboardKpis(summary);
 
   // Track C/C4. `categoryId` wins when the caller already had one (a Budget carries its own);
   // otherwise resolved from `categoryName` against the SAME category list this screen already
@@ -557,7 +557,7 @@ export function LedgerScreen() {
           <>
             {summary ? (
               <View style={styles.summaryWrap}>
-                <LedgerMonthSummary kpis={snapshotKpis} deltaLabel={deltaLabel} />
+                <LedgerMonthSummary kpis={snapshotKpis} title={periodTitle} deltaLabel={deltaLabel} />
               </View>
             ) : null}
 
@@ -1006,7 +1006,7 @@ export function LedgerScreen() {
  * Keeps LedgerSnapshotCard's own `kpi-${label}` testID convention so the existing "This Month"
  * summary tests need no changes.
  */
-function LedgerMonthSummary({ kpis, deltaLabel }: { kpis: KpiItem[]; deltaLabel: string }) {
+function LedgerMonthSummary({ kpis, title, deltaLabel }: { kpis: KpiItem[]; title: string; deltaLabel: string }) {
   const c = useTheme();
   const income = kpis.find((k) => k.label === 'Income');
   const expenses = kpis.find((k) => k.label === 'Expenses');
@@ -1029,7 +1029,7 @@ function LedgerMonthSummary({ kpis, deltaLabel }: { kpis: KpiItem[]; deltaLabel:
 
   return (
     <View>
-      <Text style={[styles.monthLabel, { color: c.ink, fontWeight: '700', marginBottom: spacing.xs }]}>This Month</Text>
+      <Text style={[styles.monthLabel, { color: c.ink, fontWeight: '700', marginBottom: spacing.xs }]}>{title}</Text>
       <View style={[styles.monthCard, { backgroundColor: c.primaryLight, borderColor: c.border }]}>
         {column(income)}
         <View style={[styles.monthDivider, { backgroundColor: c.border }]} />

@@ -1230,6 +1230,10 @@ describe('ImportScreen — async import job (Phase 4)', () => {
       expect(await screen.findByText('Running additional checks')).toBeTruthy();
       expect(screen.queryByText(/^Import \d+ transaction/)).toBeNull();
       expect(screen.queryByTestId('pdf-password-panel')).toBeNull();
+
+      // And a way back while a reviewer has it.
+      fireEvent.press(await screen.findByText('Import another statement'));
+      expect(await screen.findByText('Choose a file')).toBeTruthy();
     });
 
     it('falls back to the path that keeps nothing when the server will not keep it after all', async () => {

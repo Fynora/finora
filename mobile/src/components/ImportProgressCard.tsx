@@ -216,9 +216,14 @@ export function ImportProgressCard({
 
       {pollError ? <Text style={[styles.pollError, { color: c.warning }]}>{pollError}</Text> : null}
 
-      {failed ? (
+      {/* A held import also needs a way back: it waits on a reviewer, and nothing on this card
+          changes until one decides. Leaving it stops nothing -- the review goes on, and approving
+          it notifies the user. The web page got the same fix on 2026-09-06. */}
+      {failed || held ? (
         <Pressable onPress={onDismiss} hitSlop={8} accessibilityRole="button">
-          <Text style={[styles.dismiss, { color: c.primary }]}>Choose a different file</Text>
+          <Text style={[styles.dismiss, { color: c.primary }]}>
+            {failed ? 'Choose a different file' : 'Import another statement'}
+          </Text>
         </Pressable>
       ) : null}
     </Card>

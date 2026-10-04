@@ -3495,6 +3495,11 @@ describe('Import — a statement held by the accuracy check on the synchronous p
     await waitFor(() => expect(importJobsApi.progress).toHaveBeenCalledWith('job-held'));
     expect(screen.queryByText(/which account is this statement for/i)).not.toBeInTheDocument();
     expect(screen.queryByTestId('pdf-password-panel')).not.toBeInTheDocument();
+
+    // A hold made on this path records no stages; the way back must not depend on them.
+    await user.click(await screen.findByRole('button', { name: 'Import another statement' }));
+    await waitFor(() => expect(screen.queryByTestId('import-progress')).not.toBeInTheDocument());
+    expect(screen.getByTestId('statement-file-input')).toBeInTheDocument();
   });
 
   it('follows the held job for a CSV staged synchronously too', async () => {

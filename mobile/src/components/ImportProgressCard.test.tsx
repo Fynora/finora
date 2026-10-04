@@ -84,6 +84,17 @@ describe('ImportProgressCard', () => {
     await waitFor(() => expect(onGaveUp).toHaveBeenCalledWith(expect.objectContaining({ status: 'HELD_FOR_REVIEW' })));
   });
 
+  // A held import waits on a reviewer, so the card must offer a way back to the picker: without
+  // it the screen stayed on "Running additional checks" with nothing to press.
+  it('offers a way back while the import is held for trust review', async () => {
+    api.progress.mockResolvedValue(jobProgress({ status: 'HELD_FOR_TRUST_REVIEW', userStatus: 'PROCESSING' }));
+    renderCard();
+
+    fireEvent.press(await screen.findByText('Import another statement'));
+
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
   // Bug fix, caught by this test failing before the fix: the polling-schedule `stopped` flag was
   // flipped true (by stop()) BEFORE the one-shot timeline() fetch below even started, so guarding
   // that fetch's own callback on the same flag meant it always saw `stopped === true` and silently

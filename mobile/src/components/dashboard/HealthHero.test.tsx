@@ -31,19 +31,23 @@ describe('HealthHero', () => {
     jest.useRealTimers();
   });
 
+  // The delta is against the most recent PRIOR snapshot, which can be further back than last
+  // month (DashboardService's gap-skipping lookup), so the pill makes no month claim -- the web
+  // dashboard's "vs your last recorded score", shortened for the pill.
   it('shows a positive delta pill', () => {
     renderHero({ healthScoreDeltaVsLastMonth: 4 });
-    expect(screen.getByText('+4 this month')).toBeTruthy();
+    expect(screen.getByText('+4 vs last score')).toBeTruthy();
+    expect(screen.queryByText(/this month/)).toBeNull();
   });
 
   it('shows a negative delta pill', () => {
     renderHero({ healthScoreDeltaVsLastMonth: -3 });
-    expect(screen.getByText('-3 this month')).toBeTruthy();
+    expect(screen.getByText('-3 vs last score')).toBeTruthy();
   });
 
   it('hides the delta pill entirely when null', () => {
     renderHero({ healthScoreDeltaVsLastMonth: null });
-    expect(screen.queryByText(/this month/)).toBeNull();
+    expect(screen.queryByText(/vs last score/)).toBeNull();
   });
 
   it('renders the onboarding branch, with a Continue Setup CTA, when not available', () => {

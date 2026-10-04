@@ -136,10 +136,13 @@ export function HealthHero({
         {healthScoreDeltaVsLastMonth !== null && healthScoreDeltaVsLastMonth !== 0 ? (
           // Brass, not directional green/red, per the resolved design decision -- distinct from
           // the arc/score below, which stay health-semantic. The +/- sign and number already
-          // carry the direction as text even without color here.
+          // carry the direction as text even without color here. "vs last score", not "this
+          // month": the delta is against the most recent PRIOR snapshot, which DashboardService's
+          // gap-skipping lookup can resolve further back than last month (web: "vs your last
+          // recorded score").
           <View style={[styles.deltaPill, { backgroundColor: c.brassBg }]}>
             <Text style={[styles.deltaPillText, { color: c.brassInk, fontFamily: fonts.bodyBold }]}>
-              {deltaPositive ? '+' : ''}{healthScoreDeltaVsLastMonth} this month
+              {deltaPositive ? '+' : ''}{healthScoreDeltaVsLastMonth} vs last score
             </Text>
           </View>
         ) : null}

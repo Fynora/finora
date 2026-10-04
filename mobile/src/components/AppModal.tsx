@@ -13,9 +13,20 @@ import { handleAlertBack, registerAlertContainer } from '../lib/appAlert';
 const AppCoveredContext = createContext(false);
 export const AppCoveredProvider = AppCoveredContext.Provider;
 
-/** True while the app is covered by the lock screen (or the moment before it knows whether to lock). */
+// True while App.tsx's cold-start LaunchAnimation covers the app. Same native-layer problem as the
+// lock screen: a sheet or the onboarding tour that opens on mount would otherwise be drawn on top
+// of the launch animation. A separate context because App.tsx sits outside AppLockGate.
+const LaunchCoveredContext = createContext(false);
+export const LaunchCoveredProvider = LaunchCoveredContext.Provider;
+
+/**
+ * True while the app is covered by the lock screen (or the moment before it knows whether to lock),
+ * or by the cold-start launch animation.
+ */
 export function useAppCovered(): boolean {
-  return useContext(AppCoveredContext);
+  const locked = useContext(AppCoveredContext);
+  const launching = useContext(LaunchCoveredContext);
+  return locked || launching;
 }
 
 /**

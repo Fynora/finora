@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, useWindowDimensions } from 'react-native';
+import { Component, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Dimensions, Pressable, StyleSheet, Text, type LayoutChangeEvent } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import Animated, {
   Easing,
@@ -86,21 +86,58 @@ export function shouldPlayLaunchAnimation() {
   return !played;
 }
 
-/** Test-only: lets each test start from a fresh cold start. */
-export function resetLaunchAnimationForTests() {
-  played = false;
+/**
+ * Test-only. `false` starts a test from a fresh cold start; `true` starts it as if the animation
+ * already finished, for tests about the app's steady state that mount the real App.
+ */
+export function setLaunchAnimationPlayedForTests(value: boolean) {
+  played = value;
 }
 
-export function LaunchAnimation({ ready, onDone }: {
+type LaunchAnimationProps = {
   /** False while the native splash is still up. Nothing moves until it is true. */
   ready: boolean;
   onDone: () => void;
-}) {
+};
+
+/**
+ * Sits outside App's RootErrorBoundary (it has to cover everything), so an error thrown here would
+ * otherwise unmount the whole app. Drops the overlay instead: the app underneath is already mounted.
+ */
+class LaunchAnimationBoundary extends Component<{ onError: () => void; children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch() {
+    played = true;
+    this.props.onError();
+  }
+
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
+
+export function LaunchAnimation(props: LaunchAnimationProps) {
+  return (
+    <LaunchAnimationBoundary onError={props.onDone}>
+      <LaunchAnimationContent {...props} />
+    </LaunchAnimationBoundary>
+  );
+}
+
+function LaunchAnimationContent({ ready, onDone }: LaunchAnimationProps) {
   const reducedMotion = useReducedMotion();
-  // The lift travels the screen's longer side, so it clears the screen in either orientation even
-  // if the device rotates between the exit being scheduled and running.
-  const { width, height } = useWindowDimensions();
-  const liftDistance = Math.max(width, height);
+  // How far the lift travels: the overlay's own measured height, read when the exit starts, so it
+  // clears the screen exactly whatever the window reports (Android edge-to-edge) or a rotation does
+  // in between. Seeded with the screen's longer side for the frames before layout arrives.
+  const fieldHeight = useSharedValue(Math.max(Dimensions.get('screen').width, Dimensions.get('screen').height));
+  const onFieldLayout = useCallback((event: LayoutChangeEvent) => {
+    fieldHeight.set(event.nativeEvent.layout.height);
+  }, [fieldHeight]);
 
   const stemHeight = useSharedValue(reducedMotion ? GLYPH_HEIGHT : 0);
   const topArmWidth = useSharedValue(reducedMotion ? 34 * U : 0);
@@ -146,11 +183,11 @@ export function LaunchAnimation({ ready, onDone }: {
     markScale.set(timing(0.94, T.markFadeDuration));
     fieldShift.set(withDelay(
       T.liftDelay,
-      withTiming(-liftDistance, { duration: T.liftDuration, easing: LIFT, reduceMotion: ReduceMotion.Never }, onExitFinished),
+      withTiming(-fieldHeight.get(), { duration: T.liftDuration, easing: LIFT, reduceMotion: ReduceMotion.Never }, onExitFinished),
       ReduceMotion.Never,
     ));
   }, [
-    finish, liftDistance, reducedMotion, stemHeight, topArmWidth, middleArmWidth, glyphScale, wordmarkOpacity,
+    finish, fieldHeight, reducedMotion, stemHeight, topArmWidth, middleArmWidth, glyphScale, wordmarkOpacity,
     wordmarkShift, markOpacity, markScale, fieldShift, fieldOpacity,
   ]);
 
@@ -179,8 +216,8 @@ export function LaunchAnimation({ ready, onDone }: {
       clearTimeout(failsafe);
     };
     // Runs once, when the splash hands over. The scheduled exit keeps this render's startExit; what
-    // could change after that (onDone from App is a stable callback, liftDistance is
-    // orientation-invariant) does not affect it.
+    // could change after that does not affect it (onDone from App is a stable callback, and the lift
+    // distance is read from a shared value when the exit runs).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
 
@@ -205,7 +242,12 @@ export function LaunchAnimation({ ready, onDone }: {
     <Animated.View
       testID="launch-animation"
       style={[StyleSheet.absoluteFill, styles.field, fieldStyle]}
-      pointerEvents={exiting ? 'none' : 'auto'}
+      onLayout={onFieldLayout}
+      // Keeps blocking touches through the lift (a few hundred ms), so a tap can't land on app content
+      // the field still hides. The reduced-motion fade is the exception: an opacity fade leaves the
+      // field covering the whole screen, and if its completion callback were ever lost it would keep
+      // swallowing every touch until the failsafe. The lifted field is off-screen by then instead.
+      pointerEvents={exiting && reducedMotion ? 'none' : 'auto'}
     >
       <StatusBar style="light" />
       <Pressable
@@ -240,7 +282,6 @@ const styles = StyleSheet.create({
   field: {
     backgroundColor: GRAPHITE,
     zIndex: 1000,
-    elevation: 1000,
   },
   center: {
     flex: 1,

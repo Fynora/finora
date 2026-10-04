@@ -11,6 +11,7 @@ import { AppAlert, getCurrentAppAlert, __resetAppAlertForTests } from '../lib/ap
 import { AuthProvider } from '../context/AuthContext';
 import { ThemeProvider } from '../theme';
 import App from '../../App';
+import { setLaunchAnimationPlayedForTests } from './LaunchAnimation';
 
 // Same reasoning as OfflineBanner.test.tsx / RootWarningBanner.test.tsx: isolates the mount test
 // to App's own composition rather than the whole navigation tree.
@@ -956,6 +957,11 @@ describe('an in-flight share (e.g. downloading a statement or exporting a report
 });
 
 describe('the app actually mounts it', () => {
+  // Steady state, after the cold-start launch animation: while it is up, the app behind it is hidden
+  // from screen readers, and so from these queries too (see App.tsx).
+  beforeEach(() => setLaunchAnimationPlayedForTests(true));
+  afterEach(() => setLaunchAnimationPlayedForTests(false));
+
   it('locks the real App tree for a signed-in session with the setting on', async () => {
     await signIn();
     await enableAppLock();

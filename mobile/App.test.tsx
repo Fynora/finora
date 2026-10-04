@@ -1,5 +1,5 @@
 import { act, render, screen } from '@testing-library/react-native';
-import { LAUNCH_TIMELINE, resetLaunchAnimationForTests } from './src/components/LaunchAnimation';
+import { LAUNCH_TIMELINE, setLaunchAnimationPlayedForTests } from './src/components/LaunchAnimation';
 import { createLaunchUrlGuard } from './src/lib/appLinks';
 import App from './App';
 
@@ -29,7 +29,19 @@ jest.mock('./src/components/RootWarningBanner', () => ({ RootWarningBoundary: ({
 jest.mock('./src/context/AuthContext', () => ({ AuthProvider: ({ children }: { children: unknown }) => children }));
 jest.mock('./src/context/ToastContext', () => ({ ToastProvider: ({ children }: { children: unknown }) => children }));
 jest.mock('./src/onboarding/OnboardingStepContext', () => ({ OnboardingStepProvider: ({ children }: { children: unknown }) => children }));
-jest.mock('./src/navigation/RootNavigator', () => ({ RootNavigator: () => null }));
+// Counts mounts, so a test can prove the launch animation ending never remounts the app tree.
+const mockNavigatorMounts = { count: 0 };
+jest.mock('./src/navigation/RootNavigator', () => {
+  const { useEffect } = jest.requireActual('react');
+  return {
+    RootNavigator: () => {
+      useEffect(() => {
+        mockNavigatorMounts.count += 1;
+      }, []);
+      return null;
+    },
+  };
+});
 
 describe('App', () => {
   it('forgets the handled launch URLs when it mounts, so a re-created Android activity can act on a repeated link', () => {
@@ -45,14 +57,22 @@ describe('App', () => {
   it('covers the app with the launch animation on a cold start, and not again on a remount', () => {
     jest.useFakeTimers();
     try {
-      resetLaunchAnimationForTests();
+      setLaunchAnimationPlayedForTests(false);
+      mockNavigatorMounts.count = 0;
       const first = render(<App />);
       expect(screen.getByTestId('launch-animation')).toBeOnTheScreen();
+      // The app behind it is hidden from screen readers until it has gone.
+      expect(screen.getByTestId('app-root', { includeHiddenElements: true }).props.accessibilityElementsHidden).toBe(true);
+      expect(screen.getByTestId('app-root', { includeHiddenElements: true }).props.importantForAccessibility).toBe('no-hide-descendants');
 
       act(() => {
         jest.advanceTimersByTime(LAUNCH_TIMELINE.exitStart + LAUNCH_TIMELINE.liftDelay + LAUNCH_TIMELINE.liftDuration + 100);
       });
       expect(screen.queryByTestId('launch-animation')).not.toBeOnTheScreen();
+      expect(screen.getByTestId('app-root', { includeHiddenElements: true }).props.accessibilityElementsHidden).toBe(false);
+      expect(screen.getByTestId('app-root', { includeHiddenElements: true }).props.importantForAccessibility).toBe('auto');
+      // The app underneath stayed mounted the whole time: the overlay going away never remounts it.
+      expect(mockNavigatorMounts.count).toBe(1);
 
       // A re-created Android activity remounts App inside the same JS runtime.
       first.unmount();

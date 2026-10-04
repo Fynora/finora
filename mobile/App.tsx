@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
@@ -6,6 +7,7 @@ import { ShareIntentProvider } from 'expo-share-intent';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { queryClient, startForegroundRefetch, startNetworkMonitoring, startQueryPersistence } from './src/api/queryClient';
 import { AppLockGate } from './src/components/AppLockGate';
+import { LaunchCoveredProvider } from './src/components/AppModal';
 import { LaunchAnimation, shouldPlayLaunchAnimation } from './src/components/LaunchAnimation';
 import { OfflineBoundary } from './src/components/OfflineBanner';
 import { RootErrorBoundary } from './src/components/RootErrorBoundary';
@@ -106,35 +108,47 @@ function App() {
     <ShareIntentProvider>
       <QueryClientProvider client={queryClient}>
         <SafeAreaProvider>
-          {/* Inside AuthProvider is tempting but wrong: the provider reads the account's saved theme
-              itself from storage, and sitting outside means the choice is already applied to the auth
-              screens a signed-out user sees. */}
-          <ThemeProvider>
-            {/* SEC-08: outside AuthProvider, deliberately -- a rooted/jailbroken device is a
-                concern regardless of sign-in state, so this spans the auth stack too, the same
-                reason OfflineBoundary does. */}
-            <RootWarningBoundary>
-              <AuthProvider>
-                {/* SEC-09: inside AuthProvider (needs useAuth()'s token/logout), outside/around
-                    RootNavigator so a locked session replaces the entire app UI, not just one screen
-                    inside it -- see AppLockGate's own doc comment for when it actually engages.
-                    OnboardingStepProvider sits inside AppLockGate/OfflineBoundary too -- RootNavigator
-                    is the only consumer, alongside OnboardingNavigator/TourOverlay it renders. */}
-                <AppLockGate>
-                  <OfflineBoundary>
-                    <OnboardingStepProvider>
-                      <RootErrorBoundary>
-                        <ToastProvider>
-                          <RootNavigator />
-                        </ToastProvider>
-                      </RootErrorBoundary>
-                    </OnboardingStepProvider>
-                  </OfflineBoundary>
-                </AppLockGate>
-                <StatusBar style="auto" />
-              </AuthProvider>
-            </RootWarningBoundary>
-          </ThemeProvider>
+          {/* While the launch animation is up: native Modals (AppModal) stay hidden, since they would
+              draw above it, and screen readers can't wander into the app behind it. One stable
+              wrapper either way, so the app tree is never remounted when the animation ends. */}
+          <LaunchCoveredProvider value={showLaunch}>
+            <View
+              testID="app-root"
+              style={styles.fill}
+              importantForAccessibility={showLaunch ? 'no-hide-descendants' : 'auto'}
+              accessibilityElementsHidden={showLaunch}
+            >
+              {/* Inside AuthProvider is tempting but wrong: the provider reads the account's saved theme
+                  itself from storage, and sitting outside means the choice is already applied to the auth
+                  screens a signed-out user sees. */}
+              <ThemeProvider>
+                {/* SEC-08: outside AuthProvider, deliberately -- a rooted/jailbroken device is a
+                    concern regardless of sign-in state, so this spans the auth stack too, the same
+                    reason OfflineBoundary does. */}
+                <RootWarningBoundary>
+                  <AuthProvider>
+                    {/* SEC-09: inside AuthProvider (needs useAuth()'s token/logout), outside/around
+                        RootNavigator so a locked session replaces the entire app UI, not just one screen
+                        inside it -- see AppLockGate's own doc comment for when it actually engages.
+                        OnboardingStepProvider sits inside AppLockGate/OfflineBoundary too -- RootNavigator
+                        is the only consumer, alongside OnboardingNavigator/TourOverlay it renders. */}
+                    <AppLockGate>
+                      <OfflineBoundary>
+                        <OnboardingStepProvider>
+                          <RootErrorBoundary>
+                            <ToastProvider>
+                              <RootNavigator />
+                            </ToastProvider>
+                          </RootErrorBoundary>
+                        </OnboardingStepProvider>
+                      </OfflineBoundary>
+                    </AppLockGate>
+                    <StatusBar style="auto" />
+                  </AuthProvider>
+                </RootWarningBoundary>
+              </ThemeProvider>
+            </View>
+          </LaunchCoveredProvider>
           {/* Last child, so it paints over everything above, the app-lock screen included. */}
           {showLaunch ? <LaunchAnimation ready={splashReleased} onDone={hideLaunch} /> : null}
         </SafeAreaProvider>
@@ -142,6 +156,10 @@ function App() {
     </ShareIntentProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  fill: { flex: 1 },
+});
 
 // Catches native crashes and unhandled JS errors that never reach a component's own error handling.
 export default withMonitoring(App);

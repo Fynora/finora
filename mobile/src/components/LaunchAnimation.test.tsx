@@ -3,7 +3,7 @@ import * as Worklets from 'react-native-worklets';
 import {
   LAUNCH_TIMELINE as T,
   LaunchAnimation,
-  resetLaunchAnimationForTests,
+  setLaunchAnimationPlayedForTests,
   shouldPlayLaunchAnimation,
 } from './LaunchAnimation';
 
@@ -12,9 +12,18 @@ jest.mock('expo-status-bar', () => ({ StatusBar: () => null }));
 // useReducedMotion reads the OS setting once at module load and is not spy-able (a non-configurable
 // export), so the mock reads this flag instead.
 let mockReducedMotion = false;
+let mockThrowOnRender = false;
 jest.mock('react-native-reanimated', () => {
   const actual = jest.requireActual('react-native-reanimated');
-  return { __esModule: true, ...actual, default: actual.default, useReducedMotion: () => mockReducedMotion };
+  return {
+    __esModule: true,
+    ...actual,
+    default: actual.default,
+    useReducedMotion: () => {
+      if (mockThrowOnRender) throw new Error('render failure');
+      return mockReducedMotion;
+    },
+  };
 });
 
 const GLYPH_HEIGHT = 48 * 1.6;
@@ -28,12 +37,13 @@ function advance(ms: number) {
 describe('LaunchAnimation', () => {
   beforeEach(() => {
     jest.useFakeTimers();
-    resetLaunchAnimationForTests();
+    setLaunchAnimationPlayedForTests(false);
   });
 
   afterEach(() => {
     jest.useRealTimers();
     mockReducedMotion = false;
+    mockThrowOnRender = false;
     jest.restoreAllMocks();
   });
 
@@ -119,6 +129,47 @@ describe('LaunchAnimation', () => {
     expect(onDone).not.toHaveBeenCalled();
 
     advance(100);
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(shouldPlayLaunchAnimation()).toBe(false);
+  });
+
+  it('keeps blocking touches through the lift, so a tap cannot reach app content still hidden', () => {
+    render(<LaunchAnimation ready onDone={jest.fn()} />);
+
+    advance(T.exitStart + T.liftDelay + T.liftDuration / 2);
+
+    expect(screen.getByTestId('launch-animation').props.pointerEvents).toBe('auto');
+  });
+
+  it('stops blocking touches as soon as the reduced-motion fade starts', () => {
+    mockReducedMotion = true;
+    render(<LaunchAnimation ready onDone={jest.fn()} />);
+    expect(screen.getByTestId('launch-animation').props.pointerEvents).toBe('auto');
+
+    advance(T.reducedHold + 10);
+
+    expect(screen.getByTestId('launch-animation').props.pointerEvents).toBe('none');
+  });
+
+  it('lifts by its own measured height, not an assumed screen size', () => {
+    render(<LaunchAnimation ready onDone={jest.fn()} />);
+    fireEvent(screen.getByTestId('launch-animation'), 'layout', {
+      nativeEvent: { layout: { x: 0, y: 0, width: 400, height: 1234 } },
+    });
+
+    advance(T.exitStart + T.liftDelay + T.liftDuration + 100);
+
+    expect(screen.getByTestId('launch-animation')).toHaveAnimatedStyle({ transform: [{ translateY: -1234 }] });
+  });
+
+  it('drops the overlay and reports done if it fails to render, rather than taking the app down', () => {
+    mockThrowOnRender = true;
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const onDone = jest.fn();
+
+    render(<LaunchAnimation ready onDone={onDone} />);
+
+    expect(screen.queryByTestId('launch-animation')).not.toBeOnTheScreen();
     expect(onDone).toHaveBeenCalledTimes(1);
     expect(shouldPlayLaunchAnimation()).toBe(false);
   });

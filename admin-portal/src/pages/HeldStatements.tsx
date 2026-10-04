@@ -109,6 +109,10 @@ function HoldsWithoutReviewRecord() {
         queue below and their users cannot confirm them. Open a review to move one into the queue,
         then release or reject it there.
       </p>
+      {(stuck.data?.totalElements ?? 0) > rows.length && (
+        // Oldest first; opening one brings the next into view.
+        <p className="text-muted text-xs">Showing the oldest {rows.length}.</p>
+      )}
       {error && <p role="alert" className="text-sm text-danger">{error}</p>}
       <DataTable columns={columns} rows={rows} keyFor={(row) => row.jobId} loading={false} emptyMessage="" />
     </section>

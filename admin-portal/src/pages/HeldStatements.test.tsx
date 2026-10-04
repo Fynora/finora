@@ -278,6 +278,17 @@ describe('HeldStatements', () => {
       expect(screen.queryByRole('button', { name: /open review/i })).not.toBeInTheDocument();
     });
 
+    it('says when there are more than it shows', async () => {
+      vi.mocked(adminHeldStatementApi.listWithoutReviewRecord).mockResolvedValue({
+        content: [stuck], page: 0, size: 25, totalElements: 30, totalPages: 2,
+      });
+      mockAuth(['TRUST_REVIEW_MANAGE']);
+      renderPage();
+
+      expect(await screen.findByText(/showing the oldest 1/i)).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /\(30\)/ })).toBeInTheDocument();
+    });
+
     it('is not shown under Resolved', async () => {
       vi.mocked(adminHeldStatementApi.listWithoutReviewRecord).mockResolvedValue({
         content: [stuck], page: 0, size: 25, totalElements: 1, totalPages: 1,

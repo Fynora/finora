@@ -83,3 +83,15 @@ every protected screen follows it. This applies to iOS builds and OTA updates as
 
 Play Console → the app → Production (or the appropriate track) → Create new release → upload
 the verified APK/AAB.
+
+Or let EAS upload it. A Google service account key (`eas-play-upload@finora-88346`, with
+testing-track release rights only) is stored in EAS credentials, so from `mobile/`:
+
+```bash
+eas submit --platform android --profile production --id <build-id>
+```
+
+`eas.json` sends it to **Closed testing** (Play's `alpha` track) as a **draft** release: nothing
+reaches testers until someone opens the release in Play Console and starts the rollout. The key
+cannot release to production; grant that permission in Play Console → Users and permissions
+when production uploads are wanted.

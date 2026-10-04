@@ -319,9 +319,10 @@ public final class CategoryRules {
      * across 8 statements carried 5 different labels, and one had lost the word "interest"
      * altogether (only the first four words of a narration are kept).
      *
-     * <p>Money in only. A debit worded the same way keeps its own label: refund matching
-     * (ReconciliationService.isSameMerchant) pairs a credit with a debit on the same account by
-     * this label, and a shared label would let an interest credit read as the refund of a debit.
+     * <p>Money in only: a debit worded the same way keeps the label it always had. Refund matching
+     * pairs a credit with a debit on the same account by this label, so ReconciliationService
+     * never takes a name match on an interest credit as evidence -- a debit narrated just
+     * "INTEREST" reduces to the same label.
      */
     public static String extractMerchantLabel(String desc, com.finora.entity.Transaction.Type direction) {
         if (BankActivityCategory.isInterestEarned(desc, direction)) return INTEREST_LABEL;

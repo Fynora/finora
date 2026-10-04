@@ -20,9 +20,11 @@
 -- hand-typed one rarely is.
 --
 -- version moves so the change stamp (ChangeStampService) sees the rows changed and the app
--- refetches them, and so an edit open on a stale copy gets the usual conflict instead of writing
--- the old label back. Categories are not touched: CategorizationService.SUGGESTION_VERSION was
--- raised in the same release, which re-checks the rows still waiting for review.
+-- refetches them, and so a server-side save racing this update loses on the optimistic lock. It
+-- does not protect an edit form left open across the deploy: the clients send no version, so saving
+-- that form writes back the label it was opened with. Categories are not touched:
+-- CategorizationService.SUGGESTION_VERSION was raised in the same release, which re-checks the rows
+-- still waiting for review.
 UPDATE transactions
 SET merchant = 'interest',
     version = version + 1,

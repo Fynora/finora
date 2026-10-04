@@ -32,9 +32,11 @@ WHAT MAKES IT FAIL
   --unit-only waives ONLY this last check, for the one legitimate case where zero *IT classes is
   correct rather than a regression: ci.yml's PR path runs `./mvnw test` (surefire, unit-only by
   design -- see backend/pom.xml's 2026-09-02 comment on the surefire/failsafe split), where *IT
-  never runs at all. The push-to-main path runs `./mvnw verify` and calls this script WITHOUT the
-  flag, so the check still fires, by default, on the one run where *IT silently not executing
-  would actually be incident 2 again.
+  never runs at all. Since 2026-10-04 that includes ci.yml's backend job on every event: the *IT
+  classes run in the separate, sharded backend-integration job, and backend-integration-summary
+  calls this script WITHOUT the flag over every shard's merged reports -- so the check still
+  fires, by default, on the one run where *IT silently not executing would actually be incident
+  2 again.
 
 It does NOT fail on test failures themselves -- the test step already did that, and this runs with
 `if: !cancelled()` so the summary still renders for a failing run, which is when the breakdown is

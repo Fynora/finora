@@ -622,37 +622,19 @@ jobs:
       # at the time.
       #
       # 2026-09-02: split back into two paths, once the backend job's own runtime made "every PR
-      # waits on the full Testcontainers suite" worth trading away. A PR runs `./mvnw test`
-      # (surefire, unit-only now -- backend/pom.xml's *IT include moved to failsafe); a push to
-      # main runs `./mvnw verify` (surefire + failsafe, the full suite, matching what merged code
-      # actually needs proven before it's live). Either way, the Test summary step below still
-      # fails if the *IT count is ever zero on a run that was supposed to include them -- see its
-      # own --unit-only handling, and backend/pom.xml's surefire-plugin comment for the full
-      # incident history this split is designed not to reopen.
+      # waits on the full Testcontainers suite" worth trading away. A PR ran `./mvnw test`
+      # (surefire, unit-only -- backend/pom.xml's *IT include moved to failsafe); a push to main
+      # ran `./mvnw verify` (surefire + failsafe, the full suite) in this same job.
       #
-      # One exception to "a PR runs unit only": a `full-ci` PR while the repository is private.
-      # The private profile (see "Repository visibility" above `jobs:`) runs only repo-hygiene on a
-      # push to main, so without this the integration tests -- every Testcontainers *IT, including
-      # the Flyway migration ITs -- would never run anywhere while private, except on a by-hand run.
-      # Found 2026-10-04, the day after the private profile merged (#1974), by reading these two
-      # conditions; the labelled PR's run is the one full run a change gets, so it runs `verify`.
-      # The three conditions below (these two steps and Test summary's --unit-only) must stay in
-      # step with each other.
-      - name: Run tests (PR - unit only, fast)
-        if: >-
-          github.event_name == 'pull_request' &&
-          !(github.event.repository.private &&
-            contains(github.event.pull_request.labels.*.name, 'full-ci'))
+      # 2026-10-04: the integration tests moved out of this job into backend-integration below,
+      # sharded across three runners. Measured on main the day before: this job's `verify` took
+      # 12m39s, 8m22s of it the 1,778 *IT tests, which cannot run faster inside one JVM because
+      # AbstractIntegrationTest is @Isolated (one shared Postgres). So this job now runs the unit
+      # suite on every event, and whether integration tests run is decided by backend-integration's
+      # own `if:`. backend-integration-summary is where "the ITs ran, every one of them" is checked.
+      - name: Run unit tests
         working-directory: backend
         run: ./mvnw -B --no-transfer-progress test
-
-      - name: Run tests (merge to main, or a private full-ci PR - full suite, incl. integration tests)
-        if: >-
-          github.event_name != 'pull_request' ||
-          (github.event.repository.private &&
-            contains(github.event.pull_request.labels.*.name, 'full-ci'))
-        working-directory: backend
-        run: ./mvnw -B --no-transfer-progress verify
 
       # The one thing in the whole corpus-regression suite that is genuinely CI-gated end to end
       # (probe -> match -> merge-blocking). The real 27-document corpus can never run here -- see
@@ -682,21 +664,17 @@ jobs:
              --ground-truth backend/target/synthetic-corpus-regression/ground-truth
              --allow-in-repo-synthetic-corpus
 
-      # Runs on a FAILING run too -- that is when knowing which classes failed, and whether the ITs
-      # ran at all, is worth most. It reports rather than re-judges: a genuine test failure is
-      # already the previous step's exit code, and this only adds a failure of its own for a hollow
-      # result (no reports, 0 tests, or 0 *IT).
+      # Runs on a FAILING run too -- that is when knowing which classes failed is worth most. It
+      # reports rather than re-judges: a genuine test failure is already the previous step's exit
+      # code, and this only adds a failure of its own for a hollow result (no reports, 0 tests).
+      # Always --unit-only now: this job never runs *IT. The zero-*IT check runs, without the flag,
+      # in backend-integration-summary over every shard's reports.
       #
       # `!cancelled()` rather than `always()`, which was the original and included the CANCELLED
       # case. See the Guardian step below for the incident that changed it.
       - name: Test summary
         if: ${{ !cancelled() }}
-        run: >-
-          python3 scripts/summarize-surefire.py ${{
-            (github.event_name == 'pull_request' &&
-              !(github.event.repository.private &&
-                contains(github.event.pull_request.labels.*.name, 'full-ci')))
-            && '--unit-only' || '' }}
+        run: python3 scripts/summarize-surefire.py --unit-only
 
       # guardian-report.py was the last checker referenced only in documentation -- never in CI,
       # a hook, or a package script. That is precisely the anti-pattern the XML-comment check in
@@ -741,6 +719,149 @@ jobs:
           name: surefire-reports
           path: backend/target/surefire-reports/
           retention-days: 14
+
+      # For backend-integration-summary, on a run that also runs the integration tests: it merges
+      # these unit reports with every shard's, so its summary and Guardian report cover the whole
+      # suite rather than only the ITs. The condition is backend-integration's own event condition.
+      - name: Hand unit reports to the integration summary
+        if: >-
+          success() && (
+            github.event_name != 'pull_request' ||
+            (github.event.repository.private &&
+              contains(github.event.pull_request.labels.*.name, 'full-ci'))
+          )
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-unit-reports
+          path: |
+            backend/target/surefire-reports/
+            backend/target/guardian-rules.json
+          if-no-files-found: error
+          retention-days: 7
+
+  # The backend's integration tests (*IT, failsafe), split across three runners that run at the
+  # same time. Measured 2026-10-04 on main, before this split: they took 8m22s of the backend job's
+  # 12m39s, strictly one class at a time, because AbstractIntegrationTest is @Isolated -- every
+  # subclass shares one Postgres. Each shard here is its own VM with its own Testcontainers Postgres,
+  # so @Isolated still holds inside a shard, and nothing is shared between shards.
+  #
+  # Same runs as the old `./mvnw verify` path: every push to main and by-hand run, and a `full-ci`
+  # PR while the repository is private (see "Repository visibility" above `jobs:` -- a private push
+  # to main runs only repo-hygiene, so without that clause the integration tests would never run
+  # while private). A public PR still runs unit tests only, as since 2026-09-02.
+  #
+  # scripts/shard-integration-tests.py deals the 304 *IT classes round-robin by name, so the split
+  # needs no timing data. Its --check-reports, in backend-integration-summary, fails the run if any
+  # class went unreported -- a class that matched no shard would otherwise be skipped silently
+  # while every shard stayed green. The shard count lives in two places, the matrix and --shards,
+  # and a mismatch fails that check instead of dropping classes quietly.
+  #
+  # fail-fast: false, so one red shard does not cancel the other two -- all failures show at once.
+  backend-integration:
+    name: Backend integration (shard ${{ matrix.shard }}/3)
+    needs: changes
+    if: >-
+      always() && (
+        github.event_name != 'pull_request' || github.event.pull_request.draft == false
+      ) && (
+        github.event_name != 'pull_request' ||
+        needs.changes.result != 'success' ||
+        needs.changes.outputs.backend == 'true' ||
+        needs.changes.outputs.shared_config == 'true'
+      ) && (
+        github.event_name != 'pull_request' ||
+        (github.event.repository.private &&
+          contains(github.event.pull_request.labels.*.name, 'full-ci'))
+      ) && (
+        !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        contains(github.event.pull_request.labels.*.name, 'full-ci')
+      )
+    runs-on: ubuntu-latest
+    # A hang detector, same reasoning as the backend job's.
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      # -Dtest=NONE + failIfNoSpecifiedTests=false: surefire runs no unit test here (the backend
+      # job does). -Dit.test: failsafe runs only this shard's classes, overriding its **/*IT.java
+      # include. Both checked locally before this was written: two named *IT classes ran, in
+      # either name form, and zero unit tests.
+      - name: Integration tests, shard ${{ matrix.shard }} of 3
+        working-directory: backend
+        run: |
+          classes=$(python3 ../scripts/shard-integration-tests.py --shards 3 --index ${{ matrix.shard }})
+          echo "Shard ${{ matrix.shard }}/3 runs $(echo "$classes" | tr ',' '\n' | wc -l) *IT classes."
+          ./mvnw -B --no-transfer-progress verify \
+            -Dtest=NONE -Dsurefire.failIfNoSpecifiedTests=false \
+            "-Dit.test=$classes"
+
+      - name: Upload this shard's reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-it-reports-${{ matrix.shard }}
+          path: backend/target/surefire-reports/
+          if-no-files-found: warn
+          retention-days: 7
+
+  # One check that answers "did the integration tests pass, and did every one of them run", over
+  # all three shards plus the backend job's unit reports. It also carries the zero-*IT check
+  # (summarize-surefire.py without --unit-only) the backend job used to run on push.
+  backend-integration-summary:
+    name: Backend integration tests (all shards)
+    needs: [backend, backend-integration]
+    if: ${{ !cancelled() && needs.backend-integration.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Split self-test
+        run: python3 scripts/shard-integration-tests.py --self-test --shards 3
+
+      - name: Collect every shard's reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: backend-it-reports-*
+          merge-multiple: true
+          path: backend/target/surefire-reports
+
+      - name: Collect the unit reports
+        if: needs.backend.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-unit-reports
+          path: backend/target
+
+      - name: Every *IT class ran exactly once
+        run: python3 scripts/shard-integration-tests.py --check-reports backend/target/surefire-reports
+
+      - name: Test summary
+        if: ${{ !cancelled() }}
+        run: python3 scripts/summarize-surefire.py
+
+      - name: Repository Guardian report
+        if: ${{ !cancelled() && needs.backend.result == 'success' }}
+        run: python3 scripts/guardian-report.py
+
+      # Last, so the summary above still renders: a red shard is a red check here too.
+      - name: Every shard passed
+        if: ${{ !cancelled() }}
+        run: |
+          if [ "${{ needs.backend-integration.result }}" != "success" ]; then
+            echo "At least one integration-test shard did not pass (result: ${{ needs.backend-integration.result }})."
+            exit 1
+          fi
 
   # docs/proposals/reconciliation-benchmark/'s own permanent gate, added once that folder's
   # benchmark work landed (PR #1082): 59 scenarios against the real ReconciliationService, moved

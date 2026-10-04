@@ -3,25 +3,25 @@
     {
       "path": "/Fynora/finora/actions",
       "title": "/actions",
-      "count": 525,
+      "count": 661,
       "uniques": 1
     },
     {
       "path": "/Fynora/finora/pulls",
       "title": "/pulls",
-      "count": 115,
+      "count": 139,
       "uniques": 1
     },
     {
       "path": "/Fynora/finora/security/code-scanning",
       "title": "/security/code-scanning",
-      "count": 13,
+      "count": 14,
       "uniques": 1
     },
     {
       "path": "/Fynora/finora/security",
       "title": "/security",
-      "count": 10,
+      "count": 11,
       "uniques": 1
     },
     {
@@ -43,6 +43,12 @@
       "uniques": 1
     },
     {
+      "path": "/Fynora/finora/actions/runs/37108012907",
+      "title": "/actions/runs/37108012907",
+      "count": 6,
+      "uniques": 1
+    },
+    {
       "path": "/Fynora/finora/tree/main/docs",
       "title": "/tree/main/docs",
       "count": 4,
@@ -51,12 +57,6 @@
     {
       "path": "/Fynora/finora/actions/runs/35632922483",
       "title": "/actions/runs/35632922483",
-      "count": 4,
-      "uniques": 1
-    },
-    {
-      "path": "/Fynora/finora/actions/runs/35754051772",
-      "title": "/actions/runs/35754051772",
       "count": 4,
       "uniques": 1
     }

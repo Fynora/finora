@@ -43,6 +43,22 @@ final class ProbePipelines {
                 TestRuleEngines.empty());
     }
 
+    /** The same pipeline, reading text the way production does: the document's own text first, and
+     *  Tesseract only for a page set with none (see RoutingTextAcquirer). Without it a scanned
+     *  statement stages nothing, so a check over the corpus would skip it without saying so. */
+    static PdfPreviewGenerator productionRoutedGenerator() {
+        return new PdfPreviewGenerator(
+                new com.finora.imports.pdf.acquisition.RoutingTextAcquirer(
+                        new com.finora.imports.pdf.acquisition.NativePdfAcquirer(new PdfTextExtractor()),
+                        List.of(new com.finora.imports.pdf.ocr.TesseractRecogniser())),
+                new PdfTableLocator(), new PdfMetadataExtractor(),
+                stubbedNormalizer(), ProductDiscovery.standard(), new ProductAttributeExtractor(),
+                new ImportVerifier(new BalanceChainValidator(), new StatementTotalsValidator(),
+                        new SummaryTotalsValidator(), new ColumnAmbiguityValidator(), new com.finora.imports.RowAccountingValidator(),
+                        new com.finora.imports.CreditCardStatementTotalsValidator(), new com.finora.imports.CreditCardFlowReconciliationValidator(), new com.finora.imports.DescriptionCorruptionValidator()),
+                TestRuleEngines.empty());
+    }
+
     /** Identical to {@link CorpusProbe}'s -- see its own doc for why both collaborators are stubbed. */
     private static TransactionNormalizer stubbedNormalizer() {
         CategorizationService categorization = mock(CategorizationService.class);

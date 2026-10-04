@@ -394,7 +394,7 @@ describe('InsightsScreen', () => {
       dashboard.summary.mockReset().mockResolvedValue({
         monthlyIncome: 145000, monthlyExpense: 12831, incomeDeltaPct: 12, expenseDeltaPct: -22,
         netCashFlow: 132169, netDeltaPct: 28, spendByCategory: {}, reportingMonth: '2026-09',
-        priorMonth: '2026-08', incomePrior: 129464,
+        reportingMonthIsCurrent: true, priorMonth: '2026-08', incomePrior: 129464,
       } as any);
     });
 
@@ -429,6 +429,7 @@ describe('InsightsScreen', () => {
       dashboard.summary.mockReset().mockResolvedValue({
         monthlyIncome: 145000, monthlyExpense: 12831, incomeDeltaPct: 12, expenseDeltaPct: -22,
         netCashFlow: 132169, netDeltaPct: 28, spendByCategory: {}, reportingMonth: '2026-09',
+        reportingMonthIsCurrent: true,
       } as any);
       renderScreen();
       fireEvent.press(await screen.findByText('Income'));
@@ -503,6 +504,197 @@ describe('InsightsScreen', () => {
       expect(navigate).toHaveBeenCalledWith('Transactions', {
         filters: { categoryName: 'Dining', label: 'Dining', nonce: expect.any(Number) },
       });
+    });
+
+    it('narrows to the insights month once the response names one', async () => {
+      insights.get.mockReset().mockResolvedValue({
+        sentences: [], coverageCaveat: null, biggestCategory: null, topMerchant: null,
+        movers: [{ category: 'Dining', current: 4000, priorAverage: 6000, pctChange: -33 }],
+        reportingMonth: '2026-06', reportingMonthIsCurrent: false,
+      });
+      renderScreen();
+      await screen.findByText('Dining');
+      const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
+      navigate.mockClear();
+
+      fireEvent.press(screen.getByLabelText(/Dining spend was 33% lower than your recent average/));
+
+      expect(navigate).toHaveBeenCalledWith('Transactions', {
+        filters: {
+          categoryName: 'Dining', dateFrom: '2026-06-01', dateTo: '2026-06-30', label: 'Dining · Jun 26',
+          nonce: expect.any(Number),
+        },
+      });
+    });
+  });
+
+  // Statements are imported in arrears, so the newest month with data is routinely not the
+  // current one. Every heading and comparison here must name the month its figures describe:
+  // a user who imported up to June must not read June's figures as "This Month" in October.
+  // Two periods are in play -- the dashboard summary's (newest month with ANY data) and the
+  // insights endpoint's own (newest month with a PURCHASE) -- and each figure takes its label
+  // from the one it came from.
+  describe('a reporting month that is not the current one', () => {
+    const PAST_SUMMARY = {
+      monthlyIncome: 145000, monthlyExpense: 12831, incomeDeltaPct: 12, expenseDeltaPct: -22,
+      netCashFlow: 132169, netDeltaPct: 28, spendByCategory: { Shopping: 5798 },
+      reportingMonth: '2026-06', reportingMonthIsCurrent: false, priorMonth: '2026-05', incomePrior: 129464,
+    };
+    const PAST_INSIGHTS = {
+      sentences: ['In 2026-06, total spend was ₹12,831 across 1 categories.'],
+      movers: [], coverageCaveat: null, biggestCategory: null,
+      topMerchant: { name: 'myntra', amount: 3299 },
+      reportingMonth: '2026-06', reportingMonthIsCurrent: false,
+    };
+
+    beforeEach(() => {
+      dashboard.summary.mockReset().mockResolvedValue(PAST_SUMMARY as any);
+      insights.get.mockReset().mockResolvedValue(PAST_INSIGHTS);
+    });
+
+    it('titles the glance card with the reporting month, not "This Month"', async () => {
+      renderScreen();
+
+      expect(await screen.findByText('June 2026 at a Glance')).toBeTruthy();
+      expect(screen.queryByText(/this month/i)).toBeNull();
+    });
+
+    it('compares against the named prior month in both banners, not "last month"', async () => {
+      renderScreen();
+
+      expect(await screen.findByText('Your spending is 22% lower than May 2026. Keep it up!')).toBeTruthy();
+      expect(screen.getByText("You're spending 22% less than May 2026.")).toBeTruthy();
+      expect(screen.queryByText(/last month/i)).toBeNull();
+    });
+
+    it('names the month when there is no delta to report either', async () => {
+      dashboard.summary.mockReset().mockResolvedValue({ ...PAST_SUMMARY, expenseDeltaPct: null } as any);
+      renderScreen();
+
+      expect(await screen.findByText('June 2026')).toBeTruthy();
+      expect(screen.getByText('Keep an eye on your spending in June 2026.')).toBeTruthy();
+      expect(screen.queryByText(/this month/i)).toBeNull();
+    });
+
+    it('says which month had no spending, rather than "this month"', async () => {
+      dashboard.summary.mockReset().mockResolvedValue({ ...PAST_SUMMARY, spendByCategory: {} } as any);
+      renderScreen();
+
+      expect(await screen.findByText('No spending recorded in June 2026.')).toBeTruthy();
+    });
+
+    it("names the insights month on the top-merchant row", async () => {
+      renderScreen();
+
+      expect(await screen.findByText(/Your top merchant in June 2026 was/)).toBeTruthy();
+    });
+
+    it('labels the insights by their own month, even when the summary reports a later one', async () => {
+      // An income-only July: the summary's newest month with ANY data is July, but the insights'
+      // newest month with a PURCHASE is still June. The figures below are June's.
+      dashboard.summary.mockReset().mockResolvedValue({
+        ...PAST_SUMMARY, reportingMonth: '2026-07', priorMonth: '2026-06',
+      } as any);
+      renderScreen();
+      fireEvent.press(await screen.findByText('Spending'));
+
+      expect(await screen.findByText('Observations for June 2026')).toBeTruthy();
+      expect(screen.getByLabelText('Change month, currently June 2026')).toBeTruthy();
+      expect(screen.queryByText(/this month/i)).toBeNull();
+    });
+
+    it('titles a picked month by name on Spending', async () => {
+      reports.availableMonths.mockReset().mockResolvedValue(['2026-05', '2026-06']);
+      renderScreen();
+      fireEvent.press(await screen.findByText('Spending'));
+      await screen.findByText('Observations for June 2026');
+      insights.get.mockResolvedValue({ ...PAST_INSIGHTS, topMerchant: null, reportingMonth: '2026-05' });
+
+      fireEvent.press(screen.getByLabelText(/Change month/));
+      fireEvent.press(screen.getByText('May 2026'));
+
+      expect(await screen.findByText('Observations for May 2026')).toBeTruthy();
+    });
+
+    it('keeps naming a picked month when its insights fail to load', async () => {
+      reports.availableMonths.mockReset().mockResolvedValue(['2026-05', '2026-06']);
+      renderScreen();
+      fireEvent.press(await screen.findByText('Spending'));
+      await screen.findByText('Observations for June 2026');
+      insights.get.mockRejectedValue(new Error('boom'));
+
+      fireEvent.press(screen.getByLabelText(/Change month/));
+      fireEvent.press(screen.getByText('May 2026'));
+
+      expect(await screen.findByText(/Couldn't load your insights/)).toBeTruthy();
+      expect(screen.getByText('Observations for May 2026')).toBeTruthy();
+      expect(screen.queryByText(/this month/i)).toBeNull();
+    });
+
+    it('makes no month claim when the default insights fail to load', async () => {
+      insights.get.mockReset().mockRejectedValue(new Error('boom'));
+      renderScreen();
+      fireEvent.press(await screen.findByText('Spending'));
+
+      expect(await screen.findByText(/Couldn't load your insights/)).toBeTruthy();
+      expect(screen.getByText('Observations')).toBeTruthy();
+      expect(screen.queryByText(/this month/i)).toBeNull();
+    });
+
+    it('says which month a quiet Spending tab is quiet in', async () => {
+      insights.get.mockReset().mockResolvedValue({
+        ...PAST_INSIGHTS, sentences: [], topMerchant: null,
+      });
+      renderScreen();
+      fireEvent.press(await screen.findByText('Spending'));
+
+      expect(await screen.findByText(/Nothing stands out in June 2026/)).toBeTruthy();
+    });
+
+    it('titles the income card with the reporting month and compares against the named prior month', async () => {
+      renderScreen();
+      fireEvent.press(await screen.findByText('Income'));
+
+      expect(await screen.findByText('Income for June 2026')).toBeTruthy();
+      expect(screen.getByText('Your income is 12% higher than May 2026.')).toBeTruthy();
+      expect(screen.queryByText(/this month/i)).toBeNull();
+      expect(screen.queryByText(/last month/i)).toBeNull();
+    });
+
+    it('names the comparison on the income delta even without priorMonth', async () => {
+      dashboard.summary.mockReset().mockResolvedValue({
+        ...PAST_SUMMARY, priorMonth: null, incomePrior: null,
+      } as any);
+      renderScreen();
+      fireEvent.press(await screen.findByText('Income'));
+
+      expect(await screen.findByText('▲ 12% vs the month before June 2026')).toBeTruthy();
+    });
+  });
+
+  describe('a reporting month that is the current one', () => {
+    it('keeps "This Month" headings when the server says the month is current', async () => {
+      dashboard.summary.mockReset().mockResolvedValue({
+        monthlyIncome: 145000, monthlyExpense: 12831, incomeDeltaPct: 12, expenseDeltaPct: -22,
+        netCashFlow: 132169, netDeltaPct: 28, spendByCategory: {},
+        reportingMonth: '2026-10', reportingMonthIsCurrent: true, priorMonth: '2026-09', incomePrior: 129464,
+      } as any);
+      insights.get.mockReset().mockResolvedValue({
+        sentences: [], movers: [], coverageCaveat: null, biggestCategory: null,
+        topMerchant: { name: 'myntra', amount: 3299 },
+        reportingMonth: '2026-10', reportingMonthIsCurrent: true,
+      });
+      renderScreen();
+
+      expect(await screen.findByText('This Month at a Glance')).toBeTruthy();
+      expect(screen.getByText(/Your top merchant this month was/)).toBeTruthy();
+      expect(screen.getByText('No spending recorded this month yet.')).toBeTruthy();
+
+      fireEvent.press(screen.getByText('Spending'));
+      expect(await screen.findByText("This Month's Observations")).toBeTruthy();
+
+      fireEvent.press(screen.getByText('Income'));
+      expect(await screen.findByText("This Month's Income")).toBeTruthy();
     });
   });
 });

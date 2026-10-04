@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { KpiItem } from '../components/dashboard/LedgerSnapshotCard';
-import { monthLabel } from './format';
+import { monthLabel, monthLabelLong } from './format';
 import type { DashboardSummary } from '../types';
 
 // Bug 05, mobile side. These KPIs are the newest month the account has DATA for, which for a
@@ -25,6 +25,17 @@ export function useDashboardKpis(summary: DashboardSummary | undefined) {
     const deltaSpokenLabel = periodIsCurrent
       ? 'versus last month'
       : `versus the month before ${monthLabel(summary!.reportingMonth!)}`;
+    // periodTitle's spelled-out form, for headings and prose that name the month inside a phrase
+    // ("June 2026 at a Glance", "lower than May 2026"), where "Jun 26" would read as a date --
+    // Insights, whose own month picker already spells months out. priorMonth comes from the
+    // server (the calendar month before reportingMonth -- see ReportingPeriod); when it is absent
+    // the comparison is still named relative to the month actually shown, never as "last month".
+    const periodTitleLong = periodIsCurrent ? 'This Month' : monthLabelLong(summary!.reportingMonth!);
+    const priorPeriodLabel = periodIsCurrent
+      ? 'last month'
+      : summary!.priorMonth
+        ? monthLabelLong(summary!.priorMonth)
+        : `the month before ${monthLabelLong(summary!.reportingMonth!)}`;
 
     const kpis: KpiItem[] = summary
       ? [
@@ -72,6 +83,9 @@ export function useDashboardKpis(summary: DashboardSummary | undefined) {
     const balanceKpi = kpis.find((k) => k.label === 'Total Balance') ?? null;
     const snapshotKpis = kpis.filter((k) => k.label !== 'Total Balance');
 
-    return { kpis, balanceKpi, snapshotKpis, periodIsCurrent, periodLabel, periodTitle, deltaLabel, deltaSpokenLabel };
+    return {
+      kpis, balanceKpi, snapshotKpis, periodIsCurrent, periodLabel, periodTitle, periodTitleLong, priorPeriodLabel,
+      deltaLabel, deltaSpokenLabel,
+    };
   }, [summary]);
 }

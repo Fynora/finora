@@ -34,6 +34,33 @@ describe('useDashboardKpis', () => {
     expect(result.current.deltaLabel).toBe('vs the month before Jul 26');
   });
 
+  // periodTitleLong is for months named inside a phrase ("June 2026 at a Glance"), where
+  // monthLabel's "Jun 26" would read as a date.
+  it('titles the period "This Month" only when the reporting month is current', () => {
+    const { result } = renderHook(() => useDashboardKpis(BASE_SUMMARY as any));
+    expect(result.current.periodTitle).toBe('This Month');
+    expect(result.current.periodTitleLong).toBe('This Month');
+    expect(result.current.priorPeriodLabel).toBe('last month');
+  });
+
+  it('titles a past reporting month by name, and names the month it is compared against', () => {
+    const { result } = renderHook(() =>
+      useDashboardKpis({
+        ...BASE_SUMMARY, reportingMonthIsCurrent: false, reportingMonth: '2026-06', priorMonth: '2026-05',
+      } as any)
+    );
+    expect(result.current.periodTitle).toBe('Jun 26');
+    expect(result.current.periodTitleLong).toBe('June 2026');
+    expect(result.current.priorPeriodLabel).toBe('May 2026');
+  });
+
+  it('still names the comparison when a past reporting month arrives without priorMonth', () => {
+    const { result } = renderHook(() =>
+      useDashboardKpis({ ...BASE_SUMMARY, reportingMonthIsCurrent: false, reportingMonth: '2026-06' } as any)
+    );
+    expect(result.current.priorPeriodLabel).toBe('the month before June 2026');
+  });
+
   const savingsRate = (summary: object) =>
     renderHook(() => useDashboardKpis(summary as any)).result.current.snapshotKpis.find((k) => k.label === 'Savings Rate');
 

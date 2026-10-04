@@ -111,8 +111,14 @@ public class InsightsService {
             // a missing statement, and previously could never be told so: the mobile banner and the
             // original sentence both read this same field. There's no transaction-derived "current
             // month" to check here, so this falls back to the user's own calendar "today" instead.
+            // With no month requested: no month, counted as current -- ReportingPeriod.resolve's
+            // own no-data answer, nothing stale for a client to warn about. A requested month is
+            // still the month the client asked about (and names in its picker), so it is reported
+            // back as such rather than letting the client title it "this month".
+            boolean requestedIsCurrent = month == null
+                    || month.equals(YearMonth.now(UserZone.forUser(userRepository, userId)).toString());
             return new InsightsDto(List.of("Upload or add transactions to see spending insights."), List.of(),
-                    coverageCaveatWithNoTransactions(userId), null, null);
+                    coverageCaveatWithNoTransactions(userId), null, null, month, requestedIsCurrent);
         }
         Pipeline pipeline = maybePipeline.get();
         List<Transaction> txns = pipeline.txns();
@@ -252,7 +258,8 @@ public class InsightsService {
                     periodLabel, topMerchant.name(), topMerchant.amount()));
         }
 
-        return new InsightsDto(sentences, movers, coverageCaveat, biggestCategory, topMerchant);
+        return new InsightsDto(sentences, movers, coverageCaveat, biggestCategory, topMerchant,
+                currentMonth, pipeline.reportingMonthIsCurrent());
     }
 
     /** BH-005: the netting is a parameter rather than a field because it is derived per request

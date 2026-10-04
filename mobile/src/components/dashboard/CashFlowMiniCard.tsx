@@ -10,7 +10,15 @@ import { fonts, spacing, useTheme } from '../../theme';
 const WIDTH = 280;
 const HEIGHT = 56;
 
-export function CashFlowMiniCard({ points, deltaPct }: { points: CashFlowPoint[]; deltaPct: number | null }) {
+export function CashFlowMiniCard({
+  points, deltaPct, deltaLabel,
+}: {
+  points: CashFlowPoint[];
+  deltaPct: number | null;
+  // What deltaPct compares against -- useDashboardKpis's deltaLabel, since it is the summary's
+  // netDeltaPct: "vs last month" only when the reporting month is the current one.
+  deltaLabel: string;
+}) {
   const c = useTheme();
 
   // Renders nothing rather than its own "no data" copy -- covers loading, unavailable, and
@@ -50,12 +58,12 @@ export function CashFlowMiniCard({ points, deltaPct }: { points: CashFlowPoint[]
         </Text>
         <Text style={[styles.value, { color: c.ink, fontFamily: fonts.displayBold }]}>{fmtCurrency(average)}</Text>
         {deltaPct !== null ? (
-          // "vs last month" spelled out, not a bare percentage -- this compares the single most
-          // recent month's net cash flow against the one before it (summary.netDeltaPct), a
+          // The comparison spelled out, not a bare percentage -- this compares the reporting
+          // month's net cash flow against the one before it (summary.netDeltaPct), a
           // DIFFERENT comparison than the multi-month average above. Left unlabeled, the pair
           // reads as if the average itself moved by this percentage, which it did not.
           <Text style={[styles.delta, { color: deltaPct >= 0 ? c.success : c.danger, fontFamily: fonts.bodyBold }]}>
-            {deltaPct >= 0 ? '▲' : '▼'} {Math.abs(deltaPct).toFixed(1)}% vs last month
+            {deltaPct >= 0 ? '▲' : '▼'} {Math.abs(deltaPct).toFixed(1)}% {deltaLabel}
           </Text>
         ) : null}
       </View>

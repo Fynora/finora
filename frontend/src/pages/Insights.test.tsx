@@ -86,7 +86,7 @@ describe('Insights — section-scoped loading', () => {
 
     expect(await screen.findByText(/netflix/i)).toBeInTheDocument();
     // ...while the other two cards are still, correctly, loading.
-    expect(screen.getByText("Loading this month's observations")).toBeInTheDocument();
+    expect(screen.getByText('Loading your observations')).toBeInTheDocument();
     expect(screen.getByText('Loading category movers')).toBeInTheDocument();
   });
 
@@ -163,7 +163,7 @@ describe('Insights — section-scoped loading', () => {
     const regions = screen.getAllByRole('status');
     expect(regions).toHaveLength(3);
     regions.forEach((r) => expect(r).toHaveAttribute('aria-busy', 'true'));
-    expect(screen.getByText("Loading this month's observations")).toBeInTheDocument();
+    expect(screen.getByText('Loading your observations')).toBeInTheDocument();
     expect(screen.getByText('Loading recurring payments')).toBeInTheDocument();
     expect(screen.getByText('Loading category movers')).toBeInTheDocument();
   });
@@ -290,6 +290,29 @@ describe('Insights — Top Merchant highlight', () => {
 
     await screen.findByText(/You spent more on Food/);
     expect(screen.queryByText(/Your top merchant/)).not.toBeInTheDocument();
+  });
+
+  // Statements are imported in arrears: the insights' month (newest with a purchase) is routinely
+  // not the current one, and the response now says which it is.
+  it('names the month the top merchant is from when it is not the current one', async () => {
+    vi.mocked(insightsApi.narration).mockResolvedValue('');
+    vi.mocked(insightsApi.get).mockResolvedValue(insights({
+      topMerchant: { name: 'Myntra', amount: 3299 }, reportingMonth: '2026-06', reportingMonthIsCurrent: false,
+    }));
+    renderInsights();
+
+    expect(await screen.findByText(/Your top merchant in June 2026 was/)).toBeInTheDocument();
+    expect(screen.queryByText(/top merchant this month/)).not.toBeInTheDocument();
+  });
+
+  it('keeps "this month" when the server says the month is current', async () => {
+    vi.mocked(insightsApi.narration).mockResolvedValue('');
+    vi.mocked(insightsApi.get).mockResolvedValue(insights({
+      topMerchant: { name: 'Myntra', amount: 3299 }, reportingMonth: '2026-10', reportingMonthIsCurrent: true,
+    }));
+    renderInsights();
+
+    expect(await screen.findByText(/Your top merchant this month was/)).toBeInTheDocument();
   });
 });
 

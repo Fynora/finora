@@ -126,4 +126,18 @@ class PaymentDueDateGridExtractorTest {
             assertThat(PaymentDueDateGridExtractor.extract(runs)).as(due).isNull();
         }
     }
+
+    // An impossible value under the label is the due date, unreadable -- not a reason to take the
+    // next date down the same column.
+    @Test
+    void extract_returnsNull_ratherThanTheNextDateInTheColumn_whenTheValueUnderTheLabelIsImpossible() {
+        for (String due : List.of("31/04/2026", "11/08/0000", "11 Aug -2026")) {
+            var runs = List.of(
+                    run("Payment Due Date", 381.00f, 443.01f, 224.00f),
+                    run(due, 393.00f, 431.01f, 236.50f),
+                    run("22/07/2026", 393.00f, 431.01f, 249.00f));
+
+            assertThat(PaymentDueDateGridExtractor.extract(runs)).as(due).isNull();
+        }
+    }
 }

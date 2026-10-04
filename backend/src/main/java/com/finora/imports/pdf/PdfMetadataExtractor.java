@@ -862,6 +862,9 @@ public class PdfMetadataExtractor {
         LocalDate periodEnd = null;
         java.math.BigDecimal creditLimit = null;
         LocalDate paymentDueDate = null;
+        // A field whose labelled value was found but is not a real date ("31/02/2026") is settled as
+        // unreadable, and no later, looser source may fill it -- see UnreadableDates.
+        UnreadableDates unreadable = new UnreadableDates();
 
         // Bug fix: every primary "Label: Value" extraction below used to commit on EVERY matching
         // line rather than only the first, so whichever occurrence a field's label happened to
@@ -994,10 +997,10 @@ public class PdfMetadataExtractor {
             // apply below: only commit when the captured text actually parses as the expected type
             // -- here, BOTH halves -- so a partial match is treated as no match at all and the loop
             // keeps looking for a line that genuinely states the whole period together.
-            if (periodStart == null && periodEnd == null) {
+            if (periodStart == null && periodEnd == null && !unreadable.period) {
                 String period = firstGroup(STATEMENT_PERIOD, line);
                 if (period != null) {
-                    LocalDate[] parsed = parsePeriod(period);
+                    LocalDate[] parsed = readPeriod(unreadable, period);
                     if (parsed[0] != null && parsed[1] != null) {
                         periodStart = parsed[0];
                         periodEnd = parsed[1];
@@ -1005,10 +1008,13 @@ public class PdfMetadataExtractor {
                     }
                     // The label is here but its value is not on this line -- a grid header, with
                     // the range on a row below (real Axis, IndusInd and HSBC statements). Same
-                    // bounded lookahead every other grid fallback in this class uses.
-                    String gridRange = findGridValue(preTableLines, i, PERIOD_RANGE_VALUE, null);
+                    // bounded lookahead every other grid fallback in this class uses. Not when the
+                    // label's own value WAS on this line and only an impossible date stopped it
+                    // resolving: a range on a later line, whatever it belongs to, is not its value.
+                    String gridRange = unreadable.period ? null
+                            : findGridValue(preTableLines, i, PERIOD_RANGE_VALUE, null);
                     if (gridRange != null) {
-                        LocalDate[] fromGrid = parsePeriod(gridRange);
+                        LocalDate[] fromGrid = readPeriod(unreadable, gridRange);
                         if (fromGrid[0] != null && fromGrid[1] != null) {
                             periodStart = fromGrid[0];
                             periodEnd = fromGrid[1];
@@ -1021,10 +1027,10 @@ public class PdfMetadataExtractor {
             // The labelled form with leading text before the label -- see
             // STATEMENT_PERIOD_ANYWHERE. Checked after the anchored form so a properly labelled
             // line is always decided by that one first.
-            if (periodStart == null && periodEnd == null) {
+            if (periodStart == null && periodEnd == null && !unreadable.period) {
                 Matcher anywhere = STATEMENT_PERIOD_ANYWHERE.matcher(line);
                 if (anywhere.find()) {
-                    LocalDate[] parsed = parsePeriod(anywhere.group(1).trim());
+                    LocalDate[] parsed = readPeriod(unreadable, anywhere.group(1).trim());
                     if (parsed[0] != null && parsed[1] != null) {
                         periodStart = parsed[0];
                         periodEnd = parsed[1];
@@ -1039,10 +1045,10 @@ public class PdfMetadataExtractor {
             // sees a label with no range beside it. The lookahead is the same bounded one every
             // other grid fallback here uses, and both halves must parse before anything is
             // committed, so a header row followed by unrelated text still resolves to null.
-            if (periodStart == null && periodEnd == null && GRID_PERIOD_LABEL.matcher(line).find()) {
+            if (periodStart == null && periodEnd == null && !unreadable.period && GRID_PERIOD_LABEL.matcher(line).find()) {
                 String gridRange = findGridValue(preTableLines, i, PERIOD_RANGE_VALUE, null);
                 if (gridRange != null) {
-                    LocalDate[] fromGrid = parsePeriod(gridRange);
+                    LocalDate[] fromGrid = readPeriod(unreadable, gridRange);
                     if (fromGrid[0] != null && fromGrid[1] != null) {
                         periodStart = fromGrid[0];
                         periodEnd = fromGrid[1];
@@ -1058,10 +1064,10 @@ public class PdfMetadataExtractor {
                 }
             }
             // Two separately colon-labeled fields on one row ("From : <date> To : <date>") --
-            if (periodStart == null && periodEnd == null) {
+            if (periodStart == null && periodEnd == null && !unreadable.period) {
                 Matcher statementDateRange = STATEMENT_DATE_RANGE.matcher(line);
                 if (statementDateRange.find()) {
-                    LocalDate[] parsed = parsePeriod(statementDateRange.group(1).trim());
+                    LocalDate[] parsed = readPeriod(unreadable, statementDateRange.group(1).trim());
                     if (parsed[0] != null && parsed[1] != null) {
                         periodStart = parsed[0];
                         periodEnd = parsed[1];
@@ -1071,10 +1077,10 @@ public class PdfMetadataExtractor {
                 }
             }
             // see FROM_TO_LABELED_PERIOD.
-            if (periodStart == null && periodEnd == null) {
+            if (periodStart == null && periodEnd == null && !unreadable.period) {
                 Matcher fromTo = FROM_TO_LABELED_PERIOD.matcher(line);
                 if (fromTo.find()) {
-                    LocalDate[] parsed = parsePeriod(fromTo.group(1) + " to " + fromTo.group(2));
+                    LocalDate[] parsed = readPeriod(unreadable, fromTo.group(1) + " to " + fromTo.group(2));
                     if (parsed[0] != null && parsed[1] != null) {
                         periodStart = parsed[0];
                         periodEnd = parsed[1];
@@ -1085,10 +1091,10 @@ public class PdfMetadataExtractor {
             }
             // Labeled "Statement From" rather than "Statement Period"/"Billing Period" -- see
             // STATEMENT_FROM_LABELED_PERIOD.
-            if (periodStart == null && periodEnd == null) {
+            if (periodStart == null && periodEnd == null && !unreadable.period) {
                 Matcher statementFrom = STATEMENT_FROM_LABELED_PERIOD.matcher(line);
                 if (statementFrom.find()) {
-                    LocalDate[] parsed = parsePeriod(statementFrom.group(1).trim());
+                    LocalDate[] parsed = readPeriod(unreadable, statementFrom.group(1).trim());
                     if (parsed[0] != null && parsed[1] != null) {
                         periodStart = parsed[0];
                         periodEnd = parsed[1];
@@ -1098,10 +1104,10 @@ public class PdfMetadataExtractor {
                 }
             }
             // Labeled "Statement of Account" -- see STATEMENT_OF_ACCOUNT_PERIOD.
-            if (periodStart == null && periodEnd == null) {
+            if (periodStart == null && periodEnd == null && !unreadable.period) {
                 Matcher statementOfAccount = STATEMENT_OF_ACCOUNT_PERIOD.matcher(line);
                 if (statementOfAccount.find()) {
-                    LocalDate[] parsed = parsePeriod(statementOfAccount.group(1).trim());
+                    LocalDate[] parsed = readPeriod(unreadable, statementOfAccount.group(1).trim());
                     if (parsed[0] != null && parsed[1] != null) {
                         periodStart = parsed[0];
                         periodEnd = parsed[1];
@@ -1116,10 +1122,10 @@ public class PdfMetadataExtractor {
             // carries its own account number ("Statement for A/c <number> for the period ...") on
             // the SAME line -- continuing here skipped that extraction entirely, a real
             // regression caught by extract_recognizesACanaraAccountNumber_fromTheAcLine.
-            if (periodStart == null && periodEnd == null) {
+            if (periodStart == null && periodEnd == null && !unreadable.period) {
                 Matcher prose = STATEMENT_PERIOD_PROSE.matcher(line);
                 if (prose.find()) {
-                    LocalDate[] parsed = parsePeriod(prose.group(1).trim());
+                    LocalDate[] parsed = readPeriod(unreadable, prose.group(1).trim());
                     if (parsed[0] != null && parsed[1] != null) {
                         periodStart = parsed[0];
                         periodEnd = parsed[1];
@@ -1135,10 +1141,10 @@ public class PdfMetadataExtractor {
             // here skipped that extraction entirely, a real regression caught by that existing
             // test. Every later branch is null-guarded, so falling through is safe, same
             // reasoning STATEMENT_PERIOD_IN_SENTENCE's own doc comment already gives.
-            if (periodStart == null && periodEnd == null) {
+            if (periodStart == null && periodEnd == null && !unreadable.period) {
                 Matcher forPeriod = FOR_PERIOD_LABELED.matcher(line);
                 if (forPeriod.find()) {
-                    LocalDate[] parsed = parsePeriod(forPeriod.group(1).trim());
+                    LocalDate[] parsed = readPeriod(unreadable, forPeriod.group(1).trim());
                     if (parsed[0] != null && parsed[1] != null) {
                         periodStart = parsed[0];
                         periodEnd = parsed[1];
@@ -1149,10 +1155,10 @@ public class PdfMetadataExtractor {
             // A period stated inside an ordinary sentence rather than as a labelled field -- see
             // STATEMENT_PERIOD_IN_SENTENCE. Checked after the labelled forms above, so a document
             // that labels the field properly is never decided by a sentence elsewhere on the page.
-            if (periodStart == null && periodEnd == null) {
+            if (periodStart == null && periodEnd == null && !unreadable.period) {
                 Matcher sentence = STATEMENT_PERIOD_IN_SENTENCE.matcher(line);
                 if (sentence.find()) {
-                    LocalDate[] parsed = parsePeriod(sentence.group(1).trim());
+                    LocalDate[] parsed = readPeriod(unreadable, sentence.group(1).trim());
                     if (parsed[0] != null && parsed[1] != null) {
                         periodStart = parsed[0];
                         periodEnd = parsed[1];
@@ -1190,22 +1196,22 @@ public class PdfMetadataExtractor {
                 }
             }
 
-            if (paymentDueDate == null) {
+            if (paymentDueDate == null && !unreadable.dueDate) {
                 String dueDate = firstGroup(PAYMENT_DUE_DATE, line);
                 if (dueDate != null) {
-                    LocalDate parsedDueDate = parseDate(dueDate);
+                    LocalDate parsedDueDate = readDueDate(unreadable, dueDate);
                     if (parsedDueDate != null) { paymentDueDate = parsedDueDate; continue; }
                 }
             }
 
-            if (paymentDueDate == null) {
+            if (paymentDueDate == null && !unreadable.dueDate) {
                 Matcher dueDateSentence = PAYMENT_DUE_DATE_SENTENCE.matcher(line);
                 if (dueDateSentence.find()) {
                     // Trailing punctuation directly against the date ("...2026.") was captured along
                     // with it (\S+ stops only at whitespace) -- stripped here rather than widening the
                     // pattern, so a genuine trailing digit is never mistaken for punctuation to strip.
                     String token = dueDateSentence.group(1).replaceAll("[.,;:]+$", "");
-                    paymentDueDate = parseDate(token);
+                    paymentDueDate = readDueDate(unreadable, token);
                     if (paymentDueDate != null) {
                         if (ctx != null) ctx.record("GRID_METADATA_FALLBACK");
                         continue;
@@ -1213,7 +1219,7 @@ public class PdfMetadataExtractor {
                 }
             }
 
-            if (paymentDueDate == null) {
+            if (paymentDueDate == null && !unreadable.dueDate) {
                 Matcher dueDateLabel = GRID_DUE_DATE_LABEL.matcher(line);
                 if (dueDateLabel.find()) {
                     // Same line first: a real credit-card statement's due-date UI element (a
@@ -1227,9 +1233,12 @@ public class PdfMetadataExtractor {
                     // date-shaped thing after it" contract findGridValue already uses across lines.
                     String sameLineValue = firstMatchAfter(line, dueDateLabel.end(), DATE_LIKE, DATE_RANGE_MEMBER);
                     if (sameLineValue != null) {
-                        paymentDueDate = parseDate(sameLineValue);
+                        paymentDueDate = readDueDate(unreadable, sameLineValue);
                         if (ctx != null && paymentDueDate != null) ctx.record("GRID_METADATA_FALLBACK");
                         if (paymentDueDate != null) continue;
+                        // The label's own value is date-shaped but impossible: the date below it,
+                        // whatever it belongs to, is not this field's value.
+                        if (unreadable.dueDate) continue;
                     }
 
                     // Genuine multi-line grid: label and value are on separate lines entirely (see
@@ -1237,7 +1246,7 @@ public class PdfMetadataExtractor {
                     // covers) -- tried after the same-line search, not instead of it, so neither
                     // shape regresses the other.
                     String value = findGridValue(preTableLines, i, DATE_LIKE, DATE_RANGE_MEMBER);
-                    if (value != null) paymentDueDate = parseDate(value);
+                    if (value != null) paymentDueDate = readDueDate(unreadable, value);
                     if (ctx != null && paymentDueDate != null) ctx.record("GRID_METADATA_FALLBACK");
                     continue;
                 }
@@ -1473,10 +1482,10 @@ public class PdfMetadataExtractor {
             // Bug fix: same partial-parse hazard as the primary STATEMENT_PERIOD block above --
             // only commit when parsePeriod resolved both halves, so a malformed grid-label match
             // can't strand this AND-guarded pair at a permanent half-null state.
-            if (periodStart == null && periodEnd == null) {
+            if (periodStart == null && periodEnd == null && !unreadable.period) {
                 Matcher periodMatch = STATEMENT_PERIOD_TRAILING_LABEL.matcher(line);
                 if (periodMatch.matches()) {
-                    LocalDate[] parsed = parsePeriod(periodMatch.group(1).trim());
+                    LocalDate[] parsed = readPeriod(unreadable, periodMatch.group(1).trim());
                     if (parsed[0] != null && parsed[1] != null) {
                         periodStart = parsed[0];
                         periodEnd = parsed[1];
@@ -1487,19 +1496,24 @@ public class PdfMetadataExtractor {
             }
         }
 
-        if (periodStart == null && periodEnd == null) {
+        if (periodStart == null && periodEnd == null && !unreadable.period) {
             for (int i = 0; i < Math.min(preTableLines.size(), UNLABELLED_DATE_RANGE_SEARCH_WINDOW); i++) {
                 Matcher range = UNLABELLED_DATE_RANGE.matcher(
                         APOSTROPHE_YEAR.matcher(preTableLines.get(i)).replaceAll(""));
                 if (!range.find()) continue;
-                LocalDate start = parsePeriodDate(range.group(1).trim());
-                LocalDate end = parsePeriodDate(range.group(2).trim());
+                LocalDate start = parsePeriodDate(range.group(1).trim(), PERIOD_DATE_FORMATS);
+                LocalDate end = parsePeriodDate(range.group(2).trim(), PERIOD_DATE_FORMATS);
                 if (start != null && end != null && !end.isBefore(start)) {
                     periodStart = start;
                     periodEnd = end;
                     if (ctx != null) ctx.record("STATEMENT_PERIOD_UNLABELLED_RANGE");
                     break;
                 }
+                // The first range here is the one this rule would have taken; if it is impossible,
+                // a later range is not a better reading of the period, only a different one.
+                if ((start == null || end == null)
+                        && parsePeriodDate(range.group(1).trim(), PERIOD_DATE_SHAPES) != null
+                        && parsePeriodDate(range.group(2).trim(), PERIOD_DATE_SHAPES) != null) break;
             }
         }
         // Every rule above already declines a value that cannot be a name; this is the last line of
@@ -1724,22 +1738,47 @@ public class PdfMetadataExtractor {
      * <p>Returns nulls rather than a half-parsed pair unless BOTH resolve -- every caller is
      * AND-guarded on that, so a partial result would strand the period permanently half-null.
      */
-    private LocalDate[] parsePeriod(String text) {
+    private LocalDate[] parsePeriod(String text, DateTimeFormatter[] formats) {
         String[] parts = PERIOD_SEPARATOR.split(text, 2);
         if (parts.length < 2) return new LocalDate[]{null, null};
-        LocalDate end = parsePeriodDate(parts[1].trim());
-        LocalDate start = parsePeriodDate(parts[0].trim());
-        if (start == null && end != null) start = yearlessStartBefore(parts[0].trim(), end);
+        LocalDate end = parsePeriodDate(parts[1].trim(), formats);
+        LocalDate start = parsePeriodDate(parts[0].trim(), formats);
+        if (start == null && end != null) start = yearlessStartBefore(parts[0].trim(), end, formats);
         return new LocalDate[]{start, end};
+    }
+
+    /**
+     * {@link #parsePeriod} with {@link #PERIOD_DATE_FORMATS}, marking the period unreadable when the
+     * text is a range only an impossible date stops from resolving: the very same text, read by the
+     * SMART twins of those formats, resolves both halves.
+     */
+    private LocalDate[] readPeriod(UnreadableDates unreadable, String text) {
+        LocalDate[] parsed = parsePeriod(text, PERIOD_DATE_FORMATS);
+        if (parsed[0] == null || parsed[1] == null) {
+            LocalDate[] shaped = parsePeriod(text, PERIOD_DATE_SHAPES);
+            if (shaped[0] != null && shaped[1] != null) unreadable.period = true;
+        }
+        return parsed;
+    }
+
+    /** {@link #parseDate}, marking the due date unreadable when the value is date-shaped but not a
+     *  real date -- the same test {@link #looksLikeADate} applies, ordinal suffix stripped too. */
+    private LocalDate readDueDate(UnreadableDates unreadable, String raw) {
+        LocalDate parsed = parseDate(raw);
+        if (parsed == null && (looksLikeADate(raw)
+                || looksLikeADate(com.finora.imports.CsvParser.stripOrdinalDaySuffix(raw)))) {
+            unreadable.dueDate = true;
+        }
+        return parsed;
     }
 
     /** One half of a range: the whole string if it parses, otherwise the first date-shaped token
      *  inside it (a real SBI statement shares its period line with an unrelated amount column). */
-    private LocalDate parsePeriodDate(String half) {
-        LocalDate whole = tryFormats(half, PERIOD_DATE_FORMATS);
+    private LocalDate parsePeriodDate(String half, DateTimeFormatter[] formats) {
+        LocalDate whole = tryFormats(half, formats);
         if (whole != null) return whole;
         Matcher token = DATE_TOKEN.matcher(half);
-        return token.find() ? tryFormats(token.group().trim(), PERIOD_DATE_FORMATS) : null;
+        return token.find() ? tryFormats(token.group().trim(), formats) : null;
     }
 
     /**
@@ -1750,14 +1789,21 @@ public class PdfMetadataExtractor {
      * period starts in 2025. So the inferred start is checked against the end and rolled back a
      * year when it lands after it. This infers a year for a range the document DOES state -- it
      * never invents a period the document is silent about.
+     *
+     * <p>The year before is parsed, not computed with {@code minusYears(1)}: that clamps 29 Feb to
+     * 28 Feb, the same silent substitution the STRICT formats exist to refuse. A start that is not
+     * a date in the end's own year at all (29 Feb before a non-leap end) is not retried in the year
+     * before: "29 Feb - 28 Mar 2025" would become a thirteen-month period built out of an
+     * impossible date. It stays unreadable, like any other impossible date here.
      */
-    private LocalDate yearlessStartBefore(String half, LocalDate end) {
+    private LocalDate yearlessStartBefore(String half, LocalDate end, DateTimeFormatter[] formats) {
         Matcher dayMonth = YEARLESS_DAY_MONTH.matcher(half);
         if (!dayMonth.matches()) return null;
-        LocalDate sameYear = tryFormats(dayMonth.group(1) + " " + dayMonth.group(2) + " " + end.getYear(),
-                PERIOD_DATE_FORMATS);
+        String dayAndMonth = dayMonth.group(1) + " " + dayMonth.group(2) + " ";
+        LocalDate sameYear = tryFormats(dayAndMonth + end.getYear(), formats);
         if (sameYear == null) return null;
-        return sameYear.isAfter(end) ? sameYear.minusYears(1) : sameYear;
+        if (!sameYear.isAfter(end)) return sameYear;
+        return tryFormats(dayAndMonth + (end.getYear() - 1), formats);
     }
 
     private LocalDate parseDate(String raw) {
@@ -1801,6 +1847,31 @@ public class PdfMetadataExtractor {
     private static final DateTimeFormatter[] DATE_SHAPES = Arrays.stream(DATE_FORMATS)
             .map(fmt -> fmt.withResolverStyle(ResolverStyle.SMART))
             .toArray(DateTimeFormatter[]::new);
+
+    /** SMART twins of {@link #PERIOD_DATE_FORMATS}, for {@link #readPeriod}: the same question
+     *  {@link #DATE_SHAPES} answers, asked of a period. */
+    private static final DateTimeFormatter[] PERIOD_DATE_SHAPES = Arrays.stream(PERIOD_DATE_FORMATS)
+            .map(fmt -> fmt.withResolverStyle(ResolverStyle.SMART))
+            .toArray(DateTimeFormatter[]::new);
+
+    /**
+     * The date fields one {@link #extract} call found a labelled value for that is date-shaped but
+     * not a real date. Settling such a field as unreadable is what makes rejecting the date safe.
+     *
+     * <p>Every period and due-date rule here takes the first value it can parse and lets later,
+     * looser rules try when it cannot. Before the formats went STRICT an impossible date never
+     * reached that fall-through -- it was clamped and taken. Rejected but NOT settled, it did, and
+     * measured, the result was worse than the clamp: "Payment Due Date: 31/04/2026" over a
+     * "Statement Date: 14/04/2026" line produced a due date of 2026-04-14 (the grid fallback's next
+     * date-shaped value), an "EMI Due Date" line below it produced the EMI date, and an impossible
+     * "Statement Period" followed by a reward-points "for the period" range produced the reward
+     * period. The document did state the field; it is the value that cannot be read, and no other
+     * line's date is a reading of it.
+     */
+    private static final class UnreadableDates {
+        boolean period;
+        boolean dueDate;
+    }
 
     static boolean looksLikeADate(String candidate) {
         for (DateTimeFormatter fmt : DATE_SHAPES) {

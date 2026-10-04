@@ -122,4 +122,20 @@ class StatementPeriodGridExtractorTest {
         assertThat(period.start()).isEqualTo(LocalDate.of(2026, 6, 1));
         assertThat(period.end()).isEqualTo(LocalDate.of(2026, 6, 30));
     }
+
+    // An impossible range under the label is the period, unreadable -- not a reason to take the
+    // next range down the same column.
+    @Test
+    void extract_returnsNone_ratherThanTheNextRangeInTheColumn_whenTheRangeUnderTheLabelIsImpossible() {
+        for (String value : List.of("01/02/2026 - 31/02/2026", "01/06/0000 - 30/06/0000")) {
+            var runs = List.of(
+                    run("Statement Period", 259.50f, 329.51f, 224.00f),
+                    run(value, 259.50f, 341.51f, 236.50f),
+                    run("01/01/2026 - 31/01/2026", 259.50f, 341.51f, 249.00f));
+
+            var period = StatementPeriodGridExtractor.extract(runs);
+            assertThat(period.start()).as(value).isNull();
+            assertThat(period.end()).as(value).isNull();
+        }
+    }
 }

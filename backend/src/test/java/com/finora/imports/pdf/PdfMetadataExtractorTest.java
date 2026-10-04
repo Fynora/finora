@@ -1750,4 +1750,103 @@ class PdfMetadataExtractorTest {
         assertThat(PdfMetadataExtractor.looksLikeADate("32-01-2026")).isFalse();
         assertThat(PdfMetadataExtractor.looksLikeADate("01-13-2026")).isFalse();
     }
+
+    // An impossible labelled value settles its field as unreadable. Rejected but not settled, the
+    // search fell through to a later, looser rule and took an unrelated date -- measured, each of
+    // the cases below produced that other date before UnreadableDates existed.
+    @Test
+    void extract_leavesTheDueDateUnset_ratherThanTakingTheNextDate_whenTheLabelledValueIsImpossible() {
+        var metadata = extractor.extract(List.of("Payment Due Date: 31/04/2026", "Statement Date: 14/04/2026"));
+
+        assertThat(metadata.paymentDueDate()).isNull();
+    }
+
+    @Test
+    void extract_leavesTheDueDateUnset_ratherThanTakingAnotherDueDateLabel_whenTheFirstIsImpossible() {
+        var metadata = extractor.extract(List.of("Payment Due Date: 31/04/2026", "EMI Due Date: 05/05/2026"));
+
+        assertThat(metadata.paymentDueDate()).isNull();
+    }
+
+    @Test
+    void extract_leavesAMidLineDueDateUnset_ratherThanReadingTheGridBelow_whenItsValueIsImpossible() {
+        var metadata = extractor.extract(List.of(
+                "Pay Now Payment due date 31 Apr 2026", "Statement Date 14 Apr 2026"));
+
+        assertThat(metadata.paymentDueDate()).isNull();
+    }
+
+    @Test
+    void extract_stillReadsAnOrdinalDueDate() {
+        var metadata = extractor.extract(List.of("Payment Due Date: 5th May 2026"));
+
+        assertThat(metadata.paymentDueDate()).isEqualTo(java.time.LocalDate.of(2026, 5, 5));
+    }
+
+    @Test
+    void extract_leavesThePeriodUnset_ratherThanTakingALaterRange_whenTheLabelledPeriodIsImpossible() {
+        var metadata = extractor.extract(List.of(
+                "Statement Period: 01/02/2026 to 31/02/2026",
+                "Reward points for the period 01/01/2026 to 31/01/2026"));
+
+        assertThat(metadata.statementPeriodStart()).isNull();
+        assertThat(metadata.statementPeriodEnd()).isNull();
+    }
+
+    @Test
+    void extract_leavesThePeriodUnset_ratherThanTakingAStatementDateRange_whenTheLabelledPeriodIsImpossible() {
+        var metadata = extractor.extract(List.of(
+                "Statement Period: 01/02/2026 to 31/02/2026",
+                "Statement Date: 01/03/2026 - 05/03/2026"));
+
+        assertThat(metadata.statementPeriodStart()).isNull();
+        assertThat(metadata.statementPeriodEnd()).isNull();
+    }
+
+    @Test
+    void extract_leavesAGridPeriodUnset_ratherThanTakingTheNextRange_whenTheRangeBelowTheLabelIsImpossible() {
+        var metadata = extractor.extract(List.of(
+                "Statement Period", "01/02/2026 to 31/02/2026", "Opening 01/01/2026 to 31/01/2026"));
+
+        assertThat(metadata.statementPeriodStart()).isNull();
+        assertThat(metadata.statementPeriodEnd()).isNull();
+    }
+
+    @Test
+    void extract_leavesAnUnlabelledPeriodUnset_ratherThanTakingTheNextRange_whenTheFirstIsImpossible() {
+        var metadata = extractor.extract(List.of(
+                "SAMPLE ADDRESS LINE 01 Feb 2026 To 30 Feb 2026",
+                "SAMPLE TOWN 01 Jan 2026 To 31 Jan 2026"));
+
+        assertThat(metadata.statementPeriodStart()).isNull();
+        assertThat(metadata.statementPeriodEnd()).isNull();
+    }
+
+    // A yearless start takes the end's year, rolled back a year when it lands after the end. The
+    // roll-back used minusYears(1), which clamps 29 Feb to 28 Feb ("29 Feb to 10 Feb 2024" read as
+    // 2023-02-28), and a start that is no date in the end's year was clamped too ("29 Feb to
+    // 28 Mar 2025" read as 2025-02-28). Both are impossible dates, so both leave the period unset.
+    @Test
+    void extract_leavesThePeriodUnset_whenAYearlessStartIsNoDateInTheEndsYear() {
+        var metadata = extractor.extract(List.of("Statement Period: 29 Feb to 28 Mar 2025"));
+
+        assertThat(metadata.statementPeriodStart()).isNull();
+        assertThat(metadata.statementPeriodEnd()).isNull();
+    }
+
+    @Test
+    void extract_stillReadsAYearlessLeapDayStart_inALeapYear() {
+        var metadata = extractor.extract(List.of("Statement Period: 29 Feb to 28 Mar 2024"));
+
+        assertThat(metadata.statementPeriodStart()).isEqualTo(java.time.LocalDate.of(2024, 2, 29));
+        assertThat(metadata.statementPeriodEnd()).isEqualTo(java.time.LocalDate.of(2024, 3, 28));
+    }
+
+    @Test
+    void extract_leavesAYearlessLeapDayStartUnset_whenTheYearBeforeHasNoLeapDay() {
+        var metadata = extractor.extract(List.of("Statement Period: 29 Feb to 10 Feb 2024"));
+
+        assertThat(metadata.statementPeriodStart()).isNull();
+        assertThat(metadata.statementPeriodEnd()).isNull();
+    }
 }

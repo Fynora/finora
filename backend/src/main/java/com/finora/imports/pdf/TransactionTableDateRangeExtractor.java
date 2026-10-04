@@ -90,6 +90,9 @@ public final class TransactionTableDateRangeExtractor {
                 if (ctx != null) ctx.record("PRINTED_TRANSACTION_TABLE_DATE_RANGE");
                 return new PrintedDateRange(start, end);
             }
+            // Both bounds are dates, one is impossible: the range is stated but unreadable, and a
+            // later match is not a better reading of it.
+            if (looksLikeADate(m.group(1)) && looksLikeADate(m.group(2))) return PrintedDateRange.NONE;
         }
         return PrintedDateRange.NONE;
     }
@@ -108,5 +111,16 @@ public final class TransactionTableDateRangeExtractor {
             try { return LocalDate.parse(raw, fmt); } catch (Exception ignored) {}
         }
         return null;
+    }
+
+    /** The SMART twins of DATE_FORMATS: what these parsed before they went STRICT. */
+    private static final DateTimeFormatter[] DATE_SHAPES = java.util.Arrays.stream(DATE_FORMATS)
+            .map(fmt -> fmt.withResolverStyle(ResolverStyle.SMART)).toArray(DateTimeFormatter[]::new);
+
+    private static boolean looksLikeADate(String raw) {
+        for (DateTimeFormatter fmt : DATE_SHAPES) {
+            try { LocalDate.parse(raw, fmt); return true; } catch (Exception ignored) {}
+        }
+        return false;
     }
 }

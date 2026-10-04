@@ -119,6 +119,9 @@ public final class StatementTitleDateRangeExtractor {
                 if (ctx != null) ctx.record("PRINTED_TITLE_ADJACENT_DATE_RANGE");
                 return new PrintedDateRange(start, end);
             }
+            // Both ends are dates, one is impossible: the range is stated but unreadable, and a
+            // later title row is not a better reading of it.
+            if (looksLikeADate(m.group(1)) && looksLikeADate(m.group(2))) return PrintedDateRange.NONE;
         }
         return PrintedDateRange.NONE;
     }
@@ -141,6 +144,16 @@ public final class StatementTitleDateRangeExtractor {
             return LocalDate.parse(raw.trim().replaceAll("\\s+", " "), DATE_FORMAT);
         } catch (Exception ignored) {
             return null;
+        }
+    }
+
+    /** What DATE_FORMAT parsed before it went STRICT: a date, real or not. */
+    private static boolean looksLikeADate(String raw) {
+        try {
+            LocalDate.parse(raw.trim().replaceAll("\\s+", " "), DATE_FORMAT.withResolverStyle(ResolverStyle.SMART));
+            return true;
+        } catch (Exception ignored) {
+            return false;
         }
     }
 }

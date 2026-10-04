@@ -211,6 +211,17 @@ public final class BankRegistry {
         register("UNITY", "Unity Small Finance Bank", "Unity SFB", "#1B1464", "UN", "unity",
                 Category.SMALL_FINANCE, "https://www.unitybank.co.in", null,
                 new String[]{"UNITYSFB", "UNITYSMALLFINANCE"});
+        // Formerly North East Small Finance Bank, whose code its IFSC still carries ("NESF",
+        // labelled as the account's own IFSC on a real slice savings statement; the domain is the
+        // one that statement's own support address uses). Without this entry that statement was
+        // named Axis Bank -- from an Axis IFSC inside a counterparty's narration. No bare "SLICE"
+        // alias: UPI narrations on other banks' statements carry "slice"-named handles
+        // ("…/NESF/sliceaddmoney@…"), and a one-word alias would name those statements slice too.
+        // Colour: the primary action colour of the bank's own site (its logo mark is a brighter
+        // magenta, but white initials on it fall below 4.5:1 contrast; on this they clear it).
+        register("SLICE", "slice small finance bank", "slice", "#9E2BD0", "SL", "slice",
+                Category.SMALL_FINANCE, "https://slice.bank.in", "NESF",
+                new String[]{"SLICESMALLFINANCEBANK", "SLICESFB", "NORTHEASTSMALLFINANCEBANK"});
 
         // ---------------- Foreign Banks ----------------
         register("HSBC", "HSBC", "HSBC", "#DB0011", "HSBC", "hsbc",

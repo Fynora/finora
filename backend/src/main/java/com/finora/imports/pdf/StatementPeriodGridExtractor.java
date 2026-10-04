@@ -7,6 +7,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.ResolverStyle;
 import java.time.temporal.ChronoField;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
@@ -72,15 +73,27 @@ public final class StatementPeriodGridExtractor {
     // resolve STRICT, but measured, "uuuu" accepted "01/01/0000" and "01/01/-2026" as real dates
     // (year 0 and year -2026); year-of-era starts at 1 and takes no sign, so both are rejected.
     // Same choice as PdfMetadataExtractor.ci().
-    private static final DateTimeFormatter[] DATE_FORMATS = {
-            strict("dd/MM/yyyy"), strict("d/M/yyyy"), strict("dd-MM-yyyy"),
-            strict("d MMM yyyy"), strict("d MMM, yyyy"), strict("dd-MMM-yyyy"),
+    private static final String[] PATTERNS = {
+            "dd/MM/yyyy", "d/M/yyyy", "dd-MM-yyyy", "d MMM yyyy", "d MMM, yyyy", "dd-MMM-yyyy",
     };
+    private static final DateTimeFormatter[] DATE_FORMATS =
+            Arrays.stream(PATTERNS).map(StatementPeriodGridExtractor::strict).toArray(DateTimeFormatter[]::new);
+
+    /** The same patterns read loosely -- proleptic year, SMART -- so year 0, a signed year and an
+     *  impossible day all still count as a date: the test for a value that IS this field's, just
+     *  not readable. See {@link #rangeBelow}. */
+    private static final DateTimeFormatter[] DATE_SHAPES =
+            Arrays.stream(PATTERNS).map(StatementPeriodGridExtractor::shape).toArray(DateTimeFormatter[]::new);
 
     private static DateTimeFormatter strict(String pattern) {
         return new DateTimeFormatterBuilder().parseCaseInsensitive().appendPattern(pattern)
                 .parseDefaulting(ChronoField.ERA, 1)
                 .toFormatter(Locale.ENGLISH).withResolverStyle(ResolverStyle.STRICT);
+    }
+
+    private static DateTimeFormatter shape(String pattern) {
+        return new DateTimeFormatterBuilder().parseCaseInsensitive().appendPattern(pattern.replace("yyyy", "uuuu"))
+                .toFormatter(Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART);
     }
 
     public static PrintedDateRange extract(List<PositionedText> runs) {
@@ -118,8 +131,11 @@ public final class StatementPeriodGridExtractor {
             if (first.y() - label.y() > MAX_ROW_GAP) break;
             PositionedText value = StatementSummaryExtractor.valueUnder(label, candidateRow);
             if (value == null) continue;
-            PrintedDateRange parsed = parseRange(value.text());
+            PrintedDateRange parsed = parseRange(value.text(), DATE_FORMATS);
             if (parsed.start() != null) return parsed;
+            // A range under the label that only an impossible date stops from resolving is the
+            // period, unreadable -- not a reason to take the next range down the column instead.
+            if (parseRange(value.text(), DATE_SHAPES).start() != null) return PrintedDateRange.NONE;
         }
         return PrintedDateRange.NONE;
     }
@@ -133,17 +149,21 @@ public final class StatementPeriodGridExtractor {
 
     /** Both halves or nothing -- see this class's own doc comment for why a partial parse is
      *  refused rather than half-committed. */
-    private static PrintedDateRange parseRange(String raw) {
+    private static PrintedDateRange parseRange(String raw, DateTimeFormatter[] formats) {
         Matcher m = RANGE.matcher(raw.trim().replaceAll("\\s+", " "));
         if (!m.matches()) return PrintedDateRange.NONE;
-        LocalDate start = parseDate(m.group(1));
-        LocalDate end = parseDate(m.group(2));
+        LocalDate start = parseDate(m.group(1), formats);
+        LocalDate end = parseDate(m.group(2), formats);
         return start != null && end != null ? new PrintedDateRange(start, end) : PrintedDateRange.NONE;
     }
 
     private static LocalDate parseDate(String raw) {
+        return parseDate(raw, DATE_FORMATS);
+    }
+
+    private static LocalDate parseDate(String raw, DateTimeFormatter[] formats) {
         String text = raw.trim();
-        for (DateTimeFormatter format : DATE_FORMATS) {
+        for (DateTimeFormatter format : formats) {
             try {
                 return LocalDate.parse(text, format);
             } catch (Exception ignored) {

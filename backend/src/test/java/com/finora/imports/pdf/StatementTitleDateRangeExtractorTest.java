@@ -146,4 +146,16 @@ class StatementTitleDateRangeExtractorTest {
         assertThat(range.start()).isNull();
         assertThat(range.end()).isNull();
     }
+
+    @Test
+    void extract_returnsNone_ratherThanALaterTitleRange_whenTheFirstIsImpossible() {
+        var range = StatementTitleDateRangeExtractor.extract(List.of(
+                run("Account Statement", 33.86f, 110.52f),
+                run("01 Feb 2026 - 30 Feb 2026", 33.86f, 126.04f),
+                run("Account Statement", 33.86f, 410.52f),
+                run("01 Jan 2026 - 31 Jan 2026", 33.86f, 426.04f)));
+
+        assertThat(range.start()).isNull();
+        assertThat(range.end()).isNull();
+    }
 }

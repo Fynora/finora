@@ -126,6 +126,12 @@ public interface ImportJobRepository extends JpaRepository<ImportJob, UUID> {
      */
     List<ImportJob> findByImportSessionId(UUID importSessionId);
 
+    /** Whether a job in one of these statuses still points at this session -- the per-row form of
+     *  {@code ImportSessionRepository.findSweepableExpiredSessions}'s exemption, for
+     *  {@code ImportSessionService.findLiveSessionByContentHash}. Same null caveat as above. */
+    boolean existsByImportSessionIdAndStatusIn(UUID importSessionId,
+                                               java.util.Collection<ImportJob.Status> statuses);
+
     /**
      * The jobs behind these sessions that ever went through a trust hold, whatever became of it --
      * {@link com.finora.imports.ImportSessionService#claimForConfirmation} and {@code

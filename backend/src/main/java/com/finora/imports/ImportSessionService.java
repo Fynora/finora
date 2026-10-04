@@ -617,6 +617,16 @@ public class ImportSessionService {
         if (!expired && !stale) {
             return Optional.of(session);
         }
+        // A session an open trust review depends on is replayed, never deleted -- the same
+        // exemption sweepExpiredSessions gives it, for the same reason. Deleting it as stale or
+        // expired here made a re-upload under a newer build take the rows the reviewer was judging,
+        // and approving afterwards completed the held job against a session that no longer existed
+        // ("Import session not found" at confirm, after telling the user it was ready). Replaying
+        // it instead hands back rows the confirm step already refuses while the review is open.
+        if (importJobRepository.existsByImportSessionIdAndStatusIn(
+                session.getId(), SESSIONS_PROTECTED_FROM_CLEANUP)) {
+            return Optional.of(session);
+        }
         importSessionRepository.delete(session);
         return Optional.empty();
     }

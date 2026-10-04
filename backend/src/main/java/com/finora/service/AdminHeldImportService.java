@@ -354,19 +354,24 @@ public class AdminHeldImportService {
      * window: if they did re-upload, moving the held job back to QUEUED makes two live jobs for the
      * same (user, document) and the unique index rejects it. Caught here so the operator gets a 409
      * that explains itself, rather than a constraint violation surfacing as a 500.
+     *
+     * <p>A re-upload held for trust review counts as live too, though the index would allow it:
+     * reprocessing this job would replay that upload's staged session and open a second review of
+     * it. See {@link ImportJob.Status#OPEN_TO_RESUBMISSION}.
      */
     private void requireNoLiveDuplicate(ImportJob job) {
         if (!hasNoLiveDuplicate(job)) {
             throw new ApiException(HttpStatus.CONFLICT,
                     "This user has already re-uploaded the same statement and that import is still "
-                            + "live, so this one cannot be reprocessed. Resolve it instead.");
+                            + "live or held for trust review, so this one cannot be reprocessed. "
+                            + "Resolve it instead.");
         }
     }
 
     private boolean hasNoLiveDuplicate(ImportJob job) {
         if (job.getContentHash() == null) return true;
         return repository.findFirstByUserIdAndContentHashAndStatusNotInOrderByCreatedAtDesc(
-                        job.getUserId(), job.getContentHash(), ImportJob.Status.TERMINAL)
+                        job.getUserId(), job.getContentHash(), ImportJob.Status.OPEN_TO_RESUBMISSION)
                 .isEmpty();
     }
 

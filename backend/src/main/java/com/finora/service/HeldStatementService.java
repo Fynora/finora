@@ -43,6 +43,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -126,6 +127,36 @@ public class HeldStatementService {
                                     String parserVersion) {
         return repository.findByImportJobId(job.getId())
                 .orElseGet(() -> openHold(job, staged, decision, parserVersion));
+    }
+
+    /**
+     * Where the trust review another upload opened on this staged session stands, if one did.
+     *
+     * <p>Staging replays a live session for the same bytes under the same build, so a later job can
+     * arrive holding a session that has already been reviewed. Reviewing it again is wrong both
+     * ways: {@code ImportSessionService.sessionsBlockedByTrustReview} keeps the session blocked
+     * while ANY hold on it is not IMPORTED, so a second hold re-blocks a session an operator
+     * already approved, and approving the second does nothing for a session an operator rejected.
+     * The worker uses this to carry the existing decision over instead.
+     *
+     * <p>REJECTED wins over everything, then any unresolved status, then IMPORTED -- the same
+     * order the blocking rule implies. {@code excludingJobId} is the caller's own job: a retried
+     * pass may already have opened its own hold, and that one is not "another upload".
+     */
+    @Transactional(readOnly = true)
+    public Optional<HeldStatement.Status> priorReviewOf(UUID importSessionId, UUID excludingJobId) {
+        List<UUID> heldIds = importJobRepository
+                .findByImportSessionIdInAndHeldStatementIdIsNotNull(List.of(importSessionId)).stream()
+                .filter(other -> !other.getId().equals(excludingJobId))
+                .map(ImportJob::getHeldStatementId)
+                .toList();
+        List<HeldStatement.Status> statuses = repository.findAllById(heldIds).stream()
+                .map(HeldStatement::getStatus)
+                .toList();
+        if (statuses.isEmpty()) return Optional.empty();
+        if (statuses.contains(HeldStatement.Status.REJECTED)) return Optional.of(HeldStatement.Status.REJECTED);
+        return statuses.stream().filter(status -> !status.isResolved()).findFirst()
+                .or(() -> Optional.of(HeldStatement.Status.IMPORTED));
     }
 
     private HeldStatement openHold(ImportJob job, StagedForJob staged, HoldDecision decision,

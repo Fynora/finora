@@ -294,9 +294,24 @@ public class ImportJobWorker {
             // about extraction succeeding and being distrusted anyway, on evidence the pipeline
             // already computed. UTC rather than the server's zone so the future-period rule cannot
             // depend on where this runs.
-            HoldDecision decision = TrustPredicate.evaluate(
-                    staged.verificationReports(), staged.statementPeriods(),
-                    LocalDate.now(ZoneOffset.UTC));
+            //
+            // Not when the session already has a review behind it. Staging replays a live session
+            // for the same bytes under the same build, so this job can be holding rows an operator
+            // has already judged, and judging them again re-blocks an approved session or leaves a
+            // rejected one blocked behind a fresh "ready". The decision already made carries over:
+            // approved completes, rejected fails the way the original job did. An open review
+            // cannot reach here -- ImportJobService.accept and AdminHeldImportService.reprocess both
+            // hand back or refuse while a job is held for trust review (see
+            // ImportJob.Status.OPEN_TO_RESUBMISSION) -- so it gets the ordinary evaluation.
+            java.util.Optional<com.finora.entity.HeldStatement.Status> priorReview =
+                    heldStatementService.priorReviewOf(staged.sessionId(), jobId);
+            boolean rejectedBefore =
+                    priorReview.orElse(null) == com.finora.entity.HeldStatement.Status.REJECTED;
+            HoldDecision decision = priorReview.isPresent() && priorReview.get().isResolved()
+                    ? HoldDecision.RELEASE
+                    : TrustPredicate.evaluate(
+                            staged.verificationReports(), staged.statementPeriods(),
+                            LocalDate.now(ZoneOffset.UTC));
 
             // Created before the job transition so the job row can carry the hold's id.
             //
@@ -323,7 +338,15 @@ public class ImportJobWorker {
                 // successfully, and reporting it as the total would make a statement with
                 // unparseable rows look like it had fewer rows than it did.
                 j.recordProgress(staged.totalParsed(), staged.stagedRows());
-                if (decision.hold()) {
+                if (rejectedBefore) {
+                    // No session on the job: these rows never reach the ledger, and pointing this
+                    // job at the session would make a second reference to rows that are blocked
+                    // for good. Same failure code the rejected job carries, so both read the same.
+                    j.recordFailure("Staged into session " + staged.sessionId()
+                                    + ", whose trust review was already rejected",
+                            ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name(),
+                            ErrorCode.RetryPolicy.FAIL_FAST, Instant.now());
+                } else if (decision.hold()) {
                     // Keeps the session: the rows are real, and comparing them against the
                     // document is the entire review.
                     j.holdForTrustReview(staged.sessionId(), heldId, Instant.now());
@@ -340,7 +363,7 @@ public class ImportJobWorker {
                         telemetry.isEmpty() ? null : telemetry.failedCount(),
                         telemetry.isEmpty() ? null : telemetry.warningCount(),
                         parserVersionProvider.current());
-                if (!decision.hold()) {
+                if (!decision.hold() && !rejectedBefore) {
                     // A held import is not finished, so it announces nothing -- the same rule the
                     // other hold follows. Telling someone their statement is ready and then
                     // withholding it would be worse than saying nothing.

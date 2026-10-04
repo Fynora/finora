@@ -89,6 +89,25 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
         public static final Set<Status> TERMINAL =
                 EnumSet.of(COMPLETED, FAILED, HELD_FOR_REVIEW, HELD_FOR_TRUST_REVIEW, CANCELLED);
 
+        /**
+         * The statuses after which the same document may start a new job: {@link #TERMINAL} minus
+         * HELD_FOR_TRUST_REVIEW.
+         *
+         * <p>A trust-held job is terminal for the worker but still owns the document. Its staged
+         * session is what the reviewer is judging, and a second job on the same bytes has nowhere
+         * else to go: under the same build staging replays that session and the trust predicate
+         * opens a second review of it, and under a new build staging deletes it as stale. Either way
+         * approving the first review no longer lets the user confirm. So a re-upload, or an admin
+         * reprocess of an older job on the same bytes, gets the held job back instead -- the BH-019
+         * answer for a document that is already being handled.
+         *
+         * <p>Deliberately not the predicate of {@code idx_import_jobs_live_content}, which must
+         * track {@link #TERMINAL} (V134). The index guards "one job running per document"; this is
+         * the app-level read in front of it, and the index still allows the row this refuses.
+         */
+        public static final Set<Status> OPEN_TO_RESUBMISSION =
+                EnumSet.of(COMPLETED, FAILED, HELD_FOR_REVIEW, CANCELLED);
+
         public boolean isTerminal() { return TERMINAL.contains(this); }
         public boolean isInFlight() { return IN_FLIGHT.contains(this); }
         boolean isBefore(Status other) { return ordinal() < other.ordinal(); }

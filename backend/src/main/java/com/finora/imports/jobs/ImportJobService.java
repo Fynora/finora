@@ -264,9 +264,12 @@ public class ImportJobService {
         // simultaneous uploads can both miss it; idx_import_jobs_live_content (V74) is what
         // decides then, and the loser gets the 409 GlobalExceptionHandler already answers for a
         // constraint violation. Same reasoning V67 gives for preferring constraints to checks.
+        //
+        // A job held for trust review counts as already happening -- see
+        // ImportJob.Status.OPEN_TO_RESUBMISSION for what a second job on its bytes did.
         Optional<ImportJob> alreadyQueued = repository
                 .findFirstByUserIdAndContentHashAndStatusNotInOrderByCreatedAtDesc(
-                        userId, address.hash(), ImportJob.Status.TERMINAL);
+                        userId, address.hash(), ImportJob.Status.OPEN_TO_RESUBMISSION);
         if (alreadyQueued.isPresent()) {
             return alreadyQueued.get();
         }

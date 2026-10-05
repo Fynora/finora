@@ -1,10 +1,14 @@
-import { registerDeviceToken, revokeDeviceToken, subscribeToForegroundMessages, type RemoteMessage } from './pushRegistration';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  PUSH_DETACH_PENDING_KEY, clearPendingDetach, detachDevice, registerDeviceToken, resumePendingDetach,
+  subscribeToForegroundMessages, type RemoteMessage,
+} from './pushRegistration';
 
 // '@react-native-firebase/messaging' is mocked globally in src/test/setup.ts (same posture as
 // '@react-native-firebase/auth' there -- no native app registered under the runner, plus its real
 // entry point is ESM source that a bare automock can't introspect without throwing). Nothing below
 // exercises that default module mock anyway: every call here passes its own `messaging` fake
-// through registerDeviceToken()/revokeDeviceToken()'s dependency-injection parameter instead.
+// through registerDeviceToken()/detachDevice()'s dependency-injection parameter instead.
 
 // Mirrors @react-native-firebase/messaging's AuthorizationStatus enum -- see pushRegistration.ts's
 // own comment on why that enum is duplicated as plain numbers rather than imported.
@@ -24,6 +28,7 @@ function requestPermissionMock(outcome: 'granted' | 'denied', token = 'fcm-token
   return {
     requestPermission: jest.fn(async () => (outcome === 'granted' ? AUTHORIZED : DENIED)),
     getToken: jest.fn(async () => token),
+    deleteToken: jest.fn(async () => {}),
     onTokenRefresh: jest.fn((listener: (nextToken: string) => void) => {
       refreshListener = listener;
       return jest.fn();
@@ -32,7 +37,7 @@ function requestPermissionMock(outcome: 'granted' | 'denied', token = 'fcm-token
       messageListener = listener;
       return jest.fn();
     }),
-    // Not exercised by anything in this file -- registerDeviceToken/revokeDeviceToken/
+    // Not exercised by anything in this file -- registerDeviceToken/detachDevice/
     // subscribeToForegroundMessages never call either. Present only so this fixture satisfies the
     // full PushMessaging shape; usePushNotificationNavigation.test.ts covers these two for real.
     onNotificationOpenedApp: jest.fn(() => jest.fn()),
@@ -48,10 +53,10 @@ function requestPermissionMock(outcome: 'granted' | 'denied', token = 'fcm-token
 
 describe('pushRegistration', () => {
   const postDeviceToken = jest.fn();
-  const deleteDeviceToken = jest.fn();
 
-  beforeEach(() => {
+  beforeEach(async () => {
     jest.clearAllMocks();
+    await AsyncStorage.removeItem(PUSH_DETACH_PENDING_KEY);
   });
 
   it('does not call the backend when the user denies permission', async () => {
@@ -93,44 +98,114 @@ describe('pushRegistration', () => {
     await expect(registerDeviceToken({ postDeviceToken, messaging })).resolves.not.toThrow();
   });
 
-  it('revokes the token on logout', async () => {
-    const messaging = requestPermissionMock('granted', 'fcm-token-abc');
+  describe('detachDevice (sign-out)', () => {
+    it('deletes the token with Firebase and returns it for the server-side revoke', async () => {
+      const messaging = requestPermissionMock('granted', 'fcm-token-abc');
 
-    await revokeDeviceToken({ deleteDeviceToken, messaging });
+      await expect(detachDevice({ messaging })).resolves.toBe('fcm-token-abc');
 
-    expect(deleteDeviceToken).toHaveBeenCalledWith({ token: 'fcm-token-abc' });
-  });
-
-  it('never throws when the backend revoke call fails', async () => {
-    const messaging = requestPermissionMock('granted', 'fcm-token-abc');
-    deleteDeviceToken.mockRejectedValueOnce(new Error('network'));
-
-    await expect(revokeDeviceToken({ deleteDeviceToken, messaging })).resolves.not.toThrow();
-  });
-
-  it('never throws when the stored onTokenRefresh unsubscribe itself throws, and does not retry it next time', async () => {
-    // registerDeviceToken() stashes onTokenRefresh's returned unsubscribe in module-level state;
-    // revokeDeviceToken() calls it on the way out. Overriding what THIS onTokenRefresh call
-    // returns (rather than trusting requestPermissionMock's default no-op) is what lets this test
-    // control that stashed value deterministically, regardless of what any earlier test in this
-    // file left behind.
-    const throwingUnsubscribe = jest.fn(() => {
-      throw new Error('native removeListener failed');
+      expect(messaging.deleteToken).toHaveBeenCalledTimes(1);
+      // Read before deleting: reading after would mint (and return) a brand-new token instead.
+      expect(messaging.getToken.mock.invocationCallOrder[0])
+        .toBeLessThan(messaging.deleteToken.mock.invocationCallOrder[0]);
+      expect(await AsyncStorage.getItem(PUSH_DETACH_PENDING_KEY)).toBeNull();
     });
-    const messaging = requestPermissionMock('granted', 'fcm-token-abc');
-    messaging.onTokenRefresh.mockReturnValueOnce(throwingUnsubscribe);
-    await registerDeviceToken({ postDeviceToken, messaging });
 
-    await expect(revokeDeviceToken({ deleteDeviceToken, messaging })).resolves.not.toThrow();
-    expect(throwingUnsubscribe).toHaveBeenCalledTimes(1);
-    // The backend revoke call must still happen even though the unsubscribe attempt above failed
-    // -- a broken native listener removal is not a reason to skip telling the backend.
-    expect(deleteDeviceToken).toHaveBeenCalledWith({ token: 'fcm-token-abc' });
+    it('stops listening for token rotations before deleting, so the next token is never posted', async () => {
+      const unsubscribe = jest.fn();
+      const messaging = requestPermissionMock('granted', 'fcm-token-abc');
+      messaging.onTokenRefresh.mockReturnValueOnce(unsubscribe);
+      await registerDeviceToken({ postDeviceToken, messaging });
+      postDeviceToken.mockClear();
 
-    // Proves the stored reference was actually cleared (not left dangling for a later call to
-    // retry): a second revoke must not invoke the same already-thrown closure again.
-    await expect(revokeDeviceToken({ deleteDeviceToken, messaging })).resolves.not.toThrow();
-    expect(throwingUnsubscribe).toHaveBeenCalledTimes(1);
+      await detachDevice({ messaging });
+
+      expect(unsubscribe.mock.invocationCallOrder[0]).toBeLessThan(messaging.deleteToken.mock.invocationCallOrder[0]);
+    });
+
+    it('leaves the pending flag set when Firebase could not delete the token (offline)', async () => {
+      const messaging = requestPermissionMock('granted', 'fcm-token-abc');
+      messaging.deleteToken.mockRejectedValueOnce(new Error('SERVICE_NOT_AVAILABLE'));
+
+      await expect(detachDevice({ messaging })).resolves.toBe('fcm-token-abc');
+
+      expect(await AsyncStorage.getItem(PUSH_DETACH_PENDING_KEY)).toBe('1');
+    });
+
+    it('sets the pending flag before touching Firebase, so a close mid-way is finished next launch', async () => {
+      const messaging = requestPermissionMock('granted', 'fcm-token-abc');
+      let flagWhenDeleting: string | null = null;
+      messaging.deleteToken.mockImplementationOnce(async () => {
+        flagWhenDeleting = await AsyncStorage.getItem(PUSH_DETACH_PENDING_KEY);
+      });
+
+      await detachDevice({ messaging });
+
+      expect(flagWhenDeleting).toBe('1');
+    });
+
+    it('never throws, even when the stored unsubscribe throws', async () => {
+      const throwingUnsubscribe = jest.fn(() => {
+        throw new Error('native removeListener failed');
+      });
+      const messaging = requestPermissionMock('granted', 'fcm-token-abc');
+      messaging.onTokenRefresh.mockReturnValueOnce(throwingUnsubscribe);
+      await registerDeviceToken({ postDeviceToken, messaging });
+
+      await expect(detachDevice({ messaging })).resolves.toBe('fcm-token-abc');
+      // A broken listener removal is no reason to keep delivering this account's notifications.
+      expect(messaging.deleteToken).toHaveBeenCalledTimes(1);
+      // And the broken closure is not kept around to be retried.
+      await detachDevice({ messaging });
+      expect(throwingUnsubscribe).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('resumePendingDetach (next launch)', () => {
+    it('does nothing when no sign-out left a detach unfinished', async () => {
+      const messaging = requestPermissionMock('granted');
+
+      await resumePendingDetach(async () => true, { messaging });
+
+      expect(messaging.deleteToken).not.toHaveBeenCalled();
+    });
+
+    it('finishes an unfinished detach while still signed out, then clears the flag', async () => {
+      await AsyncStorage.setItem(PUSH_DETACH_PENDING_KEY, '1');
+      const messaging = requestPermissionMock('granted');
+
+      await resumePendingDetach(async () => true, { messaging });
+
+      expect(messaging.deleteToken).toHaveBeenCalledTimes(1);
+      expect(await AsyncStorage.getItem(PUSH_DETACH_PENDING_KEY)).toBeNull();
+    });
+
+    it('never deletes the token a sign-in has meanwhile registered', async () => {
+      await AsyncStorage.setItem(PUSH_DETACH_PENDING_KEY, '1');
+      const messaging = requestPermissionMock('granted');
+
+      await resumePendingDetach(async () => false, { messaging });
+
+      expect(messaging.deleteToken).not.toHaveBeenCalled();
+    });
+
+    it('keeps the flag for the launch after when Firebase fails again', async () => {
+      await AsyncStorage.setItem(PUSH_DETACH_PENDING_KEY, '1');
+      const messaging = requestPermissionMock('granted');
+      messaging.deleteToken.mockRejectedValueOnce(new Error('SERVICE_NOT_AVAILABLE'));
+
+      await expect(resumePendingDetach(async () => true, { messaging })).resolves.toBeUndefined();
+
+      expect(await AsyncStorage.getItem(PUSH_DETACH_PENDING_KEY)).toBe('1');
+    });
+
+    it('a sign-in voids an unfinished detach', async () => {
+      await AsyncStorage.setItem(PUSH_DETACH_PENDING_KEY, '1');
+
+      await clearPendingDetach();
+
+      expect(await AsyncStorage.getItem(PUSH_DETACH_PENDING_KEY)).toBeNull();
+    });
   });
 
   describe('subscribeToForegroundMessages', () => {

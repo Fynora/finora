@@ -102,7 +102,10 @@ public final class CategoryRules {
         RULES.put("Transport", List.of("uber", "ola", "rapido", "irctc", "petrol", "fuel", "metro", "fastag", "parking", "indian railways", "pune metro",
                 "punemetro", "parkplus", "hp petro"));
         RULES.put("Utilities", List.of("electricity", "power bill", "water bill", "gas bill", "broadband", "airtel", "jio", "recharge",
-                "airtelautopay", "airtelprepaid", "gpay utility"));
+                "airtelautopay", "airtelprepaid", "gpay utility",
+                // The payments app's recharge id, which a processor collects under its own company
+                // name (2026-10-05, 2 rows). Fusion-tolerant: the id runs into a digit.
+                "gpayrecharge"));
         // "pureplay" (Pureplay Skin Sciences, a real D2C skincare/personal-care e-commerce brand)
         // added after checking this project's own real bank-statement corpus (docs/superpowers/
         // specs/2026-09-01-transaction-categorization-design.md §1) -- a real, verified miss, safe
@@ -114,11 +117,13 @@ public final class CategoryRules {
         // added after mining this project's own real bank-statement corpus's current residual
         // "Other" bucket (2026-09-14 pass, docs/superpowers/plans/2026-09-14-vocabulary-mining-
         // pass-2.md). Safe as bare words/phrases: neither collides with any other keyword here.
-        // "meesho", "tata cliq", "mr diy", "reliance retail" (2026-10-05): 6 rows in "Other".
+        // "meesho", "tata cliq", "mr diy", "reliance retail" (2026-10-05): 6 rows in "Other". "tonique",
+        // a liquor store (2 rows): no category is closer than a store purchase.
         RULES.put("Shopping", List.of("amazon", "flipkart", "myntra", "ajio", "nykaa", "decathlon", "asspl", "pureplay", "global fashion", "ekart",
-                "meesho", "tata cliq", "mr diy", "reliance retail"));
-        // "healthians" (2026-10-05): a diagnostics lab, 2 rows in "Other".
-        RULES.put("Health", List.of("pharmacy", "apollo", "medplus", "hospital", "clinic", "netmeds", "1mg", "healthians"));
+                "meesho", "tata cliq", "mr diy", "reliance retail", "tonique"));
+        // "healthians" (2026-10-05): a diagnostics lab, 2 rows in "Other". "fitpass", a gym pass printed
+        // run into its country prefix ("INDFITPASS"), so fusion-tolerant; 1 row.
+        RULES.put("Health", List.of("pharmacy", "apollo", "medplus", "hospital", "clinic", "netmeds", "1mg", "healthians", "fitpass"));
         RULES.put("Entertainment", List.of("netflix", "prime video", "hotstar", "spotify", "bookmyshow", "pvr", "inox"));
         // "mutualfunds" is not redundant with "mutual fund": matching is word-boundary over the
         // NORMALIZED description, and normalize() only replaces non-alphanumerics with spaces -- it
@@ -224,19 +229,26 @@ public final class CategoryRules {
         // "ixigo" and its company "le travenues", a hotel site, an airline and airport lounges
         // (2026-10-05): 9 corpus rows in "Other".
         RULES.put("Travel", List.of("makemytrip", "goibibo", "yatra", "airbnb", "oyo", "indigo", "spicejet", "vistara", "hotel booking",
-                "ixigo", "le travenues", "agoda", "air india", "encalm", "airport lounge"));
+                "ixigo", "le travenues", "agoda", "air india", "encalm", "airport lounge",
+                // An airport-services app's company (1 row).
+                "adani digital"));
         // "appleservices", "googleworkspace", "amazonaws" (2026-10-03): the same fused, cut UPI ids
         // on the same statement -- an app store, an office suite and a cloud provider's monthly charges.
         // "cloudflare", "anthropic", "linkedin" and the spaced "google workspace" (2026-10-05): 5 rows.
         // A card statement prints the first two twice, run together ("CLOUDFLARECLOUDFLARE"), so
         // both are FUSION_TOLERANT_KEYWORDS.
         RULES.put("Subscriptions", List.of("google one", "icloud", "adobe", "microsoft 365", "linkedin premium", "apple services",
-                "appleservices", "googleworkspace", "amazonaws", "cloudflare", "anthropic", "linkedin", "google workspace"));
+                "appleservices", "googleworkspace", "amazonaws", "cloudflare", "anthropic", "linkedin", "google workspace",
+                // An app store, like "appleservices" above (2026-10-05, 14 rows): its mandate ("Google
+                // Play"), its own UPI id ("playstore1..." -- fusion-tolerant, the id runs into a digit)
+                // and a card line ("GOOGLE*PLAYSUPPORT").
+                "google play", "playstore", "google playsupport"));
         RULES.put("Education", List.of("udemy", "coursera", "byjus", "tuition fee", "school fee", "college fee"));
         RULES.put("Gifts & Donations", List.of("donation", "charity", "ngo donation", "gift"));
         // Appended, like the categories above, so no earlier match changes (2026-10-05): a skincare
-        // brand and a mattress maker, 2 corpus rows each in "Other".
-        RULES.put("Personal Care", List.of("dot and key"));
+        // brand and a mattress maker, 2 corpus rows each in "Other"; a home-services company whose main
+        // business is beauty and grooming, 1 row.
+        RULES.put("Personal Care", List.of("dot and key", "urban company"));
         RULES.put("Home & Furnishing", List.of("wakefit"));
     }
 
@@ -596,8 +608,10 @@ public final class CategoryRules {
     // the brand. Both are long and specific enough that no English or Indian name contains them.
     // "cloudflare" and "anthropic" (2026-10-05): a card statement prints each merchant's name twice
     // with nothing between ("CLOUDFLARECLOUDFLARE"). Long, and in no English or Indian name.
+    // "playstore", "gpayrecharge" (a UPI id that runs into a digit) and "fitpass" (run into its country
+    // prefix) the same day, on the same reasoning.
     private static final Set<String> FUSION_TOLERANT_KEYWORDS = Set.of("groww", "zerodha", "upstox", "punemetro", "airtelprepaid",
-            "cloudflare", "anthropic");
+            "cloudflare", "anthropic", "playstore", "gpayrecharge", "fitpass");
 
     private static final Map<String, List<Pattern>> RULE_PATTERNS = new LinkedHashMap<>();
     static {

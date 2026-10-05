@@ -81,7 +81,10 @@ public final class BankActivityCategory {
      *  masked number ("4000XXXXXX0001"). A bill pay with a consumer number is a utility, not a card;
      *  so is a debit-card bill payment, which prints the debit card's own masked number, hence net
      *  banking's prefix and not any "billpay". Measured on the corpus (2026-10-05): 7 rows, all "Other". */
-    private static final Pattern CARD_BILL_PAID = words("cc billpay");
+    // "credclub", "cred club": paid to the card-bill app's own UPI id, which is how its card bills
+    // arrive (2026-10-05, 4 rows, uneven bill-sized amounts). A shop paid through the app is paid at
+    // the shop's own id and does not carry these words.
+    private static final Pattern CARD_BILL_PAID = words("cc billpay", "credclub", "cred club");
     private static final Pattern NET_BANKING_BILL_PAY = words("ib billpay");
     private static final Pattern MASKED_CARD_NUMBER = Pattern.compile("\\b\\d{4,6}[Xx*]{4,8}\\d{4}\\b");
 

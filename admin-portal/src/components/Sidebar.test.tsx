@@ -115,6 +115,20 @@ describe('Sidebar', () => {
     expect(screen.queryByRole('link', { name: /Layout Studio/ })).not.toBeInTheDocument();
   });
 
+  // Push Campaigns can message users, so it has its own permission: the read-only notification
+  // dashboard's NOTIFICATION_MANAGE must not reveal it, and it must not reveal that dashboard.
+  it('shows Push Campaigns only to an account holding PUSH_CAMPAIGN_MANAGE', () => {
+    renderSidebar(['PUSH_CAMPAIGN_MANAGE']);
+    expect(screen.getByRole('link', { name: /Push Campaigns/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /^Notifications/ })).not.toBeInTheDocument();
+  });
+
+  it('does not show Push Campaigns to an account that only holds NOTIFICATION_MANAGE', () => {
+    renderSidebar(['NOTIFICATION_MANAGE']);
+    expect(screen.getByRole('link', { name: /^Notifications/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Push Campaigns/ })).not.toBeInTheDocument();
+  });
+
   it('shows Platform Analytics only when the account holds PLATFORM_ANALYTICS_VIEW', () => {
     renderSidebar(['PLATFORM_ANALYTICS_VIEW']);
 

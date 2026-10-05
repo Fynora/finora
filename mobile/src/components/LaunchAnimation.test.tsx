@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { AccessibilityInfo } from 'react-native';
 import * as Worklets from 'react-native-worklets';
+import { enterDarkField, restoreSystemBars } from '../../modules/launch-system-bars';
 import {
   LAUNCH_TIMELINE as T,
   LaunchAnimation,
@@ -9,6 +10,7 @@ import {
 } from './LaunchAnimation';
 
 jest.mock('expo-status-bar', () => ({ StatusBar: () => null }));
+jest.mock('../../modules/launch-system-bars', () => ({ enterDarkField: jest.fn(), restoreSystemBars: jest.fn() }));
 
 // useReducedMotion reads the OS setting once at module load and is not spy-able (a non-configurable
 // export), so the mock reads this flag instead.
@@ -56,6 +58,8 @@ describe('LaunchAnimation', () => {
     jest.useFakeTimers();
     setLaunchAnimationPlayedForTests(false);
     mockFrameCallback = null;
+    jest.mocked(enterDarkField).mockClear();
+    jest.mocked(restoreSystemBars).mockClear();
   });
 
   afterEach(() => {
@@ -259,5 +263,38 @@ describe('LaunchAnimation', () => {
     // Nothing left running to report done a second time.
     advance(T.failsafe + 1000);
     expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  // Android, 3-button navigation: no light contrast band across the dark field, and the app's own
+  // navigation bar back the moment the field starts to uncover the app.
+  it('takes the navigation bar dark while it covers the screen, and gives it back as the lift starts', () => {
+    render(<LaunchAnimation ready onDone={jest.fn()} />);
+    expect(enterDarkField).toHaveBeenCalledTimes(1);
+
+    advance(T.startWaitCap + T.exitStart + T.liftDelay - 5);
+    expect(restoreSystemBars).not.toHaveBeenCalled();
+
+    advance(5);
+    expect(restoreSystemBars).toHaveBeenCalled();
+  });
+
+  it('gives the navigation bar back as the reduced-motion fade starts', () => {
+    mockReducedMotion = true;
+    render(<LaunchAnimation ready onDone={jest.fn()} />);
+
+    advance(T.startWaitCap + T.reducedHold - 5);
+    expect(restoreSystemBars).not.toHaveBeenCalled();
+
+    advance(5);
+    expect(restoreSystemBars).toHaveBeenCalled();
+  });
+
+  it('always gives the navigation bar back when it goes away, however early', () => {
+    const { unmount } = render(<LaunchAnimation ready={false} onDone={jest.fn()} />);
+    expect(restoreSystemBars).not.toHaveBeenCalled();
+
+    unmount();
+
+    expect(restoreSystemBars).toHaveBeenCalled();
   });
 });

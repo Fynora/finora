@@ -14,6 +14,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
+import { enterDarkField, restoreSystemBars } from '../../modules/launch-system-bars';
 import { fonts } from '../theme/fonts';
 
 /**
@@ -166,6 +167,18 @@ function LaunchAnimationContent({ ready, onDone }: LaunchAnimationProps) {
   const released = useSharedValue(false);
   const smoothRun = useSharedValue(0);
   const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const barsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Android, 3-button navigation: light buttons and no contrast scrim while the dark field covers
+  // the screen, instead of the system's light band across its bottom. Restored as soon as the
+  // field starts to leave (see startExit), and in any case when this unmounts.
+  useEffect(() => {
+    enterDarkField();
+    return () => {
+      if (barsTimerRef.current !== null) clearTimeout(barsTimerRef.current);
+      restoreSystemBars();
+    };
+  }, []);
 
   const finish = useCallback(() => {
     if (finishedRef.current) return;
@@ -191,9 +204,13 @@ function LaunchAnimationContent({ ready, onDone }: LaunchAnimationProps) {
       if (completed) scheduleOnRN(finish);
     };
     if (reducedMotion) {
+      restoreSystemBars();
       fieldOpacity.set(withTiming(0, { duration: T.reducedFade, reduceMotion: ReduceMotion.Never }, onExitFinished));
       return;
     }
+    // The lift uncovers the bottom of the screen first, so the app's own navigation bar comes back
+    // the moment the field starts to move.
+    barsTimerRef.current = setTimeout(restoreSystemBars, T.liftDelay);
     markOpacity.set(timing(0, T.markFadeDuration));
     markScale.set(timing(0.94, T.markFadeDuration));
     fieldShift.set(withDelay(

@@ -32,10 +32,25 @@ public class RefreshToken {
      * <p>This is the one fact that lets {@code RefreshTokenService.rotate} distinguish a token
      * replayed a moment after its own rotation (a retried request, two instances of the app
      * refreshing at once) from a token replayed after the session has moved on. Only the first
-     * is granted the grace window; a null here always means theft.
+     * is granted the grace window. A null here means theft unless {@link #revokedRemotelyAt}
+     * is set.
      */
     @Column(name = "rotated_at")
     private Instant rotatedAt;
+
+    /**
+     * When this token was ended by a server-side action its holder took no part in (V260): "sign
+     * out this device" from another device, "sign out other devices", or an account-wide
+     * revocation. Null for every other kind of revocation. Always accompanied by
+     * {@link #revokedAt}, and never set together with {@link #rotatedAt}: only live rows are
+     * ended this way, and a rotated row is no longer live.
+     *
+     * <p>The holder of such a token was never told its session ended, so presenting it again is
+     * expected. {@code RefreshTokenService.rotate} rejects it for this session alone instead of
+     * treating it as theft.
+     */
+    @Column(name = "revoked_remotely_at")
+    private Instant revokedRemotelyAt;
 
     /**
      * When the user signed in, carried forward unchanged by every rotation.
@@ -96,6 +111,8 @@ public class RefreshToken {
     public void setRevokedAt(Instant revokedAt) { this.revokedAt = revokedAt; }
     public Instant getRotatedAt() { return rotatedAt; }
     public void setRotatedAt(Instant rotatedAt) { this.rotatedAt = rotatedAt; }
+    public Instant getRevokedRemotelyAt() { return revokedRemotelyAt; }
+    public void setRevokedRemotelyAt(Instant revokedRemotelyAt) { this.revokedRemotelyAt = revokedRemotelyAt; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getSessionStartedAt() { return sessionStartedAt; }
     public UUID getSessionId() { return sessionId; }

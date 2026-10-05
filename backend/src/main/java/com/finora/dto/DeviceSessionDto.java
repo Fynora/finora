@@ -33,8 +33,9 @@ public record DeviceSessionDto(UUID id, UUID sessionId, boolean current,
      *
      * <p>{@code id} identifies the current refresh TOKEN and changes on every rotation;
      * {@code sessionId} identifies the SESSION and does not. Both are exposed because they answer
-     * different questions: revoke still operates on the token row, while anything scoped to the
-     * sign-in itself — device naming, trusted devices, per-session audit — keys off the session.
+     * different questions: revoke still takes the token row's id (and ends the session it belongs
+     * to), while anything scoped to the sign-in itself — device naming, trusted devices,
+     * per-session audit — keys off the session.
      */
     public static DeviceSessionDto from(RefreshToken rt, long absoluteSessionMs,
                                         UUID callerSessionId) {

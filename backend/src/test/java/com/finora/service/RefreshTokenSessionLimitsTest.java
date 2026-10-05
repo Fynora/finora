@@ -16,7 +16,6 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -24,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -136,7 +136,7 @@ class RefreshTokenSessionLimitsTest {
         // everything out would take down sessions that are nowhere near their limit, and would put
         // an ordinary seven-day expiry in the same bucket as refresh-token reuse -- which really
         // does mean theft, and whose all-sessions revocation is worth keeping distinct.
-        verify(repository, never()).findByUserIdAndRevokedAtIsNull(any(UUID.class));
+        verify(repository, never()).endLiveRowsOfUserRemotely(any(), any());
         verify(repository, never()).saveAll(any());
     }
 
@@ -152,15 +152,13 @@ class RefreshTokenSessionLimitsTest {
         revoked.setRevokedAt(Instant.now().minus(Duration.ofMinutes(1)));
         when(repository.findByTokenHashForUpdate(TokenHasher.sha256(RAW_TOKEN)))
                 .thenReturn(Optional.of(revoked));
-        when(repository.findByUserIdAndRevokedAtIsNull(any(UUID.class))).thenReturn(List.of());
 
         assertThatThrownBy(() -> service.rotate(RAW_TOKEN))
                 .isInstanceOf(ApiException.class)
                 .extracting(e -> ((ApiException) e).getCode())
                 .isEqualTo(ErrorCode.AUTH_SESSION_REVOKED);
 
-        verify(repository).findByUserIdAndRevokedAtIsNull(userId);
-        verify(repository).saveAll(any());
+        verify(repository).endLiveRowsOfUserRemotely(eq(userId), any(Instant.class));
     }
 
     @Test
@@ -249,7 +247,6 @@ class RefreshTokenSessionLimitsTest {
         when(repository.findByTokenHashForUpdate(TokenHasher.sha256(RAW_TOKEN))).thenReturn(Optional.of(rt));
         when(repository.existsBySessionIdAndRevokedAtIsNullAndExpiresAtAfter(any(UUID.class), any(Instant.class)))
                 .thenReturn(sessionStillLive);
-        when(repository.findByUserIdAndRevokedAtIsNull(any(UUID.class))).thenReturn(List.of());
         return rt;
     }
 
@@ -258,7 +255,7 @@ class RefreshTokenSessionLimitsTest {
                 .isInstanceOf(ApiException.class)
                 .extracting(e -> ((ApiException) e).getCode())
                 .isEqualTo(ErrorCode.AUTH_SESSION_REVOKED);
-        verify(repository).findByUserIdAndRevokedAtIsNull(userId);
+        verify(repository).endLiveRowsOfUserRemotely(eq(userId), any(Instant.class));
         verify(authMetrics, never()).refreshReplayedWithinGrace();
     }
 
@@ -275,7 +272,7 @@ class RefreshTokenSessionLimitsTest {
         assertThat(saved.getValue().getSessionStartedAt())
                 .as("the grace re-issue carries the ORIGINAL session start, so the absolute cap still holds")
                 .isEqualTo(rotated.getSessionStartedAt());
-        verify(repository, never()).findByUserIdAndRevokedAtIsNull(any());
+        verify(repository, never()).endLiveRowsOfUserRemotely(any(), any());
         verify(repository, never()).saveAll(any());
         verify(authMetrics).refreshReplayedWithinGrace();
         verify(authMetrics, never()).refreshSucceeded();
@@ -289,15 +286,51 @@ class RefreshTokenSessionLimitsTest {
 
     @Test
     void aTokenRotatedInsideTheWindowIsStillTheftOnceItsSessionHasBeenEnded() {
-        // The account-wide revocation a real theft response performs leaves no live row for the
-        // session. The window must not let the token it already caught mint a fresh pair.
+        // Ended by logout or a limit (no remote stamp anywhere in the session): no live row is
+        // left, and the window must not let a token from an ended session mint a fresh pair.
         rotatedToken(Duration.ofSeconds(5), false);
         assertTheftResponse();
     }
 
     @Test
+    void aTokenEndedRemotelyIsRejectedForItsOwnSessionWithoutSigningOutTheRest() {
+        RefreshToken revoked = rotatedToken(Duration.ofMinutes(10), false);
+        revoked.setRotatedAt(null);
+        revoked.setRevokedRemotelyAt(revoked.getRevokedAt());
+
+        assertThatThrownBy(() -> service.rotate(RAW_TOKEN))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).getCode())
+                .isEqualTo(ErrorCode.AUTH_TOKEN_EXPIRED);
+        verify(repository, never()).endLiveRowsOfUserRemotely(any(), any());
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void aRetryInsideTheWindowAfterItsSessionWasEndedRemotelyIsRejectedWithoutSigningOutTheRest() {
+        RefreshToken rotated = rotatedToken(Duration.ofSeconds(5), false);
+        when(repository.existsBySessionIdAndRevokedRemotelyAtIsNotNull(rotated.getSessionId())).thenReturn(true);
+
+        assertThatThrownBy(() -> service.rotate(RAW_TOKEN))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).getCode())
+                .isEqualTo(ErrorCode.AUTH_TOKEN_EXPIRED);
+        verify(repository, never()).endLiveRowsOfUserRemotely(any(), any());
+    }
+
+    @Test
+    void aRotatedTokenOutsideTheWindowIsTheftEvenIfItsSessionWasLaterEndedRemotely() {
+        // Only a retry inside the window is excused by a remote sign-out. A token rotated long
+        // ago and presented now is the theft signal regardless of what happened to its session.
+        RefreshToken rotated = rotatedToken(GRACE.plusSeconds(1), false);
+        when(repository.existsBySessionIdAndRevokedRemotelyAtIsNotNull(rotated.getSessionId())).thenReturn(true);
+        assertTheftResponse();
+    }
+
+    @Test
     void aTokenRevokedByAnythingOtherThanRotationGetsNoGrace() {
-        // Logout, the idle/absolute limits and revokeAllForUser all write revokedAt alone. This
+        // Logout and the idle/absolute limits write revokedAt alone (no rotatedAt, no remote
+        // stamp). This
         // is the pre-existing refreshTokenReuseStillSignsOutEverything case, restated against
         // the new field: a one-second-old revocation with no rotatedAt is theft.
         RefreshToken revoked = rotatedToken(Duration.ofSeconds(1), true);

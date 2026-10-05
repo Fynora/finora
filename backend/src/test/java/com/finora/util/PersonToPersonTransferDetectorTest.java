@@ -471,6 +471,39 @@ class PersonToPersonTransferDetectorTest {
     }
 
     @Test
+    void inTheStandardSlashLayout_theNoteAfterTheUpiIdIsTheRemark() {
+        String withNote = "UPI/CR/600011112222/SUNITA RAO/HDFC/sunita.rao@okhdfc/cashback for dinner";
+        assertThat(PersonToPersonTransferDetector.counterpartyText(withNote))
+                .isEqualTo("UPI/CR/600011112222/SUNITA RAO/HDFC/sunita.rao@okhdfc");
+        assertThat(PersonToPersonTransferDetector.remarkText(withNote)).isEqualTo("cashback for dinner");
+        // An app's note can carry slashes of its own; all of it is the note.
+        String appNote = "UPI/DR/600011112222/ACME CAFE/YESB/acmecafe@ybl/Pay to //ORD12345/01-07-2026 10:00";
+        assertThat(PersonToPersonTransferDetector.counterpartyText(appNote))
+                .isEqualTo("UPI/DR/600011112222/ACME CAFE/YESB/acmecafe@ybl");
+        assertThat(PersonToPersonTransferDetector.remarkText(appNote)).isEqualTo("Pay to //ORD12345/01-07-2026 10:00");
+        // An empty note, or none at all: no remark, and the payee's part as printed.
+        String emptyNote = "UPI/CR/600011112222/SUNITA RAO/HDFC/sunita.rao@okhdfc/";
+        assertThat(PersonToPersonTransferDetector.counterpartyText(emptyNote))
+                .isEqualTo("UPI/CR/600011112222/SUNITA RAO/HDFC/sunita.rao@okhdfc");
+        assertThat(PersonToPersonTransferDetector.remarkText(emptyNote)).isEmpty();
+        String noNote = "UPI/CR/600011112222/SUNITA RAO/HDFC/sunita.rao@okhdfc";
+        assertThat(PersonToPersonTransferDetector.counterpartyText(noNote)).isEqualTo(noNote);
+        assertThat(PersonToPersonTransferDetector.remarkText(noNote)).isEmpty();
+    }
+
+    @Test
+    void inTheStandardSlashLayout_aNameInTheNoteDoesNotMakeTheNumberedPayeeAPerson() {
+        // As in HDFC's hyphen layout, only the payee's own slot is read for a name: whoever typed
+        // the note, a bare phone-number payee stays unidentified rather than a person by the note.
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/DR/600011112222/9999999999/YESB/9999999999@ybl/RAHUL SHARMA")).isFalse();
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI-9999999999-9999999999@ybl-YESB0XXXXXX-600011112222-RAHUL SHARMA")).isFalse();
+        assertThat(PersonToPersonTransferDetector.isNamedIndividualTransfer(
+                "UPI/DR/600011112222/SUNITA RAO/HDFC/sunita.rao@okhdfc/RAHUL SHARMA")).isTrue();
+    }
+
+    @Test
     void aHyphenatedHandleStillUsesTheDashPayeeSlot_andAnAndInTheRemarkNoLongerVetoesTheName() {
         // Google Pay suffixes handles with "-1", "-4"; the payee-slot pattern used to miss them and
         // fall back to scanning the whole narration, remark included -- where "AND" is a business word.

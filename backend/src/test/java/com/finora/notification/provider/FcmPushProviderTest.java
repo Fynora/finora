@@ -237,6 +237,38 @@ class FcmPushProviderTest {
     }
 
     @Test
+    void send_isPermanentWhenFcmReportsEveryDeviceDead_soItIsNotRetriedForNothing() {
+        // The token is gone for good (and was just revoked): a retry could only find "no registered
+        // device". Permanent on this attempt, with counts only in the detail.
+        UUID userId = UUID.randomUUID();
+        when(deviceTokenService.activeTokensFor(userId)).thenReturn(List.of(
+                new ActiveDeviceToken("deadA", "ANDROID"), new ActiveDeviceToken("deadB", "IOS")));
+        when(messageSender.send(any(), any(), any(), any())).thenReturn(FcmSendOutcome.TOKEN_DEAD);
+
+        ChannelSendResult result = provider.send(notification(userId));
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.permanent()).isTrue();
+        assertThat(result.detail()).isEqualTo("all 2 devices unregistered").doesNotContain("dead");
+    }
+
+    @Test
+    void send_staysRetryableWhenOneDeviceIsDeadButAnotherFailedOnlyTransiently() {
+        // Not every device is known-dead, so a later attempt may still reach the live one.
+        UUID userId = UUID.randomUUID();
+        when(deviceTokenService.activeTokensFor(userId)).thenReturn(List.of(
+                new ActiveDeviceToken("deadA", "ANDROID"), new ActiveDeviceToken("flaky", "ANDROID")));
+        when(messageSender.send(eq("deadA"), any(), any(), any())).thenReturn(FcmSendOutcome.TOKEN_DEAD);
+        when(messageSender.send(eq("flaky"), any(), any(), any())).thenReturn(FcmSendOutcome.TRANSIENT_FAILURE);
+
+        ChannelSendResult result = provider.send(notification(userId));
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.permanent()).isFalse();
+        assertThat(result.detail()).isEqualTo("all 2 devices rejected");
+    }
+
+    @Test
     void send_doesNotRevokeATokenThatFailsTransiently() {
         // This is the test that protects a live device: a transient failure must never be treated
         // as evidence the token is dead.

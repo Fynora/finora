@@ -222,6 +222,31 @@ public class BackgroundWorkConfig {
     }
 
     /**
+     * One thread for admin push campaign runs ({@code PushCampaignRunner.executeAsync}).
+     *
+     * <p>A run pages through its whole audience and then drains the notification queue for up to
+     * 30 seconds, so it must never run on the shared scheduler thread (that would stall the
+     * notification poller and every other {@code @Scheduled} job behind it). One thread, because
+     * runs are database-bound and two campaigns gain nothing from racing each other: the
+     * one-per-day cap would make the second one skip whoever the first reached anyway. Durability
+     * lives in the run row and the outbox, not in this queue -- a run lost with the JVM is marked
+     * FAILED by the scheduler's sweep, and can simply be sent again.
+     */
+    @Bean("pushCampaignExecutor")
+    public Executor pushCampaignExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setQueueCapacity(20);
+        executor.setThreadNamePrefix("push-campaign-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(20);
+        executor.initialize();
+        return executor;
+    }
+
+    /**
      * Explicit transaction boundaries, for code that needs more than one of them in a single
      * method.
      *

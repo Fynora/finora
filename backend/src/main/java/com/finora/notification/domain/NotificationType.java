@@ -38,5 +38,10 @@ public enum NotificationType {
     // (ReferralService.onChargeReversed). Templates seeded in V241 alongside this addition.
     REFERRAL_REVERSED,
     /** Statement refresh, step 5: an improved parser would change some of the user's statements. */
-    STATEMENT_REFRESH_AVAILABLE
+    STATEMENT_REFRESH_AVAILABLE,
+    // An admin push campaign (com.finora.notification.campaign). Like IMPORT_STATEMENT_RESOLVED the
+    // wording is operator-authored: the PUSH template (V261) is {{title}} / {{message}}. PUSH only,
+    // no EMAIL row, so a request for any other channel would dead-letter -- the campaign sender
+    // only ever asks for PUSH.
+    CUSTOM_PUSH
 }

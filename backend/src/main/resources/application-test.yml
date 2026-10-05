@@ -40,6 +40,18 @@ app:
     queue:
       enabled: false
 
+  # Admin push campaigns. The scheduler is off under test for the same reason as every poller here:
+  # a background tick claiming a campaign another test just made ACTIVE is cross-test pollution.
+  # Tests drive PushCampaignScheduler.runDue(now) directly, which does not consult this flag.
+  # drain-max-seconds 0 stops a run from draining the shared notification queue (drainOnce ignores
+  # the queue-enabled flag above). max-audience is lifted because the audience is global and other
+  # tests leave eligible users behind; the rollout-limit test sets it explicitly.
+  push-campaigns:
+    scheduler:
+      enabled: false
+    drain-max-seconds: 0
+    max-audience: 1000000
+
   # BH-047 moved the expired-import-session sweep from the upload path to a scheduled job. Off
   # under test for the same reason the learning queue's poller is: a background thread deleting
   # import_sessions rows mid-run is precisely the cross-test pollution BH-058 was about. Tests that

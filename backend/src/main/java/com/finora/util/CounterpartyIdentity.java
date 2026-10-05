@@ -66,7 +66,7 @@ public final class CounterpartyIdentity {
      * corpus: PNB and Canara rows in this layout had the id cut before the "@" on 18 rows, every one
      * of which fell to a weak name key -- one friend keyed by name on one row and by id on another.
      */
-    private static final Pattern STANDARD_LAYOUT = Pattern.compile("^UPI/(?:DR|CR)/[A-Za-z]?\\d{6,}/[^/]*/[A-Za-z]{2,5}/([^/]*)");
+    static final Pattern STANDARD_LAYOUT = Pattern.compile("^UPI/(?:DR|CR)/[A-Za-z]?\\d{6,}/[^/]*/[A-Za-z]{2,5}/([^/]*)");
 
     /** A linked-account suffix ("-1", "-2") a UPI app adds when one person links another bank. */
     private static final Pattern LINKED_ACCOUNT_SUFFIX = Pattern.compile("-[1-9]$");

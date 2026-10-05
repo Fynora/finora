@@ -123,7 +123,14 @@ public final class CounterpartyClassifier {
     //    so a payments app's bill-payment id and an office suite's id now name a merchant. Measured on
     //    the corpus (1,936 rows): 2 rows UNKNOWN -> BUSINESS, no other change, no key changes; on a
     //    tester's statements 5 more rows, the same two ids. Bumped so the backfill re-types stored rows.
-    public static final short VERSION = 11;
+    // 12: a payer's note in the standard slash layout (2026-10-05). "UPI/<DR|CR>/<ref>/<name>/<bank>/
+    //    <id>/<note>" had its note read as the payee's own words, so a friend who wrote "cashback",
+    //    "interest" or "reward" was typed FINANCIAL_INSTITUTION; the note is now set aside as the
+    //    hyphen layout's already was, and still speaks when the payee's words say nothing. Measured on
+    //    the corpus (1,969 rows): no type or key changes; 5 rows of shop payments whose app-written note
+    //    the person check had read as a name stop counting as a person (already BUSINESS, category
+    //    unchanged). Bumped so the backfill re-types stored rows a friend's note made a bank.
+    public static final short VERSION = 12;
 
     /**
      * Bank-generated activity, where the counterparty is the institution itself. These words are

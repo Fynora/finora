@@ -219,6 +219,12 @@ class CategoryRulesTest {
         assertThat(CategoryRules.suggestCategory("AUTO LOAN EMI PAYMENT NACH")).isEqualTo("Loan EMI");
     }
 
+    /** A fund house's mandate debit prints its name run together with "MF". */
+    @Test
+    void suggestCategory_matchesAFundHousesRunTogetherMandateName() {
+        assertThat(CategoryRules.suggestCategory("SAMP0000000000001 HDFCMF 0000001 DEBIT   ACHDr")).isEqualTo("Investments");
+    }
+
     /**
      * Regression test for another substring-collision bug found during a later review pass: the
      * Rent rule originally included a bare "rent" keyword, and contains()-based matching means

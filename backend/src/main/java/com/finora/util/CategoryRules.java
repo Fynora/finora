@@ -162,7 +162,9 @@ public final class CategoryRules {
                 "indian clearing", "indian c learing", "nextbillion", "nse zerod", "hsbc mf", "nippon life asset", "nsdl findiv",
                 "angel one", "angelone", "5paisa", "kuvera", "indmoney", "smallcase", "sharekhan",
                 "paytm money", "etmoney", "et money", "motilal oswal",
-                "icici direct", "icicidirect", "hdfc securities", "icici securities", "kotak securities"));
+                "icici direct", "icicidirect", "hdfc securities", "icici securities", "kotak securities",
+                // A fund house's mandate debit with its name run into "MF" (2026-10-05, one corpus row).
+                "hdfcmf"));
         RULES.put("Fees/Interest", List.of("annual fee", "late fee", "finance charge", "interest charged", "penalty"));
         // "cc payment" added after checking this project's own real bank-statement corpus (see
         // Shopping/Dining comment above) -- a real BharatBillPay narration ("BPPY CC PAYMENT")

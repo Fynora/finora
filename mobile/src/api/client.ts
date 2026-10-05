@@ -127,11 +127,15 @@ telemetryApi.interceptors.request.use(attachClientHeaders);
 // library. Instead it exposes two callbacks the app registers once at startup (see AuthContext),
 // keeping the API client itself free of any navigation dependency.
 type SessionCallback = () => void;
-let onSessionExpired: SessionCallback = () => {};
+/** `endedDeliberately`: the server ended this session on purpose (signed out from another device,
+ *  "sign out other devices", a security sign-out, or the account deactivated) rather than it timing
+ *  out. AuthContext stops this phone's notifications only in that case. */
+export type SessionExpiredCallback = (info: { endedDeliberately: boolean }) => void;
+let onSessionExpired: SessionExpiredCallback = () => {};
 let onPhoneVerificationRequired: SessionCallback = () => {};
 
 export function setSessionCallbacks(handlers: {
-  onSessionExpired?: SessionCallback;
+  onSessionExpired?: SessionExpiredCallback;
   onPhoneVerificationRequired?: SessionCallback;
 }) {
   if (handlers.onSessionExpired) onSessionExpired = handlers.onSessionExpired;
@@ -158,6 +162,18 @@ export function describeRefreshFailure(err: unknown): { refreshHttpStatus: numbe
     refreshHttpStatus: typeof response.status === 'number' ? response.status : null,
     refreshFailureReason: refreshReasonLabel(response.data?.errorCode),
   };
+}
+
+/**
+ * Whether a rejected refresh means the session was ended on purpose rather than timing out:
+ * AUTH_004 (revoked -- "sign out this device" from another device, "sign out other devices", or the
+ * reuse-detection sign-out) and AUTH_007 (account deactivated). Idle (AUTH_005), max-age (AUTH_006)
+ * and an expired token (AUTH_002) are time running out, and keep the phone's notifications --
+ * product decision, 2026-10-05.
+ */
+function endedDeliberately(err: unknown): boolean {
+  const code = (err as { response?: { data?: { errorCode?: unknown } } } | null)?.response?.data?.errorCode;
+  return code === 'AUTH_004' || code === 'AUTH_007';
 }
 
 // The backend's refresh rejections, as plain words. The first production report of a refresh
@@ -244,7 +260,7 @@ export function sessionStorageCleared(): void {
 }
 
 // Mirrors every key AuthContext.logout() clears on the web app.
-async function clearSessionAndRedirect() {
+async function clearSessionAndRedirect(endedDeliberately = false) {
   // A refresh failing is what brings us here, so none is left in flight to hand anything over.
   void markSessionEnded();
   try {
@@ -258,7 +274,7 @@ async function clearSessionAndRedirect() {
   } finally {
     sessionStorageCleared();
   }
-  onSessionExpired();
+  onSessionExpired({ endedDeliberately });
 }
 
 // Every backend response arrives wrapped in a standard envelope:
@@ -400,7 +416,7 @@ api.interceptors.response.use(
           lastRefreshFailureReportedAt = now;
           reportHandledEvent('Session refresh failed; signing out', 'session-refresh-failed', describeRefreshFailure(refreshErr));
         }
-        await clearSessionAndRedirect();
+        await clearSessionAndRedirect(endedDeliberately(refreshErr));
         return Promise.reject(error);
       }
     }

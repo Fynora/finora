@@ -1,4 +1,5 @@
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { AccessibilityInfo } from 'react-native';
 import * as Worklets from 'react-native-worklets';
 import {
   LAUNCH_TIMELINE as T,
@@ -244,6 +245,19 @@ describe('LaunchAnimation', () => {
     advance(T.startWaitCap + T.stemStart + T.stemDuration);
 
     expect(screen.getByTestId('launch-animation-stem')).toHaveAnimatedStyle({ height: 0 });
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not play at all with a screen reader on, so its user is never kept waiting', async () => {
+    jest.spyOn(AccessibilityInfo, 'isScreenReaderEnabled').mockResolvedValue(true);
+    const onDone = jest.fn();
+
+    render(<LaunchAnimation ready={false} onDone={onDone} />);
+
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+    expect(shouldPlayLaunchAnimation()).toBe(false);
+    // Nothing left running to report done a second time.
+    advance(T.failsafe + 1000);
     expect(onDone).toHaveBeenCalledTimes(1);
   });
 });

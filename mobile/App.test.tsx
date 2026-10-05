@@ -72,9 +72,6 @@ describe('App', () => {
       mockNavigatorMounts.count = 0;
       const first = render(<App />);
       expect(screen.getByTestId('launch-animation')).toBeOnTheScreen();
-      // The app behind it is hidden from screen readers until it has gone.
-      expect(screen.getByTestId('app-root', { includeHiddenElements: true }).props.accessibilityElementsHidden).toBe(true);
-      expect(screen.getByTestId('app-root', { includeHiddenElements: true }).props.importantForAccessibility).toBe('no-hide-descendants');
 
       act(() => {
         jest.advanceTimersByTime(
@@ -82,8 +79,6 @@ describe('App', () => {
         );
       });
       expect(screen.queryByTestId('launch-animation')).not.toBeOnTheScreen();
-      expect(screen.getByTestId('app-root', { includeHiddenElements: true }).props.accessibilityElementsHidden).toBe(false);
-      expect(screen.getByTestId('app-root', { includeHiddenElements: true }).props.importantForAccessibility).toBe('auto');
       // The app underneath stayed mounted the whole time: the overlay going away never remounts it.
       expect(mockNavigatorMounts.count).toBe(1);
 

@@ -1,5 +1,5 @@
 import { Component, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Dimensions, Pressable, StyleSheet, Text, type LayoutChangeEvent } from 'react-native';
+import { AccessibilityInfo, Dimensions, Pressable, StyleSheet, Text, type LayoutChangeEvent } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import Animated, {
   Easing,
@@ -205,6 +205,21 @@ function LaunchAnimationContent({ ready, onDone }: LaunchAnimationProps) {
     finish, fieldHeight, reducedMotion, stemHeight, topArmWidth, middleArmWidth, glyphScale, wordmarkOpacity,
     wordmarkShift, markOpacity, markScale, fieldShift, fieldOpacity,
   ]);
+
+  // With a screen reader on, the animation is skipped outright: it is purely visual, so it would
+  // only make the user wait, and while it covered the app their reader would have nothing useful
+  // to read. Done at once, before or after the splash is released.
+  useEffect(() => {
+    let cancelled = false;
+    AccessibilityInfo.isScreenReaderEnabled()
+      .then((enabled) => {
+        if (!cancelled && enabled) finish();
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [finish]);
 
   // Starts the timeline. Called once: by the frame gate below, or by the startWaitCap timer.
   const begin = useCallback(() => {

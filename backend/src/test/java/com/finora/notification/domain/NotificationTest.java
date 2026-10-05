@@ -207,4 +207,37 @@ class NotificationTest {
         // markSent's own logic clears lastError -- the guard must stop it from firing at all.
         assertThat(n.getLastError()).isEqualTo(lastError);
     }
+
+    @Test
+    void markSkipped_endsAProcessingRowWithoutCountingAFailure() {
+        Notification n = newNotification();
+        n.markQueued(Instant.parse("2026-09-02T10:01:00Z"));
+        n.markProcessing(Instant.parse("2026-09-02T10:02:00Z"));
+
+        n.markSkipped("all 1 devices unregistered", Instant.parse("2026-09-02T10:03:00Z"));
+
+        assertThat(n.getStatus()).isEqualTo(NotificationStatus.SKIPPED);
+        assertThat(n.getStatus().isTerminal()).isTrue();
+        assertThat(n.getAttemptCount()).isZero(); // not a failed attempt
+        assertThat(n.getLastError()).isEqualTo("all 1 devices unregistered");
+        assertThat(n.getSentAt()).isNull();
+    }
+
+    @Test
+    void markSkipped_redactsLikeEveryOtherStoredError() {
+        Notification n = newNotification();
+        n.markSkipped("could not reach someone@example.com", Instant.parse("2026-09-02T10:03:00Z"));
+        assertThat(n.getLastError()).doesNotContain("someone@example.com");
+    }
+
+    @Test
+    void markSkipped_onATerminalRowIsANoOp() {
+        Notification sent = sentNotification();
+        sent.markSkipped("late", Instant.parse("2026-09-02T10:09:00Z"));
+        assertThat(sent.getStatus()).isEqualTo(NotificationStatus.SENT);
+
+        Notification dead = deadLetteredNotification();
+        dead.markSkipped("late", Instant.parse("2026-09-02T10:09:00Z"));
+        assertThat(dead.getStatus()).isEqualTo(NotificationStatus.DEAD_LETTER);
+    }
 }

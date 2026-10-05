@@ -441,7 +441,7 @@ long a person has been waiting.
 every 30s (the poll interval). A flat line means the scheduler is not firing, which is a different
 problem from slow work and has a different fix.
 
-**Metrics.** `finora_worker_oldest_pending_age_seconds` with `finora_worker_queue_depth`: age high
+**Metrics.** (For the notification dispatcher, admin push campaign rows, `CUSTOM_PUSH`, are excluded from the age: a campaign backlog is hours old by design and would otherwise page on every send.) `finora_worker_oldest_pending_age_seconds` with `finora_worker_queue_depth`: age high
 and depth low is one stuck row; both high is a genuine backlog.
 
 **Logs.** Search `scheduler-` correlation ids for recent passes. Their absence is itself the finding.

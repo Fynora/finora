@@ -4,7 +4,7 @@
  * implementation detail that exists only to keep those two from importing each other in a cycle.
  */
 export { radius, spacing, type Palette } from './palette';
-export { fonts, useAppFonts } from './fonts';
+export { fonts, FontsReadyProvider, useAppFonts, useFontsReady } from './fonts';
 export {
   ThemeProvider,
   useTheme,

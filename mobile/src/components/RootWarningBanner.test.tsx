@@ -4,6 +4,7 @@ import * as Device from 'expo-device';
 import { RootWarningBoundary } from './RootWarningBanner';
 import { ThemeProvider } from '../theme';
 import App from '../../App';
+import { setLaunchAnimationPlayedForTests } from './LaunchAnimation';
 
 // Same reasoning as OfflineBanner.test.tsx's identical mock: keeps the mount test a test of App's
 // own composition, not of the whole navigation tree.
@@ -155,6 +156,11 @@ describe('RootWarningBoundary', () => {
 });
 
 describe('the app actually mounts it', () => {
+  // Steady state, after the cold-start launch animation: while it is up, the app behind it is hidden
+  // from screen readers, and so from these queries too (see App.tsx).
+  beforeEach(() => setLaunchAnimationPlayedForTests(true));
+  afterEach(() => setLaunchAnimationPlayedForTests(false));
+
   it('renders the root warning over the real App tree when the device is flagged', async () => {
     mockedIsRooted.mockResolvedValueOnce(true);
     render(<App />);

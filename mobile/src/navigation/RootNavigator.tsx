@@ -15,7 +15,7 @@ import { ReferralCodePrompt } from '../components/ReferralCodePrompt';
 import { TourOverlay } from '../onboarding/TourOverlay';
 import { TOUR_STEPS, type TourStep } from '../onboarding/tourSteps';
 import { useAuth } from '../context/AuthContext';
-import { useTheme, useThemeSetting } from '../theme';
+import { useFontsReady, useTheme, useThemeSetting } from '../theme';
 import { useAuthStackInitialRoute } from './useAuthStackInitialRoute';
 import { useAppPathDeepLink } from './useAppPathDeepLink';
 import { useEmailChangeDeepLink } from './useEmailChangeDeepLink';
@@ -64,6 +64,7 @@ const linkingPrefixes = ['finora://'];
  */
 export function RootNavigator() {
   const { bootstrapping, token, phoneVerified, onboardingCompleted, logout, email } = useAuth();
+  const fontsReady = useFontsReady();
   // The required "How do you keep track of your spending today?" question, shown in place of
   // onboarding and the app alike until answered -- see the hook.
   const spendingQuestion = useSpendingQuestion(token !== null && phoneVerified, email);
@@ -134,7 +135,10 @@ export function RootNavigator() {
 
   // Session restore reads SecureStore asynchronously (see AuthContext). Rendering anything
   // route-dependent before it resolves would show Login to an already-signed-in user for a frame.
-  if (bootstrapping) {
+  // Also held until the custom fonts are registered: every screen that draws in them sits below
+  // here, and on iOS text laid out before its font arrives stays in the system font (see
+  // useFontsReady). The hooks above still mount immediately, so deep links are not delayed.
+  if (bootstrapping || !fontsReady) {
     return (
       <View style={[styles.splash, { backgroundColor: c.bg }]}>
         <ActivityIndicator size="large" color={c.primary} />

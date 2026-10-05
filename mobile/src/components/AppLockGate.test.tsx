@@ -6,11 +6,12 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as appLock from '../lib/appLock';
 import { AppLockGate } from './AppLockGate';
-import { AppModal } from './AppModal';
+import { AppModal, LaunchCoveredProvider } from './AppModal';
 import { AppAlert, getCurrentAppAlert, __resetAppAlertForTests } from '../lib/appAlert';
 import { AuthProvider } from '../context/AuthContext';
 import { ThemeProvider } from '../theme';
 import App from '../../App';
+import { setLaunchAnimationPlayedForTests } from './LaunchAnimation';
 
 // Same reasoning as OfflineBanner.test.tsx / RootWarningBanner.test.tsx: isolates the mount test
 // to App's own composition rather than the whole navigation tree.
@@ -151,6 +152,44 @@ describe('AppLockGate', () => {
     await waitFor(() => expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.queryByText(LOCK_TEXT)).toBeNull());
     expect(screen.getByText('protected content')).toBeTruthy();
+  });
+
+  // The system's Face ID sheet is drawn above everything, so prompting during the cold-start launch
+  // animation would put it on top of the animation. The lock itself must still engage at once.
+  it('locks at once under the launch animation but holds the biometric prompt until it has gone', async () => {
+    await signIn();
+    await enableAppLock();
+    mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const tree = (launching: boolean) => (
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <LaunchCoveredProvider value={launching}>
+            <AuthProvider>
+              <AppLockGate>
+                <Text>protected content</Text>
+              </AppLockGate>
+            </AuthProvider>
+          </LaunchCoveredProvider>
+        </ThemeProvider>
+      </QueryClientProvider>
+    );
+    const { rerender } = render(tree(true));
+
+    expect(await screen.findByText(LOCK_TEXT)).toBeTruthy();
+    expect(screen.queryByText('protected content')).toBeNull();
+    // Give any stray prompt every chance to fire before asserting that none did.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(mockedAuthenticateAsync).not.toHaveBeenCalled();
+
+    rerender(tree(false));
+
+    await waitFor(() => expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByText(LOCK_TEXT)).toBeNull());
+    expect(screen.getByText('protected content')).toBeTruthy();
+    expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1);
   });
 
   // Regression: the app running in the background must resume exactly where the user left it.
@@ -956,6 +995,11 @@ describe('an in-flight share (e.g. downloading a statement or exporting a report
 });
 
 describe('the app actually mounts it', () => {
+  // Steady state, after the cold-start launch animation: while it is up, the app behind it is hidden
+  // from screen readers, and so from these queries too (see App.tsx).
+  beforeEach(() => setLaunchAnimationPlayedForTests(true));
+  afterEach(() => setLaunchAnimationPlayedForTests(false));
+
   it('locks the real App tree for a signed-in session with the setting on', async () => {
     await signIn();
     await enableAppLock();

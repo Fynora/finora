@@ -5,6 +5,7 @@ import { onlineManager } from '@tanstack/react-query';
 import { OfflineBoundary, useOnline } from './OfflineBanner';
 import { ThemeProvider } from '../theme';
 import App from '../../App';
+import { setLaunchAnimationPlayedForTests } from './LaunchAnimation';
 
 describe('useOnline', () => {
   afterEach(() => onlineManager.setOnline(true));
@@ -325,6 +326,11 @@ describe('OfflineBoundary', () => {
 });
 
 describe('the app actually mounts it', () => {
+  // Steady state, after the cold-start launch animation: while it is up, the app behind it is hidden
+  // from screen readers, and so from these queries too (see App.tsx).
+  beforeEach(() => setLaunchAnimationPlayedForTests(true));
+  afterEach(() => setLaunchAnimationPlayedForTests(false));
+
   it('renders the offline strip over the real App tree when the connection is down', () => {
     setOnline(false);
     render(<App />);

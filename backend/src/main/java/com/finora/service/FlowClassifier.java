@@ -40,7 +40,9 @@ public final class FlowClassifier {
     //    is a bill payment; a clearing-corporation payout is an investment even when wrapped mid-word.
     // 7: a credit the user filed under Friend Repayment themselves is money paid back, the same as
     //    choosing the "Paid back to me" kind.
-    public static final short VERSION = 7;
+    // 8: a person's UPI note no longer makes their money income: for a person, the cashback/reward,
+    //    interest and dividend words are read outside the note (#2029, 2026-10-05).
+    public static final short VERSION = 8;
 
     public enum FlowClass { INCOME, EXPENSE, REFUND, TRANSFER, INVESTMENT, LIABILITY, ADJUSTMENT, UNRESOLVED }
 

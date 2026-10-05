@@ -130,7 +130,10 @@ public final class CounterpartyClassifier {
     //    the corpus (1,969 rows): no type or key changes; 5 rows of shop payments whose app-written note
     //    the person check had read as a name stop counting as a person (already BUSINESS, category
     //    unchanged). Bumped so the backfill re-types stored rows a friend's note made a bank.
-    public static final short VERSION = 12;
+    // 13: brand words added to CategoryRules (2026-10-05), which MerchantIdentityLookup reads as
+    //    known merchants. Measured on the corpus (1,969 rows): 24 rows of those brands UNKNOWN ->
+    //    BUSINESS, no other type change, no key changes. Bumped so the backfill re-types stored rows.
+    public static final short VERSION = 13;
 
     /**
      * Bank-generated activity, where the counterparty is the institution itself. These words are

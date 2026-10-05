@@ -348,8 +348,8 @@ class FlowClassifierTest {
         assertThat(chosen(t, null)).isEqualTo(new FlowDecision(FlowClass.UNRESOLVED, FlowReason.PERSON_INFLOW));
     }
 
-    @Test void versionIsSeven() {
-        assertThat(FlowClassifier.VERSION).isEqualTo((short) 7);
+    @Test void versionIsEight() {
+        assertThat(FlowClassifier.VERSION).isEqualTo((short) 8);
     }
 
     // ---- coverage (classifier v6): shapes the corpus showed landing in the wrong class ----

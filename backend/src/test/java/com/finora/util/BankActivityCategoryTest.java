@@ -150,6 +150,57 @@ class BankActivityCategoryTest {
     }
 
     @Test
+    void aPublicProvidentFundOrPensionInstalment_isInvestments_evenGluedToItsAccountNumber() {
+        // The bank prints the scheme inside the account number or the scheme's own reference, so
+        // the word stands alone nowhere in the narration.
+        assertThat(of("MOB000000000/00000PPF000000000001", EXPENSE)).isEqualTo("Investments");
+        assertThat(of("APY00000001_072026_000000000001_IN STALLMValue Dt 17/07/2026 SUMMARY", EXPENSE))
+                .isEqualTo("Investments");
+    }
+
+    @Test
+    void ppfOrApyInsideAnOrdinaryWord_isNothing() {
+        assertThat(of("UPI/000000000000/SHOPPFAIR STORE/sample@okbank", EXPENSE)).isNull();
+        assertThat(of("UPI/000000000000/HAPPY00000001 CAFE/sample@okbank", EXPENSE)).isNull();
+        // Money coming back from either scheme is not a contribution.
+        assertThat(of("MOB000000000/00000PPF000000000001", INCOME)).isNull();
+    }
+
+    @Test
+    void aCreditCardBillPaidFromThisAccount_isTransfer() {
+        assertThat(of("Self BIL/INFT/AB00000001/CC BillPay-0001/Self", EXPENSE)).isEqualTo("Transfer");
+        assertThat(of("UPI-PZ SAMPLE CC BILLPAY-pzsampleccbillpay.00000001@samplebank-XXXX0MERUPI-100000000001-REMARK", EXPENSE)) // synthetic-ok
+                .isEqualTo("Transfer");
+        // Net banking's bill payment names no card, but carries the card's masked number.
+        assertThat(of("IB BILLPAY DR-SAMP92-400000XXXXXX0001", EXPENSE)).isEqualTo("Transfer"); // synthetic-ok
+    }
+
+    @Test
+    void anOrdinaryBillPaidOverNetBanking_isNotATransfer() {
+        // The same net-banking bill payment to a utility: a consumer number, no masked card.
+        assertThat(of("IB BILLPAY DR-SAMPLEPOWER-000000000001", EXPENSE)).isNull();
+    }
+
+    @Test
+    void aCardsOwnInstalment_isLoanEmi_andItsInterestStaysACharge() {
+        assertThat(of("EMI PRINCIPAL - 1/6, REF# 00000001", EXPENSE)).isEqualTo("Loan EMI");
+        assertThat(of("FP EMI 06/12(EXCL TAX   49.40)", EXPENSE)).isEqualTo("Loan EMI");
+        assertThat(of("EMI INTEREST - 1/6, REF# 00000001", EXPENSE)).isEqualTo("Fees/Interest");
+    }
+
+    /** Not merchant vocabulary: a card's instalment line must not make the card a business. */
+    @Test
+    void aCardsOwnInstalmentLine_isNotAKnownMerchant() {
+        assertThat(CounterpartyClassifier.classify("FP EMI 06/12(EXCL TAX   49.40)")).isNotEqualTo(CounterpartyType.BUSINESS);
+        assertThat(CounterpartyClassifier.classify("EMI PRINCIPAL - 1/6, REF# 00000001")).isNotEqualTo(CounterpartyType.BUSINESS);
+    }
+
+    @Test
+    void aForeignCurrencyMarkupFee_isFeesInterest() {
+        assertThat(of("CONSOLIDATED FCY MARKUP FEE (Ref# VT000000000000000000001)", EXPENSE)).isEqualTo("Fees/Interest");
+    }
+
+    @Test
     void aBillPaymentReceivedOnACard_isTransfer() {
         assertThat(of("BBPS PAYMENT RECEIVED - DP000000000000SAMPLE", INCOME)).isEqualTo("Transfer");
         assertThat(of("BBPS PAYMENT", INCOME)).isEqualTo("Transfer");

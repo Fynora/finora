@@ -7,7 +7,6 @@ import {
   isSuccessResponse,
   statusCodes,
 } from '@react-native-google-signin/google-signin';
-import { useThemeSetting } from '../theme';
 import { signOutOfGoogle } from '../lib/googleSession';
 import { reportHandledEvent } from '../lib/monitoring';
 
@@ -66,7 +65,6 @@ interface Props {
 }
 
 export function GoogleSignInButton({ onCredential, onError }: Props) {
-  const { resolved } = useThemeSetting();
   const [loading, setLoading] = useState(false);
 
   const webClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
@@ -107,7 +105,9 @@ export function GoogleSignInButton({ onCredential, onError }: Props) {
     <View style={styles.wrap}>
       <GoogleSigninButton
         size={GoogleSigninButton.Size.Wide}
-        color={resolved === 'dark' ? GoogleSigninButton.Color.Dark : GoogleSigninButton.Color.Light}
+        // White in both themes, matching the web's 'outline' button. The library's Dark variant is
+        // a blue button, which stood out on the graphite dark theme.
+        color={GoogleSigninButton.Color.Light}
         onPress={handlePress}
         disabled={loading}
         style={styles.button}

@@ -1,7 +1,8 @@
+import { useEffect } from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import { GoogleSignin, GoogleSigninButton } from '@react-native-google-signin/google-signin';
 import { GoogleSignInButton, isGoogleSignInConfigured } from './GoogleSignInButton';
-import { ThemeProvider } from '../theme';
+import { ThemeProvider, useThemeSetting } from '../theme';
 import { reportHandledEvent } from '../lib/monitoring';
 
 jest.mock('../lib/monitoring', () => ({
@@ -50,6 +51,28 @@ describe('GoogleSignInButton', () => {
       expect(isGoogleSignInConfigured()).toBe(true);
       const { view } = renderButton();
       expect(view.getByText('Sign in with Google')).toBeTruthy();
+    });
+
+    it('stays the white Google button in dark mode, not the blue one', async () => {
+      // Dark mode is switched on the way a user would (AccountsCard.test.tsx's approach), and the
+      // probe proves it really took effect before the colour is checked.
+      let resolvedTheme: string | null = null;
+      function DarkTheme({ children }: { children: React.ReactNode }) {
+        const { setSetting, resolved } = useThemeSetting();
+        useEffect(() => { setSetting('dark'); }, [setSetting]);
+        resolvedTheme = resolved;
+        return <>{children}</>;
+      }
+      const view = render(
+        <ThemeProvider>
+          <DarkTheme>
+            <GoogleSignInButton onCredential={jest.fn()} onError={jest.fn()} />
+          </DarkTheme>
+        </ThemeProvider>
+      );
+
+      await waitFor(() => expect(resolvedTheme).toBe('dark'));
+      expect(view.UNSAFE_getByType(GoogleSigninButton).props.color).toBe(GoogleSigninButton.Color.Light);
     });
 
     it('hands a successful credential straight to onCredential', async () => {

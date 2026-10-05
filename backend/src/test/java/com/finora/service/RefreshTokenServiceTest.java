@@ -52,16 +52,59 @@ class RefreshTokenServiceTest {
     }
 
     @Test
-    void revokeSession_ownedByTheUser_setsRevokedAtAndSaves() {
+    void revokeSession_ownedByTheUser_endsEveryLiveRowOfThatSessionAsRemote() {
         UUID userId = UUID.randomUUID();
+        UUID tokenId = UUID.randomUUID();
         UUID sessionId = UUID.randomUUID();
-        RefreshToken rt = tokenWithId(sessionId);
-        when(refreshTokenRepository.findByIdAndUserId(sessionId, userId)).thenReturn(Optional.of(rt));
+        RefreshToken listed = tokenWithId(tokenId);
+        listed.setSessionId(sessionId);
+        when(refreshTokenRepository.findByIdAndUserId(tokenId, userId)).thenReturn(Optional.of(listed));
 
-        service.revokeSession(userId, sessionId);
+        service.revokeSession(userId, tokenId);
 
-        assertThat(rt.getRevokedAt()).isNotNull();
-        verify(refreshTokenRepository).save(rt);
+        // The whole session, not only the listed row, and stamped so the device's later replay
+        // is not taken for theft.
+        verify(refreshTokenRepository).endLiveRowsOfSessionRemotely(eq(userId), eq(sessionId), any(Instant.class));
+        verify(refreshTokenRepository, never()).endLiveRowsOfUserRemotely(any(), any());
+    }
+
+    @Test
+    void revokeSession_repeatsUntilARefreshInFlightHasNoLiveSuccessorLeft() {
+        UUID userId = UUID.randomUUID();
+        UUID tokenId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        RefreshToken listed = tokenWithId(tokenId);
+        listed.setSessionId(sessionId);
+        when(refreshTokenRepository.findByIdAndUserId(tokenId, userId)).thenReturn(Optional.of(listed));
+        when(refreshTokenRepository.existsByUserIdAndSessionIdAndRevokedAtIsNull(userId, sessionId))
+                .thenReturn(true, false);
+
+        service.revokeSession(userId, tokenId);
+
+        verify(refreshTokenRepository, times(2)).endLiveRowsOfSessionRemotely(eq(userId), eq(sessionId), any(Instant.class));
+    }
+
+    @Test
+    void revokeSession_givesUpLoudlyRatherThanLoopingForever() {
+        UUID userId = UUID.randomUUID();
+        UUID tokenId = UUID.randomUUID();
+        RefreshToken listed = tokenWithId(tokenId);
+        listed.setSessionId(UUID.randomUUID());
+        when(refreshTokenRepository.findByIdAndUserId(tokenId, userId)).thenReturn(Optional.of(listed));
+        when(refreshTokenRepository.existsByUserIdAndSessionIdAndRevokedAtIsNull(any(), any())).thenReturn(true);
+
+        assertThatThrownBy(() -> service.revokeSession(userId, tokenId)).isInstanceOf(IllegalStateException.class);
+        verify(refreshTokenRepository, times(10)).endLiveRowsOfSessionRemotely(any(), any(), any());
+    }
+
+    @Test
+    void revokeAllOtherSessions_withNoCurrentSessionSparesNothing() {
+        UUID userId = UUID.randomUUID();
+
+        service.revokeAllOtherSessionsForUser(userId, null);
+
+        verify(refreshTokenRepository).endLiveRowsOfUserRemotely(eq(userId), any(Instant.class));
+        verify(refreshTokenRepository, never()).endLiveRowsOfOtherSessionsRemotely(any(), any(), any());
     }
 
     /** Scoped lookup by (id, userId) together means a session id that exists but belongs to a
@@ -78,7 +121,7 @@ class RefreshTokenServiceTest {
                 .extracting(e -> ((ApiException) e).getStatus())
                 .isEqualTo(HttpStatus.NOT_FOUND);
 
-        verify(refreshTokenRepository, never()).save(any());
+        verify(refreshTokenRepository, never()).endLiveRowsOfSessionRemotely(any(), any(), any());
     }
 
     /**

@@ -5,6 +5,7 @@ import org.springframework.data.domain.Pageable;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -15,6 +16,18 @@ import java.util.UUID;
 
 public interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID> {
     Optional<RefreshToken> findByTokenHash(String tokenHash);
+
+    /**
+     * The owner of a token, read as a bare column rather than as the entity. For
+     * {@code RefreshTokenService.resolveUserId}, which runs in the same transaction as the
+     * {@link #findByTokenHashForUpdate} that follows it in {@code AuthService.refresh}. Loading
+     * the entity here left it in the persistence context, and the locked read then compared the
+     * row a concurrent refresh had just committed against that stale copy and threw
+     * {@code StaleObjectStateException} -- so a double refresh through the endpoint still failed
+     * the request (and signed the client out) despite the row lock meant to give it the grace path.
+     */
+    @Query("SELECT r.userId FROM RefreshToken r WHERE r.tokenHash = :tokenHash")
+    Optional<UUID> findUserIdByTokenHash(@Param("tokenHash") String tokenHash);
 
     /**
      * The same row, read under {@code SELECT ... FOR UPDATE} so that two requests presenting the
@@ -29,8 +42,8 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID
     @Query("SELECT r FROM RefreshToken r WHERE r.tokenHash = :tokenHash")
     Optional<RefreshToken> findByTokenHashForUpdate(@Param("tokenHash") String tokenHash);
 
-    /** Used for the "revoke everything" response when a used/revoked token is presented again —
-     *  a strong signal the token was stolen, so every session for this user gets logged out. */
+    /** Every unrevoked row of a user, expired or not. The revocations themselves are the bulk
+     *  updates further down; this is the read tests use to check what they left live. */
     List<RefreshToken> findByUserIdAndRevokedAtIsNull(UUID userId);
 
     /** Backs the device-management list endpoint — unlike findByUserIdAndRevokedAtIsNull above,
@@ -51,6 +64,55 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID
 
     Optional<RefreshToken> findByIdAndUserId(UUID id, UUID userId);
 
+    /** Whether any row of this session was ended by a remote revocation -- see
+     *  {@link RefreshToken#getRevokedRemotelyAt()}. */
+    boolean existsBySessionIdAndRevokedRemotelyAtIsNotNull(UUID sessionId);
+
+    // The four bulk revocations below replace a read of the live rows followed by saveAll(). That
+    // form lost to any refresh of one of those rows already in progress: its save failed @Version,
+    // and the sign-out (or the password change or reset it belonged to) failed with it. A bulk
+    // UPDATE instead waits for that refresh to commit, then Postgres re-checks
+    // "revoked_at IS NULL" against the row it wrote and skips it. The successor the refresh
+    // inserted is outside that statement's snapshot, which is why RefreshTokenService repeats the
+    // statement until a fresh read finds nothing live. version is incremented by hand because a
+    // bulk UPDATE bypasses @Version, and a stale copy of one of these rows elsewhere must still
+    // fail its own save. Each must run inside a transaction.
+
+    /** Logout: every live row of one session, as an ordinary revocation (no remote stamp). */
+    @Modifying(flushAutomatically = true)
+    @Query("UPDATE RefreshToken r SET r.revokedAt = :now, r.version = r.version + 1 "
+            + "WHERE r.userId = :userId AND r.sessionId = :sessionId AND r.revokedAt IS NULL")
+    int endLiveRowsOfSession(@Param("userId") UUID userId, @Param("sessionId") UUID sessionId,
+                             @Param("now") Instant now);
+
+    /** "Sign out this device": every live row of one session, stamped as ended remotely. */
+    @Modifying(flushAutomatically = true)
+    @Query("UPDATE RefreshToken r SET r.revokedAt = :now, r.revokedRemotelyAt = :now, r.version = r.version + 1 "
+            + "WHERE r.userId = :userId AND r.sessionId = :sessionId AND r.revokedAt IS NULL")
+    int endLiveRowsOfSessionRemotely(@Param("userId") UUID userId, @Param("sessionId") UUID sessionId,
+                                     @Param("now") Instant now);
+
+    /** Account-wide: every live row of the user, stamped as ended remotely. */
+    @Modifying(flushAutomatically = true)
+    @Query("UPDATE RefreshToken r SET r.revokedAt = :now, r.revokedRemotelyAt = :now, r.version = r.version + 1 "
+            + "WHERE r.userId = :userId AND r.revokedAt IS NULL")
+    int endLiveRowsOfUserRemotely(@Param("userId") UUID userId, @Param("now") Instant now);
+
+    /** "Sign out other devices": every live row of the user outside one session, stamped as
+     *  ended remotely. */
+    @Modifying(flushAutomatically = true)
+    @Query("UPDATE RefreshToken r SET r.revokedAt = :now, r.revokedRemotelyAt = :now, r.version = r.version + 1 "
+            + "WHERE r.userId = :userId AND r.sessionId <> :keptSessionId AND r.revokedAt IS NULL")
+    int endLiveRowsOfOtherSessionsRemotely(@Param("userId") UUID userId,
+                                           @Param("keptSessionId") UUID keptSessionId,
+                                           @Param("now") Instant now);
+
+    boolean existsByUserIdAndSessionIdAndRevokedAtIsNull(UUID userId, UUID sessionId);
+
+    boolean existsByUserIdAndRevokedAtIsNull(UUID userId);
+
+    boolean existsByUserIdAndSessionIdNotAndRevokedAtIsNull(UUID userId, UUID keptSessionId);
+
     /**
      * Whether a session still has a live refresh token, and therefore still exists at all.
      *
@@ -69,9 +131,6 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID
      * rows this predicate keeps.
      */
     boolean existsBySessionIdAndRevokedAtIsNullAndExpiresAtAfter(UUID sessionId, Instant now);
-
-    /** Every still-live row of one session, for logout ending the session as a whole. */
-    List<RefreshToken> findByUserIdAndSessionIdAndRevokedAtIsNull(UUID userId, UUID sessionId);
 
     /** AccountPurgeSweepService -- every row already revoked by requestDeletion() by this point;
      *  this removes the residual device/IP labels too. Hard delete, no soft-delete concern. */

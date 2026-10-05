@@ -493,7 +493,11 @@ class RefreshTokenTransportIT extends AbstractIntegrationTest {
                 .hasSize(2);
     }
 
-    /** A token whose session was ended by the theft response gets no grace, however fresh. */
+    /**
+     * A token whose session was ended by "sign out everywhere" (or the theft response) gets no
+     * grace, however fresh. Refused as a device that has not heard yet (AUTH_002), not as theft:
+     * the session is already over, and sweeping again could only end sessions signed in since.
+     */
     @Test
     void replayInsideTheGraceWindowIsRefusedOnceTheSessionHasBeenSignedOutEverywhere() throws Exception {
         mockMvc.perform(post("/api/v1/auth/refresh")
@@ -506,7 +510,7 @@ class RefreshTokenTransportIT extends AbstractIntegrationTest {
                         .with(fromIp("10.0.3.1"))
                         .cookie(new Cookie(RefreshTokenCookie.NAME, rawToken)))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.errorCode").value("AUTH_004"));
+                .andExpect(jsonPath("$.errorCode").value("AUTH_002"));
         assertThat(refreshTokenRepository.findByUserIdAndRevokedAtIsNull(userId)).isEmpty();
     }
 
@@ -592,6 +596,44 @@ class RefreshTokenTransportIT extends AbstractIntegrationTest {
                         .cookie(new Cookie(RefreshTokenCookie.NAME, rawToken)))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.errorCode").value("AUTH_004"))
+                .andReturn();
+
+        String setCookie = result.getResponse().getHeader("Set-Cookie");
+        assertThat(setCookie).contains(RefreshTokenCookie.NAME).contains("Max-Age=0");
+        assertSecurityAttributes(setCookie);
+    }
+
+    /** Same gap, a browser signed out from another device: rejected as AUTH_002, not as theft,
+     *  and the dead cookie still has to go -- it used to be cleared only because this case was
+     *  wrongly answered with AUTH_004. */
+    @Test
+    void refreshOfABrowserSignedOutFromAnotherDeviceClearsTheCookie() throws Exception {
+        UUID tokenRowId = refreshTokenRepository.findByTokenHash(TokenHasher.sha256(rawToken)).orElseThrow().getId();
+        refreshTokenService.revokeSession(userId, tokenRowId);
+
+        MvcResult result = mockMvc.perform(post("/api/v1/auth/refresh")
+                        .with(fromIp("10.0.11.1"))
+                        .cookie(new Cookie(RefreshTokenCookie.NAME, rawToken)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.errorCode").value("AUTH_002"))
+                .andReturn();
+
+        String setCookie = result.getResponse().getHeader("Set-Cookie");
+        assertThat(setCookie).contains(RefreshTokenCookie.NAME).contains("Max-Age=0");
+        assertSecurityAttributes(setCookie);
+    }
+
+    /** Same gap, a token past its own expiry: no request can ever succeed with it again. */
+    @Test
+    void refreshOfAnExpiredTokenClearsTheCookie() throws Exception {
+        jdbcTemplate.update("UPDATE refresh_tokens SET expires_at = ? WHERE token_hash = ?",
+                java.sql.Timestamp.from(Instant.now().minus(Duration.ofMinutes(1))), TokenHasher.sha256(rawToken));
+
+        MvcResult result = mockMvc.perform(post("/api/v1/auth/refresh")
+                        .with(fromIp("10.0.11.2"))
+                        .cookie(new Cookie(RefreshTokenCookie.NAME, rawToken)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.errorCode").value("AUTH_002"))
                 .andReturn();
 
         String setCookie = result.getResponse().getHeader("Set-Cookie");

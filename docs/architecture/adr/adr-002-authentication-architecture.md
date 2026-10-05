@@ -120,7 +120,7 @@ no request context, so a null would quietly disable the check.
 | Idle timeout | this session |
 | Absolute cap | this session |
 | Voluntary logout | this session |
-| **Refresh token reuse** | **every session** |
+| **Refresh token reuse** | **every session** (not a token ended remotely -- [Amendment (2026-10-05)](#amendment-2026-10-05)) |
 | Password change | every session |
 
 Every row above now takes effect on the *access* token as well, on the revoked session's next
@@ -338,6 +338,45 @@ and gets the user cookie, mobile sends a body token and is untouched. On the coo
 service also checks the token belongs to an account of that portal (`AUTH_016`), and the handler
 clears only that portal's cookie on a session-ending error. Consequence at deploy: an admin already
 signed in holds the admin token under the old name and signs in once more.
+
+## Amendment (2026-10-05)
+
+**A device signed out from elsewhere is not a thief.** Three paths end a session on behalf of
+someone other than the device holding it: "sign out this device" from the device list, "sign out
+other devices" after a password, email or phone change, and the account-wide revocations (password
+reset, admin actions, the theft response itself). That device was never told, so the next time it
+is opened it presents its refresh token -- and every one of these left `rotated_at` null, which
+`rotate` read as theft. Removing an old phone from the device list therefore signed the owner out
+of every device the moment the old phone was opened, including the one that removed it; and after a
+password reset, the first stale device to open ended the sign-in made since.
+`RemotelyRevokedSessionReplayIT` reproduced each case against Postgres.
+
+These paths now also stamp `revoked_remotely_at` (V260), and a replay of such a token is rejected
+for its own session with `AUTH_002`, writing nothing. The strict rule is unchanged for a token
+retired by rotation and replayed outside the grace window, for a logged-out token, and for the idle
+and absolute limits: in each, the holder presented the token itself and was given a successor or
+told the session ended, so a later replay means someone else kept a copy. Rows revoked before V260
+carry no stamp and keep the old behaviour until they expire.
+
+"Sign out this device" also now ends the whole session, not the one token row the list showed: the
+listed device refreshing between the list loading and the tap left the session alive in its
+successor.
+
+All four revocations -- logout, "sign out this device", "sign out other devices", account-wide -- are
+bulk `UPDATE`s repeated until a fresh read finds no live row. The read-then-`saveAll` they replaced
+lost a `@Version` race to any refresh of one of those rows already in flight: the request failed
+(taking a password change or reset with it) and the session survived. The `UPDATE` waits for that
+refresh to commit and skips the row it retired; the repeat catches the successor it inserted.
+
+The F-11 row lock had not held through the endpoint either. `AuthService.refresh` reads the token
+(`resolveUserId`) before `rotate` locks it, in the same transaction; the cached entity made the
+locked read throw `StaleObjectStateException` when a concurrent refresh had just committed, so a
+double refresh still failed and signed the client out. `resolveUserId` now reads only the
+`user_id` column.
+
+A browser's refresh cookie is now also cleared on `AUTH_002`. Every place that code is thrown is a
+token that can never refresh again, and the remote case had only been getting its cookie cleared
+because it was wrongly answered with `AUTH_004`.
 
 ## Related
 

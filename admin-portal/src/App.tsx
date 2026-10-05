@@ -31,6 +31,7 @@ const GlobalRules = lazy(() => import('./pages/GlobalRules'));
 const LearningEngine = lazy(() => import('./pages/LearningEngine'));
 const LearningQueue = lazy(() => import('./pages/LearningQueue'));
 const Notifications = lazy(() => import('./pages/Notifications'));
+const PushCampaigns = lazy(() => import('./pages/PushCampaigns'));
 const HeldImports = lazy(() => import('./pages/HeldImports'));
 const HeldStatements = lazy(() => import('./pages/HeldStatements'));
 const HeldStatementDetail = lazy(() => import('./pages/HeldStatementDetail'));
@@ -106,7 +107,8 @@ export default function App() {
               <Route path="/merchant-review" element={<ProtectedRoute><MerchantReview /></ProtectedRoute>} />
               <Route path="/learning-queue" element={<ProtectedRoute><LearningQueue /></ProtectedRoute>} />
               <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
-              <Route path="/held-imports" element={<ProtectedRoute><HeldImports /></ProtectedRoute>} />
+              <Route path="/push-campaigns" element={<ProtectedRoute><PushCampaigns /></ProtectedRoute>} />
+              <Route path="/held-imports"element={<ProtectedRoute><HeldImports /></ProtectedRoute>} />
               <Route path="/held-statements" element={<ProtectedRoute><HeldStatements /></ProtectedRoute>} />
               <Route path="/held-statements/:heldId" element={<ProtectedRoute><HeldStatementDetail /></ProtectedRoute>} />
               <Route path="/trust-review-metrics" element={<ProtectedRoute><TrustReviewMetrics /></ProtectedRoute>} />

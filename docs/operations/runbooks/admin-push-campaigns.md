@@ -2,7 +2,10 @@
 
 What it is: an admin writes any push notification, picks an audience, tests it, then sends it now or
 schedules it (once, or daily at a time in IST) and decides when it stops. Backend: `com.finora.notification.campaign`
-(PR 1). Admin screen: a later PR; until then the API under `/api/v1/admin/push-campaigns` is the only way in.
+(PR 1). Admin screen: admin portal > System > Push Campaigns (`/push-campaigns`, needs `PUSH_CAMPAIGN_MANAGE`).
+It only drives the API under `/api/v1/admin/push-campaigns`; every rule below lives on the server. The screen
+asks for the word SEND when a send now reaches more than 1,000 people (or when the audience cannot be
+counted), and shows the same live delivery counts the API returns.
 
 ## How it sends
 

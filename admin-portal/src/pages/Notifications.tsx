@@ -29,7 +29,9 @@ const PAGE_SIZE = 25;
  * re-derives a rule the backend already owns.
  */
 
-const STATUSES = ['DEAD_LETTER', 'RETRYING', 'SENT', 'PROCESSING', 'QUEUED', 'CREATED'] as const;
+// CANCELLED: withdrawn by an admin before delivery (push campaigns). SKIPPED: a campaign push whose
+// person has no working device left (app uninstalled) -- routine, deliberately not a dead letter.
+const STATUSES = ['DEAD_LETTER', 'RETRYING', 'SENT', 'PROCESSING', 'QUEUED', 'CREATED', 'CANCELLED', 'SKIPPED'] as const;
 
 function statusTone(status: NotificationAdminRow['status']) {
   switch (status) {

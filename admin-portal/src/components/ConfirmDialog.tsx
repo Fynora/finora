@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 
 /** Tab stops inside the dialog. `:not([disabled])` matters because `busy` disables both buttons,
  *  which takes them out of the tab order and can leave the panel with nothing focusable in it. */
@@ -17,10 +17,14 @@ const FOCUSABLE_SELECTOR =
  * Escape-to-cancel, which this component matches (EntityDrawer's own effect is the reference).
  */
 export function ConfirmDialog({
-  title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel', danger, busy, onConfirm, onCancel,
+  title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel', danger, busy, confirmDisabled, children, onConfirm, onCancel,
 }: {
   title: string;
   message: string;
+  /** Extra content under the message, e.g. a typed-confirmation field. Its controls are inside the focus trap. */
+  children?: ReactNode;
+  /** Keeps the confirm button inert until the caller's own condition holds (e.g. "SEND" typed). */
+  confirmDisabled?: boolean;
   confirmLabel?: string;
   cancelLabel?: string;
   /** Red confirm button -- for a delete/revoke/suspend action, as opposed to a neutral confirmation. */
@@ -106,6 +110,7 @@ export function ConfirmDialog({
       >
         <h3 id="confirm-dialog-title" className="font-semibold text-ink text-sm">{title}</h3>
         <p className="text-sm text-muted">{message}</p>
+        {children}
         <div className="flex justify-end gap-2">
           <button
             type="button"
@@ -118,7 +123,7 @@ export function ConfirmDialog({
           <button
             type="button"
             onClick={onConfirm}
-            disabled={busy}
+            disabled={busy || confirmDisabled}
             className={`text-xs font-semibold text-white rounded-lg px-3.5 py-2 disabled:opacity-40 ${danger ? 'bg-danger' : 'bg-primary'}`}
           >
             {busy ? 'Working…' : confirmLabel}

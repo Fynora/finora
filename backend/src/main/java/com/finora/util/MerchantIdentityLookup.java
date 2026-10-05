@@ -69,7 +69,11 @@ public final class MerchantIdentityLookup {
             // generic trade nouns -- a business, but not an identity
             "grocery", "supermarket", "restaurant", "cafe", "pharmacy", "hospital", "clinic",
             "petrol", "fuel", "metro", "parking",
-            "electricity", "power bill", "water bill", "gas bill", "broadband");
+            "electricity", "power bill", "water bill", "gas bill", "broadband",
+            // a brand whose letters begin people's own UPI ids: "mrdiy" is the start of "mr.diya@..."
+            // and "mrdiyanshu@...", which handleNamesKnownMerchant read as the store (2026-10-05).
+            // The store's own payments carry a merchant-UPI marker and are typed BUSINESS by that.
+            "mr diy");
 
     /** Below this a brand is too short to tell from the start of a person's own id ("ola", "uber"). */
     private static final int MIN_HANDLE_PREFIX = 5;

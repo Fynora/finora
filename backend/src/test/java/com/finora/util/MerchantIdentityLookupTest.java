@@ -34,6 +34,20 @@ class MerchantIdentityLookupTest {
     }
 
     @Test
+    void aStoreWhoseLettersBeginPeoplesUpiIds_isNotReadFromAPersonsId() {
+        // "MR DIY" as a UPI-id prefix is "mrdiy" -- the start of "mr.diya@..." and "mrdiyanshu@...".
+        assertThat(MerchantIdentityLookup.handleNamesKnownMerchant("mr.diya")).isFalse();
+        assertThat(MerchantIdentityLookup.handleNamesKnownMerchant("mrdiyanshu")).isFalse();
+        assertThat(CounterpartyClassifier.classify("UPI/DR/100000000001/DIYA SHARMA/HDFC/mr.diya@okhdfc/"))
+                .isEqualTo(CounterpartyType.PERSON);
+        // The store still files under Shopping, and its own payments carry a merchant-UPI marker.
+        assertThat(CategoryRules.suggestCategory("UPI-MR DIY-mrdiy.00000001@hdfcbank-XXXX0MERUPI-100000000001-UPI")) // synthetic-ok
+                .isEqualTo("Shopping");
+        assertThat(CounterpartyClassifier.classify("UPI-MR DIY-mrdiy.00000001@hdfcbank-XXXX0MERUPI-100000000001-UPI")) // synthetic-ok
+                .isEqualTo(CounterpartyType.BUSINESS);
+    }
+
+    @Test
     void everyExcludedTermStillExistsUpstream_soARenameCannotLeaveAStaleExclusion() {
         // The entity set is "everything in CategoryRules minus these". If a keyword upstream is
         // renamed or dropped, the matching exclusion here becomes dead -- and worse, silently

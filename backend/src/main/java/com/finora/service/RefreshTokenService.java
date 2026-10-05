@@ -288,9 +288,16 @@ public class RefreshTokenService {
      *
      * <p>Scoped to the token's own user as well as its session, so nothing outside that user's
      * rows can be touched. An unknown token still does nothing: logout stays idempotent.
+     *
+     * <p>Read under the same row lock {@link #rotate} takes. A logout arriving while a refresh of
+     * this token is mid-transaction then waits for it to commit and sees the successor it wrote.
+     * With a plain read it saw neither: it missed the uncommitted successor, and its own update of
+     * the presented row lost a {@code @Version} race to the rotation and failed the request, so the
+     * session survived the logout (RefreshTokenRotationConcurrencyIT reproduces it).
      */
+    @Transactional
     public void revoke(String rawToken) {
-        refreshTokenRepository.findByTokenHash(TokenHasher.sha256(rawToken)).ifPresent(rt -> {
+        refreshTokenRepository.findByTokenHashForUpdate(TokenHasher.sha256(rawToken)).ifPresent(rt -> {
             Instant now = Instant.now();
             List<RefreshToken> live = refreshTokenRepository
                     .findByUserIdAndSessionIdAndRevokedAtIsNull(rt.getUserId(), rt.getSessionId());

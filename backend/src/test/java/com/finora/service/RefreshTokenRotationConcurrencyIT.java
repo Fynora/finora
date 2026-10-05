@@ -10,6 +10,8 @@ import com.finora.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
 import java.util.UUID;
@@ -46,6 +48,8 @@ class RefreshTokenRotationConcurrencyIT extends AbstractIntegrationTest {
     @Autowired private RefreshTokenService refreshTokenService;
     @Autowired private RefreshTokenRepository refreshTokenRepository;
     @Autowired private UserRepository userRepository;
+    @Autowired private PlatformTransactionManager transactionManager;
+    @Autowired private AuthService authService;
 
     private User createUser() {
         User user = new User();
@@ -344,5 +348,45 @@ class RefreshTokenRotationConcurrencyIT extends AbstractIntegrationTest {
             Thread.currentThread().interrupt();
             throw new RuntimeException(e);
         }
+    }
+
+    /**
+     * Logout arriving while a refresh of the same token is mid-transaction: the refresh has retired
+     * the token and written its successor, but not committed. Logout ends the session as a whole,
+     * so it has to see that successor -- otherwise the session survives the logout, which is the
+     * outcome a phone hit on 2026-10-05 (there through the client sending a just-retired token).
+     * Held open deterministically rather than raced, so the interleaving is the one under test.
+     */
+    @Test
+    void logoutDuringAnUncommittedRotationStillEndsTheSession() throws Exception {
+        User user = createUser();
+        RefreshTokenService.IssuedToken issued = refreshTokenService.issue(user.getId());
+
+        CountDownLatch rotated = new CountDownLatch(1);
+        CountDownLatch commit = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        Future<?> refresh = pool.submit(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            refreshTokenService.rotate(issued.rawToken());
+            rotated.countDown();
+            try {
+                commit.await(10, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }));
+        assertThat(rotated.await(10, TimeUnit.SECONDS)).isTrue();
+
+        Future<?> logout = pool.submit(() -> authService.logout(
+                new com.finora.dto.AuthDtos.LogoutRequest(issued.rawToken())));
+        Thread.sleep(300); // logout is now running against the uncommitted rotation
+        commit.countDown();
+        refresh.get(10, TimeUnit.SECONDS);
+        logout.get(10, TimeUnit.SECONDS);
+        pool.shutdown();
+
+        assertThat(refreshTokenRepository.existsBySessionIdAndRevokedAtIsNullAndExpiresAtAfter(
+                issued.sessionId(), java.time.Instant.now()))
+                .as("the successor the refresh wrote must be ended by the logout too")
+                .isFalse();
     }
 }

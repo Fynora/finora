@@ -782,14 +782,40 @@ describe('AuthContext push registration wiring (Task 14)', () => {
     await act(async () => {
       await auth.login('someone@example.com', 'pw');
     });
-    const handlers = spy.mock.calls[spy.mock.calls.length - 1][0] as { onSessionExpired: () => void };
+    const handlers = spy.mock.calls[spy.mock.calls.length - 1][0] as {
+      onSessionExpired: (info: { endedDeliberately: boolean }) => void;
+    };
 
     await act(async () => {
-      handlers.onSessionExpired();
+      handlers.onSessionExpired({ endedDeliberately: false });
     });
 
     expect(auth.token).toBeNull();
     expect(mockedDetachDevice).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it('a session ended on purpose from elsewhere stops its notifications, like a sign-out here', async () => {
+    // A lost phone removed from the device list, or "sign out other devices": the phone only learns
+    // of it when its refresh is rejected as revoked, and should not keep showing the notifications.
+    const client = require('../api/client');
+    const spy = jest.spyOn(client, 'setSessionCallbacks');
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+    const handlers = spy.mock.calls[spy.mock.calls.length - 1][0] as {
+      onSessionExpired: (info: { endedDeliberately: boolean }) => void;
+    };
+
+    await act(async () => {
+      handlers.onSessionExpired({ endedDeliberately: true });
+    });
+
+    expect(auth.token).toBeNull();
+    expect(mockedDetachDevice).toHaveBeenCalledTimes(1);
     spy.mockRestore();
   });
 

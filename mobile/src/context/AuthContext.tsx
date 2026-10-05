@@ -251,7 +251,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // verified flag lands on VerifyPhone -- no imperative navigation call needed.
   useEffect(() => {
     setSessionCallbacks({
-      onSessionExpired: clearLocalState,
+      onSessionExpired: ({ endedDeliberately }) => {
+        clearLocalState();
+        // Signed out on purpose from elsewhere (a lost phone removed from the device list, say):
+        // stop its notifications too, as a sign-out here would. A session that merely timed out
+        // keeps them -- see endedDeliberately in client.ts.
+        if (endedDeliberately) void detachDevice();
+      },
       onPhoneVerificationRequired: () => setPhoneVerifiedState(false),
     });
   }, [clearLocalState]);

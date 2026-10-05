@@ -1074,9 +1074,15 @@ jobs:
       - name: Dependency advisories
         run: python3 scripts/check-dependency-advisories.py frontend
 
+      # --maxWorkers=2: Vitest's default for `vitest run` is CPUs minus one (resolveMaxWorkers in
+      # vitest's cli-api). A private repository's runner has 2 CPUs against 4 for a public one, so
+      # since this repository went private on 2026-10-04 that default has been 1, and all 191 test
+      # files ran one after another. The same 1,889 tests went from 114s of wall-clock (about 2.8x
+      # parallel, 3 workers) to 433s (about 1.0x). This uses both CPUs. Set here, not in
+      # vitest.config.ts, so a developer's machine keeps its own default.
       - name: Test
         working-directory: frontend
-        run: npm test
+        run: npm test -- --maxWorkers=2
 
       # `npm run build` is `tsc -b && vite build && node scripts/prerender.mjs && node
       # scripts/crawlPolicy.mjs`, so this type-checks and bundles, then bakes real content into
@@ -1131,9 +1137,10 @@ jobs:
       - name: Dependency advisories
         run: python3 scripts/check-dependency-advisories.py admin-portal
 
+      # --maxWorkers=2: see the user frontend's Test step. Same Vitest default, same 2-CPU runner.
       - name: Test
         working-directory: admin-portal
-        run: npm test
+        run: npm test -- --maxWorkers=2
 
       - name: Build
         working-directory: admin-portal

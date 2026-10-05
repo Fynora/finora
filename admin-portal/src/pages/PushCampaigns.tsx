@@ -13,6 +13,9 @@ import {
   apiMessage, AUDIENCE_LABELS, CAMPAIGN_STATUS_LABELS, campaignStatusTone, scheduleSummary,
 } from './push-campaigns/labels';
 
+/** The API returns at most this many campaigns, newest first. */
+const LIST_LIMIT = 200;
+
 /**
  * Admin push campaigns: write any notification, pick who gets it, test it on a real phone, then
  * send it now or schedule it (once, or every day at a time in IST) and stop it whenever.
@@ -72,7 +75,10 @@ function PushCampaignsContent() {
 
   if (view.kind === 'detail') {
     return (
+      // Keyed by id: cloning swaps this view to the copy, and without a key React would reuse the
+      // same instance, carrying the old campaign's notice, test recipient and open dialog across.
       <CampaignDetail
+        key={view.id}
         id={view.id}
         onBack={() => setView({ kind: 'list' })}
         onEdit={(campaign) => setView({ kind: 'edit', campaign })}
@@ -133,8 +139,12 @@ function PushCampaignsContent() {
         rows={list.data ?? []}
         keyFor={(c) => c.id}
         loading={list.isLoading}
-        emptyMessage="No campaigns yet. Create one to get started."
+        // A failed load must not read as "nothing exists": that would invite creating a duplicate.
+        emptyMessage={list.isError ? 'Campaigns could not be loaded.' : 'No campaigns yet. Create one to get started.'}
       />
+      {(list.data?.length ?? 0) >= LIST_LIMIT && (
+        <p className="text-xs text-muted">Showing the newest {LIST_LIMIT} campaigns.</p>
+      )}
     </div>
   );
 }

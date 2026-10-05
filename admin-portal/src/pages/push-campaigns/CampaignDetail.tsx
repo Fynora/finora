@@ -14,6 +14,9 @@ import {
 /** Above this many recipients, sending now needs the word SEND typed, not just a click. */
 export const TYPED_CONFIRM_ABOVE = 1000;
 
+/** The API returns at most this many runs per campaign (newest first). */
+export const RUN_HISTORY_LIMIT = 50;
+
 type Action = 'send-now' | 'start' | 'pause' | 'resume' | 'stop' | 'cancel-sending';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -110,7 +113,7 @@ export function CampaignDetail({
           return 'Resumed.';
         case 'stop':
           await adminPushCampaignApi.stop(id);
-          return 'Stopped for good. Anything queued but not yet sent was withdrawn.';
+          return 'Campaign ended. Anything queued but not yet sent was withdrawn.';
         case 'cancel-sending': {
           const r = await adminPushCampaignApi.cancelSending(id);
           return `Withdrew ${r.cancelledPushes.toLocaleString('en-IN')} queued push(es) and gave ${r.releasedSlots.toLocaleString('en-IN')} people their daily slot back. Pushes already handed to the phone service (at most one batch) still go out.`;
@@ -190,15 +193,15 @@ export function CampaignDetail({
     'send-now': { title: 'Send this now?', message: sendNowMessage, label: 'Send now' },
     start: {
       title: 'Start this campaign?',
-      message: `It will go out ${scheduleSummary(campaign).toLowerCase()}. You can pause or stop it any time.`,
+      message: `Schedule: ${scheduleSummary(campaign)}. You can pause or end it any time.`,
       label: 'Start',
     },
     pause: { title: 'Pause this campaign?', message: 'Nothing more will be sent until you resume it. Pushes already queued still go.', label: 'Pause' },
     resume: { title: 'Resume this campaign?', message: 'It picks up at its next slot.', label: 'Resume' },
     stop: {
-      title: 'Stop this campaign for good?',
-      message: 'No further sends, ever. Anything queued but not yet delivered is withdrawn. To send the same words again you would clone it.',
-      label: 'Stop it', danger: true,
+      title: 'End this campaign for good?',
+      message: 'No further sends, ever, and it cannot be resumed. Anything queued but not yet delivered is withdrawn. To send the same words again you would clone it. To only hold it for now, pause it instead.',
+      label: 'End campaign', danger: true,
     },
     'cancel-sending': {
       title: 'Stop sending right now?',
@@ -280,7 +283,7 @@ export function CampaignDetail({
           )}
           <button type="button" className={BTN} disabled={clone.isPending} onClick={() => clone.mutate()}>Clone</button>
           {!finished && (
-            <button type="button" className={BTN_DANGER} disabled={act.isPending} onClick={() => setConfirm('stop')}>Stop</button>
+            <button type="button" className={BTN_DANGER} disabled={act.isPending} onClick={() => setConfirm('stop')}>End campaign</button>
           )}
         </div>
       </div>
@@ -354,6 +357,9 @@ export function CampaignDetail({
           loading={false}
           emptyMessage="Nothing has been sent yet."
         />
+        {runs.length >= RUN_HISTORY_LIMIT && (
+          <p className="text-xs text-muted">Showing the newest {RUN_HISTORY_LIMIT} sends.</p>
+        )}
         {runs.some((r) => r.status !== 'MISSED') && (
           <p className="text-xs text-muted">
             Delivery counts are live. "No working device" means the app was uninstalled or signed out: routine, not a failure.

@@ -138,6 +138,14 @@ describe('PushCampaigns', () => {
     expect(await screen.findByText(/No campaigns yet/)).toBeInTheDocument();
   });
 
+  it('says the load failed, not that nothing exists, when the list cannot be fetched', async () => {
+    api.list.mockRejectedValue({ response: { data: { message: 'Something broke.' } } });
+    renderPage();
+    expect(await screen.findByText('Something broke.')).toBeInTheDocument();
+    expect(screen.getByText('Campaigns could not be loaded.')).toBeInTheDocument();
+    expect(screen.queryByText(/No campaigns yet/)).toBeNull();
+  });
+
   describe('editor', () => {
     async function openEditor() {
       const user = userEvent.setup();
@@ -218,7 +226,7 @@ describe('PushCampaigns', () => {
   describe('campaign page', () => {
     it('offers Start, Edit and Send now for a scheduled draft, but not Pause or Resume', async () => {
       await openDetail(campaign());
-      for (const name of ['Edit', 'Start', 'Send now', 'Clone', 'Stop']) {
+      for (const name of ['Edit', 'Start', 'Send now', 'Clone', 'End campaign']) {
         expect(screen.getByRole('button', { name })).toBeInTheDocument();
       }
       expect(screen.queryByRole('button', { name: 'Pause' })).toBeNull();
@@ -248,7 +256,7 @@ describe('PushCampaigns', () => {
       await openDetail(campaign({ status: 'COMPLETED' }));
       expect(screen.getByRole('button', { name: 'Clone' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Stop sending now' })).toBeInTheDocument();
-      for (const name of ['Edit', 'Start', 'Resume', 'Pause', 'Send now', 'Stop']) {
+      for (const name of ['Edit', 'Start', 'Resume', 'Pause', 'Send now', 'End campaign']) {
         expect(screen.queryByRole('button', { name })).toBeNull();
       }
     });
@@ -378,6 +386,39 @@ describe('PushCampaigns', () => {
       expect(screen.getByText('4 already queued')).toBeInTheDocument();
       expect(screen.getByText('Missed')).toBeInTheDocument();
       expect(screen.getByText('Outside the allowed window.')).toBeInTheDocument();
+    });
+
+    it('keeps IST upper-case in the Start confirmation', async () => {
+      const user = await openDetail(campaign());
+      await user.click(screen.getByRole('button', { name: 'Start' }));
+      expect(await screen.findByRole('dialog')).toHaveTextContent('Schedule: Every day at 09:00 IST, until stopped.');
+    });
+
+    it('ends a campaign only through a confirmation that says it is permanent', async () => {
+      api.stop.mockResolvedValue(campaign({ status: 'STOPPED' }));
+      const user = await openDetail(campaign({ status: 'ACTIVE', nextRunAt: '2026-10-06T03:30:00Z' }));
+      await user.click(screen.getByRole('button', { name: 'End campaign' }));
+      const dialog = await screen.findByRole('dialog');
+      expect(dialog).toHaveTextContent('cannot be resumed');
+      expect(api.stop).not.toHaveBeenCalled();
+      await user.click(within(dialog).getByRole('button', { name: 'End campaign' }));
+      await waitFor(() => expect(api.stop).toHaveBeenCalledWith('c1'));
+    });
+
+    it('leaves nothing from the old campaign on screen after a clone', async () => {
+      api.sendTest.mockResolvedValue({ queued: true, detail: 'Test queued.' });
+      api.clone.mockResolvedValue(campaign({ id: 'c9', name: 'Copy of Upload your first statement' }));
+      const user = await openDetail(campaign({ status: 'COMPLETED' }));
+      await user.type(screen.getByLabelText('Test recipient email or user id'), 'person@example.com');
+      await user.click(screen.getByRole('button', { name: 'Send test' }));
+      expect(await screen.findByText('Test queued.')).toBeInTheDocument();
+
+      api.get.mockResolvedValue(detail(campaign({ id: 'c9', name: 'Copy of Upload your first statement' })));
+      await user.click(screen.getByRole('button', { name: 'Clone' }));
+      await screen.findByText('Copy of Upload your first statement');
+
+      expect(screen.queryByText('Test queued.')).toBeNull();
+      expect(screen.getByLabelText('Test recipient email or user id')).toHaveValue('');
     });
 
     it('clones into a new draft and opens it', async () => {

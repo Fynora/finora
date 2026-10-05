@@ -1,5 +1,6 @@
 import { Text } from 'react-native';
 import { AppAlert, getCurrentAppAlert, __resetAppAlertForTests } from '../lib/appAlert';
+import { getCurrentAppBanner, __resetAppBannerForTests } from '../lib/appBanner';
 import { act, render, waitFor, type RenderAPI } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as SecureStore from 'expo-secure-store';
@@ -126,7 +127,10 @@ async function settle(view: RenderAPI) {
 }
 
 // The alert queue is module state, so an alert one test raises must not be seen by the next.
-beforeEach(() => __resetAppAlertForTests());
+beforeEach(() => {
+  __resetAppAlertForTests();
+  __resetAppBannerForTests();
+});
 
 describe('AuthContext bootstrap', () => {
   /**
@@ -968,6 +972,92 @@ describe('AuthContext foreground push wiring', () => {
     latestHandler()({ notification: { title: 'Fynora', body: 'Your Visa payment is due tomorrow.' } } as never);
 
     expect(alertSpy).not.toHaveBeenCalled();
+  });
+
+  // An admin campaign push must never interrupt the screen while the app is open (a pop-up in the
+  // middle of someone's work); the OS shows it as a normal notification when the app is closed.
+  it('shows an admin campaign message as a banner, not a pop-up', async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    latestHandler()({
+      notification: { title: 'Welcome to Fynora', body: 'Welcome to Fynora body.' },
+      data: { type: 'CUSTOM_PUSH' },
+    } as never);
+
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(getCurrentAppBanner()).toMatchObject({ title: 'Welcome to Fynora', message: 'Welcome to Fynora body.' });
+  });
+
+  it('shows no banner for an admin campaign message while the app is locked', async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    appLock.setLockedFlag(true);
+    latestHandler()({
+      notification: { title: 'Welcome to Fynora', body: 'Welcome to Fynora.' },
+      data: { type: 'CUSTOM_PUSH' },
+    } as never);
+
+    expect(getCurrentAppBanner()).toBeUndefined();
+    expect(alertSpy).not.toHaveBeenCalled();
+  });
+
+  it('shows no banner for a campaign message with no body', async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    latestHandler()({ notification: { title: 'Only a title' }, data: { type: 'CUSTOM_PUSH' } } as never);
+
+    expect(getCurrentAppBanner()).toBeUndefined();
+  });
+
+  it('does not leave a banner on screen after the session ends', async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+    latestHandler()({
+      notification: { title: 'Welcome to Fynora', body: 'Welcome to Fynora.' },
+      data: { type: 'CUSTOM_PUSH' },
+    } as never);
+    expect(getCurrentAppBanner()).toBeDefined();
+
+    await act(async () => {
+      await auth.logout();
+    });
+
+    expect(getCurrentAppBanner()).toBeUndefined();
+  });
+
+  it('still shows the alert for any other push type', async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    latestHandler()({
+      notification: { title: 'Statement ready', body: 'Your statement is ready.' },
+      data: { type: 'IMPORT_STATEMENT_READY' },
+    } as never);
+
+    expect(alertSpy).toHaveBeenCalledTimes(1);
   });
 
   it('falls back to a default title when the message has none', async () => {

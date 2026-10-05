@@ -13,29 +13,33 @@ import expo.modules.kotlin.modules.ModuleDefinition
  * scrim off and the buttons light while the animation is up, and restores the window exactly as it
  * found it afterwards. It is deliberately not app-wide: everywhere else the system's contrast
  * protection keeps the buttons readable over whatever the app draws.
+ *
+ * Android 10 (API 29) and up only. Below that there is no contrast scrim to turn off: React
+ * Native's edge-to-edge (WindowUtil.enableEdgeToEdge) gives the bar a colour of its own instead,
+ * 90% white in light mode, and light buttons on that would be close to invisible. Those versions
+ * keep the system's own bar during the animation.
  */
 class LaunchSystemBarsModule : Module() {
   // What the window had before enterDarkField, so restore puts back exactly that. Null when nothing
   // is to be restored, which makes both functions safe to call more than once.
   private var saved: Saved? = null
 
-  private data class Saved(val contrastEnforced: Boolean?, val lightNavigationBars: Boolean)
+  private data class Saved(val contrastEnforced: Boolean, val lightNavigationBars: Boolean)
 
   override fun definition() = ModuleDefinition {
     Name("LaunchSystemBars")
 
     AsyncFunction("enterDarkField") {
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return@AsyncFunction null
       val window = appContext.currentActivity?.window ?: return@AsyncFunction null
       val controller = WindowCompat.getInsetsController(window, window.decorView)
       if (saved == null) {
         saved = Saved(
-          contrastEnforced = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) window.isNavigationBarContrastEnforced else null,
+          contrastEnforced = window.isNavigationBarContrastEnforced,
           lightNavigationBars = controller.isAppearanceLightNavigationBars,
         )
       }
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-        window.isNavigationBarContrastEnforced = false
-      }
+      window.isNavigationBarContrastEnforced = false
       controller.isAppearanceLightNavigationBars = false
       null
     }.runOnQueue(Queues.MAIN)
@@ -46,7 +50,7 @@ class LaunchSystemBarsModule : Module() {
       val window = appContext.currentActivity?.window ?: return@AsyncFunction null
       saved = null
       val controller = WindowCompat.getInsetsController(window, window.decorView)
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && previous.contrastEnforced != null) {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         window.isNavigationBarContrastEnforced = previous.contrastEnforced
       }
       controller.isAppearanceLightNavigationBars = previous.lightNavigationBars

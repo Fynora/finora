@@ -6,6 +6,7 @@ import Animated, {
   ReduceMotion,
   cancelAnimation,
   useAnimatedStyle,
+  useFrameCallback,
   useReducedMotion,
   useSharedValue,
   withDelay,
@@ -17,7 +18,7 @@ import { fonts } from '../theme/fonts';
 
 /**
  * Cold-start launch animation: the F is assembled bar by bar on a full-screen graphite field, the
- * "Fynora" wordmark settles in beneath it, then the field lifts off to reveal the app.
+ * "FYNORA" wordmark settles in beneath it, then the field lifts off to reveal the app.
  *
  * The field is the icon plate. iOS and Android both zoom the tapped icon up to fill the screen, so
  * the first frame here is that plate with nothing on it: GRAPHITE is BrandMark's fixed square
@@ -50,6 +51,15 @@ const LIFT = Easing.bezier(0.65, 0, 0.35, 1);
 
 /** Milliseconds from start. Exported so tests can drive the sequence without restating it. */
 export const LAUNCH_TIMELINE = {
+  /**
+   * The timeline starts only once the UI thread is drawing steadily (two frames in a row under
+   * smoothFrameMs apart), not the moment the splash is released: the first draw of the whole app
+   * under the overlay stalls the UI thread, measured at 183-333ms on an Android release build, and a
+   * time-based animation runs on through a stall, so the stem's draw was skipped. startWaitCap
+   * bounds the wait if frames never settle.
+   */
+  smoothFrameMs: 100,
+  startWaitCap: 1000,
   stemStart: 120,
   stemDuration: 300,
   topArmStart: 440,
@@ -66,11 +76,11 @@ export const LAUNCH_TIMELINE = {
   reducedHold: 300,
   reducedFade: 200,
   /**
-   * Upper bound on how long the overlay may stay up after `ready`. A full-screen overlay that
-   * never left would make the app unusable, so this JS timer removes it even if the animation's
-   * own completion callback never arrives.
+   * Upper bound on how long the overlay may stay up after `ready`, longer than startWaitCap plus
+   * the whole timeline. A full-screen overlay that never left would make the app unusable, so this
+   * JS timer removes it even if the animation's own completion callback never arrives.
    */
-  failsafe: 4000,
+  failsafe: 4500,
 } as const;
 
 const T = LAUNCH_TIMELINE;
@@ -152,6 +162,9 @@ function LaunchAnimationContent({ ready, onDone }: LaunchAnimationProps) {
 
   const [exiting, setExiting] = useState(false);
   const finishedRef = useRef(false);
+  const begunRef = useRef(false);
+  const released = useSharedValue(false);
+  const smoothRun = useSharedValue(0);
   const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const finish = useCallback(() => {
@@ -162,6 +175,8 @@ function LaunchAnimationContent({ ready, onDone }: LaunchAnimationProps) {
   }, [onDone]);
 
   const startExit = useCallback(() => {
+    // A tap can arrive before the timeline has begun; it must not begin after this.
+    begunRef.current = true;
     if (exitTimerRef.current !== null) {
       clearTimeout(exitTimerRef.current);
       exitTimerRef.current = null;
@@ -191,8 +206,10 @@ function LaunchAnimationContent({ ready, onDone }: LaunchAnimationProps) {
     wordmarkShift, markOpacity, markScale, fieldShift, fieldOpacity,
   ]);
 
-  useEffect(() => {
-    if (!ready) return;
+  // Starts the timeline. Called once: by the frame gate below, or by the startWaitCap timer.
+  const begin = useCallback(() => {
+    if (begunRef.current) return;
+    begunRef.current = true;
     if (!reducedMotion) {
       stemHeight.set(withDelay(T.stemStart, timing(GLYPH_HEIGHT, T.stemDuration), ReduceMotion.Never));
       topArmWidth.set(withDelay(
@@ -210,14 +227,37 @@ function LaunchAnimationContent({ ready, onDone }: LaunchAnimationProps) {
       wordmarkShift.set(withDelay(T.wordmarkStart, timing(0, T.wordmarkDuration), ReduceMotion.Never));
     }
     exitTimerRef.current = setTimeout(startExit, reducedMotion ? T.reducedHold : T.exitStart);
+  }, [
+    reducedMotion, startExit, stemHeight, topArmWidth, middleArmWidth, glyphScale, wordmarkOpacity, wordmarkShift,
+  ]);
+
+  // The frame gate: counts consecutive steady frames on the UI thread once the splash is released,
+  // and begins the timeline on the second. Switched off once it has fired.
+  const gate = useFrameCallback((info) => {
+    'worklet';
+    if (!released.get()) return;
+    const gap = info.timeSincePreviousFrame;
+    const steady = gap !== null && gap > 0 && gap < T.smoothFrameMs;
+    smoothRun.set(steady ? smoothRun.get() + 1 : 0);
+    if (smoothRun.get() >= 2) {
+      released.set(false);
+      scheduleOnRN(begin);
+    }
+  });
+
+  useEffect(() => {
+    if (!ready) return;
+    released.set(true);
+    const startCap = setTimeout(begin, T.startWaitCap);
     const failsafe = setTimeout(finish, T.failsafe);
     return () => {
+      clearTimeout(startCap);
       if (exitTimerRef.current !== null) clearTimeout(exitTimerRef.current);
       clearTimeout(failsafe);
+      gate.setActive(false);
     };
-    // Runs once, when the splash hands over. The scheduled exit keeps this render's startExit; what
-    // could change after that does not affect it (onDone from App is a stable callback, and the lift
-    // distance is read from a shared value when the exit runs).
+    // Runs once, when the splash hands over. What could change after that does not affect it:
+    // onDone from App is a stable callback, and the lift distance is read when the exit runs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
 
@@ -269,7 +309,7 @@ function LaunchAnimationContent({ ready, onDone }: LaunchAnimationProps) {
               (seen on the iOS simulator: the wordmark rendered in SF Pro). */}
           {ready ? (
             <Animated.View style={[styles.wordmarkSlot, wordmarkStyle]}>
-              <Text style={styles.wordmark} allowFontScaling={false}>Fynora</Text>
+              <Text style={styles.wordmark} allowFontScaling={false}>FYNORA</Text>
             </Animated.View>
           ) : null}
         </Animated.View>
@@ -319,10 +359,13 @@ const styles = StyleSheet.create({
     right: -100,
     alignItems: 'center',
   },
+  // The brand wordmark as the app and web draw it everywhere else (AuthScreenLayout, the
+  // dashboard header, the web sidebar and auth pages): uppercase Manrope ExtraBold with wide
+  // tracking, about 0.07em, so the launch hands over to the same lettering the first screen uses.
   wordmark: {
     color: CREAM,
-    fontFamily: fonts.displayBold,
-    fontSize: 22,
-    letterSpacing: -0.2,
+    fontFamily: fonts.display,
+    fontSize: 20,
+    letterSpacing: 1.4,
   },
 });

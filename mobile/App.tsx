@@ -35,6 +35,11 @@ initMonitoring();
 // has committed a real frame -- RootNavigator's own bootstrapping spinner (auth restore) is what
 // the user sees after that, not before it.
 void SplashScreen.preventAutoHideAsync();
+// Hidden instantly, not faded: the launch animation underneath starts on the same plain graphite
+// field, so a fade adds nothing and only hides the animation's opening. Android fades by default
+// (400ms, and it reads only `duration`, ignoring `fade`); on a release build that fade was measured
+// covering the stem's whole draw. iOS reads `fade`, already false by default.
+SplashScreen.setOptions({ duration: 0, fade: false });
 
 // AuthProvider sits inside QueryClientProvider because auth calls go through the same API client
 // every query does, and outside RootNavigator because the navigator picks its stack from auth

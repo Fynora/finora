@@ -42,7 +42,7 @@ import { reviewNudgeLabel, reviewQueueCount } from '../lib/reviewQueue';
 import { useDashboardKpis } from '../lib/useDashboardKpis';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { visiblePlanCode } from '../lib/planDisplay';
-import { radius, spacing, useTheme } from '../theme';
+import { fonts, radius, spacing, useTheme } from '../theme';
 import { trackNavSearch, trackNavigation } from '../lib/trackNavigation';
 import type { AppTabParamList } from '../navigation/types';
 import { StatementRefreshBanner } from '../components/StatementRefreshBanner';
@@ -1080,7 +1080,9 @@ const styles = StyleSheet.create({
   retry: { fontSize: 14, fontWeight: '600' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: spacing.sm },
-  brandWord: { fontSize: 15, fontWeight: '800', letterSpacing: 0.5 },
+  // Manrope ExtraBold like every other FYNORA wordmark (AuthScreenLayout, LaunchAnimation, the
+  // web), not the system font at weight 800. No fontWeight alongside it -- see fonts.ts.
+  brandWord: { fontFamily: fonts.display, fontSize: 15, letterSpacing: 1.05 },
   planBadge: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 3 },
   planBadgeText: { fontSize: 10.5, fontWeight: '700' },
   greetingRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },

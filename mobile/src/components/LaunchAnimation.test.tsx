@@ -13,6 +13,11 @@ jest.mock('expo-status-bar', () => ({ StatusBar: () => null }));
 // export), so the mock reads this flag instead.
 let mockReducedMotion = false;
 let mockThrowOnRender = false;
+// Reanimated's Jest runtime has no frame callbacks (registerFrameCallback is undefined there), so
+// the component's frame gate is captured here and driven with synthetic frames where a test needs
+// it. Left alone, the gate never fires and the timeline begins from the startWaitCap timer.
+type FrameInfo = { timeSincePreviousFrame: number | null };
+let mockFrameCallback: ((info: FrameInfo) => void) | null = null;
 jest.mock('react-native-reanimated', () => {
   const actual = jest.requireActual('react-native-reanimated');
   return {
@@ -22,6 +27,10 @@ jest.mock('react-native-reanimated', () => {
     useReducedMotion: () => {
       if (mockThrowOnRender) throw new Error('render failure');
       return mockReducedMotion;
+    },
+    useFrameCallback: (callback: (info: FrameInfo) => void) => {
+      mockFrameCallback = callback;
+      return { setActive: () => undefined, isActive: true, callbackId: 0 };
     },
   };
 });
@@ -34,10 +43,18 @@ function advance(ms: number) {
   });
 }
 
+/** Feeds the captured frame gate one UI frame, `gap` ms after the previous one. */
+function frame(gap: number | null) {
+  act(() => {
+    mockFrameCallback?.({ timeSincePreviousFrame: gap });
+  });
+}
+
 describe('LaunchAnimation', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     setLaunchAnimationPlayedForTests(false);
+    mockFrameCallback = null;
   });
 
   afterEach(() => {
@@ -55,7 +72,7 @@ describe('LaunchAnimation', () => {
 
     expect(screen.getByTestId('launch-animation-stem')).toHaveAnimatedStyle({ height: 0 });
     // Not even mounted yet: a Text laid out before the fonts load keeps the system fallback.
-    expect(screen.queryByText('Fynora')).not.toBeOnTheScreen();
+    expect(screen.queryByText('FYNORA')).not.toBeOnTheScreen();
     expect(onDone).not.toHaveBeenCalled();
     expect(shouldPlayLaunchAnimation()).toBe(true);
   });
@@ -64,7 +81,12 @@ describe('LaunchAnimation', () => {
     const onDone = jest.fn();
     const { rerender } = render(<LaunchAnimation ready={false} onDone={onDone} />);
     rerender(<LaunchAnimation ready onDone={onDone} />);
-    expect(screen.getByText('Fynora')).toBeOnTheScreen();
+    expect(screen.getByText('FYNORA')).toBeOnTheScreen();
+
+    // No steady frames here, so the timeline waits for its cap before it begins.
+    advance(T.startWaitCap - 10);
+    expect(screen.getByTestId('launch-animation-stem')).toHaveAnimatedStyle({ height: 0 });
+    advance(10);
 
     advance(T.stemStart + T.stemDuration + 50);
     expect(screen.getByTestId('launch-animation-stem')).toHaveAnimatedStyle({ height: GLYPH_HEIGHT });
@@ -111,7 +133,7 @@ describe('LaunchAnimation', () => {
 
     expect(screen.getByTestId('launch-animation-stem')).toHaveAnimatedStyle({ height: GLYPH_HEIGHT });
 
-    advance(T.reducedHold - 50);
+    advance(T.startWaitCap + T.reducedHold - 50);
     expect(onDone).not.toHaveBeenCalled();
 
     advance(50 + T.reducedFade + 100);
@@ -136,7 +158,7 @@ describe('LaunchAnimation', () => {
   it('keeps blocking touches through the lift, so a tap cannot reach app content still hidden', () => {
     render(<LaunchAnimation ready onDone={jest.fn()} />);
 
-    advance(T.exitStart + T.liftDelay + T.liftDuration / 2);
+    advance(T.startWaitCap + T.exitStart + T.liftDelay + T.liftDuration / 2);
 
     expect(screen.getByTestId('launch-animation').props.pointerEvents).toBe('auto');
   });
@@ -146,7 +168,7 @@ describe('LaunchAnimation', () => {
     render(<LaunchAnimation ready onDone={jest.fn()} />);
     expect(screen.getByTestId('launch-animation').props.pointerEvents).toBe('auto');
 
-    advance(T.reducedHold + 10);
+    advance(T.startWaitCap + T.reducedHold + 10);
 
     expect(screen.getByTestId('launch-animation').props.pointerEvents).toBe('none');
   });
@@ -157,7 +179,7 @@ describe('LaunchAnimation', () => {
       nativeEvent: { layout: { x: 0, y: 0, width: 400, height: 1234 } },
     });
 
-    advance(T.exitStart + T.liftDelay + T.liftDuration + 100);
+    advance(T.startWaitCap + T.exitStart + T.liftDelay + T.liftDuration + 100);
 
     expect(screen.getByTestId('launch-animation')).toHaveAnimatedStyle({ transform: [{ translateY: -1234 }] });
   });
@@ -172,5 +194,56 @@ describe('LaunchAnimation', () => {
     expect(screen.queryByTestId('launch-animation')).not.toBeOnTheScreen();
     expect(onDone).toHaveBeenCalledTimes(1);
     expect(shouldPlayLaunchAnimation()).toBe(false);
+  });
+
+  // The first draw of the whole app stalls the UI thread (183-333ms measured on Android); a timeline
+  // started before it would run on through the stall and skip the stem's draw.
+  it('begins as soon as the UI thread draws two steady frames, without waiting for the cap', () => {
+    render(<LaunchAnimation ready onDone={jest.fn()} />);
+
+    frame(null);
+    frame(300); // the startup stall
+    frame(16);
+    expect(screen.getByTestId('launch-animation-stem')).toHaveAnimatedStyle({ height: 0 });
+    frame(16);
+
+    advance(T.stemStart + T.stemDuration + 50);
+    expect(T.stemStart + T.stemDuration + 50).toBeLessThan(T.startWaitCap);
+    expect(screen.getByTestId('launch-animation-stem')).toHaveAnimatedStyle({ height: GLYPH_HEIGHT });
+  });
+
+  it('does not count a stall as steady: the run of steady frames starts over after one', () => {
+    render(<LaunchAnimation ready onDone={jest.fn()} />);
+
+    frame(16);
+    frame(T.smoothFrameMs); // at the threshold, not under it
+    frame(16);
+    advance(T.stemStart + T.stemDuration + 50);
+
+    expect(screen.getByTestId('launch-animation-stem')).toHaveAnimatedStyle({ height: 0 });
+  });
+
+  it('ignores frames before the splash is released', () => {
+    const { rerender } = render(<LaunchAnimation ready={false} onDone={jest.fn()} />);
+
+    frame(16);
+    frame(16);
+    frame(16);
+    rerender(<LaunchAnimation ready={false} onDone={jest.fn()} />);
+    advance(T.stemStart + T.stemDuration + 50);
+
+    expect(screen.getByTestId('launch-animation-stem')).toHaveAnimatedStyle({ height: 0 });
+  });
+
+  it('never begins the timeline after a tap has already started the exit', () => {
+    const onDone = jest.fn();
+    render(<LaunchAnimation ready onDone={onDone} />);
+
+    advance(100);
+    fireEvent.press(screen.getByLabelText('Fynora'));
+    advance(T.startWaitCap + T.stemStart + T.stemDuration);
+
+    expect(screen.getByTestId('launch-animation-stem')).toHaveAnimatedStyle({ height: 0 });
+    expect(onDone).toHaveBeenCalledTimes(1);
   });
 });

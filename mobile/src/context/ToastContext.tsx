@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
+import { useLaunchCovering } from '../components/AppModal';
 import { Toast } from '../components/Toast';
 
 interface ToastState { title: string; body?: string }
@@ -12,21 +13,29 @@ const AUTO_DISMISS_MS = 3000;
  * A single toast at a time -- the mockup's own examples ("Goal Created", "Statement Imported")
  * are one-off success confirmations, never a queue. A later showToast call while one is visible
  * simply replaces it and restarts the 3s timer, rather than stacking.
+ *
+ * A toast raised while the cold-start launch animation still covers the app is held, and its 3s
+ * only start once the animation has gone -- otherwise most of it would run out unseen behind it.
  */
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toast, setToast] = useState<ToastState | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const launching = useLaunchCovering();
 
   const showToast = useCallback((title: string, body?: string) => {
-    if (timerRef.current) clearTimeout(timerRef.current);
+    // A new object every call, so the timer effect below restarts even for an identical message.
     setToast({ title, body });
-    timerRef.current = setTimeout(() => setToast(null), AUTO_DISMISS_MS);
   }, []);
+
+  useEffect(() => {
+    if (!toast || launching) return;
+    const timer = setTimeout(() => setToast(null), AUTO_DISMISS_MS);
+    return () => clearTimeout(timer);
+  }, [toast, launching]);
 
   return (
     <ToastContext.Provider value={{ showToast }}>
       {children}
-      {toast ? <Toast title={toast.title} body={toast.body} /> : null}
+      {toast && !launching ? <Toast title={toast.title} body={toast.body} /> : null}
     </ToastContext.Provider>
   );
 }

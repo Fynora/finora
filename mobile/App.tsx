@@ -20,7 +20,7 @@ import { sweepFileCache } from './src/lib/fileCacheSweep';
 import { sweepSharedContainers } from './src/lib/sharedContainerSweep';
 import { initMonitoring, withMonitoring } from './src/lib/monitoring';
 import { RootNavigator } from './src/navigation/RootNavigator';
-import { ThemeProvider, useAppFonts } from './src/theme';
+import { FontsReadyProvider, ThemeProvider, useAppFonts } from './src/theme';
 
 // Before the component, not inside an effect: an error thrown during the first render is exactly
 // the kind worth capturing, and by the time an effect runs it would already be too late. No-ops
@@ -49,12 +49,12 @@ function App() {
   // as "done" -- the app falls back to the system font rather than hanging on a splash forever.
   //
   // Deliberately NOT an early `return null` while unloaded: that would also delay the effects
-  // below and RootNavigator's own mount (and the SecureStore restore it kicks off) by however long
-  // font loading takes, stacking that wait in front of auth bootstrapping instead of letting the
-  // two overlap -- exactly what the auth-bootstrapping comment below says not to do, just for a
-  // different wait. The whole tree mounts immediately, same as before this hook existed; only the
-  // splash-hide effect actually waits on it, so any font-loading gap is spent behind the splash
-  // rather than in front of it.
+  // below and every provider's mount (AuthProvider's SecureStore session restore included) by
+  // however long font loading takes, stacking that wait in front of auth bootstrapping instead of
+  // letting the two overlap -- exactly what the auth-bootstrapping comment below says not to do,
+  // just for a different wait. The whole tree mounts immediately; only the splash-hide effect and
+  // RootNavigator's screens (via FontsReadyProvider below) wait on it, so any font-loading gap is
+  // spent behind the splash rather than in front of it.
   const [fontsLoaded, fontError] = useAppFonts();
   const splashReleased = fontsLoaded || fontError != null;
 
@@ -111,44 +111,48 @@ function App() {
           {/* While the launch animation is up: native Modals (AppModal) stay hidden, since they would
               draw above it, and screen readers can't wander into the app behind it. One stable
               wrapper either way, so the app tree is never remounted when the animation ends. */}
-          <LaunchCoveredProvider value={showLaunch}>
-            <View
-              testID="app-root"
-              style={styles.fill}
-              importantForAccessibility={showLaunch ? 'no-hide-descendants' : 'auto'}
-              accessibilityElementsHidden={showLaunch}
-            >
-              {/* Inside AuthProvider is tempting but wrong: the provider reads the account's saved theme
-                  itself from storage, and sitting outside means the choice is already applied to the auth
-                  screens a signed-out user sees. */}
-              <ThemeProvider>
-                {/* SEC-08: outside AuthProvider, deliberately -- a rooted/jailbroken device is a
-                    concern regardless of sign-in state, so this spans the auth stack too, the same
-                    reason OfflineBoundary does. */}
-                <RootWarningBoundary>
-                  <AuthProvider>
-                    {/* SEC-09: inside AuthProvider (needs useAuth()'s token/logout), outside/around
-                        RootNavigator so a locked session replaces the entire app UI, not just one screen
-                        inside it -- see AppLockGate's own doc comment for when it actually engages.
-                        OnboardingStepProvider sits inside AppLockGate/OfflineBoundary too -- RootNavigator
-                        is the only consumer, alongside OnboardingNavigator/TourOverlay it renders. */}
-                    <AppLockGate>
-                      <OfflineBoundary>
-                        <OnboardingStepProvider>
-                          <RootErrorBoundary>
-                            <ToastProvider>
-                              <RootNavigator />
-                            </ToastProvider>
-                          </RootErrorBoundary>
-                        </OnboardingStepProvider>
-                      </OfflineBoundary>
-                    </AppLockGate>
-                    <StatusBar style="auto" />
-                  </AuthProvider>
-                </RootWarningBoundary>
-              </ThemeProvider>
-            </View>
-          </LaunchCoveredProvider>
+          {/* RootNavigator holds its screens (its loading spinner instead) until the fonts are in,
+              rather than App delaying the whole tree -- see useFontsReady. */}
+          <FontsReadyProvider value={splashReleased}>
+            <LaunchCoveredProvider value={showLaunch}>
+              <View
+                testID="app-root"
+                style={styles.fill}
+                importantForAccessibility={showLaunch ? 'no-hide-descendants' : 'auto'}
+                accessibilityElementsHidden={showLaunch}
+              >
+                {/* Inside AuthProvider is tempting but wrong: the provider reads the account's saved theme
+                    itself from storage, and sitting outside means the choice is already applied to the auth
+                    screens a signed-out user sees. */}
+                <ThemeProvider>
+                  {/* SEC-08: outside AuthProvider, deliberately -- a rooted/jailbroken device is a
+                      concern regardless of sign-in state, so this spans the auth stack too, the same
+                      reason OfflineBoundary does. */}
+                  <RootWarningBoundary>
+                    <AuthProvider>
+                      {/* SEC-09: inside AuthProvider (needs useAuth()'s token/logout), outside/around
+                          RootNavigator so a locked session replaces the entire app UI, not just one screen
+                          inside it -- see AppLockGate's own doc comment for when it actually engages.
+                          OnboardingStepProvider sits inside AppLockGate/OfflineBoundary too -- RootNavigator
+                          is the only consumer, alongside OnboardingNavigator/TourOverlay it renders. */}
+                      <AppLockGate>
+                        <OfflineBoundary>
+                          <OnboardingStepProvider>
+                            <RootErrorBoundary>
+                              <ToastProvider>
+                                <RootNavigator />
+                              </ToastProvider>
+                            </RootErrorBoundary>
+                          </OnboardingStepProvider>
+                        </OfflineBoundary>
+                      </AppLockGate>
+                      <StatusBar style="auto" />
+                    </AuthProvider>
+                  </RootWarningBoundary>
+                </ThemeProvider>
+              </View>
+            </LaunchCoveredProvider>
+          </FontsReadyProvider>
           {/* Last child, so it paints over everything above, the app-lock screen included. */}
           {showLaunch ? <LaunchAnimation ready={splashReleased} onDone={hideLaunch} /> : null}
         </SafeAreaProvider>

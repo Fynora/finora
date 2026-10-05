@@ -19,6 +19,11 @@ export const AppCoveredProvider = AppCoveredContext.Provider;
 const LaunchCoveredContext = createContext(false);
 export const LaunchCoveredProvider = LaunchCoveredContext.Provider;
 
+/** True while the cold-start launch animation covers the app (only that, not the lock screen). */
+export function useLaunchCovering(): boolean {
+  return useContext(LaunchCoveredContext);
+}
+
 /**
  * True while the app is covered by the lock screen (or the moment before it knows whether to lock),
  * or by the cold-start launch animation.

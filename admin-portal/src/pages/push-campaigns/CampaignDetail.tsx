@@ -238,7 +238,7 @@ export function CampaignDetail({
         <div className="text-xs space-y-0.5">
           <p className="text-ink">{r.audienceSize.toLocaleString('en-IN')} in audience</p>
           <p className="text-muted">{r.queuedCount.toLocaleString('en-IN')} queued</p>
-          {r.skippedCapCount > 0 && <p className="text-muted">{r.skippedCapCount.toLocaleString('en-IN')} already had a push today</p>}
+          {r.skippedCapCount > 0 && <p className="text-muted">{r.skippedCapCount.toLocaleString('en-IN')} had reached today's limit</p>}
           {r.skippedAlreadyQueuedCount > 0 && <p className="text-muted">{r.skippedAlreadyQueuedCount.toLocaleString('en-IN')} already queued</p>}
         </div>
       ),

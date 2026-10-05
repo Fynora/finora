@@ -1779,6 +1779,16 @@ export interface PushCampaignTestResult {
   detail: string;
 }
 
+/** How many campaign pushes one person may get per IST day, across all campaigns, with the bounds the
+ *  server enforces. */
+export interface PushCampaignSettings {
+  dailyLimitPerPerson: number;
+  minDailyLimit: number;
+  maxDailyLimit: number;
+  updatedAt: string;
+  updatedBy: string | null;
+}
+
 export interface PushCampaignCancelResult {
   cancelledPushes: number;
   releasedSlots: number;

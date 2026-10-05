@@ -6,7 +6,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * The emergency brake: withdraws a campaign's pushes that have been queued but not yet handed to
- * the dispatcher, and gives those people their one-per-day slot back.
+ * the dispatcher, and gives those people their daily slot back.
  *
  * <p>Stopping a campaign only prevents future runs. Without this, a wrong message sent to thousands
  * of people would keep delivering for hours (the dispatcher clears about 6,000 an hour) with no way

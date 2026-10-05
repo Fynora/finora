@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
 /**
  * The one place the campaign feature asks "what time is it" and "which IST day is it".
  *
- * <p>Every schedule, quiet-hours, one-per-day-cap and run-date calculation goes through here, so
+ * <p>Every schedule, quiet-hours, daily-limit and run-date calculation goes through here, so
  * there is no {@code LocalDate.now()} in one class and {@code ZoneId.of("Asia/Kolkata")} in another
  * quietly disagreeing about the day around midnight. India has no daylight saving, so the zone is
  * fixed on purpose; the reason for a single class is testability: a test builds one with

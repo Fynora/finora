@@ -20,7 +20,7 @@ campaign never delays an "import ready" push or a security alert.
 
 | Rule | Where |
 |---|---|
-| One custom push per person per IST calendar day, across all campaigns | `custom_push_daily_cap`, claimed with `INSERT ... ON CONFLICT DO NOTHING` before a person is queued |
+| At most N custom pushes per person per IST calendar day, across all campaigns. N is set by an admin on the Push Campaigns screen (1 to 10, default 1). One campaign never takes two slots from the same person in a day | `custom_push_daily_cap` (a slot per row, V262), claimed with `INSERT ... ON CONFLICT DO NOTHING` one slot at a time before a person is queued; limit in `push_campaign_settings` (read fresh for every page) |
 | Scheduled sends only 07:00-21:59 IST (send now ignores this) | `ScheduleCalculator` |
 | A due slot more than 2 hours late, or due outside the window, is recorded MISSED and not sent | `ScheduleCalculator.decide` |
 | Send now counts as today's run: a daily campaign due today moves to tomorrow; a one-off completes | `PushCampaignService.sendNow` |
@@ -73,3 +73,18 @@ pushes already queued still deliver; cancel each campaign's sending as above to 
 - Per-run sent / failed / pending counts are read live from the outbox by key prefix, so they keep moving
   while the dispatcher works.
 - `custom_push_daily_cap` rows older than 30 days are deleted daily by the scheduler.
+- **The daily limit** (`GET`/`PUT /api/v1/admin/push-campaigns/settings`, screen: Push Campaigns > "Most campaign
+  pushes one person gets in a day") applies from the next page any run queues. Lowering it never takes back a
+  push someone already has; raising it opens the extra slots at once. The screen asks for a confirmation only
+  when raising. Every change is audited (`PUSH_CAMPAIGN_SETTINGS_CHANGED`, old and new value). More pushes a day
+  means more people may switch off the FINANCIAL category, which also stops their bill and due-date warnings:
+  watch opt-outs after raising it. The 1 to 10 bounds are in the API and a table CHECK; raising the top is a
+  migration.
+- Claiming is one `INSERT ... ON CONFLICT DO NOTHING` per slot tried, so a person who has reached the limit
+  costs up to `limit` failed inserts. Measured on local Postgres (autocommit, one round trip each): about
+  0.3 ms for a claim that wins, 0.25 ms for a loss at limit 1, 0.8 ms at limit 3 and 2.8 ms at limit 10. Ten
+  thousand people at limit 10 is about 28 s of claiming against about 100 minutes of delivery at the
+  dispatcher's pace, so it is not the bottleneck. Redis was considered for the counters and rejected: the app
+  treats Redis as optional (it boots and fails open without it), so a limit kept there could reset or stop
+  holding silently; a claim has to commit or roll back together with the outbox row, and a cancel has to hand the
+  slot back in the same statement, which only one Postgres transaction gives.

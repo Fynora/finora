@@ -30,7 +30,7 @@ import type {
   LearningQueueEvent, LearningQueueSummary,
   NotificationAdminRow, NotificationAdminDetail, NotificationAdminSummary,
   PushCampaign, PushCampaignDetail, PushCampaignRun, PushCampaignSaveRequest, PushCampaignAudienceCount,
-  PushCampaignTestResult, PushCampaignCancelResult, PushAudienceType,
+  PushCampaignTestResult, PushCampaignCancelResult, PushCampaignSettings, PushAudienceType,
   MerchantReviewItem,
   LayoutSummary,
   RegistryEntry,
@@ -396,6 +396,11 @@ export const adminNotificationApi = {
  *  which buttons are worth showing. */
 export const adminPushCampaignApi = {
   list: () => api.get<PushCampaign[]>('/admin/push-campaigns').then((r) => r.data),
+  // The daily limit per person (across all campaigns). A change applies from the next page a run
+  // queues and never takes back a push someone already has.
+  getSettings: () => api.get<PushCampaignSettings>('/admin/push-campaigns/settings').then((r) => r.data),
+  updateSettings: (dailyLimitPerPerson: number) =>
+    api.put<PushCampaignSettings>('/admin/push-campaigns/settings', { dailyLimitPerPerson }).then((r) => r.data),
   get: (id: string) => api.get<PushCampaignDetail>(`/admin/push-campaigns/${id}`).then((r) => r.data),
   audienceCount: (audienceType: PushAudienceType) =>
     api.get<PushCampaignAudienceCount>('/admin/push-campaigns/audience-count', { params: { audienceType } }).then((r) => r.data),

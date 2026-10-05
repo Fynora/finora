@@ -5,6 +5,8 @@ import com.finora.dto.PushCampaignDtos.PushCampaignCancelResultDto;
 import com.finora.dto.PushCampaignDtos.PushCampaignDetailDto;
 import com.finora.dto.PushCampaignDtos.PushCampaignDto;
 import com.finora.dto.PushCampaignDtos.PushCampaignRunDto;
+import com.finora.dto.PushCampaignDtos.PushCampaignSettingsDto;
+import com.finora.dto.PushCampaignDtos.PushCampaignSettingsRequest;
 import com.finora.dto.PushCampaignDtos.PushCampaignSaveRequest;
 import com.finora.dto.PushCampaignDtos.PushCampaignTestRequest;
 import com.finora.dto.PushCampaignDtos.PushCampaignTestResultDto;
@@ -96,6 +98,7 @@ public class PushCampaignService {
     private final NotificationService notificationService;
     private final DailyCapStore dailyCap;
     private final CampaignCancellation cancellation;
+    private final PushCampaignSettingsStore settingsStore;
 
     public PushCampaignService(PushCampaignRepository campaigns, PushCampaignRunRepository runs,
             PushCampaignRunner runner, CampaignDeliveryStats deliveryStats, IstClock clock,
@@ -103,7 +106,7 @@ public class PushCampaignService {
             UserRepository userRepository, DeviceTokenRepository deviceTokenRepository,
             NotificationPreferenceResolver preferenceResolver,
             NotificationService notificationService, DailyCapStore dailyCap,
-            CampaignCancellation cancellation) {
+            CampaignCancellation cancellation, PushCampaignSettingsStore settingsStore) {
         this.campaigns = campaigns;
         this.runs = runs;
         this.runner = runner;
@@ -117,6 +120,39 @@ public class PushCampaignService {
         this.notificationService = notificationService;
         this.dailyCap = dailyCap;
         this.cancellation = cancellation;
+        this.settingsStore = settingsStore;
+    }
+
+    // ---------------------------------------------------------------- settings
+
+    @Transactional(readOnly = true)
+    public PushCampaignSettingsDto settings() {
+        return toDto(settingsStore.get());
+    }
+
+    /**
+     * Sets how many campaign pushes one person may get per IST day, across all campaigns. Takes
+     * effect on the next page any run queues; it never takes back a push someone already has, so
+     * lowering it only stops further ones, and raising it opens the extra slots at once. Audited
+     * with the old and new value.
+     */
+    @Transactional
+    public PushCampaignSettingsDto updateSettings(UUID actingAdminId, PushCampaignSettingsRequest request) {
+        int limit = request.dailyLimitPerPerson();
+        if (limit < PushCampaignSettingsStore.MIN_DAILY_LIMIT || limit > PushCampaignSettingsStore.MAX_DAILY_LIMIT) {
+            throw badRequest("The daily limit must be between " + PushCampaignSettingsStore.MIN_DAILY_LIMIT
+                    + " and " + PushCampaignSettingsStore.MAX_DAILY_LIMIT + ".");
+        }
+        int previous = settingsStore.setDailyLimitPerPerson(limit, actingAdminId, clock.now());
+        auditService.record(actingAdminId, "PUSH_CAMPAIGN_SETTINGS_CHANGED", "PushCampaignSettings", null,
+                Map.of("actorId", actingAdminId.toString(), "dailyLimitPerPerson", limit,
+                        "previousDailyLimitPerPerson", previous));
+        return toDto(settingsStore.get());
+    }
+
+    private static PushCampaignSettingsDto toDto(PushCampaignSettingsStore.Settings s) {
+        return new PushCampaignSettingsDto(s.dailyLimitPerPerson(), PushCampaignSettingsStore.MIN_DAILY_LIMIT,
+                PushCampaignSettingsStore.MAX_DAILY_LIMIT, s.updatedAt(), s.updatedBy());
     }
 
     // ---------------------------------------------------------------- reads
@@ -255,7 +291,7 @@ public class PushCampaignService {
     /**
      * Emergency brake without ending the campaign: cancels any run still queuing people and
      * withdraws every push of this campaign that is queued but not yet handed to the dispatcher,
-     * giving those people their one-per-day slot back. Allowed in every status (a one-off send-now
+     * giving those people their daily slot back. Allowed in every status (a one-off send-now
      * campaign is COMPLETED the moment it launches, and that is exactly when this is needed) and
      * deliberately not gated by the master switch. To also end future runs of a daily campaign, stop
      * it, which does this too. Pushes already claimed by the dispatcher (at most one batch) still go.

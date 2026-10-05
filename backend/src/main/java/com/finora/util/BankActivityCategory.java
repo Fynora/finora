@@ -74,12 +74,15 @@ public final class BankActivityCategory {
      *  boundary sets the scheme apart. Digits on both sides of "ppf", and after "apy" at a word's
      *  start, keep both out of ordinary words. Measured on the corpus (2026-10-05): one row each. */
     private static final Pattern GLUED_SAVINGS_SCHEME = Pattern.compile("\\b(?:\\d+ppf\\d+|apy\\d{6,})");
+    /** A whole UPI id, its name part included: someone's "apy123456@..." is a payee, not the scheme. */
+    private static final Pattern UPI_ID = Pattern.compile("[\\p{L}\\p{N}._-]+@[\\p{L}\\p{N}.]+");
     /** A credit card's bill paid from this account: "CC BILLPAY" in a self-transfer or in the card
-     *  issuer's own UPI payee, and net banking's "BILLPAY" to a biller that carries the card's masked
-     *  number ("4000XXXXXX0001"). A bill pay with a consumer number is a utility, not a card.
-     *  Measured on the corpus (2026-10-05): 7 rows, all "Other". */
+     *  issuer's own UPI payee, and net banking's "IB BILLPAY" to a biller that carries the card's
+     *  masked number ("4000XXXXXX0001"). A bill pay with a consumer number is a utility, not a card;
+     *  so is a debit-card bill payment, which prints the debit card's own masked number, hence net
+     *  banking's prefix and not any "billpay". Measured on the corpus (2026-10-05): 7 rows, all "Other". */
     private static final Pattern CARD_BILL_PAID = words("cc billpay");
-    private static final Pattern BILL_PAY = words("billpay", "bill pay");
+    private static final Pattern NET_BANKING_BILL_PAY = words("ib billpay");
     private static final Pattern MASKED_CARD_NUMBER = Pattern.compile("\\b\\d{4,6}[Xx*]{4,8}\\d{4}\\b");
 
     public static Optional<String> of(String description, Transaction.Type direction) {
@@ -99,13 +102,15 @@ public final class BankActivityCategory {
         // Charges first: "SMS CHARGES+GST" is a fee with its tax, and the fee is what was bought.
         if (CHARGED.matcher(text).find()) return Optional.of("Fees/Interest");
         if (CARD_BILL_PAID.matcher(text).find()
-                || (BILL_PAY.matcher(text).find() && MASKED_CARD_NUMBER.matcher(description).find())) {
+                || (NET_BANKING_BILL_PAY.matcher(text).find() && MASKED_CARD_NUMBER.matcher(description).find())) {
             return Optional.of("Transfer");
         }
         if (CARD_INSTALMENT.matcher(text).find()) return Optional.of("Loan EMI");
         if (RECURRING_DEPOSIT.matcher(text).find()) return Optional.of("Investments");
         if (PROVIDENT_FUND.matcher(text).find()) return Optional.of("Investments");
-        if (GLUED_SAVINGS_SCHEME.matcher(text).find()) return Optional.of("Investments");
+        if (GLUED_SAVINGS_SCHEME.matcher(CategoryRules.normalize(UPI_ID.matcher(description).replaceAll(" "))).find()) {
+            return Optional.of("Investments");
+        }
         if (GST.matcher(text).find()) return Optional.of("Taxes");
         if (counterparty == CounterpartyType.GOVERNMENT) return Optional.of("Taxes");
         return Optional.empty();

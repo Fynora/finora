@@ -162,6 +162,9 @@ class BankActivityCategoryTest {
     void ppfOrApyInsideAnOrdinaryWord_isNothing() {
         assertThat(of("UPI/000000000000/SHOPPFAIR STORE/sample@okbank", EXPENSE)).isNull();
         assertThat(of("UPI/000000000000/HAPPY00000001 CAFE/sample@okbank", EXPENSE)).isNull();
+        // A payee's UPI id that happens to start with the scheme's letters names a payee.
+        assertThat(of("UPI/000000000000/apy123456@ybl/SAMPLE", EXPENSE)).isNull();
+        assertThat(of("UPI/000000000000/sample.00000ppf000001@okbank/SAMPLE", EXPENSE)).isNull();
         // Money coming back from either scheme is not a contribution.
         assertThat(of("MOB000000000/00000PPF000000000001", INCOME)).isNull();
     }
@@ -179,6 +182,8 @@ class BankActivityCategoryTest {
     void anOrdinaryBillPaidOverNetBanking_isNotATransfer() {
         // The same net-banking bill payment to a utility: a consumer number, no masked card.
         assertThat(of("IB BILLPAY DR-SAMPLEPOWER-000000000001", EXPENSE)).isNull();
+        // A bill paid with a debit card prints that card's own masked number: still a utility.
+        assertThat(of("POS 400000XXXXXX0001 SAMPLE BILLPAY ELECTRICITY", EXPENSE)).isNull(); // synthetic-ok
     }
 
     @Test

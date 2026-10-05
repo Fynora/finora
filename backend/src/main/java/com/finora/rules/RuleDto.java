@@ -21,7 +21,10 @@ public record RuleDto(
         String actionType, String actionValue, int priority, boolean enabled,
         long matchCount, Instant lastMatchedAt,
         // Optional bounds on the transaction amount, inclusive (V248); null when unbounded.
-        BigDecimal amountMin, BigDecimal amountMax
+        BigDecimal amountMin, BigDecimal amountMax,
+        // A saved answer's other names for its payee (V259): "label:<as the bank prints it>" and
+        // "key:<UPI id>". Empty for every other rule.
+        java.util.List<String> payeeAliases
 ) {
     /** Bug fix (Phase C review): RuleService.toDto and DataExportService's own rule-export mapping
      *  used to each hand-write this same 11-argument construction independently -- a field added to
@@ -31,7 +34,8 @@ public record RuleDto(
     public static RuleDto from(CategoryRule r) {
         return new RuleDto(r.getId(), r.getScope().name(), r.getField().name(), r.getOperator().name(),
                 r.getComparisonValue(), r.getActionType().name(), r.getActionValue(), r.getPriority(), r.isEnabled(),
-                r.getMatchCount(), r.getLastMatchedAt(), r.getAmountMin(), r.getAmountMax());
+                r.getMatchCount(), r.getLastMatchedAt(), r.getAmountMin(), r.getAmountMax(),
+                java.util.List.copyOf(r.getPayeeAliases()));
     }
 
     // Always creates a USER-scope rule — see RuleService.create(). GLOBAL rules are seed data

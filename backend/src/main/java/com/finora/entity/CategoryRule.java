@@ -1,9 +1,13 @@
 package com.finora.entity;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -99,6 +103,12 @@ public class CategoryRule {
     @Column(name = "amount_max")
     private BigDecimal amountMax;
 
+    /** A PAYEE rule's other names for its payee (V259): "label:<as the bank prints it>" and
+     *  "key:<a counterparty key naming one payee>". See RuleEngineService.matchesPayee. */
+    @JdbcTypeCode(SqlTypes.ARRAY)
+    @Column(name = "payee_aliases", nullable = false)
+    private List<String> payeeAliases = new ArrayList<>();
+
     public UUID getId() { return id; }
     public UUID getUserId() { return userId; }
     public void setUserId(UUID userId) { this.userId = userId; }
@@ -129,4 +139,8 @@ public class CategoryRule {
     public void setAmountMin(BigDecimal amountMin) { this.amountMin = amountMin; }
     public BigDecimal getAmountMax() { return amountMax; }
     public void setAmountMax(BigDecimal amountMax) { this.amountMax = amountMax; }
+    public List<String> getPayeeAliases() { return payeeAliases; }
+    public void setPayeeAliases(List<String> payeeAliases) {
+        this.payeeAliases = payeeAliases == null ? new ArrayList<>() : new ArrayList<>(payeeAliases);
+    }
 }

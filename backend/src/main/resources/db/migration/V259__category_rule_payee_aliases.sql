@@ -1,0 +1,11 @@
+-- The other ways one saved answer recognises its payee (RecurringAnswerService, RuleEngineService).
+--
+-- A recurring-payment answer is a USER PAYEE rule keyed on the payee label the user was asked about,
+-- which is the label as stored -- and both apps let a user edit it. Import reads the payee from the
+-- bank's narration, so an answer given under an edited label never matched a later payment. A
+-- payee's printed name can also vary between payments while its UPI id stays the same.
+--
+-- Each entry is "label:<payee as the bank prints it>" or "key:<counterparty key>" (a UPI id that
+-- names one payee), taken from the payments the user answered for. The rule still matches its own
+-- comparison_value; uq_category_rules_user_payee is unchanged, so one answer stays one rule.
+ALTER TABLE category_rules ADD COLUMN payee_aliases TEXT[] NOT NULL DEFAULT '{}';

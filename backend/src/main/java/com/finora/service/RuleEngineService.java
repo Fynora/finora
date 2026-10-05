@@ -330,8 +330,25 @@ public class RuleEngineService {
             return false;
         }
         String payee = CategoryRules.extractMerchantLabel(description);
-        return payee != null && payee.equalsIgnoreCase(rule.getComparisonValue().trim());
+        if (payee != null && payee.equalsIgnoreCase(rule.getComparisonValue().trim())) return true;
+        List<String> aliases = rule.getPayeeAliases();
+        if (aliases == null || aliases.isEmpty()) return false;
+        // A saved answer also knows its payee by the name the bank printed on the answered payments
+        // (the user may have edited the one they were asked about) and by their UPI id (the printed
+        // name of a person can vary from payment to payment). See RecurringAnswerService.
+        if (payee != null && aliases.stream().anyMatch(a -> a.regionMatches(true, 0, PAYEE_LABEL_ALIAS, 0, PAYEE_LABEL_ALIAS.length())
+                && a.substring(PAYEE_LABEL_ALIAS.length()).trim().equalsIgnoreCase(payee.trim()))) {
+            return true;
+        }
+        String key = com.finora.util.CounterpartyTyping.of(description).key();
+        // Only a key that names one payee: a gateway's own id or a cut id is shared by many shops.
+        return key != null && com.finora.util.CounterpartyIdentity.identifiesOnePayee(key)
+                && aliases.contains(PAYEE_KEY_ALIAS + key);
     }
+
+    /** Prefixes of {@link CategoryRule#getPayeeAliases()} entries (V259). */
+    public static final String PAYEE_LABEL_ALIAS = "label:";
+    public static final String PAYEE_KEY_ALIAS = "key:";
 
     /** Optional bounds on any rule (V248), inclusive. A bounded rule never matches a missing amount. */
     private static boolean withinBounds(CategoryRule rule, BigDecimal amount) {

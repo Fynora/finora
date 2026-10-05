@@ -53,6 +53,7 @@ class RecurringAnswerIT extends AbstractIntegrationTest {
     @Autowired private UserRepository userRepository;
     @Autowired private AuthService authService;
     @Autowired private com.finora.repository.CategoryRepository categoryRepository;
+    @Autowired private com.finora.transactions.TransactionService transactionService;
 
     private static String narration(int n, String note) {
         return narration("SAMPLE OWNER", n, note);
@@ -144,6 +145,191 @@ class RecurringAnswerIT extends AbstractIntegrationTest {
         assertThat(incoming.suggestedCategory())
                 .as("credit, source=%s rule=%s", incoming.categorySource(), incoming.ruleId())
                 .isNotEqualTo("Rent");
+    }
+
+    /**
+     * Payee names are editable in both apps, and detection groups payments by the name as stored. A
+     * user who tidied "sample owner" into their own name for it was asked about that name, and the
+     * answer was saved under it -- but the next import reads the payee from the bank's narration,
+     * which still says SAMPLE OWNER, so the answer never applied.
+     */
+    @Test
+    void anAnswerGivenUnderAPayeeNameTheUserEdited_stillFilesTheNextImport() throws Exception {
+        User user = userWithThreeOtherRentPayments();
+        for (Transaction t : transactionRepository.findByUserId(user.getId())) {
+            transactionService.update(user.getId(), t.getId(), new com.finora.transactions.TransactionDto.UpdateRequest(
+                    null, null, "My Flat", null, null, null, null, null));
+        }
+        assertThat(recurringService.detectForUser(user.getId()))
+                .as("precondition: asked about the edited name")
+                .anySatisfy(r -> assertThat(r.merchant()).isEqualTo("My Flat"));
+
+        RecurringAnswerService.Result result = recurringAnswerService.categorize(user.getId(), "My Flat", "Rent");
+        assertThat(result.refiled()).isEqualTo(3);
+
+        String csv = "Date,Description,Amount,Type\n"
+                + "2026-08-03," + narration(4, "RENT") + ",10000.00,DEBIT\n";
+        StagingResponse staged = importService.parseAndStage(user.getId(), "next.csv",
+                new ByteArrayInputStream(csv.getBytes(StandardCharsets.UTF_8)));
+        StagedRow next = staged.rows().get(0);
+        assertThat(next.suggestedCategory()).as("source=%s", next.categorySource()).isEqualTo("Rent");
+        assertThat(next.categorySource()).isEqualTo("user_rule");
+    }
+
+    /**
+     * A person's name can be printed differently on a later payment while their UPI id stays the
+     * same (measured on the real statements: 7 payees, mostly people). The answer matches the id.
+     */
+    @Test
+    void anAnswer_filesALaterPaymentToTheSameUpiId_whenTheBankPrintsTheNameDifferently() throws Exception {
+        User user = userWithThreeOtherRentPayments();
+        recurringAnswerService.categorize(user.getId(), LABEL, "Rent");
+
+        String csv = "Date,Description,Amount,Type\n"
+                + "2026-08-03," + narration("S OWNER", 4, "RENT").replace("s.owner@", "sample.owner@") + ",10000.00,DEBIT\n";
+        StagingResponse staged = importService.parseAndStage(user.getId(), "next.csv",
+                new ByteArrayInputStream(csv.getBytes(StandardCharsets.UTF_8)));
+        StagedRow next = staged.rows().get(0);
+        assertThat(com.finora.util.CategoryRules.extractMerchantLabel(next.description()))
+                .as("precondition: the printed name differs").isNotEqualToIgnoringCase(LABEL);
+        assertThat(next.suggestedCategory()).as("source=%s", next.categorySource()).isEqualTo("Rent");
+        assertThat(next.categorySource()).isEqualTo("user_rule");
+    }
+
+    @Test
+    void answeringAgain_keepsWhatTheAnswerAlreadyKnewAboutThePayee() throws Exception {
+        User user = userWithThreeOtherRentPayments();
+        recurringAnswerService.categorize(user.getId(), LABEL, "Rent");
+        java.util.List<String> first = ruleRepository.findUserPayeeRule(user.getId(), LABEL).orElseThrow().getPayeeAliases();
+        assertThat(first).contains("key:vpa:sample.owner");
+
+        recurringAnswerService.categorize(user.getId(), LABEL, "Rent");
+
+        assertThat(ruleRepository.findUserPayeeRule(user.getId(), LABEL).orElseThrow().getPayeeAliases())
+                .containsExactlyInAnyOrderElementsOf(first);
+    }
+
+    /** The user renames the payee on its three payments to "My Flat" and answers Rent for it. */
+    private User userWhoAnsweredUnderAnEditedName() throws Exception {
+        User user = userWithThreeOtherRentPayments();
+        for (Transaction t : transactionRepository.findByUserId(user.getId())) {
+            transactionService.update(user.getId(), t.getId(), new com.finora.transactions.TransactionDto.UpdateRequest(
+                    null, null, "My Flat", null, null, null, null, null));
+        }
+        recurringAnswerService.categorize(user.getId(), "My Flat", "Rent");
+        return user;
+    }
+
+    /** Later payments, imported under the name the bank prints, at a new amount the answer doesn't cover. */
+    private void confirmLaterPayments(User user, int... months) throws Exception {
+        Account account = accountRepository.findByUserId(user.getId()).get(0);
+        List<ConfirmedRow> rows = new java.util.ArrayList<>();
+        for (int month : months) {
+            rows.add(new ConfirmedRow(LocalDate.of(2026, month, 3), narration(month + 10, "RENT"),
+                    new BigDecimal("15000.00"), "EXPENSE", "Other", true, "default", null, false, null, null));
+        }
+        importService.confirm(user.getId(),
+                new MockMultipartFile("file", "later.csv", "text/csv", "rows-supplied-directly".getBytes(StandardCharsets.UTF_8)),
+                new ConfirmRequest(null, rows, account.getId(), null, null, null, null));
+    }
+
+    @Test
+    void laterPaymentsUnderTheBanksName_areTheSameAnswer_notANewQuestion() throws Exception {
+        User user = userWhoAnsweredUnderAnEditedName();
+        confirmLaterPayments(user, 8, 9, 10);
+
+        assertThat(recurringService.detectForUser(user.getId()))
+                .as("the bank-named group is the same payee as the answered one")
+                .anySatisfy(r -> {
+                    assertThat(r.merchant()).isEqualTo(LABEL);
+                    assertThat(r.state()).isEqualTo(RecurringDto.QuestionState.AMOUNT_CHANGED);
+                    assertThat(r.answer()).isEqualTo("Rent");
+                });
+
+        recurringAnswerService.categorize(user.getId(), LABEL, "Rent");
+
+        assertThat(ruleRepository.findUserPayeeRules(user.getId())).as("still one answer").hasSize(1);
+        assertThat(ruleRepository.findUserPayeeRules(user.getId()).get(0).getComparisonValue()).isEqualTo("My Flat");
+        assertThat(recurringService.detectForUser(user.getId()))
+                .anySatisfy(r -> {
+                    assertThat(r.merchant()).isEqualTo(LABEL);
+                    assertThat(r.state()).isEqualTo(RecurringDto.QuestionState.ANSWERED);
+                });
+    }
+
+    @Test
+    void aLaterPaymentUnderTheBanksName_atANewAmount_isReportedAsChanged() throws Exception {
+        User user = userWhoAnsweredUnderAnEditedName();
+        confirmLaterPayments(user, 8);
+
+        assertThat(recurringAnswerService.changedAmounts(user.getId()))
+                .anySatisfy(c -> {
+                    assertThat(c.merchant()).isEqualTo("My Flat");
+                    assertThat(c.latestAmount()).isEqualByComparingTo("15000.00");
+                });
+    }
+
+    /**
+     * One payee, one answer. The user answered "sample owner" directly, then renamed its payments and
+     * answered again under the new name: the second answer must not also claim the bank's name or UPI
+     * id the first one already holds, or which of the two files the next payment would depend on rule
+     * order.
+     */
+    @Test
+    void aSecondAnswerUnderARenamedPayee_doesNotTakeTheFirstAnswersNamesForIt() throws Exception {
+        User user = userWithThreeOtherRentPayments();
+        recurringAnswerService.categorize(user.getId(), LABEL, "Rent");
+        for (Transaction t : transactionRepository.findByUserId(user.getId())) {
+            transactionService.update(user.getId(), t.getId(), new com.finora.transactions.TransactionDto.UpdateRequest(
+                    null, null, "My Flat", null, null, null, null, null));
+        }
+
+        recurringAnswerService.categorize(user.getId(), "My Flat", "Rent");
+
+        CategoryRule second = ruleRepository.findUserPayeeRule(user.getId(), "My Flat").orElseThrow();
+        assertThat(second.getPayeeAliases()).as("held by the first answer").isEmpty();
+        assertThat(ruleRepository.findUserPayeeRule(user.getId(), LABEL).orElseThrow().getPayeeAliases())
+                .contains("key:vpa:sample.owner");
+    }
+
+    /** A payment to the same UPI id that the bank printed under another name ("S OWNER"). */
+    private static String driftedNarration(int n) {
+        return narration("S OWNER", n, "RENT").replace("s.owner@", "sample.owner@");
+    }
+
+    private void confirmPayment(User user, LocalDate date, String narration, String amount) throws Exception {
+        Account account = accountRepository.findByUserId(user.getId()).get(0);
+        importService.confirm(user.getId(),
+                new MockMultipartFile("file", "one.csv", "text/csv", "rows-supplied-directly".getBytes(StandardCharsets.UTF_8)),
+                new ConfirmRequest(null, List.of(new ConfirmedRow(date, narration, new BigDecimal(amount), "EXPENSE",
+                        "Other", true, "default", null, false, null, null)), account.getId(), null, null, null, null));
+    }
+
+    @Test
+    void anAnswer_reFilesAPastPaymentToTheSameUpiId_printedUnderAnotherName() throws Exception {
+        User user = userWithThreeOtherRentPayments();
+        confirmPayment(user, LocalDate.of(2026, 4, 3), driftedNarration(9), "10000.00");
+
+        recurringAnswerService.categorize(user.getId(), LABEL, "Rent");
+
+        Transaction drifted = transactionRepository.findByUserId(user.getId()).stream()
+                .filter(t -> t.getTxnDate().equals(LocalDate.of(2026, 4, 3))).findFirst().orElseThrow();
+        assertThat(drifted.getMerchant()).as("precondition: stored under the other name").isNotEqualToIgnoringCase(LABEL);
+        assertThat(categoryRepository.findById(drifted.getCategoryId()).orElseThrow().getName()).isEqualTo("Rent");
+        assertThat(drifted.getDecisionSource()).isEqualTo(Transaction.DecisionSource.USER_RULE);
+    }
+
+    @Test
+    void aLaterPaymentToTheSameUpiId_underAnotherName_atANewAmount_isReportedAsChanged() throws Exception {
+        User user = userWithThreeOtherRentPayments();
+        recurringAnswerService.categorize(user.getId(), LABEL, "Rent");
+        confirmPayment(user, LocalDate.of(2026, 8, 3), driftedNarration(9), "15000.00");
+
+        assertThat(recurringAnswerService.changedAmounts(user.getId()))
+                .anySatisfy(c -> {
+                    assertThat(c.merchant()).isEqualToIgnoringCase(LABEL);
+                    assertThat(c.latestAmount()).isEqualByComparingTo("15000.00");
+                });
     }
 
     @Test

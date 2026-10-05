@@ -5675,6 +5675,7 @@ export interface components {
             lastMatchedAt?: string;
             amountMin?: number;
             amountMax?: number;
+            payeeAliases?: string[];
         };
         ApiResponseRelationshipDto: {
             success?: boolean;

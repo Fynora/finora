@@ -1,7 +1,8 @@
 import { PermissionsAndroid, Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  getInitialNotification as fbGetInitialNotification, getMessaging, getToken as fbGetToken,
-  onMessage as fbOnMessage, onNotificationOpenedApp as fbOnNotificationOpenedApp,
+  deleteToken as fbDeleteToken, getInitialNotification as fbGetInitialNotification, getMessaging,
+  getToken as fbGetToken, onMessage as fbOnMessage, onNotificationOpenedApp as fbOnNotificationOpenedApp,
   onTokenRefresh as fbOnTokenRefresh, requestPermission as fbRequestPermission,
   type RemoteMessage,
 } from '@react-native-firebase/messaging';
@@ -26,6 +27,8 @@ export type { RemoteMessage };
 export interface PushMessaging {
   requestPermission(): Promise<number>;
   getToken(): Promise<string>;
+  /** Invalidates this install's push token with Firebase; the next getToken() mints a new one. */
+  deleteToken(): Promise<void>;
   onTokenRefresh(listener: (token: string) => void): () => void;
   onMessage(listener: (message: RemoteMessage) => void): () => void;
   // Phase 5 (Low-Priority Polish). Fires when a background (not killed) app is opened by tapping
@@ -36,13 +39,12 @@ export interface PushMessaging {
 }
 
 export type PostDeviceTokenFn = (body: { token: string; platform: DevicePlatform }) => Promise<unknown>;
-export type DeleteDeviceTokenFn = (body: { token: string }) => Promise<unknown>;
 
 let cachedMessaging: PushMessaging | null = null;
 
 /** Lazily wraps the real modular API into the method-shaped PushMessaging interface above.
  *  Lazy (not built at module scope) so importing this file never touches the native module --
- *  only calling registerDeviceToken()/revokeDeviceToken()/usePushNotificationNavigation with no
+ *  only calling registerDeviceToken()/detachDevice()/usePushNotificationNavigation with no
  *  override does. Exported so usePushNotificationNavigation.ts shares this exact instance/cache
  *  rather than building a second wrapper around the same native module. */
 export function defaultMessaging(): PushMessaging {
@@ -51,6 +53,7 @@ export function defaultMessaging(): PushMessaging {
     cachedMessaging = {
       requestPermission: () => fbRequestPermission(instance),
       getToken: () => fbGetToken(instance),
+      deleteToken: () => fbDeleteToken(instance),
       onTokenRefresh: (listener) => fbOnTokenRefresh(instance, listener),
       onMessage: (listener) => fbOnMessage(instance, listener),
       onNotificationOpenedApp: (listener) => fbOnNotificationOpenedApp(instance, listener),
@@ -62,10 +65,6 @@ export function defaultMessaging(): PushMessaging {
 
 function defaultPostDeviceToken(body: { token: string; platform: DevicePlatform }) {
   return deviceTokensApi.register(body);
-}
-
-function defaultDeleteDeviceToken(body: { token: string }) {
-  return deviceTokensApi.revoke(body);
 }
 
 function currentPlatform(): DevicePlatform {
@@ -172,32 +171,37 @@ export async function registerDeviceToken(deps: RegisterDeviceTokenDeps = {}): P
   }
 }
 
-export interface RevokeDeviceTokenDeps {
-  deleteDeviceToken?: DeleteDeviceTokenFn;
+/**
+ * Set while a sign-out still owes Firebase a deleteToken(): written before the attempt, cleared once
+ * it succeeds. A plain flag, not a credential, so AsyncStorage (fast) rather than SecureStore.
+ */
+export const PUSH_DETACH_PENDING_KEY = 'finora_push_detach_pending';
+
+export interface DetachDeviceDeps {
   messaging?: PushMessaging;
 }
 
 /**
- * Revokes this device's current token server-side. Must be called (and awaited) BEFORE the auth
- * token is cleared from storage -- see AuthContext.tsx's logout(), which calls this while the
- * bearer token is still present so the request carries an Authorization header instead of 401ing.
+ * Sign-out's half of push: stops this phone receiving the account's notifications, without needing
+ * the session's credentials. Returns the token it detached (or null), for the server-side revoke.
  *
- * Never throws -- logging out must succeed locally regardless of whether the revoke call reaches
- * the backend.
+ * Why the phone deletes its own token rather than relying on the server being told: the pushes
+ * carry a visible notification (title + body), which the OS shows itself whether or not anyone is
+ * signed in, and the server keeps sending to a registered token until another account registers
+ * it. On 2026-10-05 a sign-out followed by an immediate swipe never reached the server, so that
+ * phone stayed registered. Once Firebase deletes the token, every later send to it is rejected
+ * UNREGISTERED and the backend revokes the row itself (FcmPushProvider) -- the server never has to
+ * hear from this phone. If this attempt fails (offline, app closed mid-way), the pending flag makes
+ * the next signed-out launch finish it (resumePendingDetach).
+ *
+ * Only an explicit sign-out calls this. A session that merely expires keeps its notifications --
+ * still its owner's phone, and "your statement is ready" is what brings them back.
+ *
+ * Never throws.
  */
-export async function revokeDeviceToken(deps: RevokeDeviceTokenDeps = {}): Promise<void> {
-  // Read-then-clear-then-call, in that order, and in its OWN try/catch separate from the actual
-  // revoke call below: `unsubscribe` ultimately calls RNFB's native event-removal, which can throw
-  // synchronously, and every production caller fires this whole function with
-  // `void revokeDeviceToken()` (AuthContext.tsx's logout() awaits it, but with no .catch() of its
-  // own) -- so an unguarded throw here would surface as an unhandled rejection during logout
-  // despite this function's own "never throws" contract. Clearing the stored reference BEFORE
-  // calling it means a throw from a stale/already-broken closure can never leave it behind for a
-  // later registerDeviceToken()/revokeDeviceToken() call to stack another subscription on top of,
-  // or retry the same failing unsubscribe again. A SEPARATE try/catch from the revoke call below
-  // (not one shared try wrapping both) matters just as much: a broken native listener removal is
-  // unrelated to whether the backend can still be told to revoke the token, so it must not abort
-  // that call.
+export async function detachDevice(deps: DetachDeviceDeps = {}): Promise<string | null> {
+  // The listener first, in its own try: a broken native removal must not stop the rest, and it has
+  // to be gone before deleteToken() so the token Firebase mints next is never posted for anyone.
   const unsubscribe = unsubscribeTokenRefresh;
   unsubscribeTokenRefresh = null;
   try {
@@ -206,16 +210,47 @@ export async function revokeDeviceToken(deps: RevokeDeviceTokenDeps = {}): Promi
     logPushFailure('failed to unsubscribe from token refresh', error);
   }
 
-  // See registerDeviceToken()'s own comment on why dependency resolution happens inside the try.
+  let detached: string | null = null;
   try {
+    await AsyncStorage.setItem(PUSH_DETACH_PENDING_KEY, '1');
     const messaging = deps.messaging ?? defaultMessaging();
-    const deleteDeviceToken = deps.deleteDeviceToken ?? defaultDeleteDeviceToken;
-
-    const token = await messaging.getToken();
-    if (!token) return;
-    await deleteDeviceToken({ token });
+    detached = (await messaging.getToken()) || null;
+    await messaging.deleteToken();
+    await AsyncStorage.removeItem(PUSH_DETACH_PENDING_KEY);
   } catch (error) {
-    logPushFailure('revokeDeviceToken failed', error);
+    logPushFailure('detachDevice failed', error);
+  }
+  return detached;
+}
+
+/**
+ * Finishes a sign-out's detachDevice() that did not complete. Call on a launch that finds no session;
+ * a no-op unless the flag is set. `stillSignedOut` is checked again right before deleting, so a
+ * sign-in that happened meanwhile keeps the token it just registered.
+ *
+ * Never throws.
+ */
+export async function resumePendingDetach(
+  stillSignedOut: () => Promise<boolean>,
+  deps: DetachDeviceDeps = {}
+): Promise<void> {
+  try {
+    if ((await AsyncStorage.getItem(PUSH_DETACH_PENDING_KEY)) !== '1') return;
+    if (!(await stillSignedOut())) return;
+    const messaging = deps.messaging ?? defaultMessaging();
+    await messaging.deleteToken();
+    await AsyncStorage.removeItem(PUSH_DETACH_PENDING_KEY);
+  } catch (error) {
+    logPushFailure('resumePendingDetach failed', error);
+  }
+}
+
+/** A sign-in owns this install's token from now on; an older sign-out's pending detach is void. */
+export async function clearPendingDetach(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(PUSH_DETACH_PENDING_KEY);
+  } catch (error) {
+    logPushFailure('clearPendingDetach failed', error);
   }
 }
 

@@ -11,7 +11,9 @@ import { sweepFileCache } from '../lib/fileCacheSweep';
 import { purgeSharedContainers } from '../lib/sharedContainerSweep';
 import { signOutOfGoogle } from '../lib/googleSession';
 import * as appLock from '../lib/appLock';
-import { registerDeviceToken, subscribeToForegroundMessages } from '../lib/pushRegistration';
+import {
+  clearPendingDetach, detachDevice, registerDeviceToken, resumePendingDetach, subscribeToForegroundMessages,
+} from '../lib/pushRegistration';
 import { endRemoteSession } from '../lib/endRemoteSession';
 import { configureRevenueCat } from '../lib/revenueCat';
 import { reportHandledError } from '../lib/monitoring';
@@ -140,6 +142,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setPhoneVerifiedState(storedVerified === 'true');
       setOnboardingCompletedState(storedOnboarded === 'true');
       setBootstrapping(false);
+      // A sign-out that was closed before it finished detaching push finishes it now -- only while
+      // still signed out (see resumePendingDetach). A session that merely expired never set the flag.
+      if (storedToken === null) {
+        void resumePendingDetach(async () => (await safeStorage.getItem(TOKEN_KEY)) === null);
+      }
       // Subscription billing V4 (design spec §2/§6.1 step 1): RevenueCat must be configured with
       // the real, authenticated user id before the Paywall/My Subscription screens can be reached
       // -- including a cold start restoring an already-signed-in session, not just a fresh
@@ -244,7 +251,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // verified flag lands on VerifyPhone -- no imperative navigation call needed.
   useEffect(() => {
     setSessionCallbacks({
-      onSessionExpired: clearLocalState,
+      onSessionExpired: ({ endedDeliberately }) => {
+        clearLocalState();
+        // Signed out on purpose from elsewhere (a lost phone removed from the device list, say):
+        // stop its notifications too, as a sign-out here would. A session that merely timed out
+        // keeps them -- see endedDeliberately in client.ts.
+        if (endedDeliberately) void detachDevice();
+      },
       onPhoneVerificationRequired: () => setPhoneVerifiedState(false),
     });
   }, [clearLocalState]);
@@ -384,6 +397,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     id: string;
     onboardingCompleted: boolean;
   }) {
+    // This sign-in owns the install's push token now; an older sign-out's unfinished detach is void.
+    void clearPendingDetach();
     await Promise.all([
       safeStorage.setItem(TOKEN_KEY, data.token),
       safeStorage.setItem(REFRESH_TOKEN_KEY, data.refreshToken),
@@ -535,6 +550,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // straight back in on its next launch). See markSessionEnded. What such a refresh ends up
     // holding comes back here, so the clean-up below can sign that pair out rather than a stale one.
     const latePair = markSessionEnded();
+    // Push next, at once and in parallel: it needs no credentials (see detachDevice), so a sign-out
+    // closed a second later has still told Firebase to stop delivering this account's notifications.
+    const pushToken = detachDevice();
 
     // Clear local state first so the UI responds immediately -- the user expects to be signed out
     // whether or not the network call lands.
@@ -569,7 +587,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       // Task 14 (push revoke) and the server-side logout, from the copies above or from the pair a
       // refresh that was still in flight ends up with. Never throws.
-      await endRemoteSession(stored, { latePair });
+      await endRemoteSession(stored, { latePair, pushToken });
     })();
   }
 

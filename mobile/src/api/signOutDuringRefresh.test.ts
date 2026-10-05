@@ -289,11 +289,39 @@ describe('signing out while a refresh is in flight', () => {
     secureStore.__store.set(REFRESH_TOKEN_KEY, 'DEAD');
     await reject401().catch(() => {});
     expect(onSessionExpired).toHaveBeenCalledTimes(1);
+    // AUTH_TOKEN_EXPIRED is time running out, not a deliberate sign-out: notifications stay.
+    expect(onSessionExpired).toHaveBeenCalledWith({ endedDeliberately: false });
 
     secureStore.__store.set(REFRESH_TOKEN_KEY, 'OK1');
     await reject401().catch(() => {});
     expect(presented).toEqual(['DEAD', 'OK1']);
     expect(secureStore.__store.get(REFRESH_TOKEN_KEY)).toBe('OK2');
+  });
+
+  describe('why a rejected refresh ended the session', () => {
+    function serverRejectsWith(errorCode: string | null) {
+      client.rawApi.defaults.adapter = (async () => {
+        const err: Error & { response?: unknown } = new Error('rejected');
+        err.response = errorCode === null ? undefined : { status: 401, data: { errorCode } };
+        throw err;
+      }) as never;
+    }
+
+    it.each<[string | null, boolean, string]>([
+      ['AUTH_004', true, 'revoked: signed out from another device, or a security sign-out'],
+      ['AUTH_007', true, 'account deactivated'],
+      ['AUTH_005', false, 'idle timeout'],
+      ['AUTH_006', false, 'session max age'],
+      ['AUTH_002', false, 'unknown or expired token'],
+      [null, false, 'no response at all (offline)'],
+    ])('%s -> endedDeliberately %s (%s)', async (errorCode, deliberate) => {
+      secureStore.__store.set(REFRESH_TOKEN_KEY, 'R1');
+      serverRejectsWith(errorCode);
+
+      await reject401().catch(() => {});
+
+      expect(onSessionExpired).toHaveBeenCalledWith({ endedDeliberately: deliberate });
+    });
   });
 
   it('CONTROL: with no sign-out, the refreshed pair is persisted as before', async () => {

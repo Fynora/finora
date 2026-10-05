@@ -42,7 +42,7 @@ vi.mock('framer-motion', async (importOriginal) => {
   };
 });
 
-import Import from './Import';
+import Import, { UPLOAD_COMPLETE_DWELL_MS, setUploadCompleteDwellForTests } from './Import';
 import { AuthProvider } from '../context/AuthContext';
 import { importApi, importJobsApi, statementImportsApi, categoriesApi, accountsApi, type ImportJobProgress } from '../api/endpoints';
 import type { Account, StagedAccountSection } from '../types';
@@ -205,6 +205,12 @@ async function pickAndUploadPdf(user: ReturnType<typeof userEvent.setup>, file =
   await user.click(screen.getByRole('button', { name: /upload statement/i }));
 }
 
+// The Completed checkmark's real 900ms dwell is skipped for every test except the two about the
+// checkmark itself (which put it back): waiting it out, one test after another, was most of this
+// file's run time.
+beforeEach(() => setUploadCompleteDwellForTests(0));
+afterEach(() => setUploadCompleteDwellForTests(UPLOAD_COMPLETE_DWELL_MS));
+
 describe('Import — file-type routing', () => {
   beforeEach(() => {
     vi.mocked(importApi.stageCsv).mockReset().mockResolvedValue(stagingResultWith());
@@ -304,6 +310,7 @@ describe('Import — file-type routing', () => {
   });
 
   it('flashes a Completed checkmark before advancing to the review step', async () => {
+    setUploadCompleteDwellForTests(UPLOAD_COMPLETE_DWELL_MS);
     const user = userEvent.setup();
     renderImport();
 
@@ -333,6 +340,7 @@ describe('Import — file-type routing', () => {
    * was, exactly like the dropzone already does for a CSV.
    */
   it('shows the Completed checkmark inside the PDF password panel, not the dropzone', async () => {
+    setUploadCompleteDwellForTests(UPLOAD_COMPLETE_DWELL_MS);
     const user = userEvent.setup();
     renderImport();
 

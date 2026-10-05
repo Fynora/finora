@@ -63,6 +63,16 @@ type AccountChoice = 'existing' | 'new';
 // test can assert against the same number rather than a magic 900 duplicated in the test file.
 export const UPLOAD_COMPLETE_DWELL_MS = 900;
 
+// What the dwell actually waits. Always UPLOAD_COMPLETE_DWELL_MS in the app; tests set it to 0
+// unless they are about the checkmark itself, because most of Import.test.tsx's tests sat through
+// the real 900ms one after another (about 50s of a 58s file).
+let uploadCompleteDwellMs = UPLOAD_COMPLETE_DWELL_MS;
+
+/** Test-only: how long the Completed checkmark dwells. Reset to UPLOAD_COMPLETE_DWELL_MS after use. */
+export function setUploadCompleteDwellForTests(ms: number) {
+  uploadCompleteDwellMs = ms;
+}
+
 // Per-account review state for the multi-account case (a PDF whose upload detected more than one
 // account section, e.g. an HSBC-style composite statement) -- one of these per detected
 // StagedAccountSection, holding exactly the same fields the single-account path already tracks as
@@ -635,7 +645,7 @@ export default function Import() {
       setPasswordState(null);
       setSavePassword(false);
       advance();
-    }, UPLOAD_COMPLETE_DWELL_MS);
+    }, uploadCompleteDwellMs);
   }
 
   // `mayKeep` is false only on the one retry below, after the server refused to keep a password.

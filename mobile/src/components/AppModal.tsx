@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useId } from 'react';
 import { Modal, View, type ModalProps } from 'react-native';
 import { AppAlertOverlay, useAlertShowing } from './AppAlertOverlay';
+import { AppBannerOverlay } from './AppBannerOverlay';
 import { StyleSheet } from 'react-native';
 import { handleAlertBack, registerAlertContainer } from '../lib/appAlert';
 
@@ -78,6 +79,9 @@ export function AppModal({ children, onRequestClose, ...props }: ModalProps) {
         {children}
       </View>
       <AppAlertOverlay containerId={id} />
+      {/* A passing banner (an admin campaign push) is drawn here while this is the topmost modal,
+          for the same reason as the alert: nothing in the tree can show above a native modal. */}
+      <AppBannerOverlay containerId={id} />
     </Modal>
   );
 }

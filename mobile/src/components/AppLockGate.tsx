@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { AppState, type AppStateStatus, BackHandler, Keyboard, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { AppAlertOverlay, useAlertShowing } from './AppAlertOverlay';
+import { AppBannerOverlay } from './AppBannerOverlay';
 import { AppCoveredProvider, useLaunchCovering } from './AppModal';
 import { Button } from './Button';
 import { useAuth } from '../context/AuthContext';
@@ -319,6 +320,9 @@ export function AppLockGate({ children }: { children: ReactNode }) {
           once open): here, in-tree, or inside the topmost AppModal while one is open. While locked
           it keeps waiting underneath the lock screen, unreachable -- see AppAlertOverlay. */}
       <AppAlertOverlay containerId={ROOT_ALERT_CONTAINER} hidden={covered} />
+      {/* A passing banner (an admin campaign push while the app is open): drawn here for the same
+          reason as the alert above, so it never shows over the lock screen. */}
+      <AppBannerOverlay containerId={ROOT_ALERT_CONTAINER} hidden={covered} />
       {/* Covers rather than unmounts: `children` stay mounted underneath, so nothing is torn down
           while the lock check is in flight, yet nothing protected can paint before its outcome is
           known. */}

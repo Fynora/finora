@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { AppAlert, clearAppAlerts } from '../lib/appAlert';
+import { AppBanner } from '../lib/appBanner';
 import { useQueryClient } from '@tanstack/react-query';
 import { authApi } from '../api/endpoints';
 import { markSessionEnded, sessionStorageCleared, setSessionCallbacks } from '../api/client';
@@ -375,6 +376,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (appLock.isLocked()) return;
       const body = message.notification?.body;
       if (!body) return;
+      // An admin campaign message (backend NotificationType.CUSTOM_PUSH, always sent with
+      // data.type) is an announcement or reminder, not something to act on this second. A blocking
+      // pop-up in the middle of someone's work is the wrong way to deliver it, so while the app is
+      // open it is a small banner that clears itself, like any other app's in-app notification; with
+      // the app closed the OS shows it as a normal notification. Every other push type keeps the
+      // alert below.
+      if (message.data?.type === 'CUSTOM_PUSH') {
+        AppBanner.show(message.notification?.title ?? 'Fynora', body);
+        return;
+      }
       foregroundAlertQueue.current.push({ title: message.notification?.title ?? 'Fynora', body });
       if (!isShowingForegroundAlert.current) showNextForegroundAlert();
     });
@@ -385,6 +396,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // some later, unrelated session's alert happens to get dismissed.
       foregroundAlertQueue.current = [];
       isShowingForegroundAlert.current = false;
+      // Same reason for a banner still on screen: it was this session's message.
+      AppBanner.dismiss();
     };
   }, [token, phoneVerified]);
 

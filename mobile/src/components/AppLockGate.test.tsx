@@ -8,6 +8,7 @@ import * as appLock from '../lib/appLock';
 import { AppLockGate } from './AppLockGate';
 import { AppModal, LaunchCoveredProvider } from './AppModal';
 import { AppAlert, getCurrentAppAlert, __resetAppAlertForTests } from '../lib/appAlert';
+import { AppBanner, __resetAppBannerForTests } from '../lib/appBanner';
 import { AuthProvider } from '../context/AuthContext';
 import { ThemeProvider } from '../theme';
 import App from '../../App';
@@ -76,6 +77,7 @@ beforeEach(() => {
   // would make the very next test's "unlocked" assertions pass for the wrong reason.
   appLock.__resetLockedFlagForTests();
   __resetAppAlertForTests();
+  __resetAppBannerForTests();
 });
 
 afterEach(() => {
@@ -412,6 +414,22 @@ describe('AppLockGate', () => {
       await act(async () => fireEvent.press(screen.getByText('Unlock')));
       await waitFor(() => expect(screen.queryByText(LOCK_TEXT)).toBeNull());
       expect(screen.getByText('Delete this account?')).toBeTruthy();
+    });
+
+    // The banner for an admin campaign push is drawn at this same root, so it must never show over
+    // the lock screen: a push's text is exactly what the lock is there to keep private.
+    it('shows a campaign banner over the open app and hides it behind the lock screen', async () => {
+      await unlockedWithState();
+      act(() => {
+        AppBanner.show('Welcome to Fynora', 'Welcome to Fynora body.');
+      });
+      expect(screen.getByText('Welcome to Fynora body.')).toBeTruthy();
+
+      await relock();
+
+      expect(screen.getByText(LOCK_TEXT)).toBeTruthy();
+      expect(screen.queryByText('Welcome to Fynora')).toBeNull();
+      expect(screen.queryByText('Welcome to Fynora body.')).toBeNull();
     });
 
     // Back must reach the lock screen. An alert queued while locked waits (hidden) at the root; if it

@@ -149,6 +149,7 @@ public final class FlowClassifier {
 
         String description = t.getDescription();
         String text = " " + CategoryRules.normalize(description) + " ";
+        String earnedText = " " + CategoryRules.normalize(earningText(t)) + " ";
 
         // Before the refund word: an income-tax refund is income, not money back from a merchant.
         if (looksLikeTaxRefund(t)) return of(FlowClass.INCOME, FlowReason.TAX_REFUND);
@@ -165,21 +166,21 @@ public final class FlowClassifier {
             // A card is a liability: a credit on it pays the debt down, gives money back, or rewards
             // spend. None of those is earned income, so an unexplained one is UNRESOLVED, never INCOME.
             if (hasAny(text, CARD_ADJUSTMENT_KEYWORDS)) return of(FlowClass.ADJUSTMENT, FlowReason.CARD_ADJUSTMENT);
-            if (hasAny(text, REWARD_KEYWORDS)) return of(FlowClass.INCOME, FlowReason.REWARD);
+            if (hasAny(earnedText, REWARD_KEYWORDS)) return of(FlowClass.INCOME, FlowReason.REWARD);
             if (hasAny(text, CARD_PAYMENT_KEYWORDS)) return of(FlowClass.TRANSFER, FlowReason.CARD_PAYMENT_RECEIVED);
             return of(FlowClass.UNRESOLVED, FlowReason.CARD_UNEXPLAINED_CREDIT);
         }
 
         String suggested = CategoryRules.suggestCategory(description);
-        if (hasAny(text, DIVIDEND_KEYWORDS)) return of(FlowClass.INCOME, FlowReason.DIVIDEND);
+        if (hasAny(earnedText, DIVIDEND_KEYWORDS)) return of(FlowClass.INCOME, FlowReason.DIVIDEND);
         if (ReconciliationService.INVESTMENTS_CATEGORY.equals(suggested) || hasAny(text, INVESTMENT_INFLOW_KEYWORDS)
                 || CLEARING_CORPORATION_COMPACT.stream().anyMatch(text.replace(" ", "")::contains)) {
             return of(FlowClass.INVESTMENT, FlowReason.INVESTMENT_WITHDRAWAL);
         }
         if (hasAny(text, LOAN_DRAWDOWN_KEYWORDS)) return of(FlowClass.LIABILITY, FlowReason.LOAN_DRAWDOWN);
         if ("Salary".equals(suggested)) return of(FlowClass.INCOME, FlowReason.SALARY);
-        if (hasAny(text, INTEREST_KEYWORDS)) return of(FlowClass.INCOME, FlowReason.INTEREST);
-        if (hasAny(text, REWARD_KEYWORDS)) return of(FlowClass.INCOME, FlowReason.REWARD);
+        if (hasAny(earnedText, INTEREST_KEYWORDS)) return of(FlowClass.INCOME, FlowReason.INTEREST);
+        if (hasAny(earnedText, REWARD_KEYWORDS)) return of(FlowClass.INCOME, FlowReason.REWARD);
         // The user's own word outranks the narration's shape, and only the person rule below needs
         // outranking: everything above it is a mechanism (a refund, a card, an investment, a loan)
         // the Income/Expense choice on the add form cannot express. Without these, a freelance fee
@@ -228,6 +229,20 @@ public final class FlowClassifier {
         if (!ReconciliationService.looksLikeRefund(t.getDescription())) return false;
         return t.getCounterpartyType() == CounterpartyType.GOVERNMENT
                 || hasAny(" " + CategoryRules.normalize(t.getDescription()) + " ", TAX_REFUND_KEYWORDS);
+    }
+
+    /**
+     * The narration as the dividend, interest and reward words are read from it. A person can type
+     * anything in a UPI note -- "cashback", "interest", "dividend" -- and none of those makes a
+     * friend's money earned, so for a person the note is left out and the money stays theirs for the
+     * user to name. A bank or a shop has no note of its own to misread; its whole narration is
+     * evidence. Only these words: a person's "refund", "salary" or "reversal" note is still read as
+     * before, and reconciliation still links a person's "refund" (product decision, 2026-09-27).
+     */
+    private static String earningText(Transaction t) {
+        return t.getCounterpartyType() == CounterpartyType.PERSON
+                ? com.finora.util.PersonToPersonTransferDetector.counterpartyText(t.getDescription())
+                : t.getDescription();
     }
 
     /** A person, or a rule or pattern learned from them, put the row in its category -- not a global

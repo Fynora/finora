@@ -142,6 +142,44 @@ class FlowClassifierTest {
                 .isEqualTo(new FlowDecision(FlowClass.INCOME, FlowReason.INTEREST));
     }
 
+    /** A friend can type anything in a UPI note. "cashback", "interest", "dividend" or "refund"
+     *  written there is not the bank paying or a shop paying back: the money is still from a person,
+     *  for the user to name -- never income, and never a refund taken off spend. */
+    @Test void anEarningWordInAFriendsUpiNote_doesNotMakeTheirMoneyIncome() {
+        for (String note : new String[] {"cashback", "reward", "interest", "dividend"}) {
+            for (String narration : new String[] {
+                    "UPI/CR/600011112222/SUNITA RAO/HDFC/sunita.rao@okhdfc/" + note,
+                    "UPI-SUNITA RAO-sunita.rao@okhdfc-HDFC0XXXXXX-600011112222-" + note}) {
+                Transaction t = credit(narration);
+                t.applyCounterpartyTyping(narration);
+                assertThat(t.getCounterpartyType()).as("precondition: %s", narration).isEqualTo(CounterpartyType.PERSON);
+                assertThat(savings(t)).as(narration)
+                        .isEqualTo(new FlowDecision(FlowClass.UNRESOLVED, FlowReason.PERSON_INFLOW));
+            }
+        }
+    }
+
+    // Only the earning words are read outside a person's note. A friend's "refund" is still a refund
+    // (product decision, 2026-09-27), and salary, reversal, investment and loan notes read as before.
+    @Test void otherWordsInAFriendsUpiNote_areStillRead() {
+        Object[][] cases = {
+                {"refund", new FlowDecision(FlowClass.REFUND, FlowReason.UNLINKED_REFUND)},
+                {"salary", new FlowDecision(FlowClass.INCOME, FlowReason.SALARY)},
+                {"reversal", new FlowDecision(FlowClass.ADJUSTMENT, FlowReason.REVERSAL)},
+                {"redemption", new FlowDecision(FlowClass.INVESTMENT, FlowReason.INVESTMENT_WITHDRAWAL)},
+                {"loan disbursement", new FlowDecision(FlowClass.LIABILITY, FlowReason.LOAN_DRAWDOWN)}};
+        for (Object[] c : cases) {
+            for (String narration : new String[] {
+                    "UPI/CR/600011112222/SUNITA RAO/HDFC/sunita.rao@okhdfc/" + c[0],
+                    "UPI-SUNITA RAO-sunita.rao@okhdfc-HDFC0XXXXXX-600011112222-" + c[0]}) {
+                Transaction t = credit(narration);
+                t.applyCounterpartyTyping(narration);
+                assertThat(t.getCounterpartyType()).as("precondition: %s", narration).isEqualTo(CounterpartyType.PERSON);
+                assertThat(savings(t)).as(narration).isEqualTo(c[1]);
+            }
+        }
+    }
+
     @Test void personInflow_isUnresolved() {
         Transaction t = credit("UPI/111111111111/A PERSON/person@okbank");
         t.setCounterpartyType(CounterpartyType.PERSON);

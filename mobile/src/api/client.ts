@@ -83,8 +83,13 @@ function pathMatchesAuthEndpoint(url: string | undefined, entry: string): boolea
 // platform header in particular, which is what the backend resolves a nav event's `platform` tag
 // from. A second hand-written copy would drift and silently mis-tag one of them.
 async function attachClientHeaders(config: any) {
+  // Which signed-in session sent this. A 401 that comes back after that session has ended must not
+  // start a refresh -- see markSessionEnded.
+  config._sessionEpoch = sessionEpoch;
   const isAuthEndpoint = AUTH_ENDPOINTS_NO_TOKEN.some((path) => pathMatchesAuthEndpoint(config.url, path));
-  if (!isAuthEndpoint) {
+  // An Authorization the caller set itself wins: sign-out's clean-up sends the departing session's
+  // token explicitly, after storage has already been cleared (see AuthContext's logout()).
+  if (!isAuthEndpoint && !config.headers.Authorization) {
     const token = await safeStorage.getItem(TOKEN_KEY);
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -183,15 +188,76 @@ function refreshReasonLabel(errorCode: unknown): string {
 const REFRESH_FAILURE_REPORT_INTERVAL_MS = 60_000;
 let lastRefreshFailureReportedAt = 0;
 
+/**
+ * Counts signed-in sessions on this device; bumped the moment one ends (sign-out or a rejected
+ * refresh). Every request records the value it was sent under, and every refresh the value it
+ * started under.
+ *
+ * Added after a phone was signed straight back in (2026-10-05): a refresh started by background
+ * requests was still in flight when the user signed out, finished a moment later, and wrote a fresh
+ * token pair to storage. The app was closed before sign-out's own cleanup ran, so the next launch
+ * restored that session. A refresh or a 401 that belongs to an ended session now does nothing:
+ * nothing is persisted and nothing is cleared (a new session may already be signed in). The pair a
+ * late refresh was handed goes to whoever ended the session -- see markSessionEnded.
+ */
+let sessionEpoch = 0;
+
+/** From markSessionEnded until the ending session's tokens are out of storage: no refresh may start
+ *  and read them. Released by sessionStorageCleared. */
+let refreshBlocked = false;
+
+export type RefreshedPair = { token: string; refreshToken: string };
+
+/** Thrown inside the refresh path when the session it belonged to ended while it was running.
+ *  Carries the pair the server issued, if it got that far, so it is never left unaccounted for. */
+class SessionEndedError extends Error {
+  constructor(readonly orphan: RefreshedPair | null = null) {
+    super('The session ended while its refresh was in flight');
+  }
+}
+
+/**
+ * Ends the current session for everything already in flight. Call it first in any sign-out, before
+ * storage is touched, and call sessionStorageCleared once the tokens are removed.
+ *
+ * Detaches a running refresh, so a request from the next session starts its own rather than joining
+ * one that will be discarded. Returns the pair that refresh ends up with (null if none was running,
+ * or it failed): the caller must use it for the server-side sign-out. Ending that pair anywhere
+ * else would race the caller's own clean-up -- the backend ends the whole session on logout, and a
+ * rotated token presented after that is treated as theft, which ends every session the user has.
+ */
+export function markSessionEnded(): Promise<RefreshedPair | null> {
+  sessionEpoch += 1;
+  refreshBlocked = true;
+  const inFlight = refreshInFlight;
+  refreshInFlight = null;
+  if (!inFlight) return Promise.resolve(null);
+  return inFlight.then(
+    (pair) => pair,
+    (error) => (error instanceof SessionEndedError ? error.orphan : null)
+  );
+}
+
+/** The ending session's tokens are out of storage; refreshes may run again (for the next session). */
+export function sessionStorageCleared(): void {
+  refreshBlocked = false;
+}
+
 // Mirrors every key AuthContext.logout() clears on the web app.
 async function clearSessionAndRedirect() {
-  await Promise.all([
-    safeStorage.removeItem(TOKEN_KEY),
-    safeStorage.removeItem(REFRESH_TOKEN_KEY),
-    safeStorage.removeItem('finora_email'),
-    safeStorage.removeItem('finora_name'),
-    safeStorage.removeItem('finora_phone_verified'),
-  ]);
+  // A refresh failing is what brings us here, so none is left in flight to hand anything over.
+  void markSessionEnded();
+  try {
+    await Promise.all([
+      safeStorage.removeItem(TOKEN_KEY),
+      safeStorage.removeItem(REFRESH_TOKEN_KEY),
+      safeStorage.removeItem('finora_email'),
+      safeStorage.removeItem('finora_name'),
+      safeStorage.removeItem('finora_phone_verified'),
+    ]);
+  } finally {
+    sessionStorageCleared();
+  }
   onSessionExpired();
 }
 
@@ -210,7 +276,7 @@ function unwrapEnvelope(response: any) {
 // user. This shared in-flight promise (same pattern as the web app) means N requests that 401
 // around the same moment all await the SAME refresh call instead of each independently racing to
 // present the same soon-to-be-stale refresh token.
-let refreshInFlight: Promise<{ token: string; refreshToken: string }> | null = null;
+let refreshInFlight: Promise<RefreshedPair> | null = null;
 
 /**
  * Reads the stored token, rotates it, and persists the new pair -- all inside the shared promise.
@@ -242,21 +308,47 @@ let refreshInFlight: Promise<{ token: string; refreshToken: string }> | null = n
  * failure into the same catch below as a rejected refresh: clearSessionAndRedirect() wipes both
  * keys, so no mismatched pair is left behind for a later request to find.
  */
-function refreshAccessToken(): Promise<{ token: string; refreshToken: string }> {
+function refreshAccessToken(): Promise<RefreshedPair> {
+  // Signing out: the ending session's tokens may still be in storage for a moment, and a refresh
+  // started now would read them and rotate the session it is ending.
+  if (refreshBlocked) return Promise.reject(new SessionEndedError());
   if (!refreshInFlight) {
-    refreshInFlight = (async () => {
+    const epoch = sessionEpoch;
+    const attempt = (async () => {
       const stored = await safeStorage.getItem(REFRESH_TOKEN_KEY);
       if (!stored) throw new Error(NO_REFRESH_TOKEN_MESSAGE);
       const { authApi } = await import('./endpoints');
       const refreshed = await authApi.refresh(stored);
+      // Signed out while the call was out: never persist the pair. It goes to the sign-out's own
+      // clean-up instead (markSessionEnded), which revokes push with it and ends the session.
+      if (epoch !== sessionEpoch) throw new SessionEndedError(refreshed);
       await SecureStore.setItemAsync(TOKEN_KEY, refreshed.token);
       await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, refreshed.refreshToken);
+      // Signed out between the two checks, i.e. while the writes above were landing. Take back only
+      // what this refresh wrote: a session signed in since then owns whatever else is there.
+      if (epoch !== sessionEpoch) {
+        await Promise.all([
+          removeIfStill(TOKEN_KEY, refreshed.token),
+          removeIfStill(REFRESH_TOKEN_KEY, refreshed.refreshToken),
+        ]);
+        throw new SessionEndedError(refreshed);
+      }
       return refreshed;
-    })().finally(() => {
-      refreshInFlight = null;
-    });
+    })();
+    refreshInFlight = attempt;
+    // Only clears the guard if it still points at this attempt -- markSessionEnded may already have
+    // detached it, and a newer refresh may have taken its place.
+    attempt
+      .finally(() => {
+        if (refreshInFlight === attempt) refreshInFlight = null;
+      })
+      .catch(() => {});
   }
   return refreshInFlight;
+}
+
+async function removeIfStill(key: string, value: string) {
+  if ((await safeStorage.getItem(key)) === value) await safeStorage.removeItem(key);
 }
 
 api.interceptors.response.use(
@@ -279,7 +371,14 @@ api.interceptors.response.use(
     // everywhere.
     const isAuthEndpoint = AUTH_ENDPOINTS_NO_TOKEN.some((path) => pathMatchesAuthEndpoint(originalRequest.url, path));
 
-    if (error.response?.status === 401 && !originalRequest._retried && !isAuthEndpoint) {
+    // A request sent under a session that has since ended (signed out while it was in flight), or
+    // one that carries its own credentials on purpose (sign-out's clean-up), has nothing to refresh:
+    // its 401 is simply that request's failure.
+    // (Every request gets an epoch from attachClientHeaders; one without is treated as current.)
+    const belongsToCurrentSession =
+      (originalRequest._sessionEpoch ?? sessionEpoch) === sessionEpoch && !originalRequest._skipAuthRefresh;
+
+    if (error.response?.status === 401 && !originalRequest._retried && !isAuthEndpoint && belongsToCurrentSession) {
       originalRequest._retried = true;
 
       // Reading the stored token, rotating it and persisting the result all happen inside
@@ -291,6 +390,9 @@ api.interceptors.response.use(
         originalRequest.headers.Authorization = `Bearer ${refreshed.token}`;
         return api(originalRequest);
       } catch (refreshErr) {
+        // The session this request belonged to ended while the refresh ran. Nothing to report and
+        // nothing to clear: storage may already hold the next session.
+        if (refreshErr instanceof SessionEndedError) return Promise.reject(error);
         // An info event, not an error: an idle or expired session ending is routine. It exists so the
         // reason is on record the next time someone is signed out unexpectedly.
         const now = Date.now();

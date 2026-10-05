@@ -1378,8 +1378,13 @@ export const deviceTokensApi = {
     api.post<RegisteredDeviceToken>('/device-tokens', body).then((r) => r.data),
   // Backend returns ApiResponse.ok(null, "Device token revoked") -- the response-envelope unwrap
   // (see client.ts) yields the inner `data`, which is null, not a { message } object.
-  revoke: (body: { token: string }) =>
-    api.post<null>('/device-tokens/revoke', body).then((r) => r.data),
+  // `accessToken`: sign-out's clean-up runs after storage is cleared, so it passes the departing
+  // session's token itself, and opts out of the 401 refresh -- there is no session left to refresh.
+  revoke: (body: { token: string }, accessToken?: string) =>
+    api
+      .post<null>('/device-tokens/revoke', body,
+        accessToken ? ({ headers: { Authorization: `Bearer ${accessToken}` }, _skipAuthRefresh: true } as object) : undefined)
+      .then((r) => r.data),
 };
 
 // Support, Help & Feedback v1 (Phase 8, mobile). Mirrors frontend/src/api/endpoints.ts's own

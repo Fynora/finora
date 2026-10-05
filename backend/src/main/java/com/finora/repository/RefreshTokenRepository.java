@@ -70,6 +70,9 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID
      */
     boolean existsBySessionIdAndRevokedAtIsNullAndExpiresAtAfter(UUID sessionId, Instant now);
 
+    /** Every still-live row of one session, for logout ending the session as a whole. */
+    List<RefreshToken> findByUserIdAndSessionIdAndRevokedAtIsNull(UUID userId, UUID sessionId);
+
     /** AccountPurgeSweepService -- every row already revoked by requestDeletion() by this point;
      *  this removes the residual device/IP labels too. Hard delete, no soft-delete concern. */
     void deleteByUserId(UUID userId);

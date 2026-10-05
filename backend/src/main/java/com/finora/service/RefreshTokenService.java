@@ -274,10 +274,28 @@ public class RefreshTokenService {
         return refreshTokenRepository.existsBySessionIdAndRevokedAtIsNullAndExpiresAtAfter(rt.getSessionId(), now);
     }
 
+    /**
+     * Logout: ends the whole session the presented token belongs to, not just that one row.
+     *
+     * <p>Revoking only the presented row missed a real sequence (seen on a phone on 2026-10-05): a
+     * refresh already in flight when the user signed out rotated the token, so the client then sent
+     * logout the token that had just been retired. That row was already revoked; its live successor
+     * was untouched, and the session stayed valid server-side. Keyed on the session id, the same
+     * unit {@code SessionValidator} checks, a token from anywhere in the session's rotation chain
+     * ends all of it, including a second live row left by the reuse-grace path. The rows ended here
+     * keep a null {@code rotatedAt}, so presenting one of them later is treated as theft, exactly
+     * as a logged-out token was before.
+     *
+     * <p>Scoped to the token's own user as well as its session, so nothing outside that user's
+     * rows can be touched. An unknown token still does nothing: logout stays idempotent.
+     */
     public void revoke(String rawToken) {
         refreshTokenRepository.findByTokenHash(TokenHasher.sha256(rawToken)).ifPresent(rt -> {
-            rt.setRevokedAt(Instant.now());
-            refreshTokenRepository.save(rt);
+            Instant now = Instant.now();
+            List<RefreshToken> live = refreshTokenRepository
+                    .findByUserIdAndSessionIdAndRevokedAtIsNull(rt.getUserId(), rt.getSessionId());
+            live.forEach(t -> t.setRevokedAt(now));
+            refreshTokenRepository.saveAll(live);
         });
     }
 

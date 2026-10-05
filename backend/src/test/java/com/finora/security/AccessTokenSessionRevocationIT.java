@@ -56,6 +56,7 @@ class AccessTokenSessionRevocationIT extends AbstractIntegrationTest {
     @Autowired private JwtService jwtService;
     @Autowired private JwtProperties jwtProperties;
     @Autowired private RefreshTokenService refreshTokenService;
+    @Autowired private com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     private User newUser() {
         User user = new User();
@@ -179,6 +180,67 @@ class AccessTokenSessionRevocationIT extends AbstractIntegrationTest {
                         + "minutes, which is the whole point of signing out on a shared machine")
                 .isEqualTo(HttpStatus.UNAUTHORIZED);
         assertStillUnexpiredAndSigned(session.accessToken());
+    }
+
+    private ResponseEntity<String> postAuth(String path, String refreshToken) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        return restTemplate.exchange(path, HttpMethod.POST,
+                new HttpEntity<>("{\"refreshToken\":\"" + refreshToken + "\"}", headers), String.class);
+    }
+
+    /**
+     * The sequence a phone produced on 2026-10-05: a refresh already in flight when the user signed
+     * out rotated the token, and the app then sent logout the token that had just been retired.
+     * Revoking only that row left its successor -- and so the whole session -- alive.
+     */
+    @Test
+    void logoutWithTheTokenARefreshJustRetiredStillEndsTheSession() throws Exception {
+        User user = newUser();
+        SignedIn session = signIn(user);
+
+        ResponseEntity<String> refreshed = postAuth("/api/v1/auth/refresh", session.refreshToken());
+        assertThat(refreshed.getStatusCode().value()).isEqualTo(200);
+        com.fasterxml.jackson.databind.JsonNode data = objectMapper.readTree(refreshed.getBody()).path("data");
+        String successorRefresh = data.path("refreshToken").asText();
+        String successorAccess = data.path("token").asText();
+        assertThat(successorRefresh).isNotBlank().isNotEqualTo(session.refreshToken());
+        assertThat(callProtectedWith(successorAccess)).isEqualTo(HttpStatus.OK);
+
+        // Logout presents the RETIRED token, not the live successor.
+        assertThat(postAuth("/api/v1/auth/logout", session.refreshToken()).getStatusCode().value()).isEqualTo(200);
+
+        assertThat(callProtectedWith(successorAccess))
+                .as("the session must end even though logout named a token rotation had already retired")
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertStillUnexpiredAndSigned(successorAccess);
+        assertThat(postAuth("/api/v1/auth/refresh", successorRefresh).getStatusCode().value())
+                .as("the successor refresh token must not be able to restart the session")
+                .isEqualTo(401);
+    }
+
+    @Test
+    void logoutEndsOnlyItsOwnSession() {
+        User user = newUser();
+        SignedIn phone = signIn(user);
+        SignedIn laptop = signIn(user);
+
+        assertThat(postAuth("/api/v1/auth/logout", phone.refreshToken()).getStatusCode().value()).isEqualTo(200);
+
+        assertThat(callProtectedWith(phone.accessToken())).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(callProtectedWith(laptop.accessToken()))
+                .as("signing out one device must leave the user's other sessions alone")
+                .isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    void logoutWithAnUnknownTokenChangesNothing() {
+        User user = newUser();
+        SignedIn session = signIn(user);
+
+        assertThat(postAuth("/api/v1/auth/logout", "not-a-real-token").getStatusCode().value()).isEqualTo(200);
+
+        assertThat(callProtectedWith(session.accessToken())).isEqualTo(HttpStatus.OK);
     }
 
     @Test

@@ -4,7 +4,7 @@ import { act, render, waitFor, type RenderAPI } from '@testing-library/react-nat
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as SecureStore from 'expo-secure-store';
 import { AuthProvider, useAuth } from './AuthContext';
-import { authApi } from '../api/endpoints';
+import { authApi, deviceTokensApi } from '../api/endpoints';
 import * as appLock from '../lib/appLock';
 import { registerDeviceToken, revokeDeviceToken, subscribeToForegroundMessages } from '../lib/pushRegistration';
 import { configureRevenueCat } from '../lib/revenueCat';
@@ -21,17 +21,21 @@ jest.mock('../api/endpoints', () => ({
     otpEmailRequest: jest.fn(),
     otpEmailLogin: jest.fn(),
     otpPhoneLogin: jest.fn(),
+    refresh: jest.fn(),
+  },
+  deviceTokensApi: {
+    revoke: jest.fn(async () => null),
   },
 }));
 
 // Task 14. Pins the wiring in AuthContext.tsx itself (which hooks/setPhoneVerified()/persist()/
 // logout()) call registerDeviceToken()/revokeDeviceToken(), and in what order relative to
-// storage -- without this, dropping the phoneVerified gate or moving the revoke call after the
-// stored token is cleared would both ship green: the former is a guaranteed 403
+// storage -- without this, dropping the phoneVerified gate would ship green as a guaranteed 403
 // PHONE_VERIFICATION_REQUIRED on every app open (/api/v1/device-tokens is not exempt in the
-// backend's PhoneVerificationFilter), the latter a guaranteed 401 that silently leaves the token
-// registered server-side. See pushRegistration.test.ts for that module's own behavior in
-// isolation; this file only needs to know AuthContext calls it, and when.
+// backend's PhoneVerificationFilter). On logout the revoke now runs AFTER storage is cleared and
+// carries the departing session's token explicitly (lib/endRemoteSession.ts). See
+// pushRegistration.test.ts for that module's own behavior in isolation; this file only needs to
+// know AuthContext calls it, and when.
 jest.mock('../lib/pushRegistration', () => ({
   registerDeviceToken: jest.fn(),
   revokeDeviceToken: jest.fn(),
@@ -54,6 +58,7 @@ jest.mock('../lib/revenueCat', () => ({
 // configureRevenueCat" tests below for the regression this guards.
 jest.mock('../lib/monitoring', () => ({
   reportHandledError: jest.fn(),
+  reportHandledEvent: jest.fn(),
 }));
 
 const mockedAuthApi = authApi as jest.Mocked<typeof authApi>;
@@ -655,15 +660,18 @@ describe('AuthContext push registration wiring (Task 14)', () => {
     expect(mockedRegisterDeviceToken).toHaveBeenCalledTimes(1);
   });
 
-  it('revokes the device token before the stored auth token is cleared on logout', async () => {
+  it('signs out with the pair a refresh still running at sign-out ends up with', async () => {
+    // 2026-10-05 on a real phone: a refresh was still out when the user tapped Sign out. Its pair is
+    // what markSessionEnded hands back (signOutDuringRefresh.test.ts drives that side through the
+    // real client); this pins that logout() passes it on, so push is revoked and the session ended
+    // with the live pair rather than the stored one that refresh just retired.
     mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
-    // Records whether the bearer token was still readable from storage at the moment
-    // revokeDeviceToken() was actually invoked -- the real function's own POST needs it there to
-    // authenticate itself (see pushRegistration.ts), so this pins the ORDERING logout() depends
-    // on, not merely that both things eventually happened.
-    let tokenPresentAtRevokeTime: string | null = null;
-    mockedRevokeDeviceToken.mockImplementation(async () => {
-      tokenPresentAtRevokeTime = await SecureStore.getItemAsync('finora_token');
+    const client = require('../api/client');
+    const spy = jest.spyOn(client, 'markSessionEnded').mockReturnValue(
+      Promise.resolve({ token: 'access-late', refreshToken: 'refresh-late' })
+    );
+    mockedRevokeDeviceToken.mockImplementation(async (deps) => {
+      await deps!.deleteDeviceToken!({ token: 'fcm-token' });
     });
     const view = renderAuth();
     await settle(view);
@@ -675,11 +683,95 @@ describe('AuthContext push registration wiring (Task 14)', () => {
       auth.logout();
     });
 
-    await waitFor(async () => {
-      expect(await SecureStore.getItemAsync('finora_token')).toBeNull();
+    await waitFor(() => expect(mockedAuthApi.logout).toHaveBeenCalledWith('refresh-late'));
+    expect(deviceTokensApi.revoke).toHaveBeenCalledWith({ token: 'fcm-token' }, 'access-late');
+    expect(mockedAuthApi.refresh).not.toHaveBeenCalled();
+    const store = (SecureStore as unknown as { __store: Map<string, string> }).__store;
+    expect(store.has('finora_token')).toBe(false);
+    expect(store.has('finora_refresh_token')).toBe(false);
+    spy.mockRestore();
+  });
+
+  it('releases the refresh block once, after the tokens are out of storage', async () => {
+    // Left blocked, the next person to sign in on this device could never refresh their token and
+    // would be signed out every fifteen minutes.
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const client = require('../api/client');
+    const store = (SecureStore as unknown as { __store: Map<string, string> }).__store;
+    let tokenWhenReleased: string | null | undefined;
+    const spy = jest.spyOn(client, 'sessionStorageCleared').mockImplementation(() => {
+      tokenWhenReleased = store.get('finora_token') ?? null;
     });
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    await act(async () => {
+      auth.logout();
+    });
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(tokenWhenReleased).toBeNull();
+    spy.mockRestore();
+    client.sessionStorageCleared();
+  });
+
+  it('ends the session for in-flight requests before it touches storage', async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const client = require('../api/client');
+    let tokenWhenEnded: string | null | undefined;
+    const spy = jest.spyOn(client, 'markSessionEnded').mockImplementation(() => {
+      tokenWhenEnded = (SecureStore as unknown as { __store: Map<string, string> }).__store.get('finora_token') ?? null;
+      return Promise.resolve(null);
+    });
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    await act(async () => {
+      auth.logout();
+    });
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    // Still in storage at that moment: the epoch moved first, so a refresh landing between this and
+    // the removal below is already discarded.
+    expect(tokenWhenEnded).toBe('access-token');
+    spy.mockRestore();
+  });
+
+  it('clears the stored session before any sign-out network call, then revokes with the departing token', async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    // Sign-out used to revoke first and clear storage last, so closing the app during those network
+    // calls left a usable session on the phone for the next launch (2026-10-05). The order is now
+    // the other way round: what was in storage when the revoke and the logout ran is the evidence.
+    const storedAt: Record<string, string | null> = {};
+    mockedRevokeDeviceToken.mockImplementation(async (deps) => {
+      storedAt.revokeToken = await SecureStore.getItemAsync('finora_token');
+      storedAt.revokeRefresh = await SecureStore.getItemAsync('finora_refresh_token');
+      await deps!.deleteDeviceToken!({ token: 'fcm-token' });
+    });
+    mockedAuthApi.logout.mockImplementation(async () => {
+      storedAt.logoutRefresh = await SecureStore.getItemAsync('finora_refresh_token');
+      return { message: 'ok' };
+    });
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    await act(async () => {
+      auth.logout();
+    });
+
+    await waitFor(() => expect(mockedAuthApi.logout).toHaveBeenCalledWith('refresh-token'));
     expect(mockedRevokeDeviceToken).toHaveBeenCalledTimes(1);
-    expect(tokenPresentAtRevokeTime).toBe('access-token');
+    expect(storedAt).toEqual({ revokeToken: null, revokeRefresh: null, logoutRefresh: null });
+    expect(deviceTokensApi.revoke).toHaveBeenCalledWith({ token: 'fcm-token' }, 'access-token');
   });
 });
 

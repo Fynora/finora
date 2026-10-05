@@ -54,6 +54,22 @@ enforce this.
    that is about 100 people a minute. Measure on dev before raising `max-audience` past 1,000.
 4. Legal consent for non-transactional push has not been reviewed.
 
+## What the phone shows
+
+- **App closed or in the background:** the phone itself draws the notification (FCM), which stays in the
+  notification centre.
+- **App open (foreground):** the phone never shows a push on its own, so the app posts the message as a real
+  system notification (`mobile/src/lib/systemNotification.ts`, library `react-native-notify-kit`): it slides in
+  at the top and stays in the notification centre after a swipe, like any other app's. Android uses a HIGH
+  importance channel `campaigns` ("Announcements"); iOS asks for banner plus list.
+- **Builds made before that library was added** (and phones with notifications switched off) cannot post it. The
+  app then falls back to its own swipe-away banner (`AppBanner`), which is gone once dismissed. The JS is
+  guarded so an over-the-air update never crashes such a build.
+- Only pushes with `data.type = CUSTOM_PUSH` take this path. Every other push type keeps the in-app alert.
+- Not yet verified on a real iPhone: both the Firebase and Notify Kit libraries install a notification delegate
+  at launch, and which goes first decides whether a non-campaign push could also get a system banner in the
+  foreground next to the in-app alert. Check this on the first build that contains the library.
+
 ## Stopping everything
 
 **A wrong message already sending:** call `POST /api/v1/admin/push-campaigns/{id}/cancel-sending` (or Stop,

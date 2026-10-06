@@ -71,6 +71,11 @@ export function scheduleSummary(c: Pick<PushCampaign, 'scheduleKind' | 'runAt' |
   }
 }
 
+/** "1 campaign push a day" / "3 campaign pushes a day". */
+export function pushesPerDay(n: number): string {
+  return `${n} campaign ${n === 1 ? 'push' : 'pushes'} a day`;
+}
+
 /** The server's own message when it gave one, otherwise a generic fallback. */
 export function apiMessage(err: unknown, fallback: string): string {
   return (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? fallback;

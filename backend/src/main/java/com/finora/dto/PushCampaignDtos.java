@@ -5,6 +5,9 @@ import com.finora.notification.campaign.CampaignStatus;
 import com.finora.notification.campaign.RunStatus;
 import com.finora.notification.campaign.RunTrigger;
 import com.finora.notification.campaign.ScheduleKind;
+import com.finora.notification.campaign.PushCampaignSettingsStore;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -108,7 +111,7 @@ public final class PushCampaignDtos {
             Long skipped) {
     }
 
-    /** What an emergency cancel did: queued pushes withdrawn, and one-per-day slots given back. */
+    /** What an emergency cancel did: queued pushes withdrawn, and daily slots given back. */
     public record PushCampaignCancelResultDto(long cancelledPushes, long releasedSlots) {
     }
 
@@ -117,6 +120,24 @@ public final class PushCampaignDtos {
 
     /** "Current estimated audience": the real number can differ by send time. */
     public record PushCampaignAudienceCountDto(AudienceType audienceType, long count, long rolloutLimit) {
+    }
+
+    /**
+     * How many campaign pushes one person may get per IST day, across all campaigns. The bounds are
+     * validated here and again by the table's CHECK constraint.
+     */
+    public record PushCampaignSettingsRequest(
+            @Min(PushCampaignSettingsStore.MIN_DAILY_LIMIT) @Max(PushCampaignSettingsStore.MAX_DAILY_LIMIT)
+            int dailyLimitPerPerson) {
+    }
+
+    /** The current settings, with the bounds the editor should offer. */
+    public record PushCampaignSettingsDto(
+            int dailyLimitPerPerson,
+            int minDailyLimit,
+            int maxDailyLimit,
+            Instant updatedAt,
+            UUID updatedBy) {
     }
 
     /** {@code queued} false means nothing was sent; {@code detail} says why in plain words. */

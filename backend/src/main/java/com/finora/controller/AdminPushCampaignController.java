@@ -7,6 +7,8 @@ import com.finora.dto.PushCampaignDtos.PushCampaignDetailDto;
 import com.finora.dto.PushCampaignDtos.PushCampaignDto;
 import com.finora.dto.PushCampaignDtos.PushCampaignRunDto;
 import com.finora.dto.PushCampaignDtos.PushCampaignSaveRequest;
+import com.finora.dto.PushCampaignDtos.PushCampaignSettingsDto;
+import com.finora.dto.PushCampaignDtos.PushCampaignSettingsRequest;
 import com.finora.dto.PushCampaignDtos.PushCampaignTestRequest;
 import com.finora.dto.PushCampaignDtos.PushCampaignTestResultDto;
 import com.finora.notification.campaign.AudienceType;
@@ -53,6 +55,19 @@ public class AdminPushCampaignController {
     @GetMapping
     public ApiResponse<List<PushCampaignDto>> listPushCampaigns() {
         return ApiResponse.ok(service.list());
+    }
+
+    /** The daily limit per person, with the bounds the editor should offer. */
+    @GetMapping("/settings")
+    public ApiResponse<PushCampaignSettingsDto> getPushCampaignSettings() {
+        return ApiResponse.ok(service.settings());
+    }
+
+    /** Takes effect on the next page any run queues; never takes back a push someone already has. */
+    @PutMapping("/settings")
+    public ApiResponse<PushCampaignSettingsDto> updatePushCampaignSettings(
+            @Valid @RequestBody PushCampaignSettingsRequest request) {
+        return ApiResponse.ok(service.updateSettings(currentUser.id(), request));
     }
 
     @GetMapping("/{id}")

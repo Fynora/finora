@@ -7,7 +7,7 @@ import PushCampaigns from './PushCampaigns';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { mockAdminAuthState } from '../test/mockAdminAuth';
 import { adminPushCampaignApi } from '../api/endpoints';
-import type { PushCampaign, PushCampaignDetail, PushCampaignRun } from '../types';
+import type { PushCampaign, PushCampaignDetail, PushCampaignRun, PushCampaignSettings } from '../types';
 
 // Same two mocks as Notifications.test.tsx: AdminLayout renders ThemeToggle and needs auth state.
 vi.mock('../context/ThemeContext', () => ({
@@ -18,6 +18,8 @@ vi.mock('../context/AdminAuthContext', () => ({
 }));
 vi.mock('../api/endpoints', () => ({
   adminPushCampaignApi: {
+    getSettings: vi.fn(),
+    updateSettings: vi.fn(),
     list: vi.fn(),
     get: vi.fn(),
     audienceCount: vi.fn(),
@@ -71,6 +73,14 @@ function run(overrides: Partial<PushCampaignRun> = {}): PushCampaignRun {
   };
 }
 
+function settings(overrides: Partial<PushCampaignSettings> = {}): PushCampaignSettings {
+  return {
+    dailyLimitPerPerson: 1, minDailyLimit: 1, maxDailyLimit: 10,
+    updatedAt: '2026-10-05T10:00:00Z', updatedBy: null,
+    ...overrides,
+  };
+}
+
 function detail(c: PushCampaign, runs: PushCampaignRun[] = []): PushCampaignDetail {
   return { campaign: c, runs };
 }
@@ -108,6 +118,7 @@ describe('PushCampaigns', () => {
     vi.clearAllMocks();
     mockAuth(['PUSH_CAMPAIGN_MANAGE']);
     api.list.mockResolvedValue([]);
+    api.getSettings.mockResolvedValue(settings());
     api.audienceCount.mockResolvedValue({ audienceType: 'ALL_WITH_DEVICE', count: 50, rolloutLimit: 100 });
   });
 
@@ -144,6 +155,118 @@ describe('PushCampaigns', () => {
     expect(await screen.findByText('Something broke.')).toBeInTheDocument();
     expect(screen.getByText('Campaigns could not be loaded.')).toBeInTheDocument();
     expect(screen.queryByText(/No campaigns yet/)).toBeNull();
+  });
+
+  // The admin decides how many campaign pushes one person may get a day.
+  describe('daily limit', () => {
+    async function limitSelect() {
+      renderPage();
+      return (await screen.findByLabelText('Most campaign pushes one person gets in a day')) as HTMLSelectElement;
+    }
+
+    it('shows the current limit and offers exactly the range the server allows', async () => {
+      api.getSettings.mockResolvedValue(settings({ dailyLimitPerPerson: 3, minDailyLimit: 1, maxDailyLimit: 10 }));
+      const select = await limitSelect();
+
+      expect(select.value).toBe('3');
+      expect(Array.from(select.options).map((o) => o.value)).toEqual(
+        ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']);
+    });
+
+    it('follows a different range from the server instead of assuming 1 to 10', async () => {
+      api.getSettings.mockResolvedValue(settings({ dailyLimitPerPerson: 2, minDailyLimit: 1, maxDailyLimit: 4 }));
+      const select = await limitSelect();
+
+      expect(Array.from(select.options).map((o) => o.value)).toEqual(['1', '2', '3', '4']);
+    });
+
+    it('cannot be saved until the choice changes', async () => {
+      await limitSelect();
+      expect(screen.getByRole('button', { name: 'Save limit' })).toBeDisabled();
+    });
+
+    it('lowering the limit saves straight away, with no confirmation', async () => {
+      api.getSettings.mockResolvedValue(settings({ dailyLimitPerPerson: 3 }));
+      api.updateSettings.mockResolvedValue(settings({ dailyLimitPerPerson: 2, updatedBy: 'admin-1' }));
+      const user = userEvent.setup();
+      const select = await limitSelect();
+
+      await user.selectOptions(select, '2');
+      await user.click(screen.getByRole('button', { name: 'Save limit' }));
+
+      await waitFor(() => expect(api.updateSettings).toHaveBeenCalledWith(2));
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(await screen.findByText(/nobody gets more than 2 campaign pushes a day/i)).toBeInTheDocument();
+    });
+
+    it('raising the limit asks first, and saves nothing until confirmed', async () => {
+      api.updateSettings.mockResolvedValue(settings({ dailyLimitPerPerson: 3, updatedBy: 'admin-1' }));
+      const user = userEvent.setup();
+      const select = await limitSelect();
+
+      await user.selectOptions(select, '3');
+      await user.click(screen.getByRole('button', { name: 'Save limit' }));
+
+      const dialog = await screen.findByRole('dialog');
+      expect(dialog).toHaveTextContent('up to 3 campaign pushes a day (it is 1 now)');
+      expect(dialog).toHaveTextContent('bill warnings');
+      expect(api.updateSettings).not.toHaveBeenCalled();
+
+      await user.click(within(dialog).getByRole('button', { name: 'Raise the limit' }));
+      await waitFor(() => expect(api.updateSettings).toHaveBeenCalledWith(3));
+      expect(await screen.findByText(/nobody gets more than 3 campaign pushes a day/i)).toBeInTheDocument();
+    });
+
+    it('does not save a raise that is cancelled', async () => {
+      const user = userEvent.setup();
+      const select = await limitSelect();
+
+      await user.selectOptions(select, '5');
+      await user.click(screen.getByRole('button', { name: 'Save limit' }));
+      await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Cancel' }));
+
+      expect(api.updateSettings).not.toHaveBeenCalled();
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('shows the server refusal in words and keeps the choice', async () => {
+      api.getSettings.mockResolvedValue(settings({ dailyLimitPerPerson: 3 }));
+      api.updateSettings.mockRejectedValue({ response: { data: { message: 'The daily limit must be between 1 and 10.' } } });
+      const user = userEvent.setup();
+      const select = await limitSelect();
+
+      await user.selectOptions(select, '2');
+      await user.click(screen.getByRole('button', { name: 'Save limit' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('The daily limit must be between 1 and 10.');
+      expect(select.value).toBe('2');
+    });
+
+    it('says the limit could not be loaded, rather than showing a made-up number', async () => {
+      api.getSettings.mockRejectedValue({ response: { data: { message: 'Something broke.' } } });
+      renderPage();
+
+      expect(await screen.findByText('Something broke.')).toBeInTheDocument();
+      expect(screen.queryByLabelText('Most campaign pushes one person gets in a day')).toBeNull();
+    });
+
+    it('is told to people writing a campaign, in the current number', async () => {
+      api.getSettings.mockResolvedValue(settings({ dailyLimitPerPerson: 3 }));
+      const user = userEvent.setup();
+      renderPage();
+      await user.click(await screen.findByRole('button', { name: /New campaign/ }));
+      await user.click(screen.getByLabelText('Every day at a time'));
+
+      expect(await screen.findByText(/Nobody gets more than 3 campaign pushes a day, across all campaigns/)).toBeInTheDocument();
+    });
+
+    it('uses the singular for a limit of one', async () => {
+      const user = userEvent.setup();
+      renderPage();
+      await user.click(await screen.findByRole('button', { name: /New campaign/ }));
+
+      expect(await screen.findByText(/Nobody gets more than 1 campaign push a day, across all campaigns/)).toBeInTheDocument();
+    });
   });
 
   describe('editor', () => {
@@ -382,7 +505,7 @@ describe('PushCampaigns', () => {
       expect(screen.getByText('100 delivered')).toBeInTheDocument();
       expect(screen.getByText('2 failed')).toBeInTheDocument();
       expect(screen.getByText('8 no working device')).toBeInTheDocument();
-      expect(screen.getByText('6 already had a push today')).toBeInTheDocument();
+      expect(screen.getByText("6 had reached today's limit")).toBeInTheDocument();
       expect(screen.getByText('4 already queued')).toBeInTheDocument();
       expect(screen.getByText('Missed')).toBeInTheDocument();
       expect(screen.getByText('Outside the allowed window.')).toBeInTheDocument();

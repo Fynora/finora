@@ -29,9 +29,10 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <h2>Per person, in this order, in the page's one transaction</h2>
  * <ol>
- *   <li>Claim the person's slot for the IST day in {@link DailyCapStore}. Losing means someone else
- *       got there first: another campaign (counted as a cap skip) or this campaign earlier today (an
- *       already-queued skip -- a repeat or resumed run).
+ *   <li>Claim one of the person's slots for the IST day in {@link DailyCapStore}, up to the
+ *       admin-set daily limit ({@link PushCampaignSettingsStore}). Losing means every slot is taken
+ *       by other campaigns (counted as a cap skip) or this campaign already holds one from earlier
+ *       today (an already-queued skip -- a repeat or resumed run).
  *   <li>Insert the outbox row with {@code ON CONFLICT DO NOTHING}. The key is deterministic, so even
  *       if the cap row were gone the same person cannot be queued twice for the same campaign day.
  * </ol>
@@ -48,12 +49,14 @@ public class CampaignEnqueuer {
     private final NotificationRepository notifications;
     private final TemplateRenderer templateRenderer;
     private final DailyCapStore dailyCap;
+    private final PushCampaignSettingsStore settings;
 
     public CampaignEnqueuer(NotificationRepository notifications, TemplateRenderer templateRenderer,
-            DailyCapStore dailyCap) {
+            DailyCapStore dailyCap, PushCampaignSettingsStore settings) {
         this.notifications = notifications;
         this.templateRenderer = templateRenderer;
         this.dailyCap = dailyCap;
+        this.settings = settings;
     }
 
     /** What one page did. */
@@ -72,11 +75,14 @@ public class CampaignEnqueuer {
                 NotificationChannel.PUSH, Map.of("title", title, "message", message));
         String prefix = keyPrefix(campaignId, runDate);
         Instant now = Instant.now();
+        // Read once per page (a primary-key lookup), never cached: an admin who lowers the limit
+        // because people are complaining must see it bite on the very next page.
+        int dailyLimit = settings.dailyLimitPerPerson();
         int queued = 0;
         int skippedCap = 0;
         int skippedAlreadyQueued = 0;
         for (UUID userId : userIds) {
-            if (dailyCap.claim(userId, runDate, campaignId)) {
+            if (dailyCap.claim(userId, runDate, campaignId, dailyLimit)) {
                 String key = prefix + userId + ":" + NotificationChannel.PUSH.name();
                 boolean inserted = notifications.insertIfAbsent(userId, key,
                         NotificationType.CUSTOM_PUSH.name(), NotificationCategory.FINANCIAL.name(),
@@ -87,7 +93,7 @@ public class CampaignEnqueuer {
                 } else {
                     skippedAlreadyQueued++;
                 }
-            } else if (dailyCap.holder(userId, runDate).filter(campaignId::equals).isPresent()) {
+            } else if (dailyCap.heldBy(userId, runDate, campaignId)) {
                 skippedAlreadyQueued++;
             } else {
                 skippedCap++;

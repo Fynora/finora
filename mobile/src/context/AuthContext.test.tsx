@@ -1,6 +1,7 @@
 import { Text } from 'react-native';
 import { AppAlert, getCurrentAppAlert, __resetAppAlertForTests } from '../lib/appAlert';
 import { getCurrentAppBanner, __resetAppBannerForTests } from '../lib/appBanner';
+import { showSystemNotification } from '../lib/systemNotification';
 import { act, render, waitFor, type RenderAPI } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as SecureStore from 'expo-secure-store';
@@ -49,6 +50,14 @@ jest.mock('../lib/pushRegistration', () => ({
   subscribeToForegroundMessages: jest.fn(() => jest.fn()),
 }));
 
+// The system-notification helper (react-native-notify-kit) is pinned in its own test file; here we
+// only need to say whether it managed to show a notification, because AuthContext shows the in-app
+// banner exactly when it did not.
+jest.mock('../lib/systemNotification', () => ({
+  showSystemNotification: jest.fn(async () => true),
+  registerSystemNotificationEvents: jest.fn(async () => {}),
+}));
+
 // Subscription billing V4 (design spec §2/§6.1 step 1): configureRevenueCat() must run once the
 // real Fynora user id is known, whether that's a fresh login/register/etc. or a cold-start
 // restore of an already-persisted session -- see AuthContext bootstrap/configureRevenueCat below.
@@ -73,6 +82,7 @@ const mockedResumePendingDetach = resumePendingDetach as jest.MockedFunction<typ
 const mockedClearPendingDetach = clearPendingDetach as jest.MockedFunction<typeof clearPendingDetach>;
 const mockedSubscribeToForegroundMessages = subscribeToForegroundMessages as jest.MockedFunction<typeof subscribeToForegroundMessages>;
 const mockedConfigureRevenueCat = configureRevenueCat as jest.MockedFunction<typeof configureRevenueCat>;
+const mockedShowSystemNotification = showSystemNotification as jest.MockedFunction<typeof showSystemNotification>;
 const mockedReportHandledError = reportHandledError as jest.MockedFunction<typeof reportHandledError>;
 
 const SESSION = {
@@ -130,6 +140,8 @@ async function settle(view: RenderAPI) {
 beforeEach(() => {
   __resetAppAlertForTests();
   __resetAppBannerForTests();
+  mockedShowSystemNotification.mockReset();
+  mockedShowSystemNotification.mockResolvedValue(true);
 });
 
 describe('AuthContext bootstrap', () => {
@@ -974,9 +986,11 @@ describe('AuthContext foreground push wiring', () => {
     expect(alertSpy).not.toHaveBeenCalled();
   });
 
-  // An admin campaign push must never interrupt the screen while the app is open (a pop-up in the
-  // middle of someone's work); the OS shows it as a normal notification when the app is closed.
-  it('shows an admin campaign message as a banner, not a pop-up', async () => {
+  // An admin campaign push must never interrupt the screen with a pop-up while the app is open. It is
+  // posted as a real system notification (slides in at the top and stays in the notification centre
+  // after a swipe); the in-app banner is only the fallback for when the system cannot show one.
+  it('posts an admin campaign message as a system notification, with no pop-up and no in-app banner', async () => {
+    mockedShowSystemNotification.mockResolvedValue(true);
     mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
     const view = renderAuth();
     await settle(view);
@@ -984,16 +998,64 @@ describe('AuthContext foreground push wiring', () => {
       await auth.login('someone@example.com', 'pw');
     });
 
-    latestHandler()({
-      notification: { title: 'Welcome to Fynora', body: 'Welcome to Fynora body.' },
-      data: { type: 'CUSTOM_PUSH' },
-    } as never);
+    await act(async () => {
+      latestHandler()({
+        messageId: 'm-1',
+        notification: { title: 'Welcome to Fynora', body: 'Welcome to Fynora body.' },
+        data: { type: 'CUSTOM_PUSH' },
+      } as never);
+    });
+
+    expect(mockedShowSystemNotification).toHaveBeenCalledWith('Welcome to Fynora', 'Welcome to Fynora body.', 'm-1');
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(getCurrentAppBanner()).toBeUndefined();
+  });
+
+  it('falls back to the in-app banner when the system cannot show the notification', async () => {
+    mockedShowSystemNotification.mockResolvedValue(false);
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    await act(async () => {
+      latestHandler()({
+        notification: { title: 'Welcome to Fynora', body: 'Welcome to Fynora body.' },
+        data: { type: 'CUSTOM_PUSH' },
+      } as never);
+    });
 
     expect(alertSpy).not.toHaveBeenCalled();
     expect(getCurrentAppBanner()).toMatchObject({ title: 'Welcome to Fynora', message: 'Welcome to Fynora body.' });
   });
 
-  it('shows no banner for an admin campaign message while the app is locked', async () => {
+  it('does not raise the fallback banner if the session ended while the system was being asked', async () => {
+    let answer: (shown: boolean) => void = () => {};
+    mockedShowSystemNotification.mockImplementation(() => new Promise<boolean>((resolve) => { answer = resolve; }));
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+    latestHandler()({
+      notification: { title: 'Welcome to Fynora', body: 'Welcome to Fynora.' },
+      data: { type: 'CUSTOM_PUSH' },
+    } as never);
+
+    await act(async () => {
+      await auth.logout();
+    });
+    await act(async () => {
+      answer(false);
+    });
+
+    expect(getCurrentAppBanner()).toBeUndefined();
+  });
+
+  it('shows nothing for an admin campaign message while the app is locked', async () => {
     mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
     const view = renderAuth();
     await settle(view);
@@ -1007,11 +1069,12 @@ describe('AuthContext foreground push wiring', () => {
       data: { type: 'CUSTOM_PUSH' },
     } as never);
 
+    expect(mockedShowSystemNotification).not.toHaveBeenCalled();
     expect(getCurrentAppBanner()).toBeUndefined();
     expect(alertSpy).not.toHaveBeenCalled();
   });
 
-  it('shows no banner for a campaign message with no body', async () => {
+  it('shows nothing for a campaign message with no body', async () => {
     mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
     const view = renderAuth();
     await settle(view);
@@ -1021,20 +1084,24 @@ describe('AuthContext foreground push wiring', () => {
 
     latestHandler()({ notification: { title: 'Only a title' }, data: { type: 'CUSTOM_PUSH' } } as never);
 
+    expect(mockedShowSystemNotification).not.toHaveBeenCalled();
     expect(getCurrentAppBanner()).toBeUndefined();
   });
 
-  it('does not leave a banner on screen after the session ends', async () => {
+  it('does not leave a fallback banner on screen after the session ends', async () => {
+    mockedShowSystemNotification.mockResolvedValue(false);
     mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
     const view = renderAuth();
     await settle(view);
     await act(async () => {
       await auth.login('someone@example.com', 'pw');
     });
-    latestHandler()({
-      notification: { title: 'Welcome to Fynora', body: 'Welcome to Fynora.' },
-      data: { type: 'CUSTOM_PUSH' },
-    } as never);
+    await act(async () => {
+      latestHandler()({
+        notification: { title: 'Welcome to Fynora', body: 'Welcome to Fynora.' },
+        data: { type: 'CUSTOM_PUSH' },
+      } as never);
+    });
     expect(getCurrentAppBanner()).toBeDefined();
 
     await act(async () => {

@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { AppState, type AppStateStatus } from 'react-native';
 import { AppAlert, clearAppAlerts } from '../lib/appAlert';
 import { AppBanner } from '../lib/appBanner';
+import { showSystemNotification } from '../lib/systemNotification';
 import { useQueryClient } from '@tanstack/react-query';
 import { authApi } from '../api/endpoints';
 import { markSessionEnded, sessionStorageCleared, setSessionCallbacks } from '../api/client';
@@ -372,6 +373,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       AppAlert.alert(next.title, next.body, [{ text: 'OK', onPress: showNextForegroundAlert }], { cancelable: false });
     };
 
+    // Set when this session ends, so a fallback banner that was still being decided cannot appear
+    // on a signed-out phone.
+    let sessionEnded = false;
+
     const unsubscribe = subscribeToForegroundMessages((message) => {
       if (appLock.isLocked()) return;
       const body = message.notification?.body;
@@ -383,13 +388,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // the app closed the OS shows it as a normal notification. Every other push type keeps the
       // alert below.
       if (message.data?.type === 'CUSTOM_PUSH') {
-        AppBanner.show(message.notification?.title ?? 'Fynora', body);
+        const title = message.notification?.title ?? 'Fynora';
+        // First choice: a real system notification, the kind other apps show. It slides in at the
+        // top and stays in the notification centre after a swipe, so it can be read again. The
+        // in-app banner is the fallback for when the system cannot show one (a build made before
+        // the native piece existed, or notifications switched off) -- the message is never lost.
+        void showSystemNotification(title, body, message.messageId).then((shown) => {
+          if (!shown && !sessionEnded) AppBanner.show(title, body);
+        });
         return;
       }
       foregroundAlertQueue.current.push({ title: message.notification?.title ?? 'Fynora', body });
       if (!isShowingForegroundAlert.current) showNextForegroundAlert();
     });
     return () => {
+      sessionEnded = true;
       unsubscribe();
       // Drops anything still waiting for THIS session -- without it, a message queued right
       // before logout would sit in the ref (refs outlive this effect run) and only surface once

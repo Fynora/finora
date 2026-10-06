@@ -4,7 +4,8 @@ import { FormPanel } from '../../components/FormPanel';
 import { adminPushCampaignApi } from '../../api/endpoints';
 import type { PushAudienceType, PushCampaign, PushCampaignSaveRequest, PushScheduleKind } from '../../types';
 import { isInputInsideWindow, isInsideWindow, isoToIstInput, istInputToIso, toTimeInput, todayIst, WINDOW_END, WINDOW_START } from '../../lib/istTime';
-import { apiMessage, AUDIENCE_HELP, AUDIENCE_LABELS } from './labels';
+import { apiMessage, AUDIENCE_HELP, AUDIENCE_LABELS, pushesPerDay } from './labels';
+import { useDailyLimit } from './DailyLimitPanel';
 
 const TITLE_MAX = 80;
 const MESSAGE_MAX = 240;
@@ -44,6 +45,7 @@ export function CampaignEditor({
   const [sendTime, setSendTime] = useState(toTimeInput(initial?.sendTimeIst));
   const [endsOn, setEndsOn] = useState(initial?.endsOn ?? '');
   const [error, setError] = useState<string | null>(null);
+  const dailyLimit = useDailyLimit();
 
   const audience = useQuery({
     queryKey: ['push-campaign-audience-count', audienceType],
@@ -244,7 +246,10 @@ export function CampaignEditor({
               </p>
             )}
             <p className="text-xs text-muted">
-              Nobody gets more than one campaign push a day, across all campaigns.
+              {dailyLimit === undefined
+                ? 'There is a daily limit per person, across all campaigns.'
+                : `Nobody gets more than ${pushesPerDay(dailyLimit)}, across all campaigns.`}{' '}
+              It is set on the campaigns list.
             </p>
           </fieldset>
         </div>

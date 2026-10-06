@@ -73,6 +73,8 @@ class PushCampaignCancelIT extends AbstractIntegrationTest {
                 + "(SELECT id FROM notifications WHERE type = 'CUSTOM_PUSH')");
         jdbc.update("DELETE FROM notifications WHERE type = 'CUSTOM_PUSH'");
         jdbc.update("DELETE FROM custom_push_daily_cap");
+        // Shared across test classes: a test that changed the daily limit must not leak into the next.
+        jdbc.update("UPDATE push_campaign_settings SET daily_limit_per_person = 1, updated_by = NULL WHERE id = 1");
         jdbc.update("DELETE FROM push_campaign_runs");
         jdbc.update("DELETE FROM push_campaigns");
     }

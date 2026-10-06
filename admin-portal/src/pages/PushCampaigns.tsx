@@ -9,6 +9,7 @@ import type { PushCampaign } from '../types';
 import { formatIst } from '../lib/istTime';
 import { CampaignEditor } from './push-campaigns/CampaignEditor';
 import { CampaignDetail } from './push-campaigns/CampaignDetail';
+import { DailyLimitPanel } from './push-campaigns/DailyLimitPanel';
 import {
   apiMessage, AUDIENCE_LABELS, CAMPAIGN_STATUS_LABELS, campaignStatusTone, scheduleSummary,
 } from './push-campaigns/labels';
@@ -119,7 +120,7 @@ function PushCampaignsContent() {
       <div className="flex items-center justify-between gap-4">
         <p className="text-sm text-muted max-w-2xl">
           Write a push notification, choose who gets it, test it on a real phone, then send it now or
-          schedule it. Nobody gets more than one campaign push a day, whichever campaigns are running.
+          schedule it.
         </p>
         <button
           type="button"
@@ -129,6 +130,8 @@ function PushCampaignsContent() {
           <Plus size={15} /> New campaign
         </button>
       </div>
+
+      <DailyLimitPanel />
 
       {list.isError && (
         <p className="text-sm text-danger" role="alert">{apiMessage(list.error, 'Could not load campaigns.')}</p>

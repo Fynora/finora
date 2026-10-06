@@ -60,6 +60,8 @@ class AdminPushCampaignControllerIT extends AbstractIntegrationTest {
         jdbc.update("DELETE FROM custom_push_daily_cap");
         jdbc.update("DELETE FROM push_campaign_runs");
         jdbc.update("DELETE FROM push_campaigns");
+        // Shared across test classes: a test that raised the limit must not leak into the next.
+        jdbc.update("UPDATE push_campaign_settings SET daily_limit_per_person = 1, updated_by = NULL WHERE id = 1");
     }
 
     private User createUser(String role, String scope) {
@@ -120,11 +122,13 @@ class AdminPushCampaignControllerIT extends AbstractIntegrationTest {
                 {"POST", "/" + id + "/send-test"}, {"POST", "/" + id + "/send-now"},
                 {"POST", "/" + id + "/start"}, {"POST", "/" + id + "/pause"},
                 {"POST", "/" + id + "/resume"}, {"POST", "/" + id + "/stop"},
-                {"POST", "/" + id + "/cancel-sending"}}) {
+                {"POST", "/" + id + "/cancel-sending"},
+                {"GET", "/settings"}, {"PUT", "/settings"}}) {
             // A VALID body: Spring validates @Valid arguments before method security runs, so an
             // invalid body would be answered 400 before authorization is reached (true of every
             // admin controller here, and no data is exposed by it).
-            String body = endpoint[1].endsWith("/send-test") ? "{\"userId\":\"" + id + "\"}" : nowOnlyJson("t");
+            String body = endpoint[1].endsWith("/send-test") ? "{\"userId\":\"" + id + "\"}"
+                    : endpoint[1].equals("/settings") ? "{\"dailyLimitPerPerson\":2}" : nowOnlyJson("t");
             ResponseEntity<String> response = call(user, HttpMethod.valueOf(endpoint[0]), endpoint[1], body);
             assertThat(response.getStatusCode()).as(endpoint[0] + " " + endpoint[1])
                     .isEqualTo(HttpStatus.FORBIDDEN);
@@ -140,6 +144,66 @@ class AdminPushCampaignControllerIT extends AbstractIntegrationTest {
                 .isEqualTo(HttpStatus.FORBIDDEN);
         assertThat(call(support, HttpMethod.GET, "/audience-count?audienceType=ALL_WITH_DEVICE", null)
                 .getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(call(support, HttpMethod.GET, "/settings", null).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(call(support, HttpMethod.PUT, "/settings", "{\"dailyLimitPerPerson\":5}").getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        // ...and the refused change really changed nothing.
+        assertThat(jdbc.queryForObject("SELECT daily_limit_per_person FROM push_campaign_settings WHERE id = 1",
+                Integer.class)).isEqualTo(1);
+    }
+
+    // ------------------------------------------------------------------ the daily limit setting
+
+    @Test
+    void theDailyLimitDefaultsToOneAndAnAdminCanChangeIt() throws Exception {
+        User admin = admin();
+        JsonNode before = mapper.readTree(call(admin, HttpMethod.GET, "/settings", null).getBody()).path("data");
+        assertThat(before.path("dailyLimitPerPerson").asInt()).isEqualTo(1);
+        assertThat(before.path("minDailyLimit").asInt()).isEqualTo(1);
+        assertThat(before.path("maxDailyLimit").asInt()).isEqualTo(10);
+
+        ResponseEntity<String> updated = call(admin, HttpMethod.PUT, "/settings", "{\"dailyLimitPerPerson\":3}");
+        assertThat(updated.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode after = mapper.readTree(updated.getBody()).path("data");
+        assertThat(after.path("dailyLimitPerPerson").asInt()).isEqualTo(3);
+        assertThat(after.path("updatedBy").asText()).isEqualTo(admin.getId().toString());
+
+        assertThat(mapper.readTree(call(admin, HttpMethod.GET, "/settings", null).getBody())
+                .path("data").path("dailyLimitPerPerson").asInt()).isEqualTo(3);
+    }
+
+    @Test
+    void theDailyLimitChangeIsAuditedWithTheOldAndNewValue() {
+        User admin = admin();
+        call(admin, HttpMethod.PUT, "/settings", "{\"dailyLimitPerPerson\":4}");
+
+        String metadata = jdbc.queryForObject(
+                "SELECT metadata::text FROM audit_logs WHERE action = 'PUSH_CAMPAIGN_SETTINGS_CHANGED' "
+                        + "AND user_id = ? ORDER BY created_at DESC LIMIT 1", String.class, admin.getId());
+        assertThat(metadata).contains("\"dailyLimitPerPerson\"").contains("4")
+                .contains("\"previousDailyLimitPerPerson\"").contains(admin.getId().toString());
+    }
+
+    @Test
+    void aDailyLimitOutsideOneToTenIsA400AndChangesNothing() {
+        User admin = admin();
+        for (String body : new String[] {"{\"dailyLimitPerPerson\":0}", "{\"dailyLimitPerPerson\":11}",
+                "{\"dailyLimitPerPerson\":-1}", "{\"dailyLimitPerPerson\":100}", "{}", "{not json",
+                "{\"dailyLimitPerPerson\":\"many\"}"}) {
+            assertThat(call(admin, HttpMethod.PUT, "/settings", body).getStatusCode()).as(body)
+                    .isEqualTo(HttpStatus.BAD_REQUEST);
+        }
+        assertThat(jdbc.queryForObject("SELECT daily_limit_per_person FROM push_campaign_settings WHERE id = 1",
+                Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void theEdgesOfTheAllowedRangeAreAccepted() {
+        User admin = admin();
+        assertThat(call(admin, HttpMethod.PUT, "/settings", "{\"dailyLimitPerPerson\":10}").getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        assertThat(call(admin, HttpMethod.PUT, "/settings", "{\"dailyLimitPerPerson\":1}").getStatusCode())
+                .isEqualTo(HttpStatus.OK);
     }
 
     @Test

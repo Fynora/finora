@@ -260,6 +260,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/push-campaigns/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getPushCampaignSettings"];
+        put: operations["updatePushCampaignSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/permissions/{id}": {
         parameters: {
             query?: never;
@@ -6154,6 +6170,34 @@ export interface components {
             updatedAt?: string;
             /** Format: int64 */
             version?: number;
+        };
+        PushCampaignSettingsRequest: {
+            /** Format: int32 */
+            dailyLimitPerPerson?: number;
+        };
+        ApiResponsePushCampaignSettingsDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["PushCampaignSettingsDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        PushCampaignSettingsDto: {
+            /** Format: int32 */
+            dailyLimitPerPerson?: number;
+            /** Format: int32 */
+            minDailyLimit?: number;
+            /** Format: int32 */
+            maxDailyLimit?: number;
+            /** Format: date-time */
+            updatedAt?: string;
+            /** Format: uuid */
+            updatedBy?: string;
         };
         UpdatePermissionRequest: {
             description: string;
@@ -12268,6 +12312,50 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponsePushCampaignDto"];
+                };
+            };
+        };
+    };
+    getPushCampaignSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponsePushCampaignSettingsDto"];
+                };
+            };
+        };
+    };
+    updatePushCampaignSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PushCampaignSettingsRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponsePushCampaignSettingsDto"];
                 };
             };
         };

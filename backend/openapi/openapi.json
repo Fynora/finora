@@ -1058,6 +1058,54 @@
                 }
             }
         },
+        "/api/v1/admin/push-campaigns/settings": {
+            "get": {
+                "tags": [
+                    "admin-push-campaign-controller"
+                ],
+                "operationId": "getPushCampaignSettings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponsePushCampaignSettingsDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "tags": [
+                    "admin-push-campaign-controller"
+                ],
+                "operationId": "updatePushCampaignSettings",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PushCampaignSettingsRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponsePushCampaignSettingsDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/permissions/{id}": {
             "put": {
                 "tags": [
@@ -14050,6 +14098,70 @@
                     "version": {
                         "type": "integer",
                         "format": "int64"
+                    }
+                }
+            },
+            "PushCampaignSettingsRequest": {
+                "type": "object",
+                "properties": {
+                    "dailyLimitPerPerson": {
+                        "type": "integer",
+                        "format": "int32",
+                        "maximum": 10,
+                        "minimum": 1
+                    }
+                }
+            },
+            "ApiResponsePushCampaignSettingsDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/PushCampaignSettingsDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "PushCampaignSettingsDto": {
+                "type": "object",
+                "properties": {
+                    "dailyLimitPerPerson": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "minDailyLimit": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "maxDailyLimit": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "updatedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "updatedBy": {
+                        "type": "string",
+                        "format": "uuid"
                     }
                 }
             },

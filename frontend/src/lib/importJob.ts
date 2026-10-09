@@ -184,3 +184,19 @@ export function detail(job: ImportJobProgress): string | null {
   }
   return `${Math.min(job.rowsProcessed, job.rowsTotal)} of ${job.rowsTotal}`;
 }
+
+/** The same sentence ImportTimeline and the server fall back to, so a job reads alike everywhere. */
+export const FAILED_IMPORT_FALLBACK = "Fynora couldn't complete this import. Please try again.";
+
+/**
+ * Why a FAILED job failed, for a list that has no timeline per row; null for any other status.
+ *
+ * `job.error` is the server's user-safe reason (`ImportJobDto.Progress.failureReason`): an admin's
+ * resolution message, else the curated message for the failure code, else the fallback -- never
+ * the engineer's `last_error` that {@link detail}'s own comment describes. The fallback here covers
+ * a server that predates that guarantee and still sends null for a failure with no curated message.
+ */
+export function failureReason(job: ImportJobProgress): string | null {
+  if (job.status !== 'FAILED') return null;
+  return job.error?.trim() || FAILED_IMPORT_FALLBACK;
+}

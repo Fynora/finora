@@ -298,6 +298,43 @@ describe('StatementHistory — recent imports', () => {
     expect(await screen.findByText('still-going.csv')).toBeInTheDocument();
   });
 
+  it('says why a failed job failed, on the row itself', async () => {
+    vi.mocked(importJobsApi.recent).mockReset().mockResolvedValue([aJob({
+      fileName: 'rejected.pdf',
+      status: 'FAILED',
+      userStatus: 'ACTION_REQUIRED',
+      error: 'We checked this statement and could not read it accurately enough to import it. Nothing was added to your accounts.',
+    })]);
+    const user = userEvent.setup();
+    renderPage();
+
+    await openRecentImports(user);
+    expect(await screen.findByText('rejected.pdf')).toBeInTheDocument();
+    expect(screen.getByText("Couldn't finish")).toBeInTheDocument();
+    expect(screen.getByTestId('recent-import-failure-reason').textContent)
+      .toContain('could not read it accurately enough to import it');
+  });
+
+  it('never leaves a failed row without a reason, even when the server sends none', async () => {
+    vi.mocked(importJobsApi.recent).mockReset().mockResolvedValue([aJob({ status: 'FAILED', userStatus: 'FAILED', error: null })]);
+    const user = userEvent.setup();
+    renderPage();
+
+    await openRecentImports(user);
+    expect((await screen.findByTestId('recent-import-failure-reason')).textContent)
+      .toBe("Fynora couldn't complete this import. Please try again.");
+  });
+
+  it('adds no reason line to a job that has not failed', async () => {
+    vi.mocked(importJobsApi.recent).mockReset().mockResolvedValue([aJob()]);
+    const user = userEvent.setup();
+    renderPage();
+
+    await openRecentImports(user);
+    await screen.findByText('still-going.csv');
+    expect(screen.queryByTestId('recent-import-failure-reason')).not.toBeInTheDocument();
+  });
+
   it('excludes a completed job -- it is already surfaced by "Continue previous import" instead', async () => {
     // A COMPLETED async job already has a real staged ImportSession, created through the same code
     // path the synchronous upload endpoints use, and Import.tsx's own unfinished-sessions list

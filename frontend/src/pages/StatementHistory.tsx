@@ -11,7 +11,7 @@ import { PDF_PASSWORD_INVALID, PDF_PASSWORD_REQUIRED } from '../api/errorCodes';
 import { BankLogo } from '../components/BankLogo';
 import { StatementRefreshBanner } from '../components/statementRefresh/StatementRefreshBanner';
 import { PasswordInput } from '../components/PasswordInput';
-import { recentImportsRefetchIntervalMs, label as jobLabel } from '../lib/importJob';
+import { failureReason, recentImportsRefetchIntervalMs, label as jobLabel } from '../lib/importJob';
 import { navigateToReimport } from '../lib/importNavState';
 import type { AccountStatementGroup, StatementSummary, Transaction } from '../types';
 import { formatDate } from '../utils/date';
@@ -795,6 +795,13 @@ function RecentImportsSection({ jobs }: { jobs: ImportJobProgress[] }) {
               <p className="text-xs text-muted flex-shrink-0">{fmtDate(job.createdAt)}</p>
             </div>
             <p className="text-xs text-muted mt-1">{jobLabel(job)}</p>
+            {/* A failed row says why right here: "Couldn't finish" alone reads as a dead end, and
+                not everyone opens the row to find the reason on the detail page. */}
+            {failureReason(job) && (
+              <p className="text-xs text-muted mt-0.5" data-testid="recent-import-failure-reason">
+                {failureReason(job)}
+              </p>
+            )}
           </button>
         ))}
       </div>

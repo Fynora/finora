@@ -23,6 +23,7 @@ jest.mock('../api/endpoints', () => ({
   // The "Recent imports" card: empty unless a test says otherwise, so it renders nothing.
   importJobsApi: {
     recent: jest.fn().mockResolvedValue([]),
+    dismiss: jest.fn(),
   },
 }));
 
@@ -423,6 +424,53 @@ describe('StatementHistoryScreen — recent imports', () => {
     const escaped = jobLabel(held).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     expect(screen.getByText(new RegExp(`^${escaped}`))).toBeOnTheScreen();
     expect(screen.getByText(jobDetail(held) as string)).toBeOnTheScreen();
+  });
+
+  // A failure stays listed until newer uploads push it out -- including after the statement was
+  // uploaded again and imported -- so once read, the user can clear it.
+  it('dismisses a failed import from the card', async () => {
+    const failed = job({ jobId: 'job-failed', fileName: 'rejected.pdf' });
+    const held = job({ jobId: 'job-held', status: 'HELD_FOR_TRUST_REVIEW', userStatus: 'HELD_FOR_REVIEW', fileName: 'held.pdf' });
+    jobs.recent.mockResolvedValueOnce([failed, held]).mockResolvedValue([held]);
+    jobs.dismiss.mockReset().mockResolvedValue(undefined);
+    renderScreen();
+
+    fireEvent.press(await screen.findByLabelText('Dismiss rejected.pdf'));
+    await settle();
+
+    expect(screen.queryByText('rejected.pdf')).toBeNull();
+    expect(jobs.dismiss).toHaveBeenCalledWith('job-failed');
+    expect(screen.getByText('held.pdf')).toBeOnTheScreen();
+  });
+
+  it('offers no dismiss on an import that is not over', async () => {
+    jobs.recent.mockResolvedValue([
+      job({ jobId: 'job-held', status: 'HELD_FOR_TRUST_REVIEW', userStatus: 'HELD_FOR_REVIEW', fileName: 'held.pdf' }),
+      job({ jobId: 'job-running', status: 'PARSING', userStatus: 'PROCESSING', fileName: 'running.pdf' }),
+    ]);
+    renderScreen();
+
+    expect(await screen.findByText('held.pdf')).toBeOnTheScreen();
+    expect(screen.queryByLabelText(/^Dismiss/)).toBeNull();
+  });
+
+  it('offers dismiss on a cancelled import', async () => {
+    jobs.recent.mockResolvedValue([job({ status: 'CANCELLED', userStatus: 'CANCELLED', fileName: 'cancelled.csv' })]);
+    renderScreen();
+
+    expect(await screen.findByLabelText('Dismiss cancelled.csv')).toBeOnTheScreen();
+  });
+
+  it('keeps the row and says so when dismissing fails', async () => {
+    jobs.recent.mockResolvedValue([job({ jobId: 'job-failed', fileName: 'rejected.pdf' })]);
+    jobs.dismiss.mockReset().mockRejectedValue(new Error('network error'));
+    renderScreen();
+
+    fireEvent.press(await screen.findByLabelText('Dismiss rejected.pdf'));
+    await settle();
+
+    expect(screen.getByText("Couldn't dismiss rejected.pdf. Please try again.")).toBeOnTheScreen();
+    expect(screen.getByText('rejected.pdf')).toBeOnTheScreen();
   });
 
   it('leaves completed imports to the statement list', async () => {

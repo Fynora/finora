@@ -13,7 +13,8 @@ import { usePreventScreenCapture } from '../lib/screenCapture';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { importJobsApi, statementImportsApi, type ImportJobProgress } from '../api/endpoints';
 import {
-  detail as jobDetail, failureReason, label as jobLabel, listedRecentImports, recentImportsRefetchIntervalMs,
+  detail as jobDetail, failureReason, isDismissable, label as jobLabel, listedRecentImports,
+  recentImportsRefetchIntervalMs,
 } from '../lib/importJob';
 import { PDF_PASSWORD_INVALID, PDF_PASSWORD_REQUIRED } from '../api/errorCodes';
 import { Button } from '../components/Button';
@@ -259,12 +260,39 @@ export function StatementHistoryScreen() {
  */
 function RecentImportsCard({ jobs }: { jobs: ImportJobProgress[] }) {
   const c = useTheme();
+  const queryClient = useQueryClient();
+  const [dismissing, setDismissing] = useState<string | null>(null);
+  const [dismissError, setDismissError] = useState<string | null>(null);
+
+  // A failure stays listed until newer uploads push it out -- including after the statement was
+  // uploaded again and imported -- so once read, the user can clear it. The server keeps the job;
+  // only the list (on every device) stops showing it.
+  async function dismiss(job: ImportJobProgress) {
+    setDismissing(job.jobId);
+    setDismissError(null);
+    const startedAt = requestStartedAt();
+    try {
+      await importJobsApi.dismiss(job.jobId);
+      queryClient.setQueryData<ImportJobProgress[]>(['import-jobs-recent'],
+        (current) => current?.filter((j) => j.jobId !== job.jobId));
+      void queryClient.invalidateQueries({ queryKey: ['import-jobs-recent'] });
+    } catch (e) {
+      reportTransportFailure(e, 'statement-history:dismiss-import', startedAt);
+      setDismissError(toUserMessage(e, `Couldn't dismiss ${job.fileName}. Please try again.`));
+    } finally {
+      setDismissing(null);
+    }
+  }
+
   return (
     <Card style={styles.section}>
       <SectionHeading title="Recent imports" />
       <Text style={[styles.body, { color: c.muted }]}>
         Statements still processing, or that didn&apos;t finish.
       </Text>
+      {dismissError ? (
+        <Text style={[styles.body, { color: c.danger }]} accessibilityRole="alert">{dismissError}</Text>
+      ) : null}
       {jobs.map((job) => {
         const reason = failureReason(job) ?? jobDetail(job);
         return (
@@ -276,6 +304,17 @@ function RecentImportsCard({ jobs }: { jobs: ImportJobProgress[] }) {
             </Text>
             {reason ? (
               <Text style={[styles.body, { color: c.mutedInk }]}>{reason}</Text>
+            ) : null}
+            {isDismissable(job) ? (
+              <View style={styles.actionRow}>
+                <RowAction
+                  label="Dismiss"
+                  accessibilityLabel={`Dismiss ${job.fileName}`}
+                  icon="close-circle-outline"
+                  onPress={() => void dismiss(job)}
+                  busy={dismissing === job.jobId}
+                />
+              </View>
             ) : null}
           </View>
         );
@@ -365,9 +404,12 @@ function AccountGroupCard({
 }
 
 function RowAction({
-  label, icon, onPress, busy, danger, disabled,
+  label, icon, onPress, busy, danger, disabled, accessibilityLabel,
 }: {
   label: string;
+  /** Defaults to `label`; set when several rows share one label and a screen reader needs to
+   *  know which row it acts on. */
+  accessibilityLabel?: string;
   icon: keyof typeof Ionicons.glyphMap;
   onPress: () => void;
   busy?: boolean;
@@ -381,7 +423,7 @@ function RowAction({
       onPress={onPress}
       disabled={isDisabled}
       accessibilityRole="button"
-      accessibilityLabel={label}
+      accessibilityLabel={accessibilityLabel ?? label}
       accessibilityState={{ disabled: !!isDisabled, busy: !!busy }}
       hitSlop={6}
       style={[styles.action, { borderColor: c.border }, isDisabled && styles.actionDisabled]}

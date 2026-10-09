@@ -10,8 +10,8 @@ import type { ImportJobProgress } from '../api/endpoints';
  * Not a full port: `stageLabel` (per-stage-row labels for web's ImportTimeline) supports a surface
  * this app's mobile cut doesn't build -- see ImportProgressCard.tsx's own doc comment for what
  * replaces ImportTimeline here. The helpers at the end of this file (`failureReason`,
- * `listedRecentImports`, `recentImportsRefetchIntervalMs`) serve the Statement History screen's
- * "Recent imports" card; everything else is unchanged from the web original.
+ * `listedRecentImports`, `recentImportsRefetchIntervalMs`, `isDismissable`) serve the Statement
+ * History screen's "Recent imports" card; everything else is unchanged from the web original.
  */
 
 const IN_FLIGHT: ImportJobProgress['status'][] = [
@@ -131,4 +131,13 @@ export function listedRecentImports(jobs: ImportJobProgress[]): ImportJobProgres
 /** Keep polling the list while anything in it is still moving -- port of web's helper. */
 export function recentImportsRefetchIntervalMs(jobs: { status: ImportJobProgress['status'] }[]): number | false {
   return jobs.some((j) => !isSettled(j)) ? 15_000 : false;
+}
+
+/**
+ * Whether the owner may dismiss this job from the recent-imports list -- mirrors
+ * ImportJob.DISMISSABLE on the server. A running or held import is not over, and hiding it would
+ * hide the one place that says so.
+ */
+export function isDismissable(job: { status: ImportJobProgress['status'] }): boolean {
+  return job.status === 'FAILED' || job.status === 'CANCELLED';
 }

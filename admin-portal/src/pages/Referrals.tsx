@@ -103,7 +103,7 @@ function ReferralsContent() {
               type="button"
               disabled={creditMutation.isPending || !amounts[r.referralId]}
               onClick={() => creditMutation.mutate({ referralId: r.referralId, amount: Number(amounts[r.referralId]) })}
-              className="text-xs font-semibold bg-primary text-white rounded-lg px-2.5 py-1.5 disabled:opacity-40"
+              className="text-xs font-semibold bg-primary hover:bg-primary-dark text-on-primary rounded-lg px-2.5 py-1.5 disabled:opacity-40"
             >
               Credit
             </button>

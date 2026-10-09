@@ -100,7 +100,7 @@ function NotificationsContent() {
     {
       header: '',
       render: (row) => (
-        <button className="text-xs text-accent hover:underline" onClick={() => setSelectedId(row.id)}>
+        <button className="text-xs text-primary hover:underline" onClick={() => setSelectedId(row.id)}>
           Details
         </button>
       ),

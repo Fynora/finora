@@ -50,7 +50,7 @@ function BreakdownPanel({ title, counts }: { title: string; counts: FeedbackBrea
               </div>
               <div className="h-1.5 rounded-full bg-bg overflow-hidden">
                 <div
-                  className="h-full rounded-full bg-accent"
+                  className="h-full rounded-full bg-primary"
                   style={{ width: max > 0 ? `${(c.total / max) * 100}%` : '0%' }}
                 />
               </div>

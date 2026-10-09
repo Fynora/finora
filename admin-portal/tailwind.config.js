@@ -1,3 +1,16 @@
+/**
+ * Hex-valued tokens (`--color-success: #16a34a`) have no `<alpha-value>` slot, so Tailwind silently
+ * generates nothing at all for an opacity modifier on them -- `border-success/20`, `bg-warning/10`
+ * and `bg-bg/50` were all dead classes, leaving those elements on the default border colour or
+ * with no background. This mixes the token with transparent when a modifier is given, and returns
+ * the plain variable otherwise so every unmodified class compiles exactly as before.
+ * (`ink` and `primary` are channel-valued and already take modifiers natively.)
+ */
+const token = (name) => ({ opacityValue }) =>
+  opacityValue === undefined || String(opacityValue).startsWith('var(')
+    ? `var(--color-${name})`
+    : `color-mix(in srgb, var(--color-${name}) calc(${opacityValue} * 100%), transparent)`;
+
 /** @type {import('tailwindcss').Config} */
 export default {
   // Same class-based dark mode / semantic color token approach as the user frontend (see
@@ -7,26 +20,26 @@ export default {
   theme: {
     extend: {
       colors: {
-        sidebar: 'var(--color-sidebar)',
-        'sidebar-hover': 'var(--color-sidebar-hover)',
-        bg: 'var(--color-bg)',
-        card: 'var(--color-card)',
-        border: 'var(--color-border)',
-        surface: 'var(--color-surface)',
+        sidebar: token('sidebar'),
+        'sidebar-hover': token('sidebar-hover'),
+        bg: token('bg'),
+        card: token('card'),
+        border: token('border'),
+        surface: token('surface'),
         ink: 'rgb(var(--color-ink) / <alpha-value>)',
-        muted: 'var(--color-muted)',
+        muted: token('muted'),
         primary: 'rgb(var(--color-primary) / <alpha-value>)',
-        'primary-dark': 'var(--color-primary-dark)',
-        'primary-light': 'var(--color-primary-light)',
-        'on-primary': 'var(--color-on-primary)',
-        success: 'var(--color-success)',
-        'success-bg': 'var(--color-success-bg)',
-        danger: 'var(--color-danger)',
-        'danger-bg': 'var(--color-danger-bg)',
-        warning: 'var(--color-warning)',
-        'warning-bg': 'var(--color-warning-bg)',
-        info: 'var(--color-info)',
-        'info-bg': 'var(--color-info-bg)',
+        'primary-dark': token('primary-dark'),
+        'primary-light': token('primary-light'),
+        'on-primary': token('on-primary'),
+        success: token('success'),
+        'success-bg': token('success-bg'),
+        danger: token('danger'),
+        'danger-bg': token('danger-bg'),
+        warning: token('warning'),
+        'warning-bg': token('warning-bg'),
+        info: token('info'),
+        'info-bg': token('info-bg'),
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],

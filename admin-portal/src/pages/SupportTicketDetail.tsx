@@ -105,7 +105,7 @@ function SupportTicketDetailContent({ id }: { id: string }) {
 
   return (
     <div className="space-y-6">
-      <Link to="/support-tickets" className="text-xs text-accent hover:underline">
+      <Link to="/support-tickets" className="text-xs text-primary hover:underline">
         &larr; Back to queue
       </Link>
 
@@ -141,7 +141,7 @@ function SupportTicketDetailContent({ id }: { id: string }) {
                 type="button"
                 onClick={() => download.mutate({ attachmentId: a.id, filename: a.filename })}
                 disabled={download.isPending}
-                className="flex items-center gap-2 text-xs text-accent hover:underline disabled:opacity-50"
+                className="flex items-center gap-2 text-xs text-primary hover:underline disabled:opacity-50"
               >
                 <Paperclip className="h-3.5 w-3.5" />
                 {a.filename}
@@ -190,7 +190,7 @@ function SupportTicketDetailContent({ id }: { id: string }) {
               type="button"
               onClick={() => claim.mutate()}
               disabled={claim.isPending}
-              className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+              className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-on-primary hover:bg-primary-dark disabled:opacity-50"
             >
               Claim
             </button>

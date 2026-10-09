@@ -159,7 +159,7 @@ export function CampaignDetail({
   if (detail.isError || !campaign) {
     return (
       <div className="space-y-3">
-        <button type="button" onClick={onBack} className="text-sm text-accent hover:underline">Back to campaigns</button>
+        <button type="button" onClick={onBack} className="text-sm text-primary hover:underline">Back to campaigns</button>
         <p className="text-sm text-danger">{apiMessage(detail.error, 'Could not load this campaign.')}</p>
       </div>
     );
@@ -248,7 +248,7 @@ export function CampaignDetail({
 
   return (
     <div className="space-y-6">
-      <button type="button" onClick={onBack} className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline">
+      <button type="button" onClick={onBack} className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline">
         <ArrowLeft size={14} /> All campaigns
       </button>
 

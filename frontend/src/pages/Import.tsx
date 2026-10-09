@@ -2391,7 +2391,7 @@ function TransactionPreviewTable({
                 )}
                 {r.likelyDuplicate && <span className="text-danger text-2xs uppercase ml-1">duplicate</span>}
                 {isUnconfirmedGuess(r.categorySource) && (
-                  <span className="text-2xs uppercase ml-1" style={{ color: '#d97706' }}>low confidence</span>
+                  <span className="text-2xs uppercase ml-1 text-warning">low confidence</span>
                 )}
                 {r.international && <span className="text-2xs uppercase ml-1 text-muted">international</span>}
               </td>

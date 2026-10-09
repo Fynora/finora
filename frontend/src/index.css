@@ -43,11 +43,30 @@
      on it is nearly invisible, so this needs to flip opposite to primary itself. */
   --color-on-primary: #FFFFFF;
 
-  --color-success: #16a34a;
+  /* success/danger/warning are the -700 shades. The -600 shades they used to be (#16a34a, #dc2626,
+     #d97706) measured only 3.00:1, 3.95:1 and 2.86:1 as badge text on their own -bg washes, under
+     WCAG AA's 4.5:1. The -700 shades on wash / card / bg / surface:
+       success #15803d  4.57 / 5.02 / 4.80 / 4.32
+       danger  #b91c1c  5.30 / 6.47 / 6.19 / 5.58
+       warning #b45309  4.51 / 5.02 / 4.81 / 4.33
+     Success and warning stay just under 4.5 on --color-surface. tailwindColorClasses.test.ts finds
+     no element that sets either text colour on bg-surface, and fails if one appears; text inside
+     a bg-surface parent is beyond what it can see. */
+  --color-success: #15803d;
   --color-success-bg: #dcfce7;
-  --color-danger: #dc2626;
+  --color-danger: #b91c1c;
   --color-danger-bg: #fee2e2;
-  --color-warning: #d97706;
+  /* Text/icon colour ON a filled success or danger surface (a destructive button, the unread
+     badge), same idea as --color-on-primary. White here: 5.02:1 on success, 6.47:1 on danger.
+     Dark mode keeps light fills so text-success/text-danger stay readable on dark cards, and white
+     on those measured 2.28:1 and 2.77:1, so .dark flips these to dark ink. */
+  --color-on-success: #FFFFFF;
+  --color-on-danger: #FFFFFF;
+  /* Success on an inverted surface (`bg-ink`, light in dark mode and near-black in light mode),
+     such as UploadProgressPanel's "Completed" check: each theme takes the other theme's success.
+     Plain success there measured 3.64:1 in light and 1.94:1 in dark; this is 8.01:1 and 4.28:1. */
+  --color-success-inverse: #22c55e;
+  --color-warning: #b45309;
   --color-warning-bg: #fef3c7;
 
   /* Premium brand accent -- deliberately separate from the `accent-*` decorative icon-chip family
@@ -113,6 +132,11 @@
   --color-premium-fixed: #34A788;
   --color-on-premium-fixed: #10231D;
 
+  /* Warning's fixed-surface counterpart, for the same reason: Billing's gold crown icons sit on
+     `bg-sidebar` in both themes. Light mode's toggling --color-warning (#b45309) is 3.46:1 on that
+     surface; this is dark mode's own warning, 10.42:1. */
+  --color-warning-fixed: #fbbf24;
+
   /* Decorative icon-chip accents -- Dashboard KPI/EmptyState icons, feature-list icons
      (MarketingPanel, Investments, Goals, ...). These carry no state meaning of their own (unlike
      success/danger/warning above); they exist so a row of otherwise-identical icon chips reads
@@ -121,12 +145,13 @@
      light toggle at all -- a blue-100 background is a very light tint no matter which theme is
      active, which reads as wrong against a dark card.
 
-     accent-green/accent-red intentionally share their current hex value with success/danger --
-     same visual family, but a DIFFERENT token, because the usage is different: e.g. Dashboard's
-     "No goals yet" EmptyState used raw red for pure decoration, not because an empty goals list
-     is an error. Routing that through --color-danger would make a future rebrand of "danger"
-     silently recolor an unrelated empty state. Keep the layers apart even where today's values
-     happen to match. */
+     accent-green/accent-red are the same hue family as success/danger (they shared the -600 hex
+     until success/danger moved to -700 for text contrast) but a DIFFERENT token, because the usage
+     is different: e.g. Dashboard's "No goals yet" EmptyState used raw red for pure decoration, not
+     because an empty goals list is an error. Routing that through --color-danger would make a future rebrand of "danger"
+     silently recolor an unrelated empty state. Keep the layers apart even where their values
+     match. These are icon colours: as text on their own wash, accent-blue is 4.24:1 in light,
+     under AA, so text on an accent wash uses text-ink. */
   --color-accent-blue: #2563eb;
   --color-accent-blue-bg: #dbeafe;
   --color-accent-green: #16a34a;
@@ -198,6 +223,12 @@
   --color-success-bg: #08140D;
   --color-danger: #f87171;
   --color-danger-bg: #1E0B0C;
+  /* Dark ink on the light fills above: success 7.87:1, danger 6.48:1 (white was 2.28 and 2.77).
+     Lowering these fills far enough for white text would cost the text use instead: danger at
+     #dc2626 is 2.98:1 as text on the dark card, against 5.19:1 now. */
+  --color-on-success: #15171C;
+  --color-on-danger: #15171C;
+  --color-success-inverse: #15803d;
   --color-warning: #fbbf24;
   --color-warning-bg: #1A1304;
 

@@ -105,7 +105,7 @@ function MembershipIllustration() {
       <div className="absolute inset-0 translate-x-3 translate-y-3 rounded-xl2 bg-primary/10 border border-primary/20" />
       <div className="absolute inset-0 rounded-xl2 bg-sidebar shadow-soft flex flex-col justify-between p-4 overflow-hidden">
         <div className="flex items-center justify-between">
-          <Crown size={20} className="text-warning" />
+          <Crown size={20} className="text-warning-fixed" />
           <ShieldCheck size={15} className="text-white/40" />
         </div>
         <div>
@@ -740,7 +740,7 @@ export default function Billing() {
           <div className="flex items-center justify-between gap-6 flex-wrap">
             <div className="max-w-lg">
               <div className="flex items-center gap-2 mb-2">
-                <Crown size={18} className="text-warning" />
+                <Crown size={18} className="text-warning-fixed" />
                 <span className="text-xs uppercase tracking-wide font-semibold text-white/60">Free Plan</span>
               </div>
               <h2 className="text-xl font-bold text-white">Unlock the full power of Fynora</h2>

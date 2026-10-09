@@ -642,10 +642,10 @@ describe('Dashboard — Recent Transactions icon/color', () => {
 
     const row = (await screen.findByText('Paycheck')).closest('.flex.items-center.gap-3') as HTMLElement;
     const iconWrap = row.querySelector('div[style*="background"]') as HTMLElement;
-    // useChartColors().success in light mode -- same value '#16a34a' had, but sourced from the
-    // theme-reactive hook rather than a hardcoded literal, so this would go stale on a rebrand or
-    // fail to darken in dark mode if the color were ever inlined back in.
-    expect(iconWrap.style.background).toBe('rgba(22, 163, 74, 0.125)');
+    // useChartColors().success in light mode (#15803d), sourced from the theme-reactive hook
+    // rather than a hardcoded literal, so this would go stale on a rebrand or fail to darken in
+    // dark mode if the color were ever inlined back in.
+    expect(iconWrap.style.background).toBe('rgba(21, 128, 61, 0.125)');
   });
 });
 

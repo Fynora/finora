@@ -470,7 +470,8 @@ public class ImportJobService {
             return ImportJobDto.Progress.of(job);
         }
         if (!job.isCancellable()) {
-            throw new ApiException(HttpStatus.CONFLICT, uncancellableReason(job.getStatus()));
+            throw new ApiException(HttpStatus.CONFLICT,
+                    uncancellableReason(job.getStatus(), job.isHoldOverdue(Instant.now())));
         }
 
         job.cancel(Instant.now());
@@ -495,6 +496,15 @@ public class ImportJobService {
      * {@code ImportJobCancelReasonTest} is what holds the rules above.
      */
     static String uncancellableReason(ImportJob.Status status) {
+        return uncancellableReason(status, false);
+    }
+
+    /**
+     * As {@link #uncancellableReason(ImportJob.Status)}, but a hold already past its 48 hours
+     * ({@link ImportJob#isHoldOverdue}) apologises rather than repeating a promise that has been
+     * broken -- the same turn the held screen makes (Gate 1 spec §4).
+     */
+    static String uncancellableReason(ImportJob.Status status, boolean holdOverdue) {
         return switch (status) {
             case COMPLETED -> "This import already finished. Discard the staged import instead "
                     + "if you don't want it.";
@@ -504,8 +514,11 @@ public class ImportJobService {
             // statement itself is in question: the doubt behind a trust hold is about our
             // extraction, not their document, and this is the message most at risk of saying
             // otherwise.
-            case HELD_FOR_REVIEW, HELD_FOR_TRUST_REVIEW ->
-                    "We're double-checking this statement by hand, so there's nothing to cancel. "
+            case HELD_FOR_REVIEW, HELD_FOR_TRUST_REVIEW -> holdOverdue
+                    ? "We're double-checking this statement by hand, so there's nothing to cancel. "
+                            + "This is taking longer than we promised — sorry. We'll notify you as "
+                            + "soon as it's done."
+                    : "We're double-checking this statement by hand, so there's nothing to cancel. "
                             + "We'll notify you within 48 hours.";
             // Transactions exist by now, and removing them is the ledger's job, not the queue's.
             case IMPORTING, LEARNING ->

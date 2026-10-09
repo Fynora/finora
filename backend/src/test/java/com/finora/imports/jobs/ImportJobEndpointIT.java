@@ -918,6 +918,59 @@ class ImportJobEndpointIT extends AbstractIntegrationTest {
         return jobId;
     }
 
+    private UUID heldJob(User user, String csv, java.time.Duration heldFor) {
+        UUID jobId = queuedJob(user, "statement.csv", csv);
+        ImportJob job = jobRepository.findById(jobId).orElseThrow();
+        job.markClaimed("it-worker", Instant.now());
+        job.holdForReview("IMPORT_NO_HEADER_DETECTED", Instant.now().minus(heldFor));
+        jobRepository.save(job);
+        return jobId;
+    }
+
+    private JsonNode progress(User user, UUID jobId) {
+        return read(restTemplate.exchange("/api/v1/import/jobs/" + jobId, HttpMethod.GET,
+                new HttpEntity<>(bearerFor(user)), String.class)).get("data");
+    }
+
+    /** Gate 1 spec §4: the server's clock, not the client's, says when a hold has broken its promise. */
+    @Test
+    void theProgressEndpointSaysWhenAHoldIsPastItsFortyEightHours() {
+        User user = user();
+        UUID overdue = heldJob(user, CSV, java.time.Duration.ofHours(49));
+        UUID fresh = heldJob(user, OTHER_CSV, java.time.Duration.ofHours(1));
+
+        assertThat(progress(user, overdue).get("holdOverdue").asBoolean()).isTrue();
+        assertThat(progress(user, fresh).get("holdOverdue").asBoolean()).isFalse();
+        assertThat(recentJobIds(user)).contains(overdue.toString(), fresh.toString());
+    }
+
+    /** A cancel refused on an overdue hold must not repeat the 48-hour promise it already broke. */
+    @Test
+    void cancellingAnOverdueHoldApologisesRatherThanPromisingFortyEightHoursAgain() {
+        User user = user();
+        UUID jobId = heldJob(user, CSV, java.time.Duration.ofHours(49));
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/import/jobs/" + jobId + "/cancel", HttpMethod.POST,
+                new HttpEntity<>(bearerFor(user)), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody()).contains("longer than we promised").doesNotContain("48 hours");
+    }
+
+    /** V266's column round-trips through the entity: the escalation marker must survive a reload. */
+    @Test
+    void theOverdueEscalationMarkerPersists() {
+        User user = user();
+        UUID jobId = heldJob(user, CSV, java.time.Duration.ofHours(49));
+        Instant alerted = Instant.parse("2026-10-09T10:00:00Z");
+        ImportJob job = jobRepository.findById(jobId).orElseThrow();
+        job.markOverdueAlerted(alerted);
+        jobRepository.save(job);
+
+        assertThat(jobRepository.findById(jobId).orElseThrow().getOverdueAlertedAt()).isEqualTo(alerted);
+    }
+
     /**
      * The premise for the queued path: the job's hash is taken over the upload exactly as sent --
      * before the queue compresses and encrypts it for storage -- which is the same value a confirmed

@@ -159,7 +159,7 @@ export function QuickSortCard() {
           <div className="flex flex-wrap gap-2">
             {current.kind === 'GUESS' && current.currentCategory && (
               <button type="button" disabled={saving}
-                className="rounded-full bg-primary px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
+                className="rounded-full bg-primary px-3 py-1.5 text-sm font-medium text-on-primary disabled:opacity-60"
                 onClick={() => void answer(current, current.currentCategory!)}>
                 Correct
               </button>
@@ -216,7 +216,7 @@ export function QuickSortCard() {
           <div className="space-y-2">
             <div className="flex flex-wrap gap-2">
               <button type="button" disabled={saving}
-                className="rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
+                className="rounded-lg bg-primary px-3 py-2 text-sm font-medium text-on-primary disabled:opacity-60"
                 onClick={() => void sortMore()}>
                 Sort 10 more
               </button>

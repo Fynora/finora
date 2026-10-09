@@ -724,6 +724,102 @@ class ImportJobWorkerTest {
         assertThat(job.getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_REVIEW);
 
         verify(statementStatusNotifier, times(2)).notifyHeld(job);
+        verify(statementStatusNotifier, never()).notifyFailedAfterHold(any());
+    }
+
+    // ------------------------------------------------ failure after a hold (the promise's "no")
+
+    private void holdThenReprocess() throws IOException {
+        worker.drainOnce();
+        runAnotherPass();
+        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_REVIEW);
+        job.returnToQueueForReprocess(Instant.now());
+        runAnotherPass();
+    }
+
+    /**
+     * Held under one parser, refused under the next: a payment app history that was held before
+     * the refusal existed. The user was told "we'll notify you", so the FAILED it ends in is told.
+     */
+    @Test
+    void aHeldJobReprocessedIntoACuratedRefusalTellsTheUserItFailed() throws IOException {
+        when(importService.parseAndStageWithSession(any(), any(), any()))
+                .thenThrow(new IllegalStateException("no header row found"))
+                .thenThrow(new IllegalStateException("no header row found"))
+                .thenThrow(new ApiException(ErrorCode.IMPORT_PAYMENT_APP_HISTORY));
+
+        holdThenReprocess();
+
+        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.FAILED);
+        assertThat(job.getFailureCode()).isEqualTo(ErrorCode.IMPORT_PAYMENT_APP_HISTORY.name());
+        verify(statementStatusNotifier).notifyFailedAfterHold(job);
+        verify(statementStatusNotifier, never()).notifyReady(any(), any());
+    }
+
+    /** A storage integrity failure is never held, so after a hold it ends FAILED -- and is told. */
+    @Test
+    void aHeldJobReprocessedIntoAnIntegrityFailureTellsTheUserItFailed() throws IOException {
+        when(importService.parseAndStageWithSession(any(), any(), any()))
+                .thenThrow(new IllegalStateException("no header row found"));
+        worker.drainOnce();
+        runAnotherPass();
+        job.returnToQueueForReprocess(Instant.now());
+        when(statementContentService.read(any()))
+                .thenThrow(new StatementIntegrityException("hash mismatch for " + job.getContentHash()));
+
+        runAnotherPass();
+        verify(statementStatusNotifier, never()).notifyFailedAfterHold(any());
+        runAnotherPass();
+
+        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.FAILED);
+        verify(statementStatusNotifier).notifyFailedAfterHold(job);
+    }
+
+    /** The same refusal on a first pass, with no hold behind it: the upload screen shows it. */
+    @Test
+    void aFirstAttemptCuratedRefusalSendsNoFailureNotification() throws IOException {
+        when(importService.parseAndStageWithSession(any(), any(), any()))
+                .thenThrow(new ApiException(ErrorCode.IMPORT_PAYMENT_APP_HISTORY));
+
+        worker.drainOnce();
+
+        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.FAILED);
+        verifyNoInteractions(statementStatusNotifier);
+    }
+
+    /** A reprocess that fails with retries left has not ended: nothing to tell yet. */
+    @Test
+    void aReprocessedJobWithRetriesRemainingIsNotYetToldItFailed() throws IOException {
+        when(importService.parseAndStageWithSession(any(), any(), any()))
+                .thenThrow(new IllegalStateException("no header row found"))
+                .thenThrow(new IllegalStateException("no header row found"))
+                .thenThrow(new StatementStorageException("R2 unavailable"));
+
+        holdThenReprocess();
+
+        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.QUEUED);
+        verify(statementStatusNotifier, never()).notifyFailedAfterHold(any());
+    }
+
+    /**
+     * A reprocess that lands on rows a trust review already rejected fails with the review's code;
+     * the review's own rejection is the message about those rows, so this one adds none.
+     */
+    @Test
+    void aReprocessDecidedByAnAlreadyRejectedReviewAddsNoFailureNotification() throws IOException {
+        when(importService.parseAndStageWithSession(any(), any(), any()))
+                .thenThrow(new IllegalStateException("no header row found"))
+                .thenThrow(new IllegalStateException("no header row found"))
+                .thenReturn(staged());
+        when(heldStatementService.priorReviewOf(any(), any()))
+                .thenReturn(Optional.of(com.finora.entity.HeldStatement.Status.REJECTED));
+
+        holdThenReprocess();
+
+        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.FAILED);
+        assertThat(job.getFailureCode()).isEqualTo(ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name());
+        verify(statementStatusNotifier, never()).notifyFailedAfterHold(any());
+        verify(statementStatusNotifier, never()).notifyReady(any(), any());
     }
 
     // -------------------------------------------------------------------------------------------

@@ -3,6 +3,7 @@ package com.finora.imports.jobs;
 import com.finora.entity.ImportJob;
 import com.finora.imports.StatementUpload;
 import com.finora.repository.ImportJobRepository;
+import com.finora.service.StatementStatusNotifier;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -67,9 +68,12 @@ public class ImportJobStore {
     static final Duration IN_FLIGHT_TIMEOUT = Duration.ofMinutes(30);
 
     private final ImportJobRepository repository;
+    private final StatementStatusNotifier statementStatusNotifier;
 
-    public ImportJobStore(ImportJobRepository repository) {
+    public ImportJobStore(ImportJobRepository repository,
+                          StatementStatusNotifier statementStatusNotifier) {
         this.repository = repository;
+        this.statementStatusNotifier = statementStatusNotifier;
     }
 
     /** Unencrypted, for callers with no key id to record (tests, mainly -- see
@@ -140,13 +144,25 @@ public class ImportJobStore {
                 now.minus(IN_FLIGHT_TIMEOUT), PageRequest.of(0, RECOVERY_BATCH_SIZE));
         if (stuck.isEmpty()) return 0;
         int deadLettered = 0;
+        List<ImportJob> failedAfterHold = new java.util.ArrayList<>();
         for (ImportJob job : stuck) {
             if (job.returnToQueue(
                     "Abandoned in " + job.getStatus() + " for longer than " + IN_FLIGHT_TIMEOUT, now)) {
                 deadLettered++;
+                if (job.wasHeldForReview()) failedAfterHold.add(job);
             }
         }
         repository.saveAll(stuck);
+        // A reprocessed held job that now kills the worker ends FAILED here, not in the worker's
+        // recordFailure, and its user was told "we'll notify you". An outbox write in this same
+        // transaction, so the FAILED and the message commit together -- requested only after the
+        // job rows are flushed, so a version conflict on one of them surfaces as itself here rather
+        // than inside the outbox insert's own flush, where NotificationService.request would log
+        // and swallow it and the commit would fail as a bare UnexpectedRollbackException.
+        if (!failedAfterHold.isEmpty()) {
+            repository.flush();
+            failedAfterHold.forEach(statementStatusNotifier::notifyFailedAfterHold);
+        }
         // Logged rather than returned separately: the count this method returns is the recovery
         // signal an operator watches, and splitting it would change what every existing dashboard
         // panel means. A job that exhausts its recovery budget is a job that kills workers, which

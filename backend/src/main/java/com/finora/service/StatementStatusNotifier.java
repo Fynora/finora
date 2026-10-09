@@ -1,6 +1,7 @@
 package com.finora.service;
 
 import com.finora.entity.ImportJob;
+import com.finora.exception.ErrorCode;
 import com.finora.notification.api.NotificationRequest;
 import com.finora.notification.api.NotificationService;
 import com.finora.notification.domain.NotificationCategory;
@@ -107,5 +108,79 @@ public class StatementStatusNotifier {
                 "IMPORT_RESOLVED_" + job.getId(),
                 Set.of(NotificationChannel.PUSH, NotificationChannel.EMAIL),
                 Map.of("message", message, "jobId", job.getId().toString())));
+    }
+
+    /**
+     * Tells the user a held import ended in failure after all -- an admin reprocessed it and the
+     * reprocess failed in a way that is not held again (a curated refusal such as
+     * {@code IMPORT_PAYMENT_APP_HISTORY}), or it then kept killing the worker. The user was told at
+     * hold time "we'll notify you as soon as it's done", and before this nothing was sent for this
+     * outcome: the import just turned up failed.
+     *
+     * <p>Rides {@code IMPORT_STATEMENT_RESOLVED}'s template -- "An update on your statement" around a
+     * {{message}} body -- because this is the same event from the user's side, a held import closed
+     * without success, and that type's push already routes to the statements screen. The body here
+     * is ours rather than an admin's: the failure code's own curated message
+     * ({@link ErrorCode#userSafeMessageOrNull}, the same text the job's own API returns) -- reworded
+     * only for the password codes, see {@link #FAILED_AFTER_HOLD_OVERRIDES} -- or a generic sentence
+     * when the failure carries no curated code.
+     *
+     * <p>Keyed on the job under its own prefix, so a retried pass or recovered worker collides on the
+     * outbox key instead of telling the user twice. Cannot meet {@link #notifyResolved} on one job:
+     * both end the job FAILED, which is terminal, and only a held job can be resolved.
+     */
+    public void notifyFailedAfterHold(ImportJob job) {
+        notificationService.request(NotificationRequest.of(
+                job.getUserId(),
+                NotificationType.IMPORT_STATEMENT_RESOLVED,
+                NotificationCategory.FINANCIAL,
+                NotificationPriority.NORMAL,
+                "IMPORT_FAILED_" + job.getId(),
+                Set.of(NotificationChannel.PUSH, NotificationChannel.EMAIL),
+                Map.of("message", failedAfterHoldMessage(job.getFailureCode()),
+                        "jobId", job.getId().toString())));
+    }
+
+    /**
+     * The two password codes' own messages assume a prompt is open in front of the user ("Enter the
+     * password ..."), which is true on the upload screen and not in an email or a push. Reachable
+     * here: removing every saved password also removes a held job's, so its reprocess fails asking
+     * for one. Worded as both apps' failed-import card words the first ({@code
+     * importFailureMessages.ts}).
+     */
+    private static final Map<String, String> FAILED_AFTER_HOLD_OVERRIDES = Map.of(
+            ErrorCode.IMPORT_PDF_PASSWORD_REQUIRED.name(),
+            "This statement is password protected. Choose it again and enter the password your bank "
+                    + "uses for it.",
+            ErrorCode.IMPORT_PDF_PASSWORD_INVALID.name(),
+            "The saved password did not open this statement. Choose it again and enter the password "
+                    + "your bank uses for it.");
+
+    static String failedAfterHoldMessage(String failureCode) {
+        String reason = failureCode == null ? null : FAILED_AFTER_HOLD_OVERRIDES.get(failureCode);
+        if (reason == null && describesTheStatement(failureCode)) {
+            reason = ErrorCode.userSafeMessageOrNull(failureCode);
+        }
+        if (reason == null || reason.isBlank()) {
+            reason = "Something went wrong on our side while reading it. Please upload it again, "
+                    + "and contact support if it still doesn't work.";
+        } else if (!reason.matches(".*[.!?]$")) {
+            reason = reason + ".";
+        }
+        return "We've finished checking the statement you uploaded, but we couldn't import it. "
+                + reason + " Nothing was added to your accounts.";
+    }
+
+    /**
+     * Whether a stored failure code's own message is about the statement, and so reads as the
+     * reason in the sentence above: the import codes. Any other code that surfaces through a parse
+     * (a generic {@code INTERNAL_ERROR}'s "Unexpected error") gets the generic sentence instead, and
+     * so does {@code IMPORT_SESSION_HELD_FOR_REVIEW}, whose "We'll let you know when it's ready"
+     * would contradict a message saying it was not imported.
+     */
+    private static boolean describesTheStatement(String failureCode) {
+        return failureCode != null
+                && failureCode.startsWith("IMPORT_")
+                && !ErrorCode.IMPORT_SESSION_HELD_FOR_REVIEW.name().equals(failureCode);
     }
 }

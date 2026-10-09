@@ -30,7 +30,8 @@ public interface StatementAnalysisSessionRepository extends JpaRepository<Statem
      * immutability, on this one purge-only path, visible rather than accidental.
      */
     @Modifying
-    @Query(value = "UPDATE statement_analysis_sessions SET user_id = NULL, file_name = NULL, failure_detail = NULL WHERE user_id = :userId",
+    @Query(value = "UPDATE statement_analysis_sessions SET user_id = NULL, file_name = NULL, failure_detail = NULL, "
+            + "content_hash = NULL WHERE user_id = :userId",
             nativeQuery = true)
     void anonymizeByUserId(@Param("userId") UUID userId);
 
@@ -145,4 +146,28 @@ public interface StatementAnalysisSessionRepository extends JpaRepository<Statem
 
     @Query("SELECT COUNT(DISTINCT s.layoutFingerprint) FROM StatementAnalysisSession s WHERE s.layoutFingerprint IS NOT NULL")
     long countDistinctLayouts();
+
+    /**
+     * A user's FAILED analyses of {@code source}, newest first, leaving out each one whose file
+     * ({@code contentHash}) the same user has since confirmed as a statement import. In the query,
+     * not filtered afterwards, so a page still fills to its size. {@code StatementImport} carries
+     * {@code @SQLRestriction("deleted_at IS NULL")}, so a statement the user deleted no longer
+     * counts as imported. See {@code StatementAnalysisRecorder.recentUnresolvedCustomerFailures}.
+     */
+    @Query("""
+            SELECT s FROM StatementAnalysisSession s
+            WHERE s.userId = :userId
+              AND s.source = :source
+              AND s.outcome = com.finora.imports.analysis.StatementAnalysisSession.Outcome.FAILED
+              AND NOT EXISTS (
+                  SELECT 1 FROM StatementImport i
+                  WHERE i.userId = s.userId
+                    AND s.contentHash IS NOT NULL
+                    AND i.contentHash = s.contentHash
+                    AND i.importedAt > s.createdAt)
+            ORDER BY s.createdAt DESC
+            """)
+    List<StatementAnalysisSession> findUnresolvedFailures(@Param("userId") UUID userId,
+                                                          @Param("source") StatementAnalysisSession.Source source,
+                                                          Pageable pageable);
 }

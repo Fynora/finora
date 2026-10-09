@@ -750,6 +750,14 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
      * with no reason after having been told we were checking something. The operator's own
      * reason goes on the audit entry, not on the entity: what an admin decided is not something
      * the import did.
+     *
+     * <p>Writes {@link #REJECTED_IN_TRUST_REVIEW} as {@code lastError} as well. {@link
+     * #holdForTrustReview} cleared it on the way in, so without this the row read FAILED with an
+     * empty {@code last_error} and an empty {@code resolution_message} -- every other way into
+     * FAILED writes one or the other -- and whoever queried the row took it for a failure nobody
+     * had explained, when the explanation was a rejection recorded only in {@code failure_code}.
+     * That cost a production investigation (2026-10). The text is fixed and names no reviewer:
+     * the reviewer's reason stays on the audit entry, as above.
      */
     public void rejectAfterTrustReview(String failureCode, Instant now) {
         if (status != Status.HELD_FOR_TRUST_REVIEW) {
@@ -759,8 +767,17 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
         }
         this.status = Status.FAILED;
         this.failureCode = failureCode;
+        this.lastError = REJECTED_IN_TRUST_REVIEW;
         this.finishedAt = now;
     }
+
+    /**
+     * What {@link #rejectAfterTrustReview} writes as {@code lastError}: for engineers reading the
+     * row, like every {@code lastError}, and never shown to the user -- they get the curated
+     * message for the failure code.
+     */
+    public static final String REJECTED_IN_TRUST_REVIEW =
+            "Rejected in trust review; the reviewer's reason is on the TRUST_REVIEW_REJECTED audit entry";
 
     /**
      * Points a held job at rows re-read by the current parser build, replacing the session staged
@@ -801,6 +818,9 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
      * Undoes {@link #rejectAfterTrustReview}: the review is open again, so the import is held
      * again rather than failed. Only from that rejection -- any other failure was the import's
      * own, and is not a review's to reopen.
+     *
+     * <p>Clears {@code lastError} with the code: held again, the job is back to a state that is not
+     * a failure, exactly as {@link #holdForTrustReview} leaves it.
      */
     public void reopenTrustReview(String rejectedFailureCode) {
         if (status != Status.FAILED || !java.util.Objects.equals(failureCode, rejectedFailureCode)) {
@@ -810,6 +830,7 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
         }
         this.status = Status.HELD_FOR_TRUST_REVIEW;
         this.failureCode = null;
+        this.lastError = null;
     }
 
     /**

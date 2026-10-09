@@ -343,6 +343,21 @@ public class HeldStatementService {
         return openReviewCovering(job.getImportSessionId(), job.getId());
     }
 
+    /**
+     * Whether another job's open review already covers this job's rows -- a re-upload replayed onto
+     * a session under review, held with no record of its own and decided by that review. The
+     * overdue escalation ({@code HoldOverdueEscalationService}) uses it so one review is escalated
+     * once, not once per upload riding on it.
+     *
+     * <p>Deliberately not {@code @Transactional(readOnly = true)}: its caller marks the job inside
+     * its own write transaction, and a read-only participant can leave that shared session on
+     * manual flush, silently dropping the caller's write. Two plain reads need no transaction of
+     * their own.
+     */
+    public boolean isCoveredByOpenReview(ImportJob job) {
+        return openReviewCovering(job).isPresent();
+    }
+
     private Optional<HeldStatement> openReviewCovering(UUID sessionId, UUID excludingJobId) {
         if (sessionId == null) return Optional.empty();
         List<UUID> others = importJobRepository.findByImportSessionId(sessionId).stream()

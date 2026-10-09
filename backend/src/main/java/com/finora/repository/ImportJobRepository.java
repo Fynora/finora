@@ -131,6 +131,22 @@ public interface ImportJobRepository extends JpaRepository<ImportJob, UUID> {
     long countByStatusAndHeldStatementIdIsNull(ImportJob.Status status);
 
     /**
+     * Holds past the 48-hour promise with no escalation sent for the current hold, oldest first --
+     * {@code HoldOverdueEscalationService} (Gate 1 spec §4). {@code finishedAt} is when the current
+     * hold began ({@code ImportJob.isHoldOverdue}); {@code overdueAlertedAt} is cleared on every
+     * entry into a hold, so a re-held job comes back here. Paged so a backlog drains over runs.
+     */
+    @Query("""
+            SELECT j FROM ImportJob j
+             WHERE j.status IN :held
+               AND j.finishedAt < :cutoff
+               AND j.overdueAlertedAt IS NULL
+             ORDER BY j.finishedAt ASC
+            """)
+    List<ImportJob> findOverdueUnescalatedHolds(@Param("held") java.util.Collection<ImportJob.Status> held,
+                                                @Param("cutoff") Instant cutoff, Pageable limit);
+
+    /**
      * Jobs an admin has already sent back to the queue that have not finished yet.
      *
      * <p>Deliberately not "every QUEUED job": the queue is mostly ordinary uploads, and counting

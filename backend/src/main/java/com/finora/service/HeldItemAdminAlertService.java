@@ -120,6 +120,65 @@ public class HeldItemAdminAlertService {
     }
 
     /**
+     * A hold has passed the 48-hour promise its user was given, with no decision (Gate 1 spec §4).
+     * Sent once per hold entry by {@code HoldOverdueEscalationService}; never decides anything.
+     *
+     * <p>Re-reads the job, and sends nothing if it is no longer held: a decision made between the
+     * escalation marking it and this send makes the nudge moot. A trust hold names its review
+     * ({@code heldId}, as {@link #alertTrustReviewHeld} does) and links to it; one held with no
+     * review record links to the held-statements queue, where those are listed; an import hold
+     * names its file, as {@link #alertImportHeld} does, and links to the held-imports queue.
+     */
+    public void alertHoldOverdue(UUID jobId) {
+        Optional<ImportJob> found = importJobRepository.findById(jobId);
+        if (found.isEmpty()) {
+            log.warn("Could not send an overdue-hold admin alert for import job {}: job no longer exists", jobId);
+            return;
+        }
+        ImportJob job = found.get();
+        String heldAt = escape(formatTimestamp(job.getFinishedAt()));
+        String opening = "<p>A user was promised an answer on this statement within 48 hours. That time has "
+                + "passed with no decision.</p>";
+        switch (job.getStatus()) {
+            case HELD_FOR_TRUST_REVIEW -> {
+                Optional<HeldStatement> held = job.getHeldStatementId() == null
+                        ? Optional.empty() : heldStatementRepository.findById(job.getHeldStatementId());
+                if (held.isPresent()) {
+                    String heldId = held.get().getHeldId();
+                    sendToRecipients(TRUST_REVIEW_MANAGE, "OVERDUE: held statement past 48 hours — " + heldId,
+                            opening + "<ul>"
+                                    + "<li><strong>Held ID:</strong> " + escape(heldId) + "</li>"
+                                    + "<li><strong>Held since:</strong> " + heldAt + "</li>"
+                                    + "</ul>"
+                                    + "<p><a href=\"" + adminBaseUrl() + "/held-statements/" + escape(heldId)
+                                    + "\">Open this held statement</a></p>");
+                } else {
+                    sendToRecipients(TRUST_REVIEW_MANAGE,
+                            "OVERDUE: statement held past 48 hours with no review record — job " + job.getId(),
+                            opening + "<ul>"
+                                    + "<li><strong>Job ID:</strong> " + job.getId() + "</li>"
+                                    + "<li><strong>Held since:</strong> " + heldAt + "</li>"
+                                    + "</ul>"
+                                    + "<p>It has no review record yet; open one from the held-statements queue.</p>"
+                                    + "<p><a href=\"" + adminBaseUrl() + "/held-statements\">Open the held-statements "
+                                    + "queue</a></p>");
+                }
+            }
+            case HELD_FOR_REVIEW -> sendToRecipients(IMPORT_TRIAGE_MANAGE,
+                    "OVERDUE: statement held past 48 hours — " + job.getFileName(),
+                    opening + "<ul>"
+                            + "<li><strong>File:</strong> " + escape(job.getFileName()) + "</li>"
+                            + "<li><strong>Job ID:</strong> " + job.getId() + "</li>"
+                            + "<li><strong>Failure code:</strong> " + escape(job.getFailureCode()) + "</li>"
+                            + "<li><strong>Held since:</strong> " + heldAt + "</li>"
+                            + "</ul>"
+                            + "<p><a href=\"" + adminBaseUrl() + "/held-imports\">Open the held-imports queue</a></p>");
+            default -> log.info("Overdue-hold alert for import job {} not sent: it is {} now, no longer held",
+                    jobId, job.getStatus());
+        }
+    }
+
+    /**
      * Deliberately reads {@code getAdminAppBaseUrl()} directly rather than going through {@link
      * EmailProperties#resolveBaseUrl}, even though that method already has a null-fallback: its
      * fallback is the USER-facing frontend's URL, chosen for password-reset links where a request

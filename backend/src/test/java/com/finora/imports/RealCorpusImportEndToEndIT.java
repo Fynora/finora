@@ -169,7 +169,7 @@ class RealCorpusImportEndToEndIT extends AbstractIntegrationTest {
         createdUserIds.add(saved.getId());
         // On the Plus plan, because this instrument measures whether a statement imports, not what
         // a plan allows. A plain user is on the Free plan, whose one-month statement-period cap
-        // (ImportService.requireStatementPeriodWithinFreeLimit) refuses every multi-month statement
+        // (ImportService.requireStatementWithinFreeLimit) refuses every multi-month statement
         // in the corpus at confirm, before the import path under test runs.
         // ImportEntitlementGateIT owns that gate; this test only needs to get past it.
         subscriptionService.provisionFreeSubscription(saved.getId());

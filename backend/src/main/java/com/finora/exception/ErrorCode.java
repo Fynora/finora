@@ -336,9 +336,10 @@ public enum ErrorCode {
     ACCOUNT_LIMIT_REACHED("ENTITLEMENT_002", HttpStatus.FORBIDDEN,
             "Free plan is limited to 2 accounts. Upgrade to Plus for unlimited accounts."),
 
-    // ImportController's Free-tier cap on a single statement's period (FeatureEntitlement
+    // ImportService's Free-tier cap on a single statement's length (FeatureEntitlement
     // .EXTENDED_HISTORY -- seeded since V99, never checked anywhere until this). Same "own code,
-    // not the generic one" reasoning as ACCOUNT_LIMIT_REACHED just above.
+    // not the generic one" reasoning as ACCOUNT_LIMIT_REACHED just above. The refusal itself
+    // replaces this message with one naming the dates it found (requireStatementWithinFreeLimit).
     STATEMENT_PERIOD_TOO_LONG("ENTITLEMENT_003", HttpStatus.FORBIDDEN,
             "Free plan statements can cover at most one month. Upgrade to Plus to import longer statement periods."),
 

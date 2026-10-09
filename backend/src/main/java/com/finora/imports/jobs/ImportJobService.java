@@ -408,11 +408,36 @@ public class ImportJobService {
      * {@code IllegalArgumentException} -- a 500 for what is plainly a bad query parameter.
      * {@link com.finora.util.PageBounds} is the clamp every other paginated endpoint here already
      * uses and exists for exactly this; this one simply never adopted it.
+     *
+     * <p>Leaves out jobs the owner dismissed ({@link #dismiss}). Only finished failures and
+     * cancellations can be dismissed, so a client looking for a job it lost track of mid-import
+     * still finds it here.
      */
     public List<ImportJobDto.Progress> recent(UUID userId, int limit) {
         int size = com.finora.util.PageBounds.safeSize(limit, 50);
-        return repository.findByUserIdOrderByCreatedAtDesc(userId, PageRequest.of(0, size))
+        return repository.findByUserIdAndDismissedAtIsNullOrderByCreatedAtDesc(userId, PageRequest.of(0, size))
                 .stream().map(ImportJobDto.Progress::of).toList();
+    }
+
+    /**
+     * The owner hides a failed or cancelled import from their recent-imports list.
+     *
+     * <p>A failure stays listed until newer uploads push it out -- including after the user has
+     * uploaded the statement again and imported it -- still saying it couldn't finish. This lets
+     * them clear it once read. 404 for someone else's job, exactly as {@link #cancel}; 409 for any
+     * job that is not failed or cancelled -- a running or held import is not over. Idempotent,
+     * like {@link #cancel}.
+     */
+    @Transactional
+    public void dismiss(UUID userId, UUID jobId) {
+        ImportJob job = repository.findByIdAndUserId(jobId, userId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Import job not found."));
+        if (!ImportJob.DISMISSABLE.contains(job.getStatus())) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "Only a failed or cancelled import can be dismissed.");
+        }
+        job.dismiss(Instant.now());
+        repository.save(job);
     }
 
     /**

@@ -11,7 +11,11 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { statementImportsApi } from '../api/endpoints';
+import { importJobsApi, statementImportsApi, type ImportJobProgress } from '../api/endpoints';
+import {
+  detail as jobDetail, failureReason, isDismissable, label as jobLabel, listedRecentImports,
+  recentImportsRefetchIntervalMs,
+} from '../lib/importJob';
 import { PDF_PASSWORD_INVALID, PDF_PASSWORD_REQUIRED } from '../api/errorCodes';
 import { Button } from '../components/Button';
 import { Card, DetailField, EmptyState, SectionHeading } from '../components/Card';
@@ -70,6 +74,20 @@ export function StatementHistoryScreen() {
     queryKey: ['statement-imports'],
     queryFn: () => statementImportsApi.listGroupedByAccount(),
   });
+
+  // Every held, rejected or resolved-statement push lands on this screen, and until this list it
+  // showed only statements that finished importing -- so the import the push was about appeared
+  // nowhere. The Import tab cannot help either: it remembers a queued job only while its progress
+  // card stays mounted. A rejected import was invisible on this app the moment that card was gone.
+  // Optional context, like the Import tab's failures card: a failed fetch shows nothing rather than
+  // an error over the statements the screen is for.
+  const { data: recentJobs = [] } = useQuery({
+    queryKey: ['import-jobs-recent'],
+    queryFn: () => importJobsApi.recent(),
+    retry: false,
+    refetchInterval: (query) => recentImportsRefetchIntervalMs(query.state.data ?? []),
+  });
+  const listedJobs = listedRecentImports(recentJobs);
 
   function toggleAccount(accountId: string) {
     setOpenAccounts((prev) => {
@@ -190,6 +208,8 @@ export function StatementHistoryScreen() {
           </Card>
         ) : null}
 
+        {listedJobs.length > 0 ? <RecentImportsCard jobs={listedJobs} /> : null}
+
         {isLoading ? (
           <ActivityIndicator color={c.primary} />
         ) : isError ? (
@@ -229,6 +249,77 @@ export function StatementHistoryScreen() {
         />
       ) : null}
     </View>
+  );
+}
+
+/**
+ * Queued imports that are still running, held for a check, failed or cancelled -- the mobile
+ * counterpart of web Statement History's "Recent Imports". A failed row carries its reason inline:
+ * there is no detail page to tap through to here, and "Couldn't finish" alone is the dead end this
+ * card exists to close.
+ */
+function RecentImportsCard({ jobs }: { jobs: ImportJobProgress[] }) {
+  const c = useTheme();
+  const queryClient = useQueryClient();
+  const [dismissing, setDismissing] = useState<string | null>(null);
+  const [dismissError, setDismissError] = useState<string | null>(null);
+
+  // A failure stays listed until newer uploads push it out -- including after the statement was
+  // uploaded again and imported -- so once read, the user can clear it. The server keeps the job;
+  // only the list (on every device) stops showing it.
+  async function dismiss(job: ImportJobProgress) {
+    setDismissing(job.jobId);
+    setDismissError(null);
+    const startedAt = requestStartedAt();
+    try {
+      await importJobsApi.dismiss(job.jobId);
+      queryClient.setQueryData<ImportJobProgress[]>(['import-jobs-recent'],
+        (current) => current?.filter((j) => j.jobId !== job.jobId));
+      void queryClient.invalidateQueries({ queryKey: ['import-jobs-recent'] });
+    } catch (e) {
+      reportTransportFailure(e, 'statement-history:dismiss-import', startedAt);
+      setDismissError(toUserMessage(e, `Couldn't dismiss ${job.fileName}. Please try again.`));
+    } finally {
+      setDismissing(null);
+    }
+  }
+
+  return (
+    <Card style={styles.section}>
+      <SectionHeading title="Recent imports" />
+      <Text style={[styles.body, { color: c.muted }]}>
+        Statements still processing, or that didn&apos;t finish.
+      </Text>
+      {dismissError ? (
+        <Text style={[styles.body, { color: c.danger }]} accessibilityRole="alert">{dismissError}</Text>
+      ) : null}
+      {jobs.map((job) => {
+        const reason = failureReason(job) ?? jobDetail(job);
+        return (
+          <View key={job.jobId} style={[styles.statementRow, { borderTopColor: c.border }]} testID={`recent-import-${job.jobId}`}>
+            <Text style={[styles.fileName, { color: c.ink }]} numberOfLines={2}>{job.fileName}</Text>
+            <Text style={[styles.body, { color: job.status === 'FAILED' ? c.warningInk : c.mutedInk }]}>
+              {jobLabel(job)}
+              {fmtDate(job.createdAt) ? ` · ${fmtDate(job.createdAt)}` : ''}
+            </Text>
+            {reason ? (
+              <Text style={[styles.body, { color: c.mutedInk }]}>{reason}</Text>
+            ) : null}
+            {isDismissable(job) ? (
+              <View style={styles.actionRow}>
+                <RowAction
+                  label="Dismiss"
+                  accessibilityLabel={`Dismiss ${job.fileName}`}
+                  icon="close-circle-outline"
+                  onPress={() => void dismiss(job)}
+                  busy={dismissing === job.jobId}
+                />
+              </View>
+            ) : null}
+          </View>
+        );
+      })}
+    </Card>
   );
 }
 
@@ -313,9 +404,12 @@ function AccountGroupCard({
 }
 
 function RowAction({
-  label, icon, onPress, busy, danger, disabled,
+  label, icon, onPress, busy, danger, disabled, accessibilityLabel,
 }: {
   label: string;
+  /** Defaults to `label`; set when several rows share one label and a screen reader needs to
+   *  know which row it acts on. */
+  accessibilityLabel?: string;
   icon: keyof typeof Ionicons.glyphMap;
   onPress: () => void;
   busy?: boolean;
@@ -329,7 +423,7 @@ function RowAction({
       onPress={onPress}
       disabled={isDisabled}
       accessibilityRole="button"
-      accessibilityLabel={label}
+      accessibilityLabel={accessibilityLabel ?? label}
       accessibilityState={{ disabled: !!isDisabled, busy: !!busy }}
       hitSlop={6}
       style={[styles.action, { borderColor: c.border }, isDisabled && styles.actionDisabled]}

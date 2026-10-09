@@ -1,9 +1,10 @@
 import { act, render, screen, waitFor, fireEvent } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StatementHistoryScreen } from './StatementHistoryScreen';
-import { statementImportsApi } from '../api/endpoints';
+import { importJobsApi, statementImportsApi, type ImportJobProgress } from '../api/endpoints';
 import { PDF_PASSWORD_INVALID, PDF_PASSWORD_REQUIRED } from '../api/errorCodes';
 import type { AccountStatementGroup } from '../types';
+import { detail as jobDetail, label as jobLabel } from '../lib/importJob';
 
 // Scoped to re-importing a password-protected statement -- the one flow here where the server's
 // answer changes what the screen DOES rather than only what it says.
@@ -18,6 +19,11 @@ jest.mock('../api/endpoints', () => ({
     remove: jest.fn(),
     downloadFile: jest.fn(),
     transactions: jest.fn(),
+  },
+  // The "Recent imports" card: empty unless a test says otherwise, so it renders nothing.
+  importJobsApi: {
+    recent: jest.fn().mockResolvedValue([]),
+    dismiss: jest.fn(),
   },
 }));
 
@@ -361,5 +367,128 @@ describe('StatementHistoryScreen — re-importing a password-protected statement
     expect(screen.queryByText('Bank Sync active')).toBeNull();
     const button = await screen.findByLabelText('Re-import');
     expect(button.props.accessibilityState.disabled).toBeFalsy();
+  });
+});
+
+/**
+ * Held, rejected and resolved-statement pushes all land on this screen. It used to list only
+ * statements that finished importing, so the upload a push was about appeared nowhere, and a
+ * rejected import could not be found again on this app at all once the Import tab's progress card
+ * was gone.
+ */
+describe('StatementHistoryScreen — recent imports', () => {
+  const jobs = importJobsApi as jest.Mocked<typeof importJobsApi>;
+
+  function job(overrides: Partial<ImportJobProgress>): ImportJobProgress {
+    return {
+      jobId: 'job-1', fileName: 'statement.pdf', status: 'FAILED', userStatus: 'FAILED',
+      rowsTotal: 191, rowsProcessed: 191, createdAt: '2026-10-03T14:18:58Z', startedAt: null,
+      finishedAt: null, importSessionId: null, error: null, correlationId: null,
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    api.listGroupedByAccount.mockReset().mockResolvedValue([]);
+    jobs.recent.mockReset();
+  });
+
+  it('shows a rejected import with the reason the server gives', async () => {
+    jobs.recent.mockResolvedValue([job({
+      fileName: 'rejected.pdf',
+      error: 'We checked this statement and could not read it accurately enough to import it. Nothing was added to your accounts.',
+    })]);
+    renderScreen();
+
+    expect(await screen.findByText('Recent imports')).toBeOnTheScreen();
+    expect(screen.getByText('rejected.pdf')).toBeOnTheScreen();
+    expect(screen.getByText(/Couldn't finish/)).toBeOnTheScreen();
+    expect(screen.getByText(/could not read it accurately enough to import it/)).toBeOnTheScreen();
+  });
+
+  it('never shows a failed import without a reason, even when the server sends none', async () => {
+    jobs.recent.mockResolvedValue([job({ error: null })]);
+    renderScreen();
+
+    expect(await screen.findByText("Fynora couldn't complete this import. Please try again.")).toBeOnTheScreen();
+  });
+
+  // The held copy itself belongs to lib/importJob and is asserted there; this checks the card shows
+  // whatever that module says, so a copy change does not have to touch this file too.
+  it('shows a held import as being checked', async () => {
+    const held = job({ status: 'HELD_FOR_TRUST_REVIEW', userStatus: 'HELD_FOR_REVIEW', fileName: 'held.pdf' });
+    jobs.recent.mockResolvedValue([held]);
+    renderScreen();
+
+    expect(await screen.findByText('held.pdf')).toBeOnTheScreen();
+    const escaped = jobLabel(held).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    expect(screen.getByText(new RegExp(`^${escaped}`))).toBeOnTheScreen();
+    expect(screen.getByText(jobDetail(held) as string)).toBeOnTheScreen();
+  });
+
+  // A failure stays listed until newer uploads push it out -- including after the statement was
+  // uploaded again and imported -- so once read, the user can clear it.
+  it('dismisses a failed import from the card', async () => {
+    const failed = job({ jobId: 'job-failed', fileName: 'rejected.pdf' });
+    const held = job({ jobId: 'job-held', status: 'HELD_FOR_TRUST_REVIEW', userStatus: 'HELD_FOR_REVIEW', fileName: 'held.pdf' });
+    jobs.recent.mockResolvedValueOnce([failed, held]).mockResolvedValue([held]);
+    jobs.dismiss.mockReset().mockResolvedValue(undefined);
+    renderScreen();
+
+    fireEvent.press(await screen.findByLabelText('Dismiss rejected.pdf'));
+    await settle();
+
+    expect(screen.queryByText('rejected.pdf')).toBeNull();
+    expect(jobs.dismiss).toHaveBeenCalledWith('job-failed');
+    expect(screen.getByText('held.pdf')).toBeOnTheScreen();
+  });
+
+  it('offers no dismiss on an import that is not over', async () => {
+    jobs.recent.mockResolvedValue([
+      job({ jobId: 'job-held', status: 'HELD_FOR_TRUST_REVIEW', userStatus: 'HELD_FOR_REVIEW', fileName: 'held.pdf' }),
+      job({ jobId: 'job-running', status: 'PARSING', userStatus: 'PROCESSING', fileName: 'running.pdf' }),
+    ]);
+    renderScreen();
+
+    expect(await screen.findByText('held.pdf')).toBeOnTheScreen();
+    expect(screen.queryByLabelText(/^Dismiss/)).toBeNull();
+  });
+
+  it('offers dismiss on a cancelled import', async () => {
+    jobs.recent.mockResolvedValue([job({ status: 'CANCELLED', userStatus: 'CANCELLED', fileName: 'cancelled.csv' })]);
+    renderScreen();
+
+    expect(await screen.findByLabelText('Dismiss cancelled.csv')).toBeOnTheScreen();
+  });
+
+  it('keeps the row and says so when dismissing fails', async () => {
+    jobs.recent.mockResolvedValue([job({ jobId: 'job-failed', fileName: 'rejected.pdf' })]);
+    jobs.dismiss.mockReset().mockRejectedValue(new Error('network error'));
+    renderScreen();
+
+    fireEvent.press(await screen.findByLabelText('Dismiss rejected.pdf'));
+    await settle();
+
+    expect(screen.getByText("Couldn't dismiss rejected.pdf. Please try again.")).toBeOnTheScreen();
+    expect(screen.getByText('rejected.pdf')).toBeOnTheScreen();
+  });
+
+  it('leaves completed imports to the statement list', async () => {
+    jobs.recent.mockResolvedValue([job({ status: 'COMPLETED', userStatus: 'COMPLETED', fileName: 'done.pdf' })]);
+    renderScreen();
+
+    await waitFor(() => expect(jobs.recent).toHaveBeenCalled());
+    await settle();
+    expect(screen.queryByText('Recent imports')).toBeNull();
+    expect(screen.queryByText('done.pdf')).toBeNull();
+  });
+
+  it('keeps the statement list when the recent imports cannot load', async () => {
+    jobs.recent.mockRejectedValue(new Error('offline'));
+    api.listGroupedByAccount.mockResolvedValue(groups);
+    renderScreen();
+
+    expect(await screen.findByText('HDFC Savings')).toBeOnTheScreen();
+    expect(screen.queryByText('Recent imports')).toBeNull();
   });
 });

@@ -378,6 +378,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let sessionEnded = false;
 
     const unsubscribe = subscribeToForegroundMessages((message) => {
+      // A push about a statement import (held, ready, resolved, rejected) means the job behind it
+      // just changed, and the Statements screen's "Recent imports" card shows that job. While the
+      // app is open the push only raises the alert below -- it does not navigate, so nothing
+      // remounts -- and that card is not covered by the change stamp, so without this the alert
+      // could say "rejected" over a card still saying "held". Ahead of the lock and body checks:
+      // the data changed whether or not the alert can be shown.
+      const pushType = message.data?.type;
+      if (typeof pushType === 'string' && pushType.startsWith('IMPORT_STATEMENT_')) {
+        void queryClient.invalidateQueries({ queryKey: ['import-jobs-recent'] });
+      }
       if (appLock.isLocked()) return;
       const body = message.notification?.body;
       if (!body) return;
@@ -412,7 +422,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Same reason for a banner still on screen: it was this session's message.
       AppBanner.dismiss();
     };
-  }, [token, phoneVerified]);
+  }, [token, phoneVerified, queryClient]);
 
   async function persist(data: {
     token: string;

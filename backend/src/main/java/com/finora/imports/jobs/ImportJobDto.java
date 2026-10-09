@@ -56,11 +56,11 @@ public final class ImportJobDto {
      * "still reading the statement", which lets the UI say so instead of showing "0 of 0" and
      * looking stuck. A zero would be indistinguishable from an empty file.
      *
-     * <p>{@code error} is the curated, user-safe message for the failure code -- never the job's raw
-     * {@code last_error}, which is written for engineers -- and only once the job has actually
-     * FAILED, and only when the failure has a curated message (otherwise null). A job that failed
-     * once and is retrying is not something to alarm the user about -- it is the system working -- so
-     * a transient error is deliberately not surfaced mid-flight.
+     * <p>{@code error} is a user-safe reason -- never the job's raw {@code last_error}, which is
+     * written for engineers -- and only once the job has actually FAILED. A job that failed once
+     * and is retrying is not something to alarm the user about -- it is the system working -- so a
+     * transient error is deliberately not surfaced mid-flight. Once FAILED it is never null: see
+     * {@link #failureReason}.
      *
      * <p>{@code status} stays the raw {@link ImportJob.Status} name -- unchanged, since the import
      * timeline UI needs that granularity. {@code userStatus} is additive: Sprint 4 item 20a's
@@ -97,16 +97,39 @@ public final class ImportJobDto {
                     job.getFinishedAt(),
                     job.getImportSessionId(),
                     // Never last_error itself: that is ExceptionClass: message, for engineers, and can
-                    // name a storage endpoint, an object key or a hash. The curated message for the
-                    // failure code, or null -- see ErrorCode.userSafeMessageOrNull.
-                    job.getStatus() == ImportJob.Status.FAILED
-                            ? ErrorCode.userSafeMessageOrNull(job.getFailureCode()) : null,
+                    // name a storage endpoint, an object key or a hash.
+                    failureReason(job),
                     // Given to the client so a support conversation can start from an id that ties
                     // together the worker's logs, its audit rows and any Sentry event.
                     job.getCorrelationId(),
                     UserFacingImportStatus.of(job.getStatus(), job.getFailureCode()));
         }
+
+        /**
+         * Why a FAILED job failed, in words the user may read; null for any other status.
+         *
+         * <p>Most specific first: the message an admin wrote when resolving a held import, then the
+         * curated message for the failure code, then {@link #FAILED_WITHOUT_CURATED_REASON}. The
+         * fallback is what makes this never null once FAILED -- a failure whose code has no
+         * curated message (an unclassified exception, a worker that kept dying) used to come back
+         * with a null reason, which a client listing jobs could only render as a bare "Couldn't
+         * finish". Same order the import timeline's clients already apply to their own fields.
+         */
+        static String failureReason(ImportJob job) {
+            if (job.getStatus() != ImportJob.Status.FAILED) return null;
+            String resolution = job.getResolutionMessage();
+            if (resolution != null && !resolution.isBlank()) return resolution.trim();
+            String curated = ErrorCode.userSafeMessageOrNull(job.getFailureCode());
+            return curated != null ? curated : FAILED_WITHOUT_CURATED_REASON;
+        }
     }
+
+    /**
+     * The reason given for a FAILED job no curated message covers. Word for word the fallback both
+     * clients already show on their progress screens, so a job reads the same wherever it appears.
+     */
+    public static final String FAILED_WITHOUT_CURATED_REASON =
+            "Fynora couldn't complete this import. Please try again.";
 
     /**
      * One stage's transition, for the customer-facing import timeline -- Premium Import

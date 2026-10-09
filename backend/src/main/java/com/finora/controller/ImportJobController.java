@@ -199,4 +199,14 @@ public class ImportJobController {
     public ApiResponse<ImportJobDto.Progress> cancel(@PathVariable UUID jobId) {
         return ApiResponse.ok(importJobService.cancel(currentUser.id(), jobId), "Import cancelled");
     }
+
+    /**
+     * Hides a failed or cancelled import from {@link #recent}. {@code POST} for the same reason as
+     * {@link #cancel}: the row is kept -- only the list stops showing it.
+     */
+    @PostMapping("/{jobId}/dismiss")
+    public ApiResponse<Void> dismiss(@PathVariable UUID jobId) {
+        importJobService.dismiss(currentUser.id(), jobId);
+        return ApiResponse.ok(null, "Import dismissed");
+    }
 }

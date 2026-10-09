@@ -91,6 +91,9 @@ public interface ImportJobRepository extends JpaRepository<ImportJob, UUID> {
 
     List<ImportJob> findByUserIdOrderByCreatedAtDesc(UUID userId, Pageable pageable);
 
+    /** The recent-imports list: everything the owner has not dismissed (V264). */
+    List<ImportJob> findByUserIdAndDismissedAtIsNullOrderByCreatedAtDesc(UUID userId, Pageable pageable);
+
     /** Queue depth for the {@code finora.worker.queue_depth} gauge. */
     long countByStatus(ImportJob.Status status);
 

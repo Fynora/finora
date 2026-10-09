@@ -11,7 +11,7 @@ import { PDF_PASSWORD_INVALID, PDF_PASSWORD_REQUIRED } from '../api/errorCodes';
 import { BankLogo } from '../components/BankLogo';
 import { StatementRefreshBanner } from '../components/statementRefresh/StatementRefreshBanner';
 import { PasswordInput } from '../components/PasswordInput';
-import { recentImportsRefetchIntervalMs, label as jobLabel } from '../lib/importJob';
+import { failureReason, isDismissable, recentImportsRefetchIntervalMs, label as jobLabel } from '../lib/importJob';
 import { navigateToReimport } from '../lib/importNavState';
 import type { AccountStatementGroup, StatementSummary, Transaction } from '../types';
 import { formatDate } from '../utils/date';
@@ -760,7 +760,28 @@ function RecentImportsSection({ jobs }: { jobs: ImportJobProgress[] }) {
   // useNavigate() for its own buttons, and this one needs nothing from the caller that reaching
   // for the hook directly doesn't already give it.
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState(false);
+  const [dismissing, setDismissing] = useState<string | null>(null);
+  const [dismissError, setDismissError] = useState<string | null>(null);
+
+  // A failure stays listed until newer uploads push it out -- including after the statement was
+  // uploaded again and imported -- so once read, the user can clear it. The server keeps the job;
+  // only the list (on every device) stops showing it.
+  async function dismiss(job: ImportJobProgress) {
+    setDismissing(job.jobId);
+    setDismissError(null);
+    try {
+      await importJobsApi.dismiss(job.jobId);
+      queryClient.setQueryData<ImportJobProgress[]>(['import-jobs-recent'],
+        (current) => current?.filter((j) => j.jobId !== job.jobId));
+      void queryClient.invalidateQueries({ queryKey: ['import-jobs-recent'] });
+    } catch {
+      setDismissError(`Couldn't dismiss ${job.fileName}. Please try again.`);
+    } finally {
+      setDismissing(null);
+    }
+  }
 
   return (
     <div className="bg-card rounded-xl2 shadow-card border border-border overflow-hidden">
@@ -783,19 +804,42 @@ function RecentImportsSection({ jobs }: { jobs: ImportJobProgress[] }) {
       </button>
       {expanded && (
       <div className="divide-y divide-border">
+        {dismissError && (
+          <p className="px-5 py-2 text-xs text-danger" role="alert">{dismissError}</p>
+        )}
         {jobs.map((job) => (
-          <button
-            key={job.jobId}
-            type="button"
-            onClick={() => void navigate(`/app/imports/${job.jobId}`)}
-            className="w-full text-left px-5 py-3.5 hover:bg-bg"
-          >
-            <div className="flex items-center justify-between gap-4 flex-wrap">
-              <p className="text-sm font-medium text-ink truncate">{job.fileName}</p>
-              <p className="text-xs text-muted flex-shrink-0">{fmtDate(job.createdAt)}</p>
-            </div>
-            <p className="text-xs text-muted mt-1">{jobLabel(job)}</p>
-          </button>
+          // Two sibling buttons rather than one inside the other: a button may not contain another.
+          <div key={job.jobId} className="flex items-start hover:bg-bg">
+            <button
+              type="button"
+              onClick={() => void navigate(`/app/imports/${job.jobId}`)}
+              className="flex-1 min-w-0 text-left px-5 py-3.5"
+            >
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <p className="text-sm font-medium text-ink truncate">{job.fileName}</p>
+                <p className="text-xs text-muted flex-shrink-0">{fmtDate(job.createdAt)}</p>
+              </div>
+              <p className="text-xs text-muted mt-1">{jobLabel(job)}</p>
+              {/* A failed row says why right here: "Couldn't finish" alone reads as a dead end, and
+                  not everyone opens the row to find the reason on the detail page. */}
+              {failureReason(job) && (
+                <p className="text-xs text-muted mt-0.5" data-testid="recent-import-failure-reason">
+                  {failureReason(job)}
+                </p>
+              )}
+            </button>
+            {isDismissable(job) && (
+              <button
+                type="button"
+                onClick={() => void dismiss(job)}
+                disabled={dismissing === job.jobId}
+                aria-label={`Dismiss ${job.fileName}`}
+                className="flex-shrink-0 px-4 py-3.5 text-xs font-medium text-primary hover:underline disabled:opacity-40"
+              >
+                {dismissing === job.jobId ? 'Dismissing…' : 'Dismiss'}
+              </button>
+            )}
+          </div>
         ))}
       </div>
       )}

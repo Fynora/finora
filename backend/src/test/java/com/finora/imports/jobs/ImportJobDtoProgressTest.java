@@ -32,14 +32,18 @@ class ImportJobDtoProgressTest {
                 "StatementStorageException: R2 unavailable at https://acct.r2.cloudflarestorage.com/finora-statements/objects/9f2c",
                 "StatementStorageException");
 
-        assertThat(ImportJobDto.Progress.of(job).error()).isNull();
+        assertThat(ImportJobDto.Progress.of(job).error())
+                .isEqualTo(ImportJobDto.FAILED_WITHOUT_CURATED_REASON)
+                .doesNotContain("r2").doesNotContain("objects/");
     }
 
     @Test
     void anUnclassifiedFailureNeverLeaksItsRawError() {
         ImportJob job = failedJob("NullPointerException: Cannot invoke \"String.length()\" because \"s\" is null", "NullPointerException");
 
-        assertThat(ImportJobDto.Progress.of(job).error()).isNull();
+        assertThat(ImportJobDto.Progress.of(job).error())
+                .isEqualTo(ImportJobDto.FAILED_WITHOUT_CURATED_REASON)
+                .doesNotContain("NullPointerException");
     }
 
     /** A curated code has curated wording; that, not the engineer's string, is what the user may read. */

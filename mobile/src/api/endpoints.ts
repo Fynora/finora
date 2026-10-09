@@ -730,6 +730,10 @@ export const importJobsApi = {
     api.get<ImportJobProgress>(`/import/jobs/${jobId}`).then((r) => r.data),
   timeline: (jobId: string) =>
     api.get<ImportJobTimeline>(`/import/jobs/${jobId}/timeline`).then((r) => r.data),
+  // The caller's most recent queued imports, newest first -- what web's Statement History lists as
+  // "Recent Imports", and the only way back to a job once the screen that uploaded it has gone.
+  recent: (limit = 20) =>
+    api.get<ImportJobProgress[]>(`/import/jobs?limit=${limit}`).then((r) => r.data),
   // POST, not DELETE: this ends the work and keeps the row, because a cancelled import is part of
   // the user's history. Returns the job's new state so the caller renders from the response
   // instead of racing its own next poll.

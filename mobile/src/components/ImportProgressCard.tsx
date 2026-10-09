@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { importJobsApi, type ImportJobProgress } from '../api/endpoints';
 import { importFailureMessage, importFailureTitle } from '../api/importFailureMessages';
-import { detail, isCancellable, isHeld, isSettled, label, percent } from '../lib/importJob';
+import { FAILED_IMPORT_FALLBACK, detail, isCancellable, isHeld, isSettled, label, percent } from '../lib/importJob';
 import { Card } from './Card';
 import { radius, spacing, useTheme } from '../theme';
 
@@ -22,7 +22,7 @@ import { radius, spacing, useTheme } from '../theme';
 
 /** What a FAILED job says when there is no curated reason for its code -- the same sentence web's
  *  ImportTimeline uses, so the two apps do not tell the user different things about one failure. */
-const FAILURE_FALLBACK = "Fynora couldn't complete this import. Please try again.";
+const FAILURE_FALLBACK = FAILED_IMPORT_FALLBACK;
 
 export const POLL_SCHEDULE_MS = [100, 200, 400, 800, 1500] as const;
 

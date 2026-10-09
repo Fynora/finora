@@ -11,7 +11,10 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { statementImportsApi } from '../api/endpoints';
+import { importJobsApi, statementImportsApi, type ImportJobProgress } from '../api/endpoints';
+import {
+  detail as jobDetail, failureReason, label as jobLabel, listedRecentImports, recentImportsRefetchIntervalMs,
+} from '../lib/importJob';
 import { PDF_PASSWORD_INVALID, PDF_PASSWORD_REQUIRED } from '../api/errorCodes';
 import { Button } from '../components/Button';
 import { Card, DetailField, EmptyState, SectionHeading } from '../components/Card';
@@ -70,6 +73,20 @@ export function StatementHistoryScreen() {
     queryKey: ['statement-imports'],
     queryFn: () => statementImportsApi.listGroupedByAccount(),
   });
+
+  // Every held, rejected or resolved-statement push lands on this screen, and until this list it
+  // showed only statements that finished importing -- so the import the push was about appeared
+  // nowhere. The Import tab cannot help either: it remembers a queued job only while its progress
+  // card stays mounted. A rejected import was invisible on this app the moment that card was gone.
+  // Optional context, like the Import tab's failures card: a failed fetch shows nothing rather than
+  // an error over the statements the screen is for.
+  const { data: recentJobs = [] } = useQuery({
+    queryKey: ['import-jobs-recent'],
+    queryFn: () => importJobsApi.recent(),
+    retry: false,
+    refetchInterval: (query) => recentImportsRefetchIntervalMs(query.state.data ?? []),
+  });
+  const listedJobs = listedRecentImports(recentJobs);
 
   function toggleAccount(accountId: string) {
     setOpenAccounts((prev) => {
@@ -190,6 +207,8 @@ export function StatementHistoryScreen() {
           </Card>
         ) : null}
 
+        {listedJobs.length > 0 ? <RecentImportsCard jobs={listedJobs} /> : null}
+
         {isLoading ? (
           <ActivityIndicator color={c.primary} />
         ) : isError ? (
@@ -229,6 +248,39 @@ export function StatementHistoryScreen() {
         />
       ) : null}
     </View>
+  );
+}
+
+/**
+ * Queued imports that are still running, held for a check, failed or cancelled -- the mobile
+ * counterpart of web Statement History's "Recent Imports". A failed row carries its reason inline:
+ * there is no detail page to tap through to here, and "Couldn't finish" alone is the dead end this
+ * card exists to close.
+ */
+function RecentImportsCard({ jobs }: { jobs: ImportJobProgress[] }) {
+  const c = useTheme();
+  return (
+    <Card style={styles.section}>
+      <SectionHeading title="Recent imports" />
+      <Text style={[styles.body, { color: c.muted }]}>
+        Statements still processing, or that didn&apos;t finish.
+      </Text>
+      {jobs.map((job) => {
+        const reason = failureReason(job) ?? jobDetail(job);
+        return (
+          <View key={job.jobId} style={[styles.statementRow, { borderTopColor: c.border }]} testID={`recent-import-${job.jobId}`}>
+            <Text style={[styles.fileName, { color: c.ink }]} numberOfLines={2}>{job.fileName}</Text>
+            <Text style={[styles.body, { color: job.status === 'FAILED' ? c.warningInk : c.mutedInk }]}>
+              {jobLabel(job)}
+              {fmtDate(job.createdAt) ? ` · ${fmtDate(job.createdAt)}` : ''}
+            </Text>
+            {reason ? (
+              <Text style={[styles.body, { color: c.mutedInk }]}>{reason}</Text>
+            ) : null}
+          </View>
+        );
+      })}
+    </Card>
   );
 }
 

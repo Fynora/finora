@@ -7,10 +7,11 @@ import type { ImportJobProgress } from '../api/endpoints';
  * never stops or a Cancel button on a finished import, neither of which shows up in a render test
  * that only checks a label.
  *
- * Not a full port: `stageLabel` (per-stage-row labels for web's ImportTimeline) and
- * `recentImportsRefetchIntervalMs` (for web's "Recent Imports" list) support surfaces this app's
- * mobile cut doesn't build -- see ImportProgressCard.tsx's own doc comment for what replaces
- * ImportTimeline here. Everything this file DOES export is unchanged from the web original.
+ * Not a full port: `stageLabel` (per-stage-row labels for web's ImportTimeline) supports a surface
+ * this app's mobile cut doesn't build -- see ImportProgressCard.tsx's own doc comment for what
+ * replaces ImportTimeline here. The helpers at the end of this file (`failureReason`,
+ * `listedRecentImports`, `recentImportsRefetchIntervalMs`) serve the Statement History screen's
+ * "Recent imports" card; everything else is unchanged from the web original.
  */
 
 const IN_FLIGHT: ImportJobProgress['status'][] = [
@@ -84,10 +85,9 @@ export function percent(job: ImportJobProgress): number | null {
 
 /**
  * The one line of detail under the label, or null when there is nothing honest to add. FAILED
- * returns null here -- unlike web, this app's mobile ImportProgressCard fetches the job's timeline
- * once on FAILED and shows importFailureMessage(timeline.failureCode) itself, the same curated
- * reason web's separate ImportTimeline component owns; job.error is raw, untranslated text never
- * fit to show directly (see ErrorCode's own doc comment on the backend).
+ * returns null here -- this app's mobile ImportProgressCard fetches the job's timeline once on
+ * FAILED and shows the reason itself, with the per-code title the timeline's failureCode allows.
+ * A list that has no timeline to fetch uses failureReason below instead.
  */
 export function detail(job: ImportJobProgress): string | null {
   if (job.status === 'FAILED') return null;
@@ -100,4 +100,35 @@ export function detail(job: ImportJobProgress): string | null {
     return `${job.rowsTotal} ${job.rowsTotal === 1 ? 'transaction' : 'transactions'} found`;
   }
   return `${Math.min(job.rowsProcessed, job.rowsTotal)} of ${job.rowsTotal}`;
+}
+
+/** Same words the progress card and the server fall back to, so a job reads alike everywhere. */
+export const FAILED_IMPORT_FALLBACK = "Fynora couldn't complete this import. Please try again.";
+
+/**
+ * Why a FAILED job failed, for a list with no timeline per row; null for any other status.
+ *
+ * `job.error` is the server's user-safe reason (ImportJobDto.Progress.failureReason): an admin's
+ * resolution message, else the curated message for the failure code, else the fallback -- never the
+ * engineer's last_error. The fallback here covers a server that predates that guarantee and still
+ * sends null for a failure with no curated message.
+ */
+export function failureReason(job: ImportJobProgress): string | null {
+  if (job.status !== 'FAILED') return null;
+  return job.error?.trim() || FAILED_IMPORT_FALLBACK;
+}
+
+/**
+ * Which recent jobs the Statement History screen lists: everything except COMPLETED, the same cut
+ * web's "Recent Imports" makes. A completed job already became a staged session (and, once
+ * confirmed, a statement in the list below it); anything else -- still running, held for a check,
+ * failed, cancelled -- appears nowhere else once the screen that uploaded it is gone.
+ */
+export function listedRecentImports(jobs: ImportJobProgress[]): ImportJobProgress[] {
+  return jobs.filter((j) => j.status !== 'COMPLETED');
+}
+
+/** Keep polling the list while anything in it is still moving -- port of web's helper. */
+export function recentImportsRefetchIntervalMs(jobs: { status: ImportJobProgress['status'] }[]): number | false {
+  return jobs.some((j) => !isSettled(j)) ? 15_000 : false;
 }

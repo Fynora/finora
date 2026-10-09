@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor, fireEvent } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StatementHistoryScreen } from './StatementHistoryScreen';
-import { statementImportsApi } from '../api/endpoints';
+import { importJobsApi, statementImportsApi, type ImportJobProgress } from '../api/endpoints';
 import { PDF_PASSWORD_INVALID, PDF_PASSWORD_REQUIRED } from '../api/errorCodes';
 import type { AccountStatementGroup } from '../types';
 
@@ -18,6 +18,10 @@ jest.mock('../api/endpoints', () => ({
     remove: jest.fn(),
     downloadFile: jest.fn(),
     transactions: jest.fn(),
+  },
+  // The "Recent imports" card: empty unless a test says otherwise, so it renders nothing.
+  importJobsApi: {
+    recent: jest.fn().mockResolvedValue([]),
   },
 }));
 
@@ -361,5 +365,77 @@ describe('StatementHistoryScreen — re-importing a password-protected statement
     expect(screen.queryByText('Bank Sync active')).toBeNull();
     const button = await screen.findByLabelText('Re-import');
     expect(button.props.accessibilityState.disabled).toBeFalsy();
+  });
+});
+
+/**
+ * Held, rejected and resolved-statement pushes all land on this screen. It used to list only
+ * statements that finished importing, so the upload a push was about appeared nowhere, and a
+ * rejected import could not be found again on this app at all once the Import tab's progress card
+ * was gone.
+ */
+describe('StatementHistoryScreen — recent imports', () => {
+  const jobs = importJobsApi as jest.Mocked<typeof importJobsApi>;
+
+  function job(overrides: Partial<ImportJobProgress>): ImportJobProgress {
+    return {
+      jobId: 'job-1', fileName: 'statement.pdf', status: 'FAILED', userStatus: 'FAILED',
+      rowsTotal: 191, rowsProcessed: 191, createdAt: '2026-10-03T14:18:58Z', startedAt: null,
+      finishedAt: null, importSessionId: null, error: null, correlationId: null,
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    api.listGroupedByAccount.mockReset().mockResolvedValue([]);
+    jobs.recent.mockReset();
+  });
+
+  it('shows a rejected import with the reason the server gives', async () => {
+    jobs.recent.mockResolvedValue([job({
+      fileName: 'rejected.pdf',
+      error: 'We checked this statement and could not read it accurately enough to import it. Nothing was added to your accounts.',
+    })]);
+    renderScreen();
+
+    expect(await screen.findByText('Recent imports')).toBeOnTheScreen();
+    expect(screen.getByText('rejected.pdf')).toBeOnTheScreen();
+    expect(screen.getByText(/Couldn't finish/)).toBeOnTheScreen();
+    expect(screen.getByText(/could not read it accurately enough to import it/)).toBeOnTheScreen();
+  });
+
+  it('never shows a failed import without a reason, even when the server sends none', async () => {
+    jobs.recent.mockResolvedValue([job({ error: null })]);
+    renderScreen();
+
+    expect(await screen.findByText("Fynora couldn't complete this import. Please try again.")).toBeOnTheScreen();
+  });
+
+  it('shows a held import as being checked', async () => {
+    jobs.recent.mockResolvedValue([job({ status: 'HELD_FOR_TRUST_REVIEW', userStatus: 'HELD_FOR_REVIEW', fileName: 'held.pdf' })]);
+    renderScreen();
+
+    expect(await screen.findByText('held.pdf')).toBeOnTheScreen();
+    expect(screen.getByText(/Running additional checks/)).toBeOnTheScreen();
+    expect(screen.getByText(/We'll notify you once it's ready/)).toBeOnTheScreen();
+  });
+
+  it('leaves completed imports to the statement list', async () => {
+    jobs.recent.mockResolvedValue([job({ status: 'COMPLETED', userStatus: 'COMPLETED', fileName: 'done.pdf' })]);
+    renderScreen();
+
+    await waitFor(() => expect(jobs.recent).toHaveBeenCalled());
+    await settle();
+    expect(screen.queryByText('Recent imports')).toBeNull();
+    expect(screen.queryByText('done.pdf')).toBeNull();
+  });
+
+  it('keeps the statement list when the recent imports cannot load', async () => {
+    jobs.recent.mockRejectedValue(new Error('offline'));
+    api.listGroupedByAccount.mockResolvedValue(groups);
+    renderScreen();
+
+    expect(await screen.findByText('HDFC Savings')).toBeOnTheScreen();
+    expect(screen.queryByText('Recent imports')).toBeNull();
   });
 });

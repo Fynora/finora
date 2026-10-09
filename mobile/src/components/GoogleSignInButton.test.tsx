@@ -80,11 +80,12 @@ describe('GoogleSignInButton', () => {
       // The library's own button pins the logo to the left edge; this one is drawn to pair with
       // the centred AppleAuthenticationButton beneath it.
       const { view } = renderButton();
+      expect(view.getByText('Sign in with Google')).toHaveStyle({ flexShrink: 1, textAlign: 'center' });
       expect(view.getByTestId('google-sign-in-button')).toHaveStyle({
         flexDirection: 'row',
         justifyContent: 'center',
         alignItems: 'center',
-        height: 48,
+        minHeight: 48, // min, not fixed: the row grows with large accessibility text
         width: '100%',
       });
     });

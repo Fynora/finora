@@ -147,7 +147,8 @@ const styles = StyleSheet.create({
   },
   button: {
     width: '100%',
-    height: 48,
+    minHeight: 48,
+    paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -164,5 +165,9 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '600',
     color: '#1F1F1F',
+    // At accessibility text sizes the label wraps; without these the row overflowed and pushed
+    // the G past the button's left edge (seen on the iOS 26.5 simulator at AX extra-large).
+    flexShrink: 1,
+    textAlign: 'center',
   },
 });

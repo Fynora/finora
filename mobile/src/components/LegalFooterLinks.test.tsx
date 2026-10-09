@@ -4,10 +4,10 @@ import { LegalFooterLinks } from './LegalFooterLinks';
 import { ThemeProvider } from '../theme';
 import { webUrl } from '../lib/webUrl';
 
-function renderComponent() {
+function renderComponent(hideConsentLinks = false) {
   return render(
     <ThemeProvider>
-      <LegalFooterLinks />
+      <LegalFooterLinks hideConsentLinks={hideConsentLinks} />
     </ThemeProvider>
   );
 }
@@ -18,6 +18,15 @@ describe('LegalFooterLinks', () => {
 
     expect(screen.getByText('Privacy Policy')).toBeTruthy();
     expect(screen.getByText('Terms of Service')).toBeTruthy();
+    expect(screen.getByText('Trust & Security')).toBeTruthy();
+    expect(screen.getByText('Data Portability Promise')).toBeTruthy();
+  });
+
+  it('drops Privacy and Terms when the consent notice above already links them, keeping the other two', () => {
+    renderComponent(true);
+
+    expect(screen.queryByText('Privacy Policy')).toBeNull();
+    expect(screen.queryByText('Terms of Service')).toBeNull();
     expect(screen.getByText('Trust & Security')).toBeTruthy();
     expect(screen.getByText('Data Portability Promise')).toBeTruthy();
   });

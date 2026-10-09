@@ -7,7 +7,9 @@ interface Props {
   onPress: () => void;
   loading?: boolean;
   disabled?: boolean;
-  variant?: 'primary' | 'link';
+  /** 'secondary' is the tonal fill for the fallback action on a screen whose primary action is
+   *  another button -- AuthEntry's Continue beneath Google/Apple. Same size as primary. */
+  variant?: 'primary' | 'secondary' | 'link';
   /** For Maestro, not React Native's own accessibility tree -- several screens have a heading and
    *  a button with the identical label (e.g. AuthScreenLayout's title="Sign in" above LoginScreen's
    *  own "Sign in" submit button), which a text-only Maestro selector can't tell apart from a
@@ -53,6 +55,8 @@ export function Button({
     );
   }
 
+  const secondary = variant === 'secondary';
+  const labelColor = secondary ? c.ink : c.onPrimary;
   const pressable = (
     <Pressable
       onPress={onPress}
@@ -64,14 +68,16 @@ export function Button({
       testID={testID}
       style={({ pressed }) => [
         styles.button,
-        { backgroundColor: pressed ? c.primaryDark : c.primary },
+        secondary
+          ? { backgroundColor: pressed ? c.border : c.primaryLight, borderWidth: 1, borderColor: c.border }
+          : { backgroundColor: pressed ? c.primaryDark : c.primary },
         isDisabled && styles.disabled,
       ]}
     >
       {loading ? (
-        <ActivityIndicator color={c.onPrimary} size="small" />
+        <ActivityIndicator color={labelColor} size="small" />
       ) : (
-        <Text style={[styles.label, { color: c.onPrimary }]}>{label}</Text>
+        <Text style={[styles.label, { color: labelColor }]}>{label}</Text>
       )}
     </Pressable>
   );

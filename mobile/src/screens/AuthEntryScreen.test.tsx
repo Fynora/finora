@@ -77,12 +77,14 @@ describe('AuthEntryScreen', () => {
   // Bug fix: this was the one mobile screen (mirroring web's AuthEntry.tsx before its own fix)
   // with no route to Privacy/Terms at all -- RegisterScreen links them from its own consent text,
   // but someone landing here first (the actual entry point) had no way to reach either page.
-  // Twice each: once in the legal footer, once in the consent notice beside Google/Apple.
-  it('links to Privacy Policy and Terms of Service', () => {
+  // Once each: the consent notice beside Google/Apple carries them, and the legal footer then
+  // drops its own copy of the pair rather than repeating it a few lines down.
+  it('links to Privacy Policy and Terms of Service once, from the consent notice', () => {
     renderScreen();
 
-    expect(screen.getAllByText('Privacy Policy')).toHaveLength(2);
-    expect(screen.getAllByText('Terms of Service')).toHaveLength(2);
+    expect(screen.getAllByText('Privacy Policy')).toHaveLength(1);
+    expect(screen.getAllByText('Terms of Service')).toHaveLength(1);
+    expect(screen.getByText('Trust & Security')).toBeTruthy();
   });
 
   // Google/Apple here create a brand-new account when the identity has none yet, so the Terms and

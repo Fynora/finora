@@ -880,4 +880,106 @@ class ImportJobEndpointIT extends AbstractIntegrationTest {
         assertThat(jobRepository.findById(jobId).orElseThrow().getDismissedAt()).isNull();
         assertThat(recentJobIds(owner)).containsExactly(jobId.toString());
     }
+
+    // ------------------------------------------------------------------ superseded failures
+
+    @Autowired private com.finora.imports.ImportService importService;
+
+    private static final String OTHER_CSV = CSV + "2026-07-12,ZOMATO ORDER,312.00,DEBIT\n";
+
+    /** Confirms {@code csv} through the direct path, as a user re-importing a file would. */
+    private void importDirectly(User user, String csv) throws Exception {
+        var staged = importService.parseAndStageWithSession(user.getId(), "statement.csv",
+                csv.getBytes(StandardCharsets.UTF_8));
+        var d = staged.staging().detectedAccount();
+        var rows = staged.staging().rows().stream()
+                .map(r -> new com.finora.dto.ImportDto.ConfirmedRow(r.date(), r.description(), r.amount(), r.type(),
+                        r.suggestedCategory() == null ? "Other" : r.suggestedCategory(), true,
+                        r.categorySource(), r.ruleId(), r.likelyDuplicate(), r.referenceNumber(),
+                        r.balanceAfter(), false, r.categoryConfidence(), r.rowPosition(),
+                        r.international(), r.foreignCurrency(), r.foreignAmount()))
+                .toList();
+        var account = new com.finora.dto.ImportDto.NewAccountRequest("Superseded IT account", "SAVINGS",
+                null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null);
+        importService.confirmSession(user.getId(), new com.finora.dto.ImportDto.ConfirmRequest(
+                staged.sessionId(), rows, null, account, null, null, null,
+                d == null ? null : d.statementPeriodStart(), d == null ? null : d.statementPeriodEnd(),
+                null, null, null, null));
+    }
+
+    private UUID failedJob(User user, String csv) {
+        UUID jobId = queuedJob(user, "statement.csv", csv);
+        ImportJob job = jobRepository.findById(jobId).orElseThrow();
+        job.markClaimed("it-worker", Instant.now());
+        job.recordFailure("IllegalStateException: boom", "IllegalStateException",
+                com.finora.exception.ErrorCode.RetryPolicy.FAIL_FAST, Instant.now());
+        jobRepository.save(job);
+        return jobId;
+    }
+
+    /**
+     * The premise for the queued path: the job's hash is taken over the upload exactly as sent --
+     * before the queue compresses and encrypts it for storage -- which is the same value a confirmed
+     * statement of those bytes carries (SupersededAnalysisFailuresIT proves that side).
+     */
+    @Test
+    void aQueuedJobIsHashedOverTheBytesAsUploaded() {
+        User user = user();
+        UUID jobId = queuedJob(user, "statement.csv");
+
+        assertThat(jobRepository.findById(jobId).orElseThrow().getContentHash())
+                .isEqualTo(com.finora.imports.storage.ContentAddress.hashOf(CSV.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    @Test
+    void aFailedJobIsHiddenOnceTheSameFileIsImported() throws Exception {
+        User user = user();
+        UUID failed = failedJob(user, CSV);
+        assertThat(recentJobIds(user)).containsExactly(failed.toString());
+
+        importDirectly(user, CSV);
+
+        assertThat(recentJobIds(user)).as("the statement is in their accounts now").isEmpty();
+        assertThat(jobRepository.findById(failed).orElseThrow().getStatus())
+                .as("display only: the job is untouched").isEqualTo(ImportJob.Status.FAILED);
+    }
+
+    @Test
+    void aFailedJobOfADifferentFileStays() throws Exception {
+        User user = user();
+        UUID failed = failedJob(user, CSV);
+
+        importDirectly(user, OTHER_CSV);
+
+        assertThat(recentJobIds(user)).containsExactly(failed.toString());
+    }
+
+    @Test
+    void anotherUsersImportOfTheSameFileNeverHidesYourFailure() throws Exception {
+        User mine = user();
+        User theirs = user();
+        UUID failed = failedJob(mine, CSV);
+
+        importDirectly(theirs, CSV);
+
+        assertThat(recentJobIds(mine)).containsExactly(failed.toString());
+    }
+
+    /** Filtered in the query, so hidden rows do not eat into the page: it still fills to its size. */
+    @Test
+    void hiddenJobsDoNotShortenThePage() throws Exception {
+        User user = user();
+        UUID olderVisible = failedJob(user, OTHER_CSV);
+        failedJob(user, CSV);
+        importDirectly(user, CSV);
+
+        JsonNode data = read(restTemplate.exchange("/api/v1/import/jobs?limit=1", HttpMethod.GET,
+                new HttpEntity<>(bearerFor(user)), String.class)).get("data");
+
+        assertThat(data).hasSize(1);
+        assertThat(data.get(0).get("jobId").asText())
+                .as("the newer job is hidden, so the one slot goes to the older, still-unresolved one")
+                .isEqualTo(olderVisible.toString());
+    }
 }

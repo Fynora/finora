@@ -265,7 +265,7 @@ public class ImportService {
             //
             // Recording is safe from here: recordFailed is REQUIRES_NEW, so it commits on its own
             // and cannot roll anything back, and cannot itself be rolled back.
-            recordParseFailure(userId, fileName, "CSV", fileContent.length, fingerprint, e,
+            recordParseFailure(userId, fileName, "CSV", fileContent, fingerprint, e,
                     startedAtMs, diagnostics);
             throw e;
         }
@@ -287,14 +287,19 @@ public class ImportService {
      * bookkeeping failure masking a parse failure would turn a diagnosable problem into a
      * mysterious one, which is the opposite of what this table is for.
      */
-    private void recordParseFailure(UUID userId, String fileName, String sourceFormat, long byteSize,
+    private void recordParseFailure(UUID userId, String fileName, String sourceFormat, byte[] fileContent,
                                      String fingerprint, RuntimeException failure, long startedAtMs,
                                      ParseDiagnostics diagnostics) {
         String code = ErrorCode.failureCodeOf(failure);
         try {
+            // Which file this was (V265): the same hash a confirmed statement_imports row of these
+            // bytes will carry, which is what lets the customer's failure list drop this failure
+            // once they import the file -- see StatementAnalysisRecorder.recentUnresolvedCustomerFailures.
+            // Inside the try for the same reason as everything else here: it must never replace
+            // the parse failure being rethrown.
             String reference = analysisRecorder.recordFailed(userId, StatementAnalysisSession.Source.CUSTOMER_IMPORT,
-                    fileName, sourceFormat, byteSize, fingerprint, code, failure.getMessage(),
-                    System.currentTimeMillis() - startedAtMs, diagnostics);
+                    fileName, sourceFormat, fileContent.length, fingerprint, code, failure.getMessage(),
+                    System.currentTimeMillis() - startedAtMs, diagnostics, ContentAddress.hashOf(fileContent));
             // A located-but-failed layout is exactly what the layout review queue exists for. Inside
             // this try so a review failure can never replace the parse failure being rethrown.
             if (layoutReviewService != null) {
@@ -422,7 +427,7 @@ public class ImportService {
             // parser outright rather than be cleanly rejected, so this is the path where the gap
             // mattered most -- the documents that most needed a fingerprint recorded were exactly
             // the ones that recorded nothing.
-            recordParseFailure(userId, fileName, "PDF", fileContent.length, fingerprint, e,
+            recordParseFailure(userId, fileName, "PDF", fileContent, fingerprint, e,
                     startedAtMs, diagnostics);
             throw e;
         }

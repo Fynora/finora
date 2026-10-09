@@ -82,6 +82,16 @@ public class StatementAnalysisSession {
     @Column(name = "layout_fingerprint", length = 128, updatable = false)
     private String layoutFingerprint;
 
+    /**
+     * Hex SHA-256 of the uploaded file -- the same value {@code statement_imports.content_hash}
+     * carries once that file is confirmed (V265), which is how a customer's failure list knows the
+     * failure was superseded. Unlike {@link #layoutFingerprint} this identifies the file, not its
+     * layout, so it is set even when parsing never started. Null before V265, and after account
+     * deletion ({@link StatementAnalysisSessionRepository#anonymizeByUserId}).
+     */
+    @Column(name = "content_hash", length = 64, updatable = false)
+    private String contentHash;
+
     @Column(nullable = false, length = 16, updatable = false)
     @jakarta.persistence.Enumerated(jakarta.persistence.EnumType.STRING)
     private Outcome outcome;
@@ -249,8 +259,18 @@ public class StatementAnalysisSession {
         return this;
     }
 
+    /**
+     * Stamps which file this was. Package-private and set only by {@link StatementAnalysisRecorder}
+     * before the first save, as {@link #identifiedAs} is.
+     */
+    StatementAnalysisSession ofContent(String contentHash) {
+        this.contentHash = contentHash;
+        return this;
+    }
+
     public UUID getId() { return id; }
     public String getReference() { return reference; }
+    public String getContentHash() { return contentHash; }
     public UUID getUserId() { return userId; }
     public Source getSource() { return source; }
     public String getFileName() { return fileName; }

@@ -199,7 +199,9 @@ public class ImportController {
     // and never an ADMIN_ANALYSIS probe even if the same user happens to also be an admin.
     @GetMapping("/failures")
     public ApiResponse<List<ImportFailureSummaryDto>> listFailures() {
-        return ApiResponse.ok(analysisRecorder.recentCustomerFailures(currentUser.id(), RECENT_FAILURES_LIMIT));
+        // Unresolved only: a failure whose file the user has since imported is left out -- see
+        // StatementAnalysisRecorder.recentUnresolvedCustomerFailures.
+        return ApiResponse.ok(analysisRecorder.recentUnresolvedCustomerFailures(currentUser.id(), RECENT_FAILURES_LIMIT));
     }
 
     private ImportSessionSummaryDto toSummary(ImportSession session) {

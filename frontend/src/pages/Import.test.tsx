@@ -1118,7 +1118,7 @@ describe('Import — Financial Product Discovery on the review screen', () => {
 });
 
 /**
- * plans.ts's "Unlimited accounts" / "Extended financial history" Plus/Premium promises,
+ * plans.ts's "Unlimited accounts" / "Statements longer than one month" Plus/Premium promises,
  * enforced backend-side (AccountService.create / ImportController). This suite proves only that
  * Import.tsx reacts correctly to the two error codes those gates throw -- ACCOUNT_LIMIT_REACHED
  * and STATEMENT_PERIOD_TOO_LONG -- with a "See Plus plans" link the ordinary confirm-failure

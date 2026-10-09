@@ -208,7 +208,7 @@ export default function Import() {
   // can never go stale from a PREVIOUS error (e.g. an ACTION_REQUIRED parse failure) while a new,
   // unrelated one (network failure, a validation message, a discard failure) is being shown.
   const [errorActionRequired, setErrorActionRequired] = useState(false);
-  // plans.ts's "Unlimited accounts" / "Extended financial history" Plus/Premium promises: whether
+  // plans.ts's "Unlimited accounts" / "Statements longer than one month" Plus/Premium promises: whether
   // the CURRENT error banner is one of the two Free-tier caps (ACCOUNT_LIMIT_REACHED /
   // STATEMENT_PERIOD_TOO_LONG), which get a "See Plus plans" link the ordinary confirm-failure
   // banner doesn't -- same "actionRequired changes the banner" precedent as Sprint 4 item 22 above.

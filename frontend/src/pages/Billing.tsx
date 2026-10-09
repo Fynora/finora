@@ -745,8 +745,8 @@ export default function Billing() {
               </div>
               <h2 className="text-xl font-bold text-white">Unlock the full power of Fynora</h2>
               <p className="text-sm text-white/60 mt-1.5">
-                Unlimited accounts, advanced analytics, and extended history — see exactly what
-                each plan adds below.
+                Unlimited accounts, advanced analytics, and statements longer than one month — see
+                exactly what each plan adds below.
               </p>
             </div>
             <div className="flex gap-2.5 flex-shrink-0">

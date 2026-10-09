@@ -123,6 +123,16 @@ describe('Billing', () => {
     expect(toggle).toBeDisabled();
   });
 
+  it("sells Free users the one-month statement limit, never an 'extended history' Plus doesn't give", async () => {
+    // The Free limit is one month per statement; a Free user can still build a long history month
+    // by month. plans.test.ts holds the plan grid to the same wording.
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    renderPage();
+
+    expect(await screen.findByText(/statements longer than one month — see exactly what/i)).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(/extended (financial )?history/i);
+  });
+
   it('shows the renewal date and an enabled, on auto-renewal toggle for a paid plan', async () => {
     vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
       planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY',

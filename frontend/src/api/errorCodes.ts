@@ -58,7 +58,7 @@ export const IMPORT_SESSION_ALREADY_CONFIRMED = 'IMPORT_012';
 // wrong in.
 export const AUTH_ACCOUNT_DEACTIVATED = 'AUTH_007';
 
-// plans.ts's "Unlimited accounts" / "Extended financial history" Plus/Premium promises,
+// plans.ts's "Unlimited accounts" / "Statements longer than one month" Plus/Premium promises,
 // enforced -- see AccountService.create and ImportService.requireStatementWithinFreeLimit
 // (backend). Import.tsx branches on these to show an upgrade prompt with tailored copy rather than
 // the generic "Could not complete the import" every other confirm failure gets -- same "the

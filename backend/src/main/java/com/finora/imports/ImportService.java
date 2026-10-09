@@ -548,7 +548,7 @@ public class ImportService {
     }
 
     /**
-     * plans.ts's "Extended financial history" Plus/Premium promise, enforced (FeatureEntitlement
+     * plans.ts's "Statements longer than one month" Plus/Premium promise, enforced (FeatureEntitlement
      * .EXTENDED_HISTORY -- seeded since V99): a Free-plan statement may cover at most one month
      * ({@link FreeStatementPeriod}). Both the printed period and the date range of every staged
      * transaction are judged -- unticked rows included, since {@code include} is the review's choice

@@ -40,9 +40,27 @@ it.each([true, null])('falls back to solid card + border when Reduce Transparenc
   expect(screen.getByTestId('s')).toHaveStyle({ backgroundColor: '#ffffff', borderColor: '#E6EAF2' });
 });
 
-it('caller style can set radius/padding but not the fill', () => {
-  render(<ThemeProvider><GlassSurface testID="s" style={{ borderRadius: 4, padding: 3, backgroundColor: 'red' }} /></ThemeProvider>);
-  expect(screen.getByTestId('s')).toHaveStyle({ borderRadius: 4, padding: 3, backgroundColor: 'rgba(255,255,255,0.72)' });
+it('caller style keeps radius/padding and a deliberate tint or border colour wins over the glass pair', () => {
+  // Dashboard's coverage/limited-history banners tint a Card with warningBg, and Import/Statement
+  // History error cards give it a danger border. Those are the signal; glass must not paint over
+  // them. (Opaque c.card/c.bg as a caller tint is what glassMigration.test.ts guards against.)
+  render(<ThemeProvider><GlassSurface testID="s" style={{ borderRadius: 4, padding: 3, backgroundColor: '#fef3c7', borderColor: '#dc2626' }} /></ThemeProvider>);
+  expect(screen.getByTestId('s')).toHaveStyle({ borderRadius: 4, padding: 3, backgroundColor: '#fef3c7', borderColor: '#dc2626' });
+});
+
+it('a caller that sets neither colour gets the glass pair', () => {
+  render(<ThemeProvider><GlassSurface testID="s" style={{ borderRadius: 4 }} /></ThemeProvider>);
+  expect(screen.getByTestId('s')).toHaveStyle({ borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.72)', borderColor: 'rgba(255,255,255,0.85)' });
+});
+
+it('Card keeps a warning tint passed through style (dashboard banners)', () => {
+  render(<ThemeProvider><Card testID="c" style={{ backgroundColor: '#fef3c7' }}>{null}</Card></ThemeProvider>);
+  expect(screen.getByTestId('c')).toHaveStyle({ backgroundColor: '#fef3c7' });
+});
+
+it('Card keeps a danger border passed through style (import / statement history error cards)', () => {
+  render(<ThemeProvider><Card testID="c" style={{ borderColor: '#dc2626' }}>{null}</Card></ThemeProvider>);
+  expect(screen.getByTestId('c')).toHaveStyle({ borderColor: '#dc2626', backgroundColor: 'rgba(255,255,255,0.72)' });
 });
 
 it('renders without a ThemeProvider, like every other screen test in this repo', () => {

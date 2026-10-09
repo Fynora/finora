@@ -11,16 +11,18 @@ export type GlassVariant = 'panel' | 'row';
  * never branch on platform. `row` (list rows, inputs, chips) never blurs: a FlatList of native
  * blur views is costly, and rows sit on a panel or the backdrop that already reads as glass.
  *
- * Fill and edge are applied AFTER the caller's style on purpose: a call site can shape the
- * surface (radius, padding, border width) but cannot make it opaque or transparent by accident.
- * Under Reduce Transparency, or before the setting is known, this is exactly the pre-glass solid
- * card, so that path needs no separate component.
+ * Fill and edge come BEFORE the caller's style: a deliberate tint or border colour from the call
+ * site wins (Dashboard's warning banners tint a Card with warningBg; Import's and Statement
+ * History's error cards give it a danger border -- that colour IS the signal). Re-adding an opaque
+ * `c.card`/`c.bg` fill by hand is what glassMigration.test.ts guards against, so "after" was never
+ * what kept surfaces glass. Under Reduce Transparency, or before the setting is known, the pair is
+ * exactly the pre-glass solid card, so that path needs no separate component.
  */
 export function GlassSurface({ style, children, variant = 'panel', ...rest }: ViewProps & { variant?: GlassVariant }) {
   const surface = useGlassSurfaceStyle();
   void variant; // consumed in Phase 2 (native blur paths)
   return (
-    <View {...rest} style={[styles.edge, style, surface]}>
+    <View {...rest} style={[styles.edge, surface, style]}>
       {children}
     </View>
   );

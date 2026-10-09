@@ -11358,6 +11358,8 @@ export interface components {
             statementsHeldForTrustReview?: number;
             /** Format: int64 */
             importsHeldForReview?: number;
+            trustHoldsOverdue?: components["schemas"]["OverdueHoldsDto"];
+            importHoldsOverdue?: components["schemas"]["OverdueHoldsDto"];
         };
         OperationalDashboardDto: {
             /** Format: int64 */
@@ -11377,6 +11379,12 @@ export interface components {
             health?: components["schemas"]["PlatformHealthDto"];
             alerts?: components["schemas"]["AlertDto"][];
             recentActivity?: components["schemas"]["AuditLogDto"][];
+        };
+        OverdueHoldsDto: {
+            /** Format: int64 */
+            count?: number;
+            /** Format: date-time */
+            oldestHeldSince?: string;
         };
         PreviousDayDto: {
             /** Format: int64 */

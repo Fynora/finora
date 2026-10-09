@@ -187,6 +187,42 @@ class HoldOverdueEscalationServiceIT extends AbstractIntegrationTest {
         verify(alerts).alertHoldOverdue(riding.getId());
     }
 
+    /** The dashboard counts what the escalation emails: one per review, per kind, with the oldest. */
+    @Test
+    void theDashboardSummaryCountsOverdueHoldsAsTheEscalationDoes() {
+        User owner = owner();
+        UUID session = UUID.randomUUID();
+        ImportJob reviewed = trustHold(owner, session, Duration.ofHours(60));
+        ridingHold(owner, session, Duration.ofHours(50));                 // covered: not counted
+        ridingHold(owner(), UUID.randomUUID(), Duration.ofHours(49));     // orphan: counted
+        trustHold(owner(), UUID.randomUUID(), Duration.ofHours(47));      // within the promise
+        ImportJob importOverdue = importHold(Duration.ofHours(52));
+        importHold(Duration.ofHours(1));
+        Instant cutoff = NOW.minus(ImportJob.HOLD_PROMISE);
+
+        ImportJobRepository.OverdueHoldSummary trust = jobs.summarizeOverdueHolds(
+                ImportJob.Status.HELD_FOR_TRUST_REVIEW, cutoff, HeldStatement.Status.RESOLVED);
+        ImportJobRepository.OverdueHoldSummary imports = jobs.summarizeOverdueHolds(
+                ImportJob.Status.HELD_FOR_REVIEW, cutoff, HeldStatement.Status.RESOLVED);
+
+        assertThat(trust.getCount()).isEqualTo(2);
+        assertThat(trust.getOldest()).isEqualTo(reload(reviewed).getFinishedAt());
+        assertThat(imports.getCount()).isEqualTo(1);
+        assertThat(imports.getOldest()).isEqualTo(reload(importOverdue).getFinishedAt());
+        assertThat(service.escalate(NOW)).as("the same three reach an admin").isEqualTo(3);
+    }
+
+    @Test
+    void theDashboardSummaryIsZeroWithNoOldestWhenNothingIsOverdue() {
+        importHold(Duration.ofHours(1));
+
+        ImportJobRepository.OverdueHoldSummary imports = jobs.summarizeOverdueHolds(
+                ImportJob.Status.HELD_FOR_REVIEW, NOW.minus(ImportJob.HOLD_PROMISE), HeldStatement.Status.RESOLVED);
+
+        assertThat(imports.getCount()).isZero();
+        assertThat(imports.getOldest()).isNull();
+    }
+
     @Test
     void decidedJobsAreNeverEscalatedHoweverOld() {
         ImportJob job = importHold(Duration.ofHours(200));

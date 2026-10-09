@@ -128,8 +128,16 @@ public class AdminDtos {
             long transactionsNeedingCategoryReview,
             long transactionsFlaggedAsDuplicates,
             long statementsHeldForTrustReview,
-            long importsHeldForReview
+            long importsHeldForReview,
+            // Appended (records are positional). The holds above that are past the 48-hour promise
+            // with no decision -- Gate 1 spec §4, counted one per review as the escalation email
+            // is -- each with when its oldest began, so the admin sees how late it is.
+            OverdueHoldsDto trustHoldsOverdue,
+            OverdueHoldsDto importHoldsOverdue
     ) {}
+
+    /** Holds of one kind past the 48-hour promise; {@code oldestHeldSince} is null when none are. */
+    public record OverdueHoldsDto(long count, Instant oldestHeldSince) {}
 
     /**
      * D-27 PR3-D. Activation funnel: how many distinct users have EVER reached each of the four

@@ -7,6 +7,7 @@ export default function Terms() {
     <PublicLayout
       title="Terms & Conditions"
       subtitle="Last updated: September 2026. Please read these terms carefully before using Fynora."
+      description="The terms for using Fynora: who you contract with, account and acceptable-use rules, how automated features and billing work, and the limits of liability."
     >
       <PublicSection title="1. Acceptance of Terms">
         <p>

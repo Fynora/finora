@@ -7,9 +7,9 @@ import Careers from '../src/pages/Careers';
 import Terms from '../src/pages/Terms';
 import RefundPolicy from '../src/pages/RefundPolicy';
 import Help from '../src/pages/Help';
-import { pageTitleFromMarkup, withTitle } from './prerenderTitle.mjs';
+import { decodeEntities, pageHeadingFromMarkup, pageTitleFromMarkup, withStructuredData, withTitle } from './prerenderTitle.mjs';
 
-const TEMPLATE = '<html><head><title>Fynora — Personal finance, simplified</title></head><body><div id="root"></div></body></html>';
+const TEMPLATE = '<html><head><title>Bank statement analyzer for Indian banks and cards — Fynora</title></head><body><div id="root"></div></body></html>';
 
 function render(Component: React.ComponentType): string {
   return renderToStaticMarkup(
@@ -51,13 +51,13 @@ describe('prerender page titles', () => {
   it('gives different pages different titles, and none the shared one', () => {
     const titles = [Terms, RefundPolicy, Help].map((c) => pageTitleFromMarkup(render(c)));
     expect(new Set(titles).size).toBe(3);
-    expect(titles).not.toContain('Fynora — Personal finance, simplified');
+    expect(titles).not.toContain('Bank statement analyzer for Indian banks and cards — Fynora');
   });
 
   it('replaces only the <title> in the template', () => {
     const out = withTitle(TEMPLATE, 'Terms &amp; Conditions — Fynora');
     expect(out).toContain('<title>Terms &amp; Conditions — Fynora</title>');
-    expect(out).not.toContain('Personal finance, simplified');
+    expect(out).not.toContain('Bank statement analyzer');
     expect(out).toContain('<div id="root"></div>');
   });
 
@@ -69,5 +69,33 @@ describe('prerender page titles', () => {
     expect(pageTitleFromMarkup('<div>no heading</div>')).toBeNull();
     expect(pageTitleFromMarkup('<h1>   </h1>')).toBeNull();
     expect(() => withTitle('<html><head></head></html>', 'X')).toThrow(/no <title>/);
+  });
+
+  it('also exposes the bare heading, for the breadcrumb name, and decodes what React escaped', () => {
+    expect(pageHeadingFromMarkup(render(Terms))).toBe('Terms &amp; Conditions');
+    expect(decodeEntities(pageHeadingFromMarkup(render(Terms))!)).toBe('Terms & Conditions');
+    expect(decodeEntities('Ask Fyn&#x27;s &quot;limits&quot; &lt;b&gt; &amp;lt;')).toBe('Ask Fyn\'s "limits" <b> &lt;');
+    expect(pageHeadingFromMarkup('<div>no heading</div>')).toBeNull();
+  });
+});
+
+describe('withStructuredData', () => {
+  const SCRIPT = '<script type="application/ld+json">{"@type":"WebSite"}</script>';
+
+  it('adds the script tags just before </head>', () => {
+    const out = withStructuredData(TEMPLATE, SCRIPT);
+    expect(out).toContain(`${SCRIPT}\n</head>`);
+    expect(out).toContain('<div id="root"></div>');
+  });
+
+  it('refuses a template that already carries JSON-LD, one with no </head>, and empty input', () => {
+    expect(() => withStructuredData(withStructuredData(TEMPLATE, SCRIPT), SCRIPT)).toThrow(/already has JSON-LD/);
+    expect(() => withStructuredData('<html></html>', SCRIPT)).toThrow(/no <\/head>/);
+    expect(() => withStructuredData(TEMPLATE, '')).toThrow(/no script tags/);
+  });
+
+  it('does not interpret $ sequences in the JSON as replacement patterns', () => {
+    const out = withStructuredData(TEMPLATE, '<script type="application/ld+json">{"t":"$& $1"}</script>');
+    expect(out).toContain('{"t":"$& $1"}');
   });
 });

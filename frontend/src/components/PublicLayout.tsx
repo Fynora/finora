@@ -12,11 +12,29 @@ import { pageDescription } from '../lib/siteUrl';
  * toggle as the rest of the app instead of a fixed-dark palette.
  *
  * Also sets the browser-tab / search-result title from `title`. Every one of these pages used to
- * share index.html's single "Fynora — Personal finance, simplified", so Terms, Privacy, Refunds
+ * share index.html's single homepage title, so Terms, Privacy, Refunds
  * and the rest were indistinguishable in tabs, history and search results. The previous title is
  * restored on unmount so leaving for another route never keeps a stale one.
  */
-export function PublicLayout({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
+export function PublicLayout({
+  title,
+  subtitle,
+  description,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  /**
+   * The meta description, when the subtitle is not the right sentence for a search result. The
+   * subtitle is UI copy ("Search for an answer, or browse by topic.") and several were too short
+   * for Google to use, so it wrote its own snippets. Optional: a page without one keeps using its
+   * subtitle. Rendered as a data attribute on the heading section so scripts/prerenderTitle.mjs
+   * can read it from the server-rendered markup; the attribute is the only way that script can
+   * see it, since it never runs this component's effects.
+   */
+  description?: string;
+  children: ReactNode;
+}) {
   // Each public page names its own canonical URL (absolute, on the one indexed host). The
   // prerendered copies of these pages carry the same tag in their HTML; see scripts/prerender.mjs.
   useCanonical(useLocation().pathname);
@@ -35,16 +53,16 @@ export function PublicLayout({ title, subtitle, children }: { title: string; sub
   // not run JavaScript, so the og: tags exist only in the prerendered HTML; this keeps the plain
   // description right for pages that are not prerendered and for browsers that render the page.
   useEffect(() => {
-    const description = pageDescription(subtitle);
+    const text = description ?? pageDescription(subtitle);
     const tag = document.head.querySelector<HTMLMetaElement>('meta[name="description"]');
-    if (!description || !tag) return;
+    if (!text || !tag) return;
     const previous = tag.getAttribute('content');
-    tag.setAttribute('content', description);
+    tag.setAttribute('content', text);
     return () => {
       if (previous === null) tag.removeAttribute('content');
       else tag.setAttribute('content', previous);
     };
-  }, [subtitle]);
+  }, [subtitle, description]);
 
   return (
     <div className="min-h-screen bg-bg text-ink">
@@ -60,7 +78,7 @@ export function PublicLayout({ title, subtitle, children }: { title: string; sub
         </div>
       </header>
 
-      <section className="border-b border-border">
+      <section className="border-b border-border" data-seo-description={description}>
         <div className="max-w-4xl mx-auto px-6 pt-16 pb-10">
           <span className="inline-flex items-center gap-1.5 text-xs font-medium text-primary bg-primary-light rounded-full px-3 py-1 mb-4">
             <Sparkles size={12} /> Fynora

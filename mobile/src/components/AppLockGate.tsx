@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { AppState, type AppStateStatus, BackHandler, Keyboard, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { AppAlertOverlay, useAlertShowing } from './AppAlertOverlay';
-import { AppCoveredProvider } from './AppModal';
+import { AppBannerOverlay } from './AppBannerOverlay';
+import { AppCoveredProvider, useLaunchCovering } from './AppModal';
 import { Button } from './Button';
 import { useAuth } from '../context/AuthContext';
 import { ROOT_ALERT_CONTAINER } from '../lib/appAlert';
@@ -112,6 +113,10 @@ export function AppLockGate({ children }: { children: ReactNode }) {
     appLock.setLockedFlag(locked);
   }, [locked]);
 
+  const launching = useLaunchCovering();
+  const launchingRef = useRef(launching);
+  const promptAfterLaunchRef = useRef(false);
+
   const tryUnlock = useCallback(async () => {
     setAuthenticating(true);
     try {
@@ -133,8 +138,30 @@ export function AppLockGate({ children }: { children: ReactNode }) {
     // would otherwise keep the keyboard up and swallow typing into a screen no one can see.
     Keyboard.dismiss();
     setLocked(true);
+    // On a cold start the launch animation may still be playing: lock now (so nothing protected
+    // can paint when it lifts) but hold the biometric prompt until it has gone, rather than drawing
+    // the system's Face ID sheet over the animation. A ref, not state, so this callback keeps one
+    // identity -- the isEnabled() effect below depends on it and must not re-run.
+    if (launchingRef.current) {
+      promptAfterLaunchRef.current = true;
+      return;
+    }
     void tryUnlock();
   }, [tryUnlock]);
+
+  // Releases the prompt held above once the launch animation is gone -- only if the app is still
+  // locked by then (a sign-out in the meantime leaves nothing to unlock). From a timer rather than
+  // the effect body, which must not set state synchronously (tryUnlock does). The flag is cleared
+  // inside the timer, so a re-run that cancels it before it fires cannot drop the prompt.
+  useEffect(() => {
+    launchingRef.current = launching;
+    if (launching || !promptAfterLaunchRef.current) return;
+    const timer = setTimeout(() => {
+      promptAfterLaunchRef.current = false;
+      if (locked) void tryUnlock();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [launching, locked, tryUnlock]);
 
   // Reads the per-device setting once auth has finished bootstrapping and there's a session to
   // protect -- see appLock.ts's own comment on why this lives outside the account's server-side
@@ -230,7 +257,7 @@ export function AppLockGate({ children }: { children: ReactNode }) {
   // The lock UI appears in two shapes: alone (a cold-start lock: nothing protected is mounted yet)
   // or as an overlay over the already-mounted app (every later lock).
   const lockScreen = (overlay: boolean) => (
-    <View style={[styles.container, overlay ? styles.cover : null, { backgroundColor: c.bg }]}>
+    <View style={[styles.container, overlay ? styles.cover : null, { backgroundColor: c.bg } /* glass-exempt: lock screen must hide the app; never translucent */]}>
       <Ionicons name="lock-closed" size={48} color={c.primary} />
       <Text style={[styles.title, { color: c.ink }]}>Fynora is locked</Text>
       <Text style={[styles.subtitle, { color: c.muted }]}>
@@ -293,10 +320,13 @@ export function AppLockGate({ children }: { children: ReactNode }) {
           once open): here, in-tree, or inside the topmost AppModal while one is open. While locked
           it keeps waiting underneath the lock screen, unreachable -- see AppAlertOverlay. */}
       <AppAlertOverlay containerId={ROOT_ALERT_CONTAINER} hidden={covered} />
+      {/* A passing banner (an admin campaign push while the app is open): drawn here for the same
+          reason as the alert above, so it never shows over the lock screen. */}
+      <AppBannerOverlay containerId={ROOT_ALERT_CONTAINER} hidden={covered} />
       {/* Covers rather than unmounts: `children` stay mounted underneath, so nothing is torn down
           while the lock check is in flight, yet nothing protected can paint before its outcome is
           known. */}
-      {showCover ? <View testID="app-lock-cover" style={[styles.cover, { backgroundColor: c.bg }]} /> : null}
+      {showCover ? <View testID="app-lock-cover" style={[styles.cover, { backgroundColor: c.bg } /* glass-exempt: lock cover must hide the app; never translucent */]} /> : null}
       {showLock ? lockScreen(true) : null}
     </View>
   );

@@ -35,8 +35,16 @@ jest.mock('@react-navigation/bottom-tabs', () => ({
         screens.map((child: any) => {
           const name = child.props.name;
           const options = props.screenOptions ? props.screenOptions({ route: { name } }) : {};
+          // Exposed for the glass tab-bar test below, which asserts on tabBarStyle; same per-tab
+          // call the real navigator makes, so the last one captured is representative.
+          (globalThis as any).__lastTabScreenOptions = options;
           const icon = typeof options.tabBarIcon === 'function'
             ? options.tabBarIcon({ focused: false, color: '#000', size: 20 })
+            : null;
+          // Real bottom-tabs renders `tabBarBackground()` behind the bar; rendering it here lets
+          // the glass tab-bar test find the GlassSurface it returns.
+          const background = typeof options.tabBarBackground === 'function'
+            ? options.tabBarBackground()
             : null;
           // Also exercises a per-Tab.Screen `options.tabBarButton` override (the floating "+"
           // button's Import tab) -- real react-native-navigation calls this per-screen options
@@ -44,7 +52,7 @@ jest.mock('@react-navigation/bottom-tabs', () => ({
           const button = typeof child.props.options?.tabBarButton === 'function'
             ? child.props.options.tabBarButton({})
             : null;
-          return createElement(Fragment, { key: name }, createElement(Text, null, icon), button);
+          return createElement(Fragment, { key: name }, createElement(Text, null, icon), button, background);
         })
       );
     },
@@ -62,6 +70,8 @@ jest.mock('@react-navigation/native-stack', () => ({
 jest.mock('../theme', () => ({
   useTheme: () => ({
     bg: '#fff', primary: '#000', card: '#fff', ink: '#000', border: '#ccc', muted: '#888', onPrimary: '#fff',
+    // GlassScreen/GlassSurface (the tab-bar background and the tabs root) read these.
+    glassTint: '#FFFFFF', glassAlpha: 0.72, glassEdge: 'rgba(255,255,255,0.85)',
   }),
   radius: { md: 8, lg: 12, xl: 16 },
   spacing: { xs: 4, sm: 8, md: 16, lg: 24, xl: 32 },
@@ -135,6 +145,20 @@ describe('AppTabs tour target registration', () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     expect(() => render(<AppTabs />)).toThrow('useRegisterTourTarget must be used within TourTargetProvider');
     consoleErrorSpy.mockRestore();
+  });
+});
+
+describe('AppTabs glass tab bar', () => {
+  it('tab bar is glass: transparent tabBarStyle with a GlassSurface background on every tab', () => {
+    render(
+      <TourTargetProvider>
+        <AppTabs />
+      </TourTargetProvider>
+    );
+    const opts = (globalThis as any).__lastTabScreenOptions;
+    expect(opts.tabBarStyle).toMatchObject({ backgroundColor: 'transparent' });
+    // One per Tab.Screen the mock navigator rendered (Home, Transactions, Import, Insights, More).
+    expect(screen.getAllByTestId('tab-bar-glass')).toHaveLength(5);
   });
 });
 

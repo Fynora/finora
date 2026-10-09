@@ -80,6 +80,10 @@ export const ADMIN_PORTAL_PERMISSIONS = [
   // precisely because of the RELATIONSHIP_MANAGE bug documented at the top of this list -- so it
   // is listed here from the start, not discovered missing after the fact a third time.
   'SUPPORT_MANAGE',
+  // Push campaigns (V261): write, test, schedule and send a push to users. Its own permission, not a
+  // reuse of the read-only NOTIFICATION_MANAGE. Listed for the same portal-entry reason as the rest:
+  // a role holding only this must still get past the check to reach the one section it can use.
+  'PUSH_CAMPAIGN_MANAGE',
 ];
 
 export interface AdminAuthState {

@@ -225,6 +225,13 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
     @Column(name = "object_released_at", insertable = false, updatable = false)
     private Instant objectReleasedAt;
 
+    /**
+     * When the owner dismissed this job from their recent-imports list -- V264, see {@link
+     * #dismiss}. Null while it is listed.
+     */
+    @Column(name = "dismissed_at")
+    private Instant dismissedAt;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
@@ -280,8 +287,9 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
      * #returnToQueueForReprocess}. {@link #status} cannot answer this question: by the time a
      * reprocessed job completes, its status is COMPLETED and the hold it went through is gone. The
      * completion notification depends on knowing it, because only a user who was told "we're
-     * running additional checks" is owed a follow-up. A first-time success notifies nobody -- we
-     * never asked them to wait.
+     * running additional checks" is owed a follow-up -- and so does the failure one, when the
+     * reprocess ends FAILED instead. A first-time success or failure notifies nobody -- we never
+     * asked them to wait.
      */
     @Column(name = "was_held_for_review", nullable = false)
     private boolean wasHeldForReview;
@@ -688,8 +696,8 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
      * entirely on the customer timeline. The original code is not lost -- it is recorded on the
      * audit entry the admin action writes.
      *
-     * <p>{@link #wasHeldForReview} is deliberately NOT cleared; it is what tells the success path
-     * this user is owed a notification.
+     * <p>{@link #wasHeldForReview} is deliberately NOT cleared; it is what tells the success path,
+     * and a failure that ends this job, that this user is owed a notification.
      */
     public void returnToQueueForReprocess(Instant now) {
         if (status != Status.HELD_FOR_REVIEW) {
@@ -750,6 +758,14 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
      * with no reason after having been told we were checking something. The operator's own
      * reason goes on the audit entry, not on the entity: what an admin decided is not something
      * the import did.
+     *
+     * <p>Writes {@link #REJECTED_IN_TRUST_REVIEW} as {@code lastError} as well. {@link
+     * #holdForTrustReview} cleared it on the way in, so without this the row read FAILED with an
+     * empty {@code last_error} and an empty {@code resolution_message} -- every other way into
+     * FAILED writes one or the other -- and whoever queried the row took it for a failure nobody
+     * had explained, when the explanation was a rejection recorded only in {@code failure_code}.
+     * That cost a production investigation (2026-10). The text is fixed and names no reviewer:
+     * the reviewer's reason stays on the audit entry, as above.
      */
     public void rejectAfterTrustReview(String failureCode, Instant now) {
         if (status != Status.HELD_FOR_TRUST_REVIEW) {
@@ -759,8 +775,17 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
         }
         this.status = Status.FAILED;
         this.failureCode = failureCode;
+        this.lastError = REJECTED_IN_TRUST_REVIEW;
         this.finishedAt = now;
     }
+
+    /**
+     * What {@link #rejectAfterTrustReview} writes as {@code lastError}: for engineers reading the
+     * row, like every {@code lastError}, and never shown to the user -- they get the curated
+     * message for the failure code.
+     */
+    public static final String REJECTED_IN_TRUST_REVIEW =
+            "Rejected in trust review; the reviewer's reason is on the TRUST_REVIEW_REJECTED audit entry";
 
     /**
      * Points a held job at rows re-read by the current parser build, replacing the session staged
@@ -801,6 +826,11 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
      * Undoes {@link #rejectAfterTrustReview}: the review is open again, so the import is held
      * again rather than failed. Only from that rejection -- any other failure was the import's
      * own, and is not a review's to reopen.
+     *
+     * <p>Clears {@code lastError} with the code: held again, the job is back to a state that is not
+     * a failure, exactly as {@link #holdForTrustReview} leaves it. Clears {@link #dismissedAt} for
+     * the same reason: the user dismissed a failure, and the import is live again -- left set, the
+     * hold and whatever the review decides next would be hidden from their recent-imports list.
      */
     public void reopenTrustReview(String rejectedFailureCode) {
         if (status != Status.FAILED || !java.util.Objects.equals(failureCode, rejectedFailureCode)) {
@@ -810,6 +840,8 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
         }
         this.status = Status.HELD_FOR_TRUST_REVIEW;
         this.failureCode = null;
+        this.lastError = null;
+        this.dismissedAt = null;
     }
 
     /**
@@ -897,12 +929,37 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
         this.finishedAt = now;
     }
 
+    /** Which statuses the owner may dismiss from their recent-imports list -- see {@link #dismiss}. */
+    public static final Set<Status> DISMISSABLE = EnumSet.of(Status.FAILED, Status.CANCELLED);
+
+    /**
+     * The owner hides this finished job from their recent-imports list (V264).
+     *
+     * <p>Only FAILED and CANCELLED: a running or held import is not over, and hiding it would hide
+     * the one place that says so; a COMPLETED job is never listed. Display state only -- status,
+     * failure and stored object are untouched, so support, the admin queue and the storage sweep
+     * see exactly what they saw before.
+     *
+     * <p>Idempotent: a second dismiss (a double tap, a retried request) keeps the first time.
+     *
+     * @throws IllegalStateException for any other status
+     */
+    public void dismiss(Instant now) {
+        if (!DISMISSABLE.contains(status)) {
+            throw new IllegalStateException(
+                    "Import job " + id + " is at " + status + "; only a failed or cancelled import can "
+                            + "be dismissed.");
+        }
+        if (this.dismissedAt == null) this.dismissedAt = now;
+    }
+
     // ------------------------------------------------------------------ accessors
 
     public UUID getId() { return id; }
     public boolean wasHeldForReview() { return wasHeldForReview; }
 
     public String getResolutionMessage() { return resolutionMessage; }
+    public Instant getDismissedAt() { return dismissedAt; }
     public com.finora.imports.ImportReliabilityStatus getReliabilityStatus() { return reliabilityStatus; }
     public String getTextSource() { return textSource; }
     public Boolean getHeaderReconstructionUncertain() { return headerReconstructionUncertain; }

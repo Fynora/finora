@@ -1,5 +1,5 @@
 import { AppAlert } from '../../lib/appAlert';
-import { act, render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as DocumentPicker from 'expo-document-picker';
 import { ImportScreen } from './ImportScreen';
@@ -72,9 +72,22 @@ jest.mock('react-native-safe-area-context', () => ({
 // the shared-getParent()-stub shape the More-stack screens' own test files use.
 let mockRouteParams: { reimport?: unknown; sharedFile?: unknown; sharedFileError?: unknown } | undefined;
 const mockNavigate = jest.fn();
+// The screen subscribes to 'focus' (to re-check the Free plan limit on returning to the tab); the
+// listeners are kept so a test can fire that return. One stable object, as the real hook returns.
+const mockFocusListeners: (() => void)[] = [];
+const mockNavigation = {
+  navigate: mockNavigate,
+  addListener: (event: string, listener: () => void) => {
+    if (event === 'focus') mockFocusListeners.push(listener);
+    return () => {
+      const at = mockFocusListeners.indexOf(listener);
+      if (at >= 0) mockFocusListeners.splice(at, 1);
+    };
+  },
+};
 jest.mock('@react-navigation/native', () => ({
   useRoute: () => ({ params: mockRouteParams }),
-  useNavigation: () => ({ navigate: mockNavigate }),
+  useNavigation: () => mockNavigation,
 }));
 
 const api = {
@@ -812,6 +825,181 @@ describe('ImportScreen — re-upload notice', () => {
 });
 
 /**
+ * The Free plan's one-month limit, told on the review step as soon as the statement is staged
+ * (freePlanLimit) instead of only when Import is pressed. The Import button waits on it, and both
+ * the notice and a refusal at Import offer the plans screen -- which lives in the More stack.
+ */
+describe('ImportScreen — Free plan one-month limit', () => {
+  const freePlanLimit = {
+    errorCode: 'ENTITLEMENT_003',
+    message: 'Free plan statements can cover at most one month. Its transactions run from 5 Jan 2026 to 5 Mar 2026. Upgrade to Plus to import longer statement periods.',
+    coveredFrom: '2026-01-05',
+    coveredTo: '2026-03-05',
+    basis: 'TRANSACTIONS',
+  };
+
+  beforeEach(() => {
+    mockRouteParams = undefined;
+    mockNavigate.mockClear();
+    api.accounts.list.mockReset().mockResolvedValue([]);
+    api.categories.list.mockReset().mockResolvedValue([]);
+    api.import.listSessions.mockReset().mockResolvedValue([]);
+    api.import.confirm.mockReset();
+    jest.mocked(DocumentPicker.getDocumentAsync).mockReset().mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///statement.csv', name: 'statement.csv' } as never],
+    } as never);
+  });
+
+  function stagingWith(limit: unknown) {
+    return {
+      sessionId: 'session-1',
+      multiAccount: false,
+      sections: null,
+      freePlanLimit: limit,
+      staging: {
+        rows: [stagedRow('Groceries')],
+        totalParsed: 1,
+        flaggedDuplicates: 0,
+        // With a bank name, so the new account the review proposes has one and Import can post.
+        detectedAccount: detectedWithBank,
+        unparseableRows: [],
+      },
+    };
+  }
+
+  async function reachReview() {
+    render(tree());
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+    await waitFor(() => expect(screen.queryByTestId('upload-completed')).not.toBeOnTheScreen(), { timeout: 8000 });
+    await screen.findByText(/^Import \d+ transaction/);
+  }
+
+  function importButtonDisabled() {
+    return screen.getByRole('button', { name: /^Import \d+ transaction/ }).props.accessibilityState?.disabled;
+  }
+
+  it('shows the refusal on the review step and holds the Import button', async () => {
+    api.import.stageCsv.mockReset().mockResolvedValue(stagingWith(freePlanLimit) as never);
+
+    await reachReview();
+
+    expect(await screen.findByTestId('free-plan-limit-notice')).toHaveTextContent(/5 Jan 2026 to 5 Mar 2026/);
+    expect(importButtonDisabled()).toBe(true);
+  });
+
+  it('opens the plans screen in the More stack from the notice', async () => {
+    api.import.stageCsv.mockReset().mockResolvedValue(stagingWith(freePlanLimit) as never);
+    await reachReview();
+
+    fireEvent.press(within(await screen.findByTestId('free-plan-limit-notice')).getByText('See plans'));
+
+    expect(mockNavigate).toHaveBeenCalledWith('More', { screen: 'Subscription' });
+  });
+
+  it('lets someone who has just upgraded past the button -- the backend still decides', async () => {
+    api.import.stageCsv.mockReset().mockResolvedValue(stagingWith(freePlanLimit) as never);
+    await reachReview();
+
+    fireEvent.press(screen.getByText("I've already upgraded"));
+
+    expect(importButtonDisabled()).toBeFalsy();
+    expect(screen.queryByText("I've already upgraded")).not.toBeOnTheScreen();
+  });
+
+  it('shows nothing and holds nothing when the statement fits', async () => {
+    api.import.stageCsv.mockReset().mockResolvedValue(stagingWith(null) as never);
+
+    await reachReview();
+
+    expect(screen.queryByTestId('free-plan-limit-notice')).not.toBeOnTheScreen();
+    expect(importButtonDisabled()).toBeFalsy();
+  });
+
+  async function returnToTheTab() {
+    await act(async () => {
+      mockFocusListeners.forEach((listener) => listener());
+    });
+    await settle();
+  }
+
+  it('clears the warning by itself on returning to the tab after upgrading', async () => {
+    api.import.stageCsv.mockReset().mockResolvedValue(stagingWith(freePlanLimit) as never);
+    api.import.getSession.mockReset().mockResolvedValue({
+      sessionId: 'session-1', staging: stagingWith(null).staging, freePlanLimit: null,
+    } as never);
+    await reachReview();
+    expect(screen.getByTestId('free-plan-limit-notice')).toBeOnTheScreen();
+
+    await returnToTheTab();
+
+    expect(api.import.getSession).toHaveBeenCalledWith('session-1');
+    expect(screen.queryByTestId('free-plan-limit-notice')).not.toBeOnTheScreen();
+    expect(importButtonDisabled()).toBeFalsy();
+    // Only the notice was refreshed: the reviewed rows are still on screen.
+    expect(screen.getByText(/^Import \d+ transaction/)).toBeOnTheScreen();
+  });
+
+  it('keeps the warning when the plan still has the limit, or the re-check fails', async () => {
+    api.import.stageCsv.mockReset().mockResolvedValue(stagingWith(freePlanLimit) as never);
+    api.import.getSession.mockReset().mockResolvedValueOnce({
+      sessionId: 'session-1', staging: stagingWith(null).staging, freePlanLimit,
+    } as never).mockRejectedValueOnce(new Error('offline'));
+    await reachReview();
+
+    await returnToTheTab();
+    expect(screen.getByTestId('free-plan-limit-notice')).toBeOnTheScreen();
+    expect(importButtonDisabled()).toBe(true);
+
+    await returnToTheTab();
+    expect(screen.getByTestId('free-plan-limit-notice')).toBeOnTheScreen();
+    expect(importButtonDisabled()).toBe(true);
+  });
+
+  it('asks the server nothing on returning to the tab when there is no warning', async () => {
+    api.import.stageCsv.mockReset().mockResolvedValue(stagingWith(null) as never);
+    api.import.getSession.mockReset();
+    await reachReview();
+
+    await returnToTheTab();
+
+    expect(api.import.getSession).not.toHaveBeenCalled();
+  });
+
+  it('offers the plans screen next to a Free-plan refusal at Import', async () => {
+    // An older backend, or a plan that changed after staging: no notice, so the refusal arrives at
+    // Import -- and must not be a dead end.
+    api.import.stageCsv.mockReset().mockResolvedValue(stagingWith(null) as never);
+    api.import.confirm.mockRejectedValue(Object.assign(new Error('Request failed with status code 403'), {
+      isAxiosError: true,
+      response: { status: 403, data: { success: false, errorCode: 'ENTITLEMENT_003', message: freePlanLimit.message } },
+    }));
+    await reachReview();
+
+    await pressImport();
+
+    expect(await screen.findByText(freePlanLimit.message)).toBeOnTheScreen();
+    fireEvent.press(screen.getByText('See plans'));
+    expect(mockNavigate).toHaveBeenCalledWith('More', { screen: 'Subscription' });
+  });
+
+  it('offers no plans button for an ordinary failure at Import', async () => {
+    api.import.stageCsv.mockReset().mockResolvedValue(stagingWith(null) as never);
+    api.import.confirm.mockRejectedValue(Object.assign(new Error('Request failed with status code 400'), {
+      isAxiosError: true,
+      response: { status: 400, data: { success: false, errorCode: 'VALIDATION_ERROR', message: 'Something was off.' } },
+    }));
+    await reachReview();
+
+    await pressImport();
+
+    expect(await screen.findByText('Something was off.')).toBeOnTheScreen();
+    expect(screen.queryByText('See plans')).not.toBeOnTheScreen();
+  });
+});
+
+/**
  * The synchronous upload path (used when a password is typed, or the queue is off). It must speak the
  * same plain language as the queued card: the curated sentence for the failure, not the server's own
  * wording, which is written for logs and support ("... -- the file appears to be damaged").
@@ -840,6 +1028,7 @@ describe('ImportScreen — synchronous upload failure wording', () => {
     ['IMPORT_011', 'This PDF could not be read -- the file appears to be damaged', /downloading it again from your bank/i],
     ['IMPORT_010', 'This PDF has no text in it -- every page is an image', /scanned image rather than text/i],
     ['IMPORT_013', 'This PDF has too many pages to process.', /too many pages/i],
+    ['IMPORT_018', 'This is a payment app history, not a bank statement.', /import those bank statements instead/i],
   ])('shows the plain sentence for %s, not the server wording', async (code, serverMessage, plain) => {
     api.import.stageCsv.mockReset().mockRejectedValue(rejectWithCode(code, serverMessage));
     render(tree());
@@ -1227,7 +1416,7 @@ describe('ImportScreen — async import job (Phase 4)', () => {
       await settle();
 
       await waitFor(() => expect(api.importJobs.progress).toHaveBeenCalledWith('job-held'), { timeout: 3000 });
-      expect(await screen.findByText('Running additional checks')).toBeTruthy();
+      expect(await screen.findByText("We're double-checking this statement")).toBeTruthy();
       expect(screen.queryByText(/^Import \d+ transaction/)).toBeNull();
       expect(screen.queryByTestId('pdf-password-panel')).toBeNull();
 

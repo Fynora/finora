@@ -3,6 +3,7 @@ package com.finora.controller;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.AbstractIntegrationTest;
+import com.finora.accounts.AccountDto;
 import com.finora.dto.ImportDto.ConfirmRequest;
 import com.finora.dto.ImportDto.ConfirmedRow;
 import com.finora.dto.ImportDto.DetectedAccountInfo;
@@ -18,6 +19,7 @@ import com.finora.repository.UserRepository;
 import com.finora.security.JwtService;
 import com.finora.service.SubscriptionService;
 import com.finora.testsupport.TestSessions;
+import com.finora.util.BankRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
@@ -32,7 +34,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * plans.ts's "Extended financial history" Plus/Premium promise, enforced -- the second and third
+ * plans.ts's "Statements longer than one month" Plus/Premium promise, enforced -- the second and third
  * FeatureEntitlement keys any endpoint actually checks (after ADVANCED_REPORTS): a Free-plan
  * statement's detected period may not exceed one month (ImportService, FreeStatementPeriod,
  * FeatureEntitlement.EXTENDED_HISTORY) and a Free-plan account may not create a 3rd account (AccountService,
@@ -47,7 +49,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * catch, undetected, because the tests only ever sent an HONEST echo. The gate has since moved
  * into {@code ImportService}, reading the period back from THIS session's own server-computed
  * {@code detectedAccountJson}/{@code sectionsJson} instead (see
- * {@code ImportService.requireStatementPeriodWithinFreeLimit}'s own doc comment) -- so these tests
+ * {@code ImportService.requireStatementWithinFreeLimit}'s own doc comment) -- so these tests
  * now stage a REAL session via {@link ImportSessionService#createSession}/
  * {@link ImportSessionService#createMultiSection} (same shortcut {@code ImportControllerSessionsIT}
  * takes -- a session of a given kind sitting in the STAGED state, not real CSV/PDF parsing) and
@@ -55,6 +57,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * caller) still falls through to the real service and fails for an UNRELATED reason (404, the
  * {@code existingAccountId} genuinely doesn't exist) -- proving the gate let the request past
  * rather than merely not having been reached yet.
+ *
+ * <p>Since 2026-10-06 the staged transactions' date range is judged as well as the printed period,
+ * with two days of grace at each end (see {@code FreeStatementPeriod}). Sessions staged by
+ * {@link #stageSingleAccountSession} carry a single row, so only the printed period decides those
+ * tests; the {@code stageWithRows} tests below cover the transactions.
  *
  * <p>The {@code *EvenWhenTheRequestClaims...} tests are the regression coverage for the bug itself:
  * they stage a session whose REAL detected period is over the Free limit, then confirm with a
@@ -195,10 +202,12 @@ class ImportEntitlementGateIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void csvConfirm_onFreePlan_rejectsAStatementEndingOneDayPastTheSameDateNextMonth() throws Exception {
+    void csvConfirm_onFreePlan_rejectsAStatementEndingOneDayPastTheGrace() throws Exception {
+        // With two days of grace at each end, 1 Jan is judged as 3 Jan, so the last end date allowed
+        // is 5 Feb (3 Feb plus two days). Before the grace this boundary was 1 Feb / 2 Feb.
         User user = createUser();
         subscriptionService.provisionFreeSubscription(user.getId());
-        LocalDate start = LocalDate.of(2026, 1, 1), end = LocalDate.of(2026, 2, 2);
+        LocalDate start = LocalDate.of(2026, 1, 1), end = LocalDate.of(2026, 2, 6);
         UUID sessionId = stageSingleAccountSession(user, start, end);
 
         ResponseEntity<String> response = post("/api/v1/import/csv/confirm", user, confirmRequest(sessionId, start, end));
@@ -249,10 +258,8 @@ class ImportEntitlementGateIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void csvConfirm_withNoPeriodDetected_isNeverBlocked() throws Exception {
-        // A missing period is never itself a reason to hold -- same "carried, not dropped"
-        // treatment ImportService.periodOf() already gives an older client or a format with
-        // nothing printed to detect.
+    void csvConfirm_withNoPeriodDetected_andTransactionsWithinAMonth_isAllowed() throws Exception {
+        // A missing period is not itself a reason to refuse: the transactions are judged instead.
         User user = createUser();
         subscriptionService.provisionFreeSubscription(user.getId());
         UUID sessionId = stageSingleAccountSession(user, null, null);
@@ -260,6 +267,224 @@ class ImportEntitlementGateIT extends AbstractIntegrationTest {
         ResponseEntity<String> response = post("/api/v1/import/csv/confirm", user, confirmRequest(sessionId, null, null));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    // -- Transactions judged as well as the printed period (owner's rules, 2026-10-06) -------------
+
+    private StagedRow stagedRowOn(LocalDate date) {
+        return new StagedRow(date, "Coffee " + date, BigDecimal.TEN, "EXPENSE", "Food", "file", null, false, null, null);
+    }
+
+    private ConfirmedRow confirmedRowOn(LocalDate date, boolean include) {
+        return new ConfirmedRow(date, "Coffee " + date, BigDecimal.TEN, "EXPENSE", "Food", include, "file", null, false, null, null);
+    }
+
+    private UUID stageWithRows(User user, LocalDate detectedStart, LocalDate detectedEnd, List<LocalDate> rowDates) {
+        ImportSession session = importSessionService.createSession(user.getId(), "statement.csv",
+                "Date,Description,Amount\n".getBytes(StandardCharsets.UTF_8),
+                rowDates.stream().map(this::stagedRowOn).toList(), detectedAccountWithPeriod(detectedStart, detectedEnd));
+        return session.getId();
+    }
+
+    private ConfirmRequest confirmRows(UUID sessionId, List<LocalDate> rowDates, java.util.function.Predicate<LocalDate> included) {
+        return new ConfirmRequest(sessionId, rowDates.stream().map(d -> confirmedRowOn(d, included.test(d))).toList(),
+                UUID.randomUUID(), null, null, null, null, null, null, null, null);
+    }
+
+    private User freeUser() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        return user;
+    }
+
+    // -- slice: the printed period is not judged, only the transactions (owner's decision, 2026-10-09)
+
+    private UUID stageWithBank(User user, String bankId, LocalDate printedStart, LocalDate printedEnd,
+                               List<LocalDate> rowDates) {
+        DetectedAccountInfo detected = new DetectedAccountInfo("Test Bank", "SAVINGS", new BigDecimal("1000"),
+                new BigDecimal("900"), printedStart, printedEnd, null, null, null, null, null, null, null,
+                AccountDto.BankDto.from(BankRegistry.get(bankId)),
+                "SAVINGS", 0.85, false, List.of(), null,
+                null, null, null, null, null, null, null);
+        ImportSession session = importSessionService.createSession(user.getId(), "statement.pdf",
+                "pdf bytes".getBytes(StandardCharsets.UTF_8),
+                rowDates.stream().map(this::stagedRowOn).toList(), detected);
+        return session.getId();
+    }
+
+    @Test
+    void confirm_onFreePlan_aSliceStatementPrintingTheWholeYear_isAllowedWhenItsTransactionsFitOneMonth() throws Exception {
+        User user = freeUser();
+        List<LocalDate> dates = List.of(LocalDate.of(2026, 9, 3), LocalDate.of(2026, 9, 20), LocalDate.of(2026, 10, 2));
+        UUID sessionId = stageWithBank(user, "SLICE", LocalDate.of(2026, 4, 1), LocalDate.of(2027, 3, 31), dates);
+
+        ResponseEntity<String> response = post("/api/v1/import/csv/confirm", user, confirmRows(sessionId, dates, d -> true));
+
+        // Past the gate: the random account id in the request is what is not found.
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void confirm_onFreePlan_aSliceStatementPrintingTheWholeYear_isRefusedOnItsTransactionsWhenTheySpanMore() throws Exception {
+        User user = freeUser();
+        List<LocalDate> dates = List.of(LocalDate.of(2026, 7, 31), LocalDate.of(2026, 8, 20), LocalDate.of(2026, 10, 6));
+        UUID sessionId = stageWithBank(user, "SLICE", LocalDate.of(2026, 4, 1), LocalDate.of(2027, 3, 31), dates);
+
+        ResponseEntity<String> response = post("/api/v1/import/csv/confirm", user, confirmRows(sessionId, dates, d -> true));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(mapper.readTree(response.getBody()).get("message").asText()).isEqualTo(
+                "Free plan statements can cover at most one month. Its transactions run from 31 Jul 2026 to 6 Oct 2026. "
+                        + "Upgrade to Plus to import longer statement periods.");
+    }
+
+    @Test
+    void confirm_onFreePlan_anotherBankPrintingTheWholeYear_isStillRefusedOnThePrintedPeriod() throws Exception {
+        User user = freeUser();
+        List<LocalDate> dates = List.of(LocalDate.of(2026, 9, 3), LocalDate.of(2026, 9, 20));
+        UUID sessionId = stageWithBank(user, "HDFC", LocalDate.of(2026, 4, 1), LocalDate.of(2027, 3, 31), dates);
+
+        ResponseEntity<String> response = post("/api/v1/import/csv/confirm", user, confirmRows(sessionId, dates, d -> true));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(mapper.readTree(response.getBody()).get("message").asText()).isEqualTo(
+                "Free plan statements can cover at most one month. It covers 1 Apr 2026 to 31 Mar 2027. "
+                        + "Upgrade to Plus to import longer statement periods.");
+    }
+
+    @Test
+    void csvConfirm_onFreePlan_withNoPeriod_rejectsTransactionsSpanningThreeMonths_andNamesTheRange() throws Exception {
+        // Every CSV and Excel export: no printed period, so before this the limit never ran at all.
+        User user = freeUser();
+        List<LocalDate> dates = List.of(LocalDate.of(2026, 1, 5), LocalDate.of(2026, 2, 10), LocalDate.of(2026, 3, 5));
+        UUID sessionId = stageWithRows(user, null, null, dates);
+
+        ResponseEntity<String> response = post("/api/v1/import/csv/confirm", user, confirmRows(sessionId, dates, d -> true));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        JsonNode body = mapper.readTree(response.getBody());
+        assertThat(body.get("errorCode").asText()).isEqualTo("ENTITLEMENT_003");
+        assertThat(body.get("message").asText()).isEqualTo("Free plan statements can cover at most one month. "
+                + "Its transactions run from 5 Jan 2026 to 5 Mar 2026. Upgrade to Plus to import longer statement periods.");
+    }
+
+    @Test
+    void csvConfirm_onFreePlan_namesThePrintedPeriodWhenThatIsWhatIsTooLong() throws Exception {
+        User user = freeUser();
+        UUID sessionId = stageSingleAccountSession(user, LocalDate.of(2026, 1, 1), LocalDate.of(2026, 3, 31));
+
+        ResponseEntity<String> response = post("/api/v1/import/csv/confirm", user,
+                confirmRequest(sessionId, LocalDate.of(2026, 1, 1), LocalDate.of(2026, 3, 31)));
+
+        assertThat(mapper.readTree(response.getBody()).get("message").asText()).isEqualTo(
+                "Free plan statements can cover at most one month. It covers 1 Jan 2026 to 31 Mar 2026. "
+                        + "Upgrade to Plus to import longer statement periods.");
+    }
+
+    @Test
+    void csvConfirm_onFreePlan_rejectsAnEditedPrintedPeriod_whenTheTransactionsStillCoverMore_andLogsIt() throws Exception {
+        // The printed period says one month; the rows still run for two. The refusal is logged
+        // (spans only, no dates): it is how a wrongly refused real statement gets noticed.
+        User user = freeUser();
+        List<LocalDate> dates = List.of(LocalDate.of(2026, 1, 5), LocalDate.of(2026, 3, 5));
+        UUID sessionId = stageWithRows(user, LocalDate.of(2026, 1, 5), LocalDate.of(2026, 2, 5), dates);
+        var logger = (ch.qos.logback.classic.Logger)
+                org.slf4j.LoggerFactory.getLogger(com.finora.imports.ImportService.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        ResponseEntity<String> response;
+        try {
+            response = post("/api/v1/import/csv/confirm", user, confirmRows(sessionId, dates, d -> true));
+        } finally {
+            logger.detachAppender(appender);
+        }
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        JsonNode body = mapper.readTree(response.getBody());
+        assertThat(body.get("errorCode").asText()).isEqualTo("ENTITLEMENT_003");
+        assertThat(body.get("details").get("basis").asText()).isEqualTo("TRANSACTIONS");
+        assertThat(body.get("details").get("coveredFrom").asText()).isEqualTo("2026-01-05");
+        assertThat(body.get("details").get("coveredTo").asText()).isEqualTo("2026-03-05");
+        assertThat(appender.list).anyMatch(e -> e.getFormattedMessage().equals(
+                "Free statement limit: session " + sessionId + " prints a 32-day period, but its transactions span 60 days -- refused"));
+    }
+
+    @Test
+    void csvConfirm_onFreePlan_aStatementWithNoPeriod_isRefusedWithoutTheEditedPeriodLog() throws Exception {
+        // A CSV printing no period being too long is the ordinary case, not a sign of anything.
+        User user = freeUser();
+        List<LocalDate> dates = List.of(LocalDate.of(2026, 1, 5), LocalDate.of(2026, 3, 5));
+        UUID sessionId = stageWithRows(user, null, null, dates);
+        var logger = (ch.qos.logback.classic.Logger)
+                org.slf4j.LoggerFactory.getLogger(com.finora.imports.ImportService.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        ResponseEntity<String> response;
+        try {
+            response = post("/api/v1/import/csv/confirm", user, confirmRows(sessionId, dates, d -> true));
+        } finally {
+            logger.detachAppender(appender);
+        }
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(appender.list).noneMatch(e -> e.getFormattedMessage().startsWith("Free statement limit"));
+    }
+
+    @Test
+    void csvConfirm_onFreePlan_untickedRowsStillCount() throws Exception {
+        // Unticking the two later months during review does not make a three-month file one month.
+        User user = freeUser();
+        List<LocalDate> dates = List.of(LocalDate.of(2026, 1, 5), LocalDate.of(2026, 2, 10), LocalDate.of(2026, 3, 5));
+        UUID sessionId = stageWithRows(user, null, null, dates);
+
+        ResponseEntity<String> response = post("/api/v1/import/csv/confirm", user,
+                confirmRows(sessionId, dates, d -> d.getMonthValue() == 1));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(errorCodeOf(response)).isEqualTo("ENTITLEMENT_003");
+    }
+
+    @Test
+    void csvConfirm_onFreePlan_allowsTwoDaysOfGraceAtEachEnd() throws Exception {
+        // 5 Jan to 5 Feb is one month, so a statement printed and dated 3 Jan to 7 Feb fits.
+        User user = freeUser();
+        List<LocalDate> dates = List.of(LocalDate.of(2026, 1, 3), LocalDate.of(2026, 2, 7));
+        UUID sessionId = stageWithRows(user, LocalDate.of(2026, 1, 3), LocalDate.of(2026, 2, 7), dates);
+
+        ResponseEntity<String> response = post("/api/v1/import/csv/confirm", user, confirmRows(sessionId, dates, d -> true));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void csvConfirm_onFreePlan_rejectsOneDayPastTheGrace() throws Exception {
+        User user = freeUser();
+        List<LocalDate> dates = List.of(LocalDate.of(2026, 1, 3), LocalDate.of(2026, 2, 8));
+        UUID sessionId = stageWithRows(user, null, null, dates);
+
+        ResponseEntity<String> response = post("/api/v1/import/csv/confirm", user, confirmRows(sessionId, dates, d -> true));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    void csvConfirm_refusedOnFree_thenUpgraded_theSameUploadGoesThrough() throws Exception {
+        // The refusal must not leave the session claimed: after upgrading, the person confirms the
+        // upload they already reviewed, and does not get "already confirmed".
+        User user = freeUser();
+        List<LocalDate> dates = List.of(LocalDate.of(2026, 1, 5), LocalDate.of(2026, 3, 5));
+        UUID sessionId = stageWithRows(user, null, null, dates);
+
+        ResponseEntity<String> refused = post("/api/v1/import/csv/confirm", user, confirmRows(sessionId, dates, d -> true));
+        assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+
+        subscriptionService.changePlan(user.getId(), "PLUS", "test-upgrade", user.getId());
+        ResponseEntity<String> retried = post("/api/v1/import/csv/confirm", user, confirmRows(sessionId, dates, d -> true));
+
+        // Past the gate and past the claim: the only failure left is the fabricated account id.
+        assertThat(retried.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
     /** The regression test for the actual bug: the request claims a period well within the Free
@@ -318,6 +543,30 @@ class ImportEntitlementGateIT extends AbstractIntegrationTest {
                 multiRequest(sessionId, section1[0], section1[1], section2[0], section2[1]));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void pdfConfirmMulti_onFreePlan_judgesASectionWithNoPeriodByItsTransactions() throws Exception {
+        User user = freeUser();
+        StagedAccountSection fits = new StagedAccountSection(
+                detectedAccountWithPeriod(LocalDate.of(2026, 1, 1), LocalDate.of(2026, 1, 31)), List.of(stagedRow()), 1, 0, List.of());
+        StagedAccountSection tooLong = new StagedAccountSection(detectedAccountWithPeriod(null, null),
+                List.of(stagedRowOn(LocalDate.of(2026, 1, 5)), stagedRowOn(LocalDate.of(2026, 4, 5))), 2, 0, List.of());
+        UUID sessionId = importSessionService.createMultiSection(user.getId(), "composite-statement.pdf",
+                "composite pdf bytes".getBytes(StandardCharsets.UTF_8), List.of(fits, tooLong)).getId();
+        MultiAccountConfirmRequest request = new MultiAccountConfirmRequest(sessionId, List.of(
+                new SectionConfirm(List.of(confirmedRow()), UUID.randomUUID(), null, null, null, null, null, null, null),
+                new SectionConfirm(List.of(confirmedRowOn(LocalDate.of(2026, 1, 5), true), confirmedRowOn(LocalDate.of(2026, 4, 5), true)),
+                        UUID.randomUUID(), null, null, null, null, null, null, null)));
+
+        ResponseEntity<String> response = post("/api/v1/import/pdf/confirm-multi", user, request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(errorCodeOf(response)).isEqualTo("ENTITLEMENT_003");
+        // Says it is one account of the statement: the dates alone would not tell which part.
+        assertThat(mapper.readTree(response.getBody()).get("message").asText()).isEqualTo(
+                "Free plan statements can cover at most one month. One account's transactions run from "
+                        + "5 Jan 2026 to 5 Apr 2026. Upgrade to Plus to import longer statement periods.");
     }
 
     /** Multi-account equivalent of {@code csvConfirm_..._isRejectedEvenWhenTheRequestClaims...}

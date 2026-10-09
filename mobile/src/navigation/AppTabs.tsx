@@ -6,6 +6,8 @@ import { useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { QuickActionSheet } from '../components/dashboard/QuickActionSheet';
+import { GlassScreen } from '../components/GlassScreen';
+import { GlassSurface } from '../components/GlassSurface';
 import { useRegisterTourTarget } from '../onboarding/TourTargetRegistry';
 import { DashboardScreen } from '../screens/DashboardScreen';
 import { LedgerScreen } from '../screens/LedgerScreen';
@@ -53,7 +55,7 @@ function MoreNavigator() {
   return (
     <MoreStack.Navigator
       screenOptions={{
-        headerStyle: { backgroundColor: c.bg },
+        headerStyle: { backgroundColor: c.bg /* glass-exempt: native-stack header; the mesh starts below it and its flat edge band meets this colour seamlessly */ },
         headerTintColor: c.ink,
         headerShadowVisible: false,
       }}
@@ -177,13 +179,20 @@ export function AppTabs() {
   };
 
   return (
-    <View style={styles.flexFill}>
+    // GlassScreen, not a plain View: the mesh backdrop sits here, behind the in-flow tab bar, so
+    // the bar's GlassSurface has something to read against where the screens' own backdrops end.
+    // The bar is NOT position:'absolute' (content does not scroll under it) -- see the glass
+    // plan's open decision D1; that change needs bottom padding on every scroll root.
+    <GlassScreen style={styles.flexFill}>
       <Tab.Navigator
         screenOptions={({ route }) => ({
           headerShown: false,
           tabBarActiveTintColor: c.primary,
           tabBarInactiveTintColor: c.muted,
-          tabBarStyle: { backgroundColor: c.card, borderTopColor: c.border },
+          // Transparent so the GlassSurface below is the only fill; the hairline top edge uses
+          // the glass edge colour rather than the opaque border token.
+          tabBarStyle: { backgroundColor: 'transparent', borderTopColor: c.glassEdge },
+          tabBarBackground: () => <GlassSurface testID="tab-bar-glass" style={StyleSheet.absoluteFill} />,
           tabBarIcon: ({ focused, color, size }) => {
             const icons = TAB_ICON[route.name];
             const register = registerByTab[route.name];
@@ -236,7 +245,7 @@ export function AppTabs() {
         onAddTransaction={() => navigation.navigate('Home', { openAddTransaction: true, nonce: Date.now() })}
         onAddGoal={() => { trackNavigation('goals', 'fab'); navigation.navigate('More', { screen: 'Goals' }); }}
       />
-    </View>
+    </GlassScreen>
   );
 }
 

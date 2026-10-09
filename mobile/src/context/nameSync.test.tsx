@@ -9,7 +9,9 @@ jest.mock('../api/endpoints', () => ({
 }));
 jest.mock('../lib/pushRegistration', () => ({
   registerDeviceToken: jest.fn(),
-  revokeDeviceToken: jest.fn(),
+  detachDevice: jest.fn(async () => null),
+  resumePendingDetach: jest.fn(async () => {}),
+  clearPendingDetach: jest.fn(async () => {}),
   subscribeToForegroundMessages: jest.fn(() => jest.fn()),
 }));
 jest.mock('../lib/revenueCat', () => ({ configureRevenueCat: jest.fn() }));

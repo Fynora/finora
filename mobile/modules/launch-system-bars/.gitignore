@@ -1,0 +1,4 @@
+# Gradle writes this module's build output next to its sources.
+android/build/
+android/.gradle/
+android/.cxx/

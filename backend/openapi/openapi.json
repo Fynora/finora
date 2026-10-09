@@ -988,6 +988,124 @@
                 }
             }
         },
+        "/api/v1/admin/push-campaigns/{id}": {
+            "get": {
+                "tags": [
+                    "admin-push-campaign-controller"
+                ],
+                "operationId": "getPushCampaign",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponsePushCampaignDetailDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "tags": [
+                    "admin-push-campaign-controller"
+                ],
+                "operationId": "updatePushCampaign",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PushCampaignSaveRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponsePushCampaignDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/push-campaigns/settings": {
+            "get": {
+                "tags": [
+                    "admin-push-campaign-controller"
+                ],
+                "operationId": "getPushCampaignSettings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponsePushCampaignSettingsDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "tags": [
+                    "admin-push-campaign-controller"
+                ],
+                "operationId": "updatePushCampaignSettings",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PushCampaignSettingsRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponsePushCampaignSettingsDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/permissions/{id}": {
             "put": {
                 "tags": [
@@ -3452,6 +3570,37 @@
                 }
             }
         },
+        "/api/v1/import/jobs/{jobId}/dismiss": {
+            "post": {
+                "tags": [
+                    "import-job-controller"
+                ],
+                "operationId": "dismiss_1",
+                "parameters": [
+                    {
+                        "name": "jobId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/import/jobs/{jobId}/cancel": {
             "post": {
                 "tags": [
@@ -5717,6 +5866,312 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/push-campaigns": {
+            "get": {
+                "tags": [
+                    "admin-push-campaign-controller"
+                ],
+                "operationId": "listPushCampaigns",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseListPushCampaignDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "admin-push-campaign-controller"
+                ],
+                "operationId": "createPushCampaign",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PushCampaignSaveRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponsePushCampaignDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/push-campaigns/{id}/stop": {
+            "post": {
+                "tags": [
+                    "admin-push-campaign-controller"
+                ],
+                "operationId": "stopPushCampaign",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponsePushCampaignDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/push-campaigns/{id}/start": {
+            "post": {
+                "tags": [
+                    "admin-push-campaign-controller"
+                ],
+                "operationId": "startPushCampaign",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponsePushCampaignDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/push-campaigns/{id}/send-test": {
+            "post": {
+                "tags": [
+                    "admin-push-campaign-controller"
+                ],
+                "operationId": "sendPushCampaignTest",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PushCampaignTestRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponsePushCampaignTestResultDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/push-campaigns/{id}/send-now": {
+            "post": {
+                "tags": [
+                    "admin-push-campaign-controller"
+                ],
+                "operationId": "sendPushCampaignNow",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponsePushCampaignRunDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/push-campaigns/{id}/resume": {
+            "post": {
+                "tags": [
+                    "admin-push-campaign-controller"
+                ],
+                "operationId": "resumePushCampaign",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponsePushCampaignDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/push-campaigns/{id}/pause": {
+            "post": {
+                "tags": [
+                    "admin-push-campaign-controller"
+                ],
+                "operationId": "pausePushCampaign",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponsePushCampaignDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/push-campaigns/{id}/clone": {
+            "post": {
+                "tags": [
+                    "admin-push-campaign-controller"
+                ],
+                "operationId": "clonePushCampaign",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponsePushCampaignDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/push-campaigns/{id}/cancel-sending": {
+            "post": {
+                "tags": [
+                    "admin-push-campaign-controller"
+                ],
+                "operationId": "cancelPushCampaignSending",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponsePushCampaignCancelResultDto"
                                 }
                             }
                         }
@@ -10357,6 +10812,40 @@
                 }
             }
         },
+        "/api/v1/admin/push-campaigns/audience-count": {
+            "get": {
+                "tags": [
+                    "admin-push-campaign-controller"
+                ],
+                "operationId": "countPushCampaignAudience",
+                "parameters": [
+                    {
+                        "name": "audienceType",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "ALL_WITH_DEVICE",
+                                "NO_STATEMENT_UPLOADED"
+                            ]
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponsePushCampaignAudienceCountDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/notifications": {
             "get": {
                 "tags": [
@@ -12688,6 +13177,7 @@
                 "properties": {
                     "categoryName": {
                         "type": "string",
+                        "maxLength": 80,
                         "minLength": 1
                     },
                     "monthlyLimit": {
@@ -12823,6 +13313,12 @@
                     },
                     "amountMax": {
                         "type": "number"
+                    },
+                    "payeeAliases": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
                     }
                 }
             },
@@ -13466,6 +13962,237 @@
                         "items": {
                             "$ref": "#/components/schemas/PermissionDto"
                         }
+                    }
+                }
+            },
+            "PushCampaignSaveRequest": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "maxLength": 120,
+                        "minLength": 0
+                    },
+                    "title": {
+                        "type": "string",
+                        "maxLength": 80,
+                        "minLength": 0
+                    },
+                    "message": {
+                        "type": "string",
+                        "maxLength": 240,
+                        "minLength": 0
+                    },
+                    "audienceType": {
+                        "type": "string",
+                        "enum": [
+                            "ALL_WITH_DEVICE",
+                            "NO_STATEMENT_UPLOADED"
+                        ]
+                    },
+                    "scheduleKind": {
+                        "type": "string",
+                        "enum": [
+                            "NOW_ONLY",
+                            "ONCE_AT",
+                            "DAILY_AT"
+                        ]
+                    },
+                    "runAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "sendTimeIst": {
+                        "type": "string"
+                    },
+                    "endsOn": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "expectedVersion": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                },
+                "required": [
+                    "audienceType",
+                    "message",
+                    "name",
+                    "scheduleKind",
+                    "title"
+                ]
+            },
+            "ApiResponsePushCampaignDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/PushCampaignDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "PushCampaignDto": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "title": {
+                        "type": "string"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "audienceType": {
+                        "type": "string",
+                        "enum": [
+                            "ALL_WITH_DEVICE",
+                            "NO_STATEMENT_UPLOADED"
+                        ]
+                    },
+                    "scheduleKind": {
+                        "type": "string",
+                        "enum": [
+                            "NOW_ONLY",
+                            "ONCE_AT",
+                            "DAILY_AT"
+                        ]
+                    },
+                    "runAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "sendTimeIst": {
+                        "type": "string"
+                    },
+                    "endsOn": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "DRAFT",
+                            "ACTIVE",
+                            "PAUSED",
+                            "STOPPED",
+                            "COMPLETED"
+                        ]
+                    },
+                    "nextRunAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "lastTestedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "lastTestedBy": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "createdBy": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "createdAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "updatedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "version": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "PushCampaignSettingsRequest": {
+                "type": "object",
+                "properties": {
+                    "dailyLimitPerPerson": {
+                        "type": "integer",
+                        "format": "int32",
+                        "maximum": 10,
+                        "minimum": 1
+                    }
+                }
+            },
+            "ApiResponsePushCampaignSettingsDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/PushCampaignSettingsDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "PushCampaignSettingsDto": {
+                "type": "object",
+                "properties": {
+                    "dailyLimitPerPerson": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "minDailyLimit": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "maxDailyLimit": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "updatedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "updatedBy": {
+                        "type": "string",
+                        "format": "uuid"
                     }
                 }
             },
@@ -15965,6 +16692,28 @@
                     }
                 }
             },
+            "FreePlanLimitNotice": {
+                "type": "object",
+                "properties": {
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "coveredFrom": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "coveredTo": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "basis": {
+                        "type": "string"
+                    }
+                }
+            },
             "PdfStagingSessionResponse": {
                 "type": "object",
                 "properties": {
@@ -15990,6 +16739,9 @@
                     "heldForReviewJobId": {
                         "type": "string",
                         "format": "uuid"
+                    },
+                    "freePlanLimit": {
+                        "$ref": "#/components/schemas/FreePlanLimitNotice"
                     }
                 }
             },
@@ -16322,6 +17074,9 @@
                     "heldForReviewJobId": {
                         "type": "string",
                         "format": "uuid"
+                    },
+                    "freePlanLimit": {
+                        "$ref": "#/components/schemas/FreePlanLimitNotice"
                     }
                 }
             },
@@ -17618,6 +18373,234 @@
                     "amount",
                     "reason"
                 ]
+            },
+            "PushCampaignTestRequest": {
+                "type": "object",
+                "properties": {
+                    "userId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "email": {
+                        "type": "string",
+                        "maxLength": 254,
+                        "minLength": 0
+                    }
+                }
+            },
+            "ApiResponsePushCampaignTestResultDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/PushCampaignTestResultDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "PushCampaignTestResultDto": {
+                "type": "object",
+                "properties": {
+                    "queued": {
+                        "type": "boolean"
+                    },
+                    "detail": {
+                        "type": "string"
+                    }
+                }
+            },
+            "ApiResponsePushCampaignRunDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/PushCampaignRunDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "PushCampaignRunDto": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "campaignId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "campaignVersion": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "runDateIst": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "scheduledFor": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "triggeredBy": {
+                        "type": "string",
+                        "enum": [
+                            "SCHEDULE",
+                            "ADMIN_NOW"
+                        ]
+                    },
+                    "triggeredByUser": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "startedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "finishedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "RUNNING",
+                            "DONE",
+                            "FAILED",
+                            "MISSED",
+                            "CANCELLED"
+                        ]
+                    },
+                    "audienceSize": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "queuedCount": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "skippedCapCount": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "skippedAlreadyQueuedCount": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "titleSnapshot": {
+                        "type": "string"
+                    },
+                    "messageSnapshot": {
+                        "type": "string"
+                    },
+                    "audienceSnapshot": {
+                        "type": "string",
+                        "enum": [
+                            "ALL_WITH_DEVICE",
+                            "NO_STATEMENT_UPLOADED"
+                        ]
+                    },
+                    "note": {
+                        "type": "string"
+                    },
+                    "sent": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "failed": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "pending": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "cancelled": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "skipped": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "ApiResponsePushCampaignCancelResultDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/PushCampaignCancelResultDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "PushCampaignCancelResultDto": {
+                "type": "object",
+                "properties": {
+                    "cancelledPushes": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "releasedSlots": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
             },
             "CreatePermissionRequest": {
                 "type": "object",
@@ -24391,6 +25374,127 @@
                     }
                 }
             },
+            "ApiResponseListPushCampaignDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/PushCampaignDto"
+                        }
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "ApiResponsePushCampaignDetailDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/PushCampaignDetailDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "PushCampaignDetailDto": {
+                "type": "object",
+                "properties": {
+                    "campaign": {
+                        "$ref": "#/components/schemas/PushCampaignDto"
+                    },
+                    "runs": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/PushCampaignRunDto"
+                        }
+                    }
+                }
+            },
+            "ApiResponsePushCampaignAudienceCountDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/PushCampaignAudienceCountDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "PushCampaignAudienceCountDto": {
+                "type": "object",
+                "properties": {
+                    "audienceType": {
+                        "type": "string",
+                        "enum": [
+                            "ALL_WITH_DEVICE",
+                            "NO_STATEMENT_UPLOADED"
+                        ]
+                    },
+                    "count": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "rolloutLimit": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
             "ApiResponseListPermissionDto": {
                 "type": "object",
                 "properties": {
@@ -26371,6 +27475,14 @@
                         "format": "int64"
                     },
                     "transactionsFlaggedAsDuplicates": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "statementsHeldForTrustReview": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "importsHeldForReview": {
                         "type": "integer",
                         "format": "int64"
                     }

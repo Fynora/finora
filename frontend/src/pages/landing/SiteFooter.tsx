@@ -43,7 +43,7 @@ export function SiteFooter() {
             </p>
             <div className="mt-5 space-y-1">
               {footer.principles.map((line) => (
-                <p key={line} className="text-[13px] font-medium text-slate-500">{line}</p>
+                <p key={line} className="text-[13px] font-medium text-slate-400">{line}</p>
               ))}
             </div>
 
@@ -78,8 +78,8 @@ export function SiteFooter() {
         </div>
 
         <div className="pt-7 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <p className="text-xs text-slate-500">© {new Date().getFullYear()} Fynora Technovation LLP. All rights reserved.</p>
-          <p className="text-xs text-slate-500">{footer.tagline}</p>
+          <p className="text-xs text-slate-400">© {new Date().getFullYear()} Fynora Technovation LLP. All rights reserved.</p>
+          <p className="text-xs text-slate-400">{footer.tagline}</p>
         </div>
       </div>
     </footer>

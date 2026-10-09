@@ -265,7 +265,7 @@ public class ImportService {
             //
             // Recording is safe from here: recordFailed is REQUIRES_NEW, so it commits on its own
             // and cannot roll anything back, and cannot itself be rolled back.
-            recordParseFailure(userId, fileName, "CSV", fileContent.length, fingerprint, e,
+            recordParseFailure(userId, fileName, "CSV", fileContent, fingerprint, e,
                     startedAtMs, diagnostics);
             throw e;
         }
@@ -287,14 +287,19 @@ public class ImportService {
      * bookkeeping failure masking a parse failure would turn a diagnosable problem into a
      * mysterious one, which is the opposite of what this table is for.
      */
-    private void recordParseFailure(UUID userId, String fileName, String sourceFormat, long byteSize,
+    private void recordParseFailure(UUID userId, String fileName, String sourceFormat, byte[] fileContent,
                                      String fingerprint, RuntimeException failure, long startedAtMs,
                                      ParseDiagnostics diagnostics) {
         String code = ErrorCode.failureCodeOf(failure);
         try {
+            // Which file this was (V265): the same hash a confirmed statement_imports row of these
+            // bytes will carry, which is what lets the customer's failure list drop this failure
+            // once they import the file -- see StatementAnalysisRecorder.recentUnresolvedCustomerFailures.
+            // Inside the try for the same reason as everything else here: it must never replace
+            // the parse failure being rethrown.
             String reference = analysisRecorder.recordFailed(userId, StatementAnalysisSession.Source.CUSTOMER_IMPORT,
-                    fileName, sourceFormat, byteSize, fingerprint, code, failure.getMessage(),
-                    System.currentTimeMillis() - startedAtMs, diagnostics);
+                    fileName, sourceFormat, fileContent.length, fingerprint, code, failure.getMessage(),
+                    System.currentTimeMillis() - startedAtMs, diagnostics, ContentAddress.hashOf(fileContent));
             // A located-but-failed layout is exactly what the layout review queue exists for. Inside
             // this try so a review failure can never replace the parse failure being rethrown.
             if (layoutReviewService != null) {
@@ -422,7 +427,7 @@ public class ImportService {
             // parser outright rather than be cleanly rejected, so this is the path where the gap
             // mattered most -- the documents that most needed a fingerprint recorded were exactly
             // the ones that recorded nothing.
-            recordParseFailure(userId, fileName, "PDF", fileContent.length, fingerprint, e,
+            recordParseFailure(userId, fileName, "PDF", fileContent, fingerprint, e,
                     startedAtMs, diagnostics);
             throw e;
         }
@@ -540,21 +545,29 @@ public class ImportService {
     }
 
     /** {@code {start, end}}, possibly holding nulls -- a missing period is never on its own a
-     *  reason to hold, so it is carried rather than dropped. Same helper {@code StagedForJob}
-     *  keeps privately for the live path; duplicated here rather than shared across packages for a
-     *  four-line method. */
+     *  reason to hold, so it is carried rather than dropped. The trust check and the Free limit
+     *  both read it, through {@link StatementPeriodPolicy} (which {@code StagedForJob} also uses for
+     *  the live path), so a bank whose printed period is not judged is ignored by both. */
     private static LocalDate[] periodOf(DetectedAccountInfo detected) {
-        return detected == null
-                ? new LocalDate[]{null, null}
-                : new LocalDate[]{detected.statementPeriodStart(), detected.statementPeriodEnd()};
+        return StatementPeriodPolicy.judgedPeriod(detected);
     }
 
     /**
-     * plans.ts's "Extended financial history" Plus/Premium promise, enforced (FeatureEntitlement
+     * plans.ts's "Statements longer than one month" Plus/Premium promise, enforced (FeatureEntitlement
      * .EXTENDED_HISTORY -- seeded since V99): a Free-plan statement may cover at most one month
-     * ({@link FreeStatementPeriod}). A null start or end is never itself a reason to
-     * block -- same "carried, not dropped" treatment {@link #periodOf} already gives a statement
-     * with no printed period at all.
+     * ({@link FreeStatementPeriod}). Both the printed period and the date range of every staged
+     * transaction are judged -- unticked rows included, since {@code include} is the review's choice
+     * and the limit is about the file -- so a statement that prints no period (every CSV and Excel
+     * export, and a PDF whose period could not be read) is still judged by its transactions.
+     *
+     * <p>The refusal names the range it found, so a person whose real one-month statement is refused
+     * can see why. A refusal on the transactions while the printed period fits is also logged: that
+     * is either an edited period or a parse fault (a wrong year guessed for a yearless date, a card
+     * row posted weeks late), and the log is how a wrongly refused real statement gets noticed.
+     *
+     * <p>Not applied by {@code StatementImportService.confirmReimport} or statement refresh, by
+     * decision: those re-read a statement already imported, possibly while on Plus, and a downgrade
+     * must not stop someone repairing their own records.
      *
      * <p>Bug fix: this used to run in ImportController, against {@code ConfirmRequest}'s
      * client-echoed {@code statementPeriodStart}/{@code End} -- values the client round-trips back
@@ -567,14 +580,76 @@ public class ImportService {
      * "read the server's own record of what was staged, don't trust the echo" boundary ADR-0002
      * already drew for the confirmed row list itself ({@link ConfirmedRowIntegrity#requireSameRows}).
      */
-    private void requireStatementPeriodWithinFreeLimit(UUID userId, LocalDate start, LocalDate end) {
-        if (start == null || end == null) return;
-        if (entitlementService.hasEntitlement(userId, FeatureEntitlement.EXTENDED_HISTORY)) return;
-        // One calendar month, not a flat day count -- see FreeStatementPeriod. A reversed pair is
-        // judged by its real length there, so it cannot slip under the limit.
-        if (!FreeStatementPeriod.coversAtMostOneMonth(start, end)) {
-            throw new ApiException(ErrorCode.STATEMENT_PERIOD_TOO_LONG);
+    private void requireStatementWithinFreeLimit(UUID userId, UUID sessionId, DetectedAccountInfo detected,
+                                                 List<StagedRow> stagedRows, boolean oneOfSeveralAccounts) {
+        FreeLimitFinding finding = freeLimitFinding(userId, detected, stagedRows, oneOfSeveralAccounts);
+        if (finding == null) return;
+        LocalDate[] period = periodOf(detected);
+        FreeStatementPeriod.Excess excess = finding.excess();
+        if (excess.fromTransactions() && period[0] != null && period[1] != null) {
+            // Spans only, never the dates: they are statement content (see
+            // ConfirmedRowIntegrity's note on what reaches logs).
+            log.info("Free statement limit: session {} prints a {}-day period, but its transactions span {} days -- refused",
+                    sessionId, daysInclusive(period[0], period[1]), daysInclusive(excess.from(), excess.to()));
         }
+        FreePlanLimitNotice notice = finding.notice();
+        throw new ApiException(ErrorCode.STATEMENT_PERIOD_TOO_LONG.defaultStatus(), ErrorCode.STATEMENT_PERIOD_TOO_LONG,
+                notice.message(),
+                Map.of("coveredFrom", notice.coveredFrom().toString(), "coveredTo", notice.coveredTo().toString(),
+                        "basis", notice.basis()));
+    }
+
+    /**
+     * The notice the review screen shows straight after staging when this statement will be refused
+     * at confirm under the Free one-month limit, or null when it fits or the user's plan has no such
+     * limit. The same finding {@link #requireStatementWithinFreeLimit} refuses on, so the early
+     * warning and the refusal cannot disagree. Every section of a composite statement is judged; the
+     * first that is too long is reported, as confirm would refuse on it.
+     */
+    public FreePlanLimitNotice freePlanLimitNotice(UUID userId, StagingResponse staging,
+                                                   List<StagedAccountSection> sections) {
+        if (sections != null && !sections.isEmpty()) {
+            for (StagedAccountSection section : sections) {
+                FreeLimitFinding finding = freeLimitFinding(userId, section.detectedAccount(), section.rows(),
+                        sections.size() > 1);
+                if (finding != null) return finding.notice();
+            }
+            return null;
+        }
+        if (staging == null) return null;
+        FreeLimitFinding finding = freeLimitFinding(userId, staging.detectedAccount(), staging.rows(), false);
+        return finding == null ? null : finding.notice();
+    }
+
+    private record FreeLimitFinding(FreeStatementPeriod.Excess excess, FreePlanLimitNotice notice) {}
+
+    /** Null when the statement fits the Free limit or the user's plan lifts it. The plan is checked
+     *  only once a span is over, so a statement that fits costs no lookup. */
+    private FreeLimitFinding freeLimitFinding(UUID userId, DetectedAccountInfo detected, List<StagedRow> stagedRows,
+                                              boolean oneOfSeveralAccounts) {
+        LocalDate[] period = periodOf(detected);
+        List<LocalDate> dates = stagedRows == null ? List.of()
+                : stagedRows.stream().map(StagedRow::date).filter(Objects::nonNull).toList();
+        FreeStatementPeriod.Excess excess = FreeStatementPeriod.firstExcess(period[0], period[1], dates);
+        if (excess == null) return null;
+        if (entitlementService.hasEntitlement(userId, FeatureEntitlement.EXTENDED_HISTORY)) return null;
+        java.time.format.DateTimeFormatter shown =
+                java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy", java.util.Locale.ENGLISH);
+        // On a composite statement, say it is one of its accounts: the dates alone do not tell the
+        // person which part of the file is too long.
+        String lead = excess.fromTransactions()
+                ? (oneOfSeveralAccounts ? "One account's transactions run from " : "Its transactions run from ")
+                : (oneOfSeveralAccounts ? "One account in this statement covers " : "It covers ");
+        String found = lead + excess.from().format(shown) + " to " + excess.to().format(shown) + ".";
+        return new FreeLimitFinding(excess, new FreePlanLimitNotice(
+                ErrorCode.STATEMENT_PERIOD_TOO_LONG.code(),
+                "Free plan statements can cover at most one month. " + found
+                        + " Upgrade to Plus to import longer statement periods.",
+                excess.from(), excess.to(), excess.fromTransactions() ? "TRANSACTIONS" : "PRINTED_PERIOD"));
+    }
+
+    private static long daysInclusive(LocalDate a, LocalDate b) {
+        return Math.abs(java.time.temporal.ChronoUnit.DAYS.between(a, b)) + 1;
     }
 
     /** What one dry run found: enough for {@code TrustPredicate.evaluate} and nothing else -- no
@@ -930,10 +1005,10 @@ public class ImportService {
         // savings+credit-card bundle) can have one section within the Free limit and another that
         // isn't, and the whole confirm must be rejected before any section is persisted below.
         // Against stagedSections (this session's own server-derived detection), never
-        // request.sections() -- see requireStatementPeriodWithinFreeLimit's own doc comment.
+        // request.sections() -- see requireStatementWithinFreeLimit's own doc comment.
         for (StagedAccountSection stagedSection : stagedSections) {
-            LocalDate[] period = periodOf(stagedSection.detectedAccount());
-            requireStatementPeriodWithinFreeLimit(userId, period[0], period[1]);
+            requireStatementWithinFreeLimit(userId, session.getId(), stagedSection.detectedAccount(), stagedSection.rows(),
+                    stagedSections.size() > 1);
         }
 
         // BH-041: persist every section FIRST, reconcile once, then summarise. See reconcileAcross
@@ -1013,10 +1088,10 @@ public class ImportService {
         ConfirmedRowIntegrity.requireSameRows(stagedRows, request.rows());
         request = request.withRows(ConfirmedRowIntegrity.withStatementFacts(stagedRows, request.rows()));
         var detectedAccount = importSessionService.readDetectedAccount(session);
-        // Against this session's own server-derived detection, never request.statementPeriodStart()
-        // /End() -- see requireStatementPeriodWithinFreeLimit's own doc comment.
-        LocalDate[] period = periodOf(detectedAccount);
-        requireStatementPeriodWithinFreeLimit(userId, period[0], period[1]);
+        // Against this session's own server-derived detection and staged rows, never
+        // request.statementPeriodStart()/End() or request.rows() -- see
+        // requireStatementWithinFreeLimit's own doc comment.
+        requireStatementWithinFreeLimit(userId, session.getId(), detectedAccount, stagedRows, false);
         ConfirmResponse response = confirm(userId, session.getFileName(), statementContentService.read(session), request, null,
                 session.getLayoutMetadataJson(), session.getLayoutFingerprint(), session.getActivatedCapabilitiesJson(),
                 session.getUnparseableSummaryJson(), session.getSource(), importSessionService.readCreditCardSummary(session),
@@ -1281,7 +1356,22 @@ public class ImportService {
             // site the bug report identifies as reachable with unbounded, possibly-blank raw
             // parser output.
             String rowCategory = (row.category() == null || row.category().isBlank()) ? "Other" : row.category();
-            Category category = categorizationService.resolveOrCreateCategory(userId, rowCategory);
+            Optional<Category> existingCategory = categorizationService.findCategory(userId, rowCategory);
+            // The engine named one of the user's own categories when the file was read, and the
+            // user renamed or deleted it before confirming. Creating it again would bring back what
+            // they just removed, so the row waits in "Other" for them to sort instead. A default
+            // category cannot be renamed or deleted, so one the engine named is created as before;
+            // so is a category picked or typed on the review screen, or printed in the user's file.
+            if (existingCategory.isEmpty() && namedByTheEngine(row)
+                    && com.finora.util.DefaultCategories.canonical(rowCategory).isEmpty()
+                    && !aRuleStillNames(confirmRules, row.ruleId(), rowCategory)) {
+                row = row.withNothingMatched();
+                rowCategory = row.category();
+                existingCategory = categorizationService.findCategory(userId, rowCategory);
+            }
+            String categoryToCreate = rowCategory;
+            Category category = existingCategory
+                    .orElseGet(() -> categorizationService.resolveOrCreateCategory(userId, categoryToCreate));
             var decision = ruleLearningService.recordDecision(row);
             boolean isUnresolvedGuess = decision.unresolvedGuess();
 
@@ -2008,6 +2098,35 @@ public class ImportService {
         }
         AccountCoverage coverage = accountCoverageFor(userId, accountId);
         return CoverageWarnings.duplicateOverlaps(coverage.report(), statementId, coverage.importedAtById());
+    }
+
+    /**
+     * Whether a confirmed row's category is still the one the engine gave it at staging: the
+     * user did not change it on the review screen ("review", see
+     * ConfirmedRowIntegrity.withStatementFacts) and it is not the file's own Category column
+     * ("file"). A row with no source at all is left as it always was.
+     */
+    private static boolean namedByTheEngine(ConfirmedRow row) {
+        String source = row.categorySource();
+        return source != null && !CategorizationService.REVIEW_SOURCE.equals(source) && !"file".equals(source);
+    }
+
+    /**
+     * Whether the rule that filed a row still files under {@code category}. A user's rule may name
+     * a category that does not exist yet (support can type one on the admin portal's user rules
+     * screen) and creates it on its first match; that is the rule's answer, not a removed category.
+     * A rename or delete points the rule at another category (CategoryService), so a row still
+     * carrying the old name no longer matches its rule.
+     */
+    private static boolean aRuleStillNames(List<com.finora.entity.CategoryRule> rules, UUID ruleId, String category) {
+        if (ruleId == null) return false;
+        return rules.stream()
+                .filter(rule -> ruleId.equals(rule.getId()))
+                .anyMatch(rule -> {
+                    String named = rule.getActionType() == com.finora.entity.CategoryRule.ActionType.MARK_INVESTMENT
+                            ? CategorizationService.investmentCategoryName(rule) : rule.getActionValue();
+                    return named != null && named.trim().equalsIgnoreCase(category.trim());
+                });
     }
 
     /**

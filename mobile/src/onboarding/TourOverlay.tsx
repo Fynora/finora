@@ -4,6 +4,7 @@ import { AppModal } from '../components/AppModal';
 import { Button } from '../components/Button';
 import { useTheme } from '../theme';
 import type { TourStep } from './tourSteps';
+import { GlassSurface } from '../components/GlassSurface';
 
 interface Props {
   steps: TourStep[];
@@ -44,7 +45,7 @@ export function TourOverlay({ steps, navigateToTab, onFinish, onSkip }: Props) {
   return (
     <AppModal transparent animationType="fade">
       <View style={styles.backdrop}>
-        <View style={[styles.card, { backgroundColor: c.card }]}>
+        <GlassSurface style={styles.card}>
           <Text style={[styles.title, { color: c.ink }]}>{step.title}</Text>
           <Text style={[styles.body, { color: c.muted }]}>{step.body}</Text>
           <View style={styles.row}>
@@ -59,7 +60,7 @@ export function TourOverlay({ steps, navigateToTab, onFinish, onSkip }: Props) {
               <Button label={isLast ? 'Finish' : 'Next'} onPress={next} />
             </View>
           </View>
-        </View>
+        </GlassSurface>
       </View>
     </AppModal>
   );

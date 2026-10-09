@@ -42,6 +42,9 @@ export default defineConfig({
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'off',
+    // FINORA_E2E_CHANNEL=chrome runs the Chromium projects on an installed Google Chrome, for a
+    // machine where `playwright install chromium` cannot download its own build.
+    ...(process.env.FINORA_E2E_CHANNEL ? { channel: process.env.FINORA_E2E_CHANNEL } : {}),
   },
 
   /**

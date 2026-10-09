@@ -413,8 +413,8 @@ export interface ConfirmPayload {
   // the "View in Ledger" period filter) and gates the PNB-boundary-date opening-balance
   // carry-forward fix on it being non-null -- omitting it silently disabled both for a mobile
   // confirm. It plays no part in the Free-tier statement-period cap, which is decided from the
-  // session's own server-staged detectedAccount, never this echoed field -- see
-  // requireStatementPeriodWithinFreeLimit's own doc comment on the backend.
+  // session's own server-staged detectedAccount and rows, never this echoed field -- see
+  // requireStatementWithinFreeLimit's own doc comment on the backend.
   statementPeriodStart: string | null;
   statementPeriodEnd: string | null;
   // Echoed back from DetectedAccountInfo.totalAmountDue/paymentDueDate -- same gap as
@@ -492,6 +492,19 @@ export interface PreviousImport {
   transactionsImported: number;
 }
 
+// The Free plan's one-month statement limit, told on the review step as soon as a statement is
+// staged rather than only when Import is pressed. Mirrors frontend/src/api/endpoints.ts's identical
+// type -- see ImportDto.FreePlanLimitNotice on the backend. `message` is the confirm-time refusal's
+// own wording. Null/absent when the statement fits, the plan lifts the limit, or the backend
+// predates it.
+export interface FreePlanLimitNotice {
+  errorCode: string;
+  message: string;
+  coveredFrom: string;
+  coveredTo: string;
+  basis: 'PRINTED_PERIOD' | 'TRANSACTIONS' | string;
+}
+
 interface PdfStagingSessionResult {
   sessionId: string;
   multiAccount: boolean;
@@ -502,6 +515,7 @@ interface PdfStagingSessionResult {
   // be confirmed until a reviewer approves them, so the caller follows this import job instead of
   // opening the review. Absent from an older backend, which never held a statement staged here.
   heldForReviewJobId?: string | null;
+  freePlanLimit?: FreePlanLimitNotice | null;
 }
 
 type ProgressCallback = (percent: number) => void;
@@ -593,6 +607,7 @@ export const importApi = {
           previousImport?: PreviousImport | null;
           // See PdfStagingSessionResult.heldForReviewJobId.
           heldForReviewJobId?: string | null;
+          freePlanLimit?: FreePlanLimitNotice | null;
         }>('/import/csv/stage', form, toUploadProgressConfig(onProgress, signal))
         .then((r) => r.data)
     );
@@ -617,7 +632,14 @@ export const importApi = {
     api.post<{ perAccount: ImportSummary[] }>('/import/pdf/confirm-multi', payload).then((r) => r.data),
   listSessions: () => api.get<ImportSessionSummary[]>('/import/sessions').then((r) => r.data),
   getSession: (id: string) =>
-    api.get<{ sessionId: string; staging: StagingResult; previousImport?: PreviousImport | null }>(`/import/sessions/${id}`).then((r) => r.data),
+    api
+      .get<{
+        sessionId: string;
+        staging: StagingResult;
+        previousImport?: PreviousImport | null;
+        freePlanLimit?: FreePlanLimitNotice | null;
+      }>(`/import/sessions/${id}`)
+      .then((r) => r.data),
   discardSession: (id: string) => api.delete(`/import/sessions/${id}`),
   // "Your recent failed imports" -- Premium Import Reliability v1, §2.1. A document that never got
   // far enough to become an ImportSession (no header found, zero transactions, a scanned PDF)
@@ -708,11 +730,19 @@ export const importJobsApi = {
     api.get<ImportJobProgress>(`/import/jobs/${jobId}`).then((r) => r.data),
   timeline: (jobId: string) =>
     api.get<ImportJobTimeline>(`/import/jobs/${jobId}/timeline`).then((r) => r.data),
+  // The caller's most recent queued imports, newest first -- what web's Statement History lists as
+  // "Recent Imports", and the only way back to a job once the screen that uploaded it has gone.
+  recent: (limit = 20) =>
+    api.get<ImportJobProgress[]>(`/import/jobs?limit=${limit}`).then((r) => r.data),
   // POST, not DELETE: this ends the work and keeps the row, because a cancelled import is part of
   // the user's history. Returns the job's new state so the caller renders from the response
   // instead of racing its own next poll.
   cancel: (jobId: string) =>
     api.post<ImportJobProgress>(`/import/jobs/${jobId}/cancel`).then((r) => r.data),
+  // Hides a FAILED or CANCELLED job from `recent` (V264). The row is kept; only the list stops
+  // showing it, on every device. 409 for a job that is not over yet.
+  dismiss: (jobId: string) =>
+    api.post<void>(`/import/jobs/${jobId}/dismiss`).then(() => undefined),
 };
 
 export const statementImportsApi = {
@@ -1378,8 +1408,13 @@ export const deviceTokensApi = {
     api.post<RegisteredDeviceToken>('/device-tokens', body).then((r) => r.data),
   // Backend returns ApiResponse.ok(null, "Device token revoked") -- the response-envelope unwrap
   // (see client.ts) yields the inner `data`, which is null, not a { message } object.
-  revoke: (body: { token: string }) =>
-    api.post<null>('/device-tokens/revoke', body).then((r) => r.data),
+  // `accessToken`: sign-out's clean-up runs after storage is cleared, so it passes the departing
+  // session's token itself, and opts out of the 401 refresh -- there is no session left to refresh.
+  revoke: (body: { token: string }, accessToken?: string) =>
+    api
+      .post<null>('/device-tokens/revoke', body,
+        accessToken ? ({ headers: { Authorization: `Bearer ${accessToken}` }, _skipAuthRefresh: true } as object) : undefined)
+      .then((r) => r.data),
 };
 
 // Support, Help & Feedback v1 (Phase 8, mobile). Mirrors frontend/src/api/endpoints.ts's own

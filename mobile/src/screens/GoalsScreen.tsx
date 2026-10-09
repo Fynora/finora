@@ -21,6 +21,7 @@ import { useSingleFlight } from '../lib/useSingleFlight';
 import { parsePositiveAmount } from '../lib/validation';
 import { spacing, useTheme } from '../theme';
 import type { Goal } from '../types';
+import { GlassScreen } from '../components/GlassScreen';
 
 /** Port of frontend/src/pages/Goals.tsx. */
 export function GoalsScreen() {
@@ -156,15 +157,15 @@ export function GoalsScreen() {
 
   if (isLoading) {
     return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+      <GlassScreen style={styles.centered}>
         <ActivityIndicator size="large" color={c.primary} />
-      </View>
+      </GlassScreen>
     );
   }
 
   return (
+    <GlassScreen style={styles.glassRoot}>
     <ScrollView
-      style={{ backgroundColor: c.bg }}
       contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}
       keyboardShouldPersistTaps="handled"
       refreshControl={
@@ -215,12 +216,12 @@ export function GoalsScreen() {
         </Card>
       ) : null}
 
-      {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+      {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
 
       <View style={styles.list}>
         {isError ? (
           <Card>
-            <Text style={[styles.error, { color: c.danger }]}>Could not load goals.</Text>
+            <Text style={[styles.error, { color: c.dangerInk }]}>Could not load goals.</Text>
           </Card>
         ) : goals.length === 0 ? (
           <Card>
@@ -280,7 +281,7 @@ export function GoalsScreen() {
                     accessibilityRole="button"
                     accessibilityLabel={`Delete ${g.name}`}
                   >
-                    <Text style={[styles.actionText, { color: c.danger }]}>Delete</Text>
+                    <Text style={[styles.actionText, { color: c.dangerInk }]}>Delete</Text>
                   </Pressable>
                 </View>
               </Card>
@@ -303,10 +304,12 @@ export function GoalsScreen() {
         />
       ) : null}
     </ScrollView>
+    </GlassScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  glassRoot: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   header: {

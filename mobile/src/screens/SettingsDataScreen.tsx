@@ -12,6 +12,7 @@ import { analyticsApi, userApi } from '../api/endpoints';
 import { fmtDate } from '../lib/format';
 import { spacing, useTheme } from '../theme';
 import type { MoreStackParamList } from '../navigation/types';
+import { GlassScreen } from '../components/GlassScreen';
 
 export function SettingsDataScreen() {
   const c = useTheme();
@@ -41,7 +42,8 @@ export function SettingsDataScreen() {
   }
 
   return (
-    <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.content}>
+    <GlassScreen style={styles.glassRoot}>
+    <ScrollView contentContainerStyle={styles.content}>
       <View style={styles.tiles}>
         <MetricTile label="Statements" value={stats ? stats.totalStatements.toLocaleString('en-IN') : '—'} />
         <MetricTile label="Transactions" value={stats ? stats.totalTransactionsImported.toLocaleString('en-IN') : '—'} />
@@ -69,10 +71,12 @@ export function SettingsDataScreen() {
         />
       ) : null}
     </ScrollView>
+    </GlassScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  glassRoot: { flex: 1 },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   exportRow: {

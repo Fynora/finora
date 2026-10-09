@@ -378,4 +378,78 @@ class NotificationDispatcherTest {
         assertThat(pending.getStatus()).isEqualTo(NotificationStatus.RETRYING);
         assertThat(pending.getAttemptCount()).isEqualTo(1);
     }
+
+    // ---- admin push campaigns: nobody to deliver to is not a dead letter
+
+    private NotificationDispatcher pushDispatcher(WorkerExecution execution, ChannelSendResult result) {
+        NotificationChannelProvider push = mock(NotificationChannelProvider.class);
+        when(push.channel()).thenReturn(NotificationChannel.PUSH);
+        when(push.isConfigured()).thenReturn(true);
+        when(push.send(any())).thenReturn(result);
+        WorkerObservability obs = mock(WorkerObservability.class);
+        when(obs.begin(any(), any())).thenReturn(execution);
+        when(obs.beginScheduled(any(), any())).thenReturn(execution);
+        return new NotificationDispatcher(repository, logRepository, List.of(push), obs, transactionManager);
+    }
+
+    private Notification pushNotification(NotificationType type) {
+        return Notification.create(UUID.randomUUID(), type, NotificationCategory.FINANCIAL,
+                NotificationChannel.PUSH, NotificationPriority.LOW, "K:" + UUID.randomUUID(), "Title", "Body",
+                Instant.now());
+    }
+
+    @Test
+    void drainOnce_skipsACampaignPushWithNowhereToGo_insteadOfDeadLetteringIt() {
+        // Routine on any real campaign (an app uninstalled, a token expired). Dead letters are
+        // counted, alerted on at critical, and sent to Sentry; this must be none of those.
+        Notification campaignPush = pushNotification(NotificationType.CUSTOM_PUSH);
+        WorkerExecution execution = mock(WorkerExecution.class);
+        when(repository.claimDue(any(), anyInt())).thenReturn(List.of(campaignPush));
+        NotificationDispatcher d = pushDispatcher(execution,
+                ChannelSendResult.permanentFailure("fcm", "all 1 devices unregistered"));
+
+        d.drainOnce();
+
+        assertThat(campaignPush.getStatus()).isEqualTo(NotificationStatus.SKIPPED);
+        assertThat(campaignPush.getStatus().isTerminal()).isTrue();
+        assertThat(campaignPush.getLastError()).isEqualTo("all 1 devices unregistered");
+        verify(execution, org.mockito.Mockito.never()).deadLettered(any(), anyInt(), any());
+        verify(execution, org.mockito.Mockito.never()).deadLettered(any(), anyInt(), any(), any());
+        verify(execution, org.mockito.Mockito.never()).failureNotRecorded(any(), any());
+        verify(execution).completed(campaignPush.getId());
+        ArgumentCaptor<NotificationLog> log = ArgumentCaptor.forClass(NotificationLog.class);
+        verify(logRepository).save(log.capture());
+        assertThat(log.getValue().isSuccess()).isFalse(); // the attempt is still visible, as unsuccessful
+    }
+
+    @Test
+    void drainOnce_stillDeadLettersAnyOtherNotificationWithNowhereToGo() {
+        // The exemption is for campaign pushes only: a password-changed or import-ready push that cannot
+        // be delivered is exactly what the dead-letter alert is for.
+        Notification ordinary = pushNotification(NotificationType.IMPORT_STATEMENT_READY);
+        WorkerExecution execution = mock(WorkerExecution.class);
+        when(repository.claimDue(any(), anyInt())).thenReturn(List.of(ordinary));
+        NotificationDispatcher d = pushDispatcher(execution,
+                ChannelSendResult.permanentFailure("fcm", "no registered device"));
+
+        d.drainOnce();
+
+        assertThat(ordinary.getStatus()).isEqualTo(NotificationStatus.DEAD_LETTER);
+        verify(execution).deadLettered(any(), anyInt(), any());
+    }
+
+    @Test
+    void drainOnce_stillRetriesACampaignPushThatFailedTransiently() {
+        // An FCM outage must not silently turn into "skipped": it retries, and dead-letters (and
+        // alerts) if it never recovers.
+        Notification campaignPush = pushNotification(NotificationType.CUSTOM_PUSH);
+        WorkerExecution execution = mock(WorkerExecution.class);
+        when(repository.claimDue(any(), anyInt())).thenReturn(List.of(campaignPush));
+        NotificationDispatcher d = pushDispatcher(execution, ChannelSendResult.failure("fcm", "FCM 503"));
+
+        d.drainOnce();
+
+        assertThat(campaignPush.getStatus()).isEqualTo(NotificationStatus.RETRYING);
+        verify(execution, org.mockito.Mockito.never()).deadLettered(any(), anyInt(), any());
+    }
 }

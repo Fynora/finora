@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
@@ -6,6 +6,8 @@ import { ShareIntentProvider } from 'expo-share-intent';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { queryClient, startForegroundRefetch, startNetworkMonitoring, startQueryPersistence } from './src/api/queryClient';
 import { AppLockGate } from './src/components/AppLockGate';
+import { LaunchCoveredProvider } from './src/components/AppModal';
+import { LaunchAnimation, shouldPlayLaunchAnimation } from './src/components/LaunchAnimation';
 import { OfflineBoundary } from './src/components/OfflineBanner';
 import { RootErrorBoundary } from './src/components/RootErrorBoundary';
 import { RootWarningBoundary } from './src/components/RootWarningBanner';
@@ -16,8 +18,9 @@ import { resetLaunchUrlGuards } from './src/lib/appLinks';
 import { sweepFileCache } from './src/lib/fileCacheSweep';
 import { sweepSharedContainers } from './src/lib/sharedContainerSweep';
 import { initMonitoring, withMonitoring } from './src/lib/monitoring';
+import { primeReduceTransparency } from './src/lib/useReduceTransparency';
 import { RootNavigator } from './src/navigation/RootNavigator';
-import { ThemeProvider, useAppFonts } from './src/theme';
+import { FontsReadyProvider, ThemeProvider, useAppFonts } from './src/theme';
 
 // Before the component, not inside an effect: an error thrown during the first render is exactly
 // the kind worth capturing, and by the time an effect runs it would already be too late. No-ops
@@ -32,6 +35,17 @@ initMonitoring();
 // has committed a real frame -- RootNavigator's own bootstrapping spinner (auth restore) is what
 // the user sees after that, not before it.
 void SplashScreen.preventAutoHideAsync();
+// Hidden instantly, not faded: the launch animation underneath starts on the same plain graphite
+// field, so a fade adds nothing and only hides the animation's opening. Android fades by default
+// (400ms, and it reads only `duration`, ignoring `fade`); on a release build that fade was measured
+// covering the stem's whole draw. iOS reads `fade`, already false by default.
+SplashScreen.setOptions({ duration: 0, fade: false });
+
+// Also before the component: ask iOS for its Reduce Transparency setting now, so the answer is
+// usually in by the time the first glass surface renders (under the launch animation / auth
+// bootstrapping). Until it answers, GlassScreen/GlassSurface paint their solid fallback -- a
+// user with the setting on never sees a frame of glass. See src/lib/useReduceTransparency.ts.
+primeReduceTransparency();
 
 // AuthProvider sits inside QueryClientProvider because auth calls go through the same API client
 // every query does, and outside RootNavigator because the navigator picks its stack from auth
@@ -46,13 +60,21 @@ function App() {
   // as "done" -- the app falls back to the system font rather than hanging on a splash forever.
   //
   // Deliberately NOT an early `return null` while unloaded: that would also delay the effects
-  // below and RootNavigator's own mount (and the SecureStore restore it kicks off) by however long
-  // font loading takes, stacking that wait in front of auth bootstrapping instead of letting the
-  // two overlap -- exactly what the auth-bootstrapping comment below says not to do, just for a
-  // different wait. The whole tree mounts immediately, same as before this hook existed; only the
-  // splash-hide effect actually waits on it, so any font-loading gap is spent behind the splash
-  // rather than in front of it.
+  // below and every provider's mount (AuthProvider's SecureStore session restore included) by
+  // however long font loading takes, stacking that wait in front of auth bootstrapping instead of
+  // letting the two overlap -- exactly what the auth-bootstrapping comment below says not to do,
+  // just for a different wait. The whole tree mounts immediately; only the splash-hide effect and
+  // RootNavigator's screens (via FontsReadyProvider below) wait on it, so any font-loading gap is
+  // spent behind the splash rather than in front of it.
   const [fontsLoaded, fontError] = useAppFonts();
+  const splashReleased = fontsLoaded || fontError != null;
+
+  // The launch animation covers the app from the very first commit, so the native splash (the same
+  // graphite, see app.config.ts) hands over to it with no visible change. It starts moving only once
+  // the splash is released below, and the whole tree mounts and bootstraps underneath it meanwhile.
+  // Once per JS runtime: a re-created Android activity remounts App but does not replay it.
+  const [showLaunch, setShowLaunch] = useState(shouldPlayLaunchAnimation);
+  const hideLaunch = useCallback(() => setShowLaunch(false), []);
 
   // Subscribing here rather than at module scope keeps the NetInfo listener tied to the app's
   // lifetime and torn down cleanly, instead of leaking across fast-refresh reloads in development.
@@ -85,10 +107,10 @@ function App() {
   // RootNavigator already shows for exactly that wait. IS gated on fonts, per this function's own
   // opening comment.
   useEffect(() => {
-    if (fontsLoaded || fontError) {
+    if (splashReleased) {
       void SplashScreen.hideAsync();
     }
-  }, [fontsLoaded, fontError]);
+  }, [splashReleased]);
 
   return (
     // Must be the outermost provider, before any other -- expo-share-intent's own README:
@@ -97,35 +119,47 @@ function App() {
     <ShareIntentProvider>
       <QueryClientProvider client={queryClient}>
         <SafeAreaProvider>
-          {/* Inside AuthProvider is tempting but wrong: the provider reads the account's saved theme
-              itself from storage, and sitting outside means the choice is already applied to the auth
-              screens a signed-out user sees. */}
-          <ThemeProvider>
-            {/* SEC-08: outside AuthProvider, deliberately -- a rooted/jailbroken device is a
-                concern regardless of sign-in state, so this spans the auth stack too, the same
-                reason OfflineBoundary does. */}
-            <RootWarningBoundary>
-              <AuthProvider>
-                {/* SEC-09: inside AuthProvider (needs useAuth()'s token/logout), outside/around
-                    RootNavigator so a locked session replaces the entire app UI, not just one screen
-                    inside it -- see AppLockGate's own doc comment for when it actually engages.
-                    OnboardingStepProvider sits inside AppLockGate/OfflineBoundary too -- RootNavigator
-                    is the only consumer, alongside OnboardingNavigator/TourOverlay it renders. */}
-                <AppLockGate>
-                  <OfflineBoundary>
-                    <OnboardingStepProvider>
-                      <RootErrorBoundary>
-                        <ToastProvider>
-                          <RootNavigator />
-                        </ToastProvider>
-                      </RootErrorBoundary>
-                    </OnboardingStepProvider>
-                  </OfflineBoundary>
-                </AppLockGate>
-                <StatusBar style="auto" />
-              </AuthProvider>
-            </RootWarningBoundary>
-          </ThemeProvider>
+          {/* While the launch animation is up, native Modals (AppModal) stay hidden, since they would
+              draw above it. The app behind it is not hidden from screen readers: with one running,
+              the animation does not play at all (see LaunchAnimation), and hiding it would also
+              silence Android live regions such as the rooted-device warning. */}
+          {/* RootNavigator holds its screens (its loading spinner instead) until the fonts are in,
+              rather than App delaying the whole tree -- see useFontsReady. */}
+          <FontsReadyProvider value={splashReleased}>
+            <LaunchCoveredProvider value={showLaunch}>
+              {/* Inside AuthProvider is tempting but wrong: the provider reads the account's saved theme
+                  itself from storage, and sitting outside means the choice is already applied to the auth
+                  screens a signed-out user sees. */}
+              <ThemeProvider>
+                {/* SEC-08: outside AuthProvider, deliberately -- a rooted/jailbroken device is a
+                    concern regardless of sign-in state, so this spans the auth stack too, the same
+                    reason OfflineBoundary does. */}
+                <RootWarningBoundary>
+                  <AuthProvider>
+                    {/* SEC-09: inside AuthProvider (needs useAuth()'s token/logout), outside/around
+                        RootNavigator so a locked session replaces the entire app UI, not just one screen
+                        inside it -- see AppLockGate's own doc comment for when it actually engages.
+                        OnboardingStepProvider sits inside AppLockGate/OfflineBoundary too -- RootNavigator
+                        is the only consumer, alongside OnboardingNavigator/TourOverlay it renders. */}
+                    <AppLockGate>
+                      <OfflineBoundary>
+                        <OnboardingStepProvider>
+                          <RootErrorBoundary>
+                            <ToastProvider>
+                              <RootNavigator />
+                            </ToastProvider>
+                          </RootErrorBoundary>
+                        </OnboardingStepProvider>
+                      </OfflineBoundary>
+                    </AppLockGate>
+                    <StatusBar style="auto" />
+                  </AuthProvider>
+                </RootWarningBoundary>
+              </ThemeProvider>
+            </LaunchCoveredProvider>
+          </FontsReadyProvider>
+          {/* Last child, so it paints over everything above, the app-lock screen included. */}
+          {showLaunch ? <LaunchAnimation ready={splashReleased} onDone={hideLaunch} /> : null}
         </SafeAreaProvider>
       </QueryClientProvider>
     </ShareIntentProvider>

@@ -244,6 +244,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/push-campaigns/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getPushCampaign"];
+        put: operations["updatePushCampaign"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/push-campaigns/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getPushCampaignSettings"];
+        put: operations["updatePushCampaignSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/permissions/{id}": {
         parameters: {
             query?: never;
@@ -1284,6 +1316,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/import/jobs/{jobId}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["dismiss_1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/import/jobs/{jobId}/cancel": {
         parameters: {
             query?: never;
@@ -2190,6 +2238,150 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["creditReward"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/push-campaigns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listPushCampaigns"];
+        put?: never;
+        post: operations["createPushCampaign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/push-campaigns/{id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["stopPushCampaign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/push-campaigns/{id}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["startPushCampaign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/push-campaigns/{id}/send-test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["sendPushCampaignTest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/push-campaigns/{id}/send-now": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["sendPushCampaignNow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/push-campaigns/{id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["resumePushCampaign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/push-campaigns/{id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["pausePushCampaign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/push-campaigns/{id}/clone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["clonePushCampaign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/push-campaigns/{id}/cancel-sending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["cancelPushCampaignSending"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4484,6 +4676,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/push-campaigns/audience-count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["countPushCampaignAudience"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/notifications": {
         parameters: {
             query?: never;
@@ -5675,6 +5883,7 @@ export interface components {
             lastMatchedAt?: string;
             amountMin?: number;
             amountMax?: number;
+            payeeAliases?: string[];
         };
         ApiResponseRelationshipDto: {
             success?: boolean;
@@ -5917,6 +6126,94 @@ export interface components {
             name?: string;
             description?: string;
             permissions?: components["schemas"]["PermissionDto"][];
+        };
+        PushCampaignSaveRequest: {
+            name: string;
+            title: string;
+            message: string;
+            /** @enum {string} */
+            audienceType: "ALL_WITH_DEVICE" | "NO_STATEMENT_UPLOADED";
+            /** @enum {string} */
+            scheduleKind: "NOW_ONLY" | "ONCE_AT" | "DAILY_AT";
+            /** Format: date-time */
+            runAt?: string;
+            sendTimeIst?: string;
+            /** Format: date */
+            endsOn?: string;
+            /** Format: int64 */
+            expectedVersion?: number;
+        };
+        ApiResponsePushCampaignDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["PushCampaignDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        PushCampaignDto: {
+            /** Format: uuid */
+            id?: string;
+            name?: string;
+            title?: string;
+            message?: string;
+            /** @enum {string} */
+            audienceType?: "ALL_WITH_DEVICE" | "NO_STATEMENT_UPLOADED";
+            /** @enum {string} */
+            scheduleKind?: "NOW_ONLY" | "ONCE_AT" | "DAILY_AT";
+            /** Format: date-time */
+            runAt?: string;
+            sendTimeIst?: string;
+            /** Format: date */
+            endsOn?: string;
+            /** @enum {string} */
+            status?: "DRAFT" | "ACTIVE" | "PAUSED" | "STOPPED" | "COMPLETED";
+            /** Format: date-time */
+            nextRunAt?: string;
+            /** Format: date-time */
+            lastTestedAt?: string;
+            /** Format: uuid */
+            lastTestedBy?: string;
+            /** Format: uuid */
+            createdBy?: string;
+            /** Format: date-time */
+            createdAt?: string;
+            /** Format: date-time */
+            updatedAt?: string;
+            /** Format: int64 */
+            version?: number;
+        };
+        PushCampaignSettingsRequest: {
+            /** Format: int32 */
+            dailyLimitPerPerson?: number;
+        };
+        ApiResponsePushCampaignSettingsDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["PushCampaignSettingsDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        PushCampaignSettingsDto: {
+            /** Format: int32 */
+            dailyLimitPerPerson?: number;
+            /** Format: int32 */
+            minDailyLimit?: number;
+            /** Format: int32 */
+            maxDailyLimit?: number;
+            /** Format: date-time */
+            updatedAt?: string;
+            /** Format: uuid */
+            updatedBy?: string;
         };
         UpdatePermissionRequest: {
             description: string;
@@ -6832,6 +7129,15 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        FreePlanLimitNotice: {
+            errorCode?: string;
+            message?: string;
+            /** Format: date */
+            coveredFrom?: string;
+            /** Format: date */
+            coveredTo?: string;
+            basis?: string;
+        };
         PdfStagingSessionResponse: {
             /** Format: uuid */
             sessionId?: string;
@@ -6841,6 +7147,7 @@ export interface components {
             previousImport?: components["schemas"]["PreviousImport"];
             /** Format: uuid */
             heldForReviewJobId?: string;
+            freePlanLimit?: components["schemas"]["FreePlanLimitNotice"];
         };
         PreviousImport: {
             /** Format: uuid */
@@ -6970,6 +7277,7 @@ export interface components {
             previousImport?: components["schemas"]["PreviousImport"];
             /** Format: uuid */
             heldForReviewJobId?: string;
+            freePlanLimit?: components["schemas"]["FreePlanLimitNotice"];
         };
         ApiResponseGoalDto: {
             success?: boolean;
@@ -7432,6 +7740,102 @@ export interface components {
         CreditReferralRewardRequest: {
             amount: number;
             reason: string;
+        };
+        PushCampaignTestRequest: {
+            /** Format: uuid */
+            userId?: string;
+            email?: string;
+        };
+        ApiResponsePushCampaignTestResultDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["PushCampaignTestResultDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        PushCampaignTestResultDto: {
+            queued?: boolean;
+            detail?: string;
+        };
+        ApiResponsePushCampaignRunDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["PushCampaignRunDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        PushCampaignRunDto: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: uuid */
+            campaignId?: string;
+            /** Format: int64 */
+            campaignVersion?: number;
+            /** Format: date */
+            runDateIst?: string;
+            /** Format: date-time */
+            scheduledFor?: string;
+            /** @enum {string} */
+            triggeredBy?: "SCHEDULE" | "ADMIN_NOW";
+            /** Format: uuid */
+            triggeredByUser?: string;
+            /** Format: date-time */
+            startedAt?: string;
+            /** Format: date-time */
+            finishedAt?: string;
+            /** @enum {string} */
+            status?: "RUNNING" | "DONE" | "FAILED" | "MISSED" | "CANCELLED";
+            /** Format: int32 */
+            audienceSize?: number;
+            /** Format: int32 */
+            queuedCount?: number;
+            /** Format: int32 */
+            skippedCapCount?: number;
+            /** Format: int32 */
+            skippedAlreadyQueuedCount?: number;
+            titleSnapshot?: string;
+            messageSnapshot?: string;
+            /** @enum {string} */
+            audienceSnapshot?: "ALL_WITH_DEVICE" | "NO_STATEMENT_UPLOADED";
+            note?: string;
+            /** Format: int64 */
+            sent?: number;
+            /** Format: int64 */
+            failed?: number;
+            /** Format: int64 */
+            pending?: number;
+            /** Format: int64 */
+            cancelled?: number;
+            /** Format: int64 */
+            skipped?: number;
+        };
+        ApiResponsePushCampaignCancelResultDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["PushCampaignCancelResultDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        PushCampaignCancelResultDto: {
+            /** Format: int64 */
+            cancelledPushes?: number;
+            /** Format: int64 */
+            releasedSlots?: number;
         };
         CreatePermissionRequest: {
             name: string;
@@ -10099,6 +10503,54 @@ export interface components {
             edges?: components["schemas"]["Edge"][];
             classification?: components["schemas"]["Classification"];
         };
+        ApiResponseListPushCampaignDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["PushCampaignDto"][];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        ApiResponsePushCampaignDetailDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["PushCampaignDetailDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        PushCampaignDetailDto: {
+            campaign?: components["schemas"]["PushCampaignDto"];
+            runs?: components["schemas"]["PushCampaignRunDto"][];
+        };
+        ApiResponsePushCampaignAudienceCountDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["PushCampaignAudienceCountDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        PushCampaignAudienceCountDto: {
+            /** @enum {string} */
+            audienceType?: "ALL_WITH_DEVICE" | "NO_STATEMENT_UPLOADED";
+            /** Format: int64 */
+            count?: number;
+            /** Format: int64 */
+            rolloutLimit?: number;
+        };
         ApiResponseListPermissionDto: {
             success?: boolean;
             message?: string;
@@ -10901,6 +11353,10 @@ export interface components {
             transactionsNeedingCategoryReview?: number;
             /** Format: int64 */
             transactionsFlaggedAsDuplicates?: number;
+            /** Format: int64 */
+            statementsHeldForTrustReview?: number;
+            /** Format: int64 */
+            importsHeldForReview?: number;
         };
         OperationalDashboardDto: {
             /** Format: int64 */
@@ -11839,6 +12295,98 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
+    getPushCampaign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponsePushCampaignDetailDto"];
+                };
+            };
+        };
+    };
+    updatePushCampaign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PushCampaignSaveRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponsePushCampaignDto"];
+                };
+            };
+        };
+    };
+    getPushCampaignSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponsePushCampaignSettingsDto"];
+                };
+            };
+        };
+    };
+    updatePushCampaignSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PushCampaignSettingsRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponsePushCampaignSettingsDto"];
                 };
             };
         };
@@ -13605,6 +14153,28 @@ export interface operations {
             };
         };
     };
+    dismiss_1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
     cancel: {
         parameters: {
             query?: never;
@@ -15251,6 +15821,230 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
+    listPushCampaigns: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListPushCampaignDto"];
+                };
+            };
+        };
+    };
+    createPushCampaign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PushCampaignSaveRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponsePushCampaignDto"];
+                };
+            };
+        };
+    };
+    stopPushCampaign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponsePushCampaignDto"];
+                };
+            };
+        };
+    };
+    startPushCampaign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponsePushCampaignDto"];
+                };
+            };
+        };
+    };
+    sendPushCampaignTest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PushCampaignTestRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponsePushCampaignTestResultDto"];
+                };
+            };
+        };
+    };
+    sendPushCampaignNow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponsePushCampaignRunDto"];
+                };
+            };
+        };
+    };
+    resumePushCampaign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponsePushCampaignDto"];
+                };
+            };
+        };
+    };
+    pausePushCampaign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponsePushCampaignDto"];
+                };
+            };
+        };
+    };
+    clonePushCampaign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponsePushCampaignDto"];
+                };
+            };
+        };
+    };
+    cancelPushCampaignSending: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponsePushCampaignCancelResultDto"];
                 };
             };
         };
@@ -18705,6 +19499,28 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseTrace"];
+                };
+            };
+        };
+    };
+    countPushCampaignAudience: {
+        parameters: {
+            query: {
+                audienceType: "ALL_WITH_DEVICE" | "NO_STATEMENT_UPLOADED";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponsePushCampaignAudienceCountDto"];
                 };
             };
         };

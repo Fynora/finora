@@ -40,14 +40,17 @@ public class BudgetService {
 
     /** Built into every FlowTotals.Context here -- the user's inflow kinds (Plan 2). */
     private final com.finora.service.InflowChoiceService inflowChoices;
+    private final com.finora.service.CategorizationService categorizationService;
 
     public BudgetService(BudgetRepository budgetRepository, CategoryRepository categoryRepository,
                           TransactionRepository transactionRepository, AccountRepository accountRepository,
                           UserRepository userRepository,
                           AuditService auditService, TransactionGraphService transactionGraphService,
                           TimelineEventService timelineEventService,
-                         com.finora.service.InflowChoiceService inflowChoices) {
+                         com.finora.service.InflowChoiceService inflowChoices,
+                         com.finora.service.CategorizationService categorizationService) {
         this.inflowChoices = inflowChoices;
+        this.categorizationService = categorizationService;
         this.budgetRepository = budgetRepository;
         this.categoryRepository = categoryRepository;
         this.transactionRepository = transactionRepository;
@@ -133,23 +136,10 @@ public class BudgetService {
      */
     @Transactional
     public BudgetDto upsert(UUID userId, BudgetDto.UpsertRequest req) {
-        // Bug 16: same case-sensitive lookup CategorizationService.resolveOrCreateCategory had --
-        // see CategoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc's own doc comment for
-        // what this does and does not close, including why it returns a list. Without it,
-        // budgeting "dining" after already having a "Dining" category from an import creates a
-        // second row, and the existing budget attaches to only one of the two -- showing the
-        // wrong spend for the category the user thinks they set.
-        String categoryName = req.categoryName().trim();
-        List<Category> categoryMatches = categoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc(userId, categoryName);
-        Category category;
-        if (!categoryMatches.isEmpty()) {
-            category = categoryMatches.get(0);
-        } else {
-            category = new Category();
-            category.setUserId(userId);
-            category.setName(categoryName);
-            category = categoryRepository.save(category);
-        }
+        // The one find-or-create every other path uses (case-insensitive, Bug 16: budgeting
+        // "dining" attaches to an existing "Dining" rather than a second row that splits the
+        // spend). This used to be a copy of it that skipped the name-length cap.
+        Category category = categorizationService.resolveOrCreateCategory(userId, req.categoryName().trim());
 
         Budget budget = budgetRepository.findByUserIdAndCategoryId(userId, category.getId())
                 .orElseGet(Budget::new);

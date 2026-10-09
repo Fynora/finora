@@ -28,7 +28,7 @@ function StepIndicator({ current }: { current: Step }) {
           <div key={s.key} className="flex items-center gap-2">
             <div
               className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 transition-colors ${
-                isDone ? 'bg-success text-white' : isActive ? 'bg-primary text-on-primary' : 'bg-card border border-border text-muted'
+                isDone ? 'bg-success text-on-success' : isActive ? 'bg-primary text-on-primary' : 'bg-card border border-border text-muted'
               }`}
               title={s.label}
             >

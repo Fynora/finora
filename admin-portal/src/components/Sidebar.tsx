@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, ShieldCheck, ScrollText, HeartPulse, LogOut, Landmark, Settings,
   ListFilter, Store, FileCode, Sparkles, GitMerge, BarChart3, Stethoscope, FileSearch, ListRestart , BadgeCheck, Fingerprint, Route,
   CreditCard, Gift, Plug, Waypoints, Lightbulb, ListOrdered, ChevronDown, ChevronRight, Bell, Clock, ShieldAlert,
-  LifeBuoy, MessageSquare, MailCheck } from 'lucide-react';
+  LifeBuoy, MessageSquare, MailCheck, Megaphone } from 'lucide-react';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { BrandMark } from './BrandMark';
 import { initials } from '../lib/initials';
@@ -67,6 +67,7 @@ const GROUPS = [
     label: 'System',
     links: [
       { to: '/notifications', label: 'Notifications', icon: Bell, end: false, permission: 'NOTIFICATION_MANAGE' },
+      { to: '/push-campaigns', label: 'Push Campaigns', icon: Megaphone, end: false, permission: 'PUSH_CAMPAIGN_MANAGE' },
       { to: '/health', label: 'System Health', icon: HeartPulse, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
       { to: '/integrations', label: 'Integrations', icon: Plug, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
       { to: '/diagnostics', label: 'Platform Diagnostics', icon: Stethoscope, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
@@ -201,7 +202,7 @@ export function Sidebar() {
                 type="button"
                 onClick={() => toggleGroup(group.label)}
                 aria-expanded={isOpen}
-                className="w-full flex items-center justify-between px-3 mb-1.5 text-[11px] font-semibold text-gray-500 uppercase tracking-widest hover:text-gray-300"
+                className="w-full flex items-center justify-between px-3 mb-1.5 text-[11px] font-semibold text-gray-400 uppercase tracking-widest hover:text-gray-300"
               >
                 {group.label}
                 {isOpen

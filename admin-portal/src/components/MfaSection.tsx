@@ -288,7 +288,7 @@ function DisableFlow({ onDisabled, onCancel }: { onDisabled: () => void; onCance
             type="button"
             onClick={() => disableMutation.mutate(null)}
             disabled={disableMutation.isPending || currentPassword.length === 0 || code.trim().length === 0}
-            className="inline-flex items-center gap-1.5 bg-danger hover:opacity-90 text-white text-sm font-semibold rounded-lg px-4 py-2.5 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 bg-danger hover:opacity-90 text-on-danger text-sm font-semibold rounded-lg px-4 py-2.5 disabled:opacity-50"
           >
             {disableMutation.isPending && <Loader2 size={14} className="animate-spin" />}
             Disable two-factor authentication

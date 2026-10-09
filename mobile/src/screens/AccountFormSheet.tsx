@@ -13,6 +13,7 @@ import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../theme';
+import { GlassSurface } from '../components/GlassSurface';
 
 const ACCOUNT_TYPES = ['SAVINGS', 'CREDIT_CARD', 'WALLET', 'INVESTMENT'] as const;
 type AccountType = (typeof ACCOUNT_TYPES)[number];
@@ -126,7 +127,7 @@ export function AccountFormSheet({ account, onClose, onSaved }: Props) {
           disabled={saving}
           accessibilityLabel={isEdit ? 'Close edit account' : 'Close add account'}
         />
-        <View style={[styles.sheet, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md }]}>
+        <GlassSurface style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}>
           <ScrollView keyboardShouldPersistTaps="handled" style={styles.scroll}>
             <Text style={[styles.title, { color: c.ink }]}>{isEdit ? 'Edit Account' : 'Add Account'}</Text>
 
@@ -187,7 +188,7 @@ export function AccountFormSheet({ account, onClose, onSaved }: Props) {
                 />
                 <DateField label="Payment due date" value={dueDate} onChange={setDueDate} />
                 {dueDateClearBlocked ? (
-                  <Text style={[styles.error, { color: c.danger }]}>
+                  <Text style={[styles.error, { color: c.dangerInk }]}>
                     A due date can&apos;t be removed here -- pick a different date instead, or
                     contact support.
                   </Text>
@@ -195,7 +196,7 @@ export function AccountFormSheet({ account, onClose, onSaved }: Props) {
               </>
             ) : null}
 
-            {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+            {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
             <View style={styles.action}>
               <Button
                 label={saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Add Account'}
@@ -206,7 +207,7 @@ export function AccountFormSheet({ account, onClose, onSaved }: Props) {
               <Button label="Cancel" variant="link" onPress={onClose} disabled={saving} />
             </View>
           </ScrollView>
-        </View>
+        </GlassSurface>
       </KeyboardAvoidingView>
     </AppModal>
   );

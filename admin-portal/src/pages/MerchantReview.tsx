@@ -92,7 +92,7 @@ function MerchantReviewContent() {
     {
       header: 'Account',
       render: (row) => (
-        <a className="text-accent hover:underline text-sm" href={`/users/${row.userId}`}>
+        <a className="text-primary hover:underline text-sm" href={`/users/${row.userId}`}>
           {row.userEmail ?? row.userId.slice(0, 8)}
         </a>
       ),
@@ -114,14 +114,14 @@ function MerchantReviewContent() {
       render: (row) => (
         <div className="flex gap-2">
           <button
-            className="text-xs text-accent hover:underline disabled:opacity-50"
+            className="text-xs text-primary hover:underline disabled:opacity-50"
             disabled={approve.isPending}
             onClick={() => approve.mutate(row)}
           >
             Approve
           </button>
           <button
-            className="text-xs text-accent hover:underline"
+            className="text-xs text-primary hover:underline"
             onClick={() => {
               setSelected(row);
               setRenaming(row.canonicalName);
@@ -238,7 +238,7 @@ function ReviewPanel({
             onChange={(e) => setRenaming(e.target.value)}
           />
           <button
-            className="rounded-lg bg-accent px-3 py-2 text-sm text-white disabled:opacity-50"
+            className="rounded-lg bg-primary px-3 py-2 text-sm text-on-primary hover:bg-primary-dark disabled:opacity-50"
             disabled={busy || !renaming.trim() || renaming === row.canonicalName}
             onClick={onRename}
           >

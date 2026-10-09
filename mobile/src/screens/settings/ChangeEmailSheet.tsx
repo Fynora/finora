@@ -16,6 +16,7 @@ import { EMAIL_PATTERN } from '../../lib/validation';
 import { useAuth } from '../../context/AuthContext';
 import { useSingleFlight } from '../../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../../theme';
+import { GlassSurface } from '../../components/GlassSurface';
 
 /**
  * Phase 4, ported from frontend/src/components/ChangeEmailModal.tsx. Unlike ChangePasswordSheet,
@@ -108,11 +109,11 @@ export function ChangeEmailSheet({ onClose, signInMethod }: {
           disabled={!dismissable}
           accessibilityLabel="Close change email"
         />
-        <View style={[styles.sheet, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md }]}>
+        <GlassSurface style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}>
           <ScrollView keyboardShouldPersistTaps="handled" style={styles.scroll}>
             {step === 'sent' ? (
               <View style={styles.successBlock}>
-                <Text style={[styles.successMark, { color: c.success }]}>✓</Text>
+                <Text style={[styles.successMark, { color: c.successInk }]}>✓</Text>
                 <Text style={[styles.title, { color: c.ink }]}>Check your inbox</Text>
                 <Text style={[styles.body, { color: c.muted }]}>
                   We sent a confirmation link to {sentToEmail}. Tap it to finish changing your
@@ -161,7 +162,7 @@ export function ChangeEmailSheet({ onClose, signInMethod }: {
                       autoCapitalize="none"
                       textContentType="password"
                     />
-                    {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+                    {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
                     {/* The email belongs to a DIFFERENT account -- ending THIS session so the one
                         that already owns it can be signed into is the actual fix, same reasoning
                         as VerifyPhoneScreen's identical nudge for the phone case. */}
@@ -203,7 +204,7 @@ export function ChangeEmailSheet({ onClose, signInMethod }: {
                         Enter a valid new email address above to continue.
                       </Text>
                     )}
-                    {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+                    {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
                     {errorCode === AUTH_EMAIL_ALREADY_REGISTERED ? (
                       <Button label="Log in instead" variant="link" onPress={logout} />
                     ) : null}
@@ -214,7 +215,7 @@ export function ChangeEmailSheet({ onClose, signInMethod }: {
               </>
             )}
           </ScrollView>
-        </View>
+        </GlassSurface>
       </KeyboardAvoidingView>
     </AppModal>
   );

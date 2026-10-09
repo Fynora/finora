@@ -3,6 +3,7 @@ package com.finora.imports;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -102,5 +103,101 @@ class FreeStatementPeriodTest {
     void aReversedPeriodIsJudgedByItsRealLength() {
         assertThat(within(LocalDate.of(2026, 3, 31), LocalDate.of(2026, 1, 1))).isFalse();
         assertThat(within(LocalDate.of(2026, 2, 1), LocalDate.of(2026, 1, 1))).isTrue();
+    }
+
+    // -- Grace: two days off each end before the month rule ----------------------------------------
+
+    private static boolean withGrace(LocalDate start, LocalDate end) {
+        return FreeStatementPeriod.withinFreeLimit(start, end);
+    }
+
+    @Test
+    void twoDaysOfGraceAtEachEnd_theOwnersExample() {
+        // 5 Jan to 5 Feb is one month, so 3 Jan to 7 Feb is allowed.
+        assertThat(withGrace(LocalDate.of(2026, 1, 3), LocalDate.of(2026, 2, 7))).isTrue();
+        // One more day at either end is not.
+        assertThat(withGrace(LocalDate.of(2026, 1, 2), LocalDate.of(2026, 2, 7))).isFalse();
+        assertThat(withGrace(LocalDate.of(2026, 1, 3), LocalDate.of(2026, 2, 8))).isFalse();
+    }
+
+    @Test
+    void graceAppliesToEveryShape_theLimitIsTheMonthRuleWithFourMoreDays() {
+        for (LocalDate start = LocalDate.of(2026, 1, 1); start.isBefore(LocalDate.of(2029, 1, 1)); start = start.plusDays(1)) {
+            for (int days = 1; days <= 80; days++) {
+                LocalDate end = start.plusDays(days - 1);
+                boolean expected = days <= 4 || within(start.plusDays(2), end.minusDays(2));
+                assertThat(withGrace(start, end)).as("%s +%d", start, days).isEqualTo(expected);
+                assertThat(withGrace(end, start)).as("reversed %s +%d", start, days).isEqualTo(expected);
+                if (days <= 35) assertThat(withGrace(start, end)).as("%s +%d", start, days).isTrue();
+                if (days > 36) assertThat(withGrace(start, end)).as("%s +%d", start, days).isFalse();
+            }
+        }
+    }
+
+    @Test
+    void graceNeverRefusesWhatTheOldRuleAllowed() {
+        for (LocalDate start = LocalDate.of(2026, 1, 1); start.isBefore(LocalDate.of(2029, 1, 1)); start = start.plusDays(1)) {
+            for (int days = 1; days <= 80; days++) {
+                LocalDate end = start.plusDays(days - 1);
+                if (within(start, end)) assertThat(withGrace(start, end)).as("%s +%d", start, days).isTrue();
+            }
+        }
+    }
+
+    // -- Printed period AND every transaction date --------------------------------------------------
+
+    private static LocalDate d(int month, int day) {
+        return LocalDate.of(2026, month, day);
+    }
+
+    @Test
+    void aStatementWithNoPrintedPeriod_isJudgedByItsTransactions() {
+        assertThat(FreeStatementPeriod.firstExcess(null, null, List.of(d(1, 5), d(2, 5)))).isNull();
+        FreeStatementPeriod.Excess excess = FreeStatementPeriod.firstExcess(null, null, List.of(d(1, 5), d(3, 5)));
+        assertThat(excess).isEqualTo(new FreeStatementPeriod.Excess(d(1, 5), d(3, 5), true));
+    }
+
+    @Test
+    void theEarliestAndLatestDatesCount_notTheFirstAndLastRow() {
+        // Rows out of order, the long span hidden in the middle: editing the last row's date to fit
+        // must not pass.
+        List<LocalDate> rows = List.of(d(1, 5), d(3, 5), d(1, 20), d(2, 5));
+        assertThat(FreeStatementPeriod.firstExcess(null, null, rows))
+                .isEqualTo(new FreeStatementPeriod.Excess(d(1, 5), d(3, 5), true));
+    }
+
+    @Test
+    void aPrintedPeriodThatFits_doesNotExcuseTransactionsThatDoNot() {
+        // The printed period edited to one month; the rows still cover two.
+        assertThat(FreeStatementPeriod.firstExcess(d(1, 5), d(2, 5), List.of(d(1, 5), d(3, 5))))
+                .isEqualTo(new FreeStatementPeriod.Excess(d(1, 5), d(3, 5), true));
+    }
+
+    @Test
+    void aPrintedPeriodThatIsTooLong_isRefusedEvenWithFewTransactions() {
+        // A quiet account: three months printed, one week of activity. The statement still covers
+        // three months.
+        assertThat(FreeStatementPeriod.firstExcess(d(3, 31), d(1, 1), List.of(d(2, 1), d(2, 7))))
+                .isEqualTo(new FreeStatementPeriod.Excess(d(1, 1), d(3, 31), false));
+    }
+
+    @Test
+    void transactionsJustOutsideTheirPrintedPeriod_stillFit() {
+        // A card row dated two days before its cycle, as measured on real statements.
+        assertThat(FreeStatementPeriod.firstExcess(d(1, 5), d(2, 5), List.of(d(1, 3), d(2, 5)))).isNull();
+    }
+
+    @Test
+    void halfAPrintedPeriod_isNotJudged_butTheTransactionsAre() {
+        assertThat(FreeStatementPeriod.firstExcess(d(1, 1), null, List.of(d(1, 5), d(1, 20)))).isNull();
+        assertThat(FreeStatementPeriod.firstExcess(null, d(4, 1), List.of(d(1, 5), d(3, 5)))).isNotNull();
+    }
+
+    @Test
+    void nothingToJudge_fits() {
+        assertThat(FreeStatementPeriod.firstExcess(null, null, List.of())).isNull();
+        assertThat(FreeStatementPeriod.firstExcess(null, null, null)).isNull();
+        assertThat(FreeStatementPeriod.firstExcess(null, null, java.util.Arrays.asList(null, d(1, 1)))).isNull();
+        assertThat(FreeStatementPeriod.firstExcess(null, null, List.of(d(5, 10)))).isNull();
     }
 }

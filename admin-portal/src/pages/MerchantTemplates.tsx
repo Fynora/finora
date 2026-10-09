@@ -132,7 +132,7 @@ function TestTemplatePanel({
             merchantDomain, receiptMarker, nonReceiptMarker, amountPattern, datePattern, sampleHtml,
             receivedOn: sample?.receivedOn ?? null,
           })}
-          className="text-xs font-semibold text-primary bg-card border border-border hover:bg-white rounded-lg px-3 py-1.5 disabled:opacity-50"
+          className="text-xs font-semibold text-primary bg-card border border-border hover:bg-bg rounded-lg px-3 py-1.5 disabled:opacity-50"
         >
           {testMutation.isPending ? 'Testing…' : 'Test template'}
         </button>
@@ -161,7 +161,7 @@ function TestTemplatePanel({
         </p>
         <label
           className={`inline-block mt-2 text-xs font-semibold rounded-lg px-3 py-1.5 border border-border bg-card ${
-            canCheck && !checking ? 'text-primary hover:bg-white cursor-pointer' : 'text-muted opacity-60'
+            canCheck && !checking ? 'text-primary hover:bg-bg cursor-pointer' : 'text-muted cursor-not-allowed'
           }`}
         >
           {checking ? 'Checking…' : 'Check another email (.eml)'}
@@ -379,7 +379,7 @@ function TemplateForm({
               type="button"
               disabled={activating}
               onClick={onDeactivate}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted bg-bg border border-border hover:bg-white rounded-lg px-3 py-1.5"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted bg-bg border border-border hover:bg-card rounded-lg px-3 py-1.5"
             >
               <Power size={13} /> Deactivate
             </button>

@@ -1,12 +1,16 @@
 import { Text } from 'react-native';
 import { AppAlert, getCurrentAppAlert, __resetAppAlertForTests } from '../lib/appAlert';
+import { getCurrentAppBanner, __resetAppBannerForTests } from '../lib/appBanner';
+import { showSystemNotification } from '../lib/systemNotification';
 import { act, render, waitFor, type RenderAPI } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as SecureStore from 'expo-secure-store';
 import { AuthProvider, useAuth } from './AuthContext';
-import { authApi } from '../api/endpoints';
+import { authApi, deviceTokensApi } from '../api/endpoints';
 import * as appLock from '../lib/appLock';
-import { registerDeviceToken, revokeDeviceToken, subscribeToForegroundMessages } from '../lib/pushRegistration';
+import {
+  clearPendingDetach, detachDevice, registerDeviceToken, resumePendingDetach, subscribeToForegroundMessages,
+} from '../lib/pushRegistration';
 import { configureRevenueCat } from '../lib/revenueCat';
 import { reportHandledError } from '../lib/monitoring';
 
@@ -21,23 +25,37 @@ jest.mock('../api/endpoints', () => ({
     otpEmailRequest: jest.fn(),
     otpEmailLogin: jest.fn(),
     otpPhoneLogin: jest.fn(),
+    refresh: jest.fn(),
+  },
+  deviceTokensApi: {
+    revoke: jest.fn(async () => null),
   },
 }));
 
 // Task 14. Pins the wiring in AuthContext.tsx itself (which hooks/setPhoneVerified()/persist()/
-// logout()) call registerDeviceToken()/revokeDeviceToken(), and in what order relative to
-// storage -- without this, dropping the phoneVerified gate or moving the revoke call after the
-// stored token is cleared would both ship green: the former is a guaranteed 403
+// logout()) call registerDeviceToken()/detachDevice(), and in what order relative to
+// storage -- without this, dropping the phoneVerified gate would ship green as a guaranteed 403
 // PHONE_VERIFICATION_REQUIRED on every app open (/api/v1/device-tokens is not exempt in the
-// backend's PhoneVerificationFilter), the latter a guaranteed 401 that silently leaves the token
-// registered server-side. See pushRegistration.test.ts for that module's own behavior in
-// isolation; this file only needs to know AuthContext calls it, and when.
+// backend's PhoneVerificationFilter). On logout the revoke now runs AFTER storage is cleared and
+// carries the departing session's token explicitly (lib/endRemoteSession.ts). See
+// pushRegistration.test.ts for that module's own behavior in isolation; this file only needs to
+// know AuthContext calls it, and when.
 jest.mock('../lib/pushRegistration', () => ({
   registerDeviceToken: jest.fn(),
-  revokeDeviceToken: jest.fn(),
+  detachDevice: jest.fn(async () => null),
+  resumePendingDetach: jest.fn(async () => {}),
+  clearPendingDetach: jest.fn(async () => {}),
   // Defaults to a no-op unsubscribe, matching the real function's own "never throws" contract --
   // see the "AuthContext foreground push wiring" describe block below for tests that override this.
   subscribeToForegroundMessages: jest.fn(() => jest.fn()),
+}));
+
+// The system-notification helper (react-native-notify-kit) is pinned in its own test file; here we
+// only need to say whether it managed to show a notification, because AuthContext shows the in-app
+// banner exactly when it did not.
+jest.mock('../lib/systemNotification', () => ({
+  showSystemNotification: jest.fn(async () => true),
+  registerSystemNotificationEvents: jest.fn(async () => {}),
 }));
 
 // Subscription billing V4 (design spec §2/§6.1 step 1): configureRevenueCat() must run once the
@@ -54,13 +72,17 @@ jest.mock('../lib/revenueCat', () => ({
 // configureRevenueCat" tests below for the regression this guards.
 jest.mock('../lib/monitoring', () => ({
   reportHandledError: jest.fn(),
+  reportHandledEvent: jest.fn(),
 }));
 
 const mockedAuthApi = authApi as jest.Mocked<typeof authApi>;
 const mockedRegisterDeviceToken = registerDeviceToken as jest.MockedFunction<typeof registerDeviceToken>;
-const mockedRevokeDeviceToken = revokeDeviceToken as jest.MockedFunction<typeof revokeDeviceToken>;
+const mockedDetachDevice = detachDevice as jest.MockedFunction<typeof detachDevice>;
+const mockedResumePendingDetach = resumePendingDetach as jest.MockedFunction<typeof resumePendingDetach>;
+const mockedClearPendingDetach = clearPendingDetach as jest.MockedFunction<typeof clearPendingDetach>;
 const mockedSubscribeToForegroundMessages = subscribeToForegroundMessages as jest.MockedFunction<typeof subscribeToForegroundMessages>;
 const mockedConfigureRevenueCat = configureRevenueCat as jest.MockedFunction<typeof configureRevenueCat>;
+const mockedShowSystemNotification = showSystemNotification as jest.MockedFunction<typeof showSystemNotification>;
 const mockedReportHandledError = reportHandledError as jest.MockedFunction<typeof reportHandledError>;
 
 const SESSION = {
@@ -115,7 +137,12 @@ async function settle(view: RenderAPI) {
 }
 
 // The alert queue is module state, so an alert one test raises must not be seen by the next.
-beforeEach(() => __resetAppAlertForTests());
+beforeEach(() => {
+  __resetAppAlertForTests();
+  __resetAppBannerForTests();
+  mockedShowSystemNotification.mockReset();
+  mockedShowSystemNotification.mockResolvedValue(true);
+});
 
 describe('AuthContext bootstrap', () => {
   /**
@@ -655,15 +682,45 @@ describe('AuthContext push registration wiring (Task 14)', () => {
     expect(mockedRegisterDeviceToken).toHaveBeenCalledTimes(1);
   });
 
-  it('revokes the device token before the stored auth token is cleared on logout', async () => {
+  it('signs out with the pair a refresh still running at sign-out ends up with', async () => {
+    // 2026-10-05 on a real phone: a refresh was still out when the user tapped Sign out. Its pair is
+    // what markSessionEnded hands back (signOutDuringRefresh.test.ts drives that side through the
+    // real client); this pins that logout() passes it on, so push is revoked and the session ended
+    // with the live pair rather than the stored one that refresh just retired.
     mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
-    // Records whether the bearer token was still readable from storage at the moment
-    // revokeDeviceToken() was actually invoked -- the real function's own POST needs it there to
-    // authenticate itself (see pushRegistration.ts), so this pins the ORDERING logout() depends
-    // on, not merely that both things eventually happened.
-    let tokenPresentAtRevokeTime: string | null = null;
-    mockedRevokeDeviceToken.mockImplementation(async () => {
-      tokenPresentAtRevokeTime = await SecureStore.getItemAsync('finora_token');
+    const client = require('../api/client');
+    const spy = jest.spyOn(client, 'markSessionEnded').mockReturnValue(
+      Promise.resolve({ token: 'access-late', refreshToken: 'refresh-late' })
+    );
+    mockedDetachDevice.mockResolvedValue('fcm-token');
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    await act(async () => {
+      auth.logout();
+    });
+
+    await waitFor(() => expect(mockedAuthApi.logout).toHaveBeenCalledWith('refresh-late'));
+    expect(deviceTokensApi.revoke).toHaveBeenCalledWith({ token: 'fcm-token' }, 'access-late');
+    expect(mockedAuthApi.refresh).not.toHaveBeenCalled();
+    const store = (SecureStore as unknown as { __store: Map<string, string> }).__store;
+    expect(store.has('finora_token')).toBe(false);
+    expect(store.has('finora_refresh_token')).toBe(false);
+    spy.mockRestore();
+  });
+
+  it('releases the refresh block once, after the tokens are out of storage', async () => {
+    // Left blocked, the next person to sign in on this device could never refresh their token and
+    // would be signed out every fifteen minutes.
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const client = require('../api/client');
+    const store = (SecureStore as unknown as { __store: Map<string, string> }).__store;
+    let tokenWhenReleased: string | null | undefined;
+    const spy = jest.spyOn(client, 'sessionStorageCleared').mockImplementation(() => {
+      tokenWhenReleased = store.get('finora_token') ?? null;
     });
     const view = renderAuth();
     await settle(view);
@@ -675,11 +732,171 @@ describe('AuthContext push registration wiring (Task 14)', () => {
       auth.logout();
     });
 
-    await waitFor(async () => {
-      expect(await SecureStore.getItemAsync('finora_token')).toBeNull();
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(tokenWhenReleased).toBeNull();
+    spy.mockRestore();
+    client.sessionStorageCleared();
+  });
+
+  it('ends the session for in-flight requests before it touches storage', async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const client = require('../api/client');
+    let tokenWhenEnded: string | null | undefined;
+    const spy = jest.spyOn(client, 'markSessionEnded').mockImplementation(() => {
+      tokenWhenEnded = (SecureStore as unknown as { __store: Map<string, string> }).__store.get('finora_token') ?? null;
+      return Promise.resolve(null);
     });
-    expect(mockedRevokeDeviceToken).toHaveBeenCalledTimes(1);
-    expect(tokenPresentAtRevokeTime).toBe('access-token');
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    await act(async () => {
+      auth.logout();
+    });
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    // Still in storage at that moment: the epoch moved first, so a refresh landing between this and
+    // the removal below is already discarded.
+    expect(tokenWhenEnded).toBe('access-token');
+    spy.mockRestore();
+  });
+
+  it('detaches push the moment sign-out is tapped, before storage or the network', async () => {
+    // Needs no credentials, so it does not wait behind the slow storage work: a sign-out closed a
+    // second later has still told Firebase to stop delivering this account's notifications.
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    let tokenAtDetach: string | null | undefined;
+    mockedDetachDevice.mockImplementation(async () => {
+      tokenAtDetach = (SecureStore as unknown as { __store: Map<string, string> }).__store.get('finora_token') ?? null;
+      return null;
+    });
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    act(() => {
+      auth.logout();
+    });
+
+    expect(mockedDetachDevice).toHaveBeenCalledTimes(1);
+    expect(tokenAtDetach).toBe('access-token');
+    await waitFor(() => expect(mockedAuthApi.logout).toHaveBeenCalled());
+  });
+
+  it('a session that merely expires keeps its notifications', async () => {
+    // Product decision (2026-10-05): only an explicit sign-out detaches push. An idle or expired
+    // session is still its owner's phone, and "your statement is ready" is what brings them back.
+    const client = require('../api/client');
+    const spy = jest.spyOn(client, 'setSessionCallbacks');
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+    const handlers = spy.mock.calls[spy.mock.calls.length - 1][0] as {
+      onSessionExpired: (info: { endedDeliberately: boolean }) => void;
+    };
+
+    await act(async () => {
+      handlers.onSessionExpired({ endedDeliberately: false });
+    });
+
+    expect(auth.token).toBeNull();
+    expect(mockedDetachDevice).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it('a session ended on purpose from elsewhere stops its notifications, like a sign-out here', async () => {
+    // A lost phone removed from the device list, or "sign out other devices": the phone only learns
+    // of it when its refresh is rejected as revoked, and should not keep showing the notifications.
+    const client = require('../api/client');
+    const spy = jest.spyOn(client, 'setSessionCallbacks');
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+    const handlers = spy.mock.calls[spy.mock.calls.length - 1][0] as {
+      onSessionExpired: (info: { endedDeliberately: boolean }) => void;
+    };
+
+    await act(async () => {
+      handlers.onSessionExpired({ endedDeliberately: true });
+    });
+
+    expect(auth.token).toBeNull();
+    expect(mockedDetachDevice).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+  });
+
+  it('a launch with no session finishes a sign-out that was closed before detaching push', async () => {
+    const view = renderAuth();
+    await settle(view);
+
+    await waitFor(() => expect(mockedResumePendingDetach).toHaveBeenCalledTimes(1));
+    // Its guard re-checks storage at the last moment, so a sign-in meanwhile keeps its token.
+    const stillSignedOut = mockedResumePendingDetach.mock.calls[0][0];
+    await expect(stillSignedOut()).resolves.toBe(true);
+    await SecureStore.setItemAsync('finora_token', 'someone-signed-in');
+    await expect(stillSignedOut()).resolves.toBe(false);
+  });
+
+  it('a launch that restores a session never touches push detach', async () => {
+    await SecureStore.setItemAsync('finora_token', 'access-token');
+    const view = renderAuth();
+    await settle(view);
+
+    expect(mockedResumePendingDetach).not.toHaveBeenCalled();
+  });
+
+  it('signing in voids a pending detach from an earlier sign-out', async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    expect(mockedClearPendingDetach).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the stored session before any sign-out network call, then revokes with the departing token', async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    // Sign-out used to revoke first and clear storage last, so closing the app during those network
+    // calls left a usable session on the phone for the next launch (2026-10-05). The order is now
+    // the other way round: what was in storage when the revoke and the logout ran is the evidence.
+    const storedAt: Record<string, string | null> = {};
+    mockedDetachDevice.mockResolvedValue('fcm-token');
+    (deviceTokensApi.revoke as jest.Mock).mockImplementation(async () => {
+      storedAt.revokeToken = await SecureStore.getItemAsync('finora_token');
+      storedAt.revokeRefresh = await SecureStore.getItemAsync('finora_refresh_token');
+      return null;
+    });
+    mockedAuthApi.logout.mockImplementation(async () => {
+      storedAt.logoutRefresh = await SecureStore.getItemAsync('finora_refresh_token');
+      return { message: 'ok' };
+    });
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    await act(async () => {
+      auth.logout();
+    });
+
+    await waitFor(() => expect(mockedAuthApi.logout).toHaveBeenCalledWith('refresh-token'));
+    expect(mockedDetachDevice).toHaveBeenCalledTimes(1);
+    expect(storedAt).toEqual({ revokeToken: null, revokeRefresh: null, logoutRefresh: null });
+    expect(deviceTokensApi.revoke).toHaveBeenCalledWith({ token: 'fcm-token' }, 'access-token');
   });
 });
 
@@ -767,6 +984,210 @@ describe('AuthContext foreground push wiring', () => {
     latestHandler()({ notification: { title: 'Fynora', body: 'Your Visa payment is due tomorrow.' } } as never);
 
     expect(alertSpy).not.toHaveBeenCalled();
+  });
+
+  // An admin campaign push must never interrupt the screen with a pop-up while the app is open. It is
+  // posted as a real system notification (slides in at the top and stays in the notification centre
+  // after a swipe); the in-app banner is only the fallback for when the system cannot show one.
+  it('posts an admin campaign message as a system notification, with no pop-up and no in-app banner', async () => {
+    mockedShowSystemNotification.mockResolvedValue(true);
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    await act(async () => {
+      latestHandler()({
+        messageId: 'm-1',
+        notification: { title: 'Welcome to Fynora', body: 'Welcome to Fynora body.' },
+        data: { type: 'CUSTOM_PUSH' },
+      } as never);
+    });
+
+    expect(mockedShowSystemNotification).toHaveBeenCalledWith('Welcome to Fynora', 'Welcome to Fynora body.', 'm-1');
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(getCurrentAppBanner()).toBeUndefined();
+  });
+
+  it('falls back to the in-app banner when the system cannot show the notification', async () => {
+    mockedShowSystemNotification.mockResolvedValue(false);
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    await act(async () => {
+      latestHandler()({
+        notification: { title: 'Welcome to Fynora', body: 'Welcome to Fynora body.' },
+        data: { type: 'CUSTOM_PUSH' },
+      } as never);
+    });
+
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(getCurrentAppBanner()).toMatchObject({ title: 'Welcome to Fynora', message: 'Welcome to Fynora body.' });
+  });
+
+  it('does not raise the fallback banner if the session ended while the system was being asked', async () => {
+    let answer: (shown: boolean) => void = () => {};
+    mockedShowSystemNotification.mockImplementation(() => new Promise<boolean>((resolve) => { answer = resolve; }));
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+    latestHandler()({
+      notification: { title: 'Welcome to Fynora', body: 'Welcome to Fynora.' },
+      data: { type: 'CUSTOM_PUSH' },
+    } as never);
+
+    await act(async () => {
+      await auth.logout();
+    });
+    await act(async () => {
+      answer(false);
+    });
+
+    expect(getCurrentAppBanner()).toBeUndefined();
+  });
+
+  it('shows nothing for an admin campaign message while the app is locked', async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    appLock.setLockedFlag(true);
+    latestHandler()({
+      notification: { title: 'Welcome to Fynora', body: 'Welcome to Fynora.' },
+      data: { type: 'CUSTOM_PUSH' },
+    } as never);
+
+    expect(mockedShowSystemNotification).not.toHaveBeenCalled();
+    expect(getCurrentAppBanner()).toBeUndefined();
+    expect(alertSpy).not.toHaveBeenCalled();
+  });
+
+  it('shows nothing for a campaign message with no body', async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    latestHandler()({ notification: { title: 'Only a title' }, data: { type: 'CUSTOM_PUSH' } } as never);
+
+    expect(mockedShowSystemNotification).not.toHaveBeenCalled();
+    expect(getCurrentAppBanner()).toBeUndefined();
+  });
+
+  it('does not leave a fallback banner on screen after the session ends', async () => {
+    mockedShowSystemNotification.mockResolvedValue(false);
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+    await act(async () => {
+      latestHandler()({
+        notification: { title: 'Welcome to Fynora', body: 'Welcome to Fynora.' },
+        data: { type: 'CUSTOM_PUSH' },
+      } as never);
+    });
+    expect(getCurrentAppBanner()).toBeDefined();
+
+    await act(async () => {
+      await auth.logout();
+    });
+
+    expect(getCurrentAppBanner()).toBeUndefined();
+  });
+
+  it('still shows the alert for any other push type', async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    latestHandler()({
+      notification: { title: 'Statement ready', body: 'Your statement is ready.' },
+      data: { type: 'IMPORT_STATEMENT_READY' },
+    } as never);
+
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+  });
+
+  // The Statements screen's "Recent imports" card shows the job a statement push is about. An open
+  // app only alerts on the push -- nothing navigates or remounts -- so the push itself has to make
+  // that card refetch, or the alert says "rejected" over a card still saying "held".
+  describe('statement-import pushes refresh the recent imports list', () => {
+    let invalidateSpy: jest.SpyInstance;
+
+    beforeEach(() => {
+      invalidateSpy = jest.spyOn(QueryClient.prototype, 'invalidateQueries');
+    });
+
+    afterEach(() => {
+      invalidateSpy.mockRestore();
+    });
+
+    async function signedIn() {
+      mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+      const view = renderAuth();
+      await settle(view);
+      await act(async () => {
+        await auth.login('someone@example.com', 'pw');
+      });
+      invalidateSpy.mockClear();
+    }
+
+    function recentImportsInvalidations() {
+      return invalidateSpy.mock.calls.filter(([filters]) =>
+        JSON.stringify((filters as { queryKey?: unknown })?.queryKey) === JSON.stringify(['import-jobs-recent']));
+    }
+
+    it.each(['IMPORT_STATEMENT_HELD', 'IMPORT_STATEMENT_READY', 'IMPORT_STATEMENT_RESOLVED', 'IMPORT_STATEMENT_REJECTED'])(
+      'refetches it for %s',
+      async (type) => {
+        await signedIn();
+
+        latestHandler()({ notification: { title: 'Fynora', body: 'About your statement.' }, data: { type } } as never);
+
+        expect(recentImportsInvalidations()).toHaveLength(1);
+      },
+    );
+
+    it('refetches it even while the app is locked and the alert cannot show', async () => {
+      await signedIn();
+      appLock.setLockedFlag(true);
+
+      latestHandler()({
+        notification: { title: 'Fynora', body: 'About your statement.' },
+        data: { type: 'IMPORT_STATEMENT_REJECTED' },
+      } as never);
+
+      expect(alertSpy).not.toHaveBeenCalled();
+      expect(recentImportsInvalidations()).toHaveLength(1);
+    });
+
+    it('leaves it alone for a push about something else', async () => {
+      await signedIn();
+
+      latestHandler()({ notification: { title: 'Fynora', body: 'Your Visa payment is due tomorrow.' } } as never);
+      latestHandler()({ notification: { title: 'Hi', body: 'News' }, data: { type: 'CUSTOM_PUSH' } } as never);
+
+      expect(recentImportsInvalidations()).toHaveLength(0);
+    });
   });
 
   it('falls back to a default title when the message has none', async () => {

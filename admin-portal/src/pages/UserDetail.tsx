@@ -213,7 +213,7 @@ function UserDetailContent({ id }: { id: string }) {
                   // -- a fast double-click could fire revokeRoleMutation twice for the same role.
                   disabled={revokeRoleMutation.isPending}
                   onClick={() => setConfirmRevokeRole(name)}
-                  className="w-4 h-4 rounded-full bg-border hover:bg-danger hover:text-white text-[10px] flex items-center justify-center disabled:opacity-40"
+                  className="w-4 h-4 rounded-full bg-border hover:bg-danger hover:text-on-danger text-[10px] flex items-center justify-center disabled:opacity-40"
                 >
                   ×
                 </button>

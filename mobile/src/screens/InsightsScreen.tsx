@@ -29,6 +29,8 @@ import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList, LedgerDrillThroughFilters } from '../navigation/types';
 import { withBypass } from '../lib/changeSync';
 import { trackNavigation } from '../lib/trackNavigation';
+import { GlassScreen } from '../components/GlassScreen';
+import { GlassSurface } from '../components/GlassSurface';
 
 const OTHER_LABEL = 'Other';
 
@@ -295,9 +297,9 @@ export function InsightsScreen() {
 
   return (
     <>
+    <GlassScreen style={styles.glassRoot}>
     <ScrollView
       ref={scrollRef}
-      style={{ backgroundColor: c.bg }}
       contentContainerStyle={styles.content}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
     >
@@ -356,7 +358,7 @@ export function InsightsScreen() {
       ) : null}
 
       {summary ? (
-        <View style={[styles.glanceCard, { backgroundColor: c.card, borderColor: c.border }]}>
+        <GlassSurface style={styles.glanceCard}>
           <Text style={[styles.glanceHeading, { color: c.ink }]}>{`${periodTitleLong} at a Glance`}</Text>
           <View style={styles.glanceRow}>
             {[
@@ -373,7 +375,7 @@ export function InsightsScreen() {
                 {stat.delta !== null ? (
                   <Text style={[
                     styles.glanceDelta,
-                    { color: (stat.invert ? stat.delta < 0 : stat.delta >= 0) ? c.success : c.danger },
+                    { color: (stat.invert ? stat.delta < 0 : stat.delta >= 0) ? c.successInk : c.dangerInk },
                   ]}>
                     {stat.delta >= 0 ? '▲' : '▼'} {Math.abs(stat.delta).toFixed(0)}%
                   </Text>
@@ -381,7 +383,7 @@ export function InsightsScreen() {
               </View>
             ))}
           </View>
-        </View>
+        </GlassSurface>
       ) : null}
 
       {/* Static -- no data dependency -- so it renders on the very first frame, before either
@@ -413,7 +415,7 @@ export function InsightsScreen() {
             ) : undefined}
           />
           {insightsQ.isError ? (
-            <Text style={[styles.error, { color: c.danger }]}>
+            <Text style={[styles.error, { color: c.dangerInk }]}>
               Couldn&apos;t load your insights — pull down to try again.
             </Text>
           ) : !insightsData?.biggestCategory && !insightsData?.topMerchant && movers.length === 0 && sentences.length === 0 ? (
@@ -613,7 +615,7 @@ export function InsightsScreen() {
                 }
               />
               {spendingInsightsQ.isError ? (
-                <Text style={[styles.error, { color: c.danger }]}>
+                <Text style={[styles.error, { color: c.dangerInk }]}>
                   Couldn&apos;t load your insights — pull down to try again.
                 </Text>
               ) : spendingSentences.length === 0 ? (
@@ -642,7 +644,7 @@ export function InsightsScreen() {
               <Card style={styles.section}>
                 <SectionHeading title="Recurring Payments & Subscriptions" />
                 {recurringQ.isError ? (
-                  <Text style={[styles.error, { color: c.danger }]}>
+                  <Text style={[styles.error, { color: c.dangerInk }]}>
                     Couldn&apos;t load recurring payments — pull down to try again.
                   </Text>
                 ) : recurring.length === 0 && (changedAmountsQ.data ?? []).length === 0 ? (
@@ -748,7 +750,7 @@ export function InsightsScreen() {
                         {fmtCurrency(m.current)} vs usual {fmtCurrency(m.priorAverage)}
                       </Text>
                     </View>
-                    <Text style={[styles.delta, { color: (m.pctChange ?? 0) >= 0 ? c.danger : c.success }]}>
+                    <Text style={[styles.delta, { color: (m.pctChange ?? 0) >= 0 ? c.dangerInk : c.successInk }]}>
                       {(m.pctChange ?? 0) >= 0 ? '▲' : '▼'} {Math.abs(m.pctChange ?? 0).toFixed(0)}%
                     </Text>
                   </Pressable>
@@ -780,7 +782,7 @@ export function InsightsScreen() {
                 {fmtCurrency(summary.monthlyIncome)}
               </Text>
               {incomeDelta !== null ? (
-                <Text style={[styles.incomeDelta, { color: incomeDelta >= 0 ? c.success : c.danger }]}>
+                <Text style={[styles.incomeDelta, { color: incomeDelta >= 0 ? c.successInk : c.dangerInk }]}>
                   {incomeDelta >= 0 ? '▲' : '▼'} {Math.abs(incomeDelta).toFixed(0)}%
                   {summary.priorMonth && summary.incomePrior !== null
                     ? ` vs ${monthLabel(summary.priorMonth)} (${fmtCurrency(summary.incomePrior)})`
@@ -795,7 +797,7 @@ export function InsightsScreen() {
           {incomeTrendQ.isLoading ? (
             <SkeletonChart variant="bar" width={chartWidth} />
           ) : incomeTrendQ.isError ? (
-            <Text style={[styles.error, { color: c.danger }]}>
+            <Text style={[styles.error, { color: c.dangerInk }]}>
               Couldn&apos;t load your income trend — pull down to try again.
             </Text>
           ) : (incomeTrendQ.data ?? []).length === 0 ? (
@@ -838,6 +840,7 @@ export function InsightsScreen() {
         </Card>
       ) : null}
     </ScrollView>
+    </GlassScreen>
     <OptionPickerModal
       visible={monthPickerOpen}
       title="Month"
@@ -851,6 +854,7 @@ export function InsightsScreen() {
 }
 
 const styles = StyleSheet.create({
+  glassRoot: { flex: 1 },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   // Deliberately no paddingHorizontal of its own -- this sits inside the same ScrollView
   // contentContainerStyle={styles.content} as everything else in this file, and `content`'s own

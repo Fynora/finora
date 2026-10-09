@@ -12,6 +12,7 @@ import { AddTransactionSheet } from './AddTransactionSheet';
 import { AccountsCard } from '../components/dashboard/AccountsCard';
 import { FinancialNoteCard } from '../components/dashboard/FinancialNoteCard';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
+import { GlassScreen } from '../components/GlassScreen';
 import { CashFlowMiniCard } from '../components/dashboard/CashFlowMiniCard';
 import { GoalsRow } from '../components/dashboard/GoalsRow';
 import { HealthFactorsRow } from '../components/dashboard/HealthFactorsRow';
@@ -42,7 +43,7 @@ import { reviewNudgeLabel, reviewQueueCount } from '../lib/reviewQueue';
 import { useDashboardKpis } from '../lib/useDashboardKpis';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { visiblePlanCode } from '../lib/planDisplay';
-import { radius, spacing, useTheme } from '../theme';
+import { fonts, radius, spacing, useTheme } from '../theme';
 import { trackNavSearch, trackNavigation } from '../lib/trackNavigation';
 import type { AppTabParamList } from '../navigation/types';
 import { StatementRefreshBanner } from '../components/StatementRefreshBanner';
@@ -380,12 +381,12 @@ export function DashboardScreen() {
   // shows its own per-section skeletons instead of blocking the whole screen behind one spinner.
   if (!summaryQ.isLoading && !summary) {
     return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+      <GlassScreen style={styles.centered}>
         <Text style={[styles.errorText, { color: c.mutedInk }]}>Couldn't load your dashboard.</Text>
         <Pressable onPress={refresh} hitSlop={12} accessibilityRole="button">
           <Text style={[styles.retry, { color: c.primary }]}>Try again</Text>
         </Pressable>
-      </View>
+      </GlassScreen>
     );
   }
 
@@ -393,8 +394,10 @@ export function DashboardScreen() {
 
   return (
     <>
+    {/* GlassScreen wraps the ScrollView rather than living inside it: the mesh backdrop must stay
+        put while the content scrolls over it. */}
+    <GlassScreen style={styles.flex}>
     <ScrollView
-      style={{ backgroundColor: c.bg }}
       contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
     >
@@ -673,7 +676,7 @@ export function DashboardScreen() {
           // A failed request is not an answer of zero -- same reasoning as LedgerScreen's own
           // isError branch. Without this, a persistent failure here would fall through to the
           // empty-state message below and tell someone with years of history they have none.
-          <Text style={[styles.errorText, { color: c.danger }]}>
+          <Text style={[styles.errorText, { color: c.dangerInk }]}>
             Couldn&apos;t load your transactions — pull down to try again.
           </Text>
         ) : recentTxns.length === 0 ? (
@@ -693,7 +696,7 @@ export function DashboardScreen() {
                   {t.categoryName} · {t.date}
                 </Text>
               </View>
-              <Text style={[styles.txnAmount, { color: t.type === 'INCOME' ? c.success : c.danger }]}>
+              <Text style={[styles.txnAmount, { color: t.type === 'INCOME' ? c.successInk : c.dangerInk }]}>
                 {t.type === 'INCOME' ? '+' : '-'}
                 {fmtCurrency(Math.abs(t.amount))}
               </Text>
@@ -724,7 +727,7 @@ export function DashboardScreen() {
             <Pressable
               key={action.label}
               onPress={action.onPress}
-              style={[styles.quickActionCell, { backgroundColor: c.bg, borderColor: c.border }]}
+              style={[styles.quickActionCell, { backgroundColor: c.bg, borderColor: c.border } /* glass-exempt: quick-action tile inside a glass card; opaque bg is its contrast against the card */]}
               accessibilityRole="button"
               accessibilityLabel={action.label}
             >
@@ -770,7 +773,7 @@ export function DashboardScreen() {
                     No "-" prefix, unlike that list: this is a forward-looking "what's coming due"
                     figure, not a past ledger entry, and the pinned test for this card asserts the
                     bare amount ('₹499', no sign). */}
-                <Text style={[styles.recurringAmount, { color: c.danger }]}>{fmtCurrency(r.averageAmount)}</Text>
+                <Text style={[styles.recurringAmount, { color: c.dangerInk }]}>{fmtCurrency(r.averageAmount)}</Text>
                 <Text style={[styles.recurringMeta, { color: c.mutedInk }]} numberOfLines={1}>
                   {recurringExpectedLabel(r.nextEstimate)}
                 </Text>
@@ -880,7 +883,7 @@ export function DashboardScreen() {
               : `We found ${summary.duplicateTransactionCount} transactions that look like duplicates and excluded them from your totals.`}
           </Text>
           {duplicateConfirmError ? (
-            <Text style={[styles.body, { color: c.danger, marginBottom: spacing.sm }]}>
+            <Text style={[styles.body, { color: c.dangerInk, marginBottom: spacing.sm }]}>
               {duplicateConfirmError}
             </Text>
           ) : null}
@@ -961,7 +964,7 @@ export function DashboardScreen() {
         {cashFlowSettling ? (
           <SkeletonChart width={chartWidth} />
         ) : cashFlowUnavailable ? (
-          <Text style={[styles.errorText, { color: c.danger }]}>Couldn’t load your cash flow.</Text>
+          <Text style={[styles.errorText, { color: c.dangerInk }]}>Couldn’t load your cash flow.</Text>
         ) : (
           <>
             <CashFlowChart points={cashFlowPoints} width={chartWidth} />
@@ -988,7 +991,7 @@ export function DashboardScreen() {
         {budgetsQ.isLoading ? (
           <SkeletonCard lines={2} />
         ) : budgetsQ.isError ? (
-          <Text style={[styles.errorText, { color: c.danger }]}>Couldn&apos;t load your budgets.</Text>
+          <Text style={[styles.errorText, { color: c.dangerInk }]}>Couldn&apos;t load your budgets.</Text>
         ) : budgets.length === 0 ? (
           <EmptyState message="No budgets set. Create one to track your spending." />
         ) : (
@@ -1010,7 +1013,7 @@ export function DashboardScreen() {
                     <Text style={[styles.budgetName, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
                       {b.categoryName}
                     </Text>
-                    <Text style={[styles.budgetPct, { color: over ? c.danger : c.mutedInk }]}>
+                    <Text style={[styles.budgetPct, { color: over ? c.dangerInk : c.mutedInk }]}>
                       {rawPct.toFixed(0)}%
                     </Text>
                   </View>
@@ -1056,6 +1059,7 @@ export function DashboardScreen() {
 
       <ChecklistWidget />
     </ScrollView>
+    </GlassScreen>
     {addingTransaction ? (
       <AddTransactionSheet
         onClose={() => setAddingTransaction(false)}
@@ -1075,12 +1079,15 @@ const styles = StyleSheet.create({
   nudgeTitle: { fontSize: 14, fontWeight: '600' },
   nudgeBody: { fontSize: 12, marginTop: 2 },
   nudgeChevron: { fontSize: 20, lineHeight: 20 },
+  flex: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
   errorText: { fontSize: 14 },
   retry: { fontSize: 14, fontWeight: '600' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: spacing.sm },
-  brandWord: { fontSize: 15, fontWeight: '800', letterSpacing: 0.5 },
+  // Manrope ExtraBold like every other FYNORA wordmark (AuthScreenLayout, LaunchAnimation, the
+  // web), not the system font at weight 800. No fontWeight alongside it -- see fonts.ts.
+  brandWord: { fontFamily: fonts.display, fontSize: 15, letterSpacing: 1.05 },
   planBadge: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 3 },
   planBadgeText: { fontSize: 10.5, fontWeight: '700' },
   greetingRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },

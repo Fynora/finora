@@ -216,7 +216,7 @@ jest.mock('@react-native-firebase/auth', () => ({
 // to `require()` that real file to introspect its shape, which throws ("Must use import to load
 // ES Module") under this project's transform config -- see pushRegistration.test.ts's own comment
 // for how that was found. requestPermission/getToken default to a denied/empty result so any
-// unmocked call site (e.g. AuthContext's fire-and-forget registerDeviceToken()/revokeDeviceToken()
+// unmocked call site (e.g. AuthContext's fire-and-forget registerDeviceToken()/detachDevice()
 // calls, exercised incidentally by AuthContext.test.tsx) resolves to "nothing to register" rather
 // than hanging or throwing. pushRegistration.ts is exercised for real via its own dependency-
 // injected `messaging` argument in pushRegistration.test.ts, which does not need this mock at all.
@@ -224,6 +224,7 @@ jest.mock('@react-native-firebase/messaging', () => ({
   getMessaging: jest.fn(() => ({})),
   requestPermission: jest.fn(async () => 0),
   getToken: jest.fn(async () => ''),
+  deleteToken: jest.fn(async () => {}),
   onTokenRefresh: jest.fn(() => () => {}),
   // Phase 5 (Low-Priority Polish). onMessage is deliberately still absent from this list -- see
   // this comment's own note above on subscribeToForegroundMessages being exercised through its

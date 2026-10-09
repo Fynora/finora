@@ -473,7 +473,7 @@ class V118CategoryDedupMigrationIT {
     }
 
     /**
-     * The 25 names {@code AuthService.DEFAULT_CATEGORIES} seeded at registration <b>as of
+     * The 25 names {@code DefaultCategories} seeded at registration <b>as of
      * V118</b>, with the icon/color V118's backfill is expected to write onto each of them. Kept
      * in the same order as that map so a drift between the two is obvious when reading them side
      * by side.

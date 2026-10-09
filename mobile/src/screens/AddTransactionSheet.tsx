@@ -19,6 +19,7 @@ import { newIdempotencyKey } from '../lib/idempotencyKey';
 import { toLocalDateString } from '../lib/format';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../theme';
+import { GlassSurface } from '../components/GlassSurface';
 
 interface Props {
   onClose: () => void;
@@ -110,7 +111,7 @@ export function AddTransactionSheet({ onClose, onSaved }: Props) {
           disabled={saving}
           accessibilityLabel="Close add transaction"
         />
-        <View style={[styles.sheet, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md }]}>
+        <GlassSurface style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}>
           <ScrollView keyboardShouldPersistTaps="handled" style={styles.scroll}>
             <Text style={[styles.title, { color: c.ink }]}>Add Transaction</Text>
 
@@ -189,7 +190,7 @@ export function AddTransactionSheet({ onClose, onSaved }: Props) {
                   </Text>
                 </Pressable>
 
-                {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+                {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
                 <View style={styles.action}>
                   <Button label={saving ? 'Adding…' : 'Add Transaction'} onPress={() => void save()} loading={saving} disabled={!canSave} />
                   <Button label="Cancel" variant="link" onPress={onClose} disabled={saving} />
@@ -197,7 +198,7 @@ export function AddTransactionSheet({ onClose, onSaved }: Props) {
               </>
             )}
           </ScrollView>
-        </View>
+        </GlassSurface>
       </KeyboardAvoidingView>
 
       <CategoryPickerModal
@@ -219,7 +220,7 @@ export function AddTransactionSheet({ onClose, onSaved }: Props) {
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
         />
-        <View style={[styles.sheet, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md, maxHeight: '60%' }]} accessibilityViewIsModal>
+        <GlassSurface style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md, maxHeight: '60%' }]} accessibilityViewIsModal>
           <Text style={[styles.title, { color: c.ink }]} accessibilityRole="header">Account</Text>
           <ScrollView>
             {accounts.map((a) => (
@@ -235,7 +236,7 @@ export function AddTransactionSheet({ onClose, onSaved }: Props) {
               </Pressable>
             ))}
           </ScrollView>
-        </View>
+        </GlassSurface>
       </AppModal>
     </AppModal>
   );

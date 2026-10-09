@@ -18,6 +18,7 @@ import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { spacing, useTheme } from '../theme';
 import type { CounterpartyGroup, MerchantGroup, Transaction } from '../types';
+import { GlassScreen } from '../components/GlassScreen';
 
 /**
  * The categorization correction loop — the mobile half of "Ask Once, Learn Forever".
@@ -221,8 +222,8 @@ export function CategoryReviewScreen() {
     && singles.length === 0 && groups.length === 0 && counterpartyGroups.length === 0;
 
   return (
+    <GlassScreen style={styles.glassRoot}>
     <ScrollView
-      style={{ backgroundColor: c.bg }}
       contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
     >
@@ -234,7 +235,7 @@ export function CategoryReviewScreen() {
 
       <QuickSortPanel onLoaded={setQuickSortQuestions} />
 
-      {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+      {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
       {listsBehindQuickSort ? (
         <Pressable onPress={() => setShowAllWaiting(true)} hitSlop={12} accessibilityRole="button">
           <Text style={[styles.retry, { color: c.primary }]}>See all waiting payments</Text>
@@ -254,7 +255,7 @@ export function CategoryReviewScreen() {
         </Card>
       ) : failed ? (
         <Card style={styles.section}>
-          <Text style={[styles.error, { color: c.danger }]}>Couldn’t load your review queue.</Text>
+          <Text style={[styles.error, { color: c.dangerInk }]}>Couldn’t load your review queue.</Text>
           <Pressable onPress={refresh} hitSlop={12} accessibilityRole="button">
             <Text style={[styles.retry, { color: c.primary }]}>Try again</Text>
           </Pressable>
@@ -404,6 +405,7 @@ export function CategoryReviewScreen() {
         </View>
       ) : null}
     </ScrollView>
+    </GlassScreen>
   );
 }
 
@@ -426,6 +428,7 @@ function pickerTitle(target: PickerTarget | null): string {
 }
 
 const styles = StyleSheet.create({
+  glassRoot: { flex: 1 },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   title: { fontSize: 22, fontWeight: '700' },
   subtitle: { fontSize: 13, marginTop: 4, marginBottom: spacing.md },

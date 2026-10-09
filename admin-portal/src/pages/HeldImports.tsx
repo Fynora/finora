@@ -130,7 +130,7 @@ function HeldImportsContent() {
     {
       header: '',
       render: (row) => (
-        <button className="text-xs text-accent hover:underline" onClick={() => setSelectedId(row.id)}>
+        <button className="text-xs text-primary hover:underline" onClick={() => setSelectedId(row.id)}>
           Details
         </button>
       ),
@@ -143,8 +143,8 @@ function HeldImportsContent() {
     <div className="space-y-6">
       <p className="text-muted text-sm">
         Imports that failed on our side: a parser gap on a statement layout Fynora has not seen, or
-        retries that ran out. The user has been told we are running additional checks and has not
-        been asked to do anything. Fix the cause and reprocess — the statement was retained, so nobody
+        retries that ran out. The user has been told we are double-checking the statement by hand and
+        will hear back within 48 hours, and has not been asked to do anything. Fix the cause and reprocess — the statement was retained, so nobody
         re-uploads — or resolve it with a message that tells the user what to do next.
       </p>
 
@@ -340,7 +340,7 @@ function HeldImportDetailPanel({
               type="button"
               onClick={onReprocess}
               disabled={busy}
-              className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-on-primary hover:bg-primary-dark disabled:opacity-50"
             >
               <PlayCircle className="h-3.5 w-3.5" />
               Reprocess
@@ -368,7 +368,7 @@ function HeldImportDetailPanel({
                     type="button"
                     onClick={() => onResolve(message.trim())}
                     disabled={busy}
-                    className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                    className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-on-primary hover:bg-primary-dark disabled:opacity-50"
                   >
                     Send and resolve
                   </button>

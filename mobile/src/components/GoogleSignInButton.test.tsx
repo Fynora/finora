@@ -1,9 +1,22 @@
+import { useEffect } from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import { GoogleSignin, GoogleSigninButton } from '@react-native-google-signin/google-signin';
 import { GoogleSignInButton, isGoogleSignInConfigured } from './GoogleSignInButton';
-import { ThemeProvider } from '../theme';
+import { ThemeProvider, useThemeSetting } from '../theme';
+import { reportHandledEvent } from '../lib/monitoring';
+
+jest.mock('../lib/monitoring', () => ({
+  reportHandledEvent: jest.fn(),
+}));
 
 const mockedGoogleSignin = GoogleSignin as jest.Mocked<typeof GoogleSignin>;
+const reportEvent = reportHandledEvent as jest.Mock;
+const UNAVAILABLE = 'Sign in with Google is unavailable right now. Please try again later.';
+
+/** A rejection shaped like the library's own: an Error carrying a `code`. */
+function codedError(code: unknown, message = 'from the library') {
+  return Object.assign(new Error(message), { code });
+}
 
 function renderButton(onCredential = jest.fn(), onError = jest.fn()) {
   const view = render(
@@ -38,6 +51,28 @@ describe('GoogleSignInButton', () => {
       expect(isGoogleSignInConfigured()).toBe(true);
       const { view } = renderButton();
       expect(view.getByText('Sign in with Google')).toBeTruthy();
+    });
+
+    it('stays the white Google button in dark mode, not the blue one', async () => {
+      // Dark mode is switched on the way a user would (AccountsCard.test.tsx's approach), and the
+      // probe proves it really took effect before the colour is checked.
+      let resolvedTheme: string | null = null;
+      function DarkTheme({ children }: { children: React.ReactNode }) {
+        const { setSetting, resolved } = useThemeSetting();
+        useEffect(() => { setSetting('dark'); }, [setSetting]);
+        resolvedTheme = resolved;
+        return <>{children}</>;
+      }
+      const view = render(
+        <ThemeProvider>
+          <DarkTheme>
+            <GoogleSignInButton onCredential={jest.fn()} onError={jest.fn()} />
+          </DarkTheme>
+        </ThemeProvider>
+      );
+
+      await waitFor(() => expect(resolvedTheme).toBe('dark'));
+      expect(view.UNSAFE_getByType(GoogleSigninButton).props.color).toBe(GoogleSigninButton.Color.Light);
     });
 
     it('hands a successful credential straight to onCredential', async () => {
@@ -125,6 +160,119 @@ describe('GoogleSignInButton', () => {
         expect(onError).toHaveBeenCalledWith('Google sign-in did not return a credential. Please try again.')
       );
       expect(onCredential).not.toHaveBeenCalled();
+      expect(reportEvent).toHaveBeenCalledWith('Google sign-in failed', 'google-sign-in', {
+        stage: 'sign-in',
+        code: 'NO_ID_TOKEN',
+      });
+    });
+
+    describe('reporting why it failed', () => {
+      // Every failure shows the same generic message, so this report is the only record of the
+      // cause. Each stage is checked separately: knowing it was Google and not our backend (or
+      // the other way round) is half of the answer.
+      beforeEach(() => {
+        reportEvent.mockClear();
+        mockedGoogleSignin.hasPlayServices.mockReset().mockResolvedValue(true);
+        mockedGoogleSignin.signIn.mockReset();
+      });
+
+      async function pressAndWaitForError(onCredential = jest.fn()) {
+        const { view, onError } = renderButton(onCredential);
+        fireEvent.press(view.getByText('Sign in with Google'));
+        await waitFor(() => expect(onError).toHaveBeenCalledWith(UNAVAILABLE));
+      }
+
+      it("reports Google's own status code when signIn fails", async () => {
+        mockedGoogleSignin.signIn.mockRejectedValue(codedError('12500'));
+
+        await pressAndWaitForError();
+
+        expect(reportEvent).toHaveBeenCalledTimes(1);
+        expect(reportEvent).toHaveBeenCalledWith('Google sign-in failed', 'google-sign-in', {
+          stage: 'sign-in',
+          code: '12500',
+        });
+      });
+
+      it('reports the play-services stage when the Play Services check fails', async () => {
+        mockedGoogleSignin.hasPlayServices.mockRejectedValue(codedError('PLAY_SERVICES_NOT_AVAILABLE'));
+
+        await pressAndWaitForError();
+
+        expect(mockedGoogleSignin.signIn).not.toHaveBeenCalled();
+        expect(reportEvent).toHaveBeenCalledWith('Google sign-in failed', 'google-sign-in', {
+          stage: 'play-services',
+          code: 'PLAY_SERVICES_NOT_AVAILABLE',
+        });
+      });
+
+      it('reports the credential stage when handing the token on throws', async () => {
+        mockedGoogleSignin.signIn.mockResolvedValue({
+          type: 'success',
+          data: { idToken: 'a-real-looking-id-token', user: {}, scopes: [], serverAuthCode: null },
+        } as never);
+        const onCredential = jest.fn().mockRejectedValue(codedError('ERR_NETWORK'));
+
+        await pressAndWaitForError(onCredential);
+
+        expect(reportEvent).toHaveBeenCalledWith('Google sign-in failed', 'google-sign-in', {
+          stage: 'credential',
+          code: 'ERR_NETWORK',
+        });
+      });
+
+      it("never sends the error's message, and sends a code only when it is a plain label", async () => {
+        mockedGoogleSignin.signIn.mockRejectedValue(codedError('jane@example.com said no', 'jane@example.com'));
+
+        await pressAndWaitForError();
+
+        expect(reportEvent).toHaveBeenCalledWith('Google sign-in failed', 'google-sign-in', {
+          stage: 'sign-in',
+          code: 'other',
+        });
+        expect(JSON.stringify(reportEvent.mock.calls)).not.toContain('jane@example.com');
+      });
+
+      it("reports 'none' when the error carries no code at all", async () => {
+        mockedGoogleSignin.signIn.mockRejectedValue(new Error('no code here'));
+
+        await pressAndWaitForError();
+
+        expect(reportEvent).toHaveBeenCalledWith('Google sign-in failed', 'google-sign-in', {
+          stage: 'sign-in',
+          code: 'none',
+        });
+      });
+
+      it('reports nothing when the user cancels, whichever way the cancel arrives', async () => {
+        mockedGoogleSignin.signIn
+          .mockRejectedValueOnce(codedError('SIGN_IN_CANCELLED'))
+          .mockResolvedValueOnce({ type: 'cancelled', data: null } as never);
+
+        const { view, onError } = renderButton();
+        fireEvent.press(view.getByText('Sign in with Google'));
+        await waitFor(() => expect(mockedGoogleSignin.signIn).toHaveBeenCalledTimes(1));
+        await waitFor(() => expect(view.getByText('Sign in with Google')).toBeEnabled());
+        fireEvent.press(view.getByText('Sign in with Google'));
+        await waitFor(() => expect(mockedGoogleSignin.signIn).toHaveBeenCalledTimes(2));
+        await waitFor(() => expect(view.getByText('Sign in with Google')).toBeEnabled());
+
+        expect(onError).not.toHaveBeenCalled();
+        expect(reportEvent).not.toHaveBeenCalled();
+      });
+
+      it('reports nothing when sign-in succeeds', async () => {
+        mockedGoogleSignin.signIn.mockResolvedValue({
+          type: 'success',
+          data: { idToken: 'a-real-looking-id-token', user: {}, scopes: [], serverAuthCode: null },
+        } as never);
+
+        const { view, onCredential } = renderButton();
+        fireEvent.press(view.getByText('Sign in with Google'));
+
+        await waitFor(() => expect(onCredential).toHaveBeenCalled());
+        expect(reportEvent).not.toHaveBeenCalled();
+      });
     });
   });
 });

@@ -6,6 +6,7 @@ import com.finora.exception.ApiException;
 import com.finora.repository.CategoryRuleRepository;
 import com.finora.security.OwnershipGuard;
 import com.finora.service.AuditService;
+import com.finora.util.DefaultCategories;
 import com.finora.util.PageBounds;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
@@ -235,6 +236,7 @@ public class RuleService {
         rule.setAmountMax(req.amountMax());
 
         validateRule(rule);
+        requireDefaultCategory(rule);
         CategoryRule saved = categoryRuleRepository.save(rule);
         auditService.record(actingAdminId, "GLOBAL_RULE_CREATED", "CategoryRule", saved.getId(),
                 Map.of("field", saved.getField().name(), "actionType", saved.getActionType().name()));
@@ -257,6 +259,9 @@ public class RuleService {
         rule.setUpdatedAt(Instant.now());
 
         validateRule(rule);
+        // A rule saved before this check with a name outside the defaults can still be switched
+        // off -- that is how it is fixed -- but not kept on or pointed at another such name.
+        if (rule.isEnabled() || req.actionValue() != null || req.actionType() != null) requireDefaultCategory(rule);
         CategoryRule saved = categoryRuleRepository.save(rule);
         auditService.record(actingAdminId, "GLOBAL_RULE_UPDATED", "CategoryRule", ruleId);
         return toDto(saved);
@@ -267,6 +272,24 @@ public class RuleService {
         CategoryRule rule = getGlobalRule(ruleId);
         categoryRuleRepository.delete(rule);
         auditService.record(actingAdminId, "GLOBAL_RULE_DELETED", "CategoryRule", ruleId);
+    }
+
+    /**
+     * A global rule reaches every user, so the category it files under must be one every user has:
+     * a default category, stored in its seeded spelling. Any other name -- a typo like "Grocery" --
+     * would be created as a new category in every account the rule matched. A MARK_INVESTMENT rule
+     * may leave its value blank (it then files under Investments); other actions name no category.
+     */
+    private static void requireDefaultCategory(CategoryRule rule) {
+        boolean namesACategory = rule.getActionType() == CategoryRule.ActionType.ASSIGN_CATEGORY
+                || (rule.getActionType() == CategoryRule.ActionType.MARK_INVESTMENT
+                    && rule.getActionValue() != null && !rule.getActionValue().isBlank());
+        if (!namesACategory) return;
+        String category = DefaultCategories.canonical(rule.getActionValue())
+                .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST,
+                        "\"" + rule.getActionValue() + "\" isn't a default category. A global rule reaches every"
+                                + " user, so it can only file under a category every user has."));
+        rule.setActionValue(category);
     }
 
     private CategoryRule getGlobalRule(UUID ruleId) {

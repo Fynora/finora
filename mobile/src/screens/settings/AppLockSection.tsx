@@ -96,7 +96,7 @@ export function AppLockSection() {
       <View style={[styles.row, { borderBottomColor: c.border }]}>
         <View style={styles.rowMain}>
           <Text style={[styles.rowTitle, { color: c.ink }]}>App Lock</Text>
-          <Text style={[styles.rowMeta, { color: c.danger }]}>
+          <Text style={[styles.rowMeta, { color: c.dangerInk }]}>
             Couldn&apos;t check whether App Lock is on. Try reopening Settings.
           </Text>
         </View>
@@ -127,7 +127,7 @@ export function AppLockSection() {
           accessibilityHint="Requires biometric or device passcode authentication to open the app"
         />
       </View>
-      {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+      {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
     </View>
   );
 }

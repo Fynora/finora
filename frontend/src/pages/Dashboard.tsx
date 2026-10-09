@@ -702,7 +702,7 @@ export default function Dashboard() {
                 onClick={() => setHistoryBannerCollapsed((c) => !c)}
                 aria-expanded={!historyBannerCollapsed}
                 aria-label={historyBannerCollapsed ? 'Expand details' : 'Collapse details'}
-                className="flex-shrink-0 -m-3 p-3 text-warning/70 hover:text-warning transition-colors"
+                className="flex-shrink-0 -m-3 p-3 text-warning hover:text-ink transition-colors"
               >
                 <ChevronDown size={16} className={`transition-transform ${historyBannerCollapsed ? '-rotate-90' : ''}`} />
               </button>

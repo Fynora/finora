@@ -257,7 +257,7 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
 
   return (
     <div className="space-y-6">
-      <Link to="/held-statements" className="text-xs text-accent hover:underline">
+      <Link to="/held-statements" className="text-xs text-primary hover:underline">
         &larr; Back to queue
       </Link>
 
@@ -448,7 +448,7 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
             type="button"
             onClick={() => assignToMe.mutate()}
             disabled={busy || resolved}
-            className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+            className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-on-primary hover:bg-primary-dark disabled:opacity-50"
           >
             Assign to me
           </button>
@@ -545,7 +545,7 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
           <div className="space-y-2 rounded-lg border border-border p-3" data-testid="reopen-panel">
             <p className="text-xs text-muted">
               Reopen it to read the statement again once its parser fix is live: it goes back to the
-              open queue, and the user&apos;s import shows &quot;running additional checks&quot; again.
+              open queue, and the user&apos;s import shows &quot;we&apos;re double-checking this statement&quot; again.
               Re-run the parser before approving.
             </p>
             <div className="flex flex-wrap gap-2">
@@ -578,7 +578,7 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
             type="button"
             onClick={() => approve.mutate()}
             disabled={busy || resolved}
-            className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+            className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-on-primary hover:bg-primary-dark disabled:opacity-50"
           >
             Approve
           </button>

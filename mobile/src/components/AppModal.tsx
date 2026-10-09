@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useId } from 'react';
 import { Modal, View, type ModalProps } from 'react-native';
 import { AppAlertOverlay, useAlertShowing } from './AppAlertOverlay';
+import { AppBannerOverlay } from './AppBannerOverlay';
 import { StyleSheet } from 'react-native';
 import { handleAlertBack, registerAlertContainer } from '../lib/appAlert';
 
@@ -13,9 +14,25 @@ import { handleAlertBack, registerAlertContainer } from '../lib/appAlert';
 const AppCoveredContext = createContext(false);
 export const AppCoveredProvider = AppCoveredContext.Provider;
 
-/** True while the app is covered by the lock screen (or the moment before it knows whether to lock). */
+// True while App.tsx's cold-start LaunchAnimation covers the app. Same native-layer problem as the
+// lock screen: a sheet or the onboarding tour that opens on mount would otherwise be drawn on top
+// of the launch animation. A separate context because App.tsx sits outside AppLockGate.
+const LaunchCoveredContext = createContext(false);
+export const LaunchCoveredProvider = LaunchCoveredContext.Provider;
+
+/** True while the cold-start launch animation covers the app (only that, not the lock screen). */
+export function useLaunchCovering(): boolean {
+  return useContext(LaunchCoveredContext);
+}
+
+/**
+ * True while the app is covered by the lock screen (or the moment before it knows whether to lock),
+ * or by the cold-start launch animation.
+ */
 export function useAppCovered(): boolean {
-  return useContext(AppCoveredContext);
+  const locked = useContext(AppCoveredContext);
+  const launching = useContext(LaunchCoveredContext);
+  return locked || launching;
 }
 
 /**
@@ -62,6 +79,9 @@ export function AppModal({ children, onRequestClose, ...props }: ModalProps) {
         {children}
       </View>
       <AppAlertOverlay containerId={id} />
+      {/* A passing banner (an admin campaign push) is drawn here while this is the topmost modal,
+          for the same reason as the alert: nothing in the tree can show above a native modal. */}
+      <AppBannerOverlay containerId={id} />
     </Modal>
   );
 }

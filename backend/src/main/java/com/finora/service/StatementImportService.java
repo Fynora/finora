@@ -388,6 +388,10 @@ public class StatementImportService {
                 request.statementOpeningBalance(), request.statementClosingBalance(), null,
                 request.statementPeriodStart(), request.statementPeriodEnd(),
                 request.totalAmountDue(), request.paymentDueDate());
+        // No Free one-month statement limit here, by decision (2026-10-06): this re-reads a statement
+        // already imported, possibly while on Plus, and a downgrade must not stop someone repairing
+        // their own records. The limit applies to new imports (ImportService.confirmSession);
+        // FreeStatementLimitAfterDowngradeIT pins this.
         var response = importService.confirm(userId, original.getFileName(), content, scoped);
         // The new statement is the same file, so it opens with the same saved password.
         if (response.statementImportId() != null) {

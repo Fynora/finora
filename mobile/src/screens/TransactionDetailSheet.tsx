@@ -10,6 +10,7 @@ import { reconciliationBadge } from '../lib/reconciliationBadge';
 import { radius, spacing, useTheme } from '../theme';
 import type { Transaction } from '../types';
 import { statusBadges } from './LedgerScreen';
+import { GlassSurface } from '../components/GlassSurface';
 
 interface Props {
   transaction: Transaction;
@@ -64,18 +65,18 @@ export function TransactionDetailSheet({
   const cp = counterpartyLabel(t.counterpartyType, t.type);
   const badge = reconciliationBadge(t.reconciliationStatus);
   const badgeColors = badge ? {
-    danger: { bg: c.dangerBg, fg: c.danger },
+    danger: { bg: c.dangerBg, fg: c.dangerInk },
     primary: { bg: c.primaryLight, fg: c.primary },
-    success: { bg: c.successBg, fg: c.success },
-    warning: { bg: c.warningBg, fg: c.warning },
+    success: { bg: c.successBg, fg: c.successInk },
+    warning: { bg: c.warningBg, fg: c.warningInk },
     muted: { bg: c.border, fg: c.mutedInk },
   }[badge.tone] : null;
   const badges = statusBadges(t);
   const badgeToneColors = {
     primary: { bg: c.primaryLight, fg: c.primary },
-    success: { bg: c.successBg, fg: c.success },
-    warning: { bg: c.warningBg, fg: c.warning },
-    danger: { bg: c.dangerBg, fg: c.danger },
+    success: { bg: c.successBg, fg: c.successInk },
+    warning: { bg: c.warningBg, fg: c.warningInk },
+    danger: { bg: c.dangerBg, fg: c.dangerInk },
   } as const;
 
   return (
@@ -87,7 +88,7 @@ export function TransactionDetailSheet({
           disabled={busy}
           accessibilityLabel="Close transaction details"
         />
-        <View style={[styles.sheet, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md }]}>
+        <GlassSurface style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}>
           <ScrollView style={styles.scroll}>
             <View style={styles.headerRow}>
               <Text style={[styles.title, { color: c.ink }]}>Transaction Details</Text>
@@ -109,7 +110,7 @@ export function TransactionDetailSheet({
               <MerchantLogo merchant={t.merchant || t.description || '?'} size={44} person={t.counterpartyType === 'PERSON'} />
               <View style={styles.summaryText}>
                 <Text style={[styles.desc, { color: c.ink }]}>{t.description || t.merchant || 'Transaction'}</Text>
-                <Text style={[styles.amount, { color: t.type === 'INCOME' ? c.success : c.danger }]}>
+                <Text style={[styles.amount, { color: t.type === 'INCOME' ? c.successInk : c.dangerInk }]}>
                   {t.type === 'INCOME' ? '+' : '-'}{fmtCurrency(Math.abs(t.amount))}
                 </Text>
               </View>
@@ -230,7 +231,7 @@ export function TransactionDetailSheet({
 
             <Button label="Close" variant="link" onPress={onClose} disabled={busy} />
           </ScrollView>
-        </View>
+        </GlassSurface>
       </View>
     </AppModal>
   );
@@ -263,7 +264,8 @@ function ActionRow({
   last?: boolean;
 }) {
   const c = useTheme();
-  const color = tone === 'danger' ? c.danger : c.ink;
+  // dangerInk, not danger: this colours the row's TEXT label (the icon takes the same tone).
+  const color = tone === 'danger' ? c.dangerInk : c.ink;
   const isDisabled = loading || disabled;
   return (
     <Pressable

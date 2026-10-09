@@ -14,6 +14,7 @@ import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { iconNameFor } from '../lib/categoryIcons';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../theme';
+import { GlassSurface } from '../components/GlassSurface';
 
 interface Props {
   mode: 'create' | 'edit';
@@ -81,7 +82,7 @@ export function CategoryEditSheet({ mode, initialName, category, onClose, onSave
           disabled={saving}
           accessibilityLabel="Close category editor"
         />
-        <View style={[styles.sheet, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md }]}>
+        <GlassSurface style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}>
           <ScrollView keyboardShouldPersistTaps="handled" style={styles.scroll}>
             <Text style={[styles.title, { color: c.ink }]}>
               {mode === 'create' ? 'New Category' : 'Edit Category'}
@@ -159,7 +160,7 @@ export function CategoryEditSheet({ mode, initialName, category, onClose, onSave
               })}
             </View>
 
-            {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+            {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
             <View style={styles.action}>
               <Button
                 label={saving ? 'Saving…' : 'Save'}
@@ -170,7 +171,7 @@ export function CategoryEditSheet({ mode, initialName, category, onClose, onSave
               <Button label="Cancel" variant="link" onPress={onClose} disabled={saving} />
             </View>
           </ScrollView>
-        </View>
+        </GlassSurface>
       </KeyboardAvoidingView>
     </AppModal>
   );

@@ -80,12 +80,12 @@ describe('ImportProgressCard', () => {
     api.progress.mockResolvedValue(jobProgress({ status: 'HELD_FOR_REVIEW', userStatus: 'HELD_FOR_REVIEW' }));
     renderCard();
 
-    expect(await screen.findByText('Running additional checks')).toBeTruthy();
+    expect(await screen.findByText("We're double-checking this statement")).toBeTruthy();
     await waitFor(() => expect(onGaveUp).toHaveBeenCalledWith(expect.objectContaining({ status: 'HELD_FOR_REVIEW' })));
   });
 
   // A held import waits on a reviewer, so the card must offer a way back to the picker: without
-  // it the screen stayed on "Running additional checks" with nothing to press.
+  // it the screen stayed on the held message with nothing to press.
   it('offers a way back while the import is held for trust review', async () => {
     api.progress.mockResolvedValue(jobProgress({ status: 'HELD_FOR_TRUST_REVIEW', userStatus: 'PROCESSING' }));
     renderCard();
@@ -178,6 +178,7 @@ describe('ImportProgressCard', () => {
     ['IMPORT_010', 'This looks like a scanned copy', /scanned image rather than text/i],
     ['IMPORT_013', 'This statement is too long', /too many pages/i],
     ['IMPORT_001', "This doesn't look like a statement", /couldn't find a transaction table/i],
+    ['IMPORT_018', 'This is a payment app history', /not a bank statement.*import those bank statements instead/i],
   ])('leads with a plain headline for %s instead of "Couldn\'t finish"', async (code, title, body) => {
     api.progress.mockResolvedValue(jobProgress({ status: 'FAILED', userStatus: 'ACTION_REQUIRED' }));
     api.timeline.mockResolvedValue({

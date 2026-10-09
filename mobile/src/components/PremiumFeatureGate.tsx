@@ -29,7 +29,7 @@ export function PremiumFeatureGate({ featureKey, children, fallback }: PremiumFe
   if (fallback !== undefined) return <>{fallback}</>;
 
   return (
-    <View style={[styles.container, { backgroundColor: c.bg, borderColor: c.border }]}>
+    <View style={[styles.container, { backgroundColor: c.bg /* glass-exempt: inline gate panel inside a screen; stays a solid tile */, borderColor: c.border }]}>
       <View style={[styles.iconCircle, { backgroundColor: c.primaryLight }]}>
         <Ionicons name="lock-closed-outline" size={16} color={c.primary} />
       </View>

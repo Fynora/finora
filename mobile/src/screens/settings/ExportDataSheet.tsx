@@ -79,7 +79,7 @@ export function ExportDataSheet({ onClose, signInMethod, onContactSupport }: {
             autoCapitalize="none"
             textContentType="password"
           />
-          {error ? <Text style={[sheetStyles.error, { color: c.danger }]}>{error}</Text> : null}
+          {error ? <Text style={[sheetStyles.error, { color: c.dangerInk }]}>{error}</Text> : null}
           <View style={sheetStyles.action}>
             <Button
               label={submitting ? 'Preparing your export…' : 'Export My Data'}

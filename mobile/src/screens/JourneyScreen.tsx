@@ -8,6 +8,7 @@ import { usePreventScreenCapture } from '../lib/screenCapture';
 import { badgeForEvent, groupByYear } from '../lib/timeline';
 import { radius, spacing, useTheme } from '../theme';
 import type { MoreStackParamList } from '../navigation/types';
+import { GlassScreen } from '../components/GlassScreen';
 
 type Props = NativeStackScreenProps<MoreStackParamList, 'Journey'>;
 
@@ -33,17 +34,17 @@ export function JourneyScreen({ navigation }: Props) {
   // which would flash "Your journey starts here" for every user, even one with a full history.
   if (isLoading) {
     return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+      <GlassScreen style={styles.centered}>
         <ActivityIndicator size="large" color={c.primary} />
-      </View>
+      </GlassScreen>
     );
   }
 
   const groups = data ? groupByYear(data) : [];
 
   return (
+    <GlassScreen style={styles.glassRoot}>
     <ScrollView
-      style={{ backgroundColor: c.bg }}
       contentContainerStyle={styles.content}
       refreshControl={
         <RefreshControl refreshing={isFetching && !isLoading} onRefresh={() => void refetch()} tintColor={c.primary} />
@@ -93,10 +94,12 @@ export function JourneyScreen({ navigation }: Props) {
         <Text style={[styles.wrappedLinkText, { color: c.primary }]}>See your year in review</Text>
       </Pressable>
     </ScrollView>
+    </GlassScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  glassRoot: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   content: { padding: spacing.md, gap: spacing.md },
   note: { fontSize: 13 },

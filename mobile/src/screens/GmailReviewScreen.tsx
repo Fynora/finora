@@ -16,6 +16,7 @@ import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { useKeyedSingleFlight } from '../lib/useSingleFlight';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { spacing, useTheme } from '../theme';
+import { GlassScreen } from '../components/GlassScreen';
 
 function confidenceLabel(confidence: number | null): string | null {
   if (confidence === null) return null;
@@ -131,8 +132,8 @@ export function GmailReviewScreen() {
   }
 
   return (
+    <GlassScreen style={styles.glassRoot}>
     <ScrollView
-      style={{ backgroundColor: c.bg }}
       contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={c.primary} />}
     >
@@ -148,7 +149,7 @@ export function GmailReviewScreen() {
         </Card>
       ) : itemsQ.isError && items.length === 0 ? (
         <Card style={styles.section}>
-          <Text style={[styles.error, { color: c.danger }]}>Couldn&apos;t load your Gmail receipts — please try again later.</Text>
+          <Text style={[styles.error, { color: c.dangerInk }]}>Couldn&apos;t load your Gmail receipts — please try again later.</Text>
           <Pressable onPress={() => void refresh()} hitSlop={12} accessibilityRole="button">
             <Text style={[styles.retry, { color: c.primary }]}>Try again</Text>
           </Pressable>
@@ -193,7 +194,7 @@ export function GmailReviewScreen() {
               </Pressable>
 
               {rowError[item.sessionId] ? (
-                <Text style={[styles.error, { color: c.danger }]}>{rowError[item.sessionId]}</Text>
+                <Text style={[styles.error, { color: c.dangerInk }]}>{rowError[item.sessionId]}</Text>
               ) : null}
 
               <View style={[styles.actions, { borderTopColor: c.border }]}>
@@ -244,10 +245,12 @@ export function GmailReviewScreen() {
         onClose={() => setCategoryTarget(null)}
       />
     </ScrollView>
+    </GlassScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  glassRoot: { flex: 1 },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   title: { fontSize: 22, fontWeight: '700' },
   subtitle: { fontSize: 13, marginTop: 4, marginBottom: spacing.md },

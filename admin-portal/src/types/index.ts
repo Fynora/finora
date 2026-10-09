@@ -98,6 +98,10 @@ export interface NeedsAttentionDto {
   lockedAccounts: number;
   transactionsNeedingCategoryReview: number;
   transactionsFlaggedAsDuplicates: number;
+  /** Undecided trust-review holds, including ones the worker opened with no review record. */
+  statementsHeldForTrustReview: number;
+  /** Parser-gap holds (HELD_FOR_REVIEW) waiting in the Held Imports queue. */
+  importsHeldForReview: number;
 }
 
 /** Mirrors backend OperationalDashboardDto exactly. importsWithSkippedRowsToday is the honest
@@ -1209,7 +1213,7 @@ export interface NotificationAdminRow {
   category: string;
   channel: 'EMAIL' | 'SMS' | 'PUSH';
   priority: string;
-  status: 'CREATED' | 'QUEUED' | 'PROCESSING' | 'SENT' | 'RETRYING' | 'DEAD_LETTER';
+  status: 'CREATED' | 'QUEUED' | 'PROCESSING' | 'SENT' | 'RETRYING' | 'DEAD_LETTER' | 'CANCELLED' | 'SKIPPED';
   title: string;
   attemptCount: number;
   nextAttemptAt: string | null;
@@ -1693,4 +1697,103 @@ export interface FeedbackBreakdown {
   byType: FeedbackBreakdownCount[];
   byContext: FeedbackBreakdownCount[];
   bySource: FeedbackBreakdownCount[];
+}
+
+// ---- Admin push campaigns (backend: PushCampaignDtos, AdminPushCampaignController) ----
+
+export type PushAudienceType = 'ALL_WITH_DEVICE' | 'NO_STATEMENT_UPLOADED';
+export type PushScheduleKind = 'NOW_ONLY' | 'ONCE_AT' | 'DAILY_AT';
+export type PushCampaignStatus = 'DRAFT' | 'ACTIVE' | 'PAUSED' | 'STOPPED' | 'COMPLETED';
+export type PushRunStatus = 'RUNNING' | 'DONE' | 'FAILED' | 'MISSED' | 'CANCELLED';
+
+/** Create or edit. `expectedVersion` is for edits: the `version` the editor loaded, so a stale save
+ *  is refused with a 409 instead of overwriting someone else's change. `sendTimeIst` is "HH:mm". */
+export interface PushCampaignSaveRequest {
+  name: string;
+  title: string;
+  message: string;
+  audienceType: PushAudienceType;
+  scheduleKind: PushScheduleKind;
+  runAt: string | null;
+  sendTimeIst: string | null;
+  endsOn: string | null;
+  expectedVersion?: number | null;
+}
+
+export interface PushCampaign {
+  id: string;
+  name: string;
+  title: string;
+  message: string;
+  audienceType: PushAudienceType;
+  scheduleKind: PushScheduleKind;
+  runAt: string | null;
+  sendTimeIst: string | null;
+  endsOn: string | null;
+  status: PushCampaignStatus;
+  nextRunAt: string | null;
+  lastTestedAt: string | null;
+  lastTestedBy: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+/** One run. The five delivery counts are read live from the outbox and are null for a MISSED run. */
+export interface PushCampaignRun {
+  id: string;
+  campaignId: string;
+  campaignVersion: number;
+  runDateIst: string;
+  scheduledFor: string | null;
+  triggeredBy: 'SCHEDULE' | 'ADMIN_NOW';
+  triggeredByUser: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+  status: PushRunStatus;
+  audienceSize: number;
+  queuedCount: number;
+  skippedCapCount: number;
+  skippedAlreadyQueuedCount: number;
+  titleSnapshot: string;
+  messageSnapshot: string;
+  audienceSnapshot: PushAudienceType;
+  note: string | null;
+  sent: number | null;
+  failed: number | null;
+  pending: number | null;
+  cancelled: number | null;
+  skipped: number | null;
+}
+
+export interface PushCampaignDetail {
+  campaign: PushCampaign;
+  runs: PushCampaignRun[];
+}
+
+export interface PushCampaignAudienceCount {
+  audienceType: PushAudienceType;
+  count: number;
+  rolloutLimit: number;
+}
+
+export interface PushCampaignTestResult {
+  queued: boolean;
+  detail: string;
+}
+
+/** How many campaign pushes one person may get per IST day, across all campaigns, with the bounds the
+ *  server enforces. */
+export interface PushCampaignSettings {
+  dailyLimitPerPerson: number;
+  minDailyLimit: number;
+  maxDailyLimit: number;
+  updatedAt: string;
+  updatedBy: string | null;
+}
+
+export interface PushCampaignCancelResult {
+  cancelledPushes: number;
+  releasedSlots: number;
 }

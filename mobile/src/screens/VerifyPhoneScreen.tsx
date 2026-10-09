@@ -423,7 +423,7 @@ export function VerifyPhoneScreen() {
     >
       {sendError ? (
         <View style={styles.sendErrorBox}>
-          <Text style={[styles.sendErrorText, { color: c.danger }]}>{sendError}</Text>
+          <Text style={[styles.sendErrorText, { color: c.dangerInk }]}>{sendError}</Text>
           <View style={styles.sendErrorActions}>
             <Button label="Change number" variant="link" onPress={startChangingNumber} />
             <Button label="Log out and try again later" variant="link" onPress={logout} />

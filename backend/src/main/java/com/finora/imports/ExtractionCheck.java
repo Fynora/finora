@@ -162,7 +162,7 @@ final class ExtractionCheck {
 
     private static ApiException paymentAppHistory() {
         return new ApiException(ErrorCode.IMPORT_PAYMENT_APP_HISTORY,
-                "This is a Paytm payment history, not a bank statement. Each payment in it was made "
+                "This is a payment app history, not a bank statement. Each payment in it was made "
                         + "from one of your bank accounts and is already in that bank's own "
                         + "statement, so import those bank statements instead.");
     }

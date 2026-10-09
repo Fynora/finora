@@ -17,6 +17,7 @@ import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../theme';
 import type { Transaction } from '../types';
+import { GlassSurface } from '../components/GlassSurface';
 
 interface Props {
   transaction: Transaction;
@@ -122,7 +123,7 @@ export function EditTransactionSheet({ transaction, onClose, onSaved }: Props) {
           disabled={saving}
           accessibilityLabel="Close edit transaction"
         />
-        <View style={[styles.sheet, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md }]}>
+        <GlassSurface style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}>
           <ScrollView keyboardShouldPersistTaps="handled" style={styles.scroll}>
             <Text style={[styles.title, { color: c.ink }]}>Edit Transaction</Text>
 
@@ -180,13 +181,13 @@ export function EditTransactionSheet({ transaction, onClose, onSaved }: Props) {
               autoCapitalize="none"
             />
 
-            {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+            {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
             <View style={styles.action}>
               <Button label={saving ? 'Saving…' : 'Save Changes'} onPress={() => void save()} loading={saving} disabled={!canSave} />
               <Button label="Cancel" variant="link" onPress={onClose} disabled={saving} />
             </View>
           </ScrollView>
-        </View>
+        </GlassSurface>
       </KeyboardAvoidingView>
 
       <CategoryPickerModal

@@ -31,6 +31,21 @@ describe('canConfirmImport', () => {
     expect(canConfirmImport(state({ accountChoice: 'existing', selectedAccountId: '' }))).toBe(false);
   });
 
+  it('blocks a statement the Free one-month limit will refuse', () => {
+    // The backend refuses it at confirm; the button waits rather than sending a sure refusal.
+    expect(canConfirmImport(state({ freePlanLimitBlocks: true }))).toBe(false);
+  });
+
+  it('allows it once the limit no longer blocks (no notice, or "I\'ve already upgraded")', () => {
+    expect(canConfirmImport(state({ freePlanLimitBlocks: false }))).toBe(true);
+    expect(canConfirmImport(state({ freePlanLimitBlocks: undefined }))).toBe(true);
+  });
+
+  it('never applies the Free limit to a re-import', () => {
+    // Re-import is exempt from the limit by decision: it re-reads a statement already imported.
+    expect(canConfirmImport(state({ isReimport: true, freePlanLimitBlocks: true }))).toBe(true);
+  });
+
   it('allows a new-account import with no account selected', () => {
     expect(canConfirmImport(state({ accountChoice: 'new', selectedAccountId: '' }))).toBe(true);
   });

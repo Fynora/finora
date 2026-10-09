@@ -177,6 +177,20 @@ public class Notification {
     }
 
     /**
+     * Ends a campaign push that has nobody to deliver to, without calling it a failure -- see
+     * {@link NotificationStatus#SKIPPED}. No-op on a terminal row. The reason is redacted like every
+     * other stored error.
+     */
+    public void markSkipped(String reason, Instant now) {
+        if (status.isTerminal()) {
+            return;
+        }
+        this.status = NotificationStatus.SKIPPED;
+        this.nextAttemptAt = now;
+        this.lastError = truncate(PiiRedactor.redact(reason));
+    }
+
+    /**
      * Records a delivery failure and decides whether to retry.
      *
      * <p>Backoff is 2^attemptCount minutes, the same exponential shape MerchantLearningEvent

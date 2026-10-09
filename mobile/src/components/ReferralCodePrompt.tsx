@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { referralsApi } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
 import { radius, spacing, useTheme } from '../theme';
+import { GlassSurface } from '../components/GlassSurface';
 
 /**
  * "Have a referral code?" -- asked once, right after a Google/Apple sign-up. Those screens never
@@ -65,7 +66,7 @@ export function ReferralCodePrompt() {
           disabled={submitting}
           accessibilityLabel="Skip referral code"
         />
-        <View style={[styles.sheet, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md }]}>
+        <GlassSurface style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}>
           <Text style={[styles.title, { color: c.ink }]}>Have a referral code?</Text>
           <Text style={[styles.subtitle, { color: c.muted }]}>
             If a friend invited you, enter their code so it counts for them. You can only use one code.
@@ -83,7 +84,7 @@ export function ReferralCodePrompt() {
             onSubmitEditing={() => { if (canSubmit) apply.mutate(trimmed); }}
             returnKeyType="done"
           />
-          <Text style={[styles.error, { color: c.danger }]} numberOfLines={2}>{error ?? ''}</Text>
+          <Text style={[styles.error, { color: c.dangerInk }]} numberOfLines={2}>{error ?? ''}</Text>
 
           <View style={styles.actions}>
             <Pressable
@@ -105,7 +106,7 @@ export function ReferralCodePrompt() {
               <Text style={[styles.confirmText, { color: c.onPrimary }]}>{submitting ? 'Adding…' : 'Add code'}</Text>
             </Pressable>
           </View>
-        </View>
+        </GlassSurface>
       </KeyboardAvoidingView>
     </AppModal>
   );

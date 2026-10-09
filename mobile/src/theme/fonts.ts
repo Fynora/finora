@@ -1,3 +1,4 @@
+import { createContext, useContext } from 'react';
 import { useFonts } from 'expo-font';
 import {
   Inter_400Regular,
@@ -41,4 +42,15 @@ export function useAppFonts() {
     Manrope_700Bold,
     Manrope_800ExtraBold,
   });
+}
+
+// Whether the fonts above are registered yet. On iOS a Text laid out before its font registers keeps
+// the system fallback even after the font arrives (seen on the simulator with the launch wordmark),
+// so anything drawing in these fonts must not mount until this is true. App.tsx provides the real
+// value; the default is true so a screen rendered on its own (tests) is not held back.
+const FontsReadyContext = createContext(true);
+export const FontsReadyProvider = FontsReadyContext.Provider;
+
+export function useFontsReady(): boolean {
+  return useContext(FontsReadyContext);
 }

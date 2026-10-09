@@ -29,6 +29,8 @@ import type {
   StatementAnalysisSummaryDto,
   LearningQueueEvent, LearningQueueSummary,
   NotificationAdminRow, NotificationAdminDetail, NotificationAdminSummary,
+  PushCampaign, PushCampaignDetail, PushCampaignRun, PushCampaignSaveRequest, PushCampaignAudienceCount,
+  PushCampaignTestResult, PushCampaignCancelResult, PushCampaignSettings, PushAudienceType,
   MerchantReviewItem,
   LayoutSummary,
   RegistryEntry,
@@ -387,6 +389,36 @@ export const adminNotificationApi = {
   summary: () => api.get<NotificationAdminSummary>('/admin/notifications/summary').then((r) => r.data),
   get: (id: string) =>
     api.get<NotificationAdminDetail>(`/admin/notifications/${id}`).then((r) => r.data),
+};
+
+/** Admin push campaigns. Every call is gated on PUSH_CAMPAIGN_MANAGE server-side. What a campaign
+ *  may do in its current status is the server's answer (409 with a reason); the page only decides
+ *  which buttons are worth showing. */
+export const adminPushCampaignApi = {
+  list: () => api.get<PushCampaign[]>('/admin/push-campaigns').then((r) => r.data),
+  // The daily limit per person (across all campaigns). A change applies from the next page a run
+  // queues and never takes back a push someone already has.
+  getSettings: () => api.get<PushCampaignSettings>('/admin/push-campaigns/settings').then((r) => r.data),
+  updateSettings: (dailyLimitPerPerson: number) =>
+    api.put<PushCampaignSettings>('/admin/push-campaigns/settings', { dailyLimitPerPerson }).then((r) => r.data),
+  get: (id: string) => api.get<PushCampaignDetail>(`/admin/push-campaigns/${id}`).then((r) => r.data),
+  audienceCount: (audienceType: PushAudienceType) =>
+    api.get<PushCampaignAudienceCount>('/admin/push-campaigns/audience-count', { params: { audienceType } }).then((r) => r.data),
+  create: (body: PushCampaignSaveRequest) =>
+    api.post<PushCampaign>('/admin/push-campaigns', body).then((r) => r.data),
+  update: (id: string, body: PushCampaignSaveRequest) =>
+    api.put<PushCampaign>(`/admin/push-campaigns/${id}`, body).then((r) => r.data),
+  clone: (id: string) => api.post<PushCampaign>(`/admin/push-campaigns/${id}/clone`).then((r) => r.data),
+  // Exactly one of userId / email. An email always means the end-user account, never an admin's.
+  sendTest: (id: string, target: { userId?: string; email?: string }) =>
+    api.post<PushCampaignTestResult>(`/admin/push-campaigns/${id}/send-test`, target).then((r) => r.data),
+  sendNow: (id: string) => api.post<PushCampaignRun>(`/admin/push-campaigns/${id}/send-now`).then((r) => r.data),
+  start: (id: string) => api.post<PushCampaign>(`/admin/push-campaigns/${id}/start`).then((r) => r.data),
+  pause: (id: string) => api.post<PushCampaign>(`/admin/push-campaigns/${id}/pause`).then((r) => r.data),
+  resume: (id: string) => api.post<PushCampaign>(`/admin/push-campaigns/${id}/resume`).then((r) => r.data),
+  stop: (id: string) => api.post<PushCampaign>(`/admin/push-campaigns/${id}/stop`).then((r) => r.data),
+  cancelSending: (id: string) =>
+    api.post<PushCampaignCancelResult>(`/admin/push-campaigns/${id}/cancel-sending`).then((r) => r.data),
 };
 
 /** The held-imports triage queue. `get` is the audited call -- it returns the raw parser error,

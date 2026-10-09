@@ -1256,6 +1256,28 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
         assertThat(dto.comparisonValue()).isEqualTo("Amazon");
     }
 
+    /** A saved answer's other names for its payee (V259) -- the bank's printed names and UPI ids of
+     *  the user's own payments -- are the user's data and leave with the export. */
+    @Test
+    void buildBundle_categoryRules_includeAnAnswersOtherNamesForItsPayee() {
+        CategoryRule rule = new CategoryRule();
+        ReflectionTestUtils.setField(rule, "id", UUID.randomUUID());
+        rule.setUserId(userId);
+        rule.setScope(CategoryRule.Scope.USER);
+        rule.setField(CategoryRule.Field.PAYEE);
+        rule.setOperator(CategoryRule.Operator.EQUALS);
+        rule.setComparisonValue("My Flat");
+        rule.setActionType(CategoryRule.ActionType.ASSIGN_CATEGORY);
+        rule.setActionValue("Rent");
+        rule.setPayeeAliases(List.of("key:vpa:sample.owner", "label:sample owner"));
+        when(categoryRuleRepository.findByUserId(userId)).thenReturn(List.of(rule));
+
+        DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
+
+        assertThat(bundle.categoryRules().get(0).payeeAliases())
+                .containsExactly("key:vpa:sample.owner", "label:sample owner");
+    }
+
     /** Plan 2: the user's own answers about their money -- their kinds, remembered senders and
      *  per-payment choices -- are their data and must leave with the export. */
     @Test

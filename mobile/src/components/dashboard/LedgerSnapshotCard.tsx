@@ -58,7 +58,7 @@ export function LedgerSnapshotCard({
                 />
               )}
               {k.delta !== null && k.delta !== undefined ? (
-                <Text style={[styles.delta, { color: (k.invert ? k.delta < 0 : k.delta >= 0) ? c.success : c.danger, fontFamily: fonts.bodySemibold }]}>
+                <Text style={[styles.delta, { color: (k.invert ? k.delta < 0 : k.delta >= 0) ? c.successInk : c.dangerInk, fontFamily: fonts.bodySemibold }]}>
                   {k.delta >= 0 ? '▲' : '▼'} {Math.abs(k.delta).toFixed(1)}% {deltaLabel}
                 </Text>
               ) : k.caption ? (

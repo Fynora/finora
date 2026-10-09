@@ -99,7 +99,7 @@ function DuplicatePair({
       {/* More than one existing match usually means this genuinely recurs, so the honest framing
           is "you have several of these already", not "this is even more certainly a duplicate". */}
       {match.matchCount > 1 && (
-        <p className="text-xs" style={{ color: '#d97706' }}>
+        <p className="text-xs text-warning">
           You already have {match.matchCount} transactions matching this. If this is something you
           pay repeatedly, importing is probably right.
         </p>
@@ -123,7 +123,7 @@ function DuplicatePair({
           onClick={() => onDecide('skip')}
           aria-pressed={decision === 'skip'}
           className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${
-            decision === 'skip' ? 'bg-ink text-white border-ink' : 'border-border hover:bg-surface'
+            decision === 'skip' ? 'bg-ink text-on-primary border-ink' : 'border-border hover:bg-surface'
           }`}
         >
           Skip this row
@@ -232,7 +232,7 @@ export function DuplicateReview({
           import.
         </p>
       ) : (
-        <p className="text-xs" style={{ color: '#15803d' }} role="status">
+        <p className="text-xs text-success" role="status">
           All duplicates resolved.
         </p>
       )}

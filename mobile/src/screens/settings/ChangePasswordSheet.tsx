@@ -19,6 +19,7 @@ import {
 import { useSingleFlight } from '../../lib/useSingleFlight';
 import { sanitizeOtp } from '../../lib/validation';
 import { radius, spacing, useTheme } from '../../theme';
+import { GlassSurface } from '../../components/GlassSurface';
 
 /**
  * The authenticated, OTP-gated Change Password flow, ported from
@@ -210,11 +211,11 @@ export function ChangePasswordSheet({ onClose, onSuccess, signInMethod }: {
           disabled={!dismissable}
           accessibilityLabel="Close change password"
         />
-        <View style={[styles.sheet, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md }]}>
+        <GlassSurface style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}>
           <ScrollView keyboardShouldPersistTaps="handled" style={styles.scroll}>
             {step === 'success' ? (
               <View style={styles.successBlock}>
-                <Text style={[styles.successMark, { color: c.success }]}>✓</Text>
+                <Text style={[styles.successMark, { color: c.successInk }]}>✓</Text>
                 <Text style={[styles.title, { color: c.ink }]}>Password updated</Text>
                 <Text style={[styles.body, { color: c.muted }]}>{successMessage}</Text>
                 <View style={styles.action}>
@@ -239,7 +240,7 @@ export function ChangePasswordSheet({ onClose, onSuccess, signInMethod }: {
                       autoCapitalize="none"
                       textContentType="password"
                     />
-                    {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+                    {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
                     <View style={styles.action}>
                       <Button
                         label={submitting ? 'Sending…' : 'Send code'}
@@ -268,7 +269,7 @@ export function ChangePasswordSheet({ onClose, onSuccess, signInMethod }: {
                         onError={setError}
                       />
                     )}
-                    {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+                    {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
                   </>
                 ) : null}
 
@@ -289,7 +290,7 @@ export function ChangePasswordSheet({ onClose, onSuccess, signInMethod }: {
                       autoComplete="sms-otp"
                       placeholder="123456"
                     />
-                    {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+                    {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
                     <View style={styles.action}>
                       <Button
                         label={submitting ? 'Verifying…' : 'Verify'}
@@ -356,7 +357,7 @@ export function ChangePasswordSheet({ onClose, onSuccess, signInMethod }: {
                       </Pressable>
                     ))}
 
-                    {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+                    {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
                     <View style={styles.action}>
                       <Button
                         label={submitting ? 'Updating…' : 'Update Password'}
@@ -372,7 +373,7 @@ export function ChangePasswordSheet({ onClose, onSuccess, signInMethod }: {
               </>
             )}
           </ScrollView>
-        </View>
+        </GlassSurface>
       </KeyboardAvoidingView>
     </AppModal>
   );

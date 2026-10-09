@@ -462,6 +462,8 @@ public final class PersonToPersonTransferDetector {
         if (description == null) return null;
         Matcher dash = DASH_UPI_WITHOUT_REMARK.matcher(description);
         if (dash.matches()) return withoutCareOf(dash.group(1));
+        int note = standardLayoutNoteStart(description);
+        if (note >= 0) return withoutCareOf(description.substring(0, note - 1));
         // Kotak's IMPS debit: its payee, behind the rail word its narration glued to the reference.
         Matcher gluedImps = OwnAccountEvidence.GLUED_IMPS_PAYEE.matcher(description);
         if (gluedImps.find()) return withoutCareOf("IMPS/" + gluedImps.group(1).trim());
@@ -491,6 +493,8 @@ public final class PersonToPersonTransferDetector {
         if (description == null) return "";
         Matcher dash = DASH_UPI_WITHOUT_REMARK.matcher(description);
         if (dash.matches()) return description.substring(dash.end(1) + 1);
+        int note = standardLayoutNoteStart(description);
+        if (note >= 0) return description.substring(note).trim();
         Matcher repeated = REPEATED_REF_UPI_LAYOUT.matcher(description);
         if (repeated.find()) {
             String between = repeated.group(2);
@@ -498,6 +502,21 @@ public final class PersonToPersonTransferDetector {
             if (remark >= 0 && !between.substring(remark + 1).contains("@")) return between.substring(remark + 1);
         }
         return "";
+    }
+
+    /**
+     * Where the payer's note starts in the standard layout,
+     * {@code UPI/<DR|CR>/<ref>/<name>/<bank>/<id>/<note>}: the text after the payee's UPI id
+     * ({@link CounterpartyIdentity#STANDARD_LAYOUT}) -- or -1 when
+     * the narration is not that layout or prints nothing after the id. Read as the payee's own words,
+     * a friend who wrote "cashback" was typed a bank; the hyphen layout's note was already set aside.
+     */
+    private static int standardLayoutNoteStart(String description) {
+        Matcher standard = CounterpartyIdentity.STANDARD_LAYOUT.matcher(description);
+        if (!standard.find() || standard.end() >= description.length() || description.charAt(standard.end()) != '/') {
+            return -1;
+        }
+        return standard.end() + 1;
     }
 
     /**

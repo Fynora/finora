@@ -14,6 +14,7 @@ import { useSingleFlight } from '../lib/useSingleFlight';
 import { useTransientFlag } from '../lib/useTransientFlag';
 import { radius, spacing, useTheme } from '../theme';
 import type { MoreStackParamList } from '../navigation/types';
+import { GlassScreen } from '../components/GlassScreen';
 
 /** Threshold moves in 5% steps -- fine-grained enough for a confidence cutoff, and it avoids
  *  pulling in a native slider dependency for one control. */
@@ -61,9 +62,9 @@ export function SettingsCategorizationScreen() {
 
   if (workspaceQ.isLoading) {
     return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+      <GlassScreen style={styles.centered}>
         <ActivityIndicator size="large" color={c.primary} />
-      </View>
+      </GlassScreen>
     );
   }
 
@@ -75,16 +76,17 @@ export function SettingsCategorizationScreen() {
   // ships in this same file now, so it gets the same fix.
   if (workspaceQ.isError) {
     return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+      <GlassScreen style={styles.centered}>
         <Text style={[styles.message, { color: c.muted }]}>
           Couldn&apos;t load your settings — please try again later.
         </Text>
-      </View>
+      </GlassScreen>
     );
   }
 
   return (
-    <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.content}>
+    <GlassScreen style={styles.glassRoot}>
+    <ScrollView contentContainerStyle={styles.content}>
       {/* eslint-disable-next-line react-native-a11y/no-nested-touchables -- redundant reachability
           is the intended design: a screen reader user can swipe on the container (adjustable
           role) or navigate directly to either Pressable and activate it, same as a sighted user
@@ -140,7 +142,7 @@ export function SettingsCategorizationScreen() {
         </Text>
       </Pressable>
 
-      {intelError ? <Text style={[styles.error, { color: c.danger }]}>{intelError}</Text> : null}
+      {intelError ? <Text style={[styles.error, { color: c.dangerInk }]}>{intelError}</Text> : null}
       <View style={styles.saveRow}>
         <SaveStatus dirty={intelDirty} saving={intelSaving} justSaved={intelJustSaved} error={false} />
       </View>
@@ -153,10 +155,12 @@ export function SettingsCategorizationScreen() {
       {/* Plan 2: money kinds and remembered senders. */}
       <InflowKindsSettings />
     </ScrollView>
+    </GlassScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  glassRoot: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
   message: { fontSize: 14, textAlign: 'center' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },

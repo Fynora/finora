@@ -249,12 +249,26 @@ const config: ExpoConfig = {
     // openAuthSessionAsync() at runtime and Expo's installer requires the plugin registered for
     // that, same reasoning as expo-splash-screen/expo-font just below.
     'expo-web-browser',
-    // No options, deliberately: this project has never set a custom splash image (no `"splash"`
-    // key existed before this either), so the plugin keeps generating the same icon-derived
-    // default it always has. Only reason it's listed at all is that App.tsx now calls
-    // SplashScreen.preventAutoHideAsync()/hideAsync() at runtime -- see App.tsx's own comment --
-    // and Expo's installer requires the plugin registered for that runtime API to be present.
-    'expo-splash-screen',
+    // Required for App.tsx's SplashScreen.preventAutoHideAsync()/hideAsync() runtime calls, and
+    // configured so the native splash is a plain graphite field: exactly the first frame of
+    // src/components/LaunchAnimation.tsx, which takes over from it. The backgroundColor must stay
+    // equal to LaunchAnimation's GRAPHITE (and adaptiveIcon.backgroundColor above), or the handoff
+    // shows a colour step. Same colour in dark mode, so `dark` repeats it.
+    //
+    // The image is fully transparent on purpose: the animation builds the F from nothing, so a
+    // splash that already showed it would have it appear, vanish, then be rebuilt. An image is
+    // still supplied rather than omitted because the plugin's Android style points
+    // windowSplashScreenAnimatedIcon at @drawable/splashscreen_logo unconditionally, and that
+    // drawable is only written when an image is given.
+    [
+      'expo-splash-screen',
+      {
+        backgroundColor: '#262A33',
+        image: './assets/splash-blank.png',
+        imageWidth: 100,
+        dark: { backgroundColor: '#262A33', image: './assets/splash-blank.png' },
+      },
+    ],
     // Same reasoning as expo-splash-screen just above: no build-time options, listed only because
     // App.tsx calls useFonts() (from expo-font) at runtime and Expo's installer requires the
     // plugin registered for that.

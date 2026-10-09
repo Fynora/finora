@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react-native';
 import { Text } from 'react-native';
-import { AppCoveredProvider, AppModal } from './AppModal';
+import { AppCoveredProvider, AppModal, LaunchCoveredProvider } from './AppModal';
 
 describe('AppModal', () => {
   it('renders like a plain Modal when the app is not covered', () => {
@@ -39,5 +39,20 @@ describe('AppModal', () => {
       </AppCoveredProvider>
     );
     expect(screen.queryByText('body', { includeHiddenElements: true })).toBeNull();
+  });
+
+  it('hides itself while the launch animation covers the app, and shows once it has gone', () => {
+    const tree = (launching: boolean) => (
+      <LaunchCoveredProvider value={launching}>
+        <AppModal visible>
+          <Text>body</Text>
+        </AppModal>
+      </LaunchCoveredProvider>
+    );
+    const { rerender } = render(tree(true));
+    expect(screen.queryByText('body', { includeHiddenElements: true })).toBeNull();
+
+    rerender(tree(false));
+    expect(screen.getByText('body')).toBeTruthy();
   });
 });

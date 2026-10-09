@@ -90,6 +90,11 @@ const NON_FINANCIAL_KEYS = new Set([
   // -- never as a side effect of confirming a transaction, editing an account, or any other write
   // this cascade exists to catch up. Same reasoning as 'transaction-source' above.
   'import-failures',
+  // Statement History's "Recent imports" card. A queued job's status moves only by the worker
+  // processing it or an operator deciding a hold -- never as a side effect of a transaction,
+  // account or confirm write -- and a new job comes from an upload on the Import tab. The screen
+  // refetches it on every visit, and polls while any listed job is still running.
+  'import-jobs-recent',
   // Phase 6. MarkTransferModal's paired-transaction picker -- keyed by the exact search keyword
   // (['transfer-candidates', debouncedKeyword]), so a genuinely new search term always fires a
   // fresh network call rather than reusing a stale entry; a transaction write elsewhere while the

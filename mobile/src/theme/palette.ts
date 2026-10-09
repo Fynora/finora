@@ -17,14 +17,15 @@ export const light = {
   card: '#ffffff',
   border: '#E6EAF2',
   ink: '#0F172A',
-  muted: '#64748B',
-  // `muted` (#64748B on this screen's #F8FAFC background) sits at ~4.55:1 -- just over WCAG AA's
-  // 4.5:1 floor for the 11-13pt sizes it's used at (transaction dates, hints, goal metadata), with
-  // almost no margin for a darker background variant or a slightly-off display. Same shape of
-  // problem as `warningInk` below, and the same fix: a separate token rather than a change to
-  // `muted` itself, since that value is shared with frontend/src/index.css's --color-muted and is
-  // fine in the roles it's actually used for there. This slate-600 clears 7.25:1 on the same
-  // background -- real margin, not just over the line.
+  // Was #64748B, mirroring frontend/src/index.css's --color-muted, at 4.55:1 on bg. The glass
+  // redesign puts muted text on translucent surfaces over a mesh backdrop, where #64748B measured
+  // 4.36:1 on glass and 3.43:1 directly on the backdrop -- under AA. This slate-600 measured
+  // 6.94 / 5.46 on the same pixels (see glassContrast.test.ts). Deliberately diverges from web,
+  // which keeps opaque surfaces; palette.test.ts pins the divergence.
+  muted: '#475569',
+  // Same value as `muted` now that muted itself clears AA with margin (7.25:1 on bg). Kept as a
+  // separate token so call sites that chose the darker step keep compiling and can be retuned
+  // independently if `muted` ever lightens again.
   mutedInk: '#475569',
   primary: '#262A33',
   primaryDark: '#15171C',
@@ -44,12 +45,17 @@ export const light = {
   successInk: '#166534',
   danger: '#dc2626',
   dangerBg: '#fee2e2',
+  // `danger` as text on `dangerBg` sits at 3.95:1, under WCAG AA's 4.5:1 -- same shape of problem
+  // as successInk/warningInk, same fix. This red-800 clears 6.80:1 on the wash and 8.31:1 on card.
+  dangerInk: '#991b1b',
   warning: '#d97706',
   warningBg: '#fef3c7',
   // The shared `warning` tone is tuned for icons and borders; as text on `warningBg` it only
   // reaches 2.86:1, well under WCAG AA's 4.5:1. This darker amber hits 6.37:1 on the same ground.
-  // A separate token rather than a change to `warning` itself, since that value is shared with
-  // the web app and is fine in the roles it's actually used for there.
+  // A separate token rather than a change to `warning` itself, since `warning` is fine in the
+  // icon and border roles it's used for here. (It matched web's --color-warning until web moved its
+  // light success/danger/warning to darker shades for text; mobile keeps the -600 tone for icons
+  // and uses these *Ink tokens for text instead.)
   warningInk: '#92400e',
   inputBg: '#FFFFFF',
   // Passbook redesign's one new accent -- Financial Health Seal frame, goal progress rings,
@@ -73,6 +79,14 @@ export const light = {
   planPlusText: '#F4F1EC',
   planPremiumBg: '#E3EEE9',
   planPremiumText: '#0F4C3F',
+  // Glass surfaces (GlassSurface): glassTint composited at glassAlpha over whatever sits behind
+  // the surface -- the mesh backdrop, or a scrim-dimmed screen under a sheet. 0.72 is the measured
+  // value: glassContrast.test.ts checks every text token against the real mesh PNG pixels at
+  // exactly this alpha, so lowering it has to go back through that test. glassEdge is the
+  // hairline border that separates one glass panel from the next.
+  glassTint: '#FFFFFF',
+  glassAlpha: 0.72,
+  glassEdge: 'rgba(255,255,255,0.85)',
 };
 
 export const dark: typeof light = {
@@ -89,10 +103,13 @@ export const dark: typeof light = {
   card: '#262A33',
   border: '#414757',
   ink: '#EDEDEA',
-  muted: '#98968F',
-  // Still clears AA comfortably against the new bg/card (6.06:1 / 4.85:1), so this stays the same
-  // value as `muted` -- same reasoning as dark.warningInk below.
-  mutedInk: '#98968F',
+  // Was #98968F: 4.57:1 on glass but 3.86:1 directly on the dark mesh backdrop (where screen
+  // headings' metadata renders with no card under it). #B5B3AC measured 6.44 / 5.45 on the same
+  // pixels (glassContrast.test.ts). Same deliberate divergence from web as light.muted above.
+  muted: '#B5B3AC',
+  // Same value as `muted` -- dark already cleared AA before and clears it with more margin now
+  // (8.55:1 on bg / 6.85:1 on card); same reasoning as dark.warningInk below.
+  mutedInk: '#B5B3AC',
   primary: '#F4F1EC',
   primaryDark: '#DAD5C9',
   primaryLight: '#26241F',
@@ -121,6 +138,12 @@ export const dark: typeof light = {
   successInk: '#22c55e',
   danger: '#f87171',
   dangerBg: '#210C0E',
+  // Was the same value as `danger` (6.76:1 on the wash, 5.19:1 on card). The glass redesign also
+  // puts error text straight on the mesh backdrop (loading/error roots), where #f87171 measured
+  // 4.13:1 at the slate blob's peak -- under AA. This red-300 measured 6.02 on the backdrop,
+  // 7.12 on dark glass, 9.85 on the wash (glassContrast.test.ts). `danger` itself stays the icon/
+  // border/amount-accent tone; text uses dangerInk, same split as light mode has always had.
+  dangerInk: '#fca5a5',
   warning: '#fbbf24',
   warningBg: '#181104',
   // Dark theme already clears AA comfortably (11.22:1), so this is the same value as `warning`.
@@ -145,6 +168,11 @@ export const dark: typeof light = {
   planPlusText: '#15171C',
   planPremiumBg: '#0A1F19',
   planPremiumText: '#4FE3B8',
+  // Dark glass is `card` at the same measured alpha as light (see light.glassTint's comment);
+  // the edge is a faint light hairline, the way frosted panels read on a dark ground.
+  glassTint: '#262A33',
+  glassAlpha: 0.72,
+  glassEdge: 'rgba(255,255,255,0.14)',
 };
 
 export type Palette = typeof light;

@@ -25,8 +25,8 @@ export const SCANNED_OCR_REQUIRED = 'IMPORT_010';
 export const CORRUPT_PDF = 'IMPORT_011';
 // The CSV twin of CORRUPT_PDF: an unterminated quote or an otherwise unreadable CSV.
 export const MALFORMED_CSV = 'IMPORT_017';
-// A payment app's own payment history (Paytm's "Passbook Payments History") rather than a bank
-// statement. It spans several bank accounts and every payment in it is already in that bank's own
+// A payment app's own payment history (Paytm's "Passbook Payments History", or a UPI app's
+// "Paid to / Received from" transaction history) rather than a bank statement. It spans several bank accounts and every payment in it is already in that bank's own
 // statement, so the fix is to import those instead. Audit F-08.
 export const PAYMENT_APP_HISTORY = 'IMPORT_018';
 // A PDF over the page ceiling. Thrown while the document is read, so a queued job hits it too.
@@ -38,6 +38,12 @@ export const TRUST_REVIEW_REJECTED = 'IMPORT_015';
 // same reasoning as every other code in this module. Wire CODE (see the web copy's own doc
 // comment on why this must not be the Java enum NAME).
 export const AUTH_ACCOUNT_DEACTIVATED = 'AUTH_007';
+
+// The Free plan's two limits. ImportScreen branches on these to offer the plans screen next to the
+// refusal, instead of a dead-end error -- same pair, same reason, as the web copy's
+// ACCOUNT_LIMIT_REACHED / STATEMENT_PERIOD_TOO_LONG.
+export const ACCOUNT_LIMIT_REACHED = 'ENTITLEMENT_002';
+export const STATEMENT_PERIOD_TOO_LONG = 'ENTITLEMENT_003';
 
 // VerifyPhoneScreen's change-number step branches on this to offer "Log in instead" rather than a
 // dead-end error -- a Google Sign-In account with no phone number yet, entering a number that

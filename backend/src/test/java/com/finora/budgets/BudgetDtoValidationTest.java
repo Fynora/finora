@@ -72,4 +72,14 @@ class BudgetDtoValidationTest {
         Set<ConstraintViolation<BudgetDto.UpsertRequest>> violations = validator.validate(req);
         assertThat(violations).isEmpty();
     }
+
+    /** categories.name is VARCHAR(80): a longer name used to reach the INSERT and fail there,
+     *  instead of being refused with a message that says what is wrong. */
+    @Test
+    void upsertRequest_aCategoryNameLongerThanTheColumn_isRejected() {
+        assertThat(violatesField(validator.validate(new BudgetDto.UpsertRequest("a".repeat(81), BigDecimal.TEN)),
+                "categoryName")).isTrue();
+        assertThat(violatesField(validator.validate(new BudgetDto.UpsertRequest("a".repeat(80), BigDecimal.TEN)),
+                "categoryName")).isFalse();
+    }
 }

@@ -162,6 +162,22 @@ describe('Notifications', () => {
       .toHaveBeenCalledWith({ status: 'DEAD_LETTER', page: 1, size: 25 }));
   });
 
+  // Push campaigns end a push as CANCELLED (withdrawn by an admin) or SKIPPED (no working device
+  // left). Without a chip each was reachable only under "All", with no way to filter to it.
+  it('offers filters for CANCELLED and SKIPPED and queries the server with them', async () => {
+    mockAuth(['NOTIFICATION_MANAGE']);
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText('Your HDFC statement is ready')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: 'CANCELLED' }));
+    await waitFor(() => expect(adminNotificationApi.list)
+      .toHaveBeenCalledWith({ status: 'CANCELLED', page: 0, size: 25 }));
+
+    await userEvent.click(screen.getByRole('button', { name: 'SKIPPED' }));
+    await waitFor(() => expect(adminNotificationApi.list)
+      .toHaveBeenCalledWith({ status: 'SKIPPED', page: 0, size: 25 }));
+  });
+
   it('switches the status filter and re-queries the list', async () => {
     mockAuth(['NOTIFICATION_MANAGE']);
     renderPage();

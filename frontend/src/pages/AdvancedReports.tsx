@@ -270,13 +270,13 @@ function AdvancedReportsContent() {
         <p className="text-xs text-muted -mt-2 mb-4">Income, spend, and how much of your income spend is eating, year over year.</p>
         <div className="flex gap-2 mb-4">
           <button
-            className={`text-xs px-3 py-1 rounded ${comparisonMode === 'full' ? 'bg-primary text-white' : 'bg-card border'}`}
+            className={`text-xs px-3 py-1 rounded ${comparisonMode === 'full' ? 'bg-primary text-on-primary' : 'bg-card border'}`}
             onClick={() => setComparisonMode('full')}
           >
             Full Years
           </button>
           <button
-            className={`text-xs px-3 py-1 rounded ${comparisonMode === 'ytd' ? 'bg-primary text-white' : 'bg-card border'}`}
+            className={`text-xs px-3 py-1 rounded ${comparisonMode === 'ytd' ? 'bg-primary text-on-primary' : 'bg-card border'}`}
             onClick={() => setComparisonMode('ytd')}
           >
             This Year So Far

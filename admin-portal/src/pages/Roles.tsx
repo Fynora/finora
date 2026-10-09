@@ -192,7 +192,7 @@ function RoleCard({
                 // immediately and changes what every user holding this role can do. The more
                 // consequential action was the unguarded one, behind a 3.5-unit "x".
                 onClick={() => setConfirmRevokePermission(p)}
-                className="w-3.5 h-3.5 rounded-full bg-border hover:bg-danger hover:text-white text-[9px] flex items-center justify-center"
+                className="w-3.5 h-3.5 rounded-full bg-border hover:bg-danger hover:text-on-danger text-[9px] flex items-center justify-center"
               >
                 ×
               </button>

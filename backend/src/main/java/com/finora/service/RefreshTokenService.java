@@ -21,6 +21,8 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.BooleanSupplier;
+import java.util.function.IntSupplier;
 
 /**
  * Refresh tokens are opaque random strings (not JWTs) stored hashed server-side — unlike the
@@ -38,14 +40,21 @@ import java.util.UUID;
  * presented again within {@code app.jwt.refresh-reuse-grace-ms}, while its session is still
  * live, is answered with another token pair for that session instead. That is what a retried
  * request or a second app instance produces, and before the window it was indistinguishable from
- * theft. Every other kind of revocation -- logout, the idle and absolute limits, the theft
- * response itself -- leaves {@link RefreshToken#getRotatedAt()} null and keeps the strict rule.
- * A consequence worth knowing: a session that took the grace path holds two live rows until the
- * orphaned one ages out, so it appears twice in the device list and "sign out this device"
- * on one of them leaves the other. The session ends normally at its idle or absolute limit.
- * The security cost is stated in {@code application.yml}: a thief who replays inside the window
- * is not detected then or later, because the two chains never collide again; the device list,
- * the caps and "sign out everywhere" are what bound that session.
+ * theft. A consequence worth knowing: a session that took the grace path holds two live rows
+ * until the orphaned one ages out, so it appears twice in the device list; "sign out this device"
+ * on either ends both, because it ends the session rather than the row. The security cost is
+ * stated in {@code application.yml}: a thief who replays inside the window is not detected then
+ * or later, because the two chains never collide again; the device list, the caps and "sign out
+ * everywhere" are what bound that session.
+ *
+ * <p>A second exception: a token ended REMOTELY ({@link RefreshToken#getRevokedRemotelyAt()} --
+ * "sign out this device" from another device, "sign out other devices", or an account-wide
+ * revocation) is rejected for its own session only. Its holder was never told the session ended,
+ * so it presents the token the next time it is opened; reading that as theft signed the owner out
+ * of every device, including the one that had just removed the old phone and any sign-in made
+ * after a password reset. Logout and the idle and absolute limits keep the strict rule: in each
+ * of those the holder itself presented the token and was told the session is over, so a later
+ * replay means someone else kept a copy.
  */
 @Service
 public class RefreshTokenService {
@@ -55,6 +64,11 @@ public class RefreshTokenService {
     /** Same reasoning as ImportSessionService.CLEANUP_BATCH_SIZE -- bounds the cost of one sweep;
      *  a backlog drains across subsequent runs rather than in one unbounded delete. */
     private static final int CLEANUP_BATCH_SIZE = 200;
+
+    /** Upper bound on {@link #endUntilNoneLive}'s passes. Each extra pass means a refresh
+     *  committed a successor while the previous one waited; more than a couple in a row is not a
+     *  device refreshing, and failing loudly beats looping. */
+    private static final int MAX_REVOCATION_PASSES = 10;
 
     private final RefreshTokenRepository refreshTokenRepository;
     private final JwtProperties jwtProperties;
@@ -161,9 +175,10 @@ public class RefreshTokenService {
      * not-found case, so an unrecognized token behaves identically either way.
      */
     public UUID resolveUserId(String rawToken) {
-        return refreshTokenRepository.findByTokenHash(TokenHasher.sha256(rawToken))
-                .orElseThrow(() -> new ApiException(ErrorCode.AUTH_TOKEN_EXPIRED, "Invalid refresh token"))
-                .getUserId();
+        // The column, not the entity: see findUserIdByTokenHash for what caching the entity here
+        // did to rotate()'s locked read later in the same transaction.
+        return refreshTokenRepository.findUserIdByTokenHash(TokenHasher.sha256(rawToken))
+                .orElseThrow(() -> new ApiException(ErrorCode.AUTH_TOKEN_EXPIRED, "Invalid refresh token"));
     }
 
     @Transactional(noRollbackFor = ApiException.class)
@@ -179,7 +194,9 @@ public class RefreshTokenService {
         Instant now = Instant.now();
 
         if (rt.getRevokedAt() != null) {
-            if (isWithinReuseGrace(rt, now)) {
+            boolean recentRotation = isRecentRotation(rt, now);
+            if (recentRotation && refreshTokenRepository.existsBySessionIdAndRevokedAtIsNullAndExpiresAtAfter(
+                    rt.getSessionId(), now)) {
                 // A token this client rotated moments ago, presented again: a retried POST, a
                 // second app instance, a replaying proxy. The session is still live and the
                 // rotation was ordinary, so this is answered with another token pair for the same
@@ -190,6 +207,15 @@ public class RefreshTokenService {
                 IssuedToken replacement = issue(rt.getUserId(), rt.getSessionStartedAt(), rt.getSessionId());
                 authMetrics.refreshReplayedWithinGrace();
                 return new RotationResult(rt.getUserId(), replacement);
+            }
+            // Ended from elsewhere: this device simply has not heard yet. Its session is already
+            // over, so nothing is written; the owner's other sessions are left alone. The second
+            // half covers a retry of a token rotated moments before the session was ended, whose
+            // own row was retired by rotation rather than by the remote revocation.
+            if (rt.getRevokedRemotelyAt() != null || (recentRotation
+                    && refreshTokenRepository.existsBySessionIdAndRevokedRemotelyAtIsNotNull(rt.getSessionId()))) {
+                throw new ApiException(ErrorCode.AUTH_TOKEN_EXPIRED,
+                        "This device was signed out. Please sign in again.");
             }
             revokeAllForUser(rt.getUserId());
             throw new ApiException(ErrorCode.AUTH_SESSION_REVOKED,
@@ -241,8 +267,8 @@ public class RefreshTokenService {
 
         rt.setRevokedAt(now);
         // rotatedAt is what marks this revocation as an ORDINARY rotation. The idle and absolute
-        // branches above, logout, and revokeAllForUser all write revokedAt alone, so a replay of
-        // any of those is still read as theft regardless of how recent it was.
+        // branches above and logout write revokedAt alone, so a replay of any of those is still
+        // read as theft regardless of how recent it was.
         rt.setRotatedAt(now);
         refreshTokenRepository.save(rt);
 
@@ -254,30 +280,50 @@ public class RefreshTokenService {
     }
 
     /**
-     * Whether a revoked token may still be honoured under {@code refresh-reuse-grace-ms}.
+     * Whether a revoked token was retired by rotation within {@code refresh-reuse-grace-ms}: the
+     * window is enabled, {@link RefreshToken#getRotatedAt()} is set, and recent enough.
      *
-     * <p>Three conditions, all required. The window must be enabled. The row must have been
-     * retired by rotation specifically ({@link RefreshToken#getRotatedAt()} set) and recently
-     * enough. And the session it belongs to must still be live: the account-wide revocation that
-     * a genuine theft response performs, or a "sign out everywhere", leaves no live row for the
-     * session, and a token from a session the platform has already ended must never mint a new
-     * one -- that would turn the grace window into a way to outlive a revocation.
+     * <p>Not sufficient on its own to honour the token. {@link #rotate} also requires the session
+     * to still be live: the account-wide revocation that a genuine theft response performs, or a
+     * "sign out everywhere", leaves no live row for the session, and a token from a session the
+     * platform has already ended must never mint a new one -- that would turn the grace window
+     * into a way to outlive a revocation.
      */
-    private boolean isWithinReuseGrace(RefreshToken rt, Instant now) {
+    private boolean isRecentRotation(RefreshToken rt, Instant now) {
         long graceMs = jwtProperties.getRefreshReuseGraceMs();
-        if (graceMs <= 0 || rt.getRotatedAt() == null) {
-            return false;
-        }
-        if (rt.getRotatedAt().plusMillis(graceMs).isBefore(now)) {
-            return false;
-        }
-        return refreshTokenRepository.existsBySessionIdAndRevokedAtIsNullAndExpiresAtAfter(rt.getSessionId(), now);
+        return graceMs > 0 && rt.getRotatedAt() != null && !rt.getRotatedAt().plusMillis(graceMs).isBefore(now);
     }
 
+    /**
+     * Logout: ends the whole session the presented token belongs to, not just that one row.
+     *
+     * <p>Revoking only the presented row missed a real sequence (seen on a phone on 2026-10-05): a
+     * refresh already in flight when the user signed out rotated the token, so the client then sent
+     * logout the token that had just been retired. That row was already revoked; its live successor
+     * was untouched, and the session stayed valid server-side. Keyed on the session id, the same
+     * unit {@code SessionValidator} checks, a token from anywhere in the session's rotation chain
+     * ends all of it, including a second live row left by the reuse-grace path. The rows ended here
+     * keep a null {@code rotatedAt} and {@code revokedRemotelyAt}, so presenting one of them later
+     * is treated as theft, exactly as a logged-out token was before: this device itself asked to
+     * sign out and was told it had.
+     *
+     * <p>Scoped to the token's own user as well as its session, so nothing outside that user's
+     * rows can be touched. An unknown token still does nothing: logout stays idempotent.
+     *
+     * <p>Read under the same row lock {@link #rotate} takes, and ended through
+     * {@link #endUntilNoneLive}. Either way, a refresh of this session still in progress commits
+     * first and the successor it wrote is ended too. Without that the logout lost a
+     * {@code @Version} race to the refresh and failed, and the session survived it
+     * (RefreshTokenRotationConcurrencyIT reproduces both orderings).
+     */
+    @Transactional
     public void revoke(String rawToken) {
-        refreshTokenRepository.findByTokenHash(TokenHasher.sha256(rawToken)).ifPresent(rt -> {
-            rt.setRevokedAt(Instant.now());
-            refreshTokenRepository.save(rt);
+        refreshTokenRepository.findByTokenHashForUpdate(TokenHasher.sha256(rawToken)).ifPresent(rt -> {
+            Instant now = Instant.now();
+            endUntilNoneLive(
+                    () -> refreshTokenRepository.endLiveRowsOfSession(rt.getUserId(), rt.getSessionId(), now),
+                    () -> refreshTokenRepository.existsByUserIdAndSessionIdAndRevokedAtIsNull(
+                            rt.getUserId(), rt.getSessionId()));
         });
     }
 
@@ -341,25 +387,62 @@ public class RefreshTokenService {
                 userId, Instant.now());
     }
 
-    /** Lets a user sign a single device out remotely (e.g. a lost phone) without touching any of
-     *  their other sessions -- unlike revokeAllOtherSessionsForUser, this targets exactly one
-     *  session by id. Scoped to userId so a session id alone (a guessable-enough UUID from, say,
-     *  a shared screenshot) can never be used to revoke a session belonging to a different user. */
-    public void revokeSession(UUID userId, UUID sessionId) {
-        RefreshToken rt = refreshTokenRepository.findByIdAndUserId(sessionId, userId)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Session not found"));
-        rt.setRevokedAt(Instant.now());
-        refreshTokenRepository.save(rt);
+    /**
+     * Lets a user sign a single device out remotely (e.g. a lost phone) without touching any of
+     * their other sessions -- unlike revokeAllOtherSessionsForUser, this targets exactly one
+     * session. Scoped to userId so an id alone (a guessable-enough UUID from, say, a shared
+     * screenshot) can never be used to revoke a session belonging to a different user.
+     *
+     * <p>{@code tokenId} is the token row the device list showed ({@code DeviceSessionDto.id}),
+     * and it ends the SESSION that row belongs to, every live row of it. Ending only that row
+     * missed the common case: the listed device refreshes between the list loading and the owner
+     * tapping "sign out", the id then names a row rotation already retired, and the session went
+     * on in its successor. A refresh of the session still in progress commits first and its
+     * successor is ended too -- see {@link #endUntilNoneLive}.
+     */
+    @Transactional
+    public void revokeSession(UUID userId, UUID tokenId) {
+        UUID sessionId = refreshTokenRepository.findByIdAndUserId(tokenId, userId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Session not found"))
+                .getSessionId();
+        Instant now = Instant.now();
+        endUntilNoneLive(
+                () -> refreshTokenRepository.endLiveRowsOfSessionRemotely(userId, sessionId, now),
+                () -> refreshTokenRepository.existsByUserIdAndSessionIdAndRevokedAtIsNull(userId, sessionId));
     }
 
     /** Revokes every active session for the user, including whichever one is calling this --
      *  the same defense-in-depth response rotate() already applies when it detects a
-     *  stolen/replayed refresh token (see this class's own doc comment). */
+     *  stolen/replayed refresh token (see this class's own doc comment). The rows are marked as
+     *  ended remotely: a device signed out this way that is opened later is rejected, not taken
+     *  for a thief, so it cannot end a session the user has signed in to since. */
+    @Transactional
     public void revokeAllForUser(UUID userId) {
-        List<RefreshToken> active = refreshTokenRepository.findByUserIdAndRevokedAtIsNull(userId);
         Instant now = Instant.now();
-        active.forEach(t -> t.setRevokedAt(now));
-        refreshTokenRepository.saveAll(active);
+        endUntilNoneLive(
+                () -> refreshTokenRepository.endLiveRowsOfUserRemotely(userId, now),
+                () -> refreshTokenRepository.existsByUserIdAndRevokedAtIsNull(userId));
+    }
+
+    /**
+     * Runs a bulk revocation, then again for as long as a fresh read still finds a live row.
+     *
+     * <p>One pass is not enough when a refresh of one of those rows is in progress. The UPDATE
+     * waits for it to commit and then skips the row it retired, but the successor it inserted was
+     * not in that statement's snapshot. The read that follows is a new statement and sees it, so
+     * the next pass ends it. Replaces a read-then-{@code saveAll} that instead failed the whole
+     * request on {@code @Version} in that interleaving -- taking a password change or reset down
+     * with it -- and left the session alive.
+     */
+    private void endUntilNoneLive(IntSupplier endPass, BooleanSupplier anyStillLive) {
+        for (int pass = 0; pass < MAX_REVOCATION_PASSES; pass++) {
+            endPass.getAsInt();
+            if (!anyStillLive.getAsBoolean()) {
+                return;
+            }
+        }
+        throw new IllegalStateException("Refresh tokens were still being issued after "
+                + MAX_REVOCATION_PASSES + " revocation passes");
     }
 
     /**
@@ -386,12 +469,15 @@ public class RefreshTokenService {
      *        took for an unmatched token, and reachable only for a token minted before {@code sid}
      *        existed.
      */
+    @Transactional
     public void revokeAllOtherSessionsForUser(UUID userId, UUID currentSessionId) {
-        List<RefreshToken> others = refreshTokenRepository.findByUserIdAndRevokedAtIsNull(userId).stream()
-                .filter(t -> currentSessionId == null || !currentSessionId.equals(t.getSessionId()))
-                .toList();
+        if (currentSessionId == null) {
+            revokeAllForUser(userId);
+            return;
+        }
         Instant now = Instant.now();
-        others.forEach(t -> t.setRevokedAt(now));
-        refreshTokenRepository.saveAll(others);
+        endUntilNoneLive(
+                () -> refreshTokenRepository.endLiveRowsOfOtherSessionsRemotely(userId, currentSessionId, now),
+                () -> refreshTokenRepository.existsByUserIdAndSessionIdNotAndRevokedAtIsNull(userId, currentSessionId));
     }
 }

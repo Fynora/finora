@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SaveStatus } from '../components/AccountUI';
 import { Button } from '../components/Button';
+import { GlassScreen } from '../components/GlassScreen';
 import { OptionPickerModal } from '../components/OptionPickerModal';
 import { TextField } from '../components/TextField';
 import { userApi, onboardingApi } from '../api/endpoints';
@@ -115,9 +116,9 @@ export function SettingsGeneralScreen() {
 
   if (userQ.isLoading) {
     return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+      <GlassScreen style={styles.centered}>
         <ActivityIndicator size="large" color={c.primary} />
-      </View>
+      </GlassScreen>
     );
   }
 
@@ -127,16 +128,19 @@ export function SettingsGeneralScreen() {
   // instead of the explicit error message the pre-redesign monolith showed for this exact case.
   if (userQ.isError || !user) {
     return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+      <GlassScreen style={styles.centered}>
         <Text style={[styles.message, { color: c.muted }]}>
           Couldn&apos;t load your settings — please try again later.
         </Text>
-      </View>
+      </GlassScreen>
     );
   }
 
   return (
-    <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+    // GlassScreen wraps the ScrollView rather than living inside it: the mesh backdrop must stay
+    // put while the content scrolls over it.
+    <GlassScreen style={styles.flex}>
+    <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <TextField
         label="Low balance alert"
         value={lowBalance}
@@ -180,7 +184,7 @@ export function SettingsGeneralScreen() {
         Theme applies instantly. The alert amount and timezone save when you tap Save.
       </Text>
 
-      {prefsError ? <Text style={[styles.error, { color: c.danger }]}>{prefsError}</Text> : null}
+      {prefsError ? <Text style={[styles.error, { color: c.dangerInk }]}>{prefsError}</Text> : null}
       <View style={styles.saveRow}>
         <SaveStatus dirty={prefsDirty} saving={prefsSaving} justSaved={prefsJustSaved} error={false} />
       </View>
@@ -193,7 +197,7 @@ export function SettingsGeneralScreen() {
 
       <NotificationPreferencesSection />
 
-      {retakeTourError ? <Text style={[styles.error, { color: c.danger }]}>{retakeTourError}</Text> : null}
+      {retakeTourError ? <Text style={[styles.error, { color: c.dangerInk }]}>{retakeTourError}</Text> : null}
       <View style={[styles.retakeTourRow, { borderTopColor: c.border }]}>
         <View style={styles.retakeTourText}>
           <Text style={[styles.fieldLabel, { color: c.ink, marginTop: 0 }]}>Retake Product Tour</Text>
@@ -214,10 +218,12 @@ export function SettingsGeneralScreen() {
         onClose={() => setTimezonePickerOpen(false)}
       />
     </ScrollView>
+    </GlassScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
   message: { fontSize: 14, textAlign: 'center' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },

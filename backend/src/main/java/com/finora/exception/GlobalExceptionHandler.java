@@ -41,8 +41,15 @@ public class GlobalExceptionHandler {
      * these responses means the browser's very next automatic refresh attempt re-presents the
      * same now-dead token, turning an ordinary idle timeout into a reuse-detection response that
      * reads as a suspected theft.
+     *
+     * <p>AUTH_002 too. Every place it is thrown is a refresh the presented token can never
+     * succeed at again: no token at all, an unknown one, an expired one, or a session signed out
+     * from another device (RefreshTokenService.rotate). That last case used to be answered with
+     * AUTH_004 and so had its cookie cleared; answering it correctly must not leave the browser
+     * presenting the dead cookie on every page load.
      */
     private static final java.util.Set<ErrorCode> TERMINATES_REFRESH_SESSION = java.util.Set.of(
+            ErrorCode.AUTH_TOKEN_EXPIRED,
             ErrorCode.AUTH_SESSION_IDLE, ErrorCode.AUTH_SESSION_MAX_AGE, ErrorCode.AUTH_SESSION_REVOKED,
             // F-14: a cookie holding the other portal's token would otherwise be re-presented on
             // every bootstrap refresh and fail forever; clearing it lets the next sign-in replace it.

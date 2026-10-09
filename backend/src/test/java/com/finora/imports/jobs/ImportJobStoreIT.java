@@ -199,6 +199,57 @@ class ImportJobStoreIT extends AbstractIntegrationTest {
                 .isLessThan(afterClaim);
     }
 
+    @Autowired private com.finora.notification.repository.NotificationRepository notificationRepository;
+
+    /** Claims and abandons the job past the timeout until recovery gives up on it. */
+    private void killTheWorkerUntilRecoveryGivesUp(ImportJob job) {
+        for (int i = 0; i <= ImportJob.MAX_RECOVERIES; i++) {
+            store.update(job.getId(), j -> j.markClaimed("worker-dead",
+                    Instant.now().minus(ImportJobStore.IN_FLIGHT_TIMEOUT).minus(Duration.ofMinutes(1))));
+            store.recoverAbandoned();
+        }
+        assertThat(repository.findById(job.getId()).orElseThrow().getStatus())
+                .isEqualTo(ImportJob.Status.FAILED);
+    }
+
+    /**
+     * A held import reprocessed by an admin that then keeps killing its worker ends FAILED in
+     * recovery, not in the worker -- and its user was told "we'll notify you", so recovery tells
+     * them. No curated code exists for a dead worker, so the message is the generic one.
+     */
+    @Test
+    void aReprocessedHeldJobThatExhaustsRecoveryTellsItsUserOnce() {
+        User user = user();
+        ImportJob job = enqueue(user);
+        store.update(job.getId(), j -> {
+            j.markClaimed("worker", Instant.now());
+            j.recordFailure("IllegalStateException: no header row found", "IllegalStateException",
+                    com.finora.exception.ErrorCode.RetryPolicy.FAIL_FAST, Instant.now());
+            j.holdForReview("IllegalStateException", Instant.now());
+            j.returnToQueueForReprocess(Instant.now());
+        });
+
+        killTheWorkerUntilRecoveryGivesUp(job);
+
+        var push = notificationRepository.findByNotificationKey("IMPORT_FAILED_" + job.getId() + ":PUSH");
+        var email = notificationRepository.findByNotificationKey("IMPORT_FAILED_" + job.getId() + ":EMAIL");
+        assertThat(push).isPresent();
+        assertThat(email).isPresent();
+        assertThat(push.get().getMessage()).contains("Please upload it again");
+        assertThat(notificationRepository.findByUserIdOrderByCreatedAtDesc(user.getId())).hasSize(2);
+    }
+
+    /** The same dead worker on a job nobody ever held: we never asked that user to wait. */
+    @Test
+    void aJobNeverHeldThatExhaustsRecoveryTellsNobody() {
+        User user = user();
+        ImportJob job = enqueue(user);
+
+        killTheWorkerUntilRecoveryGivesUp(job);
+
+        assertThat(notificationRepository.findByUserIdOrderByCreatedAtDesc(user.getId())).isEmpty();
+    }
+
     @Test
     void aJobStillWithinTheTimeoutIsLeftAlone() {
         // Recovering too early re-runs an import that is genuinely still going, which before the

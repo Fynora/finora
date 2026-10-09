@@ -95,14 +95,21 @@ public class FcmPushProvider implements NotificationChannelProvider {
                 // dispatcher's backoff window cannot conjure a device this user never registered.
                 return ChannelSendResult.permanentFailure(PROVIDER_NAME, "no registered device");
             }
-            int accepted = sendToEach(tokens, notification);
+            SendCounts counts = sendToEach(tokens, notification);
             // Counts only -- a raw token must never reach the detail, which is persisted to
             // notification_logs and read by admins.
-            return accepted > 0
-                    ? ChannelSendResult.success(PROVIDER_NAME,
-                            accepted + " of " + tokens.size() + " devices accepted")
-                    : ChannelSendResult.failure(PROVIDER_NAME,
-                            "all " + tokens.size() + " devices rejected");
+            if (counts.accepted() > 0) {
+                return ChannelSendResult.success(PROVIDER_NAME,
+                        counts.accepted() + " of " + tokens.size() + " devices accepted");
+            }
+            if (counts.dead() == tokens.size()) {
+                // FCM said, for every device, that the token will never work again (and each was just
+                // revoked): retrying cannot help, and the second attempt would only find "no
+                // registered device" anyway. Permanent now, not after a wasted retry.
+                return ChannelSendResult.permanentFailure(PROVIDER_NAME,
+                        "all " + tokens.size() + " devices unregistered");
+            }
+            return ChannelSendResult.failure(PROVIDER_NAME, "all " + tokens.size() + " devices rejected");
         } catch (RuntimeException e) {
             log.error("Push notification {} could not be sent", notification.getId(), e);
             return ChannelSendResult.failure(PROVIDER_NAME,
@@ -119,8 +126,9 @@ public class FcmPushProvider implements NotificationChannelProvider {
      * the same as {@link FcmSendOutcome#TRANSIENT_FAILURE} -- not accepted, not revoked -- since an
      * unexpected exception carries no evidence the token itself is the problem.
      */
-    private int sendToEach(List<ActiveDeviceToken> tokens, Notification notification) {
+    private SendCounts sendToEach(List<ActiveDeviceToken> tokens, Notification notification) {
         int accepted = 0;
+        int dead = 0;
         for (ActiveDeviceToken deviceToken : tokens) {
             FcmSendOutcome outcome;
             try {
@@ -137,12 +145,17 @@ public class FcmPushProvider implements NotificationChannelProvider {
             if (outcome == FcmSendOutcome.ACCEPTED) {
                 accepted++;
             } else if (outcome == FcmSendOutcome.TOKEN_DEAD) {
+                dead++;
                 revokeDeadToken(notification.getUserId(), deviceToken.token(), notification.getId());
             }
             // TRANSIENT_FAILURE: not accepted, not revoked -- retried on the notification's own
             // backoff the next time this user gets a push.
         }
-        return accepted;
+        return new SendCounts(accepted, dead);
+    }
+
+    /** How many devices accepted the push, and how many FCM reported as permanently dead. */
+    private record SendCounts(int accepted, int dead) {
     }
 
     /**

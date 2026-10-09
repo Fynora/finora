@@ -82,7 +82,7 @@ function HoldsWithoutReviewRecord() {
       render: (row) => row.coveredByHeldId ? (
         <span className="text-muted text-xs">
           Covered by{' '}
-          <Link to={`/held-statements/${row.coveredByHeldId}`} className="font-mono text-accent hover:underline">
+          <Link to={`/held-statements/${row.coveredByHeldId}`} className="font-mono text-primary hover:underline">
             {row.coveredByHeldId}
           </Link>
         </span>
@@ -91,7 +91,7 @@ function HoldsWithoutReviewRecord() {
           type="button"
           onClick={() => openReview.mutate(row.jobId)}
           disabled={openReview.isPending}
-          className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+          className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-on-primary hover:bg-primary-dark disabled:opacity-50"
         >
           Open review
         </button>
@@ -165,7 +165,7 @@ function HeldStatementsContent() {
       // The reference an operator quotes -- never the raw UUID. Links straight into the detail
       // page, same as the queue's whole purpose: this row is a worklist entry, not an end state.
       render: (row) => (
-        <Link to={`/held-statements/${row.heldId}`} className="text-ink font-mono text-xs text-accent hover:underline">
+        <Link to={`/held-statements/${row.heldId}`} className="font-mono text-xs text-primary hover:underline">
           {row.heldId}
         </Link>
       ),
@@ -220,8 +220,8 @@ function HeldStatementsContent() {
       <p className="text-muted text-sm">
         Statements the pipeline held back because its own evidence contradicted the extraction --
         a count that does not match, a row the layout says should exist but was dropped, or a
-        period that does not hold together. Nothing here is shown to the user beyond &quot;running
-        additional checks&quot;.
+        period that does not hold together. Nothing here is shown to the user beyond &quot;we&apos;re
+        double-checking this statement by hand&quot; and a promise to hear back within 48 hours.
       </p>
 
       {view === 'open' && <HoldsWithoutReviewRecord />}
@@ -234,7 +234,7 @@ function HeldStatementsContent() {
             role="tab"
             aria-selected={view === v}
             onClick={() => { setView(v); setStatus(''); setPage(0); }}
-            className={`rounded-md px-3 py-1.5 ${view === v ? 'bg-accent text-white' : 'text-muted hover:text-ink'}`}
+            className={`rounded-md px-3 py-1.5 ${view === v ? 'bg-primary text-on-primary' : 'text-muted hover:text-ink'}`}
           >
             {v === 'open' ? 'Open' : 'Resolved'}
           </button>

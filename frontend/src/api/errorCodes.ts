@@ -26,8 +26,8 @@ export const SCANNED_OCR_REQUIRED = 'IMPORT_010';
 export const CORRUPT_PDF = 'IMPORT_011';
 // The CSV twin of CORRUPT_PDF: an unterminated quote or an otherwise unreadable CSV.
 export const MALFORMED_CSV = 'IMPORT_017';
-// A payment app's own payment history (Paytm's "Passbook Payments History") rather than a bank
-// statement. It spans several bank accounts and every payment in it is already in that bank's own
+// A payment app's own payment history (Paytm's "Passbook Payments History", or a UPI app's
+// "Paid to / Received from" transaction history) rather than a bank statement. It spans several bank accounts and every payment in it is already in that bank's own
 // statement, so the fix is to import those instead. Audit F-08.
 export const PAYMENT_APP_HISTORY = 'IMPORT_018';
 // A PDF over the page ceiling. Thrown while the document is read, so a queued job hits it too.
@@ -58,8 +58,8 @@ export const IMPORT_SESSION_ALREADY_CONFIRMED = 'IMPORT_012';
 // wrong in.
 export const AUTH_ACCOUNT_DEACTIVATED = 'AUTH_007';
 
-// plans.ts's "Unlimited accounts" / "Extended financial history" Plus/Premium promises,
-// enforced -- see AccountService.create and ImportController.requireStatementPeriodWithinFreeLimit
+// plans.ts's "Unlimited accounts" / "Statements longer than one month" Plus/Premium promises,
+// enforced -- see AccountService.create and ImportService.requireStatementWithinFreeLimit
 // (backend). Import.tsx branches on these to show an upgrade prompt with tailored copy rather than
 // the generic "Could not complete the import" every other confirm failure gets -- same "the
 // frontend has to TELL THEM APART" reasoning ErrorCode.ACCOUNT_LIMIT_REACHED's own comment gives.

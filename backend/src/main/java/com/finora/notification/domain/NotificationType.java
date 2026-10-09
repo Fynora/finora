@@ -22,6 +22,9 @@ public enum NotificationType {
     // AdminHeldImportService.resolve. The body IS the admin's message ({{message}}), so unlike every
     // other type the wording is operator-authored; the email path escapes it as text and the
     // service caps and cleans it before it gets here. Keyed "IMPORT_RESOLVED_" + job id.
+    // Also sent, keyed "IMPORT_FAILED_" + job id, when a held import is reprocessed and then ends
+    // FAILED (StatementStatusNotifier.notifyFailedAfterHold): the same "held import closed without
+    // success" for the user, with the failure code's curated message as {{message}}.
     IMPORT_STATEMENT_RESOLVED,
     // Sent when a reviewer rejects a statement held for trust review -- see
     // HeldStatementService.reject. The trust-review counterpart of IMPORT_STATEMENT_RESOLVED, with
@@ -38,5 +41,10 @@ public enum NotificationType {
     // (ReferralService.onChargeReversed). Templates seeded in V241 alongside this addition.
     REFERRAL_REVERSED,
     /** Statement refresh, step 5: an improved parser would change some of the user's statements. */
-    STATEMENT_REFRESH_AVAILABLE
+    STATEMENT_REFRESH_AVAILABLE,
+    // An admin push campaign (com.finora.notification.campaign). Like IMPORT_STATEMENT_RESOLVED the
+    // wording is operator-authored: the PUSH template (V261) is {{title}} / {{message}}. PUSH only,
+    // no EMAIL row, so a request for any other channel would dead-letter -- the campaign sender
+    // only ever asks for PUSH.
+    CUSTOM_PUSH
 }

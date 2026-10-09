@@ -10,6 +10,7 @@ import { trackNavigation } from '../lib/trackNavigation';
 import { useAuth } from '../context/AuthContext';
 import { spacing, useTheme } from '../theme';
 import type { MoreStackParamList } from '../navigation/types';
+import { GlassScreen } from '../components/GlassScreen';
 
 type Props = NativeStackScreenProps<MoreStackParamList, 'SettingsAccount'>;
 
@@ -43,9 +44,9 @@ export function SettingsAccountScreen({ navigation }: Props) {
 
   if (userQ.isLoading) {
     return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+      <GlassScreen style={styles.centered}>
         <ActivityIndicator size="large" color={c.primary} />
-      </View>
+      </GlassScreen>
     );
   }
 
@@ -54,18 +55,19 @@ export function SettingsAccountScreen({ navigation }: Props) {
   // still-loading, spinning forever instead of showing the pre-redesign monolith's error message.
   if (userQ.isError || !userQ.data) {
     return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+      <GlassScreen style={styles.centered}>
         <Text style={[styles.message, { color: c.muted }]}>
           Couldn&apos;t load your settings — please try again later.
         </Text>
-      </View>
+      </GlassScreen>
     );
   }
 
   const signInMethod = userQ.data.signInMethod;
 
   return (
-    <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.content}>
+    <GlassScreen style={styles.glassRoot}>
+    <ScrollView contentContainerStyle={styles.content}>
       <View style={[styles.dangerRow, { borderBottomColor: c.border }]}>
         <Text style={[styles.fieldLabel, { color: c.ink, marginTop: 0 }]}>Deactivate Account</Text>
         <Text style={[styles.hint, { color: c.mutedInk }]}>
@@ -76,7 +78,7 @@ export function SettingsAccountScreen({ navigation }: Props) {
         <Button label="Deactivate Account" onPress={() => setDeactivateOpen(true)} variant="link" />
       </View>
       <View style={[styles.dangerRow, { borderBottomColor: 'transparent' }]}>
-        <Text style={[styles.fieldLabel, { color: c.danger, marginTop: 0 }]}>Delete Account</Text>
+        <Text style={[styles.fieldLabel, { color: c.dangerInk, marginTop: 0 }]}>Delete Account</Text>
         <Text style={[styles.hint, { color: c.mutedInk }]}>
           Permanently delete your account and all your data. This cannot be undone, and there is
           no way to cancel this request once submitted.
@@ -102,10 +104,12 @@ export function SettingsAccountScreen({ navigation }: Props) {
         />
       ) : null}
     </ScrollView>
+    </GlassScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  glassRoot: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
   message: { fontSize: 14, textAlign: 'center' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },

@@ -8,10 +8,14 @@ import com.finora.dto.AdminDtos.ActivityTrendPointDto;
 import com.finora.dto.AuditLogDto;
 import com.finora.dto.HealthDtos.AlertDto;
 import com.finora.dto.HealthDtos.PlatformHealthDto;
+import com.finora.entity.HeldStatement;
+import com.finora.entity.ImportJob;
 import com.finora.goals.GoalRepository;
 import com.finora.health.HealthStatus;
 import com.finora.repository.AuditLogRepository;
 import com.finora.repository.BudgetRepository;
+import com.finora.repository.HeldStatementRepository;
+import com.finora.repository.ImportJobRepository;
 import com.finora.repository.StatementImportRepository;
 import com.finora.repository.TransactionRepository;
 import com.finora.repository.UserRepository;
@@ -27,6 +31,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 
 /**
@@ -54,12 +59,16 @@ public class AdminOperationalDashboardService {
     private final GoalRepository goalRepository;
     private final AuditLogRepository auditLogRepository;
     private final AdminHealthRegistryService healthRegistryService;
+    private final HeldStatementRepository heldStatementRepository;
+    private final ImportJobRepository importJobRepository;
 
     public AdminOperationalDashboardService(UserRepository userRepository, TransactionRepository transactionRepository,
                                              StatementImportRepository statementImportRepository,
                                              BudgetRepository budgetRepository, GoalRepository goalRepository,
                                              AuditLogRepository auditLogRepository,
-                                             AdminHealthRegistryService healthRegistryService) {
+                                             AdminHealthRegistryService healthRegistryService,
+                                             HeldStatementRepository heldStatementRepository,
+                                             ImportJobRepository importJobRepository) {
         this.userRepository = userRepository;
         this.transactionRepository = transactionRepository;
         this.statementImportRepository = statementImportRepository;
@@ -67,6 +76,8 @@ public class AdminOperationalDashboardService {
         this.goalRepository = goalRepository;
         this.auditLogRepository = auditLogRepository;
         this.healthRegistryService = healthRegistryService;
+        this.heldStatementRepository = heldStatementRepository;
+        this.importJobRepository = importJobRepository;
     }
 
     /** The zone every platform-wide "today"/"this month" tile is bucketed by. Configurable rather
@@ -129,7 +140,15 @@ public class AdminOperationalDashboardService {
                 importsWithSkippedRowsToday,
                 userRepository.countByLockedUntilAfter(Instant.now()),
                 transactionRepository.countByNeedsCategoryReviewTrue(),
-                transactionRepository.countByIsDuplicateOfIsNotNull());
+                transactionRepository.countByIsDuplicateOfIsNotNull(),
+                // Undecided, not "status HELD": an assigned or investigating hold is still a user
+                // waiting. complementOf rather than a list, so a future Status is counted until
+                // someone decides it is a resolution -- the direction that keeps a hold visible.
+                heldStatementRepository.countByStatusIn(EnumSet.complementOf(
+                        EnumSet.copyOf(HeldStatement.Status.RESOLVED)))
+                        + importJobRepository.countByStatusAndHeldStatementIdIsNull(
+                                ImportJob.Status.HELD_FOR_TRUST_REVIEW),
+                importJobRepository.countByStatus(ImportJob.Status.HELD_FOR_REVIEW));
 
         // Insights row -- inverse of activeUsersToday's own query, same window this class already
         // uses for "today," just walked back INACTIVITY_WINDOW_DAYS instead of one. See

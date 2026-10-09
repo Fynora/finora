@@ -72,7 +72,7 @@ function FriendCodeCard() {
         <button
           type="submit"
           disabled={!canSubmit}
-          className="bg-primary text-white text-xs font-semibold rounded-lg px-3 py-2 flex-shrink-0 disabled:opacity-50"
+          className="bg-primary text-on-primary text-xs font-semibold rounded-lg px-3 py-2 flex-shrink-0 disabled:opacity-50"
         >
           {apply.isPending ? 'Adding…' : 'Add code'}
         </button>
@@ -224,7 +224,7 @@ export default function Referrals() {
             <button
               type="button"
               onClick={handleCopy}
-              className="flex items-center gap-1.5 bg-primary text-white text-xs font-semibold rounded-lg px-3 py-2 flex-shrink-0"
+              className="flex items-center gap-1.5 bg-primary text-on-primary text-xs font-semibold rounded-lg px-3 py-2 flex-shrink-0"
             >
               {copied ? <Check size={14} /> : <Copy size={14} />}
               {copied ? 'Copied' : 'Copy'}

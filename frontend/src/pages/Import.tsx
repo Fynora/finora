@@ -6,7 +6,7 @@ import {
   CheckCircle2, UploadCloud, AlertTriangle, Clock, FileText, FileSpreadsheet, Trash2, RefreshCw,
   ChevronLeft, ChevronRight, Shield, Sparkles, Lock, X, ArrowRight,
 } from 'lucide-react';
-import { importApi, importJobsApi, statementImportsApi, categoriesApi, accountsApi, type StagingResult, type PreviousImport } from '../api/endpoints';
+import { importApi, importJobsApi, statementImportsApi, categoriesApi, accountsApi, type StagingResult, type PreviousImport, type FreePlanLimitNotice } from '../api/endpoints';
 import { newIdempotencyKey } from '../lib/idempotencyKey';
 import {
   PDF_PASSWORD_REQUIRED, PDF_PASSWORD_INVALID, IMPORT_SESSION_ALREADY_CONFIRMED,
@@ -62,6 +62,16 @@ type AccountChoice = 'existing' | 'new';
 // enough to register as a real confirmation, short enough not to feel like a delay. Exported so a
 // test can assert against the same number rather than a magic 900 duplicated in the test file.
 export const UPLOAD_COMPLETE_DWELL_MS = 900;
+
+// What the dwell actually waits. Always UPLOAD_COMPLETE_DWELL_MS in the app; tests set it to 0
+// unless they are about the checkmark itself, because most of Import.test.tsx's tests sat through
+// the real 900ms one after another (about 50s of a 58s file).
+let uploadCompleteDwellMs = UPLOAD_COMPLETE_DWELL_MS;
+
+/** Test-only: how long the Completed checkmark dwells. Reset to UPLOAD_COMPLETE_DWELL_MS after use. */
+export function setUploadCompleteDwellForTests(ms: number) {
+  uploadCompleteDwellMs = ms;
+}
 
 // Per-account review state for the multi-account case (a PDF whose upload detected more than one
 // account section, e.g. an HSBC-style composite statement) -- one of these per detected
@@ -198,7 +208,7 @@ export default function Import() {
   // can never go stale from a PREVIOUS error (e.g. an ACTION_REQUIRED parse failure) while a new,
   // unrelated one (network failure, a validation message, a discard failure) is being shown.
   const [errorActionRequired, setErrorActionRequired] = useState(false);
-  // plans.ts's "Unlimited accounts" / "Extended financial history" Plus/Premium promises: whether
+  // plans.ts's "Unlimited accounts" / "Statements longer than one month" Plus/Premium promises: whether
   // the CURRENT error banner is one of the two Free-tier caps (ACCOUNT_LIMIT_REACHED /
   // STATEMENT_PERIOD_TOO_LONG), which get a "See Plus plans" link the ordinary confirm-failure
   // banner doesn't -- same "actionRequired changes the banner" precedent as Sprint 4 item 22 above.
@@ -246,6 +256,13 @@ export default function Import() {
   const [verification, setVerification] = useState<VerificationReport | null>(null);
   // F-33: an earlier import of these exact bytes, shown as a notice on the review step. Never a gate.
   const [previousImport, setPreviousImport] = useState<PreviousImport | null>(null);
+  // The Free one-month limit this statement will be refused under at Import, told up front so the
+  // person doesn't review every row first (FreePlanLimitNotice). It IS a gate, unlike the notice
+  // above: the Import button waits on it, because the backend would refuse. `limitOverridden` is
+  // the way past it for someone who has just upgraded elsewhere -- the backend stays the judge.
+  const [freePlanLimit, setFreePlanLimit] = useState<FreePlanLimitNotice | null>(null);
+  const [limitOverridden, setLimitOverridden] = useState(false);
+  const limitBlocksImport = freePlanLimit !== null && !limitOverridden;
   const [accountChoice, setAccountChoice] = useState<AccountChoice>('new');
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [newName, setNewName] = useState('');
@@ -509,6 +526,8 @@ export default function Import() {
       const session = await importApi.getSession(sessionId);
       setSessionId(session.sessionId);
       setPreviousImport(session.previousImport ?? null);
+      setFreePlanLimit(session.freePlanLimit ?? null);
+      setLimitOverridden(false);
       hydrateReviewFrom(session.staging);
       setJobId(null);
       setStep('review');
@@ -549,6 +568,8 @@ export default function Import() {
       const session = await importApi.getSession(id);
       setSessionId(session.sessionId);
       setPreviousImport(session.previousImport ?? null);
+      setFreePlanLimit(session.freePlanLimit ?? null);
+      setLimitOverridden(false);
       hydrateReviewFrom(session.staging, accountsForMatch);
       setStep('review');
     } catch (e: any) {
@@ -635,7 +656,7 @@ export default function Import() {
       setPasswordState(null);
       setSavePassword(false);
       advance();
-    }, UPLOAD_COMPLETE_DWELL_MS);
+    }, uploadCompleteDwellMs);
   }
 
   // `mayKeep` is false only on the one retry below, after the server refused to keep a password.
@@ -694,6 +715,8 @@ export default function Import() {
       }
       setSessionId(res.sessionId);
       setPreviousImport(res.previousImport ?? null);
+      setFreePlanLimit(res.freePlanLimit ?? null);
+      setLimitOverridden(false);
       setFileFormat(isPdf ? 'PDF' : 'CSV');
       // The document opened, so the password (if any) has done its whole job -- neither it nor the
       // file is needed again, confirm/reimport work from the server-side session. Not cleared here
@@ -957,6 +980,8 @@ export default function Import() {
   function startOver() {
     setStep('upload');
     setPreviousImport(null);
+    setFreePlanLimit(null);
+    setLimitOverridden(false);
     setRows([]);
     setReview(EMPTY_REVIEW);
     setUnparseableRows([]);
@@ -1114,8 +1139,8 @@ export default function Import() {
                   // returns straight to the dropzone. A failure does NOT reset here -- ImportTimeline
                   // (below) is about to show the curated reason and the way back to the dropzone; an
                   // immediate reset would unmount it before anyone could read either. A held job does
-                  // not reset either, for the same reason: ImportProgress is about to show the "we're
-                  // running additional checks" message, and it can only do that if it stays mounted.
+                  // not reset either, for the same reason: ImportProgress is about to show the held
+                  // message, and it can only do that if it stays mounted.
                   // Bug fix, caught live: this used to only exempt FAILED, so a held job settled and
                   // unmounted in the same polling tick, before its own message ever painted.
                   if (job.status !== 'FAILED' && !isHeld(job)) {
@@ -1420,7 +1445,7 @@ export default function Import() {
 
               <div className="space-y-4">
                 <FinoraCard className="bg-success-bg border-transparent">
-                  <div className="w-8 h-8 rounded-lg bg-white/60 flex items-center justify-center mb-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-card/60 flex items-center justify-center mb-2.5">
                     <Shield size={16} className="text-success" />
                   </div>
                   <h3 className="text-sm font-semibold text-ink mb-1">Your data is safe with us</h3>
@@ -1437,7 +1462,7 @@ export default function Import() {
                   </button>
                 </FinoraCard>
                 <FinoraCard className="bg-primary-light border-transparent">
-                  <div className="w-8 h-8 rounded-lg bg-white/60 flex items-center justify-center mb-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-card/60 flex items-center justify-center mb-2.5">
                     <Sparkles size={16} className="text-primary" />
                   </div>
                   <h3 className="text-sm font-semibold text-ink mb-1">Paperless &amp; effortless</h3>
@@ -1568,6 +1593,13 @@ export default function Import() {
 
         {step === 'review' && (
           <motion.div key="review" className="space-y-4" {...stepMotionProps}>
+          {freePlanLimit && !reimportState && (
+            <FreePlanLimitBanner
+              notice={freePlanLimit}
+              overridden={limitOverridden}
+              onOverride={() => setLimitOverridden(true)}
+            />
+          )}
           {previousImport && (
             <p
               data-testid="previous-import-notice"
@@ -1686,7 +1718,9 @@ export default function Import() {
                       // statement covering two accounts is not two imports the user can partially
                       // approve -- confirmMulti posts them together, so one unanswered row anywhere
                       // blocks all of it, exactly as one unanswered row blocks a single-account import.
-                      outstandingMultiDuplicates > 0
+                      outstandingMultiDuplicates > 0 ||
+                      // The Free one-month limit the backend would refuse this on -- see the banner.
+                      limitBlocksImport
                     }
                   >
                     Confirm All {multiSections.length} Accounts
@@ -1815,7 +1849,10 @@ export default function Import() {
                       // The gate. Every flagged row must have an explicit answer before anything is
                       // written to the ledger -- which is what stops a duplicate being resolved by
                       // inattention rather than by a decision.
-                      unresolvedCount(rows, review.decisions) > 0
+                      unresolvedCount(rows, review.decisions) > 0 ||
+                      // The Free one-month limit the backend would refuse this on -- see the banner.
+                      // Never on a re-import, which that limit does not apply to.
+                      (!reimportState && limitBlocksImport)
                     }
                   >
                     Confirm Import
@@ -2354,7 +2391,7 @@ function TransactionPreviewTable({
                 )}
                 {r.likelyDuplicate && <span className="text-danger text-2xs uppercase ml-1">duplicate</span>}
                 {isUnconfirmedGuess(r.categorySource) && (
-                  <span className="text-2xs uppercase ml-1" style={{ color: '#d97706' }}>low confidence</span>
+                  <span className="text-2xs uppercase ml-1 text-warning">low confidence</span>
                 )}
                 {r.international && <span className="text-2xs uppercase ml-1 text-muted">international</span>}
               </td>
@@ -2422,6 +2459,56 @@ function TransactionPreviewTable({
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * The Free one-month limit, told at the top of the review step as soon as a statement is staged
+ * (FreePlanLimitNotice) instead of only when Import is pressed after a full review. The message is
+ * the backend's own refusal text, dates included, so this and the refusal can never disagree.
+ *
+ * "I've upgraded" exists for someone who upgraded in another tab: the notice was judged on the plan
+ * when this review opened, and reloading the page would lose their review. It only re-enables the
+ * button -- the backend checks the plan again at Import and refuses if it still applies.
+ */
+function FreePlanLimitBanner({
+  notice,
+  overridden,
+  onOverride,
+}: {
+  notice: FreePlanLimitNotice;
+  overridden: boolean;
+  onOverride: () => void;
+}) {
+  return (
+    <div
+      data-testid="free-plan-limit-notice"
+      role="alert"
+      className="bg-warning-bg border border-warning/30 rounded-xl2 px-5 py-3.5 flex items-start gap-2.5"
+    >
+      <AlertTriangle size={16} className="text-warning flex-shrink-0 mt-0.5" />
+      <div className="space-y-1.5">
+        <p className="text-sm text-ink">{notice.message}</p>
+        <p className="text-xs text-muted">
+          You can't import this statement on the Free plan. Upload a statement covering one month, or upgrade.
+          Your upload stays under "Continue previous import" for 48 hours.
+        </p>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+          <Link
+            to="/app/billing"
+            onClick={() => trackNavigation('subscription', 'contextual')}
+            className="font-semibold underline text-ink"
+          >
+            See Plus plans
+          </Link>
+          {!overridden && (
+            <button type="button" onClick={onOverride} className="underline text-muted">
+              I've already upgraded
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 

@@ -13,6 +13,7 @@ import { useSingleFlight } from '../lib/useSingleFlight';
 import { useTheme } from '../theme';
 import { webUrl } from '../lib/webUrl';
 import { paidMembershipName, visiblePlanName } from '../lib/planDisplay';
+import { GlassScreen } from '../components/GlassScreen';
 
 const IOS_MANAGE_SUBSCRIPTIONS_URL = 'itms-apps://apps.apple.com/account/subscriptions';
 const ANDROID_MANAGE_SUBSCRIPTIONS_URL = 'https://play.google.com/store/account/subscriptions';
@@ -142,15 +143,16 @@ export function MySubscriptionScreen() {
   );
 
   return (
-    <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.container}>
+    <GlassScreen style={styles.glassRoot}>
+    <ScrollView contentContainerStyle={styles.container}>
       <Text style={[styles.planName, { color: c.ink }]}>{visiblePlanName(subscription.planCode, subscription.planName ?? subscription.planCode)}</Text>
 
-      {error ? <Text style={[styles.note, { color: c.danger }]}>{error}</Text> : null}
+      {error ? <Text style={[styles.note, { color: c.dangerInk }]}>{error}</Text> : null}
 
       {subscription.status === 'PAUSED' ? (
         // Razorpay's charge_at goes null while paused, so renewalDate is stale until resume --
         // same fix as frontend/src/pages/Billing.tsx's own paused-state message.
-        <Text style={[styles.note, { color: c.warning }]}>
+        <Text style={[styles.note, { color: c.warningInk }]}>
           Paused — billing on hold. Resume anytime to pick up where you left off.
         </Text>
       ) : subscription.renewalDate && (
@@ -210,10 +212,12 @@ export function MySubscriptionScreen() {
 
       <BillingHistorySection paymentProvider={subscription.paymentProvider} />
     </ScrollView>
+    </GlassScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  glassRoot: { flex: 1 },
   container: { padding: 16, gap: 12 },
   planName: { fontSize: 20, fontWeight: '700' },
   note: { fontSize: 13 },

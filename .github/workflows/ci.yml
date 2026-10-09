@@ -38,6 +38,15 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
+  # Weekly full run of main, every job, as in a by-hand run. It exists for the private profile,
+  # where nothing else ever runs the whole suite against main: each merge is tested only as its own
+  # PR's `full-ci` run, so two PRs that each pass alone but break together would go unnoticed.
+  # Monday 04:30 UTC (10:00 IST), so a red run lands at the start of the week; offset from the
+  # 03:xx nightlies and CodeQL's Monday 04:00. It also runs while the repository is public, where it
+  # is free and simply repeats what every push to main already ran. GitHub notifies the account
+  # that last changed this cron line when a scheduled run fails.
+  schedule:
+    - cron: '30 4 * * 1'
 
 # A new push to the same branch makes the in-flight run obsolete. Cancelling it keeps queue times
 # down on a shared runner allowance -- but never for main, where every commit's result is a record
@@ -120,7 +129,10 @@ permissions:
 #   * Public (full profile): every job below runs exactly as it always has. GitHub-hosted
 #     standard runners cost nothing in a public repository.
 #   * Private (lean profile): only repo-hygiene runs, and only on push to main. Everything runs for
-#     a PR carrying the `full-ci` label, and for a run started by hand (workflow_dispatch). The
+#     a PR carrying the `full-ci` label, for a run started by hand (workflow_dispatch), and for the
+#     weekly scheduled run of main (see `on: schedule`). On a push to main, repo-hygiene's last step
+#     also fails if the merged PR had no full, passing run on its final commit
+#     (scripts/check-merge-was-tested.py), so a forgotten label shows up red the same day. The
 #     Fynora org is on GitHub Free: 2,000 Actions minutes a month for private repositories, each job
 #     billed rounded up to the minute. Measured 2026-09-27..10-04, this workflow used ~9,150 minutes
 #     in one week (~300 PR events, ~94 pushes to main), so no automatic per-PR subset fits; a full
@@ -188,11 +200,12 @@ jobs:
   changes:
     name: Detect changed areas
     # Private profile: nothing reads this job's outputs except jobs that are skipped anyway, so it
-    # runs only for a full run (a `full-ci` PR or workflow_dispatch). See "Repository visibility"
-    # above `jobs:` for this condition, which every job below repeats.
+    # runs only for a full run (a `full-ci` PR, workflow_dispatch or the weekly schedule). See
+    # "Repository visibility" above `jobs:` for this condition, which every job below repeats.
     if: >-
       (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'schedule' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
@@ -285,6 +298,13 @@ jobs:
       )
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # The file-level grant plus `actions: read`, which only the last step needs (to list the merged
+    # PR's CI runs and their jobs). A job-level block replaces the file-level one, so the two
+    # file-level grants are repeated here.
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
     steps:
       - uses: actions/checkout@v7
         with:
@@ -341,7 +361,17 @@ jobs:
       # and blind to anything it did not touch, which is how a real account number survived months
       # of green PRs. The third protection, check-corpus-leakage.py, cannot run here at all -- it
       # needs the real corpus, which lives outside the tree by policy.
+      #
+      # Skipped on a private push to main, and only there. It was 46s of this job's 65s on the
+      # 2-core private runner (2026-10-04, measured on the first private full-ci run), and GitHub
+      # bills each job rounded up to the minute -- so it alone made every private merge cost two
+      # minutes instead of one. Nothing is lost on that path:
+      #   - What a merge adds is scanned by --each just below.
+      #   - The pre-existing lines this ratchet exists for only change through such commits, or
+      #     through an edit to the scanner itself, which is a PR that gets a `full-ci` run.
+      #   - The ratchet still runs on every `full-ci` PR, by-hand run and the weekly run of main.
       - name: Whole-tree hygiene ratchet
+        if: ${{ !(github.event_name == 'push' && github.event.repository.private) }}
         run: sh scripts/check-fixture-hygiene.sh --tree-ratchet
 
       # --each, not --range. A real account number reached a committed design note through this
@@ -459,6 +489,19 @@ jobs:
       - name: Reporting period labels
         run: python3 scripts/check-reporting-period-labels.py
 
+      # Private profile only, on a push to main: did the merged PR get a full, passing CI run on its
+      # final commit before it merged? While private, nothing else tests a merge -- a PR's jobs are
+      # skipped unless it carries `full-ci`, main runs only this job, and Railway deploys main as
+      # soon as it lands. A forgotten label used to leave no trace; this step turns main's run red
+      # and GitHub notifies whoever merged. See scripts/check-merge-was-tested.py for exactly what
+      # counts as tested. Inside this job rather than its own so it costs no extra billed minute.
+      # `!cancelled()` so a failing hygiene step above does not hide it.
+      - name: Merged PR had a full CI run (private profile)
+        if: ${{ !cancelled() && github.event_name == 'push' && github.event.repository.private }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/check-merge-was-tested.py
+
   secret-scan:
     name: Secret scan (gitleaks)
     # Private profile: full runs only. gitleaks-nightly.yml scans main's full history every night in
@@ -468,6 +511,7 @@ jobs:
     if: >-
       (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'schedule' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
@@ -534,6 +578,7 @@ jobs:
         needs.changes.outputs.shared_config == 'true'
       ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'schedule' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
@@ -579,6 +624,7 @@ jobs:
         needs.changes.outputs.shared_config == 'true'
       ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'schedule' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
@@ -781,6 +827,7 @@ jobs:
           contains(github.event.pull_request.labels.*.name, 'full-ci'))
       ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'schedule' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
@@ -901,6 +948,7 @@ jobs:
         needs.changes.outputs.shared_config == 'true'
       ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'schedule' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
@@ -980,6 +1028,7 @@ jobs:
         needs.changes.outputs.shared_config == 'true'
       ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'schedule' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
@@ -1025,9 +1074,15 @@ jobs:
       - name: Dependency advisories
         run: python3 scripts/check-dependency-advisories.py frontend
 
+      # --maxWorkers=2: Vitest's default for `vitest run` is CPUs minus one (resolveMaxWorkers in
+      # vitest's cli-api). A private repository's runner has 2 CPUs against 4 for a public one, so
+      # since this repository went private on 2026-10-04 that default has been 1, and all 191 test
+      # files ran one after another. The same 1,889 tests went from 114s of wall-clock (about 2.8x
+      # parallel, 3 workers) to 433s (about 1.0x). This uses both CPUs. Set here, not in
+      # vitest.config.ts, so a developer's machine keeps its own default.
       - name: Test
         working-directory: frontend
-        run: npm test
+        run: npm test -- --maxWorkers=2
 
       # `npm run build` is `tsc -b && vite build && node scripts/prerender.mjs && node
       # scripts/crawlPolicy.mjs`, so this type-checks and bundles, then bakes real content into
@@ -1052,6 +1107,7 @@ jobs:
         needs.changes.outputs.shared_config == 'true'
       ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'schedule' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
@@ -1081,9 +1137,10 @@ jobs:
       - name: Dependency advisories
         run: python3 scripts/check-dependency-advisories.py admin-portal
 
+      # --maxWorkers=2: see the user frontend's Test step. Same Vitest default, same 2-CPU runner.
       - name: Test
         working-directory: admin-portal
-        run: npm test
+        run: npm test -- --maxWorkers=2
 
       - name: Build
         working-directory: admin-portal
@@ -1103,6 +1160,7 @@ jobs:
         needs.changes.outputs.shared_config == 'true'
       ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'schedule' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
@@ -1160,7 +1218,18 @@ jobs:
         # that. The LOG_LONG_TIMERS-gated block in src/test/setup.ts (a no-op unless that env var
         # is set) is how to pick that investigation back up: set LOG_LONG_TIMERS=1 to log the
         # creation stack and current test name of every setTimeout >= 30s.
-        run: npm test -- --forceExit
+        #
+        # --workerIdleMemoryLimit=1G: the first private-profile run (2026-10-04) died with "FATAL
+        # ERROR: ... JavaScript heap out of memory", exit 134. A private repository's runner has
+        # 2 CPUs / 8 GB, against 4 / 16 GB for a public one. Jest's default worker count is CPUs
+        # minus one, and with one worker Jest runs every test file in its own process (in band;
+        # see shouldRunInBand in @jest/core), so all 213 test files' leaked module state piles up
+        # in one heap. Setting a worker memory limit makes Jest use a worker even then, and replace
+        # it whenever it grows past the limit. Reproduced locally first: Node 22, --maxWorkers=1
+        # (what 2 CPUs gives) and --max-old-space-size=2048 standing in for the smaller runner's
+        # memory gave exit 134 with the same error. The same conditions with this flag passed:
+        # 213 suites, 2,398 tests, 128s.
+        run: npm test -- --forceExit --workerIdleMemoryLimit=1G
 
       # The bundle catches a different class of problem than the tests do: broken imports, bad
       # JSX, and anything that type-checks but can't actually be packaged. This is JS-only -- it
@@ -1210,6 +1279,7 @@ jobs:
         needs.changes.outputs.shared_config == 'true'
       ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'schedule' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     # Each job below gets its own fresh, isolated GitHub-hosted VM, so unlike the old self-hosted
@@ -1564,6 +1634,7 @@ jobs:
         needs.changes.outputs.shared_config == 'true'
       ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'schedule' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest
@@ -1705,6 +1776,7 @@ jobs:
         needs.changes.outputs.backend_image == 'true'
       ) && (
         !github.event.repository.private || github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'schedule' ||
         contains(github.event.pull_request.labels.*.name, 'full-ci')
       )
     runs-on: ubuntu-latest

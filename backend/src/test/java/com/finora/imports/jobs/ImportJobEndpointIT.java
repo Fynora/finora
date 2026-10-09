@@ -781,4 +781,205 @@ class ImportJobEndpointIT extends AbstractIntegrationTest {
                 .as("must round-trip in full -- a silent truncation would be its own, quieter bug")
                 .isEqualTo(longFailureCode);
     }
+
+    // ------------------------------------------------------------------ dismiss (V264)
+
+    private UUID queuedJob(User user, String fileName) {
+        return queuedJob(user, fileName, CSV);
+    }
+
+    /** Different bytes for a second job: an upload of a document that already has a live job
+     *  follows that job instead of starting another. */
+    private UUID queuedJob(User user, String fileName, String csv) {
+        ResponseEntity<String> accepted = restTemplate.exchange(
+                "/api/v1/import/jobs", HttpMethod.POST, upload(user, fileName, csv), String.class);
+        return UUID.fromString(read(accepted).get("data").get("jobId").asText());
+    }
+
+    private ResponseEntity<String> dismiss(User user, UUID jobId) {
+        return restTemplate.exchange("/api/v1/import/jobs/" + jobId + "/dismiss", HttpMethod.POST,
+                new HttpEntity<>(bearerFor(user)), String.class);
+    }
+
+    private java.util.List<String> recentJobIds(User user) {
+        JsonNode data = read(restTemplate.exchange(
+                "/api/v1/import/jobs", HttpMethod.GET, new HttpEntity<>(bearerFor(user)), String.class)).get("data");
+        java.util.List<String> ids = new java.util.ArrayList<>();
+        data.forEach(job -> ids.add(job.get("jobId").asText()));
+        return ids;
+    }
+
+    /** The failure the recent-imports list exists to explain -- and, once read, to let go of. */
+    @Test
+    void aDismissedFailureLeavesTheRecentListButTheJobIsKept() {
+        User user = user();
+        UUID failed = queuedJob(user, "failed.csv");
+        UUID kept = queuedJob(user, "kept.csv", CSV + "2026-07-12,ZOMATO ORDER,312.00,DEBIT\n");
+        assertThat(kept).as("fixture: two separate jobs").isNotEqualTo(failed);
+        ImportJob job = jobRepository.findById(failed).orElseThrow();
+        job.markClaimed("it-worker", Instant.now());
+        job.recordFailure("IllegalStateException: boom", "IllegalStateException",
+                com.finora.exception.ErrorCode.RetryPolicy.FAIL_FAST, Instant.now());
+        jobRepository.save(job);
+        restTemplate.exchange("/api/v1/import/jobs/" + kept + "/cancel", HttpMethod.POST,
+                new HttpEntity<>(bearerFor(user)), String.class);
+        assertThat(recentJobIds(user)).contains(failed.toString(), kept.toString());
+
+        ResponseEntity<String> response = dismiss(user, failed);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(recentJobIds(user)).containsExactly(kept.toString());
+        ImportJob after = jobRepository.findById(failed).orElseThrow();
+        assertThat(after.getStatus()).as("display state only").isEqualTo(ImportJob.Status.FAILED);
+        assertThat(after.getLastError()).isEqualTo("IllegalStateException: boom");
+        assertThat(after.getDismissedAt()).isNotNull();
+    }
+
+    @Test
+    void aCancelledImportCanBeDismissedTwice() {
+        User user = user();
+        UUID jobId = queuedJob(user, "statement.csv");
+        restTemplate.exchange("/api/v1/import/jobs/" + jobId + "/cancel", HttpMethod.POST,
+                new HttpEntity<>(bearerFor(user)), String.class);
+
+        assertThat(dismiss(user, jobId).getStatusCode()).isEqualTo(HttpStatus.OK);
+        Instant first = jobRepository.findById(jobId).orElseThrow().getDismissedAt();
+        assertThat(dismiss(user, jobId).getStatusCode())
+                .as("a double tap or a retried request is not an error")
+                .isEqualTo(HttpStatus.OK);
+        assertThat(jobRepository.findById(jobId).orElseThrow().getDismissedAt()).isEqualTo(first);
+        assertThat(recentJobIds(user)).isEmpty();
+    }
+
+    /** A queued, running or held import is not over; hiding it would hide the one place that says so. */
+    @Test
+    void anImportThatIsNotOverCannotBeDismissed() {
+        User user = user();
+        UUID jobId = queuedJob(user, "statement.csv");
+
+        ResponseEntity<String> response = dismiss(user, jobId);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(jobRepository.findById(jobId).orElseThrow().getDismissedAt()).isNull();
+        assertThat(recentJobIds(user)).containsExactly(jobId.toString());
+    }
+
+    @Test
+    void anotherUsersImportCannotBeDismissed() {
+        User owner = user();
+        User stranger = user();
+        UUID jobId = queuedJob(owner, "statement.csv");
+        restTemplate.exchange("/api/v1/import/jobs/" + jobId + "/cancel", HttpMethod.POST,
+                new HttpEntity<>(bearerFor(owner)), String.class);
+
+        ResponseEntity<String> response = dismiss(stranger, jobId);
+
+        assertThat(response.getStatusCode())
+                .as("same answer as for a job that does not exist -- never confirm someone else's job id")
+                .isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(jobRepository.findById(jobId).orElseThrow().getDismissedAt()).isNull();
+        assertThat(recentJobIds(owner)).containsExactly(jobId.toString());
+    }
+
+    // ------------------------------------------------------------------ superseded failures
+
+    @Autowired private com.finora.imports.ImportService importService;
+
+    private static final String OTHER_CSV = CSV + "2026-07-12,ZOMATO ORDER,312.00,DEBIT\n";
+
+    /** Confirms {@code csv} through the direct path, as a user re-importing a file would. */
+    private void importDirectly(User user, String csv) throws Exception {
+        var staged = importService.parseAndStageWithSession(user.getId(), "statement.csv",
+                csv.getBytes(StandardCharsets.UTF_8));
+        var d = staged.staging().detectedAccount();
+        var rows = staged.staging().rows().stream()
+                .map(r -> new com.finora.dto.ImportDto.ConfirmedRow(r.date(), r.description(), r.amount(), r.type(),
+                        r.suggestedCategory() == null ? "Other" : r.suggestedCategory(), true,
+                        r.categorySource(), r.ruleId(), r.likelyDuplicate(), r.referenceNumber(),
+                        r.balanceAfter(), false, r.categoryConfidence(), r.rowPosition(),
+                        r.international(), r.foreignCurrency(), r.foreignAmount()))
+                .toList();
+        var account = new com.finora.dto.ImportDto.NewAccountRequest("Superseded IT account", "SAVINGS",
+                null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null);
+        importService.confirmSession(user.getId(), new com.finora.dto.ImportDto.ConfirmRequest(
+                staged.sessionId(), rows, null, account, null, null, null,
+                d == null ? null : d.statementPeriodStart(), d == null ? null : d.statementPeriodEnd(),
+                null, null, null, null));
+    }
+
+    private UUID failedJob(User user, String csv) {
+        UUID jobId = queuedJob(user, "statement.csv", csv);
+        ImportJob job = jobRepository.findById(jobId).orElseThrow();
+        job.markClaimed("it-worker", Instant.now());
+        job.recordFailure("IllegalStateException: boom", "IllegalStateException",
+                com.finora.exception.ErrorCode.RetryPolicy.FAIL_FAST, Instant.now());
+        jobRepository.save(job);
+        return jobId;
+    }
+
+    /**
+     * The premise for the queued path: the job's hash is taken over the upload exactly as sent --
+     * before the queue compresses and encrypts it for storage -- which is the same value a confirmed
+     * statement of those bytes carries (SupersededAnalysisFailuresIT proves that side).
+     */
+    @Test
+    void aQueuedJobIsHashedOverTheBytesAsUploaded() {
+        User user = user();
+        UUID jobId = queuedJob(user, "statement.csv");
+
+        assertThat(jobRepository.findById(jobId).orElseThrow().getContentHash())
+                .isEqualTo(com.finora.imports.storage.ContentAddress.hashOf(CSV.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    @Test
+    void aFailedJobIsHiddenOnceTheSameFileIsImported() throws Exception {
+        User user = user();
+        UUID failed = failedJob(user, CSV);
+        assertThat(recentJobIds(user)).containsExactly(failed.toString());
+
+        importDirectly(user, CSV);
+
+        assertThat(recentJobIds(user)).as("the statement is in their accounts now").isEmpty();
+        assertThat(jobRepository.findById(failed).orElseThrow().getStatus())
+                .as("display only: the job is untouched").isEqualTo(ImportJob.Status.FAILED);
+    }
+
+    @Test
+    void aFailedJobOfADifferentFileStays() throws Exception {
+        User user = user();
+        UUID failed = failedJob(user, CSV);
+
+        importDirectly(user, OTHER_CSV);
+
+        assertThat(recentJobIds(user)).containsExactly(failed.toString());
+    }
+
+    @Test
+    void anotherUsersImportOfTheSameFileNeverHidesYourFailure() throws Exception {
+        User mine = user();
+        User theirs = user();
+        UUID failed = failedJob(mine, CSV);
+
+        importDirectly(theirs, CSV);
+
+        assertThat(recentJobIds(mine)).containsExactly(failed.toString());
+    }
+
+    /** Filtered in the query, so hidden rows do not eat into the page: it still fills to its size. */
+    @Test
+    void hiddenJobsDoNotShortenThePage() throws Exception {
+        User user = user();
+        UUID olderVisible = failedJob(user, OTHER_CSV);
+        failedJob(user, CSV);
+        importDirectly(user, CSV);
+
+        JsonNode data = read(restTemplate.exchange("/api/v1/import/jobs?limit=1", HttpMethod.GET,
+                new HttpEntity<>(bearerFor(user)), String.class)).get("data");
+
+        assertThat(data).hasSize(1);
+        assertThat(data.get(0).get("jobId").asText())
+                .as("the newer job is hidden, so the one slot goes to the older, still-unresolved one")
+                .isEqualTo(olderVisible.toString());
+    }
 }

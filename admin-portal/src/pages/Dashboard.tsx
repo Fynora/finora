@@ -341,7 +341,7 @@ function DashboardContent() {
               </div>
             </div>
             <div className="flex items-center gap-3 flex-shrink-0">
-              <span className="text-xs text-muted font-mono">
+              <span className={`text-xs font-mono ${bannerText}`}>
                 {dataUpdatedAt ? `Updated ${formatRelativeTime(dataUpdatedAt)}` : ''}
               </span>
               <button

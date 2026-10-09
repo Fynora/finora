@@ -105,7 +105,7 @@ function MembershipIllustration() {
       <div className="absolute inset-0 translate-x-3 translate-y-3 rounded-xl2 bg-primary/10 border border-primary/20" />
       <div className="absolute inset-0 rounded-xl2 bg-sidebar shadow-soft flex flex-col justify-between p-4 overflow-hidden">
         <div className="flex items-center justify-between">
-          <Crown size={20} className="text-warning" />
+          <Crown size={20} className="text-warning-fixed" />
           <ShieldCheck size={15} className="text-white/40" />
         </div>
         <div>
@@ -203,14 +203,14 @@ function FeatureComparisonModal({ onClose }: { onClose: () => void }) {
                   <tr key={label}>
                     <th scope="row" className="text-left font-normal text-ink px-2 py-2.5 whitespace-nowrap">{label}</th>
                     <td className="text-center px-2 py-2.5">
-                      {free ? <Check size={16} className="inline text-success" /> : <Minus size={16} className="inline text-border" />}
+                      {free ? <Check size={16} role="img" aria-label="Included" className="inline text-success" /> : <Minus size={16} role="img" aria-label="Not included" className="inline text-muted" />}
                     </td>
                     <td className="text-center px-2 py-2.5">
-                      {plus ? <Check size={16} className="inline text-success" /> : <Minus size={16} className="inline text-border" />}
+                      {plus ? <Check size={16} role="img" aria-label="Included" className="inline text-success" /> : <Minus size={16} role="img" aria-label="Not included" className="inline text-muted" />}
                     </td>
                     {PREMIUM_PLAN_VISIBLE && (
                       <td className="text-center px-2 py-2.5">
-                        {premium ? <Check size={16} className="inline text-success" /> : <Minus size={16} className="inline text-border" />}
+                        {premium ? <Check size={16} role="img" aria-label="Included" className="inline text-success" /> : <Minus size={16} role="img" aria-label="Not included" className="inline text-muted" />}
                       </td>
                     )}
                   </tr>
@@ -740,13 +740,13 @@ export default function Billing() {
           <div className="flex items-center justify-between gap-6 flex-wrap">
             <div className="max-w-lg">
               <div className="flex items-center gap-2 mb-2">
-                <Crown size={18} className="text-warning" />
+                <Crown size={18} className="text-warning-fixed" />
                 <span className="text-xs uppercase tracking-wide font-semibold text-white/60">Free Plan</span>
               </div>
               <h2 className="text-xl font-bold text-white">Unlock the full power of Fynora</h2>
               <p className="text-sm text-white/60 mt-1.5">
-                Unlimited accounts, advanced analytics, and extended history — see exactly what
-                each plan adds below.
+                Unlimited accounts, advanced analytics, and statements longer than one month — see
+                exactly what each plan adds below.
               </p>
             </div>
             <div className="flex gap-2.5 flex-shrink-0">
@@ -1064,7 +1064,7 @@ export default function Billing() {
                             >
                               View
                             </button>
-                            <span className="text-border mx-1.5">·</span>
+                            <span aria-hidden="true" className="text-border mx-1.5">·</span>
                             <button
                               type="button"
                               onClick={() => downloadInvoice(p.id)}
@@ -1077,7 +1077,7 @@ export default function Billing() {
                         ) : (
                           <>
                             <button type="button" disabled title="Only available for a completed payment" className="text-xs text-muted opacity-50 cursor-not-allowed">View</button>
-                            <span className="text-border mx-1.5">·</span>
+                            <span aria-hidden="true" className="text-border mx-1.5">·</span>
                             <button type="button" disabled title="Only available for a completed payment" className="text-xs text-muted opacity-50 cursor-not-allowed">Download</button>
                           </>
                         )}

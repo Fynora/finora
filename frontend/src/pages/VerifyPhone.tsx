@@ -369,7 +369,7 @@ export default function VerifyPhone() {
                   >
                     Change number
                   </button>
-                  <span className="text-border">·</span>
+                  <span aria-hidden="true" className="text-border">·</span>
                   <button
                     type="button"
                     onClick={handleLogout}

@@ -1,0 +1,11 @@
+-- Records WHEN a refresh token was ended by a server-side action its holder took no part in:
+-- "sign out this device" from the device list, "sign out other devices" after a password, email
+-- or phone change, and the account-wide revocations (password reset, admin actions, the theft
+-- response). Such a device still holds its token and presents it the next time it is opened,
+-- which is expected rather than suspicious. RefreshTokenService.rotate reads this column to
+-- reject that replay for the one session instead of treating it as theft, which signed the owner
+-- out of every device -- including sessions started after the revocation.
+--
+-- Null on every existing row, which keeps their behaviour exactly as before: a revoked row with
+-- neither rotated_at nor revoked_remotely_at is treated as theft.
+ALTER TABLE refresh_tokens ADD COLUMN revoked_remotely_at TIMESTAMPTZ;

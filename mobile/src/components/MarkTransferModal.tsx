@@ -15,6 +15,7 @@ import { hapticSelection } from '../lib/haptics';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { radius, spacing, useTheme } from '../theme';
+import { GlassSurface } from '../components/GlassSurface';
 
 /**
  * Phase 6. Port of Ledger.tsx's identical web modal. A keyword search over this same user's
@@ -80,8 +81,8 @@ export function MarkTransferModal({
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
         />
-        <View
-          style={[styles.sheet, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md }]}
+        <GlassSurface
+          style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}
           accessibilityViewIsModal
         >
           <View style={styles.header}>
@@ -111,7 +112,7 @@ export function MarkTransferModal({
             style={[styles.search, { backgroundColor: c.inputBg, borderColor: c.border, color: c.ink }]}
           />
 
-          {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+          {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
 
           {debouncedKeyword.length === 0 ? (
             <Text style={[styles.hint, { color: c.muted }]}>Start typing to search your transactions.</Text>
@@ -142,14 +143,14 @@ export function MarkTransferModal({
                     </Text>
                     <Text style={[styles.candidateMeta, { color: c.mutedInk }]}>{item.date}</Text>
                   </View>
-                  <Text style={[styles.candidateAmount, { color: item.type === 'INCOME' ? c.success : c.danger }]}>
+                  <Text style={[styles.candidateAmount, { color: item.type === 'INCOME' ? c.successInk : c.dangerInk }]}>
                     {item.type === 'INCOME' ? '+' : '-'}{fmtCurrency(item.amount)}
                   </Text>
                 </Pressable>
               )}
             />
           )}
-        </View>
+        </GlassSurface>
       </KeyboardAvoidingView>
     </AppModal>
   );

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { radius, spacing, useTheme } from '../theme';
+import { GlassSurface } from '../components/GlassSurface';
 
 /**
  * Shared between ProfileScreen and SettingsScreen -- the two are explicitly two halves of what
@@ -16,7 +17,7 @@ export function SectionCard({ title, subtitle, children }: {
 }) {
   const c = useTheme();
   return (
-    <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
+    <GlassSurface style={styles.section}>
       {/* Grouped: the subtitle explains the title, and hearing them as two unrelated items loses
           that. The web version pairs each with a decorative icon; there is no room for one at
           phone width, and it carried no information anyway. */}
@@ -25,14 +26,14 @@ export function SectionCard({ title, subtitle, children }: {
         <Text style={[styles.sectionSubtitle, { color: c.muted }]}>{subtitle}</Text>
       </View>
       <View style={styles.sectionBody}>{children}</View>
-    </View>
+    </GlassSurface>
   );
 }
 
 export function VerifiedBadge() {
   const c = useTheme();
   return (
-    <Text style={[styles.badge, { color: c.success, backgroundColor: c.successBg }]}>✓ Verified</Text>
+    <Text style={[styles.badge, { color: c.successInk, backgroundColor: c.successBg }]}>✓ Verified</Text>
   );
 }
 
@@ -52,11 +53,11 @@ export function SaveStatus({ dirty, saving, justSaved, error }: {
 }) {
   const c = useTheme();
   const state = error
-    ? { text: "Couldn't save — please try again.", color: c.danger }
+    ? { text: "Couldn't save — please try again.", color: c.dangerInk }
     : saving
       ? { text: 'Saving…', color: c.muted }
       : justSaved
-        ? { text: '✓ Saved', color: c.success }
+        ? { text: '✓ Saved', color: c.successInk }
         : dirty
           ? { text: 'Unsaved changes', color: c.warningInk }
           : null;
@@ -72,7 +73,7 @@ export function SaveStatus({ dirty, saving, justSaved, error }: {
 export function MetricTile({ label, value, style }: { label: string; value: string; style?: StyleProp<ViewStyle> }) {
   const c = useTheme();
   return (
-    <View style={[styles.tile, { backgroundColor: c.bg, borderColor: c.border }, style]} accessible accessibilityLabel={`${label}: ${value}`}>
+    <View style={[styles.tile, { backgroundColor: c.bg /* glass-exempt: stat tile inside a glass card; opaque bg is its contrast against the card */, borderColor: c.border }, style]} accessible accessibilityLabel={`${label}: ${value}`}>
       {/* Shrinks rather than breaking a word mid-letter at large text sizes ("REFERRE / D"). Only
           kicks in when the label would overflow two lines, so normal sizes are unchanged. */}
       <Text style={[styles.tileLabel, { color: c.muted }]} numberOfLines={2} adjustsFontSizeToFit>{label}</Text>

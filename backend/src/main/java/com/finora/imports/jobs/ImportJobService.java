@@ -408,11 +408,37 @@ public class ImportJobService {
      * {@code IllegalArgumentException} -- a 500 for what is plainly a bad query parameter.
      * {@link com.finora.util.PageBounds} is the clamp every other paginated endpoint here already
      * uses and exists for exactly this; this one simply never adopted it.
+     *
+     * <p>Leaves out jobs the owner dismissed ({@link #dismiss}), and failures or cancellations whose
+     * file they have since confirmed as a statement import ({@code ImportJobRepository
+     * #findRecentForOwner}). Both only ever remove finished jobs, so a client looking for a job it
+     * lost track of mid-import still finds it here.
      */
     public List<ImportJobDto.Progress> recent(UUID userId, int limit) {
         int size = com.finora.util.PageBounds.safeSize(limit, 50);
-        return repository.findByUserIdOrderByCreatedAtDesc(userId, PageRequest.of(0, size))
+        return repository.findRecentForOwner(userId, PageRequest.of(0, size))
                 .stream().map(ImportJobDto.Progress::of).toList();
+    }
+
+    /**
+     * The owner hides a failed or cancelled import from their recent-imports list.
+     *
+     * <p>A failure stays listed until newer uploads push it out -- including after the user has
+     * uploaded the statement again and imported it -- still saying it couldn't finish. This lets
+     * them clear it once read. 404 for someone else's job, exactly as {@link #cancel}; 409 for any
+     * job that is not failed or cancelled -- a running or held import is not over. Idempotent,
+     * like {@link #cancel}.
+     */
+    @Transactional
+    public void dismiss(UUID userId, UUID jobId) {
+        ImportJob job = repository.findByIdAndUserId(jobId, userId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Import job not found."));
+        if (!ImportJob.DISMISSABLE.contains(job.getStatus())) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "Only a failed or cancelled import can be dismissed.");
+        }
+        job.dismiss(Instant.now());
+        repository.save(job);
     }
 
     /**
@@ -473,13 +499,14 @@ public class ImportJobService {
             case COMPLETED -> "This import already finished. Discard the staged import instead "
                     + "if you don't want it.";
             case FAILED -> "This import already failed, so there is nothing left to cancel.";
-            // Both holds, one answer -- matching UserFacingImportStatus's own collapse. No ETA, and
-            // no suggestion the statement itself is in question: the doubt behind a trust hold is
-            // about our extraction, not their document, and this is the message most at risk of
-            // saying otherwise.
+            // Both holds, one answer -- matching UserFacingImportStatus's own collapse, and the same
+            // 48-hour promise the held screen and V263's hold email make. No suggestion the
+            // statement itself is in question: the doubt behind a trust hold is about our
+            // extraction, not their document, and this is the message most at risk of saying
+            // otherwise.
             case HELD_FOR_REVIEW, HELD_FOR_TRUST_REVIEW ->
-                    "We're still running some additional checks on this statement. There's nothing "
-                            + "to cancel yet; we'll let you know once it's ready.";
+                    "We're double-checking this statement by hand, so there's nothing to cancel. "
+                            + "We'll notify you within 48 hours.";
             // Transactions exist by now, and removing them is the ledger's job, not the queue's.
             case IMPORTING, LEARNING ->
                     "This import is already writing to your accounts and can no longer be "

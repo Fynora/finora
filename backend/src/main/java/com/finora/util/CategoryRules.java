@@ -47,7 +47,8 @@ public final class CategoryRules {
         // only matches the exact bounded token "housingcom", never as a prefix inside a longer run
         // like "housingcommunity" (guarded by suggestCategory_housingCommunityIsNotMisclassifiedAsRent).
         RULES.put("Rent", List.of("house rent", "rent paid", "rent payment", "monthly rent", "rent due", "landlord", "housing society", "maintenance chg", "housingcom"));
-        RULES.put("Groceries", List.of("bigbasket", "blinkit", "zepto", "grofers", "dmart", "grocery", "supermarket"));
+        // "bbnow" (2026-10-05): a grocery app's quick-delivery arm, one corpus row in "Other".
+        RULES.put("Groceries", List.of("bigbasket", "blinkit", "zepto", "grofers", "dmart", "grocery", "supermarket", "bbnow"));
         // "asspl" (Amazon Seller Services' actual card-statement abbreviation) and "cinnabon"
         // added after checking this project's own real bank-statement corpus (docs/superpowers/
         // specs/2026-09-01-transaction-categorization-design.md §1) -- both real, verified misses,
@@ -75,7 +76,10 @@ public final class CategoryRules {
         // a name, so it typed PERSON and fell to "Personal Transfer" on 7 corpus rows across 4
         // documents and 2 accounts, in both the HDFC and the slash UPI layout. The whole phrase, as
         // with the other brands here -- a bare "tea" names a drink, not a business.
-        RULES.put("Dining", List.of("swiggy", "zomato", "eatclub", "restaurant", "cafe", "starbucks", "dominos", "mcdonald", "kfc", "cinnabon", "gokhana", "tobox", "chinese factory", "cream house", "lassi wassi", "tea post"));
+        // Brands found in the corpus's residual "Other" rows (2026-10-05), 9 rows: "domino s" is
+        // "Domino's" with its apostrophe turned into a space, which "dominos" never matched.
+        RULES.put("Dining", List.of("swiggy", "zomato", "eatclub", "restaurant", "cafe", "starbucks", "dominos", "mcdonald", "kfc", "cinnabon", "gokhana", "tobox", "chinese factory", "cream house", "lassi wassi", "tea post",
+                "tim hortons", "barbequenation", "barbeque nation", "blue tokai", "keventer", "lite bite", "domino s"));
         // "indian railways" (the national railway institution, named directly rather than
         // through its "irctc" booking portal already above) added after re-checking this
         // project's own real bank-statement corpus for additional vocabulary beyond the
@@ -98,7 +102,10 @@ public final class CategoryRules {
         RULES.put("Transport", List.of("uber", "ola", "rapido", "irctc", "petrol", "fuel", "metro", "fastag", "parking", "indian railways", "pune metro",
                 "punemetro", "parkplus", "hp petro"));
         RULES.put("Utilities", List.of("electricity", "power bill", "water bill", "gas bill", "broadband", "airtel", "jio", "recharge",
-                "airtelautopay", "airtelprepaid", "gpay utility"));
+                "airtelautopay", "airtelprepaid", "gpay utility",
+                // The payments app's recharge id, which a processor collects under its own company
+                // name (2026-10-05, 2 rows). Fusion-tolerant: the id runs into a digit.
+                "gpayrecharge"));
         // "pureplay" (Pureplay Skin Sciences, a real D2C skincare/personal-care e-commerce brand)
         // added after checking this project's own real bank-statement corpus (docs/superpowers/
         // specs/2026-09-01-transaction-categorization-design.md §1) -- a real, verified miss, safe
@@ -110,8 +117,13 @@ public final class CategoryRules {
         // added after mining this project's own real bank-statement corpus's current residual
         // "Other" bucket (2026-09-14 pass, docs/superpowers/plans/2026-09-14-vocabulary-mining-
         // pass-2.md). Safe as bare words/phrases: neither collides with any other keyword here.
-        RULES.put("Shopping", List.of("amazon", "flipkart", "myntra", "ajio", "nykaa", "decathlon", "asspl", "pureplay", "global fashion", "ekart"));
-        RULES.put("Health", List.of("pharmacy", "apollo", "medplus", "hospital", "clinic", "netmeds", "1mg"));
+        // "meesho", "tata cliq", "mr diy", "reliance retail" (2026-10-05): 6 rows in "Other". "tonique",
+        // a liquor store (2 rows): no category is closer than a store purchase.
+        RULES.put("Shopping", List.of("amazon", "flipkart", "myntra", "ajio", "nykaa", "decathlon", "asspl", "pureplay", "global fashion", "ekart",
+                "meesho", "tata cliq", "mr diy", "reliance retail", "tonique"));
+        // "healthians" (2026-10-05): a diagnostics lab, 2 rows in "Other". "fitpass", a gym pass printed
+        // run into its country prefix ("INDFITPASS"), so fusion-tolerant; 1 row.
+        RULES.put("Health", List.of("pharmacy", "apollo", "medplus", "hospital", "clinic", "netmeds", "1mg", "healthians", "fitpass"));
         RULES.put("Entertainment", List.of("netflix", "prime video", "hotstar", "spotify", "bookmyshow", "pvr", "inox"));
         // "mutualfunds" is not redundant with "mutual fund": matching is word-boundary over the
         // NORMALIZED description, and normalize() only replaces non-alphanumerics with spaces -- it
@@ -162,7 +174,9 @@ public final class CategoryRules {
                 "indian clearing", "indian c learing", "nextbillion", "nse zerod", "hsbc mf", "nippon life asset", "nsdl findiv",
                 "angel one", "angelone", "5paisa", "kuvera", "indmoney", "smallcase", "sharekhan",
                 "paytm money", "etmoney", "et money", "motilal oswal",
-                "icici direct", "icicidirect", "hdfc securities", "icici securities", "kotak securities"));
+                "icici direct", "icicidirect", "hdfc securities", "icici securities", "kotak securities",
+                // A fund house's mandate debit with its name run into "MF" (2026-10-05, one corpus row).
+                "hdfcmf"));
         RULES.put("Fees/Interest", List.of("annual fee", "late fee", "finance charge", "interest charged", "penalty"));
         // "cc payment" added after checking this project's own real bank-statement corpus (see
         // Shopping/Dining comment above) -- a real BharatBillPay narration ("BPPY CC PAYMENT")
@@ -183,7 +197,7 @@ public final class CategoryRules {
         // TRANSFER-...") rather than the bare word "self", which is common enough in unrelated
         // narrations that a bare-word match would carry real false-positive risk.
         RULES.put("Transfer", List.of("credit card payment", "card bill payment", "cc payment", "autopay", "neft to", "imps to", "billdesk", "rtgs", "self transfer"));
-        // Appended after the original set (see AuthService.DEFAULT_CATEGORIES, which this list
+        // Appended after the original set (see DefaultCategories, which this list
         // now mirrors) rather than interleaved — insertion order is match priority for
         // suggestCategory's first-match-wins loop, and none of these keywords collide with the
         // rules above, so appending can't change any existing categorization.
@@ -212,13 +226,30 @@ public final class CategoryRules {
         // English or Indian-banking-narration word, so the word-boundary matching this file already
         // requires (see RULE_PATTERNS below) has nothing plausible to misfire against.
         RULES.put("Cash Withdrawal", List.of("atm withdrawal", "atm wdl", "cash withdrawal", "cash wdl", "nwd"));
-        RULES.put("Travel", List.of("makemytrip", "goibibo", "yatra", "airbnb", "oyo", "indigo", "spicejet", "vistara", "hotel booking"));
+        // "ixigo" and its company "le travenues", a hotel site, an airline and airport lounges
+        // (2026-10-05): 9 corpus rows in "Other".
+        RULES.put("Travel", List.of("makemytrip", "goibibo", "yatra", "airbnb", "oyo", "indigo", "spicejet", "vistara", "hotel booking",
+                "ixigo", "le travenues", "agoda", "air india", "encalm", "airport lounge",
+                // An airport-services app's company (1 row).
+                "adani digital"));
         // "appleservices", "googleworkspace", "amazonaws" (2026-10-03): the same fused, cut UPI ids
         // on the same statement -- an app store, an office suite and a cloud provider's monthly charges.
+        // "cloudflare", "anthropic", "linkedin" and the spaced "google workspace" (2026-10-05): 5 rows.
+        // A card statement prints the first two twice, run together ("CLOUDFLARECLOUDFLARE"), so
+        // both are FUSION_TOLERANT_KEYWORDS.
         RULES.put("Subscriptions", List.of("google one", "icloud", "adobe", "microsoft 365", "linkedin premium", "apple services",
-                "appleservices", "googleworkspace", "amazonaws"));
+                "appleservices", "googleworkspace", "amazonaws", "cloudflare", "anthropic", "linkedin", "google workspace",
+                // An app store, like "appleservices" above (2026-10-05, 14 rows): its mandate ("Google
+                // Play"), its own UPI id ("playstore1..." -- fusion-tolerant, the id runs into a digit)
+                // and a card line ("GOOGLE*PLAYSUPPORT").
+                "google play", "playstore", "google playsupport"));
         RULES.put("Education", List.of("udemy", "coursera", "byjus", "tuition fee", "school fee", "college fee"));
         RULES.put("Gifts & Donations", List.of("donation", "charity", "ngo donation", "gift"));
+        // Appended, like the categories above, so no earlier match changes (2026-10-05): a skincare
+        // brand and a mattress maker, 2 corpus rows each in "Other"; a home-services company whose main
+        // business is beauty and grooming, 1 row.
+        RULES.put("Personal Care", List.of("dot and key", "urban company"));
+        RULES.put("Home & Furnishing", List.of("wakefit"));
     }
 
     /**
@@ -575,7 +606,12 @@ public final class CategoryRules {
     // "punemetro" and "airtelprepaid" (2026-10-03): an operator's UPI id, which the bank cuts at a
     // length that varies with the layout ("...prepaidUP", "...ccadri"), so no word boundary follows
     // the brand. Both are long and specific enough that no English or Indian name contains them.
-    private static final Set<String> FUSION_TOLERANT_KEYWORDS = Set.of("groww", "zerodha", "upstox", "punemetro", "airtelprepaid");
+    // "cloudflare" and "anthropic" (2026-10-05): a card statement prints each merchant's name twice
+    // with nothing between ("CLOUDFLARECLOUDFLARE"). Long, and in no English or Indian name.
+    // "playstore", "gpayrecharge" (a UPI id that runs into a digit) and "fitpass" (run into its country
+    // prefix) the same day, on the same reasoning.
+    private static final Set<String> FUSION_TOLERANT_KEYWORDS = Set.of("groww", "zerodha", "upstox", "punemetro", "airtelprepaid",
+            "cloudflare", "anthropic", "playstore", "gpayrecharge", "fitpass");
 
     private static final Map<String, List<Pattern>> RULE_PATTERNS = new LinkedHashMap<>();
     static {

@@ -1,9 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { AppAlert, clearAppAlerts } from '../lib/appAlert';
+import { AppBanner } from '../lib/appBanner';
+import { showSystemNotification } from '../lib/systemNotification';
 import { useQueryClient } from '@tanstack/react-query';
 import { authApi } from '../api/endpoints';
-import { setSessionCallbacks } from '../api/client';
+import { markSessionEnded, sessionStorageCleared, setSessionCallbacks } from '../api/client';
 import { safeStorage } from '../lib/safeStorage';
 import { clearPersistedQueryCache, pauseQueryPersistence } from '../api/queryClient';
 import { resetChangeSync } from '../lib/changeSync';
@@ -11,7 +13,10 @@ import { sweepFileCache } from '../lib/fileCacheSweep';
 import { purgeSharedContainers } from '../lib/sharedContainerSweep';
 import { signOutOfGoogle } from '../lib/googleSession';
 import * as appLock from '../lib/appLock';
-import { registerDeviceToken, revokeDeviceToken, subscribeToForegroundMessages } from '../lib/pushRegistration';
+import {
+  clearPendingDetach, detachDevice, registerDeviceToken, resumePendingDetach, subscribeToForegroundMessages,
+} from '../lib/pushRegistration';
+import { endRemoteSession } from '../lib/endRemoteSession';
 import { configureRevenueCat } from '../lib/revenueCat';
 import { reportHandledError } from '../lib/monitoring';
 
@@ -139,6 +144,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setPhoneVerifiedState(storedVerified === 'true');
       setOnboardingCompletedState(storedOnboarded === 'true');
       setBootstrapping(false);
+      // A sign-out that was closed before it finished detaching push finishes it now -- only while
+      // still signed out (see resumePendingDetach). A session that merely expired never set the flag.
+      if (storedToken === null) {
+        void resumePendingDetach(async () => (await safeStorage.getItem(TOKEN_KEY)) === null);
+      }
       // Subscription billing V4 (design spec §2/§6.1 step 1): RevenueCat must be configured with
       // the real, authenticated user id before the Paywall/My Subscription screens can be reached
       // -- including a cold start restoring an already-signed-in session, not just a fresh
@@ -243,7 +253,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // verified flag lands on VerifyPhone -- no imperative navigation call needed.
   useEffect(() => {
     setSessionCallbacks({
-      onSessionExpired: clearLocalState,
+      onSessionExpired: ({ endedDeliberately }) => {
+        clearLocalState();
+        // Signed out on purpose from elsewhere (a lost phone removed from the device list, say):
+        // stop its notifications too, as a sign-out here would. A session that merely timed out
+        // keeps them -- see endedDeliberately in client.ts.
+        if (endedDeliberately) void detachDevice();
+      },
       onPhoneVerificationRequired: () => setPhoneVerifiedState(false),
     });
   }, [clearLocalState]);
@@ -357,22 +373,56 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       AppAlert.alert(next.title, next.body, [{ text: 'OK', onPress: showNextForegroundAlert }], { cancelable: false });
     };
 
+    // Set when this session ends, so a fallback banner that was still being decided cannot appear
+    // on a signed-out phone.
+    let sessionEnded = false;
+
     const unsubscribe = subscribeToForegroundMessages((message) => {
+      // A push about a statement import (held, ready, resolved, rejected) means the job behind it
+      // just changed, and the Statements screen's "Recent imports" card shows that job. While the
+      // app is open the push only raises the alert below -- it does not navigate, so nothing
+      // remounts -- and that card is not covered by the change stamp, so without this the alert
+      // could say "rejected" over a card still saying "held". Ahead of the lock and body checks:
+      // the data changed whether or not the alert can be shown.
+      const pushType = message.data?.type;
+      if (typeof pushType === 'string' && pushType.startsWith('IMPORT_STATEMENT_')) {
+        void queryClient.invalidateQueries({ queryKey: ['import-jobs-recent'] });
+      }
       if (appLock.isLocked()) return;
       const body = message.notification?.body;
       if (!body) return;
+      // An admin campaign message (backend NotificationType.CUSTOM_PUSH, always sent with
+      // data.type) is an announcement or reminder, not something to act on this second. A blocking
+      // pop-up in the middle of someone's work is the wrong way to deliver it, so while the app is
+      // open it is a small banner that clears itself, like any other app's in-app notification; with
+      // the app closed the OS shows it as a normal notification. Every other push type keeps the
+      // alert below.
+      if (message.data?.type === 'CUSTOM_PUSH') {
+        const title = message.notification?.title ?? 'Fynora';
+        // First choice: a real system notification, the kind other apps show. It slides in at the
+        // top and stays in the notification centre after a swipe, so it can be read again. The
+        // in-app banner is the fallback for when the system cannot show one (a build made before
+        // the native piece existed, or notifications switched off) -- the message is never lost.
+        void showSystemNotification(title, body, message.messageId).then((shown) => {
+          if (!shown && !sessionEnded) AppBanner.show(title, body);
+        });
+        return;
+      }
       foregroundAlertQueue.current.push({ title: message.notification?.title ?? 'Fynora', body });
       if (!isShowingForegroundAlert.current) showNextForegroundAlert();
     });
     return () => {
+      sessionEnded = true;
       unsubscribe();
       // Drops anything still waiting for THIS session -- without it, a message queued right
       // before logout would sit in the ref (refs outlive this effect run) and only surface once
       // some later, unrelated session's alert happens to get dismissed.
       foregroundAlertQueue.current = [];
       isShowingForegroundAlert.current = false;
+      // Same reason for a banner still on screen: it was this session's message.
+      AppBanner.dismiss();
     };
-  }, [token, phoneVerified]);
+  }, [token, phoneVerified, queryClient]);
 
   async function persist(data: {
     token: string;
@@ -383,6 +433,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     id: string;
     onboardingCompleted: boolean;
   }) {
+    // This sign-in owns the install's push token now; an older sign-out's unfinished detach is void.
+    void clearPendingDetach();
     await Promise.all([
       safeStorage.setItem(TOKEN_KEY, data.token),
       safeStorage.setItem(REFRESH_TOKEN_KEY, data.refreshToken),
@@ -528,6 +580,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   function logout() {
+    // First, before anything else: the session is over for every request and refresh already in
+    // flight. Without this, a refresh started by background requests just before the tap finished a
+    // moment later and wrote a fresh token pair back to storage (2026-10-05, a real phone signed
+    // straight back in on its next launch). See markSessionEnded. What such a refresh ends up
+    // holding comes back here, so the clean-up below can sign that pair out rather than a stale one.
+    const latePair = markSessionEnded();
+    // Push next, at once and in parallel: it needs no credentials (see detachDevice), so a sign-out
+    // closed a second later has still told Firebase to stop delivering this account's notifications.
+    const pushToken = detachDevice();
+
     // Clear local state first so the UI responds immediately -- the user expects to be signed out
     // whether or not the network call lands.
     clearLocalState();
@@ -535,30 +597,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // The cache goes with it -- cleared by clearLocalState() above rather than here, so that a
     // session which expires gets the same guarantee as one that is signed out of. See its comment.
     void (async () => {
-      // Task 14. Must run BEFORE the TOKEN_KEY removal further down, and awaited here rather than
-      // fired in parallel with it: revokeDeviceToken()'s POST /device-tokens/revoke call needs the
-      // bearer token client.ts's request interceptor reads out of safeStorage, and that storage
-      // entry is what the Promise.all below deletes. Never throws (see pushRegistration.ts) and
-      // never delays the rest of this IIFE by more than the one network round trip -- the whole
-      // block already runs after clearLocalState() has signed the UI out.
-      await revokeDeviceToken();
-
-      // Best-effort: revoke the refresh token server-side so it can't be reused even if someone
-      // captured it. Read before removal, since removal would otherwise race this read.
-      const refreshToken = await safeStorage.getItem(REFRESH_TOKEN_KEY);
-      if (refreshToken) {
-        authApi.logout(refreshToken).catch(() => {});
+      // Storage is cleared BEFORE any network call, with the two tokens copied out first for the
+      // server-side clean-up. It used to be cleared last, after the push revoke and the logout call,
+      // so closing the app during those calls left the session on the device for the next launch.
+      let stored: { accessToken: string | null; refreshToken: string | null } = { accessToken: null, refreshToken: null };
+      try {
+        const [accessToken, refreshToken] = await Promise.all([
+          safeStorage.getItem(TOKEN_KEY),
+          safeStorage.getItem(REFRESH_TOKEN_KEY),
+        ]);
+        stored = { accessToken, refreshToken };
+        await Promise.all([
+          safeStorage.removeItem(TOKEN_KEY),
+          safeStorage.removeItem(REFRESH_TOKEN_KEY),
+          safeStorage.removeItem(EMAIL_KEY),
+          safeStorage.removeItem(NAME_KEY),
+          safeStorage.removeItem(PHONE_VERIFIED_KEY),
+          safeStorage.removeItem(USER_ID_KEY),
+          safeStorage.removeItem(ONBOARDING_COMPLETED_KEY),
+          safeStorage.removeItem(REFERRAL_PROMPT_KEY),
+        ]);
+      } finally {
+        // Always, or the next session on this device could never refresh its token.
+        sessionStorageCleared();
       }
-      await Promise.all([
-        safeStorage.removeItem(TOKEN_KEY),
-        safeStorage.removeItem(REFRESH_TOKEN_KEY),
-        safeStorage.removeItem(EMAIL_KEY),
-        safeStorage.removeItem(NAME_KEY),
-        safeStorage.removeItem(PHONE_VERIFIED_KEY),
-        safeStorage.removeItem(USER_ID_KEY),
-        safeStorage.removeItem(ONBOARDING_COMPLETED_KEY),
-        safeStorage.removeItem(REFERRAL_PROMPT_KEY),
-      ]);
+      // Task 14 (push revoke) and the server-side logout, from the copies above or from the pair a
+      // refresh that was still in flight ends up with. Never throws.
+      await endRemoteSession(stored, { latePair, pushToken });
     })();
   }
 

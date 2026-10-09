@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { dashboardApi } from '../api/endpoints';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import { radius, spacing, useTheme } from '../theme';
+import { GlassScreen } from '../components/GlassScreen';
 
 /** Port of frontend/src/pages/Wrapped.tsx, which renders a blank page (`return null`) until its
  *  query resolves and on a failure alike -- a phone user needs the loading and failure states to
@@ -18,14 +19,15 @@ export function WrappedScreen() {
 
   if (isLoading) {
     return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+      <GlassScreen style={styles.centered}>
         <ActivityIndicator size="large" color={c.primary} />
-      </View>
+      </GlassScreen>
     );
   }
 
   return (
-    <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.content}>
+    <GlassScreen style={styles.glassRoot}>
+    <ScrollView contentContainerStyle={styles.content}>
       {/* No data is the only failure worth reporting: React Query keeps the previous data when a
           refetch fails, and a failed refetch must not replace a year in review that is already here. */}
       {!data ? (
@@ -50,10 +52,12 @@ export function WrappedScreen() {
         </View>
       )}
     </ScrollView>
+    </GlassScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  glassRoot: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   content: { padding: spacing.md },
   note: { fontSize: 13 },

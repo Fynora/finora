@@ -286,7 +286,7 @@ function FynChat() {
           <div key={i} className={turn.role === 'user' ? 'text-right' : 'text-left'}>
             <p className={
               'inline-block rounded-xl2 px-3 py-2 text-sm max-w-[80%] whitespace-pre-wrap ' +
-              (turn.role === 'user' ? 'bg-primary text-white' : 'bg-bg border border-border text-ink')
+              (turn.role === 'user' ? 'bg-primary text-on-primary' : 'bg-bg border border-border text-ink')
             }>
               {turn.attachmentName && (
                 <span className={
@@ -375,7 +375,7 @@ function FynChat() {
             type="button"
             onClick={() => void send()}
             disabled={sending || loadingHistory || (!input.trim() && !attachedImage)}
-            className="rounded-lg bg-primary px-3 py-2 text-white disabled:opacity-50"
+            className="rounded-lg bg-primary px-3 py-2 text-on-primary disabled:opacity-50"
             aria-label="Send"
           >
             <Send size={16} />

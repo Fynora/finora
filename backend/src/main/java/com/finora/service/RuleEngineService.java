@@ -5,6 +5,7 @@ import com.finora.entity.Transaction;
 import com.finora.exception.ApiException;
 import com.finora.repository.CategoryRuleRepository;
 import com.finora.util.CategoryRules;
+import com.finora.util.DefaultCategories;
 import com.finora.util.EnumParsing;
 import com.finora.util.MoneyMath;
 import org.springframework.http.HttpStatus;
@@ -56,7 +57,7 @@ public class RuleEngineService {
         for (CategoryRule rule : categoryRuleRepository.findByUserIdAndEnabledTrueOrderByPriorityAscComparisonValueAscIdAsc(userId)) {
             if (matches(rule, description, amount, merchantName, accountType, null)) return Optional.of(new RuleMatch(rule));
         }
-        for (CategoryRule rule : categoryRuleRepository.findByScopeAndEnabledTrueOrderByPriorityAscComparisonValueAscIdAsc(CategoryRule.Scope.GLOBAL)) {
+        for (CategoryRule rule : globalRules()) {
             if (matches(rule, description, amount, merchantName, accountType, null)) return Optional.of(new RuleMatch(rule));
         }
         return Optional.empty();
@@ -156,8 +157,29 @@ public class RuleEngineService {
     public List<CategoryRule> ruleSet(UUID userId) {
         List<CategoryRule> rules = new ArrayList<>(
                 categoryRuleRepository.findByUserIdAndEnabledTrueOrderByPriorityAscComparisonValueAscIdAsc(userId));
-        rules.addAll(categoryRuleRepository.findByScopeAndEnabledTrueOrderByPriorityAscComparisonValueAscIdAsc(CategoryRule.Scope.GLOBAL));
+        rules.addAll(globalRules());
         return rules;
+    }
+
+    /**
+     * The enabled GLOBAL rules, priority order, without any that files under a category that is
+     * not a default one. A global rule reaches every user, so a category it names must be one
+     * every user has; another name -- saved before RuleService refused them -- would be created
+     * in every account the rule matched. Such a rule is skipped, as if switched off; rules that
+     * name no category (transfer, tag, subscription) are unaffected.
+     */
+    private List<CategoryRule> globalRules() {
+        return categoryRuleRepository.findByScopeAndEnabledTrueOrderByPriorityAscComparisonValueAscIdAsc(CategoryRule.Scope.GLOBAL)
+                .stream().filter(RuleEngineService::namesADefaultCategoryIfAny).toList();
+    }
+
+    private static boolean namesADefaultCategoryIfAny(CategoryRule rule) {
+        String value = rule.getActionValue();
+        return switch (rule.getActionType()) {
+            case ASSIGN_CATEGORY -> DefaultCategories.canonical(value).isPresent();
+            case MARK_INVESTMENT -> value == null || value.isBlank() || DefaultCategories.canonical(value).isPresent();
+            default -> true;
+        };
     }
 
     /** As {@link #evaluateSideEffectRules(UUID, String, BigDecimal, String, String)}, against a
@@ -308,8 +330,25 @@ public class RuleEngineService {
             return false;
         }
         String payee = CategoryRules.extractMerchantLabel(description);
-        return payee != null && payee.equalsIgnoreCase(rule.getComparisonValue().trim());
+        if (payee != null && payee.equalsIgnoreCase(rule.getComparisonValue().trim())) return true;
+        List<String> aliases = rule.getPayeeAliases();
+        if (aliases == null || aliases.isEmpty()) return false;
+        // A saved answer also knows its payee by the name the bank printed on the answered payments
+        // (the user may have edited the one they were asked about) and by their UPI id (the printed
+        // name of a person can vary from payment to payment). See RecurringAnswerService.
+        if (payee != null && aliases.stream().anyMatch(a -> a.regionMatches(true, 0, PAYEE_LABEL_ALIAS, 0, PAYEE_LABEL_ALIAS.length())
+                && a.substring(PAYEE_LABEL_ALIAS.length()).trim().equalsIgnoreCase(payee.trim()))) {
+            return true;
+        }
+        String key = com.finora.util.CounterpartyTyping.of(description).key();
+        // Only a key that names one payee: a gateway's own id or a cut id is shared by many shops.
+        return key != null && com.finora.util.CounterpartyIdentity.identifiesOnePayee(key)
+                && aliases.contains(PAYEE_KEY_ALIAS + key);
     }
+
+    /** Prefixes of {@link CategoryRule#getPayeeAliases()} entries (V259). */
+    public static final String PAYEE_LABEL_ALIAS = "label:";
+    public static final String PAYEE_KEY_ALIAS = "key:";
 
     /** Optional bounds on any rule (V248), inclusive. A bounded rule never matches a missing amount. */
     private static boolean withinBounds(CategoryRule rule, BigDecimal amount) {

@@ -143,15 +143,16 @@ class InvestmentRulePrecedenceIT extends AbstractIntegrationTest {
     void create_theUsersOwnInvestmentRule_beatsAGlobalOne() {
         Fixture f = fixture();
         CategoryRule own = rule(f.userId(), CategoryRule.ActionType.MARK_INVESTMENT, "SIP Mine", f.token());
-        CategoryRule global = rule(null, CategoryRule.ActionType.MARK_INVESTMENT, "SIP Global", f.token());
+        // Blank: files under Investments. A global rule may only name a default category, so a
+        // named one would be skipped for that reason and say nothing about precedence.
+        CategoryRule global = rule(null, CategoryRule.ActionType.MARK_INVESTMENT, null, f.token());
 
         TransactionDto dto = create(f, null);
         assertThat(dto.categoryName()).isEqualTo("SIP Mine");
         Transaction stored = transactionRepository.findById(dto.id()).orElseThrow();
         assertThat(stored.getDecisionSource()).isEqualTo(Transaction.DecisionSource.USER_RULE);
         assertThat(stored.getDecisionRuleId()).isEqualTo(own.getId());
-        // The global rule did nothing, so it neither created its category nor counted a match.
-        assertThat(categoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc(f.userId(), "SIP Global")).isEmpty();
+        // The global rule did nothing, so it counted no match.
         assertThat(ruleRepository.findById(global.getId()).orElseThrow().getMatchCount()).isZero();
     }
 

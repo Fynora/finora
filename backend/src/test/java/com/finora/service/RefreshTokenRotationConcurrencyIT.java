@@ -10,6 +10,8 @@ import com.finora.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
 import java.util.UUID;
@@ -46,6 +48,8 @@ class RefreshTokenRotationConcurrencyIT extends AbstractIntegrationTest {
     @Autowired private RefreshTokenService refreshTokenService;
     @Autowired private RefreshTokenRepository refreshTokenRepository;
     @Autowired private UserRepository userRepository;
+    @Autowired private PlatformTransactionManager transactionManager;
+    @Autowired private AuthService authService;
 
     private User createUser() {
         User user = new User();
@@ -188,9 +192,17 @@ class RefreshTokenRotationConcurrencyIT extends AbstractIntegrationTest {
      *  an uncaught {@code ExecutionException} instead of a clean assertion -- a second source of
      *  CI flakiness in this same test, just not yet the one that fired. Proven deterministically
      *  the same way: calling {@code revokeAllOtherSessionsForUser} to completion and then {@code
-     *  rotate()} straight after throws exactly this {@link ApiException}, and leaves ZERO live
-     *  sessions for the user -- rotate()'s reuse-detection sweeps every session, including
-     *  currentDevice's, which is a stronger outcome than what the bulk revoke itself asked for. */
+     *  rotate()} straight after throws an {@link ApiException}.
+     *
+     *  <p><b>2026-10-05.</b> That ordering used to leave ZERO live sessions: rotate() took the
+     *  replay for theft and swept every session, currentDevice's included, and this test asserted
+     *  it as "a stronger outcome". It was the bug, not a stronger outcome -- the device that chose
+     *  to stay signed in was signed out by the device it had just removed. The bulk revoke now
+     *  marks its rows as ended remotely, rotate() rejects that replay with AUTH_TOKEN_EXPIRED for
+     *  its own session only, and currentDevice survives (RemotelyRevokedSessionReplayIT). The
+     *  revocations are also bulk UPDATEs now, which wait for an in-flight rotation instead of
+     *  losing a @Version race to it, so the two conflict branches below are no longer expected to
+     *  be reached; they stay as assertions on what must hold if one ever is. */
     @Test
     void rotateRacingBulkRevokeOfOtherSessionsNeverSilentlyLosesTheRevocation() throws Exception {
         User user = createUser();
@@ -216,19 +228,14 @@ class RefreshTokenRotationConcurrencyIT extends AbstractIntegrationTest {
             } catch (ApiException e) {
                 // The mirror image of the "rotate() commits before revoke() reads" outcome
                 // below: the bulk revoke can instead complete AND COMMIT in full before
-                // rotate()'s own read ever runs. rotate() then finds the row already revoked
-                // and takes its own reuse-detection path (revokeAllForUser + throw) rather than
-                // hitting a version conflict -- confirmed deterministically (no timing luck) by
-                // calling revokeAllOtherSessionsForUser() to completion and then rotate()
-                // straight after: rotate() throws exactly this ApiException, not
-                // ObjectOptimisticLockingFailureException. Verified separately from this race.
+                // rotate()'s own read ever runs. rotate() then finds the row ended remotely and
+                // rejects it for that session alone rather than hitting a version conflict.
                 //
                 // Narrowed to this specific error code rather than any ApiException: rotate()
-                // can also throw AUTH_TOKEN_EXPIRED or the idle/absolute-session codes for
-                // reasons that have nothing to do with this race, and letting those masquerade
-                // as "the bulk revoke won" would hide a genuinely different bug instead of
-                // reporting it.
-                if (e.getCode() != ErrorCode.AUTH_SESSION_REVOKED) {
+                // can also throw AUTH_SESSION_REVOKED or the idle/absolute-session codes, and
+                // letting those masquerade as "the bulk revoke won" would hide a genuinely
+                // different bug instead of reporting it.
+                if (e.getCode() != ErrorCode.AUTH_TOKEN_EXPIRED) {
                     throw e;
                 }
                 rotateFoundAlreadyRevoked.incrementAndGet();
@@ -257,18 +264,17 @@ class RefreshTokenRotationConcurrencyIT extends AbstractIntegrationTest {
                 .as("rotate() must always resolve to a definite outcome")
                 .isEqualTo(1);
         if (rotateFoundAlreadyRevoked.get() == 1) {
-            // The bulk revoke fully committed before rotate() ever read: rotate()'s reuse-
-            // detection response (revokeAllForUser) sweeps EVERY active session for the user,
-            // including currentDevice's -- a stronger outcome than the "other sessions only"
-            // the bulk revoke itself asked for, not a weaker one. No session survives live.
+            // The bulk revoke fully committed before rotate() ever read: otherDevice is
+            // rejected, and currentDevice -- the one the bulk revoke spared -- stays live.
             assertThat(revokeConflicted.get())
                     .as("the bulk revoke fully committed before rotate() read at all -- it cannot "
                             + "also have hit a conflict")
                     .isZero();
             assertThat(refreshTokenRepository.findByUserIdAndRevokedAtIsNull(user.getId()))
-                    .as("rotate()'s reuse-detection response must have swept every session for "
-                            + "this user, including the one the bulk revoke itself spared")
-                    .isEmpty();
+                    .extracting(RefreshToken::getSessionId)
+                    .as("exactly the session the bulk revoke spared is still live; the rejected "
+                            + "device must not have swept it")
+                    .containsExactly(currentDevice.sessionId());
         } else if (rotateSucceeded.get() == 1) {
             List<UUID> liveSessionIds = refreshTokenRepository.findByUserIdAndRevokedAtIsNull(user.getId())
                     .stream().map(RefreshToken::getSessionId).toList();
@@ -344,5 +350,156 @@ class RefreshTokenRotationConcurrencyIT extends AbstractIntegrationTest {
             Thread.currentThread().interrupt();
             throw new RuntimeException(e);
         }
+    }
+
+    /**
+     * Logout arriving while a refresh of the same token is mid-transaction: the refresh has retired
+     * the token and written its successor, but not committed. Logout ends the session as a whole,
+     * so it has to see that successor -- otherwise the session survives the logout, which is the
+     * outcome a phone hit on 2026-10-05 (there through the client sending a just-retired token).
+     * Held open deterministically rather than raced, so the interleaving is the one under test.
+     */
+    @Test
+    void logoutDuringAnUncommittedRotationStillEndsTheSession() throws Exception {
+        User user = createUser();
+        RefreshTokenService.IssuedToken issued = refreshTokenService.issue(user.getId());
+
+        CountDownLatch rotated = new CountDownLatch(1);
+        CountDownLatch commit = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        Future<?> refresh = pool.submit(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            refreshTokenService.rotate(issued.rawToken());
+            rotated.countDown();
+            try {
+                commit.await(10, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }));
+        assertThat(rotated.await(10, TimeUnit.SECONDS)).isTrue();
+
+        Future<?> logout = pool.submit(() -> authService.logout(
+                new com.finora.dto.AuthDtos.LogoutRequest(issued.rawToken())));
+        Thread.sleep(300); // logout is now running against the uncommitted rotation
+        commit.countDown();
+        refresh.get(10, TimeUnit.SECONDS);
+        logout.get(10, TimeUnit.SECONDS);
+        pool.shutdown();
+
+        assertThat(refreshTokenRepository.existsBySessionIdAndRevokedAtIsNullAndExpiresAtAfter(
+                issued.sessionId(), java.time.Instant.now()))
+                .as("the successor the refresh wrote must be ended by the logout too")
+                .isFalse();
+    }
+
+    /**
+     * Logout presenting a token an earlier refresh already retired, while the session's CURRENT
+     * token is mid-refresh. The logout locks the row it was handed, which is not the one being
+     * rotated, so it does not wait for that refresh on its own.
+     */
+    @Test
+    void logoutWithARetiredTokenWhileTheCurrentOneIsMidRefreshStillEndsTheSession() throws Exception {
+        User user = createUser();
+        RefreshTokenService.IssuedToken issued = refreshTokenService.issue(user.getId());
+        String current = refreshTokenService.rotate(issued.rawToken()).newToken().rawToken();
+
+        HeldRotation held = holdRotationOpen(current);
+        Future<?> logout = held.pool().submit(() -> refreshTokenService.revoke(issued.rawToken()));
+        Thread.sleep(300);
+        held.commit().countDown();
+        held.rotation().get(10, TimeUnit.SECONDS);
+        logout.get(10, TimeUnit.SECONDS);
+        held.pool().shutdown();
+
+        assertThat(refreshTokenRepository.existsBySessionIdAndRevokedAtIsNullAndExpiresAtAfter(
+                issued.sessionId(), java.time.Instant.now()))
+                .as("the token the in-flight refresh minted must be ended by the logout too")
+                .isFalse();
+    }
+
+    /**
+     * "Sign out other devices" while one of those devices is mid-refresh. Neither outcome may be
+     * an error: the password, email or phone change it belongs to rolls back with it.
+     */
+    @Test
+    void signingOutOtherDevicesWhileOneIsMidRefreshEndsItWithoutFailing() throws Exception {
+        User user = createUser();
+        RefreshTokenService.IssuedToken currentDevice = refreshTokenService.issue(user.getId());
+        RefreshTokenService.IssuedToken otherDevice = refreshTokenService.issue(user.getId());
+
+        HeldRotation held = holdRotationOpen(otherDevice.rawToken());
+        Future<?> revoke = held.pool().submit(() ->
+                refreshTokenService.revokeAllOtherSessionsForUser(user.getId(), currentDevice.sessionId()));
+        Thread.sleep(300);
+        held.commit().countDown();
+        held.rotation().get(10, TimeUnit.SECONDS);
+        revoke.get(10, TimeUnit.SECONDS);
+        held.pool().shutdown();
+
+        java.time.Instant now = java.time.Instant.now();
+        assertThat(refreshTokenRepository.existsBySessionIdAndRevokedAtIsNullAndExpiresAtAfter(otherDevice.sessionId(), now))
+                .as("the token the in-flight refresh minted must be ended too")
+                .isFalse();
+        assertThat(refreshTokenRepository.existsBySessionIdAndRevokedAtIsNullAndExpiresAtAfter(currentDevice.sessionId(), now))
+                .isTrue();
+    }
+
+    /** "Sign out everywhere" (password reset, admin actions) racing a refresh the same way. */
+    @Test
+    void signingOutEverywhereWhileADeviceIsMidRefreshEndsItWithoutFailing() throws Exception {
+        User user = createUser();
+        RefreshTokenService.IssuedToken device = refreshTokenService.issue(user.getId());
+
+        HeldRotation held = holdRotationOpen(device.rawToken());
+        Future<?> revoke = held.pool().submit(() -> new TransactionTemplate(transactionManager)
+                .executeWithoutResult(status -> refreshTokenService.revokeAllForUser(user.getId())));
+        Thread.sleep(300);
+        held.commit().countDown();
+        held.rotation().get(10, TimeUnit.SECONDS);
+        revoke.get(10, TimeUnit.SECONDS);
+        held.pool().shutdown();
+
+        assertThat(refreshTokenRepository.findByUserIdAndRevokedAtIsNull(user.getId()))
+                .as("the token the in-flight refresh minted must be ended too")
+                .isEmpty();
+    }
+
+    /**
+     * The F-11 double refresh as the endpoint runs it, not as a bare rotate(): AuthService.refresh
+     * reads the token (resolveUserId) before rotate() locks it, in the same transaction.
+     */
+    @Test
+    void aSecondRefreshThroughTheEndpointWhileTheFirstIsUncommittedGetsTheGracePath() throws Exception {
+        User user = createUser();
+        RefreshTokenService.IssuedToken issued = refreshTokenService.issue(user.getId());
+
+        HeldRotation held = holdRotationOpen(issued.rawToken());
+        Future<?> second = held.pool().submit(() ->
+                authService.refresh(new com.finora.dto.AuthDtos.RefreshRequest(issued.rawToken())));
+        Thread.sleep(300);
+        held.commit().countDown();
+        held.rotation().get(10, TimeUnit.SECONDS);
+        second.get(10, TimeUnit.SECONDS);
+        held.pool().shutdown();
+
+        assertThat(refreshTokenRepository.findByUserIdAndRevokedAtIsNull(user.getId()))
+                .as("both refreshes hold a live successor of the same session")
+                .hasSize(2);
+    }
+
+    private record HeldRotation(ExecutorService pool, Future<?> rotation, CountDownLatch commit) {}
+
+    /** Rotates {@code rawToken} in a transaction held open, uncommitted, until {@code commit}. */
+    private HeldRotation holdRotationOpen(String rawToken) throws InterruptedException {
+        CountDownLatch rotated = new CountDownLatch(1);
+        CountDownLatch commit = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        Future<?> rotation = pool.submit(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            refreshTokenService.rotate(rawToken);
+            rotated.countDown();
+            awaitQuietly(commit);
+        }));
+        assertThat(rotated.await(10, TimeUnit.SECONDS)).isTrue();
+        return new HeldRotation(pool, rotation, commit);
     }
 }

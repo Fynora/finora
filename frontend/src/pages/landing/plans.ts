@@ -172,7 +172,11 @@ export const COMPARISON: { label: string; free: boolean; plus: boolean; premium:
   // .UNLIMITED_ACCOUNTS), confirmed final 2026-09-06.
   { label: 'Unlimited accounts', free: false, plus: true, premium: true },
   { label: 'Advanced analytics', free: false, plus: true, premium: true },
-  { label: 'Extended financial history', free: false, plus: true, premium: true },
+  // Was "Extended financial history", which promised more than the code enforces: the Free limit is
+  // one month PER STATEMENT (FreeStatementPeriod), and a Free user may still build a long history by
+  // importing month by month. Reworded to the rule, matching Plus's own feature list and the public
+  // LANDING_COMPARISON (owner's decision, 2026-10-06).
+  { label: 'Statements longer than one month', free: false, plus: true, premium: true },
   { label: 'Long-term trends', free: false, plus: true, premium: true },
 ];
 

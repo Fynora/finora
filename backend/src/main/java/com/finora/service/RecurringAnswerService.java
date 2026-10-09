@@ -10,6 +10,9 @@ import com.finora.exception.ApiException;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.CategoryRuleRepository;
 import com.finora.repository.TransactionRepository;
+import com.finora.util.CategoryRules;
+import com.finora.util.CounterpartyIdentity;
+import com.finora.util.CounterpartyTyping;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -138,10 +141,21 @@ public class RecurringAnswerService {
         Optional<RecurringDto> group = recurringService.detectForUser(userId).stream()
                 .filter(r -> payeeKey(r.merchant()).equals(payeeKey(label)))
                 .findFirst();
-        Optional<CategoryRule> existing = categoryRuleRepository.findUserPayeeRule(userId, label);
+        Optional<CategoryRule> existing = answerKnownAs(userId, label);
         if (group.isEmpty() && existing.isEmpty()) throw notFound();
+        // The rule is the answer's: a group under one of its printed names updates it rather than
+        // starting a second answer for the same payee.
+        String answerLabel = existing.map(CategoryRule::getComparisonValue).map(String::trim).orElse(label);
 
-        List<Transaction> payeeRows = payeeExpenseRows(userId, label);
+        java.util.Set<String> labels = new java.util.LinkedHashSet<>(List.of(payeeKey(label)));
+        existing.ifPresent(rule -> labels.addAll(payeeLabelsOf(rule)));
+        Map<String, List<Transaction>> rowsByPayee = expenseRowsByPayee(userId);
+        List<Transaction> labelRows = rowsUnder(rowsByPayee, labels);
+        List<String> aliases = payeeAliases(existing.map(CategoryRule::getPayeeAliases).orElse(List.of()), answerLabel,
+                labelRows, claimedByOtherAnswers(userId, existing.map(CategoryRule::getId).orElse(null)));
+        // The payee's payments the bank printed under another name, by their UPI id -- re-filed and
+        // taken as the latest payment like the rest.
+        List<Transaction> payeeRows = withRowsOfKeys(labelRows, rowsByPayee, aliases);
         // Never null: with a detected group the range is built from it; without one, the check above
         // guarantees a saved rule exists and its own range is the answer.
         Range range = group.isPresent()
@@ -164,14 +178,15 @@ public class RecurringAnswerService {
 
         // Insert-or-nothing against uq_category_rules_user_payee, then one update path for every
         // answer: a concurrent second answer for the same payee updates the same rule.
-        categoryRuleRepository.insertPayeeRuleIfAbsent(UUID.randomUUID(), userId, label, category.getName(),
+        categoryRuleRepository.insertPayeeRuleIfAbsent(UUID.randomUUID(), userId, answerLabel, category.getName(),
                 range.min(), range.max(), ANSWER_PRIORITY);
-        CategoryRule rule = categoryRuleRepository.findUserPayeeRule(userId, label).orElseThrow();
+        CategoryRule rule = categoryRuleRepository.findUserPayeeRule(userId, answerLabel).orElseThrow();
         rule.setActionValue(category.getName());
         rule.setAmountMin(range.min());
         rule.setAmountMax(range.max());
         rule.setPriority(ANSWER_PRIORITY);
         rule.setEnabled(true);
+        rule.setPayeeAliases(aliases);
         rule.setUpdatedAt(Instant.now());
         categoryRuleRepository.save(rule);
 
@@ -204,21 +219,29 @@ public class RecurringAnswerService {
         if (!featureFlagService.isEnabled(FEATURE_FLAG)) return List.of();
         List<CategoryRule> answers = categoryRuleRepository.findUserPayeeRules(userId);
         if (answers.isEmpty()) return List.of();
-        // Detected payees report AMOUNT_CHANGED on their own row; dismissed ones the user asked not to see.
-        Set<String> skip = recurringService.detectForUser(userId).stream()
+        // A detected group reports AMOUNT_CHANGED on its own row, for the payments it holds; dismissed
+        // payees the user asked not to see.
+        Set<String> detected = recurringService.detectForUser(userId).stream()
                 .map(r -> payeeKey(r.merchant()))
-                .collect(Collectors.toCollection(java.util.HashSet::new));
-        recurringService.dismissedPayees(userId).forEach(m -> skip.add(payeeKey(m)));
+                .collect(Collectors.toSet());
+        Set<String> dismissed = recurringService.dismissedPayees(userId).stream()
+                .map(RecurringAnswerService::payeeKey)
+                .collect(Collectors.toSet());
         // Dashboard and Insights call this on every load: read the user's rows once, not once per answer.
         Map<String, List<Transaction>> rowsByPayee = expenseRowsByPayee(userId);
         List<ChangedAmountDto> changed = new ArrayList<>();
         for (CategoryRule rule : answers) {
             String label = rule.getComparisonValue().trim();
-            String key = payeeKey(label);
-            if (skip.contains(key)) continue;
-            Optional<Transaction> latestRow = latestNotFiledByHand(rowsByPayee.getOrDefault(key, List.of()));
+            List<String> labels = payeeLabelsOf(rule);
+            if (labels.stream().anyMatch(dismissed::contains)) continue;
+            Optional<Transaction> latestRow = latestNotFiledByHand(
+                    withRowsOfKeys(rowsUnder(rowsByPayee, labels), rowsByPayee, rule.getPayeeAliases()));
             if (latestRow.isEmpty()) continue;
             Transaction latest = latestRow.get();
+            // Reported on the detected group that holds this payment. A group under another of the
+            // answer's names holds only older payments -- the user renamed those, and the later one
+            // arrived under the bank's name -- so it cannot show the change.
+            if (detected.contains(payeeKey(latest.getMerchant()))) continue;
             if (new Range(rule.getAmountMin(), rule.getAmountMax()).contains(latest.getAmount())) continue;
             changed.add(new ChangedAmountDto(label, rule.getActionValue(), latest.getAmount(), latest.getTxnDate(),
                     rule.getAmountMin(), rule.getAmountMax()));
@@ -238,11 +261,6 @@ public class RecurringAnswerService {
         return Optional.empty();
     }
 
-    /** The payee rows an answer is about (see {@link #expenseRowsByPayee}), oldest first. */
-    private List<Transaction> payeeExpenseRows(UUID userId, String label) {
-        return expenseRowsByPayee(userId).getOrDefault(payeeKey(label), List.of());
-    }
-
     /**
      * The user's live-account money-out rows with a payee label, grouped by that label, each oldest
      * first -- without transfers and hidden duplicates, as RecurringService groups them. The question
@@ -257,6 +275,104 @@ public class RecurringAnswerService {
                         && !t.isTransfer() && t.getIsDuplicateOf() == null)
                 .sorted(Comparator.comparing(Transaction::getTxnDate))
                 .collect(Collectors.groupingBy(t -> payeeKey(t.getMerchant())));
+    }
+
+    /**
+     * The other ways the answer recognises this payee on a later import (V259), added to what it
+     * already knew: the name the bank printed on each answered payment, when it is not the label the
+     * user was asked about -- both apps let a user edit that label, and import reads the payee from
+     * the narration -- and each payment's UPI id, when it names one payee, since a person's printed
+     * name can vary between payments while the id stays the same. A gateway's own id or a cut id is
+     * never kept: it carries other shops' payments too.
+     */
+    static List<String> payeeAliases(List<String> known, String label, List<Transaction> payeeRows,
+                                     Set<String> claimedElsewhere) {
+        java.util.TreeSet<String> aliases = new java.util.TreeSet<>(known == null ? List.of() : known);
+        for (Transaction t : payeeRows) {
+            String printed = CategoryRules.extractMerchantLabel(t.getDescription());
+            if (printed != null && !printed.isBlank() && !payeeKey(printed).equals(payeeKey(label))) {
+                aliases.add(RuleEngineService.PAYEE_LABEL_ALIAS + payeeKey(printed));
+            }
+            String key = t.getDescription() == null ? null : CounterpartyTyping.of(t.getDescription()).key();
+            if (key != null && CounterpartyIdentity.identifiesOnePayee(key)) {
+                aliases.add(RuleEngineService.PAYEE_KEY_ALIAS + key);
+            }
+        }
+        // One payee, one answer: a name or id another answer already holds stays with it, so which
+        // answer files a payment never depends on rule order.
+        aliases.removeAll(claimedElsewhere);
+        return new ArrayList<>(aliases);
+    }
+
+    /** Every alias the user's other answers hold, with each one's own label as a label alias.
+     *  {@code ruleId} is the answer being saved, null when it is new. */
+    private Set<String> claimedByOtherAnswers(UUID userId, UUID ruleId) {
+        Set<String> claimed = new java.util.HashSet<>();
+        for (CategoryRule other : categoryRuleRepository.findUserPayeeRules(userId)) {
+            if (other.getId() != null && other.getId().equals(ruleId)) continue;
+            claimed.addAll(other.getPayeeAliases());
+            claimed.add(RuleEngineService.PAYEE_LABEL_ALIAS + payeeKey(other.getComparisonValue()));
+        }
+        return claimed;
+    }
+
+    /**
+     * Every payee label an answer is known by, compared ignoring case: the one the user was asked
+     * about, then the bank's printed names it recorded (V259). Later payments are stored under the
+     * printed name, so detection, "still Rent?" and a new answer for them find this answer through it
+     * rather than treating them as a payee never answered.
+     */
+    static List<String> payeeLabelsOf(CategoryRule rule) {
+        java.util.LinkedHashSet<String> labels = new java.util.LinkedHashSet<>();
+        labels.add(payeeKey(rule.getComparisonValue()));
+        for (String alias : rule.getPayeeAliases()) {
+            if (alias.startsWith(RuleEngineService.PAYEE_LABEL_ALIAS)) {
+                String printed = alias.substring(RuleEngineService.PAYEE_LABEL_ALIAS.length());
+                if (!printed.isBlank()) labels.add(payeeKey(printed));
+            }
+        }
+        return new ArrayList<>(labels);
+    }
+
+    /** The user's answer for this payee label: one asked about under it, else one that knows it as a
+     *  printed name. */
+    private Optional<CategoryRule> answerKnownAs(UUID userId, String label) {
+        Optional<CategoryRule> direct = categoryRuleRepository.findUserPayeeRule(userId, label);
+        if (direct.isPresent()) return direct;
+        String key = payeeKey(label);
+        return categoryRuleRepository.findUserPayeeRules(userId).stream()
+                .filter(rule -> payeeLabelsOf(rule).contains(key))
+                .findFirst();
+    }
+
+    /**
+     * {@code rows} plus the user's other payee rows whose UPI id is one of {@code aliases}' keys,
+     * oldest first. Their own printed names are not taken as aliases: a drifted name is often a bare
+     * word ("owner"), which would file other payees too.
+     */
+    private static List<Transaction> withRowsOfKeys(List<Transaction> rows, Map<String, List<Transaction>> rowsByPayee,
+                                                    List<String> aliases) {
+        Set<String> keys = aliases.stream()
+                .filter(a -> a.startsWith(RuleEngineService.PAYEE_KEY_ALIAS))
+                .map(a -> a.substring(RuleEngineService.PAYEE_KEY_ALIAS.length()))
+                .collect(Collectors.toSet());
+        if (keys.isEmpty()) return rows;
+        Set<UUID> seen = rows.stream().map(Transaction::getId).collect(Collectors.toSet());
+        List<Transaction> all = new ArrayList<>(rows);
+        rowsByPayee.values().stream().flatMap(List::stream)
+                .filter(t -> t.getCounterpartyKey() != null && keys.contains(t.getCounterpartyKey()))
+                .filter(t -> seen.add(t.getId()))
+                .forEach(all::add);
+        all.sort(Comparator.comparing(Transaction::getTxnDate));
+        return all;
+    }
+
+    /** The rows under any of {@code labels}, oldest first. */
+    private static List<Transaction> rowsUnder(Map<String, List<Transaction>> rowsByPayee, java.util.Collection<String> labels) {
+        return labels.stream().map(RecurringAnswerService::payeeKey).distinct()
+                .flatMap(k -> rowsByPayee.getOrDefault(k, List.of()).stream())
+                .sorted(Comparator.comparing(Transaction::getTxnDate))
+                .toList();
     }
 
     /** Payee labels compare ignoring case, as the PAYEE rule and its unique index do. */

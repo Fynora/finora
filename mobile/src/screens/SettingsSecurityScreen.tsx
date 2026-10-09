@@ -11,6 +11,7 @@ import { userApi } from '../api/endpoints';
 import { fmtRelativeTime } from '../lib/format';
 import { maskPhone } from '../lib/maskPhone';
 import { spacing, useTheme } from '../theme';
+import { GlassScreen } from '../components/GlassScreen';
 
 export function SettingsSecurityScreen() {
   const c = useTheme();
@@ -23,9 +24,9 @@ export function SettingsSecurityScreen() {
 
   if (userQ.isLoading) {
     return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+      <GlassScreen style={styles.centered}>
         <ActivityIndicator size="large" color={c.primary} />
-      </View>
+      </GlassScreen>
     );
   }
 
@@ -35,18 +36,19 @@ export function SettingsSecurityScreen() {
   // explicit message here instead.
   if (userQ.isError || !user) {
     return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+      <GlassScreen style={styles.centered}>
         <Text style={[styles.message, { color: c.muted }]}>
           Couldn&apos;t load your settings — please try again later.
         </Text>
-      </View>
+      </GlassScreen>
     );
   }
 
   const passwordChanged = fmtRelativeTime(user.passwordChangedAt);
 
   return (
-    <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.content}>
+    <GlassScreen style={styles.glassRoot}>
+    <ScrollView contentContainerStyle={styles.content}>
       <View style={[styles.row, { borderBottomColor: c.border }]}>
         <View style={styles.rowMain}>
           <Text style={[styles.rowTitle, { color: c.ink }]}>Email</Text>
@@ -104,10 +106,12 @@ export function SettingsSecurityScreen() {
         <ChangeEmailSheet onClose={() => setChangeEmailOpen(false)} signInMethod={user.signInMethod} />
       ) : null}
     </ScrollView>
+    </GlassScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  glassRoot: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
   message: { fontSize: 14, textAlign: 'center' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },

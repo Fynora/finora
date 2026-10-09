@@ -11,6 +11,7 @@ import { toUserMessage } from '../../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
 import { useSingleFlight } from '../../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../../theme';
+import { GlassSurface } from '../../components/GlassSurface';
 
 const TYPES: { value: FeedbackType; label: string }[] = [
   { value: 'BUG', label: 'Something’s broken' },
@@ -81,13 +82,13 @@ export function FeedbackSheet({ onClose }: { onClose: () => void }) {
     <AppModal visible animationType="slide" transparent onRequestClose={saving ? () => {} : onClose}>
       <KeyboardAvoidingView style={styles.flex} behavior="padding">
         <Pressable style={styles.backdrop} onPress={saving ? undefined : onClose} disabled={saving} accessibilityLabel="Close send feedback" />
-        <View style={[styles.sheet, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md }]}>
+        <GlassSurface style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}>
           <ScrollView keyboardShouldPersistTaps="handled" style={styles.scroll}>
             <Text style={[styles.title, { color: c.ink }]}>Send feedback</Text>
 
             {sent ? (
               <View style={styles.successBlock}>
-                <Text style={[styles.successMark, { color: c.success }]}>✓</Text>
+                <Text style={[styles.successMark, { color: c.successInk }]}>✓</Text>
                 <Text style={[styles.successTitle, { color: c.ink }]}>Thanks for the feedback</Text>
                 <Text style={[styles.successBody, { color: c.muted }]}>We read every submission.</Text>
                 <View style={styles.action}>
@@ -96,7 +97,7 @@ export function FeedbackSheet({ onClose }: { onClose: () => void }) {
               </View>
             ) : (
               <>
-                {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+                {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
 
                 <Text style={[styles.fieldLabel, { color: c.muted }]}>What kind of feedback?</Text>
                 <View style={styles.typeRow}>
@@ -150,7 +151,7 @@ export function FeedbackSheet({ onClose }: { onClose: () => void }) {
               </>
             )}
           </ScrollView>
-        </View>
+        </GlassSurface>
       </KeyboardAvoidingView>
 
       <OptionPickerModal

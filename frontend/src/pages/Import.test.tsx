@@ -42,11 +42,11 @@ vi.mock('framer-motion', async (importOriginal) => {
   };
 });
 
-import Import from './Import';
+import Import, { UPLOAD_COMPLETE_DWELL_MS, setUploadCompleteDwellForTests } from './Import';
 import { AuthProvider } from '../context/AuthContext';
 import { importApi, importJobsApi, statementImportsApi, categoriesApi, accountsApi, type ImportJobProgress } from '../api/endpoints';
 import type { Account, StagedAccountSection } from '../types';
-import { PDF_PASSWORD_REQUIRED, PDF_PASSWORD_INVALID, NO_HEADER_DETECTED, NO_TRANSACTIONS_FOUND, NO_ACTIVITY_IN_PERIOD, SCANNED_OCR_REQUIRED, CORRUPT_PDF, IMPORT_SESSION_ALREADY_CONFIRMED, ACCOUNT_LIMIT_REACHED, STATEMENT_PERIOD_TOO_LONG } from '../api/errorCodes';
+import { PDF_PASSWORD_REQUIRED, PDF_PASSWORD_INVALID, NO_HEADER_DETECTED, NO_TRANSACTIONS_FOUND, NO_ACTIVITY_IN_PERIOD, SCANNED_OCR_REQUIRED, CORRUPT_PDF, PAYMENT_APP_HISTORY, IMPORT_SESSION_ALREADY_CONFIRMED, ACCOUNT_LIMIT_REACHED, STATEMENT_PERIOD_TOO_LONG } from '../api/errorCodes';
 import { IMPORT_FAILURE_MESSAGES } from '../api/importFailureMessages';
 import type { DetectedAccountInfo } from '../types';
 
@@ -205,6 +205,12 @@ async function pickAndUploadPdf(user: ReturnType<typeof userEvent.setup>, file =
   await user.click(screen.getByRole('button', { name: /upload statement/i }));
 }
 
+// The Completed checkmark's real 900ms dwell is skipped for every test except the two about the
+// checkmark itself (which put it back): waiting it out, one test after another, was most of this
+// file's run time.
+beforeEach(() => setUploadCompleteDwellForTests(0));
+afterEach(() => setUploadCompleteDwellForTests(UPLOAD_COMPLETE_DWELL_MS));
+
 describe('Import — file-type routing', () => {
   beforeEach(() => {
     vi.mocked(importApi.stageCsv).mockReset().mockResolvedValue(stagingResultWith());
@@ -304,6 +310,7 @@ describe('Import — file-type routing', () => {
   });
 
   it('flashes a Completed checkmark before advancing to the review step', async () => {
+    setUploadCompleteDwellForTests(UPLOAD_COMPLETE_DWELL_MS);
     const user = userEvent.setup();
     renderImport();
 
@@ -333,6 +340,7 @@ describe('Import — file-type routing', () => {
    * was, exactly like the dropzone already does for a CSV.
    */
   it('shows the Completed checkmark inside the PDF password panel, not the dropzone', async () => {
+    setUploadCompleteDwellForTests(UPLOAD_COMPLETE_DWELL_MS);
     const user = userEvent.setup();
     renderImport();
 
@@ -828,6 +836,7 @@ describe('Import — failure UX contract', () => {
     ['the statement itself states zero activity', NO_ACTIVITY_IN_PERIOD],
     ['a scanned/image-only PDF', SCANNED_OCR_REQUIRED],
     ['a corrupt/truncated PDF', CORRUPT_PDF],
+    ['a payment app history rather than a bank statement', PAYMENT_APP_HISTORY],
   ])('shows the contract message, not the server message, for %s', async (_label, code) => {
     vi.mocked(importApi.stagePdf).mockReset().mockRejectedValue(rejectWithCode(code));
     const user = userEvent.setup();
@@ -1110,7 +1119,7 @@ describe('Import — Financial Product Discovery on the review screen', () => {
 });
 
 /**
- * plans.ts's "Unlimited accounts" / "Extended financial history" Plus/Premium promises,
+ * plans.ts's "Unlimited accounts" / "Statements longer than one month" Plus/Premium promises,
  * enforced backend-side (AccountService.create / ImportController). This suite proves only that
  * Import.tsx reacts correctly to the two error codes those gates throw -- ACCOUNT_LIMIT_REACHED
  * and STATEMENT_PERIOD_TOO_LONG -- with a "See Plus plans" link the ordinary confirm-failure
@@ -2407,6 +2416,33 @@ describe('Import — queued imports', () => {
   });
 
   /**
+   * A UPI app's transaction history is refused while it is staged (IMPORT_018), so the job fails
+   * within seconds instead of being held for review. The page must say plainly what the file is and
+   * what to upload instead -- the per-code headline and the curated reason.
+   */
+  it('tells the user a payment app history is not a bank statement when the job is refused', async () => {
+    vi.mocked(importJobsApi.progress).mockResolvedValue(queuedJob({ status: 'FAILED', error: 'refused' }));
+    vi.mocked(importJobsApi.timeline).mockResolvedValue({
+      jobId: 'job-1',
+      status: 'FAILED',
+      userStatus: 'ACTION_REQUIRED',
+      failureCode: 'IMPORT_018', // PAYMENT_APP_HISTORY
+      stages: [
+        { stage: 'PARSING', attempt: 1, outcome: 'FAILED', startedAt: '2026-10-09T09:00:00Z', endedAt: '2026-10-09T09:00:01Z', durationMs: 1000 },
+      ],
+    });
+    const user = userEvent.setup();
+    renderImport();
+    await waitFor(() => expect(importJobsApi.availability).toHaveBeenCalled());
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+
+    expect(await screen.findByText('This is a payment app history')).toBeInTheDocument();
+    expect(screen.getByText(/not a bank statement.*import those bank statements instead/i)).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Try a different file' })).toBeInTheDocument();
+  });
+
+  /**
    * The bug found during live testing (2026-09-05): a held job settles in the same polling tick
    * that would show it, so ImportProgress used to unmount itself before the "additional checks"
    * message could ever paint -- the screen just reverted to the blank dropzone with no
@@ -2420,8 +2456,8 @@ describe('Import — queued imports', () => {
 
     await user.upload(screen.getByTestId('statement-file-input'), csvFile());
 
-    expect(await screen.findByText('Running additional checks')).toBeInTheDocument();
-    expect(await screen.findByText(/We'll notify you once it's ready/)).toBeInTheDocument();
+    expect(await screen.findByText("We're double-checking this statement")).toBeInTheDocument();
+    expect(await screen.findByText(/we'll notify you as soon as it's done/)).toBeInTheDocument();
     // Actually still there, not just rendered once before an immediate unmount.
     expect(screen.getByTestId('import-progress')).toBeInTheDocument();
     expect(screen.queryByTestId('statement-file-input')).not.toBeInTheDocument();
@@ -2451,7 +2487,7 @@ describe('Import — queued imports', () => {
     await waitFor(() => expect(importJobsApi.availability).toHaveBeenCalled());
 
     await user.upload(screen.getByTestId('statement-file-input'), csvFile());
-    await screen.findByText('Running additional checks');
+    await screen.findByText("We're double-checking this statement");
 
     await user.click(await screen.findByRole('button', { name: 'Import another statement' }));
 
@@ -3449,6 +3485,86 @@ describe('Import — re-upload notice', () => {
 });
 
 /**
+ * The Free plan's one-month limit, told on the review step as soon as the statement is staged
+ * (`freePlanLimit`) instead of only when Import is pressed after a full review. The banner shows
+ * the backend's own refusal text and the Import button waits on it -- the backend would refuse.
+ */
+describe('Import — Free plan one-month limit, told on upload', () => {
+  const freePlanLimit = {
+    errorCode: 'ENTITLEMENT_003',
+    message: 'Free plan statements can cover at most one month. Its transactions run from 5 Jan 2026 to 5 Mar 2026. Upgrade to Plus to import longer statement periods.',
+    coveredFrom: '2026-01-05',
+    coveredTo: '2026-03-05',
+    basis: 'TRANSACTIONS',
+  };
+
+  beforeEach(() => {
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(importApi.stagePdf).mockReset().mockResolvedValue(stagingResultWith());
+    vi.mocked(importApi.getSession).mockReset();
+  });
+
+  it('shows the refusal on the review step and holds the Import button', async () => {
+    vi.mocked(importApi.stageCsv).mockReset().mockResolvedValue({ ...stagingResultWith(), freePlanLimit });
+    const user = userEvent.setup();
+    renderImport();
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+
+    const notice = await screen.findByTestId('free-plan-limit-notice');
+    expect(notice).toHaveTextContent('Its transactions run from 5 Jan 2026 to 5 Mar 2026');
+    expect(within(notice).getByRole('link', { name: /see plus plans/i })).toHaveAttribute('href', '/app/billing');
+    expect(screen.getByRole('button', { name: /confirm import/i })).toBeDisabled();
+  });
+
+  it('lets someone who has just upgraded past the button -- the backend still decides', async () => {
+    vi.mocked(importApi.stageCsv).mockReset().mockResolvedValue({ ...stagingResultWith(), freePlanLimit });
+    const user = userEvent.setup();
+    renderImport();
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+    await user.click(await screen.findByRole('button', { name: /i've already upgraded/i }));
+
+    expect(screen.getByRole('button', { name: /confirm import/i })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: /i've already upgraded/i })).not.toBeInTheDocument();
+  });
+
+  it('shows nothing and holds nothing when the statement fits', async () => {
+    vi.mocked(importApi.stageCsv).mockReset().mockResolvedValue({ ...stagingResultWith(), freePlanLimit: null });
+    const user = userEvent.setup();
+    renderImport();
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+
+    expect(await screen.findByRole('button', { name: /confirm import/i })).toBeEnabled();
+    expect(screen.queryByTestId('free-plan-limit-notice')).not.toBeInTheDocument();
+  });
+
+  it('tells it on a resumed import too', async () => {
+    vi.mocked(importApi.stageCsv).mockReset().mockResolvedValue(stagingResultWith());
+    vi.mocked(importApi.getSession).mockResolvedValue({
+      sessionId: 'session-9',
+      staging: stagingResultWith().staging,
+      freePlanLimit,
+    });
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[{ pathname: '/app/import', state: { kind: 'resume', resumeSessionId: 'session-9' } }]}>
+          <AuthProvider>
+            <Import />
+          </AuthProvider>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByTestId('free-plan-limit-notice')).toHaveTextContent('5 Jan 2026 to 5 Mar 2026');
+    expect(screen.getByRole('button', { name: /confirm import/i })).toBeDisabled();
+  });
+});
+
+/**
  * A statement the server's accuracy check held on the synchronous path -- the path a locked PDF takes
  * when the user does not let Fynora keep its password. Its rows cannot be confirmed until a reviewer
  * approves them, so the page must follow the held job to the same "being checked" state a queued hold
@@ -3490,8 +3606,8 @@ describe('Import — a statement held by the accuracy check on the synchronous p
 
     await pickAndUploadPdf(user, pdfFile(), 'sample-pass');
 
-    expect(await screen.findByText('Running additional checks')).toBeInTheDocument();
-    expect(await screen.findByText(/We'll notify you once it's ready/)).toBeInTheDocument();
+    expect(await screen.findByText("We're double-checking this statement")).toBeInTheDocument();
+    expect(await screen.findByText(/we'll notify you as soon as it's done/)).toBeInTheDocument();
     await waitFor(() => expect(importJobsApi.progress).toHaveBeenCalledWith('job-held'));
     expect(screen.queryByText(/which account is this statement for/i)).not.toBeInTheDocument();
     expect(screen.queryByTestId('pdf-password-panel')).not.toBeInTheDocument();
@@ -3512,7 +3628,7 @@ describe('Import — a statement held by the accuracy check on the synchronous p
 
     await user.upload(screen.getByTestId('statement-file-input'), csvFile());
 
-    expect(await screen.findByText('Running additional checks')).toBeInTheDocument();
+    expect(await screen.findByText("We're double-checking this statement")).toBeInTheDocument();
     expect(screen.getByTestId('import-progress')).toBeInTheDocument();
     expect(screen.queryByText(/which account is this statement for/i)).not.toBeInTheDocument();
   });

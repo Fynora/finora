@@ -199,7 +199,7 @@ export function TopBar() {
           >
             <Bell size={17} />
             {unreadCount > 0 && (
-              <span className="absolute -top-1 -right-1 w-4.5 h-4.5 min-w-[18px] px-1 rounded-full bg-danger text-white text-2xs font-semibold flex items-center justify-center">
+              <span className="absolute -top-1 -right-1 h-[18px] min-w-[18px] px-1 rounded-full bg-danger text-on-danger text-2xs font-semibold flex items-center justify-center">
                 {unreadCount}
               </span>
             )}

@@ -47,12 +47,29 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
      * <p>Native because JPQL has no portable FOR UPDATE SKIP LOCKED. This app is Postgres-only by
      * design (ADR-003), so a native query is the right tool here -- the same choice
      * MerchantLearningEventRepository.claimDueEvents made.
+     *
+     * <p>Priority first (CRITICAL, HIGH, NORMAL, LOW), then due time. This used to order by
+     * {@code next_attempt_at} alone, so priority was stored but never honoured: a large LOW batch
+     * (an admin push campaign) queued ahead of a user's "import ready" push or a password-changed
+     * security alert would have been delivered first, holding those back for as long as the batch
+     * took to drain at 50 rows per pass. An unknown priority string sorts last, never first.
+     *
+     * <p>The CASE below is mirrored, expression for expression, by {@code idx_notifications_claim_order}
+     * (V261). Without that index Postgres sorts every queued row on every pass (measured: 60 ms and a
+     * disk spill at 100,000 queued rows, against 0.065 ms with it). Change one, change the other.
      */
     @Query(value = """
            SELECT * FROM notifications
             WHERE status IN ('CREATED', 'QUEUED', 'RETRYING')
               AND next_attempt_at <= :now
-            ORDER BY next_attempt_at
+            ORDER BY CASE priority
+                         WHEN 'CRITICAL' THEN 0
+                         WHEN 'HIGH' THEN 1
+                         WHEN 'NORMAL' THEN 2
+                         WHEN 'LOW' THEN 3
+                         ELSE 4
+                     END,
+                     next_attempt_at
             FOR UPDATE SKIP LOCKED
             LIMIT :batchSize
            """, nativeQuery = true)
@@ -66,11 +83,22 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
            """)
     List<Notification> findAbandoned(@Param("cutoff") Instant cutoff, Pageable pageable);
 
+    /**
+     * When the oldest waiting notification became due: the {@code finora.worker.oldest_pending_age}
+     * gauge behind the critical {@code QueueAgeExceedsSla} alert (older than 15 minutes for 10).
+     *
+     * <p>Admin push campaign rows ({@code CUSTOM_PUSH}) are excluded on purpose. A campaign queues
+     * thousands of rows at once and the dispatcher clears about 100 a minute, so their backlog is
+     * hours old by design; counting it would page someone for every normal send, and train them to
+     * ignore the alert that is meant to say a user's own notification is stuck. They are sent at the
+     * lowest priority, behind everything this gauge exists to protect.
+     */
     @Query("""
            SELECT MIN(n.nextAttemptAt) FROM Notification n
             WHERE n.status IN (com.finora.notification.domain.NotificationStatus.CREATED,
                                com.finora.notification.domain.NotificationStatus.QUEUED,
                                com.finora.notification.domain.NotificationStatus.RETRYING)
+              AND n.type <> com.finora.notification.domain.NotificationType.CUSTOM_PUSH
            """)
     Optional<Instant> findOldestPendingAt();
 

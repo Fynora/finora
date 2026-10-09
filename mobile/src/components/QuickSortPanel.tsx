@@ -191,7 +191,7 @@ export function QuickSortPanel({ onLoaded }: { onLoaded?: (questions: number) =>
         <Text style={[styles.body, { color: c.ink }]}>All sorted. You can change any category later from the Ledger.</Text>
       )}
 
-      {error ? <Text style={[styles.body, { color: c.danger }]}>{error}</Text> : null}
+      {error ? <Text style={[styles.body, { color: c.dangerInk }]}>{error}</Text> : null}
 
       <CategoryPickerModal
         visible={pickerOpen}

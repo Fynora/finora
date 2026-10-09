@@ -9,6 +9,8 @@ import { useRoute, type RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { GlassScreen } from '../components/GlassScreen';
+import { GlassSurface, useGlassSurfaceStyle } from '../components/GlassSurface';
 import {
   categoriesApi, dashboardApi, onboardingApi, transactionsApi, type PagedResponse, type TransactionFilters,
 } from '../api/endpoints';
@@ -189,6 +191,9 @@ export function LedgerScreen() {
   // already guard against, just not yet extended to the Ledger itself.
   usePreventScreenCapture();
   const c = useTheme();
+  // Transaction rows are Pressables (press, long-press, ripple), so they can't be a GlassSurface
+  // View; this is the same fill/edge pair, solid fallback included.
+  const glassRow = useGlassSurfaceStyle();
   const insets = useSafeAreaInsets();
   const largeText = useLargeFontScale();
   const queryClient = useQueryClient();
@@ -494,7 +499,7 @@ export function LedgerScreen() {
   }
 
   return (
-    <View style={[styles.flex, { backgroundColor: c.bg, paddingTop: insets.top }]}>
+    <GlassScreen style={[styles.flex, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <View style={styles.headerText}>
           <Text style={[styles.title, { color: c.ink }]}>Transactions</Text>
@@ -561,7 +566,7 @@ export function LedgerScreen() {
               </View>
             ) : null}
 
-            <View style={[styles.searchWrap, { backgroundColor: c.card, borderColor: c.border }]}>
+            <GlassSurface variant="row" style={styles.searchWrap}>
               <Ionicons name="search" size={16} color={c.muted} style={styles.searchIcon} />
               <TextInput
                 value={keywordInput}
@@ -578,7 +583,7 @@ export function LedgerScreen() {
                 accessibilityLabel="Search transactions"
                 style={[styles.search, { color: c.ink }]}
               />
-            </View>
+            </GlassSurface>
 
             {/* Type filter (All/Income/Expense) and status filter (Phase 4 -- reconciliationBadge's
                 own status set as a filter, not just a per-row label) share one horizontally
@@ -718,7 +723,7 @@ export function LedgerScreen() {
               </View>
             ) : null}
 
-            {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+            {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
           </>
         }
         ListEmptyComponent={
@@ -777,7 +782,7 @@ export function LedgerScreen() {
               return (
                 <View style={styles.dayHeader}>
                   <Text style={[styles.dayHeaderLabel, { color: c.mutedInk }]} numberOfLines={1}>{item.label}</Text>
-                  <Text style={[styles.dayHeaderSubtotal, { color: item.subtotal >= 0 ? c.success : c.danger }]}>
+                  <Text style={[styles.dayHeaderSubtotal, { color: item.subtotal >= 0 ? c.successInk : c.dangerInk }]}>
                     {item.subtotal >= 0 ? '+' : '-'}{fmtCurrency(Math.abs(item.subtotal))}
                   </Text>
                 </View>
@@ -790,24 +795,24 @@ export function LedgerScreen() {
             const cp = counterpartyLabel(t.counterpartyType, t.type);
             const badge = reconciliationBadge(t.reconciliationStatus);
             const badgeColors = badge ? {
-              danger: { bg: c.dangerBg, fg: c.danger },
+              danger: { bg: c.dangerBg, fg: c.dangerInk },
               primary: { bg: c.primaryLight, fg: c.primary },
-              success: { bg: c.successBg, fg: c.success },
-              warning: { bg: c.warningBg, fg: c.warning },
+              success: { bg: c.successBg, fg: c.successInk },
+              warning: { bg: c.warningBg, fg: c.warningInk },
               muted: { bg: c.border, fg: c.mutedInk },
             }[badge.tone] : null;
             const badges = statusBadges(t);
             const badgeToneColors = {
               primary: { bg: c.primaryLight, fg: c.primary },
-              success: { bg: c.successBg, fg: c.success },
-              warning: { bg: c.warningBg, fg: c.warning },
-              danger: { bg: c.dangerBg, fg: c.danger },
+              success: { bg: c.successBg, fg: c.successInk },
+              warning: { bg: c.warningBg, fg: c.warningInk },
+              danger: { bg: c.dangerBg, fg: c.dangerInk },
             } as const;
             return (
             <Pressable
               onPress={() => setViewingDetail(t)}
               onLongPress={() => confirmDelete(t)}
-              style={[styles.row, { backgroundColor: c.card, borderColor: c.border }]}
+              style={[styles.row, glassRow]}
               android_ripple={{ color: c.border }}
               // Long-press was the only route to delete, which made it unreachable for anyone
               // using a screen reader -- there's no gesture equivalent in the rotor. The hint below
@@ -895,7 +900,7 @@ export function LedgerScreen() {
               {deletingId === t.id ? (
                 <ActivityIndicator size="small" color={c.muted} style={styles.rowTrailingSpacing} />
               ) : (
-                <Text style={[styles.amount, { color: t.type === 'INCOME' ? c.success : c.danger }, styles.rowTrailingSpacing]}>
+                <Text style={[styles.amount, { color: t.type === 'INCOME' ? c.successInk : c.dangerInk }, styles.rowTrailingSpacing]}>
                   {t.type === 'INCOME' ? '+' : '-'}
                   {fmtCurrency(Math.abs(t.amount))}
                 </Text>
@@ -994,7 +999,7 @@ export function LedgerScreen() {
           deleting={deletingId === viewingDetail.id}
         />
       ) : null}
-    </View>
+    </GlassScreen>
   );
 }
 
@@ -1019,7 +1024,7 @@ function LedgerMonthSummary({ kpis, title, deltaLabel }: { kpis: KpiItem[]; titl
         {/* Income and Expenses only, which are always a number -- only Savings Rate can be null. */}
         <AnimatedNumber testID={`kpi-${kpi.label}`} value={kpi.value ?? 0} style={[styles.monthValue, { color: c.ink }]} />
         {kpi.delta !== null && kpi.delta !== undefined ? (
-          <Text style={[styles.monthDelta, { color: (kpi.invert ? kpi.delta < 0 : kpi.delta >= 0) ? c.success : c.danger }]}>
+          <Text style={[styles.monthDelta, { color: (kpi.invert ? kpi.delta < 0 : kpi.delta >= 0) ? c.successInk : c.dangerInk }]}>
             {kpi.delta >= 0 ? '▲' : '▼'} {Math.abs(kpi.delta).toFixed(1)}% {deltaLabel}
           </Text>
         ) : null}

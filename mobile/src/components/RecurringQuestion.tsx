@@ -79,7 +79,7 @@ export function RecurringQuestion({ merchant, state, answer, amount, label = 'Mo
             <Text style={[styles.linkText, { color: c.primary }]}>Change</Text>
           </Pressable>
         </View>
-        {save.isError ? <Text style={[styles.text, { color: c.danger }]}>Couldn't save — try again.</Text> : null}
+        {save.isError ? <Text style={[styles.text, { color: c.dangerInk }]}>Couldn't save — try again.</Text> : null}
       </View>
     );
   }
@@ -118,7 +118,7 @@ export function RecurringQuestion({ merchant, state, answer, amount, label = 'Mo
           </Pressable>
         ) : null}
       </View>
-      {save.isError ? <Text style={[styles.text, { color: c.danger }]}>Couldn't save — try again.</Text> : null}
+      {save.isError ? <Text style={[styles.text, { color: c.dangerInk }]}>Couldn't save — try again.</Text> : null}
       <CategoryPickerModal
         visible={picking}
         selectedName={null}

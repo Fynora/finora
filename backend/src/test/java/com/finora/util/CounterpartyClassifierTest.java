@@ -138,6 +138,32 @@ class CounterpartyClassifierTest {
     }
 
     @Test
+    void inTheStandardSlashLayout_aPayersNoteAfterTheUpiIdCannotMakeAFriendABank() {
+        // UPI/<DR|CR>/<ref>/<name>/<bank>/<id>/<note>: the note was read as the payee's own words,
+        // so a friend who wrote "cashback" (or "interest", "reward") was typed a bank. The same
+        // narration in the hyphen layout already reads PERSON.
+        for (String note : new String[] {"cashback", "interest", "reward", "atm"}) {
+            assertThat(CounterpartyClassifier.classify(
+                    "UPI/CR/600011112222/SUNITA RAO/HDFC/sunita.rao@okhdfc/" + note)) // synthetic-ok
+                    .as(note).isEqualTo(CounterpartyType.PERSON);
+        }
+        assertThat(CounterpartyClassifier.classify(
+                "UPI-SUNITA RAO-sunita.rao@okhdfc-HDFC0XXXXXX-600011112222-cashback")) // synthetic-ok
+                .isEqualTo(CounterpartyType.PERSON);
+    }
+
+    @Test
+    void inTheStandardSlashLayout_theNoteStillDecidesWhenThePayeeSaysNothing() {
+        // A bare number for a name says nothing about who paid (a one-word name in this layout
+        // already reads as a person), so the note's mechanism word decides, as in the hyphen layout.
+        assertThat(CounterpartyClassifier.classify(
+                "UPI/CR/600011112222/9999999999/YESB/9999999999@ybl/cashback")) // synthetic-ok
+                .isEqualTo(CounterpartyType.FINANCIAL_INSTITUTION);
+        assertThat(CounterpartyClassifier.classify("UPI/CR/600011112222/9999999999/YESB/9999999999@ybl")) // synthetic-ok
+                .isEqualTo(CounterpartyType.UNKNOWN);
+    }
+
+    @Test
     void aRemarkSpeaksOnlyWhenThePayeesOwnWordsSayNothing_andNeverOverAPerson() {
         // Payee says nothing: the remark's strong signals decide.
         assertThat(CounterpartyClassifier.classify(

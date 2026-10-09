@@ -10,9 +10,15 @@ jest.mock('../context/AuthContext', () => ({
   useAuth: jest.fn(),
 }));
 
+const mockFonts = { ready: true };
 jest.mock('../theme', () => ({
-  useTheme: () => ({ bg: '#fff', primary: '#000', card: '#fff', ink: '#000', border: '#ccc', muted: '#888' }),
+  useTheme: () => ({
+    bg: '#fff', primary: '#000', card: '#fff', ink: '#000', border: '#ccc', muted: '#888',
+    // navTheme.colors.card is glassFill(c) since the glass redesign; GlassScreen reads bg.
+    glassTint: '#FFFFFF', glassAlpha: 0.72, glassEdge: 'rgba(255,255,255,0.85)',
+  }),
   useThemeSetting: () => ({ resolved: 'light' }),
+  useFontsReady: () => mockFonts.ready,
 }));
 
 // @react-navigation/native's own real NavigationContainer/useNavigationContainerRef pull in
@@ -178,6 +184,7 @@ describe('RootNavigator', () => {
     mockSpendingQuestion.needsAnswer = false;
     mockSpendingQuestion.pending = false;
     mockUseSpendingQuestion.mockClear();
+    mockFonts.ready = true;
   });
 
   it('shows only the required spending question, in place of the app, until it is answered', () => {
@@ -231,6 +238,23 @@ describe('RootNavigator', () => {
     mockedUseAuth.mockReturnValue(authState({ token: 'tok', phoneVerified: true, onboardingCompleted: true, email: 'a@example.com' }));
     render(<RootNavigator />);
     expect(mockUseSpendingQuestion.mock.calls.at(-1)).toEqual([true, 'a@example.com']);
+  });
+
+  it('holds every screen until the fonts are in, without holding back the deep-link hooks', () => {
+    mockedUseAuth.mockReturnValue(authState({ token: 'tok', phoneVerified: true, onboardingCompleted: true }));
+    mockFonts.ready = false;
+    (useResetPasswordDeepLink as jest.Mock).mockClear();
+
+    const { rerender } = render(<RootNavigator />);
+
+    // A screen laid out before its font registers keeps the system font on iOS, so none mounts yet.
+    expect(screen.queryByTestId('app-tabs')).toBeNull();
+    expect(useResetPasswordDeepLink).toHaveBeenCalled();
+
+    mockFonts.ready = true;
+    rerender(<RootNavigator />);
+
+    expect(screen.getByTestId('app-tabs')).toBeTruthy();
   });
 
   it('mounts AppTabs when signed in, verified, and onboarded', () => {

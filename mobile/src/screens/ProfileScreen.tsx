@@ -157,7 +157,7 @@ export function ProfileScreen({ navigation }: Props) {
         />
         <ReadOnlyField label="Member since" value={fmtMonthYear(user.createdAt)} />
 
-        {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+        {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
 
         <View style={styles.saveRow}>
           <SaveStatus dirty={dirty} saving={saving} justSaved={justSaved} error={false} />

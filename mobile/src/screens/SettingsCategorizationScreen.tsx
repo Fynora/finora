@@ -142,7 +142,7 @@ export function SettingsCategorizationScreen() {
         </Text>
       </Pressable>
 
-      {intelError ? <Text style={[styles.error, { color: c.danger }]}>{intelError}</Text> : null}
+      {intelError ? <Text style={[styles.error, { color: c.dangerInk }]}>{intelError}</Text> : null}
       <View style={styles.saveRow}>
         <SaveStatus dirty={intelDirty} saving={intelSaving} justSaved={intelJustSaved} error={false} />
       </View>

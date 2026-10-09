@@ -136,7 +136,7 @@ export function MoreScreen({ navigation }: Props) {
       </Card>
 
       <Pressable onPress={confirmSignOut} style={styles.signOutRow} hitSlop={12} accessibilityRole="button">
-        <Text style={[styles.signOut, { color: c.danger }]}>Sign out</Text>
+        <Text style={[styles.signOut, { color: c.dangerInk }]}>Sign out</Text>
       </Pressable>
     </ScrollView>
     </GlassScreen>

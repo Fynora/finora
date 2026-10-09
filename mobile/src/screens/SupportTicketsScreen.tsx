@@ -86,7 +86,7 @@ export function SupportTicketsScreen() {
             // Distinct from "no tickets" on purpose -- see frontend's identical fix and its own
             // comment for why collapsing the two is a real bug, not a cosmetic one.
             <View style={styles.centered}>
-              <Text style={[styles.emptyText, { color: c.danger }]}>Couldn&apos;t load your tickets.</Text>
+              <Text style={[styles.emptyText, { color: c.dangerInk }]}>Couldn&apos;t load your tickets.</Text>
               <Pressable onPress={() => void ticketsQuery.refetch()} accessibilityRole="button">
                 <Text style={[styles.retryText, { color: c.primary }]}>Try again</Text>
               </Pressable>

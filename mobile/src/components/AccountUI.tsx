@@ -53,7 +53,7 @@ export function SaveStatus({ dirty, saving, justSaved, error }: {
 }) {
   const c = useTheme();
   const state = error
-    ? { text: "Couldn't save — please try again.", color: c.danger }
+    ? { text: "Couldn't save — please try again.", color: c.dangerInk }
     : saving
       ? { text: 'Saving…', color: c.muted }
       : justSaved

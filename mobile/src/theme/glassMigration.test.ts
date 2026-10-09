@@ -37,6 +37,14 @@ it('every opaque c.card background is either a GlassSurface or marked glass-exem
   expect(unmarked(/backgroundColor:\s*c\.card\b/, ['components/GlassSurface.tsx'])).toEqual([]);
 });
 
+it('danger/success are never TEXT colours: text uses dangerInk/successInk', () => {
+  // Measured on the real mesh (glassContrast.test.ts, 2026-10-09): light danger 3.49:1 on the
+  // backdrop, light success 3.02:1 on a glass card (and 3.30 on the old opaque card -- it never
+  // cleared AA). `color={c.danger}` on an icon is fine (graphical objects need 3:1); `color: c.x`
+  // inside a style object is text, and conditional expressions (`x ? c.success : c.danger`) count.
+  expect(unmarked(/\bcolor:\s*[^,}]*\bc\.(danger|success)\b/)).toEqual([]);
+});
+
 it('the lock cover is marked exempt (opaque on purpose), not migrated', () => {
   const src = readFileSync(join(SRC, 'components/AppLockGate.tsx'), 'utf8');
   expect(src).not.toMatch(/GlassScreen/);

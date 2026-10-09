@@ -205,7 +205,7 @@ export function StatementHistoryScreen() {
 
         {error ? (
           <Card style={{ ...styles.section, borderColor: c.danger }}>
-            <Text style={[styles.body, { color: c.danger }]}>{error}</Text>
+            <Text style={[styles.body, { color: c.dangerInk }]}>{error}</Text>
           </Card>
         ) : null}
 
@@ -292,7 +292,7 @@ function RecentImportsCard({ jobs }: { jobs: ImportJobProgress[] }) {
         Statements still processing, or that didn&apos;t finish.
       </Text>
       {dismissError ? (
-        <Text style={[styles.body, { color: c.danger }]} accessibilityRole="alert">{dismissError}</Text>
+        <Text style={[styles.body, { color: c.dangerInk }]} accessibilityRole="alert">{dismissError}</Text>
       ) : null}
       {jobs.map((job) => {
         const reason = failureReason(job) ?? jobDetail(job);
@@ -430,7 +430,7 @@ function RowAction({
       style={[styles.action, { borderColor: c.border }, isDisabled && styles.actionDisabled]}
     >
       <Ionicons name={icon} size={14} color={danger ? c.danger : c.muted} />
-      <Text style={[styles.actionText, { color: danger ? c.danger : c.muted }]}>{label}</Text>
+      <Text style={[styles.actionText, { color: danger ? c.dangerInk : c.muted }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -494,7 +494,7 @@ function ReimportPasswordModal({
                 <Text style={[styles.passwordToggle, { color: c.primary }]}>{passwordRevealed ? 'Hide' : 'Show'}</Text>
               </Pressable>
             </View>
-            <Text style={[styles.helpText, { color: prompt.wrong ? c.danger : c.mutedInk }]}>
+            <Text style={[styles.helpText, { color: prompt.wrong ? c.dangerInk : c.mutedInk }]}>
               {prompt.wrong
                 ? "That password didn't open this statement — check it and try again."
                 : 'The password your bank uses for this statement.'}
@@ -566,7 +566,7 @@ function StatementDetailModal({ detail, onClose }: { detail: Detail; onClose: ()
                     <Text style={[styles.body, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>{item.description}</Text>
                     <Text style={[styles.body, { color: c.mutedInk }]}>{fmtDate(item.date)}</Text>
                   </View>
-                  <Text style={[styles.body, { color: item.type === 'INCOME' ? c.success : c.danger }]}>
+                  <Text style={[styles.body, { color: item.type === 'INCOME' ? c.successInk : c.dangerInk }]}>
                     {item.type === 'INCOME' ? '+' : '-'}{fmtCurrency(Math.abs(item.amount))}
                   </Text>
                 </View>

@@ -22,11 +22,18 @@ const over = (top: number[], a: number, bot: number[]) => top.map((v, i) => v * 
 
 // Text tokens that can render on glass, and the subset that can render straight on the backdrop
 // (screen headings and their metadata sit on GlassScreen with no card under them).
-const ON_GLASS: Record<'light' | 'dark', (keyof Palette)[]> = {
-  light: ['ink', 'muted', 'mutedInk', 'primary', 'brassInk', 'successInk', 'warningInk', 'dangerInk'],
-  dark: ['ink', 'muted', 'mutedInk', 'primary', 'brassInk', 'successInk', 'warningInk', 'dangerInk'],
-};
-const ON_BACKDROP: (keyof Palette)[] = ['ink', 'muted', 'mutedInk', 'primary', 'brassInk'];
+// Raw `danger`/`success`/`warning`/`brass` are deliberately absent: they are icon/border/fill
+// tones, and glassMigration.test.ts guards that text never uses them (light danger measured 3.49:1
+// on the backdrop, light success 3.02:1 on a glass card). Text uses the *Ink tokens below.
+const TEXT_TOKENS: (keyof Palette)[] = ['ink', 'muted', 'mutedInk', 'primary', 'brassInk', 'successInk', 'warningInk', 'dangerInk'];
+const ON_GLASS: Record<'light' | 'dark', (keyof Palette)[]> = { light: TEXT_TOKENS, dark: TEXT_TOKENS };
+// Error/empty states render text straight on the screen root with no card under it, so every
+// text token can land on the bare backdrop.
+const ON_BACKDROP: (keyof Palette)[] = TEXT_TOKENS;
+// Every scrim alpha a sheet/overlay paints behind a glass panel (grep rgba(0,0,0,…) in src): the
+// darkest (TourOverlay 0.6) is the worst case for dark text in light mode, the lightest (0.35)
+// for light text in dark mode, so all are checked rather than one representative value.
+const SCRIM_ALPHAS = [0.35, 0.4, 0.45, 0.6];
 
 function load(theme: string) {
   return PNG.sync.read(readFileSync(join(ASSETS, `mesh-${theme}.png`)));
@@ -55,7 +62,7 @@ describe.each([['light', light], ['dark', dark]] as const)('%s mesh', (theme, p)
     expect(fails).toEqual([]);
   };
   const glass = (px: number[]) => over(rgb(p.glassTint), p.glassAlpha, px);
-  const SCRIM = [0, 0, 0], SCRIM_ALPHA = 0.4; // QuickActionSheet's rgba(0,0,0,0.4) backdrop
+  const SCRIM = [0, 0, 0];
 
   it('PNG matches mesh.json dimensions', () => {
     expect([png.width, png.height]).toEqual([mesh.width, mesh.height]);
@@ -69,9 +76,12 @@ describe.each([['light', light], ['dark', dark]] as const)('%s mesh', (theme, p)
     expectAA(worst(ON_BACKDROP, (px) => px), 'backdrop');
   });
 
-  it('a glass sheet over the dimming scrim clears AA, whether the scrim covers bare mesh or a glass card', () => {
-    expectAA(worst(ON_GLASS[theme], (px) => glass(over(SCRIM, SCRIM_ALPHA, px))), 'sheet/scrim/mesh');
-    expectAA(worst(ON_GLASS[theme], (px) => glass(over(SCRIM, SCRIM_ALPHA, glass(px)))), 'sheet/scrim/card');
+  it.each(SCRIM_ALPHAS)('a glass sheet over a %s scrim clears AA, whether the scrim covers bare mesh or a glass card', (a) => {
+    // 0.6 is TourOverlay's scrim alone, and its card renders only ink and muted (checked by grep,
+    // 2026-10-09); every other sheet/overlay uses 0.35-0.45 and can carry any text token.
+    const tokens = a === 0.6 ? (['ink', 'muted'] as (keyof Palette)[]) : ON_GLASS[theme];
+    expectAA(worst(tokens, (px) => glass(over(SCRIM, a, px))), `sheet/scrim${a}/mesh`);
+    expectAA(worst(tokens, (px) => glass(over(SCRIM, a, glass(px)))), `sheet/scrim${a}/card`);
   });
 
   it('edge band is flat base colour, so differently-sized crops meet without a seam', () => {

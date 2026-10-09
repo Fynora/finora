@@ -160,7 +160,7 @@ export function CategoryEditSheet({ mode, initialName, category, onClose, onSave
               })}
             </View>
 
-            {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+            {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
             <View style={styles.action}>
               <Button
                 label={saving ? 'Saving…' : 'Save'}

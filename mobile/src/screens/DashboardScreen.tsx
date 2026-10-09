@@ -676,7 +676,7 @@ export function DashboardScreen() {
           // A failed request is not an answer of zero -- same reasoning as LedgerScreen's own
           // isError branch. Without this, a persistent failure here would fall through to the
           // empty-state message below and tell someone with years of history they have none.
-          <Text style={[styles.errorText, { color: c.danger }]}>
+          <Text style={[styles.errorText, { color: c.dangerInk }]}>
             Couldn&apos;t load your transactions — pull down to try again.
           </Text>
         ) : recentTxns.length === 0 ? (
@@ -696,7 +696,7 @@ export function DashboardScreen() {
                   {t.categoryName} · {t.date}
                 </Text>
               </View>
-              <Text style={[styles.txnAmount, { color: t.type === 'INCOME' ? c.success : c.danger }]}>
+              <Text style={[styles.txnAmount, { color: t.type === 'INCOME' ? c.successInk : c.dangerInk }]}>
                 {t.type === 'INCOME' ? '+' : '-'}
                 {fmtCurrency(Math.abs(t.amount))}
               </Text>
@@ -773,7 +773,7 @@ export function DashboardScreen() {
                     No "-" prefix, unlike that list: this is a forward-looking "what's coming due"
                     figure, not a past ledger entry, and the pinned test for this card asserts the
                     bare amount ('₹499', no sign). */}
-                <Text style={[styles.recurringAmount, { color: c.danger }]}>{fmtCurrency(r.averageAmount)}</Text>
+                <Text style={[styles.recurringAmount, { color: c.dangerInk }]}>{fmtCurrency(r.averageAmount)}</Text>
                 <Text style={[styles.recurringMeta, { color: c.mutedInk }]} numberOfLines={1}>
                   {recurringExpectedLabel(r.nextEstimate)}
                 </Text>
@@ -883,7 +883,7 @@ export function DashboardScreen() {
               : `We found ${summary.duplicateTransactionCount} transactions that look like duplicates and excluded them from your totals.`}
           </Text>
           {duplicateConfirmError ? (
-            <Text style={[styles.body, { color: c.danger, marginBottom: spacing.sm }]}>
+            <Text style={[styles.body, { color: c.dangerInk, marginBottom: spacing.sm }]}>
               {duplicateConfirmError}
             </Text>
           ) : null}
@@ -964,7 +964,7 @@ export function DashboardScreen() {
         {cashFlowSettling ? (
           <SkeletonChart width={chartWidth} />
         ) : cashFlowUnavailable ? (
-          <Text style={[styles.errorText, { color: c.danger }]}>Couldn’t load your cash flow.</Text>
+          <Text style={[styles.errorText, { color: c.dangerInk }]}>Couldn’t load your cash flow.</Text>
         ) : (
           <>
             <CashFlowChart points={cashFlowPoints} width={chartWidth} />
@@ -991,7 +991,7 @@ export function DashboardScreen() {
         {budgetsQ.isLoading ? (
           <SkeletonCard lines={2} />
         ) : budgetsQ.isError ? (
-          <Text style={[styles.errorText, { color: c.danger }]}>Couldn&apos;t load your budgets.</Text>
+          <Text style={[styles.errorText, { color: c.dangerInk }]}>Couldn&apos;t load your budgets.</Text>
         ) : budgets.length === 0 ? (
           <EmptyState message="No budgets set. Create one to track your spending." />
         ) : (
@@ -1013,7 +1013,7 @@ export function DashboardScreen() {
                     <Text style={[styles.budgetName, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
                       {b.categoryName}
                     </Text>
-                    <Text style={[styles.budgetPct, { color: over ? c.danger : c.mutedInk }]}>
+                    <Text style={[styles.budgetPct, { color: over ? c.dangerInk : c.mutedInk }]}>
                       {rawPct.toFixed(0)}%
                     </Text>
                   </View>

@@ -69,7 +69,7 @@ export function SpendingTrackingQuestionScreen({ onSubmit, onSignOut }: Props) {
           );
         })}
       </View>
-      {error ? <Text accessibilityRole="alert" style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+      {error ? <Text accessibilityRole="alert" style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
       <View style={{ height: 16 }} />
       <Button label="Continue" onPress={() => void submit()} disabled={!selected} loading={saving} />
       <View style={{ height: 8 }} />

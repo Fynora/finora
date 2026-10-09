@@ -723,7 +723,7 @@ export function LedgerScreen() {
               </View>
             ) : null}
 
-            {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+            {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
           </>
         }
         ListEmptyComponent={
@@ -782,7 +782,7 @@ export function LedgerScreen() {
               return (
                 <View style={styles.dayHeader}>
                   <Text style={[styles.dayHeaderLabel, { color: c.mutedInk }]} numberOfLines={1}>{item.label}</Text>
-                  <Text style={[styles.dayHeaderSubtotal, { color: item.subtotal >= 0 ? c.success : c.danger }]}>
+                  <Text style={[styles.dayHeaderSubtotal, { color: item.subtotal >= 0 ? c.successInk : c.dangerInk }]}>
                     {item.subtotal >= 0 ? '+' : '-'}{fmtCurrency(Math.abs(item.subtotal))}
                   </Text>
                 </View>
@@ -900,7 +900,7 @@ export function LedgerScreen() {
               {deletingId === t.id ? (
                 <ActivityIndicator size="small" color={c.muted} style={styles.rowTrailingSpacing} />
               ) : (
-                <Text style={[styles.amount, { color: t.type === 'INCOME' ? c.success : c.danger }, styles.rowTrailingSpacing]}>
+                <Text style={[styles.amount, { color: t.type === 'INCOME' ? c.successInk : c.dangerInk }, styles.rowTrailingSpacing]}>
                   {t.type === 'INCOME' ? '+' : '-'}
                   {fmtCurrency(Math.abs(t.amount))}
                 </Text>
@@ -1024,7 +1024,7 @@ function LedgerMonthSummary({ kpis, title, deltaLabel }: { kpis: KpiItem[]; titl
         {/* Income and Expenses only, which are always a number -- only Savings Rate can be null. */}
         <AnimatedNumber testID={`kpi-${kpi.label}`} value={kpi.value ?? 0} style={[styles.monthValue, { color: c.ink }]} />
         {kpi.delta !== null && kpi.delta !== undefined ? (
-          <Text style={[styles.monthDelta, { color: (kpi.invert ? kpi.delta < 0 : kpi.delta >= 0) ? c.success : c.danger }]}>
+          <Text style={[styles.monthDelta, { color: (kpi.invert ? kpi.delta < 0 : kpi.delta >= 0) ? c.successInk : c.dangerInk }]}>
             {kpi.delta >= 0 ? '▲' : '▼'} {Math.abs(kpi.delta).toFixed(1)}% {deltaLabel}
           </Text>
         ) : null}

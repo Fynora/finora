@@ -128,7 +128,7 @@ export function CategoryDeleteSheet({ category, onClose, onDeleted }: Props) {
               </View>
             ) : null}
 
-            {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+            {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
             <View style={styles.action}>
               <Button
                 label={deleting ? 'Deleting…' : 'Delete'}

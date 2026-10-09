@@ -184,7 +184,7 @@ export function SettingsGeneralScreen() {
         Theme applies instantly. The alert amount and timezone save when you tap Save.
       </Text>
 
-      {prefsError ? <Text style={[styles.error, { color: c.danger }]}>{prefsError}</Text> : null}
+      {prefsError ? <Text style={[styles.error, { color: c.dangerInk }]}>{prefsError}</Text> : null}
       <View style={styles.saveRow}>
         <SaveStatus dirty={prefsDirty} saving={prefsSaving} justSaved={prefsJustSaved} error={false} />
       </View>
@@ -197,7 +197,7 @@ export function SettingsGeneralScreen() {
 
       <NotificationPreferencesSection />
 
-      {retakeTourError ? <Text style={[styles.error, { color: c.danger }]}>{retakeTourError}</Text> : null}
+      {retakeTourError ? <Text style={[styles.error, { color: c.dangerInk }]}>{retakeTourError}</Text> : null}
       <View style={[styles.retakeTourRow, { borderTopColor: c.border }]}>
         <View style={styles.retakeTourText}>
           <Text style={[styles.fieldLabel, { color: c.ink, marginTop: 0 }]}>Retake Product Tour</Text>

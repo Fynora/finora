@@ -145,10 +145,10 @@ export function AccountsScreen() {
         <Button label="Add Account" variant="link" onPress={() => setFormTarget('new')} />
       </View>
 
-      {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+      {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
 
       {isError ? (
-        <Text style={[styles.error, { color: c.danger }]}>Could not load accounts.</Text>
+        <Text style={[styles.error, { color: c.dangerInk }]}>Could not load accounts.</Text>
       ) : accounts.length === 0 ? (
         <Card>
           <EmptyState message="No accounts yet. Import a statement or add one manually to get started." />
@@ -242,7 +242,7 @@ export function AccountsScreen() {
                       accessibilityRole="button"
                       accessibilityLabel={`Delete ${a.name}`}
                     >
-                      <Text style={[styles.actionText, { color: c.danger }]}>Delete</Text>
+                      <Text style={[styles.actionText, { color: c.dangerInk }]}>Delete</Text>
                     </Pressable>
                   </>
                 )}

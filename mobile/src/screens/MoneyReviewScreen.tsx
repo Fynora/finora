@@ -92,7 +92,7 @@ export function MoneyReviewScreen({ route }: { route: RouteProp<MoreStackParamLi
           <Button label="Undo" variant="link" onPress={undoLast} />
         </Card>
       ) : null}
-      {error ? <Text style={[styles.small, { color: c.danger }]}>{error}</Text> : null}
+      {error ? <Text style={[styles.small, { color: c.dangerInk }]}>{error}</Text> : null}
       {sendersQ.isError ? <EmptyState message={toUserMessage(sendersQ.error, "Couldn't load this list.")} /> : null}
       {sendersQ.data && sendersQ.data.length === 0 ? <EmptyState message="Everything's sorted" /> : null}
       {sendersQ.data?.map((s) => (

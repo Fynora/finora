@@ -147,7 +147,7 @@ export function MySubscriptionScreen() {
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={[styles.planName, { color: c.ink }]}>{visiblePlanName(subscription.planCode, subscription.planName ?? subscription.planCode)}</Text>
 
-      {error ? <Text style={[styles.note, { color: c.danger }]}>{error}</Text> : null}
+      {error ? <Text style={[styles.note, { color: c.dangerInk }]}>{error}</Text> : null}
 
       {subscription.status === 'PAUSED' ? (
         // Razorpay's charge_at goes null while paused, so renewalDate is stale until resume --

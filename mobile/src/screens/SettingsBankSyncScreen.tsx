@@ -101,7 +101,7 @@ export function SettingsBankSyncScreen() {
         // (`aaError ? <p>Couldn't load...</p> : ...`); this screen is new mobile code, so it had
         // never had the chance to inherit that from an existing monolith the way the other
         // screens' bugs did.
-        <Text style={[styles.hint, { color: c.danger }]}>Couldn't load your linked bank accounts — please try again later.</Text>
+        <Text style={[styles.hint, { color: c.dangerInk }]}>Couldn't load your linked bank accounts — please try again later.</Text>
       ) : (
         <View>
           {links.length === 0 ? (
@@ -129,7 +129,7 @@ export function SettingsBankSyncScreen() {
               </View>
             ))
           )}
-          {actionError ? <Text style={[styles.hint, { color: c.danger }]}>{actionError}</Text> : null}
+          {actionError ? <Text style={[styles.hint, { color: c.dangerInk }]}>{actionError}</Text> : null}
           <Button label="Connect a Bank Account" onPress={() => void handleConnect()} loading={connecting} />
         </View>
       )}

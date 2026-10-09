@@ -138,8 +138,12 @@ export const dark: typeof light = {
   successInk: '#22c55e',
   danger: '#f87171',
   dangerBg: '#210C0E',
-  // Dark theme's danger already clears AA on its wash (6.76:1), so this is the same value.
-  dangerInk: '#f87171',
+  // Was the same value as `danger` (6.76:1 on the wash, 5.19:1 on card). The glass redesign also
+  // puts error text straight on the mesh backdrop (loading/error roots), where #f87171 measured
+  // 4.13:1 at the slate blob's peak -- under AA. This red-300 measured 6.02 on the backdrop,
+  // 7.12 on dark glass, 9.85 on the wash (glassContrast.test.ts). `danger` itself stays the icon/
+  // border/amount-accent tone; text uses dangerInk, same split as light mode has always had.
+  dangerInk: '#fca5a5',
   warning: '#fbbf24',
   warningBg: '#181104',
   // Dark theme already clears AA comfortably (11.22:1), so this is the same value as `warning`.

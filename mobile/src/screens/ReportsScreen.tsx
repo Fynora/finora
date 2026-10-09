@@ -224,14 +224,14 @@ export function ReportsScreen() {
             </Pressable>
           ))}
         </View>
-        {exportError ? <Text style={[styles.error, { color: c.danger }]}>{exportError}</Text> : null}
+        {exportError ? <Text style={[styles.error, { color: c.dangerInk }]}>{exportError}</Text> : null}
       </Card>
 
       {reportLoading ? (
         <ReportBodySkeleton />
       ) : reportError || !report ? (
         <Card style={styles.section}>
-          <Text style={[styles.error, { color: c.danger }]}>
+          <Text style={[styles.error, { color: c.dangerInk }]}>
             Couldn&apos;t load {monthLabelLong(month as string)}&apos;s report — pull down to try again.
           </Text>
         </Card>
@@ -253,14 +253,14 @@ export function ReportsScreen() {
             </Card>
             <Card style={styles.totalCard}>
               <Text style={[styles.totalLabel, { color: c.muted }]}>Expense</Text>
-              <Text style={[styles.totalValue, { color: c.danger }]} numberOfLines={1} adjustsFontSizeToFit>
+              <Text style={[styles.totalValue, { color: c.dangerInk }]} numberOfLines={1} adjustsFontSizeToFit>
                 {fmtCurrency(report.expense)}
               </Text>
             </Card>
             <Card style={styles.totalCard}>
               <Text style={[styles.totalLabel, { color: c.muted }]}>Net</Text>
               <Text
-                style={[styles.totalValue, { color: net >= 0 ? c.ink : c.danger }]}
+                style={[styles.totalValue, { color: net >= 0 ? c.ink : c.dangerInk }]}
                 numberOfLines={1}
                 adjustsFontSizeToFit
               >

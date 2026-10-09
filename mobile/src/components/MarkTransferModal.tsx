@@ -112,7 +112,7 @@ export function MarkTransferModal({
             style={[styles.search, { backgroundColor: c.inputBg, borderColor: c.border, color: c.ink }]}
           />
 
-          {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+          {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
 
           {debouncedKeyword.length === 0 ? (
             <Text style={[styles.hint, { color: c.muted }]}>Start typing to search your transactions.</Text>
@@ -143,7 +143,7 @@ export function MarkTransferModal({
                     </Text>
                     <Text style={[styles.candidateMeta, { color: c.mutedInk }]}>{item.date}</Text>
                   </View>
-                  <Text style={[styles.candidateAmount, { color: item.type === 'INCOME' ? c.success : c.danger }]}>
+                  <Text style={[styles.candidateAmount, { color: item.type === 'INCOME' ? c.successInk : c.dangerInk }]}>
                     {item.type === 'INCOME' ? '+' : '-'}{fmtCurrency(item.amount)}
                   </Text>
                 </Pressable>

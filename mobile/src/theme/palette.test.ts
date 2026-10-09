@@ -106,8 +106,12 @@ describe('theme palette contrast', () => {
     expect(contrastRatio(light.danger, light.dangerBg)).toBeLessThan(AA_SMALL_TEXT);
   });
 
-  it('dark.dangerInk intentionally equals dark.danger, since dark theme already clears AA', () => {
-    expect(dark.dangerInk).toBe(dark.danger);
+  it('dark.dangerInk is lighter than dark.danger: error text also lands on the dark mesh backdrop', () => {
+    // Was equal to dark.danger until the glass redesign; #f87171 measured 4.13:1 directly on the
+    // dark backdrop (glassContrast.test.ts), so text got its own lighter step while `danger` stays
+    // the icon/border/amount tone. The *Ink token must stay the higher-contrast one on bg.
+    expect(dark.dangerInk).not.toBe(dark.danger);
+    expect(contrastRatio(dark.dangerInk, dark.bg)).toBeGreaterThan(contrastRatio(dark.danger, dark.bg));
   });
 
   it.each([

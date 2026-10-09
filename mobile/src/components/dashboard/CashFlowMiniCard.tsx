@@ -62,7 +62,7 @@ export function CashFlowMiniCard({
           // month's net cash flow against the one before it (summary.netDeltaPct), a
           // DIFFERENT comparison than the multi-month average above. Left unlabeled, the pair
           // reads as if the average itself moved by this percentage, which it did not.
-          <Text style={[styles.delta, { color: deltaPct >= 0 ? c.success : c.danger, fontFamily: fonts.bodyBold }]}>
+          <Text style={[styles.delta, { color: deltaPct >= 0 ? c.successInk : c.dangerInk, fontFamily: fonts.bodyBold }]}>
             {deltaPct >= 0 ? '▲' : '▼'} {Math.abs(deltaPct).toFixed(1)}% {deltaLabel}
           </Text>
         ) : null}

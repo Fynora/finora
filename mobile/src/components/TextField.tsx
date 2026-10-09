@@ -54,7 +54,7 @@ export function TextField({ label, value, onChangeText, secure = false, error, p
       </View>
       {/* Fixed-height slot so showing an error doesn't shift everything below it -- same idea as
           the web form's `h-3.5` error paragraphs. */}
-      <Text style={[styles.error, { color: c.danger }]} numberOfLines={2}>
+      <Text style={[styles.error, { color: c.dangerInk }]} numberOfLines={2}>
         {error ?? ''}
       </Text>
     </View>

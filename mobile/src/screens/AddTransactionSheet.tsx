@@ -190,7 +190,7 @@ export function AddTransactionSheet({ onClose, onSaved }: Props) {
                   </Text>
                 </Pressable>
 
-                {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+                {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
                 <View style={styles.action}>
                   <Button label={saving ? 'Adding…' : 'Add Transaction'} onPress={() => void save()} loading={saving} disabled={!canSave} />
                   <Button label="Cancel" variant="link" onPress={onClose} disabled={saving} />

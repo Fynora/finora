@@ -188,7 +188,7 @@ export function AccountFormSheet({ account, onClose, onSaved }: Props) {
                 />
                 <DateField label="Payment due date" value={dueDate} onChange={setDueDate} />
                 {dueDateClearBlocked ? (
-                  <Text style={[styles.error, { color: c.danger }]}>
+                  <Text style={[styles.error, { color: c.dangerInk }]}>
                     A due date can&apos;t be removed here -- pick a different date instead, or
                     contact support.
                   </Text>
@@ -196,7 +196,7 @@ export function AccountFormSheet({ account, onClose, onSaved }: Props) {
               </>
             ) : null}
 
-            {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+            {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
             <View style={styles.action}>
               <Button
                 label={saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Add Account'}

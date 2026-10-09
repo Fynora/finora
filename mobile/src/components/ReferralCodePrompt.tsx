@@ -84,7 +84,7 @@ export function ReferralCodePrompt() {
             onSubmitEditing={() => { if (canSubmit) apply.mutate(trimmed); }}
             returnKeyType="done"
           />
-          <Text style={[styles.error, { color: c.danger }]} numberOfLines={2}>{error ?? ''}</Text>
+          <Text style={[styles.error, { color: c.dangerInk }]} numberOfLines={2}>{error ?? ''}</Text>
 
           <View style={styles.actions}>
             <Pressable

@@ -216,12 +216,12 @@ export function GoalsScreen() {
         </Card>
       ) : null}
 
-      {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+      {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
 
       <View style={styles.list}>
         {isError ? (
           <Card>
-            <Text style={[styles.error, { color: c.danger }]}>Could not load goals.</Text>
+            <Text style={[styles.error, { color: c.dangerInk }]}>Could not load goals.</Text>
           </Card>
         ) : goals.length === 0 ? (
           <Card>
@@ -281,7 +281,7 @@ export function GoalsScreen() {
                     accessibilityRole="button"
                     accessibilityLabel={`Delete ${g.name}`}
                   >
-                    <Text style={[styles.actionText, { color: c.danger }]}>Delete</Text>
+                    <Text style={[styles.actionText, { color: c.dangerInk }]}>Delete</Text>
                   </Pressable>
                 </View>
               </Card>

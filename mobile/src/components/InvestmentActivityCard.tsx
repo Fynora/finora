@@ -141,7 +141,7 @@ export function InvestmentActivityCard() {
         <ActivityIndicator color={c.primary} />
       ) : q.isError || isPausedCold(q) || !activity ? (
         // Not the empty state: "no SIPs yet" would be a false claim to someone whose fetch failed.
-        <Text style={[styles.inlineError, { color: c.danger }]}>Could not load your investment activity.</Text>
+        <Text style={[styles.inlineError, { color: c.dangerInk }]}>Could not load your investment activity.</Text>
       ) : activity.count === 0 ? (
         <EmptyState message={`No SIPs or broker transfers yet. Nothing is filed under Investments in the ${periodLabel}.`} />
       ) : (

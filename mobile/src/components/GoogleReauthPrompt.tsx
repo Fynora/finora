@@ -26,7 +26,7 @@ export function GoogleReauthPrompt({ onCredential, onError }: {
 
   if (!isGoogleSignInConfigured()) {
     return (
-      <Text style={[styles.unavailable, { color: c.danger }]}>
+      <Text style={[styles.unavailable, { color: c.dangerInk }]}>
         Sign in with Google isn&apos;t available right now. Please try again later, or contact
         support.
       </Text>

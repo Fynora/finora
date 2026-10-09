@@ -32,7 +32,7 @@ export function SuccessScreen({ onDone, error }: Props) {
           <Text key={item.key} style={{ color: c.muted, marginBottom: 4 }}>☐ {item.label}</Text>
         ))}
       </View>
-      {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+      {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
       <Button label="Import Statement" onPress={onDone} />
       <View style={{ height: 8 }} />
       <Button label="Connect Account" onPress={onDone} variant="link" />

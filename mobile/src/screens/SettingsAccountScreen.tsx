@@ -78,7 +78,7 @@ export function SettingsAccountScreen({ navigation }: Props) {
         <Button label="Deactivate Account" onPress={() => setDeactivateOpen(true)} variant="link" />
       </View>
       <View style={[styles.dangerRow, { borderBottomColor: 'transparent' }]}>
-        <Text style={[styles.fieldLabel, { color: c.danger, marginTop: 0 }]}>Delete Account</Text>
+        <Text style={[styles.fieldLabel, { color: c.dangerInk, marginTop: 0 }]}>Delete Account</Text>
         <Text style={[styles.hint, { color: c.mutedInk }]}>
           Permanently delete your account and all your data. This cannot be undone, and there is
           no way to cancel this request once submitted.

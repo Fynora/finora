@@ -235,7 +235,7 @@ export function CategoryReviewScreen() {
 
       <QuickSortPanel onLoaded={setQuickSortQuestions} />
 
-      {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+      {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
       {listsBehindQuickSort ? (
         <Pressable onPress={() => setShowAllWaiting(true)} hitSlop={12} accessibilityRole="button">
           <Text style={[styles.retry, { color: c.primary }]}>See all waiting payments</Text>
@@ -255,7 +255,7 @@ export function CategoryReviewScreen() {
         </Card>
       ) : failed ? (
         <Card style={styles.section}>
-          <Text style={[styles.error, { color: c.danger }]}>Couldn’t load your review queue.</Text>
+          <Text style={[styles.error, { color: c.dangerInk }]}>Couldn’t load your review queue.</Text>
           <Pressable onPress={refresh} hitSlop={12} accessibilityRole="button">
             <Text style={[styles.retry, { color: c.primary }]}>Try again</Text>
           </Pressable>

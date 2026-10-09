@@ -18,7 +18,7 @@ export function WelcomeScreen({ onStart, onSkip, error }: Props) {
         Take control of your finances in one place. Track spending, create budgets, monitor
         goals, and understand where your money goes with powerful insights.
       </Text>
-      {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+      {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
       <Button label="Start Setup" onPress={onStart} />
       <View style={{ height: spacing.sm }} />
       <Button label="Skip for Now" onPress={onSkip} variant="link" />

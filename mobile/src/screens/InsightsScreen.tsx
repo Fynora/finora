@@ -375,7 +375,7 @@ export function InsightsScreen() {
                 {stat.delta !== null ? (
                   <Text style={[
                     styles.glanceDelta,
-                    { color: (stat.invert ? stat.delta < 0 : stat.delta >= 0) ? c.success : c.danger },
+                    { color: (stat.invert ? stat.delta < 0 : stat.delta >= 0) ? c.successInk : c.dangerInk },
                   ]}>
                     {stat.delta >= 0 ? '▲' : '▼'} {Math.abs(stat.delta).toFixed(0)}%
                   </Text>
@@ -415,7 +415,7 @@ export function InsightsScreen() {
             ) : undefined}
           />
           {insightsQ.isError ? (
-            <Text style={[styles.error, { color: c.danger }]}>
+            <Text style={[styles.error, { color: c.dangerInk }]}>
               Couldn&apos;t load your insights — pull down to try again.
             </Text>
           ) : !insightsData?.biggestCategory && !insightsData?.topMerchant && movers.length === 0 && sentences.length === 0 ? (
@@ -615,7 +615,7 @@ export function InsightsScreen() {
                 }
               />
               {spendingInsightsQ.isError ? (
-                <Text style={[styles.error, { color: c.danger }]}>
+                <Text style={[styles.error, { color: c.dangerInk }]}>
                   Couldn&apos;t load your insights — pull down to try again.
                 </Text>
               ) : spendingSentences.length === 0 ? (
@@ -644,7 +644,7 @@ export function InsightsScreen() {
               <Card style={styles.section}>
                 <SectionHeading title="Recurring Payments & Subscriptions" />
                 {recurringQ.isError ? (
-                  <Text style={[styles.error, { color: c.danger }]}>
+                  <Text style={[styles.error, { color: c.dangerInk }]}>
                     Couldn&apos;t load recurring payments — pull down to try again.
                   </Text>
                 ) : recurring.length === 0 && (changedAmountsQ.data ?? []).length === 0 ? (
@@ -750,7 +750,7 @@ export function InsightsScreen() {
                         {fmtCurrency(m.current)} vs usual {fmtCurrency(m.priorAverage)}
                       </Text>
                     </View>
-                    <Text style={[styles.delta, { color: (m.pctChange ?? 0) >= 0 ? c.danger : c.success }]}>
+                    <Text style={[styles.delta, { color: (m.pctChange ?? 0) >= 0 ? c.dangerInk : c.successInk }]}>
                       {(m.pctChange ?? 0) >= 0 ? '▲' : '▼'} {Math.abs(m.pctChange ?? 0).toFixed(0)}%
                     </Text>
                   </Pressable>
@@ -782,7 +782,7 @@ export function InsightsScreen() {
                 {fmtCurrency(summary.monthlyIncome)}
               </Text>
               {incomeDelta !== null ? (
-                <Text style={[styles.incomeDelta, { color: incomeDelta >= 0 ? c.success : c.danger }]}>
+                <Text style={[styles.incomeDelta, { color: incomeDelta >= 0 ? c.successInk : c.dangerInk }]}>
                   {incomeDelta >= 0 ? '▲' : '▼'} {Math.abs(incomeDelta).toFixed(0)}%
                   {summary.priorMonth && summary.incomePrior !== null
                     ? ` vs ${monthLabel(summary.priorMonth)} (${fmtCurrency(summary.incomePrior)})`
@@ -797,7 +797,7 @@ export function InsightsScreen() {
           {incomeTrendQ.isLoading ? (
             <SkeletonChart variant="bar" width={chartWidth} />
           ) : incomeTrendQ.isError ? (
-            <Text style={[styles.error, { color: c.danger }]}>
+            <Text style={[styles.error, { color: c.dangerInk }]}>
               Couldn&apos;t load your income trend — pull down to try again.
             </Text>
           ) : (incomeTrendQ.data ?? []).length === 0 ? (

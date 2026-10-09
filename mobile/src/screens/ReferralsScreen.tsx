@@ -76,7 +76,7 @@ const CHANNELS: {
 
 function statusLabel(status: string): { text: string; color: (c: ReturnType<typeof useTheme>) => string } {
   switch (status) {
-    case 'REWARDED': return { text: 'Rewarded', color: (c) => c.success };
+    case 'REWARDED': return { text: 'Rewarded', color: (c) => c.successInk };
     case 'SUBSCRIBED': return { text: 'Subscribed', color: (c) => c.primary };
     default: return { text: 'Registered', color: (c) => c.muted };
   }
@@ -111,7 +111,7 @@ function MilestoneRow({
         >
           <Text style={[styles.shareButtonText, { color: c.onPrimary }]}>Redeem {label}</Text>
         </Pressable>
-        {error && <Text style={[styles.redeemErrorText, { color: c.danger }]}>{error}</Text>}
+        {error && <Text style={[styles.redeemErrorText, { color: c.dangerInk }]}>{error}</Text>}
       </Card>
     );
   }
@@ -289,7 +289,7 @@ function FriendCodeCard({ c }: { c: ReturnType<typeof useTheme> }) {
           returnKeyType="done"
         />
       </View>
-      {error ? <Text style={[styles.redeemErrorText, { color: c.danger }]}>{error}</Text> : null}
+      {error ? <Text style={[styles.redeemErrorText, { color: c.dangerInk }]}>{error}</Text> : null}
       <Pressable
         onPress={() => { if (canSubmit) apply.mutate(trimmed); }}
         disabled={!canSubmit}

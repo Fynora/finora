@@ -97,7 +97,7 @@ export function FeedbackSheet({ onClose }: { onClose: () => void }) {
               </View>
             ) : (
               <>
-                {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+                {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
 
                 <Text style={[styles.fieldLabel, { color: c.muted }]}>What kind of feedback?</Text>
                 <View style={styles.typeRow}>

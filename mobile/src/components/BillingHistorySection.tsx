@@ -54,7 +54,7 @@ export function BillingHistorySection({ paymentProvider, hideWhenEmpty = false }
     switch (status) {
       case 'SUCCESS': return { text: 'Paid', color: c.successInk };
       case 'REFUNDED': return { text: 'Refunded', color: c.muted };
-      case 'FAILED': return { text: 'Failed', color: c.danger };
+      case 'FAILED': return { text: 'Failed', color: c.dangerInk };
       default: return { text: 'Pending', color: c.warningInk };
     }
   }
@@ -129,7 +129,7 @@ export function BillingHistorySection({ paymentProvider, hideWhenEmpty = false }
           );
         })
       )}
-      {error ? <Text style={[styles.note, { color: c.danger }]}>{error}</Text> : null}
+      {error ? <Text style={[styles.note, { color: c.dangerInk }]}>{error}</Text> : null}
     </Card>
   );
 }

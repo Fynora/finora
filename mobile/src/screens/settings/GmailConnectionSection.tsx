@@ -151,7 +151,7 @@ export function GmailConnectionSection() {
   }
   if (isError && !status) {
     return (
-      <Text style={[styles.error, { color: c.danger }]}>
+      <Text style={[styles.error, { color: c.dangerInk }]}>
         Couldn&apos;t load your Gmail connection — please try again later.
       </Text>
     );
@@ -180,7 +180,7 @@ export function GmailConnectionSection() {
           </View>
           <Button label="Reconnect Gmail" onPress={() => void connect()} loading={connecting} />
         </View>
-        {actionError ? <Text style={[styles.error, { color: c.danger }]}>{actionError}</Text> : null}
+        {actionError ? <Text style={[styles.error, { color: c.dangerInk }]}>{actionError}</Text> : null}
       </View>
     );
   }
@@ -198,7 +198,7 @@ export function GmailConnectionSection() {
           <Button label="Connect Gmail" onPress={() => void connect()} loading={connecting} />
         </View>
         {actionNotice ? <Text style={[styles.notice, { color: c.successInk }]}>{actionNotice}</Text> : null}
-        {actionError ? <Text style={[styles.error, { color: c.danger }]}>{actionError}</Text> : null}
+        {actionError ? <Text style={[styles.error, { color: c.dangerInk }]}>{actionError}</Text> : null}
       </View>
     );
   }
@@ -243,8 +243,8 @@ export function GmailConnectionSection() {
         <MetricTile label="Needs Review" value={status.needsReview.toLocaleString('en-IN')} />
       </View>
 
-      {syncError ? <Text style={[styles.error, { color: c.danger }]}>{syncError}</Text> : null}
-      {actionError ? <Text style={[styles.error, { color: c.danger }]}>{actionError}</Text> : null}
+      {syncError ? <Text style={[styles.error, { color: c.dangerInk }]}>{syncError}</Text> : null}
+      {actionError ? <Text style={[styles.error, { color: c.dangerInk }]}>{actionError}</Text> : null}
 
       <View style={[styles.actions, { borderTopColor: c.border }]}>
         {status.needsReview > 0 ? (

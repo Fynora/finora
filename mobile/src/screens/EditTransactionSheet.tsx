@@ -181,7 +181,7 @@ export function EditTransactionSheet({ transaction, onClose, onSaved }: Props) {
               autoCapitalize="none"
             />
 
-            {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+            {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
             <View style={styles.action}>
               <Button label={saving ? 'Saving…' : 'Save Changes'} onPress={() => void save()} loading={saving} disabled={!canSave} />
               <Button label="Cancel" variant="link" onPress={onClose} disabled={saving} />

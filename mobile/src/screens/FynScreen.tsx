@@ -340,7 +340,7 @@ function FynChat() {
         {sending ? <Text style={[styles.thinking, { color: c.muted }]}>Fyn is thinking…</Text> : null}
       </ScrollView>
 
-      {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+      {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
 
       {attachedImage ? (
         <View style={[styles.attachedPreview, { borderColor: c.border, backgroundColor: c.bg /* glass-exempt: chip/input/attachment control inside the chat composer; opaque bg is its contrast */, marginHorizontal: spacing.md }]}>

@@ -118,7 +118,7 @@ export function SettingsBankSyncConfirmScreen({ route, navigation }: Props) {
       ) : (
         <View>
           {loadError ? (
-            <Text style={[styles.hint, { color: c.danger }]}>
+            <Text style={[styles.hint, { color: c.dangerInk }]}>
               Couldn't load your existing accounts, but you can still set this up as a new one below.
             </Text>
           ) : accounts.length > 0 && selected ? (
@@ -127,7 +127,7 @@ export function SettingsBankSyncConfirmScreen({ route, navigation }: Props) {
               <Button label={accountLabel(selected)} variant="link" onPress={() => setPickerOpen(true)} />
             </View>
           ) : null}
-          {actionError ? <Text style={[styles.hint, { color: c.danger }]}>{actionError}</Text> : null}
+          {actionError ? <Text style={[styles.hint, { color: c.dangerInk }]}>{actionError}</Text> : null}
           {!loadError && accounts.length > 0 && (
             <Button label="Yes, this is my account" onPress={() => void confirmExisting()} loading={busy} />
           )}

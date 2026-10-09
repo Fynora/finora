@@ -91,7 +91,7 @@ export function StatementRefreshBanner() {
             />
           ) : null}
           {failed ? (
-            <Text style={[styles.body, { color: c.danger }]} accessibilityRole="alert">
+            <Text style={[styles.body, { color: c.dangerInk }]} accessibilityRole="alert">
               Something went wrong while updating — please try again.
             </Text>
           ) : null}
@@ -205,7 +205,7 @@ function RefreshPasswordSheet({
               <Text style={[styles.toggle, { color: c.primary }]}>{revealed ? 'Hide' : 'Show'}</Text>
             </Pressable>
           </View>
-          <Text style={[styles.meta, { color: wrong || failed ? c.danger : c.mutedInk }]}>
+          <Text style={[styles.meta, { color: wrong || failed ? c.dangerInk : c.mutedInk }]}>
             {wrong
               ? "That password didn't open this statement — check it and try again."
               : failed ? 'Something went wrong — please try again.' : 'The password your bank uses for this statement.'}

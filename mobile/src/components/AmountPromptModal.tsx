@@ -79,7 +79,7 @@ export function AmountPromptModal({
             />
           </View>
 
-          <Text style={[styles.error, { color: c.danger }]} numberOfLines={2}>
+          <Text style={[styles.error, { color: c.dangerInk }]} numberOfLines={2}>
             {error ?? ''}
           </Text>
 

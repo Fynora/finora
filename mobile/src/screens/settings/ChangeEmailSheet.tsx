@@ -162,7 +162,7 @@ export function ChangeEmailSheet({ onClose, signInMethod }: {
                       autoCapitalize="none"
                       textContentType="password"
                     />
-                    {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+                    {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
                     {/* The email belongs to a DIFFERENT account -- ending THIS session so the one
                         that already owns it can be signed into is the actual fix, same reasoning
                         as VerifyPhoneScreen's identical nudge for the phone case. */}
@@ -204,7 +204,7 @@ export function ChangeEmailSheet({ onClose, signInMethod }: {
                         Enter a valid new email address above to continue.
                       </Text>
                     )}
-                    {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+                    {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
                     {errorCode === AUTH_EMAIL_ALREADY_REGISTERED ? (
                       <Button label="Log in instead" variant="link" onPress={logout} />
                     ) : null}

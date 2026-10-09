@@ -88,7 +88,7 @@ export function PaywallScreen() {
   return (
     <GlassScreen style={styles.glassRoot}>
     <ScrollView contentContainerStyle={styles.container}>
-      {error && <Text style={[styles.error, { color: c.danger }]}>{error}</Text>}
+      {error && <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text>}
       {activatingPlanName && (
         <Text style={[styles.note, { color: c.muted }]}>
           Activating your {activatingPlanName} plan… this can take a few seconds.

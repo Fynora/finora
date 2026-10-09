@@ -149,7 +149,7 @@ export function GmailReviewScreen() {
         </Card>
       ) : itemsQ.isError && items.length === 0 ? (
         <Card style={styles.section}>
-          <Text style={[styles.error, { color: c.danger }]}>Couldn&apos;t load your Gmail receipts — please try again later.</Text>
+          <Text style={[styles.error, { color: c.dangerInk }]}>Couldn&apos;t load your Gmail receipts — please try again later.</Text>
           <Pressable onPress={() => void refresh()} hitSlop={12} accessibilityRole="button">
             <Text style={[styles.retry, { color: c.primary }]}>Try again</Text>
           </Pressable>
@@ -194,7 +194,7 @@ export function GmailReviewScreen() {
               </Pressable>
 
               {rowError[item.sessionId] ? (
-                <Text style={[styles.error, { color: c.danger }]}>{rowError[item.sessionId]}</Text>
+                <Text style={[styles.error, { color: c.dangerInk }]}>{rowError[item.sessionId]}</Text>
               ) : null}
 
               <View style={[styles.actions, { borderTopColor: c.border }]}>

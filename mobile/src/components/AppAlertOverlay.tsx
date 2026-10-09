@@ -110,7 +110,7 @@ export function AppAlertOverlay({ containerId, hidden = false }: { containerId: 
                 style={[
                   styles.buttonText,
                   {
-                    color: button.style === 'destructive' ? c.danger : button.style === 'cancel' ? c.ink : c.primary,
+                    color: button.style === 'destructive' ? c.dangerInk : button.style === 'cancel' ? c.ink : c.primary,
                     fontWeight: button.style === 'cancel' ? '400' : '600',
                   },
                 ]}

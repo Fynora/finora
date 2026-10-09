@@ -26,7 +26,7 @@ export function AppleReauthPrompt({ onCredential, onError }: {
 
   if (Platform.OS !== 'ios') {
     return (
-      <Text style={[styles.unavailable, { color: c.danger }]}>
+      <Text style={[styles.unavailable, { color: c.dangerInk }]}>
         Verifying with Apple needs an iPhone or iPad. Please try again on an Apple device, or
         contact support.
       </Text>

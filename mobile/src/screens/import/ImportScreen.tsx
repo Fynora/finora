@@ -906,7 +906,7 @@ export function ImportScreen() {
       <Text style={[styles.title, { color: c.ink }]}>Import</Text>
       {error ? (
         <Card style={{ ...styles.errorCard, borderColor: c.danger }}>
-          <Text style={[styles.errorText, { color: c.danger }]}>{error}</Text>
+          <Text style={[styles.errorText, { color: c.dangerInk }]}>{error}</Text>
           {error === upgradeErrorMessage ? (
             <Button label="See plans" variant="link" onPress={openPlans} />
           ) : null}
@@ -1016,7 +1016,7 @@ export function ImportScreen() {
                   </Pressable>
                 </View>
                 <Text
-                  style={[styles.helpText, { color: passwordState === 'invalid' ? c.danger : c.muted }]}
+                  style={[styles.helpText, { color: passwordState === 'invalid' ? c.dangerInk : c.muted }]}
                 >
                   {passwordState === 'invalid'
                     ? "That password didn't open this statement — check it and try again."
@@ -1127,7 +1127,7 @@ export function ImportScreen() {
                         accessibilityRole="button"
                         accessibilityLabel={`Discard import of ${sess.fileName}`}
                       >
-                        <Text style={[styles.unfinishedAction, { color: c.danger }]}>
+                        <Text style={[styles.unfinishedAction, { color: c.dangerInk }]}>
                           {discardingId === sess.id ? 'Discarding…' : 'Discard'}
                         </Text>
                       </Pressable>
@@ -1370,7 +1370,7 @@ export function ImportScreen() {
               </View>
 
               {accountsUnavailable ? (
-                <Text style={[styles.helpText, { color: c.danger }]}>
+                <Text style={[styles.helpText, { color: c.dangerInk }]}>
                   Couldn&apos;t load your existing accounts, so this can only be filed as a new one.
                   If this statement belongs to an account you already have, go back and retry rather
                   than importing it here — filing it as new would split that account&apos;s history.

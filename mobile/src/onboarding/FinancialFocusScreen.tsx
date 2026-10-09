@@ -53,7 +53,7 @@ export function FinancialFocusScreen({ onContinue, error }: Props) {
           </Pressable>
         );
       })}
-      {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+      {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
       <View style={{ height: 16 }} />
       <Button label="Continue" onPress={() => onContinue(selected)} />
     </ScrollView>

@@ -240,7 +240,7 @@ export function ChangePasswordSheet({ onClose, onSuccess, signInMethod }: {
                       autoCapitalize="none"
                       textContentType="password"
                     />
-                    {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+                    {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
                     <View style={styles.action}>
                       <Button
                         label={submitting ? 'Sending…' : 'Send code'}
@@ -269,7 +269,7 @@ export function ChangePasswordSheet({ onClose, onSuccess, signInMethod }: {
                         onError={setError}
                       />
                     )}
-                    {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+                    {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
                   </>
                 ) : null}
 
@@ -290,7 +290,7 @@ export function ChangePasswordSheet({ onClose, onSuccess, signInMethod }: {
                       autoComplete="sms-otp"
                       placeholder="123456"
                     />
-                    {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+                    {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
                     <View style={styles.action}>
                       <Button
                         label={submitting ? 'Verifying…' : 'Verify'}
@@ -357,7 +357,7 @@ export function ChangePasswordSheet({ onClose, onSuccess, signInMethod }: {
                       </Pressable>
                     ))}
 
-                    {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+                    {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
                     <View style={styles.action}>
                       <Button
                         label={submitting ? 'Updating…' : 'Update Password'}

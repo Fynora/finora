@@ -43,7 +43,7 @@ export function VerificationPanel({ verification }: { verification: Verification
   const verdict = verification.reliabilityStatus === 'CLEAN'
     ? { icon: 'checkmark-circle' as const, color: c.successInk, text: 'Imported successfully' }
     : verification.reliabilityStatus === 'NEEDS_ATTENTION'
-      ? { icon: 'alert-circle' as const, color: c.danger, text: 'Import needs attention' }
+      ? { icon: 'alert-circle' as const, color: c.dangerInk, text: 'Import needs attention' }
       : verification.reliabilityStatus === 'REVIEW_RECOMMENDED'
         // Deliberately not "review recommended" -- reads as something went wrong. This status
         // fires on OCR alone as often as on an actual finding, and most OCR reads are fine.

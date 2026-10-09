@@ -78,11 +78,12 @@ public final class PaymentAppHistoryDetector {
     // UPI app transaction history (added 2026-10-09)
     //
     // A UPI app's history prints every payment as a short block: a line led by what happened to the
-    // money ("Paid to <payee>", "Received from <payer>", "Cashback from ...", "Refund from ...",
-    // "Mobile recharged ..."), then reference lines, then a line naming the user's bank account the
-    // money left or reached ("Paid by XXXX1234", "Credited to XXXX1234"). There is no balance column,
-    // because no single account's balance is being kept. Its rows span every bank account linked to
-    // the app, which is why it is refused for the same reason as the Paytm history above.
+    // money ("Paid to <payee>", "Payment to ...", "Transfer to ...", "Received from <payer>",
+    // "Cashback from ...", "Refund from ...", "Mobile recharged ..."), then reference lines, then a
+    // line naming the user's bank account the money left or reached ("Paid by XXXX1234",
+    // "Credited to XXXX1234"). There is no balance column, because no single account's balance is
+    // being kept. Its rows span every bank account linked to the app, which is why it is refused for
+    // the same reason as the Paytm history above.
     //
     // The rule is structural, not a brand name: the document has to carry that row grammar on both
     // halves -- at least MIN_UPI_ROWS lines led by a payment verb AND at least MIN_UPI_ROWS lines led
@@ -90,19 +91,32 @@ public final class PaymentAppHistoryDetector {
     // keeps a running balance and words its narrations differently.
     //
     // Measured on 2026-10-09 with the real text runs PdfTextExtractor produces: one real UPI app
-    // history carried hundreds of lines of each half and no balance heading. Across the 34 PDFs in
-    // the real corpus (33 savings-account and credit-card statements, plus the Paytm history), no
-    // document had a single line of either half. Three is the threshold, so a short history of a
-    // few payments is still recognised while staying clear of every real statement measured.
+    // history carried hundreds of lines of each half and no balance heading, and every one of its
+    // rows opened with one of the seven payment phrases above. Across the 34 PDFs in the real corpus
+    // (33 savings-account and credit-card statements, plus the Paytm history): no document had a
+    // single funding line; at most one payment line (two card statements, each once); and every
+    // statement with a text layer except one credit card printed a balance heading. Three is the
+    // threshold, so a short history of a few payments is still recognised while staying clear of
+    // every real statement measured.
+    //
+    // A history of one or two payments (a narrow date range) falls under that threshold, and staged
+    // as rows it would import with garbled descriptions -- measured on a synthetic two-payment
+    // history. For that case alone, one line of each half is enough when the document also prints
+    // the app's own statement address: the real history printed it on every page, and no PDF in the
+    // corpus prints it at all. A bare mention of the app is not enough; bank narrations name it
+    // (several corpus statements do), which is why the rule wants the web address.
     // ---------------------------------------------------------------------------------------------
 
     /** Lines needed of EACH half of the row grammar. */
     static final int MIN_UPI_ROWS = 3;
 
+    private static final Pattern APP_STATEMENT_ADDRESS = Pattern.compile("(?i)\\bphonepe\\.com\\b");
+
     // Anchored to the start of a text run: in a bank statement these words can occur inside a
     // narration, but a run that BEGINS with them is a row in this grammar.
     private static final Pattern PAYMENT_VERB_LINE = Pattern.compile(
-            "(?i)^\\s*(paid\\s+to|received\\s+from|cashback\\s+from|refund\\s+from|mobile\\s+recharged)\\b");
+            "(?i)^\\s*(paid\\s+to|payment\\s+to|transfer\\s+to|received\\s+from|cashback\\s+from|refund\\s+from"
+                    + "|mobile\\s+recharged)\\b");
     private static final Pattern FUNDING_ACCOUNT_LINE = Pattern.compile(
             "(?i)^\\s*(paid\\s+by|credited\\s+to|debited\\s+from)\\b");
     // A column or summary heading for a balance, alone in its run: "Balance", "Closing Balance",
@@ -111,17 +125,21 @@ public final class PaymentAppHistoryDetector {
     private static final Pattern BALANCE_HEADING = Pattern.compile(
             "(?i)^\\s*(opening|closing|available|avl|running|previous|total|ledger|book)?\\s*bal(ance|\\.)?\\b[^0-9]{0,15}$");
 
-    /** The document's own text runs carry a UPI app's row grammar and no balance heading. */
+    /** The document's own text runs carry a UPI app's row grammar -- three lines of each half, or
+     *  one of each beside the app's statement address -- and no balance heading. */
     static boolean hasUpiAppRowGrammar(List<String> texts) {
         int paymentLines = 0;
         int fundingLines = 0;
+        boolean appAddress = false;
         for (String text : texts) {
             if (text == null) continue;
             if (BALANCE_HEADING.matcher(text).find()) return false;
             if (PAYMENT_VERB_LINE.matcher(text).find()) paymentLines++;
             else if (FUNDING_ACCOUNT_LINE.matcher(text).find()) fundingLines++;
+            appAddress |= APP_STATEMENT_ADDRESS.matcher(text).find();
         }
-        return paymentLines >= MIN_UPI_ROWS && fundingLines >= MIN_UPI_ROWS;
+        if (paymentLines >= MIN_UPI_ROWS && fundingLines >= MIN_UPI_ROWS) return true;
+        return appAddress && paymentLines >= 1 && fundingLines >= 1;
     }
 
     private static String textOf(UnparseableRow row) {

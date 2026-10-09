@@ -1268,6 +1268,14 @@ public final class PdfFixtureBuilder {
      * invented; only the shape is modelled on a real history.
      */
     public static byte[] buildUpiAppTransactionHistory() throws IOException {
+        return buildUpiAppTransactionHistory(5, "This is a system generated statement.");
+    }
+
+    /**
+     * The same history with its first {@code paymentCount} payments (1 to 5) and the given footer --
+     * for the short history a user gets by picking a narrow date range.
+     */
+    public static byte[] buildUpiAppTransactionHistory(int paymentCount, String footer) throws IOException {
         float[] col = {LEFT_MARGIN, 125f, 420f, 500f};
 
         PageBuilder page = new PageBuilder();
@@ -1282,14 +1290,14 @@ public final class PdfFixtureBuilder {
                 {"Jul 08, 2026", "Cashback from SAMPLE APP", "CREDIT", "5", "Credited to"},
                 {"Jul 12, 2026", "Refund from SAMPLE STORE", "CREDIT", "300", "Credited to"},
         };
-        for (String[] p : payments) {
+        for (String[] p : java.util.Arrays.copyOf(payments, paymentCount)) {
             page.row(col, p[0], p[1], p[2], p[3])
                     .row(col, "10:00 am", "Transaction ID T0000000000000000000000")
                     .row(col, null, "UTR No. 000000000000")
                     .row(col, null, p[4] + " XXXXXX0000")
                     .blankLine();
         }
-        page.line("This is a system generated statement.");
+        page.line(footer);
 
         return render(List.of(page));
     }

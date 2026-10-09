@@ -45,12 +45,23 @@ class UpiAppHistoryRowGrammarTest {
     @Test
     void everyPaymentVerbOfTheGrammarCounts() {
         List<String> runs = new ArrayList<>();
-        for (String verb : List.of("Paid to A", "Received from B", "Cashback from C", "Refund from D",
-                "Mobile recharged 9000000000")) {
+        for (String verb : List.of("Paid to A", "Payment to B", "Transfer to C", "Received from D",
+                "Cashback from E", "Refund from F", "Mobile recharged 9000000000")) {
             runs.add(verb);
             runs.add("Debited from XXXXXX0000");
         }
         assertThat(PaymentAppHistoryDetector.hasUpiAppRowGrammar(runs)).isTrue();
+
+        // Each phrase counts on its own: three lines of any single one meet the threshold.
+        for (String verb : List.of("Paid to A", "Payment to B", "Transfer to C", "Received from D",
+                "Cashback from E", "Refund from F", "Mobile recharged 9000000000")) {
+            List<String> only = new ArrayList<>();
+            for (int i = 0; i < 3; i++) {
+                only.add(verb);
+                only.add("Paid by XXXXXX0000");
+            }
+            assertThat(PaymentAppHistoryDetector.hasUpiAppRowGrammar(only)).as(verb).isTrue();
+        }
     }
 
     @Test
@@ -105,6 +116,35 @@ class UpiAppHistoryRowGrammarTest {
         List<String> runs = List.of("Account Statement", "Date", "Narration", "Withdrawal", "Deposit",
                 "Closing Balance", "01/07/2026", "UPI-SAMPLE PAYEE-000000000000", "250.00", "24,750.00");
         assertThat(PaymentAppHistoryDetector.isPaymentAppHistory(runs)).isFalse();
+    }
+
+    @Test
+    void oneLineOfEachHalfIsEnoughBesideTheAppsStatementAddress() {
+        List<String> runs = new ArrayList<>(history(1));
+        assertThat(PaymentAppHistoryDetector.hasUpiAppRowGrammar(runs)).isFalse();
+
+        runs.add("This is a system generated statement. For any queries, contact us at https://support.phonepe.com/statement.");
+        assertThat(PaymentAppHistoryDetector.hasUpiAppRowGrammar(runs)).isTrue();
+    }
+
+    @Test
+    void theAddressAloneOrABareMentionOfTheAppIsNotEnough() {
+        // Bank narrations name the app ("UPI-...-PHONEPE"), so the mention alone proves nothing, and
+        // the address without the row grammar is not a payment history either.
+        assertThat(PaymentAppHistoryDetector.hasUpiAppRowGrammar(
+                List.of("https://support.phonepe.com/statement", "Date", "Amount"))).isFalse();
+
+        List<String> mentionOnly = new ArrayList<>(history(2));
+        mentionOnly.add("UPI-SAMPLE PAYEE-PHONEPE-000000000000");
+        assertThat(PaymentAppHistoryDetector.hasUpiAppRowGrammar(mentionOnly)).isFalse();
+    }
+
+    @Test
+    void aBalanceHeadingStillVetoesTheShortHistoryRule() {
+        List<String> runs = new ArrayList<>(history(2));
+        runs.add("https://support.phonepe.com/statement");
+        runs.add("Closing Balance");
+        assertThat(PaymentAppHistoryDetector.hasUpiAppRowGrammar(runs)).isFalse();
     }
 
     @Test

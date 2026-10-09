@@ -64,6 +64,33 @@ class PaymentAppHistoryDocumentTest {
     }
 
     @Test
+    void aOneOrTwoPaymentHistoryIsRefusedWhenItPrintsTheAppsStatementAddress() throws Exception {
+        // A narrow date range gives a history below the three-line threshold. Measured before the
+        // fallback: two such payments staged as two rows with merged descriptions.
+        for (int payments : new int[] {1, 2}) {
+            var generated = generator().generateSectionsWithContext(UUID.randomUUID(), "history.pdf",
+                    PdfFixtureBuilder.buildUpiAppTransactionHistory(payments,
+                            "For any queries, contact us at https://support.phonepe.com/statement"), null);
+
+            assertThat(generated.documentContext().paymentAppHistory()).as(payments + " payment(s)").isTrue();
+            ApiException e = catchThrowableOfType(ApiException.class, () ->
+                    ExtractionCheck.rejectIfNothingWasExtracted(generated.sections(), generated.documentContext()));
+            assertThat(e).isNotNull();
+            assertThat(e.getCode()).isEqualTo(ErrorCode.IMPORT_PAYMENT_APP_HISTORY);
+        }
+    }
+
+    @Test
+    void aTwoPaymentHistoryWithoutTheAddressIsBelowTheThreshold() throws Exception {
+        // The boundary, pinned: without the address, two lines of each half are not enough, because
+        // nothing else then distinguishes the document from a statement with two such narrations.
+        var generated = generator().generateSectionsWithContext(UUID.randomUUID(), "history.pdf",
+                PdfFixtureBuilder.buildUpiAppTransactionHistory(2, "This is a system generated statement."), null);
+
+        assertThat(generated.documentContext().paymentAppHistory()).isFalse();
+    }
+
+    @Test
     void anOrdinaryStatementIsNotFlagged() throws Exception {
         var generated = generator().generateSectionsWithContext(
                 UUID.randomUUID(), "statement.pdf", PdfFixtureBuilder.buildSingularDepositWithdrawalColumnsSample(), null);

@@ -161,7 +161,7 @@ function TestTemplatePanel({
         </p>
         <label
           className={`inline-block mt-2 text-xs font-semibold rounded-lg px-3 py-1.5 border border-border bg-card ${
-            canCheck && !checking ? 'text-primary hover:bg-bg cursor-pointer' : 'text-muted opacity-60'
+            canCheck && !checking ? 'text-primary hover:bg-bg cursor-pointer' : 'text-muted cursor-not-allowed'
           }`}
         >
           {checking ? 'Checking…' : 'Check another email (.eml)'}

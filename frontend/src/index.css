@@ -280,6 +280,15 @@ input, textarea, select {
   color-scheme: light;
 }
 
+/* ...which also means a control with no background class of its own is painted the browser's
+   light Field white in dark mode too, under whatever light text class it carries: Dashboard's period
+   <select> (text-muted, no bg) measured 2.96:1. So text-entry controls default to the theme's card
+   (their text already inherits ink, via Tailwind's preflight). :where() keeps this at zero
+   specificity, so any Tailwind bg- class still wins. */
+:where(input:not([type=checkbox], [type=radio], [type=range], [type=color], [type=file], [type=submit], [type=button], [type=reset], [type=image]), textarea, select) {
+  background-color: var(--color-card);
+}
+
 /* ------------------------------------------------------------------ */
 /*  Landing page animation primitives                                  */
 /*  Kept here (not Tailwind config) since these are @keyframes, which  */

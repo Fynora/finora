@@ -202,7 +202,7 @@ export function Sidebar() {
                 type="button"
                 onClick={() => toggleGroup(group.label)}
                 aria-expanded={isOpen}
-                className="w-full flex items-center justify-between px-3 mb-1.5 text-[11px] font-semibold text-gray-500 uppercase tracking-widest hover:text-gray-300"
+                className="w-full flex items-center justify-between px-3 mb-1.5 text-[11px] font-semibold text-gray-400 uppercase tracking-widest hover:text-gray-300"
               >
                 {group.label}
                 {isOpen

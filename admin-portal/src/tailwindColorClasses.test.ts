@@ -4,6 +4,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import postcss from 'postcss';
 import tailwindcss from 'tailwindcss';
+import defaultColours from 'tailwindcss/colors';
 import ts from 'typescript';
 
 /**
@@ -248,6 +249,9 @@ function elementClassStrings(file: ts.SourceFile, where: (node: ts.Node) => stri
     // decorative content has no contrast requirement -- nor does anything inside it.
     const hidden = attribute('aria-hidden');
     if (hidden && (!hidden.initializer || /^["'{]*true["'}]*$/.test(hidden.initializer.getText(file)))) return;
+    // A control that is always disabled is inactive, which WCAG exempts from contrast too.
+    const disabled = attribute('disabled');
+    if (disabled && (!disabled.initializer || disabled.initializer.getText(file) === '{true}')) return;
     const minimum = isIcon(opening.tagName.getText(file)) ? MIN_GRAPHIC_CONTRAST : undefined;
     const className = attribute('className');
     const own = className ? possibleClassStrings(className.initializer) : [NOTHING];
@@ -393,7 +397,13 @@ const COLOUR_CLASS = /^((?:[a-z0-9-]+:)*)(text|bg)-(\[[^\]]+\]|\?|[a-z][a-z0-9-]
 function resolveColour(name: string, palette: Map<string, Record<Theme, Rgb>>, variables: Record<Theme, Map<string, Rgb>>) {
   if (name === UNKNOWN) return null;
   const arbitrary = name.match(/^\[(.*)\]$/)?.[1];
-  if (arbitrary === undefined) return palette.get(name);
+  if (arbitrary === undefined) {
+    // A raw Tailwind palette class (`text-gray-500`, `text-slate-400`) is the same in both themes.
+    const [, family, shade] = name.match(/^([a-z]+)-(\d{2,3})$/) ?? [];
+    const raw = family && (defaultColours as unknown as Record<string, Record<string, string> | undefined>)[family]?.[shade];
+    const hex = raw ? parseColor(raw) : null;
+    return palette.get(name) ?? (hex ? { light: hex, dark: hex } : undefined);
+  }
   const hex = parseColor(arbitrary);
   if (hex) return { light: hex, dark: hex };
   const variable = arbitrary.match(/^var\((--color-[a-z0-9-]+)\)$/)?.[1];
@@ -412,6 +422,9 @@ function colourPairs(classStrings: ClassString[], palette: Map<string, Record<Th
   for (const { text: classes, where, minimum = MIN_TEXT_CONTRAST } of classStrings) {
     const text = new Map<string, Layer>();
     const bg = new Map<string, Layer[]>();
+    // `opacity-70` fades the element's text along with it. Applied to the text only: an
+    // approximation that is exact for an element without a background of its own.
+    const faded = Number(tokensOf(classes).find((token) => /^opacity-\d+$/.test(token))?.slice(8) ?? 100) / 100;
     for (const token of tokensOf(classes)) {
       const match = token.match(COLOUR_CLASS);
       // `dark:` classes would need per-theme handling; this app does not use them.
@@ -420,7 +433,7 @@ function colourPairs(classStrings: ClassString[], palette: Map<string, Record<Th
       if (colour === undefined) continue;
       const modifier = match[4]?.match(/\d+/)?.[0];
       const layer = { colour, alpha: modifier === undefined ? 1 : Number(modifier) / 100, label: token };
-      if (match[2] === 'text') text.set(match[1], layer);
+      if (match[2] === 'text') text.set(match[1], { ...layer, alpha: layer.alpha * faded });
       else bg.set(match[1], layer.alpha === 1 ? [layer] : [...(bg.get(match[1]) ?? []), layer]);
     }
     for (const variant of new Set([...text.keys(), ...bg.keys()])) {
@@ -550,6 +563,9 @@ describe('Tailwind colour classes', () => {
       "const c = <div className={on ? 'bg-danger-bg' : 'bg-warning-bg'}><p className={on ? 'text-danger' : 'text-warning'}>x</p></div>;",
       "const d = <div className={on ? 'bg-danger-bg' : 'bg-warning-bg'}><p className={off ? 'text-danger' : 'text-warning'}>x</p></div>;",
       'const e = <div aria-hidden="true" className="bg-card"><span className="text-border">·</span></div>;',
+      'const f = <aside className="bg-sidebar"><button className="text-gray-500">Section</button></aside>;',
+      'const g = <div className="bg-card"><span className="text-muted opacity-60">Upload</span></div>;',
+      'const h = <div className="bg-card"><button disabled className="text-border">Off</button></div>;',
     ].join('\n')).classStrings);
 
     // Measured by hand from index.css (light / dark):
@@ -557,10 +573,16 @@ describe('Tailwind colour classes', () => {
     // b: warning over 10% of itself on card is 4.38 in light mode.
     // c: one condition, so danger's wash is never under warning's text; d: two conditions can mix,
     //    and warning on danger's wash is 4.11. e: decorative.
+    // f: a raw palette class on the fixed sidebar, #6b7280 on #1f1420, is 3.68 in both themes.
+    // g: opacity-60 fades muted text on card to 2.30 / 2.68. h: always disabled, so exempt.
     expect(offenders).toEqual([
       'Example.tsx:2: text-success on bg-ink is 1.94:1 in dark mode',
       'Example.tsx:3: text-warning on bg-card > bg-warning/10 is 4.38:1 in light mode',
       'Example.tsx:5: text-warning on bg-danger-bg is 4.11:1 in light mode',
+      'Example.tsx:7: text-gray-500 on bg-sidebar is 3.68:1 in dark mode',
+      'Example.tsx:7: text-gray-500 on bg-sidebar is 3.68:1 in light mode',
+      'Example.tsx:8: text-muted on bg-card is 2.30:1 in light mode',
+      'Example.tsx:8: text-muted on bg-card is 2.68:1 in dark mode',
     ]);
   });
 

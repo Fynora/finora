@@ -225,6 +225,13 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
     @Column(name = "object_released_at", insertable = false, updatable = false)
     private Instant objectReleasedAt;
 
+    /**
+     * When the owner dismissed this job from their recent-imports list -- V264, see {@link
+     * #dismiss}. Null while it is listed.
+     */
+    @Column(name = "dismissed_at")
+    private Instant dismissedAt;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
@@ -820,7 +827,9 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
      * own, and is not a review's to reopen.
      *
      * <p>Clears {@code lastError} with the code: held again, the job is back to a state that is not
-     * a failure, exactly as {@link #holdForTrustReview} leaves it.
+     * a failure, exactly as {@link #holdForTrustReview} leaves it. Clears {@link #dismissedAt} for
+     * the same reason: the user dismissed a failure, and the import is live again -- left set, the
+     * hold and whatever the review decides next would be hidden from their recent-imports list.
      */
     public void reopenTrustReview(String rejectedFailureCode) {
         if (status != Status.FAILED || !java.util.Objects.equals(failureCode, rejectedFailureCode)) {
@@ -831,6 +840,7 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
         this.status = Status.HELD_FOR_TRUST_REVIEW;
         this.failureCode = null;
         this.lastError = null;
+        this.dismissedAt = null;
     }
 
     /**
@@ -918,12 +928,37 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
         this.finishedAt = now;
     }
 
+    /** Which statuses the owner may dismiss from their recent-imports list -- see {@link #dismiss}. */
+    public static final Set<Status> DISMISSABLE = EnumSet.of(Status.FAILED, Status.CANCELLED);
+
+    /**
+     * The owner hides this finished job from their recent-imports list (V264).
+     *
+     * <p>Only FAILED and CANCELLED: a running or held import is not over, and hiding it would hide
+     * the one place that says so; a COMPLETED job is never listed. Display state only -- status,
+     * failure and stored object are untouched, so support, the admin queue and the storage sweep
+     * see exactly what they saw before.
+     *
+     * <p>Idempotent: a second dismiss (a double tap, a retried request) keeps the first time.
+     *
+     * @throws IllegalStateException for any other status
+     */
+    public void dismiss(Instant now) {
+        if (!DISMISSABLE.contains(status)) {
+            throw new IllegalStateException(
+                    "Import job " + id + " is at " + status + "; only a failed or cancelled import can "
+                            + "be dismissed.");
+        }
+        if (this.dismissedAt == null) this.dismissedAt = now;
+    }
+
     // ------------------------------------------------------------------ accessors
 
     public UUID getId() { return id; }
     public boolean wasHeldForReview() { return wasHeldForReview; }
 
     public String getResolutionMessage() { return resolutionMessage; }
+    public Instant getDismissedAt() { return dismissedAt; }
     public com.finora.imports.ImportReliabilityStatus getReliabilityStatus() { return reliabilityStatus; }
     public String getTextSource() { return textSource; }
     public Boolean getHeaderReconstructionUncertain() { return headerReconstructionUncertain; }

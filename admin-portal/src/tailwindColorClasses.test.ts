@@ -20,7 +20,9 @@ import ts from 'typescript';
  *
  * A defined colour can still be invisible: `text-white` on `bg-primary` is fine in light mode and
  * near-white on near-white in dark mode, where primary is light paper. The last check resolves
- * each text/background pair that sits on one element to the real token values in both themes.
+ * each text/background pair that sits on one element to the real token values in both themes and
+ * holds it to WCAG AA (4.5:1) -- which is also how the -600 status colours (2.86-3.95:1 as badge
+ * text) and white on dark mode's light danger/success fills (2.28-2.77:1) were found.
  */
 const SRC = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(SRC, '..');
@@ -29,8 +31,8 @@ const SELF = 'tailwindColorClasses.test.ts';
 const COLOR_UTILITY =
   /^(?:[a-z0-9-]+:)*(?:bg|text|border(?:-[xytrblse])?|ring(?:-offset)?|divide|outline|decoration|fill|stroke|from|via|to|placeholder|caret|accent|shadow)-[a-z][a-z0-9-]*(?:\/\d+)?$/;
 
-/** Below this, text is effectively invisible on its background (WCAG's floor for text is 4.5). */
-const INVISIBLE_CONTRAST = 1.5;
+/** WCAG AA for normal text. Every pair in this app clears it in both themes. */
+const MIN_TEXT_CONTRAST = 4.5;
 
 interface Fragment {
   text: string;
@@ -273,13 +275,13 @@ function colourPairs(classStrings: ClassString[], palette: Map<string, unknown>)
   return pairs;
 }
 
-async function invisiblePairs(classStrings: ClassString[]): Promise<string[]> {
+async function lowContrastPairs(classStrings: ClassString[]): Promise<string[]> {
   const palette = await colorPalette();
   const unique = new Set<string>();
   return colourPairs(classStrings, palette).flatMap(({ text, bg, variant, where }) =>
     (['light', 'dark'] as const)
       .map((theme) => ({ theme, ratio: contrast(palette.get(text)![theme], palette.get(bg)![theme]) }))
-      .filter(({ ratio }) => ratio < INVISIBLE_CONTRAST)
+      .filter(({ ratio }) => ratio < MIN_TEXT_CONTRAST)
       .map(({ theme, ratio }) => `${where}: ${variant}text-${text} on ${variant}bg-${bg} is ${ratio.toFixed(2)}:1 in ${theme} mode`)
       .filter((line) => !unique.has(line) && unique.add(line))
   );
@@ -334,19 +336,20 @@ describe('Tailwind colour classes', () => {
     expect(dead).toEqual([]);
   });
 
-  it('flags text that disappears into its background in either theme', async () => {
-    const offenders = await invisiblePairs(parse('Example.tsx', [
+  it('flags text below WCAG AA contrast on its own background in either theme', async () => {
+    const offenders = await lowContrastPairs(parse('Example.tsx', [
       "const a = <b className={`text-xs text-white ${danger ? 'bg-danger' : 'bg-primary'}`} />;",
-      "const b = <b className={`text-xs ${danger ? 'bg-danger text-white' : 'bg-primary text-on-primary'}`} />;",
+      "const b = <b className={`text-xs ${danger ? 'bg-danger text-on-danger' : 'bg-primary text-on-primary'}`} />;",
       'const c = <b className="bg-border hover:bg-primary-dark hover:text-white" />;',
       "const d = <b className={`px-3 ${on ? 'bg-primary text-on-primary' : 'text-muted hover:text-ink'}`} />;",
       "const e = <b className={`bg-card ${ok && 'text-primary hover:bg-white'}`} />;",
       "const f = { OPEN: 'bg-ink text-white' };",
     ].join('\n')).classStrings);
 
-    // White on primary/ink and on primary-dark measured by hand from index.css's dark values:
-    // #F4F1EC gives 1.13:1, #DAD5C9 1.46:1, rgb(237 237 234) 1.17:1.
+    // Measured by hand from index.css's dark values: white on #f87171 (danger) gives 2.77:1, on
+    // #F4F1EC (primary) 1.13:1, on #DAD5C9 1.46:1, on rgb(237 237 234) (ink) 1.17:1.
     expect(offenders).toEqual([
+      'Example.tsx:1: text-white on bg-danger is 2.77:1 in dark mode',
       'Example.tsx:1: text-white on bg-primary is 1.13:1 in dark mode',
       'Example.tsx:3: hover:text-white on hover:bg-primary-dark is 1.46:1 in dark mode',
       'Example.tsx:5: hover:text-primary on hover:bg-white is 1.13:1 in dark mode',
@@ -354,7 +357,7 @@ describe('Tailwind colour classes', () => {
     ]);
   });
 
-  it('no text in the source disappears into its own background in either theme', async () => {
-    expect(await invisiblePairs(parseSource().classStrings)).toEqual([]);
+  it('all text in the source meets WCAG AA contrast on its own background in both themes', async () => {
+    expect(await lowContrastPairs(parseSource().classStrings)).toEqual([]);
   });
 });

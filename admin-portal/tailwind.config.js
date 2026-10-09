@@ -25,7 +25,9 @@ export default {
   // Same class-based dark mode / semantic color token approach as the user frontend (see
   // src/index.css) -- kept visually consistent as "the same product family," not a re-skin.
   darkMode: 'class',
-  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  // Test files are not scanned: class strings that exist only as test fixtures would otherwise
+  // ship as dead rules in the production stylesheet.
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}', '!./src/**/*.test.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
       colors: {
@@ -43,8 +45,10 @@ export default {
         'on-primary': token('on-primary'),
         success: token('success'),
         'success-bg': token('success-bg'),
+        'on-success': token('on-success'),
         danger: token('danger'),
         'danger-bg': token('danger-bg'),
+        'on-danger': token('on-danger'),
         warning: token('warning'),
         'warning-bg': token('warning-bg'),
         info: token('info'),

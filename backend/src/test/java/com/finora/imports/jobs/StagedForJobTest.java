@@ -76,6 +76,23 @@ class StagedForJobTest {
         assertThat(staged.statementPeriods().get(1)).containsExactly(null, null);
     }
 
+    /** A slice section's printed period is not judged (StatementPeriodPolicy), so the live trust
+     *  path sees no period for it -- while the other section of the same document keeps its own. */
+    @Test
+    void aSliceSectionContributesNoPeriod() {
+        ImportDto.DetectedAccountInfo slice = new ImportDto.DetectedAccountInfo("slice", "SAVINGS", null, null,
+                LocalDate.of(2026, 4, 1), LocalDate.of(2027, 3, 31),
+                null, null, null, null, null, null, null,
+                com.finora.accounts.AccountDto.BankDto.from(com.finora.util.BankRegistry.get("SLICE")),
+                "SAVINGS", 0.0, false, List.of(), null, null, null, null, null, null, null, null);
+        StagedForJob staged = StagedForJob.of(multiAccount(
+                new ImportDto.StagedAccountSection(slice, List.of(), 0, 0, List.of()), section(AUG_1, AUG_31)));
+
+        assertThat(staged.statementPeriods()).hasSize(2);
+        assertThat(staged.statementPeriods().get(0)).containsExactly(null, null);
+        assertThat(staged.statementPeriods().get(1)).containsExactly(AUG_1, AUG_31);
+    }
+
     /** A half-known period is carried as it is, rather than being discarded or completed. */
     @Test
     void aHalfKnownPeriodIsCarriedAsItIs() {

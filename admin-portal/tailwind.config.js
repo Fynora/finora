@@ -5,11 +5,20 @@
  * with no background. This mixes the token with transparent when a modifier is given, and returns
  * the plain variable otherwise so every unmodified class compiles exactly as before.
  * (`ink` and `primary` are channel-valued and already take modifiers natively.)
+ *
+ * An unmodified class still receives an opacity value -- Tailwind's own `var(--tw-bg-opacity, 1)`
+ * and friends, always 1 since no `*-opacity-*` utility is used -- which is why that one shape is
+ * matched exactly rather than every `var(...)`: an arbitrary `/[var(--x)]` modifier must still
+ * apply. A modifier can be a fraction (`/20` arrives as `0.2`) or, written arbitrarily, a
+ * percentage (`/[15%]`), which color-mix takes as-is.
  */
-const token = (name) => ({ opacityValue }) =>
-  opacityValue === undefined || String(opacityValue).startsWith('var(')
-    ? `var(--color-${name})`
-    : `color-mix(in srgb, var(--color-${name}) calc(${opacityValue} * 100%), transparent)`;
+const TAILWIND_OPACITY_VARIABLE = /^var\(--tw-[a-z-]*opacity(?:,\s*1)?\)$/;
+const token = (name) => ({ opacityValue }) => {
+  const alpha = opacityValue === undefined ? '' : String(opacityValue).trim();
+  if (alpha === '' || TAILWIND_OPACITY_VARIABLE.test(alpha)) return `var(--color-${name})`;
+  const share = alpha.endsWith('%') ? alpha : `calc(${alpha} * 100%)`;
+  return `color-mix(in srgb, var(--color-${name}) ${share}, transparent)`;
+};
 
 /** @type {import('tailwindcss').Config} */
 export default {

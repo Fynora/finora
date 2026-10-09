@@ -122,7 +122,7 @@ export function SampleEmailPanel({ onFill, onSample }: {
       <div className="flex items-center gap-2.5 flex-wrap">
         <label
           htmlFor={`${id}-file`}
-          className="text-xs font-semibold text-primary bg-card border border-border hover:bg-white rounded-lg px-3 py-1.5 cursor-pointer"
+          className="text-xs font-semibold text-primary bg-card border border-border hover:bg-bg rounded-lg px-3 py-1.5 cursor-pointer"
         >
           {busy ? 'Reading…' : analysis ? 'Choose a different email' : 'Choose email file (.eml)'}
         </label>
@@ -242,7 +242,7 @@ export function SampleEmailPanel({ onFill, onSample }: {
                     aria-pressed={marker === phrase}
                     onClick={() => chooseMarker(phrase)}
                     className={`text-xs rounded-full px-2.5 py-1 border ${
-                      marker === phrase ? 'bg-primary text-on-primary border-primary' : 'bg-card text-ink border-border hover:bg-white'
+                      marker === phrase ? 'bg-primary text-on-primary border-primary' : 'bg-card text-ink border-border hover:bg-bg'
                     }`}
                   >
                     {phrase}

@@ -18,6 +18,7 @@ import { resetLaunchUrlGuards } from './src/lib/appLinks';
 import { sweepFileCache } from './src/lib/fileCacheSweep';
 import { sweepSharedContainers } from './src/lib/sharedContainerSweep';
 import { initMonitoring, withMonitoring } from './src/lib/monitoring';
+import { primeReduceTransparency } from './src/lib/useReduceTransparency';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { FontsReadyProvider, ThemeProvider, useAppFonts } from './src/theme';
 
@@ -39,6 +40,12 @@ void SplashScreen.preventAutoHideAsync();
 // (400ms, and it reads only `duration`, ignoring `fade`); on a release build that fade was measured
 // covering the stem's whole draw. iOS reads `fade`, already false by default.
 SplashScreen.setOptions({ duration: 0, fade: false });
+
+// Also before the component: ask iOS for its Reduce Transparency setting now, so the answer is
+// usually in by the time the first glass surface renders (under the launch animation / auth
+// bootstrapping). Until it answers, GlassScreen/GlassSurface paint their solid fallback -- a
+// user with the setting on never sees a frame of glass. See src/lib/useReduceTransparency.ts.
+primeReduceTransparency();
 
 // AuthProvider sits inside QueryClientProvider because auth calls go through the same API client
 // every query does, and outside RootNavigator because the navigator picks its stack from auth

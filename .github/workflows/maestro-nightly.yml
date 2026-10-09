@@ -386,7 +386,7 @@ jobs:
       # Maestro writes each run's artifacts under ~/.maestro/tests/<timestamp>/.
       - name: Upload Maestro debug artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: maestro-debug-artifacts
           path: ~/.maestro/tests
@@ -394,7 +394,7 @@ jobs:
 
       - name: Upload the backend log
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: maestro-backend-log
           path: ${{ runner.temp }}/backend.log

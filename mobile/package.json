@@ -60,6 +60,7 @@
     "@testing-library/react-native": "13.3.3",
     "@types/jest": "30.0.0",
     "@types/node": "^26.4.1",
+    "@types/pngjs": "^6.0.5",
     "@types/react": "~19.2.2",
     "babel-preset-expo": "^57.0.5",
     "eslint": "^9.0.0",
@@ -69,6 +70,7 @@
     "jest": "~30.5.1",
     "jest-expo": "57.0.5",
     "patch-package": "^8.0.1",
+    "pngjs": "^7.0.0",
     "react-refresh": "^0.14.2",
     "react-test-renderer": "19.2.8",
     "typescript": "~6.0.3"
@@ -79,6 +81,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
+    "generate:glass-mesh": "node scripts/generate-glass-mesh.mjs",
     "_test_comment": "--experimental-vm-modules is required, not optional: client.ts reaches endpoints.ts through a dynamic import (they are mutually dependent, so a static one would be circular). Without the flag Node refuses that import inside Jest's VM, the refresh-on-401 branch throws before any network call, and every test touching it silently exercises the forced-sign-out path instead -- passing while asserting the opposite of what it claims. Metro implements import() itself, so this is a test-runner limitation rather than anything about the app.",
     "test": "NODE_OPTIONS=--experimental-vm-modules jest",
     "lint": "expo lint --max-warnings 0",

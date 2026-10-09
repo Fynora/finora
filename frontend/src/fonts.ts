@@ -9,10 +9,14 @@
  * file and the WOFF2 files in /assets/, which Cloudflare already serves with a one-year immutable
  * cache (public/_headers). One origin, one connection, no third-party stylesheet to wait for.
  *
- * Only the latin subset of each family is imported. The @fontsource per-subset files carry no
- * unicode-range, so importing latin and latin-ext for the same weight would make the later one
- * win for every character. Glyphs outside latin (the rupee sign is one) fall back to the system
- * font exactly as they did with Google Fonts, whose latin subset does not include U+20B9 either.
+ * These are @fontsource's per-weight files (`400.css`), NOT the per-subset ones (`latin-400.css`).
+ * The per-weight file declares one @font-face per subset (latin, latin-ext, cyrillic, greek,
+ * vietnamese), each with the same unicode-range Google Fonts sends, so a browser downloads only the
+ * subsets the page's text needs. The per-subset files carry no unicode-range at all, and that
+ * matters here: the rupee sign U+20B9 is in latin-ext, not latin (checked in the font files: the
+ * latin WOFF2 has no glyph for it, the latin-ext one does). With latin only, every amount in a
+ * finance app would have drawn its ₹ in the system fallback font next to Inter digits. Google
+ * Fonts never did that, because its latin-ext face covered it; this keeps that behaviour.
  *
  * Which weights: the same ones index.html's Google Fonts URL requested. Inter carries the product
  * UI (tailwind.config.js `sans`); Manrope is headings-only, on the marketing page and the auth
@@ -20,12 +24,12 @@
  * one weight. A weight nothing sets would be a download for nothing, so do not add one here
  * without a use.
  */
-import '@fontsource/inter/latin-400.css';
-import '@fontsource/inter/latin-500.css';
-import '@fontsource/inter/latin-600.css';
-import '@fontsource/inter/latin-700.css';
-import '@fontsource/inter/latin-800.css';
-import '@fontsource/manrope/latin-600.css';
-import '@fontsource/manrope/latin-700.css';
-import '@fontsource/manrope/latin-800.css';
-import '@fontsource/caveat/latin-600.css';
+import '@fontsource/inter/400.css';
+import '@fontsource/inter/500.css';
+import '@fontsource/inter/600.css';
+import '@fontsource/inter/700.css';
+import '@fontsource/inter/800.css';
+import '@fontsource/manrope/600.css';
+import '@fontsource/manrope/700.css';
+import '@fontsource/manrope/800.css';
+import '@fontsource/caveat/600.css';

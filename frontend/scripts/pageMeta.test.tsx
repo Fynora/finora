@@ -69,9 +69,12 @@ describe('index.html description and social tags', () => {
     expect(indexHtml).not.toContain('fonts.googleapis.com');
     expect(indexHtml).not.toContain('fonts.gstatic.com');
     const fonts = fs.readFileSync(path.join(root, 'src/fonts.ts'), 'utf-8');
-    for (const face of ['inter/latin-400', 'inter/latin-800', 'manrope/latin-600', 'manrope/latin-800', 'caveat/latin-600']) {
+    for (const face of ['inter/400', 'inter/800', 'manrope/600', 'manrope/800', 'caveat/600']) {
       expect(fonts).toContain(`@fontsource/${face}.css`);
     }
+    // The per-subset files (latin-400.css) have no unicode-range and no rupee glyph; the rupee sign
+    // U+20B9 lives in latin-ext. Only the per-weight files keep every subset with its range.
+    expect(fonts).not.toMatch(/@fontsource\/[a-z]+\/latin/);
     expect(fs.readFileSync(path.join(root, 'src/main.tsx'), 'utf-8')).toContain("import './fonts';");
   });
 
@@ -176,6 +179,22 @@ describe('page description', () => {
     }
     expect(pageDescriptionFromMarkup(markup(Plain))).toBe('A short subtitle.');
     expect(markup(Plain)).not.toContain('data-seo-description');
+    // An empty or blank description is no description: both sides fall back to the subtitle.
+    function Blank() {
+      return <PublicLayout title="T" subtitle="A short subtitle." description="  ">body</PublicLayout>;
+    }
+    expect(pageDescriptionFromMarkup(markup(Blank))).toBe('A short subtitle.');
+    const blankTag = document.createElement('meta');
+    blankTag.setAttribute('name', 'description');
+    blankTag.setAttribute('content', 'placeholder');
+    document.head.appendChild(blankTag);
+    try {
+      const { unmount } = rtlRender(<MemoryRouter><Blank /></MemoryRouter>);
+      expect(blankTag.getAttribute('content')).toBe('A short subtitle.');
+      unmount();
+    } finally {
+      blankTag.remove();
+    }
 
     const tag = document.createElement('meta');
     tag.setAttribute('name', 'description');

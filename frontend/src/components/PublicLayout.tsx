@@ -53,7 +53,9 @@ export function PublicLayout({
   // not run JavaScript, so the og: tags exist only in the prerendered HTML; this keeps the plain
   // description right for pages that are not prerendered and for browsers that render the page.
   useEffect(() => {
-    const text = description ?? pageDescription(subtitle);
+    // `||`, not `??`: an empty description falls back to the subtitle, the same rule the prerender
+    // applies (pageDescriptionFromMarkup), so the two never disagree.
+    const text = description?.trim() || pageDescription(subtitle);
     const tag = document.head.querySelector<HTMLMetaElement>('meta[name="description"]');
     if (!text || !tag) return;
     const previous = tag.getAttribute('content');

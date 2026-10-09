@@ -24,10 +24,18 @@ export type ImportGateState = {
   isReimport: boolean;
   accountChoice: 'existing' | 'new';
   selectedAccountId: string;
+  /**
+   * The Free one-month limit the backend will refuse this statement on (FreePlanLimitNotice), and
+   * the person has not said they have since upgraded. Optional: absent means no such limit.
+   */
+  freePlanLimitBlocks?: boolean;
 };
 
 export function canConfirmImport(state: ImportGateState): boolean {
   if (state.includedCount === 0) return false;
+  // The backend would refuse this at confirm (Free plan, statement longer than one month). Never
+  // applies to a re-import, which that limit does not cover.
+  if (!state.isReimport && state.freePlanLimitBlocks) return false;
   // The engine asked a question about a possible duplicate and nobody answered it. Importing
   // anyway is how a duplicate gets in without anyone having looked at it.
   if (state.outstanding > 0) return false;

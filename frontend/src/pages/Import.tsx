@@ -6,7 +6,7 @@ import {
   CheckCircle2, UploadCloud, AlertTriangle, Clock, FileText, FileSpreadsheet, Trash2, RefreshCw,
   ChevronLeft, ChevronRight, Shield, Sparkles, Lock, X, ArrowRight,
 } from 'lucide-react';
-import { importApi, importJobsApi, statementImportsApi, categoriesApi, accountsApi, type StagingResult, type PreviousImport } from '../api/endpoints';
+import { importApi, importJobsApi, statementImportsApi, categoriesApi, accountsApi, type StagingResult, type PreviousImport, type FreePlanLimitNotice } from '../api/endpoints';
 import { newIdempotencyKey } from '../lib/idempotencyKey';
 import {
   PDF_PASSWORD_REQUIRED, PDF_PASSWORD_INVALID, IMPORT_SESSION_ALREADY_CONFIRMED,
@@ -256,6 +256,13 @@ export default function Import() {
   const [verification, setVerification] = useState<VerificationReport | null>(null);
   // F-33: an earlier import of these exact bytes, shown as a notice on the review step. Never a gate.
   const [previousImport, setPreviousImport] = useState<PreviousImport | null>(null);
+  // The Free one-month limit this statement will be refused under at Import, told up front so the
+  // person doesn't review every row first (FreePlanLimitNotice). It IS a gate, unlike the notice
+  // above: the Import button waits on it, because the backend would refuse. `limitOverridden` is
+  // the way past it for someone who has just upgraded elsewhere -- the backend stays the judge.
+  const [freePlanLimit, setFreePlanLimit] = useState<FreePlanLimitNotice | null>(null);
+  const [limitOverridden, setLimitOverridden] = useState(false);
+  const limitBlocksImport = freePlanLimit !== null && !limitOverridden;
   const [accountChoice, setAccountChoice] = useState<AccountChoice>('new');
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [newName, setNewName] = useState('');
@@ -519,6 +526,8 @@ export default function Import() {
       const session = await importApi.getSession(sessionId);
       setSessionId(session.sessionId);
       setPreviousImport(session.previousImport ?? null);
+      setFreePlanLimit(session.freePlanLimit ?? null);
+      setLimitOverridden(false);
       hydrateReviewFrom(session.staging);
       setJobId(null);
       setStep('review');
@@ -559,6 +568,8 @@ export default function Import() {
       const session = await importApi.getSession(id);
       setSessionId(session.sessionId);
       setPreviousImport(session.previousImport ?? null);
+      setFreePlanLimit(session.freePlanLimit ?? null);
+      setLimitOverridden(false);
       hydrateReviewFrom(session.staging, accountsForMatch);
       setStep('review');
     } catch (e: any) {
@@ -704,6 +715,8 @@ export default function Import() {
       }
       setSessionId(res.sessionId);
       setPreviousImport(res.previousImport ?? null);
+      setFreePlanLimit(res.freePlanLimit ?? null);
+      setLimitOverridden(false);
       setFileFormat(isPdf ? 'PDF' : 'CSV');
       // The document opened, so the password (if any) has done its whole job -- neither it nor the
       // file is needed again, confirm/reimport work from the server-side session. Not cleared here
@@ -967,6 +980,8 @@ export default function Import() {
   function startOver() {
     setStep('upload');
     setPreviousImport(null);
+    setFreePlanLimit(null);
+    setLimitOverridden(false);
     setRows([]);
     setReview(EMPTY_REVIEW);
     setUnparseableRows([]);
@@ -1578,6 +1593,13 @@ export default function Import() {
 
         {step === 'review' && (
           <motion.div key="review" className="space-y-4" {...stepMotionProps}>
+          {freePlanLimit && !reimportState && (
+            <FreePlanLimitBanner
+              notice={freePlanLimit}
+              overridden={limitOverridden}
+              onOverride={() => setLimitOverridden(true)}
+            />
+          )}
           {previousImport && (
             <p
               data-testid="previous-import-notice"
@@ -1696,7 +1718,9 @@ export default function Import() {
                       // statement covering two accounts is not two imports the user can partially
                       // approve -- confirmMulti posts them together, so one unanswered row anywhere
                       // blocks all of it, exactly as one unanswered row blocks a single-account import.
-                      outstandingMultiDuplicates > 0
+                      outstandingMultiDuplicates > 0 ||
+                      // The Free one-month limit the backend would refuse this on -- see the banner.
+                      limitBlocksImport
                     }
                   >
                     Confirm All {multiSections.length} Accounts
@@ -1825,7 +1849,10 @@ export default function Import() {
                       // The gate. Every flagged row must have an explicit answer before anything is
                       // written to the ledger -- which is what stops a duplicate being resolved by
                       // inattention rather than by a decision.
-                      unresolvedCount(rows, review.decisions) > 0
+                      unresolvedCount(rows, review.decisions) > 0 ||
+                      // The Free one-month limit the backend would refuse this on -- see the banner.
+                      // Never on a re-import, which that limit does not apply to.
+                      (!reimportState && limitBlocksImport)
                     }
                   >
                     Confirm Import
@@ -2432,6 +2459,56 @@ function TransactionPreviewTable({
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * The Free one-month limit, told at the top of the review step as soon as a statement is staged
+ * (FreePlanLimitNotice) instead of only when Import is pressed after a full review. The message is
+ * the backend's own refusal text, dates included, so this and the refusal can never disagree.
+ *
+ * "I've upgraded" exists for someone who upgraded in another tab: the notice was judged on the plan
+ * when this review opened, and reloading the page would lose their review. It only re-enables the
+ * button -- the backend checks the plan again at Import and refuses if it still applies.
+ */
+function FreePlanLimitBanner({
+  notice,
+  overridden,
+  onOverride,
+}: {
+  notice: FreePlanLimitNotice;
+  overridden: boolean;
+  onOverride: () => void;
+}) {
+  return (
+    <div
+      data-testid="free-plan-limit-notice"
+      role="alert"
+      className="bg-warning-bg border border-warning/30 rounded-xl2 px-5 py-3.5 flex items-start gap-2.5"
+    >
+      <AlertTriangle size={16} className="text-warning flex-shrink-0 mt-0.5" />
+      <div className="space-y-1.5">
+        <p className="text-sm text-ink">{notice.message}</p>
+        <p className="text-xs text-muted">
+          You can't import this statement on the Free plan. Upload a statement covering one month, or upgrade.
+          Your upload stays under "Continue previous import" for 48 hours.
+        </p>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+          <Link
+            to="/app/billing"
+            onClick={() => trackNavigation('subscription', 'contextual')}
+            className="font-semibold underline text-ink"
+          >
+            See Plus plans
+          </Link>
+          {!overridden && (
+            <button type="button" onClick={onOverride} className="underline text-muted">
+              I've already upgraded
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 

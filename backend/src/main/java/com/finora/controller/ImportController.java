@@ -115,8 +115,8 @@ public class ImportController {
     // ADR-0002: plain JSON now, not multipart -- the file no longer needs to be re-uploaded here,
     // since it's already persisted on the ImportSession from staging (looked up via
     // request.sessionId()).
-    // Bug fix: the Free-tier statement-period cap (plans.ts's "Extended financial history"
-    // Plus/Premium promise) used to be enforced HERE, against request.statementPeriodStart()/
+    // Bug fix: the Free-tier statement-period cap (plans.ts's "Statements longer than one
+    // month" Plus/Premium promise) used to be enforced HERE, against request.statementPeriodStart()/
     // End() -- values the client echoes back from staging (see ConfirmRequest's own doc comment).
     // That is fine for what those fields are normally used for (persisted display data, reviewed
     // by the user on the confirm screen before submitting), but it made the entitlement gate

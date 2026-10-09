@@ -885,7 +885,7 @@ jobs:
         run: python3 scripts/shard-integration-tests.py --self-test --shards 3
 
       - name: Collect every shard's reports
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: backend-it-reports-*
           merge-multiple: true
@@ -893,7 +893,7 @@ jobs:
 
       - name: Collect the unit reports
         if: needs.backend.result == 'success'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: backend-unit-reports
           path: backend/target

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Sparkles } from 'lucide-react';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { emailChangeApi } from '../api/endpoints';
 import { trackNavigation } from '../lib/trackNavigation';
 
@@ -29,6 +30,7 @@ import { trackNavigation } from '../lib/trackNavigation';
  * one like password reset).
  */
 export default function VerifyEmailChange() {
+  useDocumentTitle('Confirm your new email — Fynora');
   const [searchParams] = useSearchParams();
   const sessionId = searchParams.get('sessionId');
   const token = searchParams.get('token');

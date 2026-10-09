@@ -1,11 +1,13 @@
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { Sparkles } from 'lucide-react';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { authApi } from '../api/endpoints';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function ForgotPassword() {
+  useDocumentTitle('Forgot password — Fynora');
   const [email, setEmail] = useState('');
   const [touched, setTouched] = useState(false);
   const [submitted, setSubmitted] = useState(false);

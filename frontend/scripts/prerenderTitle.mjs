@@ -22,9 +22,29 @@ export function fullTitle(title) {
  * Returns null if there is no plain-text <h1>.
  */
 export function pageTitleFromMarkup(appHtml) {
+  const heading = pageHeadingFromMarkup(appHtml);
+  return heading === null ? null : fullTitle(heading);
+}
+
+/** The page's <h1> text as React escaped it ("&amp;"), or null if there is no plain-text <h1>. */
+export function pageHeadingFromMarkup(appHtml) {
   const match = /<h1[^>]*>([^<]*)<\/h1>/.exec(appHtml);
   if (!match || !match[1].trim()) return null;
-  return fullTitle(match[1].trim());
+  return match[1].trim();
+}
+
+/**
+ * The plain text behind React's escaping, for values that go into JSON rather than HTML. Only the
+ * entities React emits (react-dom escapes exactly &, <, >, " and '). `&amp;` is decoded last so
+ * "&amp;lt;" becomes "&lt;", not "<".
+ */
+export function decodeEntities(html) {
+  return html
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;/g, "'")
+    .replace(/&amp;/g, '&');
 }
 
 /** Replaces the template's <title>. Throws rather than silently keeping the shared one. */
@@ -64,6 +84,10 @@ export function withCanonical(templateHtml, route) {
  * src/lib/siteUrl.ts (seoFiles.test.tsx checks they agree). Returns null if there is no subtitle.
  */
 export function pageDescriptionFromMarkup(appHtml) {
+  // A page that names its own description (PublicLayout's `description` prop, rendered as a data
+  // attribute on the heading section) wins over its subtitle. Same precedence as the component.
+  const explicit = /\sdata-seo-description="([^"]*)"/.exec(appHtml);
+  if (explicit && explicit[1].trim() !== '') return explicit[1].trim();
   const match = /<p[^>]*data-seo="description"[^>]*>([^<]*)<\/p>/.exec(appHtml);
   if (!match) return null;
   const stripped = match[1].replace(/^Last updated: [A-Za-z]+ \d{4}\.\s*/, '').trim();
@@ -90,4 +114,22 @@ export function withPageMeta(templateHtml, { title, description, route }) {
   out = setMetaContent(out, 'property', 'og:description', description);
   if (!out.includes('</head>')) throw new Error('prerender: the index.html template has no </head>.');
   return out.replace('</head>', () => `<meta property="og:url" content="${SITE_ORIGIN + route}" />\n</head>`);
+}
+
+/**
+ * Adds the page's JSON-LD <script> tags (src/lib/structuredData.ts, via ssr-entry) before </head>.
+ * Throws if the template already carries some: the prerender runs once per route from one shared
+ * template, so a block already there would be another page's.
+ */
+export function withStructuredData(templateHtml, scriptsHtml) {
+  if (/application\/ld\+json/.test(templateHtml)) {
+    throw new Error('prerender: the index.html template already has JSON-LD; it must not.');
+  }
+  if (!templateHtml.includes('</head>')) {
+    throw new Error('prerender: the index.html template has no </head> to add structured data to.');
+  }
+  if (typeof scriptsHtml !== 'string' || scriptsHtml.trim() === '') {
+    throw new Error('prerender: withStructuredData was given no script tags.');
+  }
+  return templateHtml.replace('</head>', () => `${scriptsHtml}\n</head>`);
 }

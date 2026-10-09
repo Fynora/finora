@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Sparkles, ShieldCheck, Loader2 } from 'lucide-react';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { phoneApi, phoneChangeApi, userApi } from '../api/endpoints';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -53,6 +54,7 @@ function sanitizePastedPhoneNumber(raw: string): string {
 const PHONE_PATTERN = /^[6-9][0-9]{9}$/;
 
 export default function VerifyPhone() {
+  useDocumentTitle('Verify your phone — Fynora');
   const navigate = useNavigate();
   const location = useLocation();
   // Distinguishes a RETURNING user who still hasn't verified (Login.tsx's own navigate call sets

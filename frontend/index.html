@@ -3,8 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Fynora — Personal finance, simplified</title>
-  <!-- The description is the homepage hero's own sentence (landing-config.ts, hero.blurb), which is
+  <title>Bank statement analyzer for Indian banks and cards — Fynora</title>
+  <!-- The title leads with what the product is (the thing someone searches for) and ends with the
+       brand. It was "Fynora — Personal finance, simplified", which named no query term at all:
+       nobody searching for a way to read their bank statement types "personal finance,
+       simplified". Google shows the site name beside the result anyway, so brand-first buys
+       nothing for brand searches. scripts/prerender.mjs keeps this title for the homepage only;
+       every other prerendered page takes its own from its <h1>.
+       The description is the homepage hero's own sentence (landing-config.ts, hero.blurb), which is
        reviewed copy; seoFiles.test.tsx fails if the two drift. It replaced "grow your money", which
        the product does not do. Every prerendered page overrides description/og:title/og:description
        and adds og:url (scripts/prerender.mjs). There is deliberately NO og:url and NO canonical
@@ -17,7 +23,7 @@
   <meta name="description" content="Fynora reads PDF and CSV statements from Indian banks and credit cards, checks its own work, and sorts every transaction." />
   <meta property="og:site_name" content="Fynora" />
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="Fynora — Personal finance, simplified" />
+  <meta property="og:title" content="Bank statement analyzer for Indian banks and cards — Fynora" />
   <meta property="og:description" content="Fynora reads PDF and CSV statements from Indian banks and credit cards, checks its own work, and sorts every transaction." />
   <meta property="og:image" content="https://app.fynora.net/og-image.png" />
   <meta property="og:image:type" content="image/png" />
@@ -27,7 +33,6 @@
   <meta name="twitter:card" content="summary_large_image" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="icon" type="image/png" href="/favicon.png" sizes="256x256" />
-  <link rel="preconnect" href="https://fonts.googleapis.com">
   <!-- "Sign in with Google" (GoogleSignInButton.tsx) can't draw anything until Google's own GIS
        script has loaded from this origin AND run -- unlike the Apple button beside it, which
        renders its own real markup immediately and only defers Apple's SDK load to click time.
@@ -39,13 +44,8 @@
        measurable time off exactly the "Google button takes longer to appear than Apple's" gap.
        Harmless on every other page: an idle preconnected connection just goes unused. -->
   <link rel="preconnect" href="https://accounts.google.com">
-  <!-- Inter carries the product UI; Manrope is headings-only, used on the marketing page and
-       (via Tailwind's `font-display`) the auth flow's headings/wordmark. Caveat is the
-       hand-drawn annotation on Statement History's hero only (via Tailwind's `font-handwriting`)
-       -- one weight (600), since that's the only one anything sets. One request for all three,
-       and Manrope is limited to the three weights either surface actually sets (600/700/800)
-       rather than the whole family. -->
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&family=Caveat:wght@600&display=swap" rel="stylesheet">
+  <!-- No Google Fonts <link> here: the fonts are self-hosted, imported by src/fonts.ts and bundled
+       into the app's own CSS, so nothing on the critical path leaves this origin. -->
 </head>
 <body class="bg-bg">
   <div id="root"></div>

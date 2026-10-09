@@ -7,6 +7,7 @@ export default function Contact() {
     <PublicLayout
       title="Contact Us"
       subtitle="Reach the Fynora team for support, billing questions, or anything else."
+      description={`Email ${SUPPORT_EMAIL} for account or import help and ${GRIEVANCE_EMAIL} for data-protection complaints, or find Fynora Technovation LLP's registered office.`}
     >
       <PublicSection title="Support">
         <p>

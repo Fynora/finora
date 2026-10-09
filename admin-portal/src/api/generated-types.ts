@@ -7257,6 +7257,7 @@ export interface components {
             correlationId?: string;
             /** @enum {string} */
             userStatus?: "PROCESSING" | "COMPLETED" | "ACTION_REQUIRED" | "FAILED" | "HELD_FOR_REVIEW" | "CANCELLED";
+            holdOverdue?: boolean;
         };
         ApiResponseStagingSessionResponse: {
             success?: boolean;

@@ -962,15 +962,16 @@ public class HeldStatementService {
         }
 
         HeldStatement.Status from = held.getStatus();
+        Instant now = Instant.now();
         held.reopen();
-        job.reopenTrustReview(ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name());
+        job.reopenTrustReview(ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name(), now);
         repository.save(held);
         importJobRepository.save(job);
         // The jobs reject() failed alongside this one, because they had no review of their own,
         // are held again with it -- otherwise approving the reopened review would leave them failed
         // for rows that reached the ledger.
         List<ImportJob> riding = coveredBy(job, HeldStatementService::isRejectedWithNoRecord);
-        riding.forEach(other -> other.reopenTrustReview(ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name()));
+        riding.forEach(other -> other.reopenTrustReview(ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name(), now));
         importJobRepository.saveAll(riding);
 
         eventRepository.save(new HeldStatementEvent(held.getId(), actingAdminId, "REOPENED",

@@ -17027,6 +17027,9 @@
                             "HELD_FOR_REVIEW",
                             "CANCELLED"
                         ]
+                    },
+                    "holdOverdue": {
+                        "type": "boolean"
                     }
                 }
             },

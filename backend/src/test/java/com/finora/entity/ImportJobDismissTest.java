@@ -111,7 +111,7 @@ class ImportJobDismissTest {
         ImportJob job = rejectedInTrustReview();
         job.dismiss(Instant.now());
 
-        job.reopenTrustReview(ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name());
+        job.reopenTrustReview(ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name(), Instant.now());
 
         assertThat(job.getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_TRUST_REVIEW);
         assertThat(job.getDismissedAt()).isNull();

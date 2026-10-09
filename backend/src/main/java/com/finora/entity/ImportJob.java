@@ -232,6 +232,13 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
     @Column(name = "dismissed_at")
     private Instant dismissedAt;
 
+    /**
+     * When the one-time admin escalation was sent for this job's current hold -- V266, see {@link
+     * #isHoldOverdue}. Cleared on every entry into a hold, so a re-held job is escalated again.
+     */
+    @Column(name = "overdue_alerted_at")
+    private Instant overdueAlertedAt;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
@@ -357,6 +364,7 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
         job.createdAt = now;
         job.startedAt = now;
         job.finishedAt = now;
+        job.overdueAlertedAt = null;
         return job;
     }
 
@@ -639,6 +647,7 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
         this.status = Status.HELD_FOR_REVIEW;
         this.failureCode = failureCode;
         this.finishedAt = now;
+        this.overdueAlertedAt = null;
         this.wasHeldForReview = true;
     }
 
@@ -677,6 +686,7 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
         this.importSessionId = importSessionId;
         this.heldStatementId = heldStatementId;
         this.finishedAt = now;
+        this.overdueAlertedAt = null;
         this.lastError = null;
         this.failureCode = null;
     }
@@ -831,8 +841,13 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
      * a failure, exactly as {@link #holdForTrustReview} leaves it. Clears {@link #dismissedAt} for
      * the same reason: the user dismissed a failure, and the import is live again -- left set, the
      * hold and whatever the review decides next would be hidden from their recent-imports list.
+     *
+     * <p>Restarts the hold clock ({@code finishedAt}) and clears {@link #overdueAlertedAt}, like
+     * every other entry into a hold: the user is waiting again from now, and left alone the clock
+     * would still read the rejection time -- overdue at once, with the first hold's escalation
+     * suppressing a new one.
      */
-    public void reopenTrustReview(String rejectedFailureCode) {
+    public void reopenTrustReview(String rejectedFailureCode, Instant now) {
         if (status != Status.FAILED || !java.util.Objects.equals(failureCode, rejectedFailureCode)) {
             throw new IllegalStateException(
                     "Import job " + id + " is at " + status + " (" + failureCode + "); only a job a "
@@ -842,6 +857,8 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
         this.failureCode = null;
         this.lastError = null;
         this.dismissedAt = null;
+        this.finishedAt = now;
+        this.overdueAlertedAt = null;
     }
 
     /**
@@ -952,6 +969,26 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
         }
         if (this.dismissedAt == null) this.dismissedAt = now;
     }
+
+    // ------------------------------------------------------------------ hold promise
+
+    /** The promise the held-import copy makes to the user (#2052, Gate 1 spec §4). */
+    public static final java.time.Duration HOLD_PROMISE = java.time.Duration.ofHours(48);
+
+    /**
+     * True while held for longer than {@link #HOLD_PROMISE} since this hold began. Exactly at the
+     * promise is not yet overdue. {@code finishedAt} is set on every entry into a hold, so a
+     * re-held or reopened job starts a fresh clock.
+     */
+    public boolean isHoldOverdue(Instant now) {
+        boolean held = status == Status.HELD_FOR_REVIEW || status == Status.HELD_FOR_TRUST_REVIEW;
+        return held && finishedAt != null && now.isAfter(finishedAt.plus(HOLD_PROMISE));
+    }
+
+    public Instant getOverdueAlertedAt() { return overdueAlertedAt; }
+
+    /** Records that this hold's one-time overdue escalation was sent (or attempted). */
+    public void markOverdueAlerted(Instant now) { this.overdueAlertedAt = now; }
 
     // ------------------------------------------------------------------ accessors
 

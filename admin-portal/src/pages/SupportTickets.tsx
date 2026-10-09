@@ -76,7 +76,7 @@ function SupportTicketsContent() {
     {
       header: 'Ticket Number',
       render: (row) => (
-        <Link to={`/support-tickets/${row.id}`} className="text-ink font-mono text-xs text-accent hover:underline">
+        <Link to={`/support-tickets/${row.id}`} className="font-mono text-xs text-primary hover:underline">
           {row.ticketNumber}
         </Link>
       ),

@@ -130,7 +130,7 @@ function HeldImportsContent() {
     {
       header: '',
       render: (row) => (
-        <button className="text-xs text-accent hover:underline" onClick={() => setSelectedId(row.id)}>
+        <button className="text-xs text-primary hover:underline" onClick={() => setSelectedId(row.id)}>
           Details
         </button>
       ),
@@ -340,7 +340,7 @@ function HeldImportDetailPanel({
               type="button"
               onClick={onReprocess}
               disabled={busy}
-              className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-on-primary hover:bg-primary-dark disabled:opacity-50"
             >
               <PlayCircle className="h-3.5 w-3.5" />
               Reprocess
@@ -368,7 +368,7 @@ function HeldImportDetailPanel({
                     type="button"
                     onClick={() => onResolve(message.trim())}
                     disabled={busy}
-                    className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                    className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-on-primary hover:bg-primary-dark disabled:opacity-50"
                   >
                     Send and resolve
                   </button>

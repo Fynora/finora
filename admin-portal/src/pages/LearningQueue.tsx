@@ -135,14 +135,14 @@ function LearningQueueContent() {
       render: (row) => (
         <div className="flex gap-2">
           <button
-            className="text-xs text-accent hover:underline"
+            className="text-xs text-primary hover:underline"
             onClick={() => setSelected(row)}
           >
             Details
           </button>
           {row.retryable && (
             <button
-              className="text-xs text-accent hover:underline disabled:opacity-50"
+              className="text-xs text-primary hover:underline disabled:opacity-50"
               disabled={retry.isPending}
               onClick={() => retry.mutate(row.id)}
             >
@@ -334,7 +334,7 @@ function EventDetail({
       {event.retryable && (
         <div className="flex gap-2 pt-2 border-t border-border">
           <button
-            className="rounded-lg bg-accent px-3 py-2 text-sm text-white disabled:opacity-50"
+            className="rounded-lg bg-primary px-3 py-2 text-sm text-on-primary hover:bg-primary-dark disabled:opacity-50"
             disabled={busy}
             onClick={onRetry}
           >
@@ -372,7 +372,7 @@ function Field({
       <dt className="text-muted text-xs">{label}</dt>
       <dd className="text-ink">
         {href && value ? (
-          <a className="text-accent hover:underline" href={href}>
+          <a className="text-primary hover:underline" href={href}>
             {value}
           </a>
         ) : (

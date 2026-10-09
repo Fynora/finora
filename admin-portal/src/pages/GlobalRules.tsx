@@ -87,7 +87,7 @@ function TestRulePanel({ field, operator, comparisonValue }: { field: string; op
           type="button"
           disabled={!comparisonValue.trim() || testMutation.isPending}
           onClick={() => testMutation.mutate()}
-          className="text-xs font-semibold text-primary bg-card border border-border hover:bg-white rounded-lg px-3 py-1.5 disabled:opacity-50"
+          className="text-xs font-semibold text-primary bg-card border border-border hover:bg-bg rounded-lg px-3 py-1.5 disabled:opacity-50"
         >
           {testMutation.isPending ? 'Testing…' : 'Test match'}
         </button>

@@ -92,24 +92,36 @@ export function PublicLayout({
 
       <main className="max-w-4xl mx-auto px-6 py-14">{children}</main>
 
-      <footer className="border-t border-border">
-        <div className="max-w-4xl mx-auto px-6 py-8 flex flex-col sm:flex-row justify-between items-center gap-3 text-xs text-muted">
-          <span>© {new Date().getFullYear()} Fynora Technovation LLP. Not a bank. Not investment advice.</span>
-          <div className="flex items-center gap-4">
-            <Link to="/terms" className="hover:text-ink">Terms</Link>
-            <Link to="/privacy" className="hover:text-ink">Privacy</Link>
-            <Link to="/cookie-policy" className="hover:text-ink">Cookies</Link>
-            <Link to="/trust" className="hover:text-ink">Trust &amp; Security</Link>
-            <Link to="/your-data" className="hover:text-ink">Your Data</Link>
-            <Link to="/refund-policy" className="hover:text-ink">Refunds</Link>
-            <Link to="/shipping-policy" className="hover:text-ink">Shipping</Link>
-            <Link to="/contact" className="hover:text-ink">Contact</Link>
-            <Link to="/about" className="hover:text-ink">About</Link>
-            <Link to="/help" className="hover:text-ink">Help</Link>
-          </div>
-        </div>
-      </footer>
+      <PublicFooter />
     </div>
+  );
+}
+
+/**
+ * The footer every public page carries: the legal and policy links Google's OAuth-branding
+ * verification looks for (see scripts/prerender.mjs). Exported for HomeCrawlerFallback, the
+ * homepage's prerendered first frame, which uses the landing page's own hero instead of this
+ * layout's header but must keep the same links.
+ */
+export function PublicFooter() {
+  return (
+    <footer className="border-t border-border">
+      <div className="max-w-4xl mx-auto px-6 py-8 flex flex-col sm:flex-row justify-between items-center gap-3 text-xs text-muted">
+        <span>© {new Date().getFullYear()} Fynora Technovation LLP. Not a bank. Not investment advice.</span>
+        <div className="flex items-center gap-4">
+          <Link to="/terms" className="hover:text-ink">Terms</Link>
+          <Link to="/privacy" className="hover:text-ink">Privacy</Link>
+          <Link to="/cookie-policy" className="hover:text-ink">Cookies</Link>
+          <Link to="/trust" className="hover:text-ink">Trust &amp; Security</Link>
+          <Link to="/your-data" className="hover:text-ink">Your Data</Link>
+          <Link to="/refund-policy" className="hover:text-ink">Refunds</Link>
+          <Link to="/shipping-policy" className="hover:text-ink">Shipping</Link>
+          <Link to="/contact" className="hover:text-ink">Contact</Link>
+          <Link to="/about" className="hover:text-ink">About</Link>
+          <Link to="/help" className="hover:text-ink">Help</Link>
+        </div>
+      </div>
+    </footer>
   );
 }
 

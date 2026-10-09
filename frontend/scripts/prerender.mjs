@@ -13,10 +13,12 @@ import path from 'node:path';
 import fs from 'node:fs';
 import {
   decodeEntities,
+  heroFontAsset,
   pageDescriptionFromMarkup,
   pageHeadingFromMarkup,
   pageTitleFromMarkup,
   withCanonical,
+  withFontPreload,
   withPageMeta,
   withStructuredData,
   withTitle,
@@ -74,6 +76,8 @@ async function main() {
     throw new Error(`dist/index.html doesn't contain ${ROOT_DIV} -- template shape changed, update this script.`);
   }
 
+  const heroFontHref = '/assets/' + heroFontAsset(fs.readdirSync(path.join(distDir, 'assets')));
+
   for (const [route, fileName] of Object.entries(OUTPUT_FILES)) {
     const renderRoute = routes[route];
     const appHtml = renderRoute();
@@ -89,6 +93,10 @@ async function main() {
       const description = pageDescriptionFromMarkup(appHtml);
       if (!description) throw new Error(`prerender: no subtitle to take a description from for ${route}`);
       pageTemplate = withPageMeta(withCanonical(withTitle(template, title), route), { title, description, route });
+    } else {
+      // Only the homepage paints the hero headline. index.html is also the SPA fallback for every
+      // route not listed here, so those load it too; it is one small, immutable-cached file.
+      pageTemplate = withFontPreload(pageTemplate, heroFontHref);
     }
     // JSON-LD for the page (Organization/WebSite/SoftwareApplication/FAQPage on the homepage,
     // breadcrumbs elsewhere, the Help articles as an FAQPage on /help). Built from the pages' own

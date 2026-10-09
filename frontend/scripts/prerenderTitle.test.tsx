@@ -7,7 +7,15 @@ import Careers from '../src/pages/Careers';
 import Terms from '../src/pages/Terms';
 import RefundPolicy from '../src/pages/RefundPolicy';
 import Help from '../src/pages/Help';
-import { decodeEntities, pageHeadingFromMarkup, pageTitleFromMarkup, withStructuredData, withTitle } from './prerenderTitle.mjs';
+import {
+  decodeEntities,
+  heroFontAsset,
+  pageHeadingFromMarkup,
+  pageTitleFromMarkup,
+  withFontPreload,
+  withStructuredData,
+  withTitle,
+} from './prerenderTitle.mjs';
 
 const TEMPLATE = '<html><head><title>Bank statement analyzer for Indian banks and cards — Fynora</title></head><body><div id="root"></div></body></html>';
 
@@ -97,5 +105,37 @@ describe('withStructuredData', () => {
   it('does not interpret $ sequences in the JSON as replacement patterns', () => {
     const out = withStructuredData(TEMPLATE, '<script type="application/ld+json">{"t":"$& $1"}</script>');
     expect(out).toContain('{"t":"$& $1"}');
+  });
+});
+
+describe('hero font preload', () => {
+  it('picks the one Manrope 800 latin woff2, ignoring the woff fallback, other subsets and weights', () => {
+    expect(
+      heroFontAsset([
+        'index-abc.js',
+        'manrope-latin-800-normal-BfWYOv1c.woff2',
+        'manrope-latin-800-normal-uHUdIJgA.woff',
+        'manrope-latin-ext-800-normal-DdFx7KEb.woff2',
+        'manrope-latin-700-normal-BZp_XxE4.woff2',
+      ])
+    ).toBe('manrope-latin-800-normal-BfWYOv1c.woff2');
+  });
+
+  it('fails the build when the file is missing or ambiguous', () => {
+    expect(() => heroFontAsset(['manrope-latin-700-normal-a.woff2'])).toThrow(/found 0/);
+    expect(() => heroFontAsset(['manrope-latin-800-normal-a.woff2', 'manrope-latin-800-normal-b.woff2'])).toThrow(/found 2/);
+  });
+
+  it('adds a CORS-mode font preload right after <title>, ahead of the stylesheet', () => {
+    const out = withFontPreload(TEMPLATE, '/assets/manrope-latin-800-normal-x.woff2');
+    expect(out).toContain(
+      '</title>\n  <link rel="preload" href="/assets/manrope-latin-800-normal-x.woff2" as="font" type="font/woff2" crossorigin />'
+    );
+    expect(out).toContain('<div id="root"></div>');
+  });
+
+  it('refuses a template with no </title> or one that already preloads a font', () => {
+    expect(() => withFontPreload('<html><head></head></html>', '/a.woff2')).toThrow(/no <\/title>/);
+    expect(() => withFontPreload(withFontPreload(TEMPLATE, '/a.woff2'), '/a.woff2')).toThrow(/already preloads a font/);
   });
 });

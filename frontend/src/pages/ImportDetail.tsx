@@ -5,7 +5,7 @@ import { ArrowLeft, FileQuestion, RefreshCw } from 'lucide-react';
 import { importJobsApi } from '../api/endpoints';
 import { ImportTimeline } from '../components/ImportTimeline';
 import { PageLoading } from '../components/PageLoading';
-import { HELD_DETAIL, isHeld, isReviewable, label } from '../lib/importJob';
+import { heldDetail, isHeld, isReviewable, label } from '../lib/importJob';
 import { navigateToResumeSession } from '../lib/importNavState';
 import { formatDate } from '../utils/date';
 import { trackNavigation } from '../lib/trackNavigation';
@@ -115,7 +115,7 @@ export default function ImportDetail() {
             we are checking, but not who, how long, or what happens next. This is where Statement
             History sends someone coming back to ask "what happened to my statement?". */}
         {isHeld(job) && (
-          <p className="text-sm text-ink mt-3" data-testid="import-detail-held">{HELD_DETAIL}</p>
+          <p className="text-sm text-ink mt-3" data-testid="import-detail-held">{heldDetail(job)}</p>
         )}
 
         {progressQuery.isError && (
@@ -134,13 +134,16 @@ export default function ImportDetail() {
           </button>
         )}
 
-        {job.status === 'FAILED' && (
+        {/* An overdue hold's apology offers uploading a different statement meanwhile (Gate 1 spec
+            §4), so this page has to offer the way to do it. Within the promise a held import
+            gets no button: there is nothing to do but wait, and the copy says so. */}
+        {(job.status === 'FAILED' || (isHeld(job) && job.holdOverdue)) && (
           <button
             type="button"
             onClick={() => { trackNavigation('import-statement', 'contextual'); void navigate('/app/import'); }}
             className="mt-4 bg-primary text-on-primary text-sm font-semibold rounded-lg px-4 py-2 hover:opacity-90"
           >
-            Upload a different file
+            {job.status === 'FAILED' ? 'Upload a different file' : 'Upload a different statement'}
           </button>
         )}
       </div>

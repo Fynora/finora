@@ -24,8 +24,9 @@ import ts from 'typescript';
  *
  * A defined colour can still be invisible: `text-white` on `bg-primary` is fine in light mode and
  * near-white on near-white in dark mode, where primary is light paper. The last check resolves
- * each text/background pair that sits on one element to the real token values in both themes and
- * holds it to WCAG AA (4.5:1) -- which is also how the -600 status colours (2.86-3.95:1 as badge
+ * each text colour, on whatever background its element and its JSX parents in the same file give it
+ * (translucent ones composited), to the real token values in both themes and holds it to WCAG AA
+ * (4.5:1; 3:1 for an icon) -- which is also how the -600 status colours (2.86-3.95:1 as badge
  * text on their washes) and white on dark mode's light danger/success fills (2.28-2.77:1) were
  * found.
  */
@@ -91,40 +92,72 @@ function isNeverClassText(node: ts.Node): boolean {
   );
 }
 
+/** One class list an expression can produce, with the outcome of each condition it took. */
+interface Possible {
+  text: string;
+  when: Record<string, boolean>;
+}
+
 const MAX_VARIANTS = 256;
-const combine = (left: string[], right: string[], separator: string) =>
-  left.flatMap((l) => right.map((r) => l + separator + r)).slice(0, MAX_VARIANTS);
+const NOTHING: Possible = { text: '', when: {} };
+
+/**
+ * Two choices made together -- or none, when they need opposite outcomes of the same condition:
+ * a parent's `critical ? 'bg-danger-bg' : 'bg-warning-bg'` and a child's `critical ? 'text-danger'
+ * : 'text-warning'` never render danger's wash under warning's text. (Conditions match by their
+ * source text, so two different variables of the same name in one file would be treated as one.)
+ */
+function joined(left: Possible, right: Possible, separator: string): Possible | null {
+  for (const [condition, value] of Object.entries(right.when)) {
+    if (condition in left.when && left.when[condition] !== value) return null;
+  }
+  return { text: left.text + separator + right.text, when: { ...left.when, ...right.when } };
+}
+const combine = (left: Possible[], right: Possible[], separator: string) =>
+  left.flatMap((l) => right.map((r) => joined(l, r, separator)))
+    .filter((p): p is Possible => p !== null)
+    .slice(0, MAX_VARIANTS);
+
+function assuming(possibles: Possible[], condition: ts.Node, value: boolean): Possible[] {
+  const key = condition.getText().replace(/\s+/g, ' ');
+  return combine([{ text: '', when: { [key]: value } }], possibles, '');
+}
 
 /**
  * Every class list a className expression can produce: both arms of a conditional, with and
  * without an `&&` operand, each combination of a template's parts. Anything not built from
  * literals (a variable, a lookup) contributes nothing, as it cannot be read statically.
  */
-function possibleClassStrings(node: ts.Node | undefined): string[] {
-  if (!node) return [''];
+function possibleClassStrings(node: ts.Node | undefined): Possible[] {
+  if (!node) return [NOTHING];
   if (ts.isJsxExpression(node) || ts.isParenthesizedExpression(node)) return possibleClassStrings(node.expression);
-  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return [node.text];
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return [{ text: node.text, when: {} }];
   if (ts.isTemplateExpression(node)) {
     return node.templateSpans.reduce(
-      (acc, span) => combine(combine(acc, possibleClassStrings(span.expression), ''), [span.literal.text], ''),
-      [node.head.text]
+      (acc, span) => combine(combine(acc, possibleClassStrings(span.expression), ''), [{ text: span.literal.text, when: {} }], ''),
+      [{ text: node.head.text, when: {} }]
     );
   }
   if (ts.isConditionalExpression(node)) {
-    return [...possibleClassStrings(node.whenTrue), ...possibleClassStrings(node.whenFalse)];
+    return [
+      ...assuming(possibleClassStrings(node.whenTrue), node.condition, true),
+      ...assuming(possibleClassStrings(node.whenFalse), node.condition, false),
+    ];
   }
   if (ts.isBinaryExpression(node)) {
     const op = node.operatorToken.kind;
-    if (op === ts.SyntaxKind.AmpersandAmpersandToken) return ['', ...possibleClassStrings(node.right)];
+    if (op === ts.SyntaxKind.AmpersandAmpersandToken) {
+      return [...assuming([NOTHING], node.left, false), ...assuming(possibleClassStrings(node.right), node.left, true)];
+    }
     if (op === ts.SyntaxKind.BarBarToken || op === ts.SyntaxKind.QuestionQuestionToken) {
       return [...possibleClassStrings(node.left), ...possibleClassStrings(node.right)];
     }
     if (op === ts.SyntaxKind.PlusToken) return combine(possibleClassStrings(node.left), possibleClassStrings(node.right), '');
   }
   if (ts.isCallExpression(node)) {
-    return node.arguments.reduce((acc, arg) => combine(acc, possibleClassStrings(arg), ' '), ['']);
+    return node.arguments.reduce((acc, arg) => combine(acc, possibleClassStrings(arg), ' '), [NOTHING]);
   }
-  return [''];
+  return [NOTHING];
 }
 
 /**
@@ -219,7 +252,7 @@ function elementClassStrings(file: ts.SourceFile, where: (node: ts.Node) => stri
   // An icon: an svg, a lucide import, or a component held in a variable named for one (`<Icon />`,
   // `<item.icon />`). It is a graphic, so 3:1 applies to it rather than text's 4.5:1.
   const isIcon = (tag: string) => tag === 'svg' || icons.has(tag) || /(?:^|\.)icon$|Icon$/i.test(tag);
-  const walk = (node: ts.Node, backdrops: string[]) => {
+  const walk = (node: ts.Node, backdrops: Possible[]) => {
     if (!ts.isJsxElement(node) && !ts.isJsxSelfClosingElement(node)) {
       ts.forEachChild(node, (child) => walk(child, backdrops));
       return;
@@ -233,24 +266,26 @@ function elementClassStrings(file: ts.SourceFile, where: (node: ts.Node) => stri
     if (hidden && (!hidden.initializer || /^["'{]*true["'}]*$/.test(hidden.initializer.getText(file)))) return;
     const minimum = isIcon(opening.tagName.getText(file)) ? MIN_GRAPHIC_CONTRAST : undefined;
     const className = attribute('className');
-    const own = className ? possibleClassStrings(className.initializer) : [''];
+    const own = className ? possibleClassStrings(className.initializer) : [NOTHING];
     if (own.length >= MAX_VARIANTS) throw new Error(`${where(className!)}: too many class combinations to check`);
     const style = styleClasses(attribute('style'), file);
-    const next = new Set<string>();
+    const next = new Map<string, Possible>();
     for (const backdrop of backdrops) {
       for (const classes of own) {
-        const full = [backdrop, style, classes].filter(Boolean).join(' ');
-        if (className || style) out.push({ text: full, where: where(className ?? opening), minimum });
-        next.add(backdropOf(full));
+        const full = joined(backdrop, { text: [style, classes.text].filter(Boolean).join(' '), when: classes.when }, ' ');
+        if (!full) continue;
+        if (className || style) out.push({ text: full.text, where: where(className ?? opening), minimum });
+        const under = { text: backdropOf(full.text), when: full.when };
+        next.set(JSON.stringify(under), under);
       }
     }
     opening.attributes.properties.forEach((a) => walk(a, backdrops));
     // Inside role="img" (Landing's product mock) everything is one picture, described by its
     // label; ARIA makes the children presentational, so their text is part of an image.
     const image = attribute('role')?.initializer?.getText(file) === '"img"';
-    if (ts.isJsxElement(node) && !image) node.children.forEach((child) => walk(child, [...next]));
+    if (ts.isJsxElement(node) && !image) node.children.forEach((child) => walk(child, [...next.values()]));
   };
-  walk(file, ['']);
+  walk(file, [NOTHING]);
   return out;
 }
 
@@ -595,6 +630,8 @@ describe('Tailwind colour classes', () => {
       'const j = <b className="bg-[#2E2D2A] text-white" />;',
       'const k = <div className="bg-card"><b className="text-ink/50">signed</b></div>;',
       'const l = <div role="img" aria-label="Product mock" className="bg-card"><b className="text-border">₹480</b></div>;',
+      "const m = <div className={on ? 'bg-danger-bg' : 'bg-warning-bg'}><p className={on ? 'text-danger' : 'text-warning'}>x</p></div>;",
+      "const n = <div className={on ? 'bg-danger-bg' : 'bg-warning-bg'}><p className={off ? 'text-danger' : 'text-warning'}>x</p></div>;",
     ].join('\n')).classStrings);
 
     // Measured by hand from index.css (light / dark):
@@ -607,6 +644,8 @@ describe('Tailwind colour classes', () => {
     // g-i, l: decorative, set at runtime, a white tint on an unknown surface, or part of a picture
     // -- none are judged.
     // j: white on #2E2D2A passes; k: ink at 50% on card is 3.45 / 4.23.
+    // m: one condition, so danger's wash is never under warning's text; n: two conditions can mix,
+    //    and warning on danger's wash is 4.38 in light mode.
     expect(offenders).toEqual([
       'Example.tsx:2: text-success on bg-ink is 1.94:1 in dark mode',
       'Example.tsx:3: text-success on bg-success-bg > bg-white/60 is 1.15:1 in dark mode',
@@ -616,6 +655,7 @@ describe('Tailwind colour classes', () => {
       'Example.tsx:7: text-warning on bg-sidebar is 3.25:1 in light mode',
       'Example.tsx:12: text-ink/50 on bg-card is 3.45:1 in light mode',
       'Example.tsx:12: text-ink/50 on bg-card is 4.23:1 in dark mode',
+      'Example.tsx:15: text-warning on bg-danger-bg is 4.38:1 in light mode',
     ]);
   });
 

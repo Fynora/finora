@@ -13,8 +13,10 @@ import type { RootParamList } from './types';
 // never touches), and query-string require()s decode-uri-component -- ESM-only under this repo's
 // package.json override. CI runs Node 22, which cannot require() an ES module (Node 24.9+ can, which
 // is why this passed on a newer local Node and failed in CI). A plain stand-in keeps the suite
-// loadable on every Node the repo supports.
-jest.mock('decode-uri-component', () => (value: string) => decodeURIComponent(value));
+// loadable on every Node the repo supports. `virtual`: since the 2026-10-09 dependency bump
+// (#2046) @react-navigation no longer pulls query-string at all, so the package is not on disk --
+// a non-virtual mock then fails the whole suite with "Cannot find module". Virtual works both ways.
+jest.mock('decode-uri-component', () => (value: string) => decodeURIComponent(value), { virtual: true });
 
 // The unit tests fake the navigation ref. This one uses the REAL container and router, to check the
 // one thing a fake cannot: that navigate('ResetPassword') issued from RootNavigator's own effect

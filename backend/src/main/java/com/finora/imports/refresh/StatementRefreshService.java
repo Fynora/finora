@@ -180,6 +180,9 @@ public class StatementRefreshService {
         boolean givenPassword = password != null && !password.isEmpty();
         String opener = givenPassword ? password : statementPasswordService.forStatement(userId, statementId).orElse(null);
         StagingResponse staging;
+        // No Free one-month statement limit on a refresh, by decision (2026-10-06): it re-reads a
+        // statement already imported, possibly while on Plus -- see StatementImportService
+        // .confirmReimport's matching note and FreeStatementLimitAfterDowngradeIT.
         try {
             staging = importService.parseAndStageAnyFormat(userId, statement.getSourceFormat(),
                     statement.getFileName(), content, statement.getSourceSectionIndex(), opener, true);

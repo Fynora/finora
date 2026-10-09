@@ -552,9 +552,19 @@ public class ImportService {
     /**
      * plans.ts's "Extended financial history" Plus/Premium promise, enforced (FeatureEntitlement
      * .EXTENDED_HISTORY -- seeded since V99): a Free-plan statement may cover at most one month
-     * ({@link FreeStatementPeriod}). A null start or end is never itself a reason to
-     * block -- same "carried, not dropped" treatment {@link #periodOf} already gives a statement
-     * with no printed period at all.
+     * ({@link FreeStatementPeriod}). Both the printed period and the date range of every staged
+     * transaction are judged -- unticked rows included, since {@code include} is the review's choice
+     * and the limit is about the file -- so a statement that prints no period (every CSV and Excel
+     * export, and a PDF whose period could not be read) is still judged by its transactions.
+     *
+     * <p>The refusal names the range it found, so a person whose real one-month statement is refused
+     * can see why. A refusal on the transactions while the printed period fits is also logged: that
+     * is either an edited period or a parse fault (a wrong year guessed for a yearless date, a card
+     * row posted weeks late), and the log is how a wrongly refused real statement gets noticed.
+     *
+     * <p>Not applied by {@code StatementImportService.confirmReimport} or statement refresh, by
+     * decision: those re-read a statement already imported, possibly while on Plus, and a downgrade
+     * must not stop someone repairing their own records.
      *
      * <p>Bug fix: this used to run in ImportController, against {@code ConfirmRequest}'s
      * client-echoed {@code statementPeriodStart}/{@code End} -- values the client round-trips back
@@ -567,14 +577,37 @@ public class ImportService {
      * "read the server's own record of what was staged, don't trust the echo" boundary ADR-0002
      * already drew for the confirmed row list itself ({@link ConfirmedRowIntegrity#requireSameRows}).
      */
-    private void requireStatementPeriodWithinFreeLimit(UUID userId, LocalDate start, LocalDate end) {
-        if (start == null || end == null) return;
+    private void requireStatementWithinFreeLimit(UUID userId, UUID sessionId, DetectedAccountInfo detected,
+                                                 List<StagedRow> stagedRows, boolean oneOfSeveralAccounts) {
+        LocalDate[] period = periodOf(detected);
+        List<LocalDate> dates = stagedRows == null ? List.of()
+                : stagedRows.stream().map(StagedRow::date).filter(Objects::nonNull).toList();
+        FreeStatementPeriod.Excess excess = FreeStatementPeriod.firstExcess(period[0], period[1], dates);
+        if (excess == null) return;
         if (entitlementService.hasEntitlement(userId, FeatureEntitlement.EXTENDED_HISTORY)) return;
-        // One calendar month, not a flat day count -- see FreeStatementPeriod. A reversed pair is
-        // judged by its real length there, so it cannot slip under the limit.
-        if (!FreeStatementPeriod.coversAtMostOneMonth(start, end)) {
-            throw new ApiException(ErrorCode.STATEMENT_PERIOD_TOO_LONG);
+        if (excess.fromTransactions() && period[0] != null && period[1] != null) {
+            // Spans only, never the dates: they are statement content (see
+            // ConfirmedRowIntegrity's note on what reaches logs).
+            log.info("Free statement limit: session {} prints a {}-day period, but its transactions span {} days -- refused",
+                    sessionId, daysInclusive(period[0], period[1]), daysInclusive(excess.from(), excess.to()));
         }
+        java.time.format.DateTimeFormatter shown =
+                java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy", java.util.Locale.ENGLISH);
+        // On a composite statement, say it is one of its accounts: the dates alone do not tell the
+        // person which part of the file is too long.
+        String lead = excess.fromTransactions()
+                ? (oneOfSeveralAccounts ? "One account's transactions run from " : "Its transactions run from ")
+                : (oneOfSeveralAccounts ? "One account in this statement covers " : "It covers ");
+        String found = lead + excess.from().format(shown) + " to " + excess.to().format(shown) + ".";
+        throw new ApiException(ErrorCode.STATEMENT_PERIOD_TOO_LONG.defaultStatus(), ErrorCode.STATEMENT_PERIOD_TOO_LONG,
+                "Free plan statements can cover at most one month. " + found
+                        + " Upgrade to Plus to import longer statement periods.",
+                Map.of("coveredFrom", excess.from().toString(), "coveredTo", excess.to().toString(),
+                        "basis", excess.fromTransactions() ? "TRANSACTIONS" : "PRINTED_PERIOD"));
+    }
+
+    private static long daysInclusive(LocalDate a, LocalDate b) {
+        return Math.abs(java.time.temporal.ChronoUnit.DAYS.between(a, b)) + 1;
     }
 
     /** What one dry run found: enough for {@code TrustPredicate.evaluate} and nothing else -- no
@@ -930,10 +963,10 @@ public class ImportService {
         // savings+credit-card bundle) can have one section within the Free limit and another that
         // isn't, and the whole confirm must be rejected before any section is persisted below.
         // Against stagedSections (this session's own server-derived detection), never
-        // request.sections() -- see requireStatementPeriodWithinFreeLimit's own doc comment.
+        // request.sections() -- see requireStatementWithinFreeLimit's own doc comment.
         for (StagedAccountSection stagedSection : stagedSections) {
-            LocalDate[] period = periodOf(stagedSection.detectedAccount());
-            requireStatementPeriodWithinFreeLimit(userId, period[0], period[1]);
+            requireStatementWithinFreeLimit(userId, session.getId(), stagedSection.detectedAccount(), stagedSection.rows(),
+                    stagedSections.size() > 1);
         }
 
         // BH-041: persist every section FIRST, reconcile once, then summarise. See reconcileAcross
@@ -1013,10 +1046,10 @@ public class ImportService {
         ConfirmedRowIntegrity.requireSameRows(stagedRows, request.rows());
         request = request.withRows(ConfirmedRowIntegrity.withStatementFacts(stagedRows, request.rows()));
         var detectedAccount = importSessionService.readDetectedAccount(session);
-        // Against this session's own server-derived detection, never request.statementPeriodStart()
-        // /End() -- see requireStatementPeriodWithinFreeLimit's own doc comment.
-        LocalDate[] period = periodOf(detectedAccount);
-        requireStatementPeriodWithinFreeLimit(userId, period[0], period[1]);
+        // Against this session's own server-derived detection and staged rows, never
+        // request.statementPeriodStart()/End() or request.rows() -- see
+        // requireStatementWithinFreeLimit's own doc comment.
+        requireStatementWithinFreeLimit(userId, session.getId(), detectedAccount, stagedRows, false);
         ConfirmResponse response = confirm(userId, session.getFileName(), statementContentService.read(session), request, null,
                 session.getLayoutMetadataJson(), session.getLayoutFingerprint(), session.getActivatedCapabilitiesJson(),
                 session.getUnparseableSummaryJson(), session.getSource(), importSessionService.readCreditCardSummary(session),

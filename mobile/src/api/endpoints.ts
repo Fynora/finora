@@ -413,8 +413,8 @@ export interface ConfirmPayload {
   // the "View in Ledger" period filter) and gates the PNB-boundary-date opening-balance
   // carry-forward fix on it being non-null -- omitting it silently disabled both for a mobile
   // confirm. It plays no part in the Free-tier statement-period cap, which is decided from the
-  // session's own server-staged detectedAccount, never this echoed field -- see
-  // requireStatementPeriodWithinFreeLimit's own doc comment on the backend.
+  // session's own server-staged detectedAccount and rows, never this echoed field -- see
+  // requireStatementWithinFreeLimit's own doc comment on the backend.
   statementPeriodStart: string | null;
   statementPeriodEnd: string | null;
   // Echoed back from DetectedAccountInfo.totalAmountDue/paymentDueDate -- same gap as

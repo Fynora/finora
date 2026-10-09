@@ -1,0 +1,39 @@
+import { StyleSheet, View, type ViewProps } from 'react-native';
+import { useTheme } from '../theme';
+import { glassFill } from '../theme/glass';
+import { useReduceTransparency } from '../lib/useReduceTransparency';
+
+export type GlassVariant = 'panel' | 'row';
+
+/**
+ * The one glass surface. Phase 1: translucent fill + hairline edge on every platform. Phase 2
+ * swaps the `panel` body for GlassView (iOS 26+) / BlurView (iOS 16.4-25) HERE ONLY -- callers
+ * never branch on platform. `row` (list rows, inputs, chips) never blurs: a FlatList of native
+ * blur views is costly, and rows sit on a panel or the backdrop that already reads as glass.
+ *
+ * Fill and edge are applied AFTER the caller's style on purpose: a call site can shape the
+ * surface (radius, padding, border width) but cannot make it opaque or transparent by accident.
+ * Under Reduce Transparency, or before the setting is known, this is exactly the pre-glass solid
+ * card, so that path needs no separate component.
+ */
+export function GlassSurface({ style, children, variant = 'panel', ...rest }: ViewProps & { variant?: GlassVariant }) {
+  const c = useTheme();
+  const solid = useReduceTransparency() !== false; // null (unknown) renders solid too
+  void variant; // consumed in Phase 2 (native blur paths)
+  return (
+    <View
+      {...rest}
+      style={[
+        styles.edge,
+        style,
+        solid
+          ? { backgroundColor: c.card, borderColor: c.border }
+          : { backgroundColor: glassFill(c), borderColor: c.glassEdge },
+      ]}
+    >
+      {children}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({ edge: { borderWidth: StyleSheet.hairlineWidth } });

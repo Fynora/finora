@@ -1,15 +1,17 @@
 import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
 import { radius, spacing, useTheme } from '../theme';
+import { GlassSurface } from './GlassSurface';
 
 /** The card surface every screen builds on -- the mobile equivalent of the web's
- *  `bg-card rounded-xl2 shadow-card border border-border` combination. */
+ *  `bg-card rounded-xl2 shadow-card border border-border` combination. Since the glass redesign
+ *  it is a GlassSurface panel: GlassSurface owns the fill and edge colour (and the solid fallback
+ *  under Reduce Transparency); this keeps only the shape -- 1px border, radius, padding. */
 export function Card({ children, style, testID }: { children: ReactNode; style?: ViewStyle; testID?: string }) {
-  const c = useTheme();
   return (
-    <View testID={testID} style={[styles.card, { backgroundColor: c.card, borderColor: c.border }, style]}>
+    <GlassSurface testID={testID} style={[styles.card, style]}>
       {children}
-    </View>
+    </GlassSurface>
   );
 }
 

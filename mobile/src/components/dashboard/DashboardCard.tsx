@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
-import { Platform, StyleSheet, View, type ViewStyle } from 'react-native';
-import { radius, spacing, useTheme } from '../../theme';
+import { Platform, StyleSheet, type ViewStyle } from 'react-native';
+import { radius, spacing } from '../../theme';
+import { GlassSurface } from '../GlassSurface';
 
 /**
  * Dashboard-only surface for the passbook redesign -- a hairline border (not `Card`'s full 1px)
@@ -10,15 +11,18 @@ import { radius, spacing, useTheme } from '../../theme';
  * section), so removing every visual separator risked cards merging together -- "quiet, not
  * flat." Deliberately NOT a change to `Card.tsx` itself. Same `{children, style, testID}` shape
  * as `Card` so a call site swaps between them with no other change.
+ *
+ * Since the glass redesign both are GlassSurface panels; GlassSurface owns the fill, the edge
+ * colour and the solid fallback under Reduce Transparency. What stays here is the shape: the
+ * hairline border, the larger padding and the soft shadow.
  */
 export function DashboardCard({
   children, style, testID,
 }: { children: ReactNode; style?: ViewStyle; testID?: string }) {
-  const c = useTheme();
   return (
-    <View testID={testID} style={[styles.card, { backgroundColor: c.card, borderColor: c.border }, style]}>
+    <GlassSurface testID={testID} style={[styles.card, style]}>
       {children}
-    </View>
+    </GlassSurface>
   );
 }
 

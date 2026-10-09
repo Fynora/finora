@@ -16,6 +16,7 @@ import { TourOverlay } from '../onboarding/TourOverlay';
 import { TOUR_STEPS, type TourStep } from '../onboarding/tourSteps';
 import { useAuth } from '../context/AuthContext';
 import { useFontsReady, useTheme, useThemeSetting } from '../theme';
+import { glassFill } from '../theme/glass';
 import { useAuthStackInitialRoute } from './useAuthStackInitialRoute';
 import { useAppPathDeepLink } from './useAppPathDeepLink';
 import { useEmailChangeDeepLink } from './useEmailChangeDeepLink';
@@ -161,8 +162,12 @@ export function RootNavigator() {
     colors: {
       ...base.colors,
       primary: c.primary,
+      // Stays OPAQUE on purpose: screens paint their own GlassScreen, and an opaque navigator
+      // background keeps native-stack transitions from showing the previous screen through a
+      // translucent one.
       background: c.bg,
-      card: c.card,
+      // Anything React Navigation draws itself (a native header) matches the glass surfaces.
+      card: glassFill(c),
       text: c.ink,
       border: c.border,
     },

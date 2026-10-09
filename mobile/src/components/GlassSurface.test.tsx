@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from 'react';
+import { Text } from 'react-native';
 import { render, screen } from '@testing-library/react-native';
-import { GlassSurface } from './GlassSurface';
+import { GlassSurface, useGlassSurfaceStyle } from './GlassSurface';
 import { Card } from './Card';
 import { DashboardCard } from './dashboard/DashboardCard';
 import { ThemeProvider, useThemeSetting } from '../theme';
@@ -52,6 +53,26 @@ it('renders without a ThemeProvider, like every other screen test in this repo',
 it('Card renders through GlassSurface and keeps its testID/children/1px-border contract', () => {
   render(<ThemeProvider><Card testID="c" style={{ marginTop: 5 }}>{null}</Card></ThemeProvider>);
   expect(screen.getByTestId('c')).toHaveStyle({ backgroundColor: 'rgba(255,255,255,0.72)', borderWidth: 1, marginTop: 5 });
+});
+
+// Pressable rows (Ledger's transaction rows) can't be a GlassSurface View, so they read the same
+// fill/edge pair through this hook -- one source of truth, including the solid fallback.
+function HookProbe() {
+  const s = useGlassSurfaceStyle();
+  return <Text testID="probe">{JSON.stringify(s)}</Text>;
+}
+
+it('useGlassSurfaceStyle returns the exact fill/edge pair GlassSurface paints', () => {
+  render(<ThemeProvider><HookProbe /></ThemeProvider>);
+  expect(JSON.parse(screen.getByTestId('probe').props.children)).toEqual({
+    backgroundColor: 'rgba(255,255,255,0.72)', borderColor: 'rgba(255,255,255,0.85)',
+  });
+});
+
+it.each([true, null])('useGlassSurfaceStyle falls back to solid card + border when Reduce Transparency is %s', (v) => {
+  useReduceTransparency.mockReturnValue(v);
+  render(<ThemeProvider><HookProbe /></ThemeProvider>);
+  expect(JSON.parse(screen.getByTestId('probe').props.children)).toEqual({ backgroundColor: '#ffffff', borderColor: '#E6EAF2' });
 });
 
 it('DashboardCard renders through GlassSurface and keeps its hairline border and padding', () => {

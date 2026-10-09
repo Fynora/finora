@@ -17,23 +17,27 @@ export type GlassVariant = 'panel' | 'row';
  * card, so that path needs no separate component.
  */
 export function GlassSurface({ style, children, variant = 'panel', ...rest }: ViewProps & { variant?: GlassVariant }) {
-  const c = useTheme();
-  const solid = useReduceTransparency() !== false; // null (unknown) renders solid too
+  const surface = useGlassSurfaceStyle();
   void variant; // consumed in Phase 2 (native blur paths)
   return (
-    <View
-      {...rest}
-      style={[
-        styles.edge,
-        style,
-        solid
-          ? { backgroundColor: c.card, borderColor: c.border }
-          : { backgroundColor: glassFill(c), borderColor: c.glassEdge },
-      ]}
-    >
+    <View {...rest} style={[styles.edge, style, surface]}>
       {children}
     </View>
   );
+}
+
+/**
+ * The fill/edge pair GlassSurface paints, for the few surfaces that cannot be a GlassSurface
+ * View -- a Pressable list row that needs onPress/android_ripple, for instance. Same solid
+ * fallback under Reduce Transparency, so there is still one source of truth for "what glass
+ * looks like". Always a `row`-grade surface: Phase 2's native blur applies to panels only.
+ */
+export function useGlassSurfaceStyle(): { backgroundColor: string; borderColor: string } {
+  const c = useTheme();
+  const solid = useReduceTransparency() !== false; // null (unknown) renders solid too
+  return solid
+    ? { backgroundColor: c.card, borderColor: c.border }
+    : { backgroundColor: glassFill(c), borderColor: c.glassEdge };
 }
 
 const styles = StyleSheet.create({ edge: { borderWidth: StyleSheet.hairlineWidth } });

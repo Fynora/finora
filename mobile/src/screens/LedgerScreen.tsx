@@ -9,6 +9,8 @@ import { useRoute, type RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { GlassScreen } from '../components/GlassScreen';
+import { GlassSurface, useGlassSurfaceStyle } from '../components/GlassSurface';
 import {
   categoriesApi, dashboardApi, onboardingApi, transactionsApi, type PagedResponse, type TransactionFilters,
 } from '../api/endpoints';
@@ -189,6 +191,9 @@ export function LedgerScreen() {
   // already guard against, just not yet extended to the Ledger itself.
   usePreventScreenCapture();
   const c = useTheme();
+  // Transaction rows are Pressables (press, long-press, ripple), so they can't be a GlassSurface
+  // View; this is the same fill/edge pair, solid fallback included.
+  const glassRow = useGlassSurfaceStyle();
   const insets = useSafeAreaInsets();
   const largeText = useLargeFontScale();
   const queryClient = useQueryClient();
@@ -494,7 +499,7 @@ export function LedgerScreen() {
   }
 
   return (
-    <View style={[styles.flex, { backgroundColor: c.bg, paddingTop: insets.top }]}>
+    <GlassScreen style={[styles.flex, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <View style={styles.headerText}>
           <Text style={[styles.title, { color: c.ink }]}>Transactions</Text>
@@ -561,7 +566,7 @@ export function LedgerScreen() {
               </View>
             ) : null}
 
-            <View style={[styles.searchWrap, { backgroundColor: c.card, borderColor: c.border }]}>
+            <GlassSurface variant="row" style={styles.searchWrap}>
               <Ionicons name="search" size={16} color={c.muted} style={styles.searchIcon} />
               <TextInput
                 value={keywordInput}
@@ -578,7 +583,7 @@ export function LedgerScreen() {
                 accessibilityLabel="Search transactions"
                 style={[styles.search, { color: c.ink }]}
               />
-            </View>
+            </GlassSurface>
 
             {/* Type filter (All/Income/Expense) and status filter (Phase 4 -- reconciliationBadge's
                 own status set as a filter, not just a per-row label) share one horizontally
@@ -807,7 +812,7 @@ export function LedgerScreen() {
             <Pressable
               onPress={() => setViewingDetail(t)}
               onLongPress={() => confirmDelete(t)}
-              style={[styles.row, { backgroundColor: c.card, borderColor: c.border }]}
+              style={[styles.row, glassRow]}
               android_ripple={{ color: c.border }}
               // Long-press was the only route to delete, which made it unreachable for anyone
               // using a screen reader -- there's no gesture equivalent in the rotor. The hint below
@@ -994,7 +999,7 @@ export function LedgerScreen() {
           deleting={deletingId === viewingDetail.id}
         />
       ) : null}
-    </View>
+    </GlassScreen>
   );
 }
 

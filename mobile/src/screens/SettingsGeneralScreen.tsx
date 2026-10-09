@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SaveStatus } from '../components/AccountUI';
 import { Button } from '../components/Button';
+import { GlassScreen } from '../components/GlassScreen';
 import { OptionPickerModal } from '../components/OptionPickerModal';
 import { TextField } from '../components/TextField';
 import { userApi, onboardingApi } from '../api/endpoints';
@@ -115,9 +116,9 @@ export function SettingsGeneralScreen() {
 
   if (userQ.isLoading) {
     return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+      <GlassScreen style={styles.centered}>
         <ActivityIndicator size="large" color={c.primary} />
-      </View>
+      </GlassScreen>
     );
   }
 
@@ -127,16 +128,19 @@ export function SettingsGeneralScreen() {
   // instead of the explicit error message the pre-redesign monolith showed for this exact case.
   if (userQ.isError || !user) {
     return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+      <GlassScreen style={styles.centered}>
         <Text style={[styles.message, { color: c.muted }]}>
           Couldn&apos;t load your settings — please try again later.
         </Text>
-      </View>
+      </GlassScreen>
     );
   }
 
   return (
-    <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+    // GlassScreen wraps the ScrollView rather than living inside it: the mesh backdrop must stay
+    // put while the content scrolls over it.
+    <GlassScreen style={styles.flex}>
+    <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <TextField
         label="Low balance alert"
         value={lowBalance}
@@ -214,10 +218,12 @@ export function SettingsGeneralScreen() {
         onClose={() => setTimezonePickerOpen(false)}
       />
     </ScrollView>
+    </GlassScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
   message: { fontSize: 14, textAlign: 'center' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },

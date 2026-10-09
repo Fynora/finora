@@ -12,6 +12,7 @@ import { AddTransactionSheet } from './AddTransactionSheet';
 import { AccountsCard } from '../components/dashboard/AccountsCard';
 import { FinancialNoteCard } from '../components/dashboard/FinancialNoteCard';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
+import { GlassScreen } from '../components/GlassScreen';
 import { CashFlowMiniCard } from '../components/dashboard/CashFlowMiniCard';
 import { GoalsRow } from '../components/dashboard/GoalsRow';
 import { HealthFactorsRow } from '../components/dashboard/HealthFactorsRow';
@@ -380,12 +381,12 @@ export function DashboardScreen() {
   // shows its own per-section skeletons instead of blocking the whole screen behind one spinner.
   if (!summaryQ.isLoading && !summary) {
     return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+      <GlassScreen style={styles.centered}>
         <Text style={[styles.errorText, { color: c.mutedInk }]}>Couldn't load your dashboard.</Text>
         <Pressable onPress={refresh} hitSlop={12} accessibilityRole="button">
           <Text style={[styles.retry, { color: c.primary }]}>Try again</Text>
         </Pressable>
-      </View>
+      </GlassScreen>
     );
   }
 
@@ -393,8 +394,10 @@ export function DashboardScreen() {
 
   return (
     <>
+    {/* GlassScreen wraps the ScrollView rather than living inside it: the mesh backdrop must stay
+        put while the content scrolls over it. */}
+    <GlassScreen style={styles.flex}>
     <ScrollView
-      style={{ backgroundColor: c.bg }}
       contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
     >
@@ -724,7 +727,7 @@ export function DashboardScreen() {
             <Pressable
               key={action.label}
               onPress={action.onPress}
-              style={[styles.quickActionCell, { backgroundColor: c.bg, borderColor: c.border }]}
+              style={[styles.quickActionCell, { backgroundColor: c.bg, borderColor: c.border } /* glass-exempt: quick-action tile inside a glass card; opaque bg is its contrast against the card */]}
               accessibilityRole="button"
               accessibilityLabel={action.label}
             >
@@ -1056,6 +1059,7 @@ export function DashboardScreen() {
 
       <ChecklistWidget />
     </ScrollView>
+    </GlassScreen>
     {addingTransaction ? (
       <AddTransactionSheet
         onClose={() => setAddingTransaction(false)}
@@ -1075,6 +1079,7 @@ const styles = StyleSheet.create({
   nudgeTitle: { fontSize: 14, fontWeight: '600' },
   nudgeBody: { fontSize: 12, marginTop: 2 },
   nudgeChevron: { fontSize: 20, lineHeight: 20 },
+  flex: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
   errorText: { fontSize: 14 },
   retry: { fontSize: 14, fontWeight: '600' },

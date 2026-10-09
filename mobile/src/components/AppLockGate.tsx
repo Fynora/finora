@@ -257,7 +257,7 @@ export function AppLockGate({ children }: { children: ReactNode }) {
   // The lock UI appears in two shapes: alone (a cold-start lock: nothing protected is mounted yet)
   // or as an overlay over the already-mounted app (every later lock).
   const lockScreen = (overlay: boolean) => (
-    <View style={[styles.container, overlay ? styles.cover : null, { backgroundColor: c.bg }]}>
+    <View style={[styles.container, overlay ? styles.cover : null, { backgroundColor: c.bg } /* glass-exempt: lock screen must hide the app; never translucent */]}>
       <Ionicons name="lock-closed" size={48} color={c.primary} />
       <Text style={[styles.title, { color: c.ink }]}>Fynora is locked</Text>
       <Text style={[styles.subtitle, { color: c.muted }]}>
@@ -326,7 +326,7 @@ export function AppLockGate({ children }: { children: ReactNode }) {
       {/* Covers rather than unmounts: `children` stay mounted underneath, so nothing is torn down
           while the lock check is in flight, yet nothing protected can paint before its outcome is
           known. */}
-      {showCover ? <View testID="app-lock-cover" style={[styles.cover, { backgroundColor: c.bg }]} /> : null}
+      {showCover ? <View testID="app-lock-cover" style={[styles.cover, { backgroundColor: c.bg } /* glass-exempt: lock cover must hide the app; never translucent */]} /> : null}
       {showLock ? lockScreen(true) : null}
     </View>
   );

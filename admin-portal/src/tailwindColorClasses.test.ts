@@ -183,8 +183,10 @@ async function generatedClassNames(candidates: string[]): Promise<Set<string>> {
 
   const names = new Set<string>();
   result.root.walkRules((rule) => {
-    for (const match of rule.selector.matchAll(/\.((?:\\.|[\w-])+)/g)) {
-      names.add(match[1].replace(/\\(.)/g, '$1'));
+    for (const match of rule.selector.matchAll(/\.((?:\\[0-9a-f]{1,6} ?|\\.|[\w-])+)/gi)) {
+      // CSS escapes: `\:` for most characters, but `\2c ` (hex, optional space) for a comma.
+      names.add(match[1].replace(/\\([0-9a-f]{1,6}) ?|\\(.)/gi, (_, hex, char) =>
+        hex ? String.fromCodePoint(parseInt(hex, 16)) : char));
     }
   });
   return names;
@@ -311,8 +313,12 @@ describe('Tailwind colour classes', () => {
   });
 
   it('flags a class that produces no CSS', async () => {
-    const generated = await generatedClassNames(['bg-accent', 'bg-primary', 'border-success/20', 'rounded-xl2']);
+    const generated = await generatedClassNames([
+      'bg-accent', 'bg-primary', 'border-success/20', 'rounded-xl2', 'transition-[transform,box-shadow]', 'hover:bg-bg',
+    ]);
     expect(generated.has('bg-primary')).toBe(true);
+    expect(generated.has('transition-[transform,box-shadow]')).toBe(true);
+    expect(generated.has('hover:bg-bg')).toBe(true);
     expect(generated.has('border-success/20')).toBe(true);
     expect(generated.has('rounded-xl2')).toBe(true);
     expect(generated.has('bg-accent')).toBe(false);

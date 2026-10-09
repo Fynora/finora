@@ -386,10 +386,10 @@ public class PushCampaignService {
      */
     private void consumeScheduleForSendNow(PushCampaign campaign, Instant now, LocalDate today) {
         switch (campaign.getScheduleKind()) {
-            case NOW_ONLY, ONCE_AT -> {
-                campaign.complete(now);
-                campaigns.save(campaign);
-            }
+            // One case per kind, not "case NOW_ONLY, ONCE_AT": CodeQL reads a multi-label arrow case as
+            // missing its second label (java/missing-case-in-switch), though the compiler does not.
+            case NOW_ONLY -> completeAndSave(campaign, now);
+            case ONCE_AT -> completeAndSave(campaign, now);
             case DAILY_AT -> {
                 Instant due = campaign.getNextRunAt();
                 if (campaign.getStatus() == CampaignStatus.ACTIVE && due != null
@@ -404,6 +404,11 @@ public class PushCampaignService {
                 }
             }
         }
+    }
+
+    private void completeAndSave(PushCampaign campaign, Instant now) {
+        campaign.complete(now);
+        campaigns.save(campaign);
     }
 
     /**
@@ -456,8 +461,13 @@ public class PushCampaignService {
     }
 
     private User resolveTestTarget(PushCampaignTestRequest request) {
-        boolean hasId = request != null && request.userId() != null;
-        boolean hasEmail = request != null && request.email() != null && !request.email().isBlank();
+        // A missing body gets the same answer as an empty one. Checked first so everything below can
+        // use the request without a guard in every condition.
+        if (request == null) {
+            throw badRequest("Give exactly one of userId or email for the test.");
+        }
+        boolean hasId = request.userId() != null;
+        boolean hasEmail = request.email() != null && !request.email().isBlank();
         if (hasId == hasEmail) {
             throw badRequest("Give exactly one of userId or email for the test.");
         }

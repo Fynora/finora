@@ -237,7 +237,7 @@ export function ReportsScreen() {
           <View style={styles.totals}>
             <Card style={styles.totalCard}>
               <Text style={[styles.totalLabel, { color: c.muted }]}>Income</Text>
-              <Text style={[styles.totalValue, { color: c.success }]} numberOfLines={1} adjustsFontSizeToFit>
+              <Text style={[styles.totalValue, { color: c.successInk }]} numberOfLines={1} adjustsFontSizeToFit>
                 {fmtCurrency(report.income)}
               </Text>
               {/* Money in that is not counted as income (see FlowClassifier on the backend); mirrors

@@ -93,6 +93,30 @@ describe('theme palette contrast', () => {
   it.each([
     ['light', light],
     ['dark', dark],
+  ])('%s: dangerInk clears WCAG AA (4.5:1) against dangerBg, card and bg', (_name, p) => {
+    expect(contrastRatio(p.dangerInk, p.dangerBg)).toBeGreaterThanOrEqual(AA_SMALL_TEXT);
+    expect(contrastRatio(p.dangerInk, p.card)).toBeGreaterThanOrEqual(AA_SMALL_TEXT);
+    expect(contrastRatio(p.dangerInk, p.bg)).toBeGreaterThanOrEqual(AA_SMALL_TEXT);
+  });
+
+  it('light.danger alone does not clear AA on its own wash, which is why dangerInk exists', () => {
+    expect(contrastRatio(light.danger, light.dangerBg)).toBeLessThan(AA_SMALL_TEXT);
+  });
+
+  it('dark.dangerInk intentionally equals dark.danger, since dark theme already clears AA', () => {
+    expect(dark.dangerInk).toBe(dark.danger);
+  });
+
+  it.each([
+    ['light', light],
+    ['dark', dark],
+  ])('%s: onPrimary is readable on primary (white is not, once dark mode makes primary light)', (_name, p) => {
+    expect(contrastRatio(p.onPrimary, p.primary)).toBeGreaterThanOrEqual(AA_SMALL_TEXT);
+  });
+
+  it.each([
+    ['light', light],
+    ['dark', dark],
   ])('%s: planPlusText clears WCAG AA (4.5:1) against planPlusBg', (_name, p) => {
     expect(contrastRatio(p.planPlusText, p.planPlusBg)).toBeGreaterThanOrEqual(AA_SMALL_TEXT);
   });

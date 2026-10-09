@@ -41,17 +41,17 @@ export function VerificationPanel({ verification }: { verification: Verification
   const allClear = notable.length === 0 && findings.some((f) => f.outcome === 'VERIFIED');
 
   const verdict = verification.reliabilityStatus === 'CLEAN'
-    ? { icon: 'checkmark-circle' as const, color: c.success, text: 'Imported successfully' }
+    ? { icon: 'checkmark-circle' as const, color: c.successInk, text: 'Imported successfully' }
     : verification.reliabilityStatus === 'NEEDS_ATTENTION'
       ? { icon: 'alert-circle' as const, color: c.danger, text: 'Import needs attention' }
       : verification.reliabilityStatus === 'REVIEW_RECOMMENDED'
         // Deliberately not "review recommended" -- reads as something went wrong. This status
         // fires on OCR alone as often as on an actual finding, and most OCR reads are fine.
-        ? { icon: 'alert-circle' as const, color: c.warning, text: 'Imported with notes' }
+        ? { icon: 'alert-circle' as const, color: c.warningInk, text: 'Imported with notes' }
         : allClear
-          ? { icon: 'checkmark-circle' as const, color: c.success, text: 'Running balance verified' }
+          ? { icon: 'checkmark-circle' as const, color: c.successInk, text: 'Running balance verified' }
           : notable.length > 0
-            ? { icon: 'alert-circle' as const, color: c.warning, text: `${notable.length} ${notable.length === 1 ? 'finding' : 'findings'}` }
+            ? { icon: 'alert-circle' as const, color: c.warningInk, text: `${notable.length} ${notable.length === 1 ? 'finding' : 'findings'}` }
             : { icon: 'help-circle-outline' as const, color: c.muted, text: "Couldn't be checked" };
 
   return (

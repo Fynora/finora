@@ -155,7 +155,7 @@ export function CategoryPickerModal({
           />
 
           {categoriesQ.isError ? (
-            <Text style={[styles.notice, { color: c.warning }]}>Couldn&apos;t load categories.</Text>
+            <Text style={[styles.notice, { color: c.warningInk }]}>Couldn&apos;t load categories.</Text>
           ) : null}
 
           <FlatList

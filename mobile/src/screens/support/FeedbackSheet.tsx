@@ -87,7 +87,7 @@ export function FeedbackSheet({ onClose }: { onClose: () => void }) {
 
             {sent ? (
               <View style={styles.successBlock}>
-                <Text style={[styles.successMark, { color: c.success }]}>✓</Text>
+                <Text style={[styles.successMark, { color: c.successInk }]}>✓</Text>
                 <Text style={[styles.successTitle, { color: c.ink }]}>Thanks for the feedback</Text>
                 <Text style={[styles.successBody, { color: c.muted }]}>We read every submission.</Text>
                 <View style={styles.action}>

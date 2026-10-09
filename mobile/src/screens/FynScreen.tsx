@@ -295,7 +295,7 @@ function FynChat() {
                 style={[
                   styles.turnBubble,
                   turn.role === 'user'
-                    ? { backgroundColor: c.primary, color: '#fff' }
+                    ? { backgroundColor: c.primary, color: c.onPrimary }
                     : { backgroundColor: c.bg, borderWidth: 1, borderColor: c.border, color: c.ink },
                 ]}
               >
@@ -379,7 +379,7 @@ function FynChat() {
           accessibilityRole="button"
           accessibilityLabel="Send"
         >
-          <Ionicons name="send" size={16} color="#fff" />
+          <Ionicons name="send" size={16} color={c.onPrimary} />
         </Pressable>
       </View>
     </KeyboardAvoidingView>

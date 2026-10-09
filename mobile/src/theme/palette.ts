@@ -44,12 +44,17 @@ export const light = {
   successInk: '#166534',
   danger: '#dc2626',
   dangerBg: '#fee2e2',
+  // `danger` as text on `dangerBg` sits at 3.95:1, under WCAG AA's 4.5:1 -- same shape of problem
+  // as successInk/warningInk, same fix. This red-800 clears 6.80:1 on the wash and 8.31:1 on card.
+  dangerInk: '#991b1b',
   warning: '#d97706',
   warningBg: '#fef3c7',
   // The shared `warning` tone is tuned for icons and borders; as text on `warningBg` it only
   // reaches 2.86:1, well under WCAG AA's 4.5:1. This darker amber hits 6.37:1 on the same ground.
-  // A separate token rather than a change to `warning` itself, since that value is shared with
-  // the web app and is fine in the roles it's actually used for there.
+  // A separate token rather than a change to `warning` itself, since `warning` is fine in the
+  // icon and border roles it's used for here. (It matched web's --color-warning until web moved its
+  // light success/danger/warning to darker shades for text; mobile keeps the -600 tone for icons
+  // and uses these *Ink tokens for text instead.)
   warningInk: '#92400e',
   inputBg: '#FFFFFF',
   // Passbook redesign's one new accent -- Financial Health Seal frame, goal progress rings,
@@ -121,6 +126,8 @@ export const dark: typeof light = {
   successInk: '#22c55e',
   danger: '#f87171',
   dangerBg: '#210C0E',
+  // Dark theme's danger already clears AA on its wash (6.76:1), so this is the same value.
+  dangerInk: '#f87171',
   warning: '#fbbf24',
   warningBg: '#181104',
   // Dark theme already clears AA comfortably (11.22:1), so this is the same value as `warning`.

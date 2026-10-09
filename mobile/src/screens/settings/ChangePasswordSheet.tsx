@@ -214,7 +214,7 @@ export function ChangePasswordSheet({ onClose, onSuccess, signInMethod }: {
           <ScrollView keyboardShouldPersistTaps="handled" style={styles.scroll}>
             {step === 'success' ? (
               <View style={styles.successBlock}>
-                <Text style={[styles.successMark, { color: c.success }]}>✓</Text>
+                <Text style={[styles.successMark, { color: c.successInk }]}>✓</Text>
                 <Text style={[styles.title, { color: c.ink }]}>Password updated</Text>
                 <Text style={[styles.body, { color: c.muted }]}>{successMessage}</Text>
                 <View style={styles.action}>

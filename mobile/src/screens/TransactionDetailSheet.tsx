@@ -64,18 +64,18 @@ export function TransactionDetailSheet({
   const cp = counterpartyLabel(t.counterpartyType, t.type);
   const badge = reconciliationBadge(t.reconciliationStatus);
   const badgeColors = badge ? {
-    danger: { bg: c.dangerBg, fg: c.danger },
+    danger: { bg: c.dangerBg, fg: c.dangerInk },
     primary: { bg: c.primaryLight, fg: c.primary },
-    success: { bg: c.successBg, fg: c.success },
-    warning: { bg: c.warningBg, fg: c.warning },
+    success: { bg: c.successBg, fg: c.successInk },
+    warning: { bg: c.warningBg, fg: c.warningInk },
     muted: { bg: c.border, fg: c.mutedInk },
   }[badge.tone] : null;
   const badges = statusBadges(t);
   const badgeToneColors = {
     primary: { bg: c.primaryLight, fg: c.primary },
-    success: { bg: c.successBg, fg: c.success },
-    warning: { bg: c.warningBg, fg: c.warning },
-    danger: { bg: c.dangerBg, fg: c.danger },
+    success: { bg: c.successBg, fg: c.successInk },
+    warning: { bg: c.warningBg, fg: c.warningInk },
+    danger: { bg: c.dangerBg, fg: c.dangerInk },
   } as const;
 
   return (

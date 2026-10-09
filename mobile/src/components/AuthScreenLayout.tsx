@@ -64,10 +64,10 @@ export function AuthScreenLayout({ title, subtitle, error, banner, children, foo
           {subtitle ? <Text style={[styles.subtitle, { color: c.muted }]}>{subtitle}</Text> : null}
 
           {banner ? (
-            <Text style={[styles.banner, { color: c.success, backgroundColor: c.successBg }]}>{banner}</Text>
+            <Text style={[styles.banner, { color: c.successInk, backgroundColor: c.successBg }]}>{banner}</Text>
           ) : null}
           {error ? (
-            <Text style={[styles.banner, { color: c.danger, backgroundColor: c.dangerBg }]}>{error}</Text>
+            <Text style={[styles.banner, { color: c.dangerInk, backgroundColor: c.dangerBg }]}>{error}</Text>
           ) : null}
 
           {children}

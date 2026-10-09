@@ -16,6 +16,7 @@ import { EMAIL_PATTERN } from '../../lib/validation';
 import { useAuth } from '../../context/AuthContext';
 import { useSingleFlight } from '../../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../../theme';
+import { GlassSurface } from '../../components/GlassSurface';
 
 /**
  * Phase 4, ported from frontend/src/components/ChangeEmailModal.tsx. Unlike ChangePasswordSheet,
@@ -108,7 +109,7 @@ export function ChangeEmailSheet({ onClose, signInMethod }: {
           disabled={!dismissable}
           accessibilityLabel="Close change email"
         />
-        <View style={[styles.sheet, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md }]}>
+        <GlassSurface style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}>
           <ScrollView keyboardShouldPersistTaps="handled" style={styles.scroll}>
             {step === 'sent' ? (
               <View style={styles.successBlock}>
@@ -214,7 +215,7 @@ export function ChangeEmailSheet({ onClose, signInMethod }: {
               </>
             )}
           </ScrollView>
-        </View>
+        </GlassSurface>
       </KeyboardAvoidingView>
     </AppModal>
   );

@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react';
 import {
-  KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, View
+  KeyboardAvoidingView, Pressable, ScrollView, StyleSheet
 } from 'react-native';
 import { AppModal } from '../../components/AppModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { radius, spacing, useTheme } from '../../theme';
+import { radius, spacing } from '../../theme';
+import { GlassSurface } from '../../components/GlassSurface';
 
 interface Props {
   onClose: () => void;
@@ -28,7 +29,6 @@ interface Props {
  * warnBox/checkbox/confirm styles).
  */
 export function AccountActionSheet({ onClose, dismissable, closeLabel, children }: Props) {
-  const c = useTheme();
   const insets = useSafeAreaInsets();
 
   return (
@@ -40,11 +40,11 @@ export function AccountActionSheet({ onClose, dismissable, closeLabel, children 
           disabled={!dismissable}
           accessibilityLabel={closeLabel}
         />
-        <View style={[chromeStyles.sheet, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md }]}>
+        <GlassSurface style={[chromeStyles.sheet, { paddingBottom: insets.bottom + spacing.md }]}>
           <ScrollView keyboardShouldPersistTaps="handled" style={chromeStyles.scroll}>
             {children}
           </ScrollView>
-        </View>
+        </GlassSurface>
       </KeyboardAvoidingView>
     </AppModal>
   );

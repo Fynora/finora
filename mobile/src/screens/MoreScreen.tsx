@@ -9,6 +9,7 @@ import { spacing, useTheme } from '../theme';
 import { useRegisterTourTarget } from '../onboarding/TourTargetRegistry';
 import { trackNavigation } from '../lib/trackNavigation';
 import type { MoreStackParamList } from '../navigation/types';
+import { GlassScreen } from '../components/GlassScreen';
 
 type Props = NativeStackScreenProps<MoreStackParamList, 'MoreHome'>;
 
@@ -78,8 +79,8 @@ export function MoreScreen({ navigation }: Props) {
   }
 
   return (
+    <GlassScreen style={styles.glassRoot}>
     <ScrollView
-      style={{ backgroundColor: c.bg }}
       contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}
     >
       <Text style={[styles.title, { color: c.ink }]}>More</Text>
@@ -138,10 +139,12 @@ export function MoreScreen({ navigation }: Props) {
         <Text style={[styles.signOut, { color: c.danger }]}>Sign out</Text>
       </Pressable>
     </ScrollView>
+    </GlassScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  glassRoot: { flex: 1 },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   title: { fontSize: 22, fontWeight: '700', marginBottom: spacing.md },
   profileCard: { flexDirection: 'row', alignItems: 'center' },

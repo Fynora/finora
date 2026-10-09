@@ -8,6 +8,7 @@ import { useOnboardingStep } from './OnboardingStepContext';
 import { WelcomeScreen } from './WelcomeScreen';
 import { FinancialFocusScreen } from './FinancialFocusScreen';
 import { SuccessScreen } from './SuccessScreen';
+import { GlassScreen } from '../components/GlassScreen';
 
 const ERROR_MESSAGE = "Something went wrong. Check your connection and try again.";
 
@@ -62,7 +63,7 @@ export function OnboardingNavigator() {
   }
   if (step === 'tourIntro') {
     return (
-      <View style={[styles.container, { backgroundColor: c.bg }]}>
+      <GlassScreen style={styles.container}>
         <Text style={[styles.title, { color: c.ink }]}>Let's take a quick tour</Text>
         <Text style={[styles.subtitle, { color: c.muted }]}>
           This will only take about 30 seconds and will help you get the most out of Fynora.
@@ -70,7 +71,7 @@ export function OnboardingNavigator() {
         <Button label="Start Tour" onPress={() => setStep('tour')} />
         <View style={{ height: 8 }} />
         <Button label="Skip" onPress={() => setStep('success')} variant="link" />
-      </View>
+      </GlassScreen>
     );
   }
   if (step === 'success') {

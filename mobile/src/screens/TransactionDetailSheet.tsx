@@ -10,6 +10,7 @@ import { reconciliationBadge } from '../lib/reconciliationBadge';
 import { radius, spacing, useTheme } from '../theme';
 import type { Transaction } from '../types';
 import { statusBadges } from './LedgerScreen';
+import { GlassSurface } from '../components/GlassSurface';
 
 interface Props {
   transaction: Transaction;
@@ -87,7 +88,7 @@ export function TransactionDetailSheet({
           disabled={busy}
           accessibilityLabel="Close transaction details"
         />
-        <View style={[styles.sheet, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md }]}>
+        <GlassSurface style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}>
           <ScrollView style={styles.scroll}>
             <View style={styles.headerRow}>
               <Text style={[styles.title, { color: c.ink }]}>Transaction Details</Text>
@@ -230,7 +231,7 @@ export function TransactionDetailSheet({
 
             <Button label="Close" variant="link" onPress={onClose} disabled={busy} />
           </ScrollView>
-        </View>
+        </GlassSurface>
       </View>
     </AppModal>
   );

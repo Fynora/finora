@@ -14,6 +14,7 @@ import { invalidateFinancialQueries } from '../lib/invalidateFinancialData';
 import { counts, describeChange, fieldValue, inr, outcomeLabel, period } from '../lib/refreshFormat';
 import { fmtDate } from '../lib/format';
 import { radius, spacing, useTheme } from '../theme';
+import { GlassSurface } from './GlassSurface';
 
 export const REFRESH_OVERVIEW_KEY = ['statement-refresh-overview'];
 
@@ -178,7 +179,7 @@ function RefreshPasswordSheet({
       <KeyboardAvoidingView style={styles.flex} behavior="padding">
         <Pressable style={styles.backdrop} onPress={busy ? undefined : onClose} disabled={busy}
           accessibilityLabel="Close" />
-        <View style={[styles.sheet, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md }]}
+        <GlassSurface style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}
           testID="refresh-password-sheet">
           <Text style={[styles.title, { color: c.ink }]}>Update this statement</Text>
           <Text style={[styles.body, { color: c.muted }]}>
@@ -231,7 +232,7 @@ function RefreshPasswordSheet({
           <Button label={busy ? 'Updating…' : 'Update statement'} onPress={() => void submit()}
             disabled={!password || busy} loading={busy} testID="refresh-password-submit" />
           <Button label="Cancel" variant="link" onPress={onClose} disabled={busy} />
-        </View>
+        </GlassSurface>
       </KeyboardAvoidingView>
     </AppModal>
   );
@@ -247,7 +248,7 @@ function RefreshSummarySheet({ results, onClose }: { results: RefreshRunDetail[]
     <AppModal visible transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.flex}>
         <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close what changed" />
-        <View style={[styles.sheet, styles.tall, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md }]}
+        <GlassSurface style={[styles.sheet, styles.tall, { paddingBottom: insets.bottom + spacing.md }]}
           testID="refresh-summary">
           <Text style={[styles.title, { color: c.ink }]}>What changed</Text>
           <Text style={[styles.body, { color: c.muted }]}>
@@ -259,7 +260,7 @@ function RefreshSummarySheet({ results, onClose }: { results: RefreshRunDetail[]
             {results.map((r) => <ResultCard key={r.runId ?? r.statementImportId} result={r} />)}
           </ScrollView>
           <Button label="Done" onPress={onClose} />
-        </View>
+        </GlassSurface>
       </View>
     </AppModal>
   );

@@ -1,6 +1,7 @@
 import { Text, View, StyleSheet } from 'react-native';
 import { Button } from '../components/Button';
 import { spacing, useTheme } from '../theme';
+import { GlassScreen } from '../components/GlassScreen';
 
 interface Props {
   onStart: () => void;
@@ -11,7 +12,7 @@ interface Props {
 export function WelcomeScreen({ onStart, onSkip, error }: Props) {
   const c = useTheme();
   return (
-    <View style={[styles.container, { backgroundColor: c.bg }]}>
+    <GlassScreen style={styles.container}>
       <Text style={[styles.title, { color: c.ink }]}>Welcome to Fynora 👋</Text>
       <Text style={[styles.subtitle, { color: c.muted }]}>
         Take control of your finances in one place. Track spending, create budgets, monitor
@@ -21,7 +22,7 @@ export function WelcomeScreen({ onStart, onSkip, error }: Props) {
       <Button label="Start Setup" onPress={onStart} />
       <View style={{ height: spacing.sm }} />
       <Button label="Skip for Now" onPress={onSkip} variant="link" />
-    </View>
+    </GlassScreen>
   );
 }
 

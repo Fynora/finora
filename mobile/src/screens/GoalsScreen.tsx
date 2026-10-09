@@ -21,6 +21,7 @@ import { useSingleFlight } from '../lib/useSingleFlight';
 import { parsePositiveAmount } from '../lib/validation';
 import { spacing, useTheme } from '../theme';
 import type { Goal } from '../types';
+import { GlassScreen } from '../components/GlassScreen';
 
 /** Port of frontend/src/pages/Goals.tsx. */
 export function GoalsScreen() {
@@ -156,15 +157,15 @@ export function GoalsScreen() {
 
   if (isLoading) {
     return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+      <GlassScreen style={styles.centered}>
         <ActivityIndicator size="large" color={c.primary} />
-      </View>
+      </GlassScreen>
     );
   }
 
   return (
+    <GlassScreen style={styles.glassRoot}>
     <ScrollView
-      style={{ backgroundColor: c.bg }}
       contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}
       keyboardShouldPersistTaps="handled"
       refreshControl={
@@ -303,10 +304,12 @@ export function GoalsScreen() {
         />
       ) : null}
     </ScrollView>
+    </GlassScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  glassRoot: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   header: {

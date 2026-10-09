@@ -11,6 +11,7 @@ import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { spacing, useTheme } from '../theme';
 import type { MoreStackParamList } from '../navigation/types';
+import { GlassScreen } from '../components/GlassScreen';
 
 type Props = NativeStackScreenProps<MoreStackParamList, 'SettingsBankSyncConfirm'>;
 
@@ -47,13 +48,15 @@ export function SettingsBankSyncConfirmScreen({ route, navigation }: Props) {
   // conditional hook call.
   if (!linkId) {
     return (
-      <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.content}>
+      <GlassScreen style={styles.glassRoot}>
+      <ScrollView contentContainerStyle={styles.content}>
         <Text style={[styles.title, { color: c.ink }]}>Link no longer available</Text>
         <Text style={[styles.hint, { color: c.mutedInk }]}>
           This account link couldn't be found. Go back and try again from Bank Sync.
         </Text>
         <Button label="Go Back" onPress={() => navigation.goBack()} />
       </ScrollView>
+      </GlassScreen>
     );
   }
 
@@ -103,7 +106,8 @@ export function SettingsBankSyncConfirmScreen({ route, navigation }: Props) {
   const accountLabel = (a: Account) => `${a.name} · ${a.bank.shortName}${a.accountNumberMasked ? ` ${a.accountNumberMasked}` : ''}`;
 
   return (
-    <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.content}>
+    <GlassScreen style={styles.glassRoot}>
+    <ScrollView contentContainerStyle={styles.content}>
       <Text style={[styles.title, { color: c.ink }]}>Confirm your bank account</Text>
       <Text style={[styles.hint, { color: c.mutedInk }]}>
         We connected a bank account through Account Aggregator, but couldn't automatically match it
@@ -142,10 +146,12 @@ export function SettingsBankSyncConfirmScreen({ route, navigation }: Props) {
         onClose={() => setPickerOpen(false)}
       />
     </ScrollView>
+    </GlassScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  glassRoot: { flex: 1 },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   title: { fontSize: 20, fontWeight: '700', marginBottom: spacing.xs },
   hint: { fontSize: 13, marginBottom: spacing.md },

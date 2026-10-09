@@ -19,6 +19,7 @@ import {
 import { useSingleFlight } from '../../lib/useSingleFlight';
 import { sanitizeOtp } from '../../lib/validation';
 import { radius, spacing, useTheme } from '../../theme';
+import { GlassSurface } from '../../components/GlassSurface';
 
 /**
  * The authenticated, OTP-gated Change Password flow, ported from
@@ -210,7 +211,7 @@ export function ChangePasswordSheet({ onClose, onSuccess, signInMethod }: {
           disabled={!dismissable}
           accessibilityLabel="Close change password"
         />
-        <View style={[styles.sheet, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md }]}>
+        <GlassSurface style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}>
           <ScrollView keyboardShouldPersistTaps="handled" style={styles.scroll}>
             {step === 'success' ? (
               <View style={styles.successBlock}>
@@ -372,7 +373,7 @@ export function ChangePasswordSheet({ onClose, onSuccess, signInMethod }: {
               </>
             )}
           </ScrollView>
-        </View>
+        </GlassSurface>
       </KeyboardAvoidingView>
     </AppModal>
   );

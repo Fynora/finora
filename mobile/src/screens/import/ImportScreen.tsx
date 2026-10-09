@@ -58,6 +58,7 @@ import type { AppTabParamList } from '../../navigation/types';
 import type { DetectedAccountInfo, ImportSummary, StagedRow, UnparseableRow, VerificationReport } from '../../types';
 import { VerificationPanel } from '../../components/VerificationPanel';
 import { trackNavigation } from '../../lib/trackNavigation';
+import { GlassScreen } from '../../components/GlassScreen';
 
 type Step = 'upload' | 'review' | 'summary';
 type AccountChoice = 'existing' | 'new';
@@ -923,7 +924,7 @@ export function ImportScreen() {
     const panelState: UploadPanelState = uploadCompleted ? 'completed' : uploading ? 'uploading' : 'idle';
     const showPasswordPanel = !uploading && !uploadCompleted && !!pendingPdf;
     return (
-      <View style={[styles.flex, { backgroundColor: c.bg, paddingTop: insets.top + spacing.md }]}>
+      <GlassScreen style={[styles.flex, {paddingTop: insets.top + spacing.md }]}>
         {/* ScrollView, not the plain View this used to be: the unfinished-import list below is
             variable-length, and on a small screen a couple of entries pushed "Choose a file" off
             the bottom with no way to reach it. */}
@@ -1180,14 +1181,14 @@ export function ImportScreen() {
             </Card>
           ) : null}
         </ScrollView>
-      </View>
+      </GlassScreen>
     );
   }
 
   // ---- summary ----
   if (step === 'summary' && summary) {
     return (
-      <View style={[styles.flex, { backgroundColor: c.bg, paddingTop: insets.top + spacing.md }]}>
+      <GlassScreen style={[styles.flex, {paddingTop: insets.top + spacing.md }]}>
         <View style={styles.padded}>
           {header}
           <Card>
@@ -1247,13 +1248,13 @@ export function ImportScreen() {
             </View>
           </Card>
         </View>
-      </View>
+      </GlassScreen>
     );
   }
 
   // ---- review ----
   return (
-    <View style={[styles.flex, { backgroundColor: c.bg, paddingTop: insets.top }]}>
+    <GlassScreen style={[styles.flex, {paddingTop: insets.top }]}>
       <FlatList
         data={rows}
         keyExtractor={(_, i) => String(i)}
@@ -1600,7 +1601,7 @@ export function ImportScreen() {
         }}
         onClose={() => setCategoryPickerFor(null)}
       />
-    </View>
+    </GlassScreen>
   );
 }
 

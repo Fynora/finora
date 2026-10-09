@@ -3,6 +3,7 @@ import { AppModal } from './AppModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { hapticSelection } from '../lib/haptics';
 import { radius, spacing, useTheme } from '../theme';
+import { GlassSurface } from '../components/GlassSurface';
 
 /**
  * Replaces the web's inline `<select>` wherever one appears -- the import review's category
@@ -37,8 +38,8 @@ export function OptionPickerModal({ visible, title, options, selected, onSelect,
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
       />
-      <View
-        style={[styles.sheet, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md }]}
+      <GlassSurface
+        style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}
         accessibilityViewIsModal
       >
         <View style={styles.header}>
@@ -88,7 +89,7 @@ export function OptionPickerModal({ visible, title, options, selected, onSelect,
             );
           }}
         />
-      </View>
+      </GlassSurface>
     </AppModal>
   );
 }

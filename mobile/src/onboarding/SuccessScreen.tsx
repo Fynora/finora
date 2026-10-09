@@ -2,6 +2,7 @@ import { ScrollView, Text, View, StyleSheet } from 'react-native';
 import { Button } from '../components/Button';
 import { useTheme } from '../theme';
 import { CHECKLIST_ITEMS } from './checklistItems';
+import { GlassScreen } from '../components/GlassScreen';
 
 interface Props {
   onDone: () => void;
@@ -18,7 +19,8 @@ interface Props {
 export function SuccessScreen({ onDone, error }: Props) {
   const c = useTheme();
   return (
-    <ScrollView contentContainerStyle={[styles.container, { backgroundColor: c.bg }]}>
+    <GlassScreen style={styles.glassRoot}>
+    <ScrollView contentContainerStyle={styles.container}>
       <Text style={[styles.title, { color: c.ink }]}>You're Ready to Go 🚀</Text>
       <Text style={[styles.subtitle, { color: c.muted }]}>
         Start by importing your first bank statement or connecting an account. The more data you
@@ -37,10 +39,12 @@ export function SuccessScreen({ onDone, error }: Props) {
       <View style={{ height: 8 }} />
       <Button label="Go to Dashboard" onPress={onDone} variant="link" />
     </ScrollView>
+    </GlassScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  glassRoot: { flex: 1 },
   container: { flexGrow: 1, alignItems: 'center', padding: 24, justifyContent: 'center' },
   title: { fontSize: 26, fontWeight: '700', marginBottom: 12, textAlign: 'center' },
   subtitle: { fontSize: 14, textAlign: 'center', marginBottom: 20 },

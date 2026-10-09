@@ -13,6 +13,7 @@ import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
 import { AttachmentTooLargeError, pickTicketAttachment } from '../../lib/ticketAttachment';
 import { useSingleFlight } from '../../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../../theme';
+import { GlassSurface } from '../../components/GlassSurface';
 
 const CATEGORIES: { value: SupportTicketCategory; label: string }[] = [
   { value: 'STATEMENT_IMPORT', label: 'Statement import' },
@@ -90,7 +91,7 @@ export function NewTicketSheet({ onClose, onCreated }: {
           disabled={saving}
           accessibilityLabel="Close new ticket"
         />
-        <View style={[styles.sheet, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md }]}>
+        <GlassSurface style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}>
           <ScrollView keyboardShouldPersistTaps="handled" style={styles.scroll}>
             <Text style={[styles.title, { color: c.ink }]}>New support ticket</Text>
 
@@ -147,7 +148,7 @@ export function NewTicketSheet({ onClose, onCreated }: {
               <Button label="Cancel" variant="link" onPress={onClose} disabled={saving} />
             </View>
           </ScrollView>
-        </View>
+        </GlassSurface>
       </KeyboardAvoidingView>
 
       <OptionPickerModal

@@ -64,9 +64,9 @@ function ErrorFallback({ onReset }: { onReset: () => void }) {
   const c = useTheme();
   const insets = useSafeAreaInsets();
   return (
-    <View style={[styles.flex, { backgroundColor: c.bg, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+    <View style={[styles.flex, { backgroundColor: c.bg /* glass-exempt: crash screen must render with no dependency on glass */, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <View style={styles.center}>
-        <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]} accessibilityRole="alert">
+        <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border } /* glass-exempt: crash screen must render with no dependency on glass */]} accessibilityRole="alert">
           <Text style={[styles.title, { color: c.ink }]}>This screen didn&apos;t load correctly</Text>
           <Text style={[styles.body, { color: c.muted }]}>
             Nothing has been lost — your accounts and transactions are unaffected. Try again.

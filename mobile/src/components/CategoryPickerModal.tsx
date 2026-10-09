@@ -13,6 +13,7 @@ import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { radius, spacing, useTheme } from '../theme';
 import { CategoryDeleteSheet } from './CategoryDeleteSheet';
 import { CategoryEditSheet } from './CategoryEditSheet';
+import { GlassSurface } from '../components/GlassSurface';
 
 interface Props {
   visible: boolean;
@@ -132,8 +133,8 @@ export function CategoryPickerModal({
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
         />
-        <View
-          style={[styles.sheet, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md }]}
+        <GlassSurface
+          style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}
           accessibilityViewIsModal
         >
           <View style={styles.header}>
@@ -245,7 +246,7 @@ export function CategoryPickerModal({
               )
             }
           />
-        </View>
+        </GlassSurface>
       </KeyboardAvoidingView>
 
       {editing ? (

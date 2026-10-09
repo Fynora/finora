@@ -18,6 +18,8 @@ import { reportTransportFailure } from '../lib/monitoring';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { visiblePlanCode } from '../lib/planDisplay';
 import { radius, spacing, useTheme } from '../theme';
+import { useGlassSurfaceStyle } from '../components/GlassSurface';
+import { GlassScreen } from '../components/GlassScreen';
 
 const STEPS: { icon: keyof typeof Ionicons.glyphMap; label: string; caption: string }[] = [
   { icon: 'share-social-outline', label: 'Share your code', caption: 'Send it to a friend' },
@@ -273,7 +275,7 @@ function FriendCodeCard({ c }: { c: ReturnType<typeof useTheme> }) {
       <Text style={[styles.emptyDesc, { color: c.muted }]}>
         Enter their code so it counts for them. You can only use one code, before you subscribe.
       </Text>
-      <View style={[styles.codeRow, { backgroundColor: c.bg, borderColor: error ? c.danger : c.border }]}>
+      <View style={[styles.codeRow, { backgroundColor: c.bg /* glass-exempt: code row / step icon / channel icon inside a glass card; opaque bg is its contrast */, borderColor: error ? c.danger : c.border }]}>
         <TextInput
           value={code}
           onChangeText={(v) => setCode(v.toUpperCase())}
@@ -303,6 +305,8 @@ function FriendCodeCard({ c }: { c: ReturnType<typeof useTheme> }) {
 
 export function ReferralsScreen() {
   const c = useTheme();
+  // Pressable copy button: glass fill/edge via the hook (a GlassSurface View has no onPress).
+  const glass = useGlassSurfaceStyle();
   const insets = useSafeAreaInsets();
   const largeText = useLargeFontScale();
   const [copied, triggerCopied] = useTransientFlag();
@@ -380,15 +384,15 @@ export function ReferralsScreen() {
 
   if (isLoading) {
     return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+      <GlassScreen style={styles.centered}>
         <ActivityIndicator size="large" color={c.primary} />
-      </View>
+      </GlassScreen>
     );
   }
 
   if (isError || !data) {
     return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+      <GlassScreen style={styles.centered}>
         <Text style={[styles.message, { color: c.muted }]}>Couldn&apos;t load your referral code.</Text>
         <Pressable
           onPress={() => void refetch()}
@@ -399,12 +403,13 @@ export function ReferralsScreen() {
         >
           <Text style={[styles.retry, { color: c.primary }]}>Try again</Text>
         </Pressable>
-      </View>
+      </GlassScreen>
     );
   }
 
   return (
-    <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}>
+    <GlassScreen style={styles.glassRoot}>
+    <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}>
       {/* Header hidden (AppTabs.tsx) -- this large title is the screen's own, matching the
           design reference's hero weight rather than the small native-header title used
           elsewhere. */}
@@ -436,7 +441,7 @@ export function ReferralsScreen() {
           {STEPS.map((step, i) => (
             <View key={step.label} style={styles.stepGroup}>
               <View style={styles.step}>
-                <View style={[styles.stepIcon, { backgroundColor: c.bg, borderColor: c.border }]}>
+                <View style={[styles.stepIcon, { backgroundColor: c.bg /* glass-exempt: code row / step icon / channel icon inside a glass card; opaque bg is its contrast */, borderColor: c.border }]}>
                   <Ionicons name={step.icon} size={16} color={c.primary} />
                 </View>
                 <Text style={[styles.stepLabel, { color: c.ink }]}>{step.label}</Text>
@@ -453,13 +458,13 @@ export function ReferralsScreen() {
       <Card style={styles.codeCard}>
         <Text style={[styles.cardLabel, { color: c.ink }]}>Your referral code</Text>
 
-        <View style={[styles.codeRow, { backgroundColor: c.bg, borderColor: c.border }]}>
+        <View style={[styles.codeRow, { backgroundColor: c.bg /* glass-exempt: code row / step icon / channel icon inside a glass card; opaque bg is its contrast */, borderColor: c.border }]}>
           <Text style={[styles.code, { color: c.ink }]} selectable accessibilityLabel={`Referral code ${data.code}`}>
             {data.code}
           </Text>
           <Pressable
             onPress={() => void handleCopy()}
-            style={[styles.iconButton, { backgroundColor: c.card, borderColor: c.border }]}
+            style={[styles.iconButton, glass]}
             accessibilityRole="button"
             accessibilityLabel={copied ? 'Copied' : 'Copy referral code'}
           >
@@ -500,7 +505,7 @@ export function ReferralsScreen() {
             accessibilityRole="button"
             accessibilityLabel="More share options"
           >
-            <View style={[styles.channelIcon, { backgroundColor: c.bg, borderWidth: 1, borderColor: c.border }]}>
+            <View style={[styles.channelIcon, { backgroundColor: c.bg /* glass-exempt: code row / step icon / channel icon inside a glass card; opaque bg is its contrast */, borderWidth: 1, borderColor: c.border }]}>
               <Ionicons name="ellipsis-horizontal" size={20} color={c.ink} />
             </View>
             <Text style={[styles.channelLabel, { color: c.muted }]} numberOfLines={1} adjustsFontSizeToFit>More</Text>
@@ -589,10 +594,12 @@ export function ReferralsScreen() {
         </Card>
       )}
     </ScrollView>
+    </GlassScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  glassRoot: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg, gap: spacing.sm },
   message: { fontSize: 14, textAlign: 'center' },
   retry: { fontSize: 13, fontWeight: '600' },

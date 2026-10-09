@@ -11,6 +11,7 @@ import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../theme';
+import { GlassSurface } from '../components/GlassSurface';
 
 interface Props {
   category: CategoryOption;
@@ -81,7 +82,7 @@ export function CategoryDeleteSheet({ category, onClose, onDeleted }: Props) {
           disabled={deleting}
           accessibilityLabel="Close delete category"
         />
-        <View style={[styles.sheet, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md }]}>
+        <GlassSurface style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}>
           <ScrollView keyboardShouldPersistTaps="handled" style={styles.scroll}>
             <Text style={[styles.title, { color: c.ink }]}>
               Delete <Text style={{ fontWeight: '700' }}>{category.name}</Text>?
@@ -138,7 +139,7 @@ export function CategoryDeleteSheet({ category, onClose, onDeleted }: Props) {
               <Button label="Cancel" variant="link" onPress={onClose} disabled={deleting} />
             </View>
           </ScrollView>
-        </View>
+        </GlassSurface>
       </KeyboardAvoidingView>
 
       <CategoryPickerModal

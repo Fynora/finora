@@ -25,6 +25,7 @@ import { parsePositiveAmount } from '../lib/validation';
 import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList } from '../navigation/types';
 import { trackNavigation } from '../lib/trackNavigation';
+import { GlassScreen } from '../components/GlassScreen';
 
 /**
  * Port of frontend/src/pages/Budgets.tsx.
@@ -101,8 +102,8 @@ export function BudgetsScreen() {
   }
 
   return (
+    <GlassScreen style={styles.glassRoot}>
     <ScrollView
-      style={{ backgroundColor: c.bg }}
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
       refreshControl={
@@ -235,10 +236,12 @@ export function BudgetsScreen() {
         onClose={() => setPickerOpen(false)}
       />
     </ScrollView>
+    </GlassScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  glassRoot: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   fieldLabel: { fontSize: 12, fontWeight: '500', marginBottom: 6 },

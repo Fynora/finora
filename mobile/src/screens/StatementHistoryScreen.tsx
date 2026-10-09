@@ -30,6 +30,7 @@ import type { AppTabParamList } from '../navigation/types';
 import type { AccountStatementGroup, StatementSummary } from '../types';
 import { trackNavigation } from '../lib/trackNavigation';
 import { StatementRefreshBanner } from '../components/StatementRefreshBanner';
+import { GlassScreen } from '../components/GlassScreen';
 
 /** Mirrors the backend's 7-day retention window for a deleted account's history. */
 function daysUntilRemoved(deletedAt: string): string {
@@ -193,7 +194,7 @@ export function StatementHistoryScreen() {
   }
 
   return (
-    <View style={[styles.flex, { backgroundColor: c.bg, paddingTop: insets.top + spacing.md }]}>
+    <GlassScreen style={[styles.flex, {paddingTop: insets.top + spacing.md }]}>
       <ScrollView contentContainerStyle={styles.padded}>
         <Text style={[styles.title, { color: c.ink }]}>Statement History</Text>
         <Text style={[styles.body, { color: c.muted, marginBottom: spacing.md }]}>
@@ -248,7 +249,7 @@ export function StatementHistoryScreen() {
           onClose={() => setPasswordPrompt(null)}
         />
       ) : null}
-    </View>
+    </GlassScreen>
   );
 }
 

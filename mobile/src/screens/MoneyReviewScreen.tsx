@@ -13,6 +13,7 @@ import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import type { MoreStackParamList } from '../navigation/types';
 import type { ChoiceScope, InflowKind, UnresolvedSender } from '../types';
 import { spacing, useTheme } from '../theme';
+import { GlassScreen } from '../components/GlassScreen';
 
 /** First and last day of the current calendar month, as YYYY-MM-DD. */
 function monthBounds(today = new Date()): { start: string; end: string } {
@@ -78,7 +79,8 @@ export function MoneyReviewScreen({ route }: { route: RouteProp<MoreStackParamLi
   }
 
   return (
-    <ScrollView style={{ backgroundColor: c.bg }}
+    <GlassScreen style={styles.glassRoot}>
+    <ScrollView
       contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom + spacing.lg }]}>
       <SectionHeading title="Money not counted yet" />
       <Text style={[styles.small, { color: c.muted }]}>
@@ -140,10 +142,12 @@ export function MoneyReviewScreen({ route }: { route: RouteProp<MoreStackParamLi
         </Card>
       ))}
     </ScrollView>
+    </GlassScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  glassRoot: { flex: 1 },
   content: { paddingHorizontal: spacing.md, gap: spacing.sm },
   row: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.sm, paddingVertical: spacing.xs },
   name: { fontSize: 15, fontWeight: '600', flexShrink: 1 },

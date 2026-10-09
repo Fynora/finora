@@ -4,6 +4,7 @@ import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { getTopAlertContainer, subscribeAppAlerts } from '../lib/appAlert';
 import { AppBanner, getCurrentAppBanner, subscribeAppBanner, type AppBannerEntry } from '../lib/appBanner';
 import { radius, spacing, useTheme } from '../theme';
+import { useGlassSurfaceStyle } from '../components/GlassSurface';
 
 /** How far up (in points) a finger has to slide the banner for it to be dismissed. */
 export const SWIPE_DISMISS_DISTANCE = 24;
@@ -41,6 +42,8 @@ function BannerCard({ entry }: { entry: AppBannerEntry }) {
   // must never take down a screen because of where it happens to be mounted.
   const topInset = useContext(SafeAreaInsetsContext)?.top ?? 0;
   const c = useTheme();
+  // Pressable banner: glass fill/edge via the hook (a GlassSurface View has no onPress).
+  const glass = useGlassSurfaceStyle();
   const [dragY] = useState(() => new Animated.Value(0));
   const startY = useRef<number | null>(null);
   const travelled = useRef(0);
@@ -91,7 +94,7 @@ function BannerCard({ entry }: { entry: AppBannerEntry }) {
           accessibilityActions={[{ name: 'dismiss', label: 'Dismiss' }]}
           onAccessibilityAction={() => AppBanner.dismiss()}
           onPress={() => AppBanner.dismiss()}
-          style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}
+          style={[styles.card, glass]}
         >
           <Text style={[styles.title, { color: c.ink }]} numberOfLines={1}>
             {entry.title}

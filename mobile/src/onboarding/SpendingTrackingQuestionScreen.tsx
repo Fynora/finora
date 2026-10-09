@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, Text, View, StyleSheet } from 'react-native';
 import { Button } from '../components/Button';
 import { useTheme } from '../theme';
+import { GlassScreen } from '../components/GlassScreen';
 
 /** The answers, in the order shown -- the same as the web app's. Keys are the backend's
  *  SpendingTrackingMethod names. */
@@ -46,7 +47,8 @@ export function SpendingTrackingQuestionScreen({ onSubmit, onSignOut }: Props) {
   }
 
   return (
-    <ScrollView contentContainerStyle={[styles.container, { backgroundColor: c.bg }]}>
+    <GlassScreen style={styles.glassRoot}>
+    <ScrollView contentContainerStyle={styles.container}>
       <Text style={[styles.title, { color: c.ink }]}>How do you keep track of your spending today?</Text>
       <Text style={[styles.subtitle, { color: c.muted }]}>
         Pick the one closest to what you do now. It helps us build Fynora around how people really manage money.
@@ -73,10 +75,12 @@ export function SpendingTrackingQuestionScreen({ onSubmit, onSignOut }: Props) {
       <View style={{ height: 8 }} />
       <Button label="Sign out" variant="link" onPress={onSignOut} />
     </ScrollView>
+    </GlassScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  glassRoot: { flex: 1 },
   container: { flexGrow: 1, alignItems: 'stretch', justifyContent: 'center', padding: 24 },
   title: { fontSize: 22, fontWeight: '700', marginBottom: 8, textAlign: 'center' },
   subtitle: { fontSize: 13, textAlign: 'center', marginBottom: 20 },

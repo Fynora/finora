@@ -29,6 +29,8 @@ import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList, LedgerDrillThroughFilters } from '../navigation/types';
 import { withBypass } from '../lib/changeSync';
 import { trackNavigation } from '../lib/trackNavigation';
+import { GlassScreen } from '../components/GlassScreen';
+import { GlassSurface } from '../components/GlassSurface';
 
 const OTHER_LABEL = 'Other';
 
@@ -295,9 +297,9 @@ export function InsightsScreen() {
 
   return (
     <>
+    <GlassScreen style={styles.glassRoot}>
     <ScrollView
       ref={scrollRef}
-      style={{ backgroundColor: c.bg }}
       contentContainerStyle={styles.content}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
     >
@@ -356,7 +358,7 @@ export function InsightsScreen() {
       ) : null}
 
       {summary ? (
-        <View style={[styles.glanceCard, { backgroundColor: c.card, borderColor: c.border }]}>
+        <GlassSurface style={styles.glanceCard}>
           <Text style={[styles.glanceHeading, { color: c.ink }]}>{`${periodTitleLong} at a Glance`}</Text>
           <View style={styles.glanceRow}>
             {[
@@ -381,7 +383,7 @@ export function InsightsScreen() {
               </View>
             ))}
           </View>
-        </View>
+        </GlassSurface>
       ) : null}
 
       {/* Static -- no data dependency -- so it renders on the very first frame, before either
@@ -838,6 +840,7 @@ export function InsightsScreen() {
         </Card>
       ) : null}
     </ScrollView>
+    </GlassScreen>
     <OptionPickerModal
       visible={monthPickerOpen}
       title="Month"
@@ -851,6 +854,7 @@ export function InsightsScreen() {
 }
 
 const styles = StyleSheet.create({
+  glassRoot: { flex: 1 },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   // Deliberately no paddingHorizontal of its own -- this sits inside the same ScrollView
   // contentContainerStyle={styles.content} as everything else in this file, and `content`'s own

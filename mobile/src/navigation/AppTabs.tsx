@@ -55,7 +55,7 @@ function MoreNavigator() {
   return (
     <MoreStack.Navigator
       screenOptions={{
-        headerStyle: { backgroundColor: c.bg },
+        headerStyle: { backgroundColor: c.bg /* glass-exempt: native-stack header; the mesh starts below it and its flat edge band meets this colour seamlessly */ },
         headerTintColor: c.ink,
         headerShadowVisible: false,
       }}

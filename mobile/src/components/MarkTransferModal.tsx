@@ -15,6 +15,7 @@ import { hapticSelection } from '../lib/haptics';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { radius, spacing, useTheme } from '../theme';
+import { GlassSurface } from '../components/GlassSurface';
 
 /**
  * Phase 6. Port of Ledger.tsx's identical web modal. A keyword search over this same user's
@@ -80,8 +81,8 @@ export function MarkTransferModal({
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
         />
-        <View
-          style={[styles.sheet, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md }]}
+        <GlassSurface
+          style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}
           accessibilityViewIsModal
         >
           <View style={styles.header}>
@@ -149,7 +150,7 @@ export function MarkTransferModal({
               )}
             />
           )}
-        </View>
+        </GlassSurface>
       </KeyboardAvoidingView>
     </AppModal>
   );

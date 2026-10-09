@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, Text, View, StyleSheet } from 'react-native';
 import { Button } from '../components/Button';
 import { useTheme } from '../theme';
+import { GlassScreen } from '../components/GlassScreen';
 
 const OPTIONS: { key: string; label: string }[] = [
   { key: 'TRACK_SPENDING', label: '💰 Track my spending' },
@@ -36,7 +37,8 @@ export function FinancialFocusScreen({ onContinue, error }: Props) {
   }
 
   return (
-    <ScrollView contentContainerStyle={[styles.container, { backgroundColor: c.bg }]}>
+    <GlassScreen style={styles.glassRoot}>
+    <ScrollView contentContainerStyle={styles.container}>
       <Text style={[styles.title, { color: c.ink }]}>What would you like to achieve with Fynora?</Text>
       <Text style={[styles.subtitle, { color: c.muted }]}>Select all that apply. We'll personalize your experience.</Text>
       {OPTIONS.map((opt) => {
@@ -55,10 +57,12 @@ export function FinancialFocusScreen({ onContinue, error }: Props) {
       <View style={{ height: 16 }} />
       <Button label="Continue" onPress={() => onContinue(selected)} />
     </ScrollView>
+    </GlassScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  glassRoot: { flex: 1 },
   container: { flexGrow: 1, alignItems: 'stretch', padding: 24 },
   title: { fontSize: 22, fontWeight: '700', marginBottom: 8, textAlign: 'center' },
   subtitle: { fontSize: 13, textAlign: 'center', marginBottom: 20 },

@@ -4,6 +4,7 @@ import { fmtCurrency, fmtForeignAmount } from '../../lib/format';
 import type { DuplicateDecision } from '../../lib/importReview';
 import { isUnconfirmedGuess, isUnderReview } from '../../lib/importReview';
 import { radius, spacing, useTheme } from '../../theme';
+import { useGlassSurfaceStyle } from '../../components/GlassSurface';
 import type { StagedRow } from '../../types';
 
 /**
@@ -71,6 +72,8 @@ function StagedRowCardInner({
   onApplyToSimilar,
 }: Props) {
   const c = useTheme();
+  // Glass fill/edge via the hook so the duplicate-warning border can override the edge colour.
+  const glass = useGlassSurfaceStyle();
   const underReview = isUnderReview(row);
   const match = row.duplicateMatch;
   // Mutually exclusive with isUnconfirmedGuess below by construction -- categorySource is one
@@ -80,9 +83,12 @@ function StagedRowCardInner({
 
   return (
     <View
+      // Glass via the hook rather than <GlassSurface>: a likely duplicate keeps its warning-coloured
+      // border, which GlassSurface's own edge colour would otherwise paint over.
       style={[
         styles.card,
-        { backgroundColor: c.card, borderColor: row.likelyDuplicate ? c.warning : c.border },
+        glass,
+        { borderColor: row.likelyDuplicate ? c.warning : glass.borderColor },
         !included && styles.excluded,
       ]}
     >
@@ -136,19 +142,19 @@ function StagedRowCardInner({
             person-to-person detection. Worth surfacing, because those are the rows actually worth a
             human look. See importReview.isUnconfirmedGuess. */}
         {isUnconfirmedGuess(row.categorySource) ? (
-          <Text style={[styles.badge, { color: c.muted, backgroundColor: c.bg }]}>Needs a look</Text>
+          <Text style={[styles.badge, { color: c.muted, backgroundColor: c.bg /* glass-exempt: badge/match box inside a glass card; opaque bg is its contrast against the card */ }]}>Needs a look</Text>
         ) : null}
 
         {/* Track C/C3: the confident half of the same provenance -- see confidentSourceLabel's own
             comment for why 'rule' (the common case) stays unbadged. */}
         {provenance ? (
-          <Text style={[styles.badge, { color: c.muted, backgroundColor: c.bg }]}>{provenance}</Text>
+          <Text style={[styles.badge, { color: c.muted, backgroundColor: c.bg /* glass-exempt: badge/match box inside a glass card; opaque bg is its contrast against the card */ }]}>{provenance}</Text>
         ) : null}
 
         {/* A fact the statement printed (its own "International Transactions" heading), not a
             judgement about the row -- so it reads like the provenance badges, not like a warning. */}
         {row.international ? (
-          <Text style={[styles.badge, { color: c.muted, backgroundColor: c.bg }]}>International</Text>
+          <Text style={[styles.badge, { color: c.muted, backgroundColor: c.bg /* glass-exempt: badge/match box inside a glass card; opaque bg is its contrast against the card */ }]}>International</Text>
         ) : null}
 
         {row.likelyDuplicate ? (
@@ -172,7 +178,7 @@ function StagedRowCardInner({
         <View style={[styles.review, { borderTopColor: c.border }]}>
           <Text style={[styles.reviewReason, { color: c.warningInk }]}>{match.reason}</Text>
 
-          <View style={[styles.matchBox, { backgroundColor: c.bg, borderColor: c.border }]}>
+          <View style={[styles.matchBox, { backgroundColor: c.bg /* glass-exempt: badge/match box inside a glass card; opaque bg is its contrast against the card */, borderColor: c.border }]}>
             <Text style={[styles.matchLabel, { color: c.muted }]}>
               {match.matchCount > 1
                 ? `Already in your ledger (${match.matchCount} matches)`

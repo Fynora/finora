@@ -25,6 +25,7 @@ import { parsePositiveAmount } from '../lib/validation';
 import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList } from '../navigation/types';
 import { trackNavigation } from '../lib/trackNavigation';
+import { GlassScreen } from '../components/GlassScreen';
 
 /**
  * Port of frontend/src/pages/Budgets.tsx.
@@ -101,8 +102,8 @@ export function BudgetsScreen() {
   }
 
   return (
+    <GlassScreen style={styles.glassRoot}>
     <ScrollView
-      style={{ backgroundColor: c.bg }}
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
       refreshControl={
@@ -137,7 +138,7 @@ export function BudgetsScreen() {
 
         <Button label={saving ? 'Saving…' : 'Set Budget'} onPress={() => void save()} loading={saving} />
 
-        {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+        {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
         {saved ? <Text style={[styles.saved, { color: c.successInk }]}>Saved.</Text> : null}
       </Card>
 
@@ -150,7 +151,7 @@ export function BudgetsScreen() {
           </>
         ) : isError ? (
           <Card>
-            <Text style={[styles.error, { color: c.danger }]}>Could not load budgets.</Text>
+            <Text style={[styles.error, { color: c.dangerInk }]}>Could not load budgets.</Text>
           </Card>
         ) : budgets.length === 0 ? (
           <Card>
@@ -209,7 +210,7 @@ export function BudgetsScreen() {
                     </View>
                   </View>
                   <ProgressBar pct={pct} color={barColor} />
-                  <Text style={[styles.budgetFoot, { color: remaining >= 0 ? c.muted : c.danger }]}>
+                  <Text style={[styles.budgetFoot, { color: remaining >= 0 ? c.muted : c.dangerInk }]}>
                     {remaining >= 0
                       ? `${fmtCurrency(remaining)} left this month`
                       : `${fmtCurrency(-remaining)} over budget`}
@@ -235,10 +236,12 @@ export function BudgetsScreen() {
         onClose={() => setPickerOpen(false)}
       />
     </ScrollView>
+    </GlassScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  glassRoot: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   fieldLabel: { fontSize: 12, fontWeight: '500', marginBottom: 6 },

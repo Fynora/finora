@@ -67,8 +67,8 @@ export function InflowKindsSettings() {
         <Text style={[styles.small, { color: c.muted }]}>
           What money coming in can be. Kinds that count as income add to your income; the others are left out of it.
         </Text>
-        {message ? <Text style={[styles.small, { color: c.danger }]}>{message}</Text> : null}
-        {kindsQ.isError ? <Text style={[styles.small, { color: c.danger }]}>Couldn't load your kinds.</Text> : null}
+        {message ? <Text style={[styles.small, { color: c.dangerInk }]}>{message}</Text> : null}
+        {kindsQ.isError ? <Text style={[styles.small, { color: c.dangerInk }]}>Couldn't load your kinds.</Text> : null}
         {kindsQ.data?.map((k) => (
           <View key={k.id} style={[styles.row, { borderBottomColor: c.border }]}>
             {renaming === k.id ? (
@@ -99,7 +99,7 @@ export function InflowKindsSettings() {
               )}
               {!k.builtIn ? (
                 <Text accessibilityRole="button" accessibilityLabel={`Delete ${k.name}`} onPress={() => confirmDelete(k)}
-                  style={[styles.small, { color: c.danger }]}>
+                  style={[styles.small, { color: c.dangerInk }]}>
                   Delete
                 </Text>
               ) : null}

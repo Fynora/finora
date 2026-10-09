@@ -18,6 +18,7 @@ import { analyticsApi, reportsApi } from '../api/endpoints';
 import { fmtCurrency, fmtForeignAmount, monthLabel, monthLabelLong } from '../lib/format';
 import { PREMIUM_PLAN_VISIBLE } from '../lib/premiumVisibility';
 import { spacing, useTheme } from '../theme';
+import { GlassScreen } from '../components/GlassScreen';
 
 const ALL_TIME_LABEL = 'All time';
 // Sentinel for a Lifestyle Inflation row with no defined ratio (zero income that year) -- a
@@ -40,7 +41,7 @@ export function AdvancedReportsScreen() {
   const chartWidth = width - spacing.md * 2 - spacing.md * 2;
 
   return (
-    <View style={[styles.flex, { backgroundColor: c.bg, paddingTop: insets.top }]}>
+    <GlassScreen style={[styles.flex, {paddingTop: insets.top }]}>
       <View style={styles.titleRow}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={10} accessibilityRole="button" accessibilityLabel="Back">
           <Ionicons name="chevron-back" size={22} color={c.ink} />
@@ -62,7 +63,7 @@ export function AdvancedReportsScreen() {
       <PremiumFeatureGate featureKey="ADVANCED_REPORTS" fallback={<UpgradePrompt />}>
         <AdvancedReportsContent chartWidth={chartWidth} />
       </PremiumFeatureGate>
-    </View>
+    </GlassScreen>
   );
 }
 

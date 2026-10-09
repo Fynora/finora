@@ -9,7 +9,9 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AuthAmbientBackground } from './AuthAmbientBackground';
 import { BrandMark } from './BrandMark';
+import { GlassScreen } from './GlassScreen';
 import { fonts, radius, spacing, useTheme } from '../theme';
+import { GlassSurface } from '../components/GlassSurface';
 
 /**
  * Shared chrome for the four auth screens: brand mark, title/subtitle, an inline error banner,
@@ -34,8 +36,12 @@ export function AuthScreenLayout({ title, subtitle, error, banner, children, foo
   const insets = useSafeAreaInsets();
 
   return (
+    // GlassScreen outside the KeyboardAvoidingView: the mesh backdrop stays put while the view
+    // shifts for the keyboard. AuthAmbientBackground stays a child, so its drifting circles sit
+    // above the mesh, as before.
+    <GlassScreen style={styles.flex}>
     <KeyboardAvoidingView
-      style={[styles.flex, { backgroundColor: c.bg }]}
+      style={styles.flex}
       behavior="padding"
     >
       <AuthAmbientBackground />
@@ -59,7 +65,7 @@ export function AuthScreenLayout({ title, subtitle, error, banner, children, foo
             in each failure. The form must never depend on an animation finishing; the ambient
             background still carries the screen's motion. #1523 removed an 80ms delay here for the
             same reason -- the start frame is fully invisible. */}
-        <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}>
+        <GlassSurface style={styles.card}>
           <Text style={[styles.title, { color: c.ink }]}>{title}</Text>
           {subtitle ? <Text style={[styles.subtitle, { color: c.muted }]}>{subtitle}</Text> : null}
 
@@ -71,11 +77,12 @@ export function AuthScreenLayout({ title, subtitle, error, banner, children, foo
           ) : null}
 
           {children}
-        </View>
+        </GlassSurface>
 
         {footer ? <View style={styles.footer}>{footer}</View> : null}
       </ScrollView>
     </KeyboardAvoidingView>
+    </GlassScreen>
   );
 }
 

@@ -12,7 +12,11 @@ jest.mock('../context/AuthContext', () => ({
 
 const mockFonts = { ready: true };
 jest.mock('../theme', () => ({
-  useTheme: () => ({ bg: '#fff', primary: '#000', card: '#fff', ink: '#000', border: '#ccc', muted: '#888' }),
+  useTheme: () => ({
+    bg: '#fff', primary: '#000', card: '#fff', ink: '#000', border: '#ccc', muted: '#888',
+    // navTheme.colors.card is glassFill(c) since the glass redesign; GlassScreen reads bg.
+    glassTint: '#FFFFFF', glassAlpha: 0.72, glassEdge: 'rgba(255,255,255,0.85)',
+  }),
   useThemeSetting: () => ({ resolved: 'light' }),
   useFontsReady: () => mockFonts.ready,
 }));

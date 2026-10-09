@@ -13,6 +13,7 @@ import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
 import { AttachmentTooLargeError, pickTicketAttachment } from '../../lib/ticketAttachment';
 import { useSingleFlight } from '../../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../../theme';
+import { GlassSurface } from '../../components/GlassSurface';
 
 const CATEGORIES: { value: SupportTicketCategory; label: string }[] = [
   { value: 'STATEMENT_IMPORT', label: 'Statement import' },
@@ -90,11 +91,11 @@ export function NewTicketSheet({ onClose, onCreated }: {
           disabled={saving}
           accessibilityLabel="Close new ticket"
         />
-        <View style={[styles.sheet, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md }]}>
+        <GlassSurface style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}>
           <ScrollView keyboardShouldPersistTaps="handled" style={styles.scroll}>
             <Text style={[styles.title, { color: c.ink }]}>New support ticket</Text>
 
-            {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+            {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
 
             <Text style={[styles.fieldLabel, { color: c.muted }]}>Category</Text>
             <Pressable
@@ -140,14 +141,14 @@ export function NewTicketSheet({ onClose, onCreated }: {
                 {file ? file.name : 'Choose a file (e.g. a screenshot of the problem)'}
               </Text>
             </Pressable>
-            {fileError ? <Text style={[styles.error, { color: c.danger }]}>{fileError}</Text> : null}
+            {fileError ? <Text style={[styles.error, { color: c.dangerInk }]}>{fileError}</Text> : null}
 
             <View style={styles.action}>
               <Button label={saving ? 'Submitting…' : 'Submit ticket'} onPress={() => void save()} loading={saving} disabled={!canSave} />
               <Button label="Cancel" variant="link" onPress={onClose} disabled={saving} />
             </View>
           </ScrollView>
-        </View>
+        </GlassSurface>
       </KeyboardAvoidingView>
 
       <OptionPickerModal

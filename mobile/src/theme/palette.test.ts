@@ -1,3 +1,4 @@
+import { glassFill, withAlpha } from './glass';
 import { dark, light } from './palette';
 
 /**
@@ -39,14 +40,15 @@ describe('theme palette contrast', () => {
     expect(contrastRatio(p.mutedInk, p.card)).toBeGreaterThanOrEqual(AA_SMALL_TEXT);
   });
 
-  it('light.mutedInk has a real margin over light.muted, not just a token rename', () => {
-    // Guards against a future edit accidentally setting mutedInk back to muted's exact value,
-    // which would silently undo this fix while every call site still compiles. A margin of at
-    // least +1.0 can't be satisfied by rounding noise or a near-identical color -- it forces the
-    // fix to still be a real darkening, the same shape of regression warningInk already guards.
-    const before = contrastRatio(light.muted, light.bg);
-    const after = contrastRatio(light.mutedInk, light.bg);
-    expect(after).toBeGreaterThan(before + 1.0);
+  it('muted clears AA on its own against bg and card (the glass redesign made the old margin unusable)', () => {
+    // Until the glass redesign, light.muted sat at 4.55:1 on bg and relied on mutedInk for a real
+    // margin. Muted text now also renders on translucent surfaces over the mesh backdrop
+    // (glassContrast.test.ts measures those pixels), where the old value fell under AA -- so
+    // muted itself has to clear AA with margin on the opaque surfaces too.
+    for (const p of [light, dark]) {
+      expect(contrastRatio(p.muted, p.bg)).toBeGreaterThanOrEqual(AA_SMALL_TEXT);
+      expect(contrastRatio(p.muted, p.card)).toBeGreaterThanOrEqual(AA_SMALL_TEXT);
+    }
   });
 
   it("dark.mutedInk intentionally equals dark.muted, since dark theme already clears AA", () => {
@@ -65,12 +67,13 @@ describe('theme palette contrast', () => {
     expect(contrastRatio(p.warningInk, p.warningBg)).toBeGreaterThanOrEqual(AA_SMALL_TEXT);
   });
 
-  it('mutedInk does not change the web-shared muted token', () => {
-    // muted mirrors frontend/src/index.css's --color-muted intentionally (see palette.ts's own
-    // header comment) -- mutedInk must be an addition, not a rename, or mobile and web silently
-    // diverge on a value that's supposed to be shared.
-    expect(light.muted).toBe('#64748B');
-    expect(dark.muted).toBe('#98968F');
+  it('muted deliberately diverges from the web-shared --color-muted for the glass redesign', () => {
+    // muted used to mirror frontend/src/index.css's --color-muted (#64748B / #98968F). The glass
+    // redesign is mobile-only: web keeps opaque surfaces where those values clear AA, mobile puts
+    // muted text on glass over a mesh where they measured 4.36:1 (light, on glass) and 3.86:1
+    // (dark, directly on the backdrop). Pinned so the divergence stays a decision, not drift.
+    expect(light.muted).toBe('#475569');
+    expect(dark.muted).toBe('#B5B3AC');
   });
 
   it.each([
@@ -103,8 +106,12 @@ describe('theme palette contrast', () => {
     expect(contrastRatio(light.danger, light.dangerBg)).toBeLessThan(AA_SMALL_TEXT);
   });
 
-  it('dark.dangerInk intentionally equals dark.danger, since dark theme already clears AA', () => {
-    expect(dark.dangerInk).toBe(dark.danger);
+  it('dark.dangerInk is lighter than dark.danger: error text also lands on the dark mesh backdrop', () => {
+    // Was equal to dark.danger until the glass redesign; #f87171 measured 4.13:1 directly on the
+    // dark backdrop (glassContrast.test.ts), so text got its own lighter step while `danger` stays
+    // the icon/border/amount tone. The *Ink token must stay the higher-contrast one on bg.
+    expect(dark.dangerInk).not.toBe(dark.danger);
+    expect(contrastRatio(dark.dangerInk, dark.bg)).toBeGreaterThan(contrastRatio(dark.danger, dark.bg));
   });
 
   it.each([
@@ -135,5 +142,34 @@ describe('theme palette contrast', () => {
     // every AA-text check above (the text/bg pair could still clear 4.5:1) while the badge itself
     // became invisible against the screen, so that failure mode needs its own guard.
     expect(contrastRatio(dark.planPlusBg, dark.bg)).toBeGreaterThan(4.5);
+  });
+});
+
+describe('glass tokens', () => {
+  it('withAlpha converts #RRGGBB to rgba', () => {
+    expect(withAlpha('#262A33', 0.72)).toBe('rgba(38,42,51,0.72)');
+    expect(withAlpha('#ffffff', 1)).toBe('rgba(255,255,255,1)');
+  });
+
+  it('withAlpha rejects malformed input instead of emitting a broken colour', () => {
+    expect(() => withAlpha('#fff', 0.5)).toThrow();
+    expect(() => withAlpha('#FFFFFF', 1.2)).toThrow();
+    expect(() => withAlpha('#FFFFFF', -0.1)).toThrow();
+  });
+
+  it.each([
+    ['light', light],
+    ['dark', dark],
+  ])('%s: glassFill uses glassTint at glassAlpha', (_name, p) => {
+    expect(glassFill(p)).toBe(withAlpha(p.glassTint, p.glassAlpha));
+  });
+
+  it.each([
+    ['light', light],
+    ['dark', dark],
+  ])('%s: glassAlpha is the measured 0.72', (_name, p) => {
+    // 0.72 is the value the 2026-10-09 contrast measurement cleared AA with; lowering it must go
+    // back through glassContrast.test.ts, which reads this same token.
+    expect(p.glassAlpha).toBe(0.72);
   });
 });

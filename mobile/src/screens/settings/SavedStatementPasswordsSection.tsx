@@ -63,7 +63,7 @@ export function SavedStatementPasswordsSection() {
         never shown. Removing one means we'll ask for it the next time the statement is read.
       </Text>
       {listQ.isError ? (
-        <Text style={[styles.hint, { color: c.danger }]}>Couldn't load your saved passwords just now.</Text>
+        <Text style={[styles.hint, { color: c.dangerInk }]}>Couldn't load your saved passwords just now.</Text>
       ) : null}
       {data && items.length === 0 ? (
         <Text style={[styles.hint, { color: c.mutedInk }]}>You haven't saved any statement passwords.</Text>
@@ -87,7 +87,7 @@ export function SavedStatementPasswordsSection() {
         <Button label="Remove all" variant="link" disabled={busy} onPress={confirmRemoveAll} testID="remove-all-saved-passwords" />
       ) : null}
       {actionFailed ? (
-        <Text style={[styles.hint, { color: c.danger }]} accessibilityRole="alert">
+        <Text style={[styles.hint, { color: c.dangerInk }]} accessibilityRole="alert">
           Couldn't remove that just now — please try again.
         </Text>
       ) : null}

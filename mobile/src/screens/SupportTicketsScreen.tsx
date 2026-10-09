@@ -9,7 +9,9 @@ import { NewTicketSheet } from './support/NewTicketSheet';
 import { supportApi, type SupportTicketCategory, type SupportTicketStatus } from '../api/endpoints';
 import { fmtDate } from '../lib/format';
 import { radius, spacing, useTheme } from '../theme';
+import { useGlassSurfaceStyle } from '../components/GlassSurface';
 import type { MoreStackParamList } from '../navigation/types';
+import { GlassScreen } from '../components/GlassScreen';
 
 const CATEGORY_LABELS: Record<SupportTicketCategory, string> = {
   STATEMENT_IMPORT: 'Statement import',
@@ -33,6 +35,8 @@ const STATUS_STYLE: Record<SupportTicketStatus, { label: string; bg: (c: ReturnT
  *  frontend/src/pages/SupportTickets.tsx. Reached from Settings' "Help & Support" section. */
 export function SupportTicketsScreen() {
   const c = useTheme();
+  // Pressable ticket rows: glass fill/edge via the hook (a GlassSurface View has no onPress).
+  const glass = useGlassSurfaceStyle();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<MoreStackParamList>>();
   const queryClient = useQueryClient();
@@ -46,7 +50,7 @@ export function SupportTicketsScreen() {
   const tickets = ticketsQuery.data?.content ?? [];
 
   return (
-    <View style={[styles.flex, { backgroundColor: c.bg }]}>
+    <GlassScreen style={styles.flex}>
       <FlatList
         data={tickets}
         keyExtractor={(t) => t.id}
@@ -82,7 +86,7 @@ export function SupportTicketsScreen() {
             // Distinct from "no tickets" on purpose -- see frontend's identical fix and its own
             // comment for why collapsing the two is a real bug, not a cosmetic one.
             <View style={styles.centered}>
-              <Text style={[styles.emptyText, { color: c.danger }]}>Couldn&apos;t load your tickets.</Text>
+              <Text style={[styles.emptyText, { color: c.dangerInk }]}>Couldn&apos;t load your tickets.</Text>
               <Pressable onPress={() => void ticketsQuery.refetch()} accessibilityRole="button">
                 <Text style={[styles.retryText, { color: c.primary }]}>Try again</Text>
               </Pressable>
@@ -102,7 +106,7 @@ export function SupportTicketsScreen() {
           return (
             <Pressable
               onPress={() => navigation.navigate('SupportTicketDetail', { ticketId: t.id })}
-              style={[styles.row, { backgroundColor: c.card, borderColor: c.border }]}
+              style={[styles.row, glass]}
               accessibilityRole="button"
             >
               <View style={styles.rowMain}>
@@ -131,7 +135,7 @@ export function SupportTicketsScreen() {
           }}
         />
       ) : null}
-    </View>
+    </GlassScreen>
   );
 }
 

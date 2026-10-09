@@ -83,7 +83,7 @@ export function InflowKindPicker({ kinds, selectedId, onPick, onCreate, busy }: 
               </Text>
             </Pressable>
           ))}
-          {error ? <Text style={[styles.question, { color: c.danger }]}>{error}</Text> : null}
+          {error ? <Text style={[styles.question, { color: c.dangerInk }]}>{error}</Text> : null}
           <Button label="Create" onPress={submit} loading={saving} disabled={!name.trim() || countsAsIncome === null} />
           <Button label="Cancel" variant="link" onPress={() => { setCreating(false); setError(null); }} />
         </View>

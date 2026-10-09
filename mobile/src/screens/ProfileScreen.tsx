@@ -18,6 +18,8 @@ import { FULL_NAME_PATTERN } from '../lib/validation';
 import { spacing, useTheme } from '../theme';
 import type { MoreStackParamList } from '../navigation/types';
 import { trackNavigation } from '../lib/trackNavigation';
+import { GlassScreen } from '../components/GlassScreen';
+import { GlassSurface } from '../components/GlassSurface';
 
 type Props = NativeStackScreenProps<MoreStackParamList, 'Profile'>;
 
@@ -86,27 +88,27 @@ export function ProfileScreen({ navigation }: Props) {
 
   if (isLoading) {
     return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+      <GlassScreen style={styles.centered}>
         <ActivityIndicator size="large" color={c.primary} />
-      </View>
+      </GlassScreen>
     );
   }
 
   if (isError || !user) {
     return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+      <GlassScreen style={styles.centered}>
         <Text style={[styles.message, { color: c.muted }]}>
           Couldn&apos;t load your profile — please try again later.
         </Text>
-      </View>
+      </GlassScreen>
     );
   }
 
   const passwordChanged = fmtRelativeTime(user.passwordChangedAt);
 
   return (
+    <GlassScreen style={styles.glassRoot}>
     <ScrollView
-      style={{ backgroundColor: c.bg }}
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
       refreshControl={
@@ -115,7 +117,7 @@ export function ProfileScreen({ navigation }: Props) {
     >
       {/* Shows the SAVED name, never the in-progress edit, so it can't contradict the "Unsaved
           changes" indicator sitting a few lines below it. */}
-      <View style={[styles.identity, { backgroundColor: c.card, borderColor: c.border }]}>
+      <GlassSurface style={styles.identity}>
         <View
           style={[styles.avatar, { backgroundColor: c.primary }]}
           accessibilityElementsHidden
@@ -134,7 +136,7 @@ export function ProfileScreen({ navigation }: Props) {
             {user.phoneVerified ? 'Phone verified · ' : ''}Member since {fmtMonthYear(user.createdAt)}
           </Text>
         </View>
-      </View>
+      </GlassSurface>
 
       <SectionCard title="Personal Information" subtitle="Your name, email and phone on file">
         <TextField
@@ -155,7 +157,7 @@ export function ProfileScreen({ navigation }: Props) {
         />
         <ReadOnlyField label="Member since" value={fmtMonthYear(user.createdAt)} />
 
-        {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+        {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
 
         <View style={styles.saveRow}>
           <SaveStatus dirty={dirty} saving={saving} justSaved={justSaved} error={false} />
@@ -201,10 +203,12 @@ export function ProfileScreen({ navigation }: Props) {
         </Pressable>
       </SectionCard>
     </ScrollView>
+    </GlassScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  glassRoot: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
   message: { fontSize: 14, textAlign: 'center' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },

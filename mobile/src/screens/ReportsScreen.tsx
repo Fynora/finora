@@ -22,6 +22,7 @@ import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList, MoreStackParamList } from '../navigation/types';
 import { withBypass } from '../lib/changeSync';
 import { trackNavigation } from '../lib/trackNavigation';
+import { GlassScreen } from '../components/GlassScreen';
 
 type Exporting = 'csv' | 'pdf' | null;
 
@@ -144,38 +145,40 @@ export function ReportsScreen() {
 
   if (monthsLoading) {
     return (
-      <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.content}>
+      <GlassScreen style={styles.glassRoot}>
+      <ScrollView contentContainerStyle={styles.content}>
         <SkeletonCard lines={2} />
         <ReportBodySkeleton />
       </ScrollView>
+      </GlassScreen>
     );
   }
 
   if (monthsError) {
     return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+      <GlassScreen style={styles.centered}>
         <Text style={[styles.message, { color: c.muted }]}>
           Couldn&apos;t load reports — please try again later.
         </Text>
-      </View>
+      </GlassScreen>
     );
   }
 
   if (months.length === 0) {
     return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+      <GlassScreen style={styles.centered}>
         <Text style={[styles.message, { color: c.muted }]}>
           No transactions yet — import a statement to see reports.
         </Text>
-      </View>
+      </GlassScreen>
     );
   }
 
   const net = report ? report.income - report.expense : 0;
 
   return (
+    <GlassScreen style={styles.glassRoot}>
     <ScrollView
-      style={{ backgroundColor: c.bg }}
       contentContainerStyle={styles.content}
       refreshControl={
         <RefreshControl
@@ -221,14 +224,14 @@ export function ReportsScreen() {
             </Pressable>
           ))}
         </View>
-        {exportError ? <Text style={[styles.error, { color: c.danger }]}>{exportError}</Text> : null}
+        {exportError ? <Text style={[styles.error, { color: c.dangerInk }]}>{exportError}</Text> : null}
       </Card>
 
       {reportLoading ? (
         <ReportBodySkeleton />
       ) : reportError || !report ? (
         <Card style={styles.section}>
-          <Text style={[styles.error, { color: c.danger }]}>
+          <Text style={[styles.error, { color: c.dangerInk }]}>
             Couldn&apos;t load {monthLabelLong(month as string)}&apos;s report — pull down to try again.
           </Text>
         </Card>
@@ -250,14 +253,14 @@ export function ReportsScreen() {
             </Card>
             <Card style={styles.totalCard}>
               <Text style={[styles.totalLabel, { color: c.muted }]}>Expense</Text>
-              <Text style={[styles.totalValue, { color: c.danger }]} numberOfLines={1} adjustsFontSizeToFit>
+              <Text style={[styles.totalValue, { color: c.dangerInk }]} numberOfLines={1} adjustsFontSizeToFit>
                 {fmtCurrency(report.expense)}
               </Text>
             </Card>
             <Card style={styles.totalCard}>
               <Text style={[styles.totalLabel, { color: c.muted }]}>Net</Text>
               <Text
-                style={[styles.totalValue, { color: net >= 0 ? c.ink : c.danger }]}
+                style={[styles.totalValue, { color: net >= 0 ? c.ink : c.dangerInk }]}
                 numberOfLines={1}
                 adjustsFontSizeToFit
               >
@@ -361,10 +364,12 @@ export function ReportsScreen() {
         onClose={() => setPickerOpen(false)}
       />
     </ScrollView>
+    </GlassScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  glassRoot: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
   message: { fontSize: 14, textAlign: 'center' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },

@@ -25,6 +25,7 @@ import { parsePositiveAmount } from '../lib/validation';
 import { radius, spacing, useTheme } from '../theme';
 import type { Account } from '../types';
 import { withBypass } from '../lib/changeSync';
+import { GlassScreen } from '../components/GlassScreen';
 
 // Same options as the web page's <select>.
 const INVESTMENT_KINDS = ['Mutual Fund', 'Stocks', 'FD', 'PPF/NPS', 'Other'];
@@ -196,9 +197,9 @@ export function InvestmentsScreen() {
 
   if (loading) {
     return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+      <GlassScreen style={styles.centered}>
         <ActivityIndicator size="large" color={c.primary} />
-      </View>
+      </GlassScreen>
     );
   }
 
@@ -206,8 +207,8 @@ export function InvestmentsScreen() {
   const history = netWorth?.history ?? [];
 
   return (
+    <GlassScreen style={styles.glassRoot}>
     <ScrollView
-      style={{ backgroundColor: c.bg }}
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
@@ -278,7 +279,7 @@ export function InvestmentsScreen() {
           <Text
             style={[
               styles.totalValue,
-              { color: (netWorth?.netWorth ?? 0) >= 0 ? c.success : c.danger },
+              { color: (netWorth?.netWorth ?? 0) >= 0 ? c.successInk : c.dangerInk },
             ]}
             numberOfLines={1}
             adjustsFontSizeToFit
@@ -288,7 +289,7 @@ export function InvestmentsScreen() {
         </Card>
         <Card style={styles.totalCard}>
           <Text style={[styles.totalLabel, { color: c.muted }]}>Liabilities</Text>
-          <Text style={[styles.totalValue, { color: c.danger }]} numberOfLines={1} adjustsFontSizeToFit>
+          <Text style={[styles.totalValue, { color: c.dangerInk }]} numberOfLines={1} adjustsFontSizeToFit>
             {netWorthUnknown ? '—' : fmtCurrency(netWorth?.totalLiabilities ?? 0)}
           </Text>
         </Card>
@@ -301,7 +302,7 @@ export function InvestmentsScreen() {
             and only one of those is an answer. Without this, one failed /accounts told the user
             "No investment holdings yet" here and "Could not load holdings." forty lines down. */}
         {accountsUnknown ? (
-          <Text style={[styles.inlineError, { color: c.danger }]}>Could not load your allocation.</Text>
+          <Text style={[styles.inlineError, { color: c.dangerInk }]}>Could not load your allocation.</Text>
         ) : holdings.length === 0 ? (
           <EmptyState message="No investment holdings yet. Add one above, or import a deposit statement." />
         ) : (
@@ -333,7 +334,7 @@ export function InvestmentsScreen() {
             correctly showed '—'. Reliably reachable: 'networth' is deliberately excluded from the
             persistence allowlist, so there is never a cached value to fall back on. */}
         {netWorthUnknown ? (
-          <Text style={[styles.inlineError, { color: c.danger }]}>
+          <Text style={[styles.inlineError, { color: c.dangerInk }]}>
             Could not load your net worth history.
           </Text>
         ) : history.length < 2 ? (
@@ -352,7 +353,7 @@ export function InvestmentsScreen() {
       <Card style={styles.section}>
         <SectionHeading title="Holdings" />
         {accountsUnknown ? (
-          <Text style={[styles.inlineError, { color: c.danger }]}>Could not load holdings.</Text>
+          <Text style={[styles.inlineError, { color: c.dangerInk }]}>Could not load holdings.</Text>
         ) : holdings.length === 0 ? (
           <EmptyState message="No holdings yet." />
         ) : (
@@ -378,7 +379,7 @@ export function InvestmentsScreen() {
                     accessibilityRole="button"
                     accessibilityLabel={`Delete ${h.name}`}
                   >
-                    <Text style={[styles.deleteText, { color: c.danger }]}>Delete</Text>
+                    <Text style={[styles.deleteText, { color: c.dangerInk }]}>Delete</Text>
                   </Pressable>
                 </View>
               </View>
@@ -401,10 +402,12 @@ export function InvestmentsScreen() {
         onClose={() => setKindPickerOpen(false)}
       />
     </ScrollView>
+    </GlassScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  glassRoot: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   header: { alignItems: 'flex-end', marginBottom: spacing.sm },

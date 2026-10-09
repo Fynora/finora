@@ -51,7 +51,7 @@ export function NotificationPreferencesSection() {
     <View style={[styles.section, { borderTopColor: c.border }]}>
       <Text style={[styles.heading, { color: c.ink }]}>Notifications</Text>
       {loadError ? (
-        <Text style={[styles.meta, { color: c.danger }]}>
+        <Text style={[styles.meta, { color: c.dangerInk }]}>
           Couldn&apos;t load your notification settings. Try reopening Settings.
         </Text>
       ) : prefs === null ? (
@@ -80,7 +80,7 @@ export function NotificationPreferencesSection() {
               </View>
             );
           })}
-          {saveError ? <Text style={[styles.meta, { color: c.danger }]}>{saveError}</Text> : null}
+          {saveError ? <Text style={[styles.meta, { color: c.dangerInk }]}>{saveError}</Text> : null}
           <Text style={[styles.meta, { color: c.mutedInk, marginTop: spacing.sm }]}>
             Security messages — sign-in codes, password changes and account changes — are always sent.
           </Text>

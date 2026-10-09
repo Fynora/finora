@@ -11,6 +11,7 @@ import { isSafeExternalUrl } from '../lib/safeUrl';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../theme';
 import type { MoreStackParamList } from '../navigation/types';
+import { GlassScreen } from '../components/GlassScreen';
 
 const AA_FI_TYPE_LABELS: Record<string, string> = { DEPOSIT: 'Bank Account', CREDIT_CARD: 'Credit Card' };
 function aaFiTypeLabel(fiType: string): string { return AA_FI_TYPE_LABELS[fiType] ?? fiType; }
@@ -89,7 +90,8 @@ export function SettingsBankSyncScreen() {
   }
 
   return (
-    <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.content}>
+    <GlassScreen style={styles.glassRoot}>
+    <ScrollView contentContainerStyle={styles.content}>
       {linksQ.isLoading ? (
         <ActivityIndicator color={c.primary} />
       ) : linksQ.isError ? (
@@ -99,7 +101,7 @@ export function SettingsBankSyncScreen() {
         // (`aaError ? <p>Couldn't load...</p> : ...`); this screen is new mobile code, so it had
         // never had the chance to inherit that from an existing monolith the way the other
         // screens' bugs did.
-        <Text style={[styles.hint, { color: c.danger }]}>Couldn't load your linked bank accounts — please try again later.</Text>
+        <Text style={[styles.hint, { color: c.dangerInk }]}>Couldn't load your linked bank accounts — please try again later.</Text>
       ) : (
         <View>
           {links.length === 0 ? (
@@ -127,15 +129,17 @@ export function SettingsBankSyncScreen() {
               </View>
             ))
           )}
-          {actionError ? <Text style={[styles.hint, { color: c.danger }]}>{actionError}</Text> : null}
+          {actionError ? <Text style={[styles.hint, { color: c.dangerInk }]}>{actionError}</Text> : null}
           <Button label="Connect a Bank Account" onPress={() => void handleConnect()} loading={connecting} />
         </View>
       )}
     </ScrollView>
+    </GlassScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  glassRoot: { flex: 1 },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   linkRow: { borderWidth: 1, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm },
   rowTitle: { fontSize: 14, fontWeight: '600' },

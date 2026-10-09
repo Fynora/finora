@@ -9,6 +9,8 @@ import { reportTransportFailure } from '../lib/monitoring';
 import { isPausedCold } from '../lib/refreshingIndicator';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import { spacing, useTheme } from '../theme';
+import { GlassScreen } from '../components/GlassScreen';
+import { GlassSurface } from '../components/GlassSurface';
 
 const DASH = '—';
 
@@ -43,9 +45,9 @@ export function FinancialMemoryScreen() {
 
   if (summaryQ.isLoading) {
     return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+      <GlassScreen style={styles.centered}>
         <ActivityIndicator size="large" color={c.primary} />
-      </View>
+      </GlassScreen>
     );
   }
 
@@ -82,8 +84,8 @@ export function FinancialMemoryScreen() {
   const refreshFailed = (summaryQ.isError && data !== undefined) || (recurringQ.isError && recurringQ.data !== undefined);
 
   return (
+    <GlassScreen style={styles.glassRoot}>
     <ScrollView
-      style={{ backgroundColor: c.bg }}
       contentContainerStyle={styles.content}
       refreshControl={
         <RefreshControl
@@ -109,16 +111,16 @@ export function FinancialMemoryScreen() {
       ) : (
         <View style={styles.grid}>
           {tiles.map((t) => (
-            <View
+            <GlassSurface
               key={t.label}
               accessible
               accessibilityLabel={`${t.label}: ${t.value}${t.caption ? `, ${t.caption}` : ''}`}
-              style={[styles.tile, { borderColor: c.border, backgroundColor: c.card }]}
+              style={styles.tile}
             >
               <Text style={[styles.value, { color: c.ink }]}>{t.value}</Text>
               <Text style={[styles.label, { color: c.muted }]}>{t.label}</Text>
               {t.caption ? <Text style={[styles.caption, { color: c.muted }]}>{t.caption}</Text> : null}
-            </View>
+            </GlassSurface>
           ))}
         </View>
       )}
@@ -147,10 +149,12 @@ export function FinancialMemoryScreen() {
         )}
       </Card>
     </ScrollView>
+    </GlassScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  glassRoot: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   content: { padding: spacing.md, gap: spacing.md },
   intro: { fontSize: 13 },

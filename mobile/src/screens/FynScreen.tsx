@@ -14,6 +14,7 @@ import { pickFynScreenshot, ScreenshotTooLargeError } from '../lib/fynScreenshot
 import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { spacing, radius, useTheme } from '../theme';
+import { GlassScreen } from '../components/GlassScreen';
 
 interface ChatTurn {
   // '' for a just-sent user bubble that hasn't round-tripped yet -- the backend never hands the
@@ -86,7 +87,7 @@ export function FynScreen() {
   const navigation = useNavigation();
 
   return (
-    <View style={[styles.flex, { backgroundColor: c.bg, paddingTop: insets.top }]}>
+    <GlassScreen style={[styles.flex, {paddingTop: insets.top }]}>
       <View style={styles.titleRow}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={10} accessibilityRole="button" accessibilityLabel="Back">
           <Ionicons name="chevron-back" size={22} color={c.ink} />
@@ -106,7 +107,7 @@ export function FynScreen() {
       <PremiumFeatureGate featureKey="FYN_CHAT" fallback={<UpgradePrompt />}>
         <FynChat />
       </PremiumFeatureGate>
-    </View>
+    </GlassScreen>
   );
 }
 
@@ -270,7 +271,7 @@ function FynChat() {
                 key={question}
                 onPress={() => void send(question)}
                 disabled={sending}
-                style={[styles.suggestionChip, { borderColor: c.border, backgroundColor: c.bg, opacity: sending ? 0.5 : 1 }]}
+                style={[styles.suggestionChip, { borderColor: c.border, backgroundColor: c.bg /* glass-exempt: chip/input/attachment control inside the chat composer; opaque bg is its contrast */, opacity: sending ? 0.5 : 1 }]}
                 accessibilityRole="button"
                 accessibilityLabel={question}
               >
@@ -296,7 +297,7 @@ function FynChat() {
                   styles.turnBubble,
                   turn.role === 'user'
                     ? { backgroundColor: c.primary, color: c.onPrimary }
-                    : { backgroundColor: c.bg, borderWidth: 1, borderColor: c.border, color: c.ink },
+                    : { backgroundColor: c.bg /* glass-exempt: chip/input/attachment control inside the chat composer; opaque bg is its contrast */, borderWidth: 1, borderColor: c.border, color: c.ink },
                 ]}
               >
                 {turn.content}
@@ -339,10 +340,10 @@ function FynChat() {
         {sending ? <Text style={[styles.thinking, { color: c.muted }]}>Fyn is thinking…</Text> : null}
       </ScrollView>
 
-      {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+      {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
 
       {attachedImage ? (
-        <View style={[styles.attachedPreview, { borderColor: c.border, backgroundColor: c.bg, marginHorizontal: spacing.md }]}>
+        <View style={[styles.attachedPreview, { borderColor: c.border, backgroundColor: c.bg /* glass-exempt: chip/input/attachment control inside the chat composer; opaque bg is its contrast */, marginHorizontal: spacing.md }]}>
           <Ionicons name="attach" size={14} color={c.muted} />
           <Text style={[styles.attachedPreviewText, { color: c.ink }]} numberOfLines={1}>{attachedImage.name}</Text>
           <Pressable onPress={() => setAttachedImage(null)} hitSlop={8} accessibilityRole="button" accessibilityLabel="Remove attachment">
@@ -355,7 +356,7 @@ function FynChat() {
         <Pressable
           onPress={() => void onAttachPress()}
           disabled={sending || loadingHistory}
-          style={[styles.attachButton, { borderColor: c.border, backgroundColor: c.bg, opacity: sending || loadingHistory ? 0.5 : 1 }]}
+          style={[styles.attachButton, { borderColor: c.border, backgroundColor: c.bg /* glass-exempt: chip/input/attachment control inside the chat composer; opaque bg is its contrast */, opacity: sending || loadingHistory ? 0.5 : 1 }]}
           accessibilityRole="button"
           accessibilityLabel="Attach a screenshot"
         >
@@ -368,7 +369,7 @@ function FynChat() {
           placeholder={attachedImage ? 'Add a question about this screenshot (optional)…' : 'Ask about your balance, spending, or budgets…'}
           placeholderTextColor={c.muted}
           editable={!sending && !loadingHistory}
-          style={[styles.input, { borderColor: c.border, backgroundColor: c.bg, color: c.ink }]}
+          style={[styles.input, { borderColor: c.border, backgroundColor: c.bg /* glass-exempt: chip/input/attachment control inside the chat composer; opaque bg is its contrast */, color: c.ink }]}
           returnKeyType="send"
           accessibilityLabel="Message"
         />

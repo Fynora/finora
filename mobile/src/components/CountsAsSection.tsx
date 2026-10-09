@@ -40,7 +40,7 @@ export function CountsAsSection({ transactionId }: { transactionId: string }) {
 
   if (countsAsQ.isLoading) return <ActivityIndicator />;
   if (countsAsQ.isError || !countsAsQ.data) {
-    return <Text style={[styles.small, { color: c.danger }]}>Couldn't load what this payment counts as.</Text>;
+    return <Text style={[styles.small, { color: c.dangerInk }]}>Couldn't load what this payment counts as.</Text>;
   }
   const countsAs = countsAsQ.data;
   const appliedBy = countsAs.appliedBy;
@@ -92,8 +92,8 @@ export function CountsAsSection({ transactionId }: { transactionId: string }) {
           <Button label="Cancel" variant="link" onPress={() => setEditing(false)} />
         </View>
       ) : null}
-      {editing && kindsQ.isError ? <Text style={[styles.small, { color: c.danger }]}>Couldn't load your kinds.</Text> : null}
-      {error ? <Text style={[styles.small, { color: c.danger }]}>{error}</Text> : null}
+      {editing && kindsQ.isError ? <Text style={[styles.small, { color: c.dangerInk }]}>Couldn't load your kinds.</Text> : null}
+      {error ? <Text style={[styles.small, { color: c.dangerInk }]}>{error}</Text> : null}
     </View>
   );
 }

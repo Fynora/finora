@@ -99,7 +99,7 @@ export function BankCorrectionModal({
               ))}
             </View>
           )}
-          {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+          {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
           <Button label="Acknowledge" onPress={acknowledge} loading={acknowledging} />
           <Button label="Close" variant="link" onPress={onClose} />
         </Card>

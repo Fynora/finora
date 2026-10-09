@@ -162,7 +162,7 @@ export function DeleteAccountSheet({ onClose, onDeleted, signInMethod, onContact
                 autoCapitalize="none"
                 textContentType="password"
               />
-              {error ? <Text style={[sheetStyles.error, { color: c.danger }]}>{error}</Text> : null}
+              {error ? <Text style={[sheetStyles.error, { color: c.dangerInk }]}>{error}</Text> : null}
               <View style={sheetStyles.action}>
                 <Button
                   label={submitting ? 'Sending…' : 'Send code'}
@@ -188,7 +188,7 @@ export function DeleteAccountSheet({ onClose, onDeleted, signInMethod, onContact
                 autoComplete="sms-otp"
                 placeholder="123456"
               />
-              {error ? <Text style={[sheetStyles.error, { color: c.danger }]}>{error}</Text> : null}
+              {error ? <Text style={[sheetStyles.error, { color: c.dangerInk }]}>{error}</Text> : null}
               <View style={sheetStyles.action}>
                 <Button
                   label={submitting ? 'Verifying…' : 'Verify'}
@@ -211,7 +211,7 @@ export function DeleteAccountSheet({ onClose, onDeleted, signInMethod, onContact
           {step === 'confirm' ? (
             <>
               <View style={[styles.warnBox, { backgroundColor: c.dangerBg, borderColor: c.danger }]}>
-                <Text style={[styles.warnTitle, { color: c.danger }]}>This cannot be undone.</Text>
+                <Text style={[styles.warnTitle, { color: c.dangerInk }]}>This cannot be undone.</Text>
                 <Text style={[styles.warnBody, { color: c.ink }]}>
                   Your account and all your data are permanently deleted immediately. You&apos;ll be
                   signed out everywhere right away — there is no way to cancel this request once
@@ -239,7 +239,7 @@ export function DeleteAccountSheet({ onClose, onDeleted, signInMethod, onContact
                 </Text>
               </Pressable>
 
-              {error ? <Text style={[sheetStyles.error, { color: c.danger }]}>{error}</Text> : null}
+              {error ? <Text style={[sheetStyles.error, { color: c.dangerInk }]}>{error}</Text> : null}
               <View style={sheetStyles.action}>
                 <Button
                   label={submitting ? 'Deleting…' : 'Permanently Delete Account'}

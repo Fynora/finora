@@ -58,6 +58,7 @@ import type { AppTabParamList } from '../../navigation/types';
 import type { DetectedAccountInfo, ImportSummary, StagedRow, UnparseableRow, VerificationReport } from '../../types';
 import { VerificationPanel } from '../../components/VerificationPanel';
 import { trackNavigation } from '../../lib/trackNavigation';
+import { GlassScreen } from '../../components/GlassScreen';
 
 type Step = 'upload' | 'review' | 'summary';
 type AccountChoice = 'existing' | 'new';
@@ -905,7 +906,7 @@ export function ImportScreen() {
       <Text style={[styles.title, { color: c.ink }]}>Import</Text>
       {error ? (
         <Card style={{ ...styles.errorCard, borderColor: c.danger }}>
-          <Text style={[styles.errorText, { color: c.danger }]}>{error}</Text>
+          <Text style={[styles.errorText, { color: c.dangerInk }]}>{error}</Text>
           {error === upgradeErrorMessage ? (
             <Button label="See plans" variant="link" onPress={openPlans} />
           ) : null}
@@ -923,7 +924,7 @@ export function ImportScreen() {
     const panelState: UploadPanelState = uploadCompleted ? 'completed' : uploading ? 'uploading' : 'idle';
     const showPasswordPanel = !uploading && !uploadCompleted && !!pendingPdf;
     return (
-      <View style={[styles.flex, { backgroundColor: c.bg, paddingTop: insets.top + spacing.md }]}>
+      <GlassScreen style={[styles.flex, {paddingTop: insets.top + spacing.md }]}>
         {/* ScrollView, not the plain View this used to be: the unfinished-import list below is
             variable-length, and on a small screen a couple of entries pushed "Choose a file" off
             the bottom with no way to reach it. */}
@@ -1015,7 +1016,7 @@ export function ImportScreen() {
                   </Pressable>
                 </View>
                 <Text
-                  style={[styles.helpText, { color: passwordState === 'invalid' ? c.danger : c.muted }]}
+                  style={[styles.helpText, { color: passwordState === 'invalid' ? c.dangerInk : c.muted }]}
                 >
                   {passwordState === 'invalid'
                     ? "That password didn't open this statement — check it and try again."
@@ -1126,7 +1127,7 @@ export function ImportScreen() {
                         accessibilityRole="button"
                         accessibilityLabel={`Discard import of ${sess.fileName}`}
                       >
-                        <Text style={[styles.unfinishedAction, { color: c.danger }]}>
+                        <Text style={[styles.unfinishedAction, { color: c.dangerInk }]}>
                           {discardingId === sess.id ? 'Discarding…' : 'Discard'}
                         </Text>
                       </Pressable>
@@ -1180,14 +1181,14 @@ export function ImportScreen() {
             </Card>
           ) : null}
         </ScrollView>
-      </View>
+      </GlassScreen>
     );
   }
 
   // ---- summary ----
   if (step === 'summary' && summary) {
     return (
-      <View style={[styles.flex, { backgroundColor: c.bg, paddingTop: insets.top + spacing.md }]}>
+      <GlassScreen style={[styles.flex, {paddingTop: insets.top + spacing.md }]}>
         <View style={styles.padded}>
           {header}
           <Card>
@@ -1247,13 +1248,13 @@ export function ImportScreen() {
             </View>
           </Card>
         </View>
-      </View>
+      </GlassScreen>
     );
   }
 
   // ---- review ----
   return (
-    <View style={[styles.flex, { backgroundColor: c.bg, paddingTop: insets.top }]}>
+    <GlassScreen style={[styles.flex, {paddingTop: insets.top }]}>
       <FlatList
         data={rows}
         keyExtractor={(_, i) => String(i)}
@@ -1369,7 +1370,7 @@ export function ImportScreen() {
               </View>
 
               {accountsUnavailable ? (
-                <Text style={[styles.helpText, { color: c.danger }]}>
+                <Text style={[styles.helpText, { color: c.dangerInk }]}>
                   Couldn&apos;t load your existing accounts, so this can only be filed as a new one.
                   If this statement belongs to an account you already have, go back and retry rather
                   than importing it here — filing it as new would split that account&apos;s history.
@@ -1600,7 +1601,7 @@ export function ImportScreen() {
         }}
         onClose={() => setCategoryPickerFor(null)}
       />
-    </View>
+    </GlassScreen>
   );
 }
 

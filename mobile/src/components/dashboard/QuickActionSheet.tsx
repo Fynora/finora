@@ -1,5 +1,6 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text } from 'react-native';
 import { AppModal } from '../AppModal';
+import { GlassSurface } from '../GlassSurface';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { radius, spacing, useTheme } from '../../theme';
@@ -26,7 +27,9 @@ export function QuickActionSheet({ visible, onClose, onImportStatement, onAddTra
   return (
     <AppModal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" accessibilityRole="button" />
-      <View style={[styles.sheet, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md }]}>
+      {/* Glass over the dimmed app: the scrim stays, so the sheet reads as a lighter panel lifted
+          off a darkened screen -- glassContrast.test.ts measures exactly this layering. */}
+      <GlassSurface style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}>
         {(
           [
             { icon: 'cloud-upload-outline', label: 'Import Statement', onPress: () => pick(onImportStatement) },
@@ -39,7 +42,7 @@ export function QuickActionSheet({ visible, onClose, onImportStatement, onAddTra
             <Text style={[styles.rowText, { color: c.ink }]}>{row.label}</Text>
           </Pressable>
         ))}
-      </View>
+      </GlassSurface>
     </AppModal>
   );
 }

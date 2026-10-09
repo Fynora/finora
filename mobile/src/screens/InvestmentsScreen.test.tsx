@@ -242,7 +242,7 @@ describe('InvestmentsScreen', () => {
     await loaded();
 
     const value = await screen.findByText('-₹2,50,000');
-    expect(value).toHaveStyle({ color: light.danger });
+    expect(value).toHaveStyle({ color: light.dangerInk });
   });
 
   // Adding a holding is free on every plan: there is no entitlement lookup on this screen at all,

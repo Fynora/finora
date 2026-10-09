@@ -6,6 +6,7 @@ import { AppModal } from './AppModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { parsePositiveAmount } from '../lib/validation';
 import { radius, spacing, useTheme } from '../theme';
+import { GlassSurface } from '../components/GlassSurface';
 
 /**
  * The native replacement for the web Goals page's `window.prompt('Contribution amount:')`, which
@@ -56,7 +57,7 @@ export function AmountPromptModal({
           disabled={submitting}
           accessibilityLabel={`Close ${title}`}
         />
-        <View style={[styles.sheet, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md }]}>
+        <GlassSurface style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}>
           <Text style={[styles.title, { color: c.ink }]}>{title}</Text>
           {subtitle ? <Text style={[styles.subtitle, { color: c.muted }]}>{subtitle}</Text> : null}
 
@@ -78,7 +79,7 @@ export function AmountPromptModal({
             />
           </View>
 
-          <Text style={[styles.error, { color: c.danger }]} numberOfLines={2}>
+          <Text style={[styles.error, { color: c.dangerInk }]} numberOfLines={2}>
             {error ?? ''}
           </Text>
 
@@ -102,7 +103,7 @@ export function AmountPromptModal({
               <Text style={[styles.confirmText, { color: c.onPrimary }]}>{submitting ? 'Saving…' : confirmLabel}</Text>
             </Pressable>
           </View>
-        </View>
+        </GlassSurface>
       </KeyboardAvoidingView>
     </AppModal>
   );

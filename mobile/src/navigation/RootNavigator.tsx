@@ -1,4 +1,4 @@
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, StyleSheet } from 'react-native';
 import { NavigationContainer, DefaultTheme, DarkTheme, useNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { AuthEntryScreen } from '../screens/AuthEntryScreen';
@@ -16,6 +16,7 @@ import { TourOverlay } from '../onboarding/TourOverlay';
 import { TOUR_STEPS, type TourStep } from '../onboarding/tourSteps';
 import { useAuth } from '../context/AuthContext';
 import { useFontsReady, useTheme, useThemeSetting } from '../theme';
+import { glassFill } from '../theme/glass';
 import { useAuthStackInitialRoute } from './useAuthStackInitialRoute';
 import { useAppPathDeepLink } from './useAppPathDeepLink';
 import { useEmailChangeDeepLink } from './useEmailChangeDeepLink';
@@ -28,6 +29,7 @@ import { useShareIntentDeepLink } from './useShareIntentDeepLink';
 import type { AuthStackParamList, RootParamList } from './types';
 import { useSpendingQuestion } from '../onboarding/useSpendingQuestion';
 import { SpendingTrackingQuestionScreen } from '../onboarding/SpendingTrackingQuestionScreen';
+import { GlassScreen } from '../components/GlassScreen';
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const AppStack = createNativeStackNavigator();
@@ -140,9 +142,9 @@ export function RootNavigator() {
   // useFontsReady). The hooks above still mount immediately, so deep links are not delayed.
   if (bootstrapping || !fontsReady) {
     return (
-      <View style={[styles.splash, { backgroundColor: c.bg }]}>
+      <GlassScreen style={styles.splash}>
         <ActivityIndicator size="large" color={c.primary} />
-      </View>
+      </GlassScreen>
     );
   }
 
@@ -161,8 +163,12 @@ export function RootNavigator() {
     colors: {
       ...base.colors,
       primary: c.primary,
+      // Stays OPAQUE on purpose: screens paint their own GlassScreen, and an opaque navigator
+      // background keeps native-stack transitions from showing the previous screen through a
+      // translucent one.
       background: c.bg,
-      card: c.card,
+      // Anything React Navigation draws itself (a native header) matches the glass surfaces.
+      card: glassFill(c),
       text: c.ink,
       border: c.border,
     },
@@ -228,9 +234,9 @@ export function RootNavigator() {
         <AppStack.Navigator screenOptions={{ headerShown: false }}>
           <AppStack.Screen name="SpendingQuestionLoading">
             {() => (
-              <View testID="spending-question-loading" style={[styles.splash, { backgroundColor: c.bg }]}>
+              <GlassScreen testID="spending-question-loading" style={styles.splash}>
                 <ActivityIndicator size="large" color={c.primary} />
-              </View>
+              </GlassScreen>
             )}
           </AppStack.Screen>
         </AppStack.Navigator>

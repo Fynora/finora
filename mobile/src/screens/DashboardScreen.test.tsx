@@ -1299,7 +1299,7 @@ describe('Budget Progress widget (Phase 4)', () => {
     renderScreen();
 
     const pct = await screen.findByText('150%');
-    expect(pct).toHaveStyle({ color: light.danger });
+    expect(pct).toHaveStyle({ color: light.dangerInk });
     // The bar itself has nowhere to go past its own track -- unlike the label, it must stay
     // capped, which the fill's own width value can't be asserted on through RTL's rendered text,
     // so this only re-confirms the label carries the real number rather than the capped one.

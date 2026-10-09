@@ -9,6 +9,7 @@ import { openWebUrl } from '../lib/webUrl';
 import { trackNavigation } from '../lib/trackNavigation';
 import { GMAIL_SYNC_UI_ENABLED } from '../lib/features';
 import type { MoreStackParamList } from '../navigation/types';
+import { GlassScreen } from '../components/GlassScreen';
 
 const CATEGORIES: { route: keyof MoreStackParamList; label: string; description: string }[] = [
   { route: 'SettingsGeneral', label: 'General', description: 'Preferences, timezone, theme' },
@@ -40,7 +41,8 @@ export function SettingsScreen() {
   const categories = CATEGORIES.filter((cat) => cat.route !== 'SettingsConnectedApps' || GMAIL_SYNC_UI_ENABLED);
 
   return (
-    <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.content}>
+    <GlassScreen style={styles.glassRoot}>
+    <ScrollView contentContainerStyle={styles.content}>
       <SectionCard title="Settings" subtitle="Manage your preferences, security, and account data">
         {categories.map((cat) => (
           <Pressable
@@ -126,10 +128,12 @@ export function SettingsScreen() {
 
       {feedbackOpen ? <FeedbackSheet onClose={() => setFeedbackOpen(false)} /> : null}
     </ScrollView>
+    </GlassScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  glassRoot: { flex: 1 },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   row: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

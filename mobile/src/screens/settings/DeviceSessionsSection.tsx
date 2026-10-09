@@ -80,7 +80,7 @@ export function DeviceSessionsSection() {
       {isLoading ? (
         <ActivityIndicator color={c.primary} style={styles.loader} />
       ) : isError ? (
-        <Text style={[styles.error, { color: c.danger }]}>
+        <Text style={[styles.error, { color: c.dangerInk }]}>
           Couldn&apos;t load your active sessions — please try again later.
         </Text>
       ) : sessions.length === 0 ? (
@@ -127,7 +127,7 @@ export function DeviceSessionsSection() {
                   accessibilityRole="button"
                   accessibilityLabel={`Sign out ${deviceLabel(s)}`}
                 >
-                  <Text style={[styles.revokeText, { color: c.danger }]}>Sign out</Text>
+                  <Text style={[styles.revokeText, { color: c.dangerInk }]}>Sign out</Text>
                 </Pressable>
               )}
             </View>
@@ -135,7 +135,7 @@ export function DeviceSessionsSection() {
         })
       )}
 
-      {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+      {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
     </View>
   );
 }

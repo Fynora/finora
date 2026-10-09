@@ -19,6 +19,7 @@ import {
   subscribeAppAlerts,
 } from '../lib/appAlert';
 import { radius, spacing, useTheme } from '../theme';
+import { GlassSurface } from '../components/GlassSurface';
 
 /** True while `containerId` is the place the current alert is being drawn. */
 export function useAlertShowing(containerId: string): boolean {
@@ -86,10 +87,10 @@ export function AppAlertOverlay({ containerId, hidden = false }: { containerId: 
         onPress={dismissCurrentAppAlertByUser}
         testID="app-alert-backdrop"
       />
-      <View
+      <GlassSurface
         accessibilityViewIsModal
         accessibilityRole="alert"
-        style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}
+        style={styles.card}
       >
         <Text style={[styles.title, { color: c.ink }]}>{entry.title}</Text>
         {entry.message ? (
@@ -109,7 +110,7 @@ export function AppAlertOverlay({ containerId, hidden = false }: { containerId: 
                 style={[
                   styles.buttonText,
                   {
-                    color: button.style === 'destructive' ? c.danger : button.style === 'cancel' ? c.ink : c.primary,
+                    color: button.style === 'destructive' ? c.dangerInk : button.style === 'cancel' ? c.ink : c.primary,
                     fontWeight: button.style === 'cancel' ? '400' : '600',
                   },
                 ]}
@@ -119,7 +120,7 @@ export function AppAlertOverlay({ containerId, hidden = false }: { containerId: 
             </Pressable>
           ))}
         </View>
-      </View>
+      </GlassSurface>
     </View>
   );
 }

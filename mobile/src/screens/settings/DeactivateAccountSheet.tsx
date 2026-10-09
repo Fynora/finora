@@ -121,7 +121,7 @@ export function DeactivateAccountSheet({ onClose, onDeactivated, signInMethod, o
             multiline
           />
 
-          {error ? <Text style={[sheetStyles.error, { color: c.danger }]}>{error}</Text> : null}
+          {error ? <Text style={[sheetStyles.error, { color: c.dangerInk }]}>{error}</Text> : null}
           <View style={sheetStyles.action}>
             <Button
               label={submitting ? 'Deactivating…' : 'Deactivate Account'}

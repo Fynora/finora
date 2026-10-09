@@ -9,6 +9,8 @@ import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure } from '../lib/monitoring';
 import { radius, spacing, useTheme } from '../theme';
 import type { MoreStackParamList } from '../navigation/types';
+import { GlassScreen } from '../components/GlassScreen';
+import { GlassSurface } from '../components/GlassSurface';
 
 const CATEGORY_LABELS: Record<SupportTicketCategory, string> = {
   STATEMENT_IMPORT: 'Statement import',
@@ -62,21 +64,21 @@ export function SupportTicketDetailScreen({ route }: Props) {
 
   if (ticketQuery.isLoading) {
     return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+      <GlassScreen style={styles.centered}>
         <ActivityIndicator size="large" color={c.primary} />
-      </View>
+      </GlassScreen>
     );
   }
 
   if (!ticketQuery.data) {
     return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+      <GlassScreen style={styles.centered}>
         <Ionicons name="help-circle-outline" size={28} color={c.muted} />
         <Text style={[styles.notFoundTitle, { color: c.ink }]}>Ticket not found</Text>
         <Text style={[styles.notFoundBody, { color: c.muted }]}>
           {toUserMessage(ticketQuery.error, "This ticket doesn't exist, or isn't yours to view.")}
         </Text>
-      </View>
+      </GlassScreen>
     );
   }
 
@@ -84,8 +86,9 @@ export function SupportTicketDetailScreen({ route }: Props) {
   const status = STATUS_STYLE[t.status];
 
   return (
-    <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.content}>
-      <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}>
+    <GlassScreen style={styles.glassRoot}>
+    <ScrollView contentContainerStyle={styles.content}>
+      <GlassSurface style={styles.card}>
         <View style={styles.headerRow}>
           <View style={styles.headerText}>
             <Text style={[styles.meta, { color: c.muted }]}>{t.ticketNumber} · {CATEGORY_LABELS[t.category]}</Text>
@@ -122,12 +125,14 @@ export function SupportTicketDetailScreen({ route }: Props) {
             reopened — file a new ticket if the issue comes back.
           </Text>
         ) : null}
-      </View>
+      </GlassSurface>
     </ScrollView>
+    </GlassScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  glassRoot: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg, gap: spacing.xs },
   notFoundTitle: { fontSize: 14, fontWeight: '600' },
   notFoundBody: { fontSize: 12, textAlign: 'center' },

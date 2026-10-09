@@ -124,7 +124,9 @@ function parse(fileName: string, source: string): Parsed {
   const visit = (node: ts.Node, inClassName: boolean) => {
     if (ts.isJsxAttribute(node) && node.name.getText(file) === 'className') {
       inClassName = true;
-      for (const text of possibleClassStrings(node.initializer)) parsed.classStrings.push({ text, where: where(node) });
+      const possible = possibleClassStrings(node.initializer);
+      if (possible.length >= MAX_VARIANTS) throw new Error(`${where(node)}: too many class combinations to check`);
+      for (const text of possible) parsed.classStrings.push({ text, where: where(node) });
     }
     if (
       (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || ts.isTemplateHead(node) ||
@@ -153,17 +155,18 @@ function parseSource(): Parsed {
 
 const tokensOf = (text: string) => text.split(/\s+/).filter(Boolean);
 
-/** Every className token, plus anything colour-utility-shaped anywhere (status-tone maps etc.). */
-function classCandidates(fragments: Fragment[]): Map<string, string> {
-  const firstSeenAt = new Map<string, string>();
+/** Every className token, plus anything colour-utility-shaped anywhere (status-tone maps etc.),
+ *  with every place it is used. */
+function classCandidates(fragments: Fragment[]): Map<string, string[]> {
+  const usedAt = new Map<string, string[]>();
   for (const fragment of fragments) {
     for (const token of tokensOf(fragment.text)) {
-      if ((fragment.inClassName || COLOR_UTILITY.test(token)) && !firstSeenAt.has(token)) {
-        firstSeenAt.set(token, fragment.where);
+      if (fragment.inClassName || COLOR_UTILITY.test(token)) {
+        usedAt.set(token, [...new Set([...(usedAt.get(token) ?? []), fragment.where])]);
       }
     }
   }
-  return firstSeenAt;
+  return usedAt;
 }
 
 async function loadConfig() {
@@ -291,7 +294,7 @@ describe('Tailwind colour classes', () => {
     ].join('\n'));
     const candidates = classCandidates(fragments);
 
-    expect(candidates.get('text-accent')).toBe('Example.tsx:3');
+    expect(candidates.get('text-accent')).toEqual(['Example.tsx:3']);
     expect(candidates.has('bg-primary')).toBe(true);
     expect(candidates.has('bg-gone')).toBe(false);
     expect(candidates.has('text-gone')).toBe(false);
@@ -320,7 +323,7 @@ describe('Tailwind colour classes', () => {
     const generated = await generatedClassNames([...candidates.keys()]);
     const dead = [...candidates]
       .filter(([cls]) => !generated.has(cls))
-      .map(([cls, where]) => `${cls} (${where})`);
+      .map(([cls, where]) => `${cls} (${where.join(', ')})`);
 
     expect(dead).toEqual([]);
   });

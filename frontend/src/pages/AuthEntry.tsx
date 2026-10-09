@@ -7,6 +7,7 @@ import { IdentifyStep } from './auth-entry/IdentifyStep';
 import { PasswordStep } from './auth-entry/PasswordStep';
 import { RegisterStep } from './auth-entry/RegisterStep';
 import { returnToFromState } from '../lib/returnTo';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 
 type Step = 'identify' | 'password' | 'register';
 
@@ -28,6 +29,7 @@ interface DeepLinkState {
  * /auth/register, /auth/google, /auth/apple) and only advances on that call's own success.
  */
 export default function AuthEntry() {
+  useDocumentTitle('Sign in — Fynora');
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();

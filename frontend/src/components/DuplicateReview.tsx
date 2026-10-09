@@ -123,7 +123,7 @@ function DuplicatePair({
           onClick={() => onDecide('skip')}
           aria-pressed={decision === 'skip'}
           className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${
-            decision === 'skip' ? 'bg-ink text-white border-ink' : 'border-border hover:bg-surface'
+            decision === 'skip' ? 'bg-ink text-on-primary border-ink' : 'border-border hover:bg-surface'
           }`}
         >
           Skip this row

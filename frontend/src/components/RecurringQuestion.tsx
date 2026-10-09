@@ -125,7 +125,7 @@ export function RecurringQuestion({ merchant, state, answer, amount, label = 'Mo
             type="button"
             disabled={save.isPending || !otherPick.trim()}
             onClick={() => save.mutate(otherPick.trim())}
-            className="px-2.5 py-1 text-xs rounded-lg bg-primary text-white disabled:opacity-50"
+            className="px-2.5 py-1 text-xs rounded-lg bg-primary text-on-primary disabled:opacity-50"
           >
             Save
           </button>

@@ -1,3 +1,26 @@
+/**
+ * Hex-valued tokens (`--color-warning: #d97706`) have no `<alpha-value>` slot, so Tailwind silently
+ * generates nothing at all for an opacity modifier on them -- `border-warning/30`,
+ * `hover:bg-danger/90` and the premium Button's `hover:bg-premium/90` were all dead classes, leaving
+ * those elements on the default border colour or with no hover change. This mixes the token with
+ * transparent when a modifier is given, and returns the plain variable otherwise so every
+ * unmodified class compiles exactly as before. (`ink` and `primary` are channel-valued and already
+ * take modifiers natively.) Same helper as admin-portal/tailwind.config.js.
+ *
+ * An unmodified class still receives an opacity value -- Tailwind's own `var(--tw-bg-opacity, 1)`
+ * and friends, always 1 since no `*-opacity-*` utility is used -- which is why that one shape is
+ * matched exactly rather than every `var(...)`: an arbitrary `/[var(--x)]` modifier must still
+ * apply. A modifier can be a fraction (`/20` arrives as `0.2`) or, written arbitrarily, a
+ * percentage (`/[15%]`), which color-mix takes as-is.
+ */
+const TAILWIND_OPACITY_VARIABLE = /^var\(--tw-[a-z-]*opacity(?:,\s*1)?\)$/;
+const token = (name) => ({ opacityValue }) => {
+  const alpha = opacityValue === undefined ? '' : String(opacityValue).trim();
+  if (alpha === '' || TAILWIND_OPACITY_VARIABLE.test(alpha)) return `var(--color-${name})`;
+  const share = alpha.endsWith('%') ? alpha : `calc(${alpha} * 100%)`;
+  return `color-mix(in srgb, var(--color-${name}) ${share}, transparent)`;
+};
+
 /** @type {import('tailwindcss').Config} */
 export default {
   // Class-based (not media-query-based) so the ThemeContext's explicit Light/Dark/System
@@ -9,60 +32,61 @@ export default {
     extend: {
       colors: {
         // Sidebar / dark surfaces — intentionally not theme-dependent (see index.css comment)
-        sidebar: 'var(--color-sidebar)',
-        'sidebar-hover': 'var(--color-sidebar-hover)',
+        sidebar: token('sidebar'),
+        'sidebar-hover': token('sidebar-hover'),
         // App background + cards
-        bg: 'var(--color-bg)',
-        card: 'var(--color-card)',
-        border: 'var(--color-border)',
-        surface: 'var(--color-surface)',
-        // Text — rgb()/<alpha-value> form because these two are the only colors ever used
-        // with Tailwind's opacity modifier (e.g. text-ink/60)
+        bg: token('bg'),
+        card: token('card'),
+        border: token('border'),
+        surface: token('surface'),
+        // Text — rgb()/<alpha-value> form because their tokens are stored as channels; every
+        // other colour goes through token() above for its opacity modifiers (e.g. text-ink/60
+        // here, border-warning/30 there)
         ink: 'rgb(var(--color-ink) / <alpha-value>)',
-        muted: 'var(--color-muted)',
+        muted: token('muted'),
         // Brand
         primary: 'rgb(var(--color-primary) / <alpha-value>)',
-        'primary-dark': 'var(--color-primary-dark)',
-        'primary-light': 'var(--color-primary-light)',
-        'on-primary': 'var(--color-on-primary)',
+        'primary-dark': token('primary-dark'),
+        'primary-light': token('primary-light'),
+        'on-primary': token('on-primary'),
         // Semantic
-        success: 'var(--color-success)',
-        'success-bg': 'var(--color-success-bg)',
-        danger: 'var(--color-danger)',
-        'danger-bg': 'var(--color-danger-bg)',
-        warning: 'var(--color-warning)',
-        'warning-bg': 'var(--color-warning-bg)',
+        success: token('success'),
+        'success-bg': token('success-bg'),
+        danger: token('danger'),
+        'danger-bg': token('danger-bg'),
+        warning: token('warning'),
+        'warning-bg': token('warning-bg'),
         // Premium brand accent — separate from the decorative accent-* family below; see
         // index.css's comment on why it's gated to specific paid-tier moments only.
-        premium: 'var(--color-premium)',
-        'premium-bg': 'var(--color-premium-bg)',
-        'on-premium': 'var(--color-on-premium)',
+        premium: token('premium'),
+        'premium-bg': token('premium-bg'),
+        'on-premium': token('on-premium'),
         // Fixed (non-toggling) graphite/paper pair — see index.css's comment on these
-        'fixed-dark': 'var(--color-fixed-dark)',
-        'fixed-light': 'var(--color-fixed-light)',
-        'fixed-ink': 'var(--color-fixed-ink)',
-        'fixed-ink-2': 'var(--color-fixed-ink-2)',
-        'fixed-ink-3': 'var(--color-fixed-ink-3)',
-        'fixed-ink-hover': 'var(--color-fixed-ink-hover)',
-        'premium-fixed': 'var(--color-premium-fixed)',
-        'on-premium-fixed': 'var(--color-on-premium-fixed)',
+        'fixed-dark': token('fixed-dark'),
+        'fixed-light': token('fixed-light'),
+        'fixed-ink': token('fixed-ink'),
+        'fixed-ink-2': token('fixed-ink-2'),
+        'fixed-ink-3': token('fixed-ink-3'),
+        'fixed-ink-hover': token('fixed-ink-hover'),
+        'premium-fixed': token('premium-fixed'),
+        'on-premium-fixed': token('on-premium-fixed'),
         // Shared dark-surface pair for SiteFooter and the marketing surface's own dark
         // sections — see index.css's comment on these.
-        'deep-surface': 'var(--color-deep-surface)',
-        'deep-ink': 'var(--color-deep-ink)',
+        'deep-surface': token('deep-surface'),
+        'deep-ink': token('deep-ink'),
         // Decorative icon-chip accents — see index.css's comment on these
-        'accent-blue': 'var(--color-accent-blue)',
-        'accent-blue-bg': 'var(--color-accent-blue-bg)',
-        'accent-green': 'var(--color-accent-green)',
-        'accent-green-bg': 'var(--color-accent-green-bg)',
-        'accent-red': 'var(--color-accent-red)',
-        'accent-red-bg': 'var(--color-accent-red-bg)',
-        'accent-purple': 'var(--color-accent-purple)',
-        'accent-purple-bg': 'var(--color-accent-purple-bg)',
-        'accent-orange': 'var(--color-accent-orange)',
-        'accent-orange-bg': 'var(--color-accent-orange-bg)',
-        'accent-teal': 'var(--color-accent-teal)',
-        'accent-teal-bg': 'var(--color-accent-teal-bg)',
+        'accent-blue': token('accent-blue'),
+        'accent-blue-bg': token('accent-blue-bg'),
+        'accent-green': token('accent-green'),
+        'accent-green-bg': token('accent-green-bg'),
+        'accent-red': token('accent-red'),
+        'accent-red-bg': token('accent-red-bg'),
+        'accent-purple': token('accent-purple'),
+        'accent-purple-bg': token('accent-purple-bg'),
+        'accent-orange': token('accent-orange'),
+        'accent-orange-bg': token('accent-orange-bg'),
+        'accent-teal': token('accent-teal'),
+        'accent-teal-bg': token('accent-teal-bg'),
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],

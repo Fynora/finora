@@ -257,8 +257,8 @@ export default function Insights() {
           <div className="space-y-3">
             {hasNarration ? (
               <div className="space-y-2">
-                <p className="text-sm leading-relaxed border-l-4 border-accent bg-accent/5 rounded p-3">
-                  <span className="font-medium text-accent">Fyn: </span>{narration}
+                <p className="text-sm leading-relaxed border-l-4 border-accent-purple bg-accent-purple-bg rounded p-3">
+                  <span className="font-medium text-accent-purple">Fyn: </span>{narration}
                 </p>
                 <button
                   type="button"

@@ -5,6 +5,7 @@ import com.finora.dto.ImportDto.StagingSessionResponse;
 import com.finora.dto.ImportDto;
 import com.finora.dto.ImportDto.DetectedAccountInfo;
 import com.finora.dto.ImportDto.StagedAccountSection;
+import com.finora.imports.StatementPeriodPolicy;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -52,11 +53,12 @@ public record StagedForJob(UUID sessionId, int totalParsed, int stagedRows, Stri
      *
      * <p>Note this is NOT index-aligned with {@code verificationReports}, which filters nulls out
      * -- these are two independent per-section views, and the predicate reads them separately.
+     *
+     * <p>Read through {@link StatementPeriodPolicy}, the same rule the Free limit and the held
+     * statement re-run use, so a bank whose printed period is not judged is skipped here too.
      */
     private static LocalDate[] periodOf(DetectedAccountInfo detected) {
-        return detected == null
-                ? new LocalDate[]{null, null}
-                : new LocalDate[]{detected.statementPeriodStart(), detected.statementPeriodEnd()};
+        return StatementPeriodPolicy.judgedPeriod(detected);
     }
 
     /** The single-section envelopes carry exactly one section, so exactly one period.

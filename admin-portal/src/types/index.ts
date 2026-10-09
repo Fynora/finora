@@ -98,6 +98,10 @@ export interface NeedsAttentionDto {
   lockedAccounts: number;
   transactionsNeedingCategoryReview: number;
   transactionsFlaggedAsDuplicates: number;
+  /** Undecided trust-review holds, including ones the worker opened with no review record. */
+  statementsHeldForTrustReview: number;
+  /** Parser-gap holds (HELD_FOR_REVIEW) waiting in the Held Imports queue. */
+  importsHeldForReview: number;
 }
 
 /** Mirrors backend OperationalDashboardDto exactly. importsWithSkippedRowsToday is the honest

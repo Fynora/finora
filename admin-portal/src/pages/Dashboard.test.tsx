@@ -58,7 +58,7 @@ function overview(overrides: Partial<OperationalDashboardDto> = {}): Operational
     importsWithSkippedRowsToday: 0,
     inactiveUsersLast7Days: 0,
     previousDay: { activeUsers: 80, transactions: 300, imports: 12, importsWithSkippedRows: 0 },
-    needsAttention: { importsWithSkippedRowsToday: 0, lockedAccounts: 0, transactionsNeedingCategoryReview: 0, transactionsFlaggedAsDuplicates: 0 },
+    needsAttention: { importsWithSkippedRowsToday: 0, lockedAccounts: 0, transactionsNeedingCategoryReview: 0, transactionsFlaggedAsDuplicates: 0, statementsHeldForTrustReview: 0, importsHeldForReview: 0 },
     health: { overallStatus: 'UP', providers: [] },
     alerts: [],
     recentActivity: [],
@@ -275,5 +275,39 @@ describe('Dashboard — Platform Activity chart + Insights row', () => {
 
     expect(await screen.findByText('17 users')).toBeInTheDocument();
     expect(screen.getByText('Inactive 7+ days')).toBeInTheDocument();
+  });
+});
+
+describe('Dashboard — needs attention: open holds', () => {
+  beforeEach(() => {
+    vi.mocked(useAdminAuth).mockReset();
+    vi.mocked(adminDashboardApi.activationFunnel).mockReset().mockResolvedValue({
+      signedUp: 0, firstImport: 0, firstBudget: 0, firstGoal: 0,
+    });
+    vi.mocked(adminDashboardApi.activityTrend).mockReset().mockResolvedValue([]);
+    vi.mocked(adminStatsApi.overview).mockReset().mockResolvedValue({
+      totalAccounts: 0, newUsersLast7Days: 0, totalStatementImports: 0, suspendedUsers: 0,
+    } as any);
+    vi.mocked(adminSystemApi.health).mockReset();
+    mockAuth(['PLATFORM_STATS_VIEW']);
+  });
+
+  // Each of these is a user who was told they would hear back within 48 hours. The home screen is
+  // where an admin who missed the alert email still sees them.
+  it('shows each open hold count with a link to its queue', async () => {
+    vi.mocked(adminDashboardApi.overview).mockReset().mockResolvedValue(overview({
+      needsAttention: {
+        importsWithSkippedRowsToday: 0, lockedAccounts: 0, transactionsNeedingCategoryReview: 0,
+        transactionsFlaggedAsDuplicates: 0, statementsHeldForTrustReview: 4, importsHeldForReview: 1,
+      },
+    }));
+
+    renderPage();
+
+    expect(await screen.findByText(/statements are waiting for trust review/)).toBeInTheDocument();
+    expect(screen.getByText(/import is held for review/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Open Held Statements/i })).toHaveAttribute('href', '/held-statements');
+    expect(screen.getByRole('link', { name: /Open Held Imports/i })).toHaveAttribute('href', '/held-imports');
+    expect(screen.queryByText('Nothing needs attention right now.')).not.toBeInTheDocument();
   });
 });

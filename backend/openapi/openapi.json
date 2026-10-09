@@ -27477,6 +27477,14 @@
                     "transactionsFlaggedAsDuplicates": {
                         "type": "integer",
                         "format": "int64"
+                    },
+                    "statementsHeldForTrustReview": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "importsHeldForReview": {
+                        "type": "integer",
+                        "format": "int64"
                     }
                 }
             },

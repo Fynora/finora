@@ -133,6 +133,29 @@ describe('ImportDetail', () => {
     expect(screen.queryByRole('button', { name: /upload a different file/i })).not.toBeInTheDocument();
   });
 
+  // Statement History links here, so this is where someone comes back to ask what happened to a
+  // held statement. The label alone said "checking" with no who, no when.
+  it('explains a held import: by hand, within 48 hours, and that we will notify them', async () => {
+    api.progress.mockResolvedValue(job({ status: 'HELD_FOR_TRUST_REVIEW', importSessionId: null, finishedAt: null }));
+    api.timeline.mockResolvedValue(emptyTimeline({ status: 'HELD_FOR_TRUST_REVIEW' }));
+    renderDetail();
+
+    const held = await screen.findByTestId('import-detail-held');
+    expect(held).toHaveTextContent(/by hand/);
+    expect(held).toHaveTextContent(/up to 48 hours/);
+    expect(held).toHaveTextContent(/we'll notify you/);
+    expect(screen.queryByRole('button', { name: /upload a different file/i })).not.toBeInTheDocument();
+  });
+
+  it('shows no held explanation for an import that is not held', async () => {
+    api.progress.mockResolvedValue(job({ status: 'ANALYZING', importSessionId: null, finishedAt: null }));
+    api.timeline.mockResolvedValue(emptyTimeline({ status: 'ANALYZING' }));
+    renderDetail();
+
+    await screen.findByText('hdfc-july.pdf');
+    expect(screen.queryByTestId('import-detail-held')).not.toBeInTheDocument();
+  });
+
   it('re-fetches both progress and the timeline on manual refresh, without polling on its own', async () => {
     api.progress.mockResolvedValue(job({ status: 'ANALYZING', importSessionId: null }));
     api.timeline.mockResolvedValue(emptyTimeline({ status: 'ANALYZING' }));

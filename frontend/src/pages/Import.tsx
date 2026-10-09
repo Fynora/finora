@@ -1139,8 +1139,8 @@ export default function Import() {
                   // returns straight to the dropzone. A failure does NOT reset here -- ImportTimeline
                   // (below) is about to show the curated reason and the way back to the dropzone; an
                   // immediate reset would unmount it before anyone could read either. A held job does
-                  // not reset either, for the same reason: ImportProgress is about to show the "we're
-                  // running additional checks" message, and it can only do that if it stays mounted.
+                  // not reset either, for the same reason: ImportProgress is about to show the held
+                  // message, and it can only do that if it stays mounted.
                   // Bug fix, caught live: this used to only exempt FAILED, so a held job settled and
                   // unmounted in the same polling tick, before its own message ever painted.
                   if (job.status !== 'FAILED' && !isHeld(job)) {

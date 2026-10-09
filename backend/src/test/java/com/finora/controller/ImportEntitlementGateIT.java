@@ -3,6 +3,7 @@ package com.finora.controller;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.AbstractIntegrationTest;
+import com.finora.accounts.AccountDto;
 import com.finora.dto.ImportDto.ConfirmRequest;
 import com.finora.dto.ImportDto.ConfirmedRow;
 import com.finora.dto.ImportDto.DetectedAccountInfo;
@@ -18,6 +19,7 @@ import com.finora.repository.UserRepository;
 import com.finora.security.JwtService;
 import com.finora.service.SubscriptionService;
 import com.finora.testsupport.TestSessions;
+import com.finora.util.BankRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
@@ -293,6 +295,61 @@ class ImportEntitlementGateIT extends AbstractIntegrationTest {
         User user = createUser();
         subscriptionService.provisionFreeSubscription(user.getId());
         return user;
+    }
+
+    // -- slice: the printed period is not judged, only the transactions (owner's decision, 2026-10-09)
+
+    private UUID stageWithBank(User user, String bankId, LocalDate printedStart, LocalDate printedEnd,
+                               List<LocalDate> rowDates) {
+        DetectedAccountInfo detected = new DetectedAccountInfo("Test Bank", "SAVINGS", new BigDecimal("1000"),
+                new BigDecimal("900"), printedStart, printedEnd, null, null, null, null, null, null, null,
+                AccountDto.BankDto.from(BankRegistry.get(bankId)),
+                "SAVINGS", 0.85, false, List.of(), null,
+                null, null, null, null, null, null, null);
+        ImportSession session = importSessionService.createSession(user.getId(), "statement.pdf",
+                "pdf bytes".getBytes(StandardCharsets.UTF_8),
+                rowDates.stream().map(this::stagedRowOn).toList(), detected);
+        return session.getId();
+    }
+
+    @Test
+    void confirm_onFreePlan_aSliceStatementPrintingTheWholeYear_isAllowedWhenItsTransactionsFitOneMonth() throws Exception {
+        User user = freeUser();
+        List<LocalDate> dates = List.of(LocalDate.of(2026, 9, 3), LocalDate.of(2026, 9, 20), LocalDate.of(2026, 10, 2));
+        UUID sessionId = stageWithBank(user, "SLICE", LocalDate.of(2026, 4, 1), LocalDate.of(2027, 3, 31), dates);
+
+        ResponseEntity<String> response = post("/api/v1/import/csv/confirm", user, confirmRows(sessionId, dates, d -> true));
+
+        // Past the gate: the random account id in the request is what is not found.
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void confirm_onFreePlan_aSliceStatementPrintingTheWholeYear_isRefusedOnItsTransactionsWhenTheySpanMore() throws Exception {
+        User user = freeUser();
+        List<LocalDate> dates = List.of(LocalDate.of(2026, 7, 31), LocalDate.of(2026, 8, 20), LocalDate.of(2026, 10, 6));
+        UUID sessionId = stageWithBank(user, "SLICE", LocalDate.of(2026, 4, 1), LocalDate.of(2027, 3, 31), dates);
+
+        ResponseEntity<String> response = post("/api/v1/import/csv/confirm", user, confirmRows(sessionId, dates, d -> true));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(mapper.readTree(response.getBody()).get("message").asText()).isEqualTo(
+                "Free plan statements can cover at most one month. Its transactions run from 31 Jul 2026 to 6 Oct 2026. "
+                        + "Upgrade to Plus to import longer statement periods.");
+    }
+
+    @Test
+    void confirm_onFreePlan_anotherBankPrintingTheWholeYear_isStillRefusedOnThePrintedPeriod() throws Exception {
+        User user = freeUser();
+        List<LocalDate> dates = List.of(LocalDate.of(2026, 9, 3), LocalDate.of(2026, 9, 20));
+        UUID sessionId = stageWithBank(user, "HDFC", LocalDate.of(2026, 4, 1), LocalDate.of(2027, 3, 31), dates);
+
+        ResponseEntity<String> response = post("/api/v1/import/csv/confirm", user, confirmRows(sessionId, dates, d -> true));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(mapper.readTree(response.getBody()).get("message").asText()).isEqualTo(
+                "Free plan statements can cover at most one month. It covers 1 Apr 2026 to 31 Mar 2027. "
+                        + "Upgrade to Plus to import longer statement periods.");
     }
 
     @Test

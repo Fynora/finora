@@ -18,6 +18,16 @@ const IN_FLIGHT: ImportJobProgress['status'][] = [
   'QUEUED', 'PARSING', 'ANALYZING', 'DEDUPING', 'IMPORTING', 'LEARNING',
 ];
 
+/**
+ * What a held import says, for both holds -- the identical sentences web's
+ * frontend/src/lib/importJob.ts exports under the same names; see that file for why the copy
+ * names a time and says "by hand", and what has to change with it if the 48 hours ever does.
+ */
+export const HELD_LABEL = "We're double-checking this statement";
+export const HELD_DETAIL = 'Our team is checking it by hand to make sure every transaction is read '
+  + "correctly. This takes up to 48 hours, and we'll notify you as soon as it's done. You can keep "
+  + 'using Fynora in the meantime.';
+
 const LABELS: Record<ImportJobProgress['status'], string> = {
   QUEUED: 'Waiting to start',
   PARSING: 'Reading your statement',
@@ -27,8 +37,8 @@ const LABELS: Record<ImportJobProgress['status'], string> = {
   LEARNING: 'Learning your merchants',
   COMPLETED: 'Ready to review',
   FAILED: "Couldn't finish",
-  HELD_FOR_REVIEW: 'Running additional checks',
-  HELD_FOR_TRUST_REVIEW: 'Running additional checks',
+  HELD_FOR_REVIEW: HELD_LABEL,
+  HELD_FOR_TRUST_REVIEW: HELD_LABEL,
   CANCELLED: 'Cancelled',
 };
 
@@ -91,10 +101,7 @@ export function percent(job: ImportJobProgress): number | null {
  */
 export function detail(job: ImportJobProgress): string | null {
   if (job.status === 'FAILED') return null;
-  if (job.status === 'HELD_FOR_REVIEW' || job.status === 'HELD_FOR_TRUST_REVIEW') {
-    return "We need to run some additional checks on this statement before we can complete "
-      + "the import. We'll notify you once it's ready — no action needed from you right now.";
-  }
+  if (isHeld(job)) return HELD_DETAIL;
   if (job.rowsTotal === null) return null;
   if (job.status === 'COMPLETED') {
     return `${job.rowsTotal} ${job.rowsTotal === 1 ? 'transaction' : 'transactions'} found`;

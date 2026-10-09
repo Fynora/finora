@@ -20,6 +20,21 @@ const IN_FLIGHT: ImportJobProgress['status'][] = [
 ];
 
 /**
+ * What a held import says, for both holds. Exported for the tests; the hold email and push carry
+ * the same promise (backend V263__import_statement_held_copy_48h.sql, and
+ * ResendEmailProvider.buildStatementHeldMessage), and mobile's importJob.ts the same sentences.
+ *
+ * "By hand" and "48 hours" are both promises, and both have to stay true. Testers in October 2026
+ * read the earlier "Running additional checks" with no time as "the app did nothing" and gave up
+ * after 3-6 days. The 48 hours is the owner's commitment for how fast the review queue is worked;
+ * if it changes, every place named above changes with it.
+ */
+export const HELD_LABEL = "We're double-checking this statement";
+export const HELD_DETAIL = 'Our team is checking it by hand to make sure every transaction is read '
+  + "correctly. This takes up to 48 hours, and we'll notify you as soon as it's done. You can keep "
+  + 'using Fynora in the meantime.';
+
+/**
  * What the user is told is happening.
  *
  * Deliberately not the enum name. "ANALYZING" is the queue's vocabulary; someone who has just
@@ -36,11 +51,11 @@ const LABELS: Record<ImportJobProgress['status'], string> = {
   LEARNING: 'Learning your merchants',
   COMPLETED: 'Ready to review',
   FAILED: "Couldn't finish",
-  HELD_FOR_REVIEW: 'Running additional checks',
+  HELD_FOR_REVIEW: HELD_LABEL,
   // Identical wording to the hold above, on purpose. The two states differ in why we are looking,
   // never in what the user is waiting for, and a distinct label would invite them to work out the
   // difference -- which they cannot, and which is not theirs to worry about.
-  HELD_FOR_TRUST_REVIEW: 'Running additional checks',
+  HELD_FOR_TRUST_REVIEW: HELD_LABEL,
   CANCELLED: 'Cancelled',
 };
 
@@ -165,19 +180,14 @@ export function detail(job: ImportJobProgress): string | null {
   // count a row -- falling through would leave the user with a bare label and no
   // explanation of why nothing is moving.
   //
-  // The wording is deliberate on two counts. No ETA: triage is manual and volume-dependent,
-  // so a promised deadline would start breaking the moment volume grew. And no suggestion
-  // that the statement's authenticity is in question -- the cause is on our side (a parser
-  // gap for HELD_FOR_REVIEW, our own extraction contradicting itself for
-  // HELD_FOR_TRUST_REVIEW), and telling someone their own bank statement is being checked
-  // for genuineness is a worse trust hit than the delay it would excuse. That second rule
-  // binds harder for the trust hold, where the doubt really is about what the document says.
-  // It also has to stay true: additional checks genuinely are run, by a person, before the
-  // import proceeds.
-  if (job.status === 'HELD_FOR_REVIEW' || job.status === 'HELD_FOR_TRUST_REVIEW') {
-    return "We need to run some additional checks on this statement before we can complete "
-      + "the import. We'll notify you once it's ready \u2014 no action needed from you right now.";
-  }
+  // The wording is deliberate on three counts. A time: this used to promise none, and testers
+  // read an open-ended wait as the app having done nothing (see HELD_DETAIL). "Read correctly":
+  // no suggestion that the statement's authenticity is in question -- the cause is on our side (a
+  // parser gap for HELD_FOR_REVIEW, our own extraction contradicting itself for
+  // HELD_FOR_TRUST_REVIEW), and telling someone their own bank statement is being checked for
+  // genuineness is a worse trust hit than the delay it would excuse. And "by hand" has to stay
+  // true: a person reviews every hold before the import proceeds.
+  if (isHeld(job)) return HELD_DETAIL;
   if (job.rowsTotal === null) return null;
   if (job.status === 'COMPLETED') {
     return `${job.rowsTotal} ${job.rowsTotal === 1 ? 'transaction' : 'transactions'} found`;

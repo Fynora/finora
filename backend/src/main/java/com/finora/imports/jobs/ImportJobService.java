@@ -498,13 +498,14 @@ public class ImportJobService {
             case COMPLETED -> "This import already finished. Discard the staged import instead "
                     + "if you don't want it.";
             case FAILED -> "This import already failed, so there is nothing left to cancel.";
-            // Both holds, one answer -- matching UserFacingImportStatus's own collapse. No ETA, and
-            // no suggestion the statement itself is in question: the doubt behind a trust hold is
-            // about our extraction, not their document, and this is the message most at risk of
-            // saying otherwise.
+            // Both holds, one answer -- matching UserFacingImportStatus's own collapse, and the same
+            // 48-hour promise the held screen and V263's hold email make. No suggestion the
+            // statement itself is in question: the doubt behind a trust hold is about our
+            // extraction, not their document, and this is the message most at risk of saying
+            // otherwise.
             case HELD_FOR_REVIEW, HELD_FOR_TRUST_REVIEW ->
-                    "We're still running some additional checks on this statement. There's nothing "
-                            + "to cancel yet; we'll let you know once it's ready.";
+                    "We're double-checking this statement by hand, so there's nothing to cancel. "
+                            + "We'll notify you within 48 hours.";
             // Transactions exist by now, and removing them is the ledger's job, not the queue's.
             case IMPORTING, LEARNING ->
                     "This import is already writing to your accounts and can no longer be "

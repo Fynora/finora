@@ -217,9 +217,9 @@ describe('ImportProgress — held for review', () => {
 
     await advance(POLL_SCHEDULE_MS[0] + 1);
 
-    expect(screen.getByText('Running additional checks')).toBeInTheDocument();
-    expect(screen.getByText(/additional checks on this statement/i)).toBeInTheDocument();
-    expect(screen.getByText(/no action needed from you right now/i)).toBeInTheDocument();
+    expect(screen.getByText("We're double-checking this statement")).toBeInTheDocument();
+    expect(screen.getByText(/checking it by hand/i)).toBeInTheDocument();
+    expect(screen.getByText(/up to 48 hours/i)).toBeInTheDocument();
   });
 
   it('offers nothing to press — there is nothing the user can do', async () => {
@@ -270,7 +270,7 @@ describe('ImportProgress — held for review', () => {
  * a real bug here: a trust-held job carries a complete staged session, so every "is it finished?"
  * shortcut in this component says yes. The icon selection is the one that got it wrong -- the job
  * is settled, is not FAILED, and so fell through to the cancelled icon, showing a user a Ban glyph
- * beside the words "Running additional checks".
+ * beside the held label.
  */
 describe('ImportProgress — held for trust review', () => {
   const trustHeldJob = () => job({
@@ -286,7 +286,7 @@ describe('ImportProgress — held for trust review', () => {
 
     await advance(POLL_SCHEDULE_MS[0] + 1);
 
-    // Ban is the cancelled glyph. Pairing it with "Running additional checks" tells the user two
+    // Ban is the cancelled glyph. Pairing it with the held label tells the user two
     // contradictory things at once, and the more alarming one wins.
     expect(container.querySelector('.lucide-ban')).not.toBeInTheDocument();
     expect(container.querySelector('.lucide-clock')).toBeInTheDocument();
@@ -298,8 +298,8 @@ describe('ImportProgress — held for trust review', () => {
 
     await advance(POLL_SCHEDULE_MS[0] + 1);
 
-    expect(screen.getByText('Running additional checks')).toBeInTheDocument();
-    expect(screen.getByText(/no action needed from you right now/i)).toBeInTheDocument();
+    expect(screen.getByText("We're double-checking this statement")).toBeInTheDocument();
+    expect(screen.getByText(/up to 48 hours/i)).toBeInTheDocument();
   });
 
   it('never hands over the staged session, which is the whole point of the hold', async () => {

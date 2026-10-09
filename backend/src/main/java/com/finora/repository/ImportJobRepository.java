@@ -104,6 +104,10 @@ public interface ImportJobRepository extends JpaRepository<ImportJob, UUID> {
      *  held without one ({@code HeldStatementService.listHoldsWithoutReviewRecord}). */
     Page<ImportJob> findByStatusAndHeldStatementIdIsNull(ImportJob.Status status, Pageable pageable);
 
+    /** How many of {@link #findByStatusAndHeldStatementIdIsNull} there are -- the admin dashboard
+     *  counts these trust holds alongside the ones that do have a review record. */
+    long countByStatusAndHeldStatementIdIsNull(ImportJob.Status status);
+
     /**
      * Jobs an admin has already sent back to the queue that have not finished yet.
      *

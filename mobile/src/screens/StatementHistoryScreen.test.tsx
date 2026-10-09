@@ -4,6 +4,7 @@ import { StatementHistoryScreen } from './StatementHistoryScreen';
 import { importJobsApi, statementImportsApi, type ImportJobProgress } from '../api/endpoints';
 import { PDF_PASSWORD_INVALID, PDF_PASSWORD_REQUIRED } from '../api/errorCodes';
 import type { AccountStatementGroup } from '../types';
+import { detail as jobDetail, label as jobLabel } from '../lib/importJob';
 
 // Scoped to re-importing a password-protected statement -- the one flow here where the server's
 // answer changes what the screen DOES rather than only what it says.
@@ -411,13 +412,17 @@ describe('StatementHistoryScreen — recent imports', () => {
     expect(await screen.findByText("Fynora couldn't complete this import. Please try again.")).toBeOnTheScreen();
   });
 
+  // The held copy itself belongs to lib/importJob and is asserted there; this checks the card shows
+  // whatever that module says, so a copy change does not have to touch this file too.
   it('shows a held import as being checked', async () => {
-    jobs.recent.mockResolvedValue([job({ status: 'HELD_FOR_TRUST_REVIEW', userStatus: 'HELD_FOR_REVIEW', fileName: 'held.pdf' })]);
+    const held = job({ status: 'HELD_FOR_TRUST_REVIEW', userStatus: 'HELD_FOR_REVIEW', fileName: 'held.pdf' });
+    jobs.recent.mockResolvedValue([held]);
     renderScreen();
 
     expect(await screen.findByText('held.pdf')).toBeOnTheScreen();
-    expect(screen.getByText(/Running additional checks/)).toBeOnTheScreen();
-    expect(screen.getByText(/We'll notify you once it's ready/)).toBeOnTheScreen();
+    const escaped = jobLabel(held).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    expect(screen.getByText(new RegExp(`^${escaped}`))).toBeOnTheScreen();
+    expect(screen.getByText(jobDetail(held) as string)).toBeOnTheScreen();
   });
 
   it('leaves completed imports to the statement list', async () => {

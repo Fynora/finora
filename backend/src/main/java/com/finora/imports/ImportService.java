@@ -579,18 +579,57 @@ public class ImportService {
      */
     private void requireStatementWithinFreeLimit(UUID userId, UUID sessionId, DetectedAccountInfo detected,
                                                  List<StagedRow> stagedRows, boolean oneOfSeveralAccounts) {
+        FreeLimitFinding finding = freeLimitFinding(userId, detected, stagedRows, oneOfSeveralAccounts);
+        if (finding == null) return;
         LocalDate[] period = periodOf(detected);
-        List<LocalDate> dates = stagedRows == null ? List.of()
-                : stagedRows.stream().map(StagedRow::date).filter(Objects::nonNull).toList();
-        FreeStatementPeriod.Excess excess = FreeStatementPeriod.firstExcess(period[0], period[1], dates);
-        if (excess == null) return;
-        if (entitlementService.hasEntitlement(userId, FeatureEntitlement.EXTENDED_HISTORY)) return;
+        FreeStatementPeriod.Excess excess = finding.excess();
         if (excess.fromTransactions() && period[0] != null && period[1] != null) {
             // Spans only, never the dates: they are statement content (see
             // ConfirmedRowIntegrity's note on what reaches logs).
             log.info("Free statement limit: session {} prints a {}-day period, but its transactions span {} days -- refused",
                     sessionId, daysInclusive(period[0], period[1]), daysInclusive(excess.from(), excess.to()));
         }
+        FreePlanLimitNotice notice = finding.notice();
+        throw new ApiException(ErrorCode.STATEMENT_PERIOD_TOO_LONG.defaultStatus(), ErrorCode.STATEMENT_PERIOD_TOO_LONG,
+                notice.message(),
+                Map.of("coveredFrom", notice.coveredFrom().toString(), "coveredTo", notice.coveredTo().toString(),
+                        "basis", notice.basis()));
+    }
+
+    /**
+     * The notice the review screen shows straight after staging when this statement will be refused
+     * at confirm under the Free one-month limit, or null when it fits or the user's plan has no such
+     * limit. The same finding {@link #requireStatementWithinFreeLimit} refuses on, so the early
+     * warning and the refusal cannot disagree. Every section of a composite statement is judged; the
+     * first that is too long is reported, as confirm would refuse on it.
+     */
+    public FreePlanLimitNotice freePlanLimitNotice(UUID userId, StagingResponse staging,
+                                                   List<StagedAccountSection> sections) {
+        if (sections != null && !sections.isEmpty()) {
+            for (StagedAccountSection section : sections) {
+                FreeLimitFinding finding = freeLimitFinding(userId, section.detectedAccount(), section.rows(),
+                        sections.size() > 1);
+                if (finding != null) return finding.notice();
+            }
+            return null;
+        }
+        if (staging == null) return null;
+        FreeLimitFinding finding = freeLimitFinding(userId, staging.detectedAccount(), staging.rows(), false);
+        return finding == null ? null : finding.notice();
+    }
+
+    private record FreeLimitFinding(FreeStatementPeriod.Excess excess, FreePlanLimitNotice notice) {}
+
+    /** Null when the statement fits the Free limit or the user's plan lifts it. The plan is checked
+     *  only once a span is over, so a statement that fits costs no lookup. */
+    private FreeLimitFinding freeLimitFinding(UUID userId, DetectedAccountInfo detected, List<StagedRow> stagedRows,
+                                              boolean oneOfSeveralAccounts) {
+        LocalDate[] period = periodOf(detected);
+        List<LocalDate> dates = stagedRows == null ? List.of()
+                : stagedRows.stream().map(StagedRow::date).filter(Objects::nonNull).toList();
+        FreeStatementPeriod.Excess excess = FreeStatementPeriod.firstExcess(period[0], period[1], dates);
+        if (excess == null) return null;
+        if (entitlementService.hasEntitlement(userId, FeatureEntitlement.EXTENDED_HISTORY)) return null;
         java.time.format.DateTimeFormatter shown =
                 java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy", java.util.Locale.ENGLISH);
         // On a composite statement, say it is one of its accounts: the dates alone do not tell the
@@ -599,11 +638,11 @@ public class ImportService {
                 ? (oneOfSeveralAccounts ? "One account's transactions run from " : "Its transactions run from ")
                 : (oneOfSeveralAccounts ? "One account in this statement covers " : "It covers ");
         String found = lead + excess.from().format(shown) + " to " + excess.to().format(shown) + ".";
-        throw new ApiException(ErrorCode.STATEMENT_PERIOD_TOO_LONG.defaultStatus(), ErrorCode.STATEMENT_PERIOD_TOO_LONG,
+        return new FreeLimitFinding(excess, new FreePlanLimitNotice(
+                ErrorCode.STATEMENT_PERIOD_TOO_LONG.code(),
                 "Free plan statements can cover at most one month. " + found
                         + " Upgrade to Plus to import longer statement periods.",
-                Map.of("coveredFrom", excess.from().toString(), "coveredTo", excess.to().toString(),
-                        "basis", excess.fromTransactions() ? "TRANSACTIONS" : "PRINTED_PERIOD"));
+                excess.from(), excess.to(), excess.fromTransactions() ? "TRANSACTIONS" : "PRINTED_PERIOD"));
     }
 
     private static long daysInclusive(LocalDate a, LocalDate b) {

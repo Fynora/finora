@@ -510,25 +510,47 @@ public class ImportDto {
      *  before posting {@link MultiAccountConfirmRequest}. */
     public record PdfStagingSessionResponse(UUID sessionId, boolean multiAccount,
                                              StagingResponse staging, List<StagedAccountSection> sections,
-                                             PreviousImport previousImport, UUID heldForReviewJobId) {
+                                             PreviousImport previousImport, UUID heldForReviewJobId,
+                                             FreePlanLimitNotice freePlanLimit) {
         /** Every construction site that predates the re-upload notice; null means "no earlier
          *  import of these exact bytes". */
         public PdfStagingSessionResponse(UUID sessionId, boolean multiAccount, StagingResponse staging,
                                          List<StagedAccountSection> sections) {
-            this(sessionId, multiAccount, staging, sections, null, null);
+            this(sessionId, multiAccount, staging, sections, null, null, null);
         }
 
         /** Every construction site that predates the trust check on this endpoint: not held. */
         public PdfStagingSessionResponse(UUID sessionId, boolean multiAccount, StagingResponse staging,
                                          List<StagedAccountSection> sections, PreviousImport previousImport) {
-            this(sessionId, multiAccount, staging, sections, previousImport, null);
+            this(sessionId, multiAccount, staging, sections, previousImport, null, null);
         }
 
         /** See {@link StagingSessionResponse#heldForReviewJobId()}. */
         public PdfStagingSessionResponse heldForReview(UUID jobId) {
-            return new PdfStagingSessionResponse(sessionId, multiAccount, staging, sections, previousImport, jobId);
+            return new PdfStagingSessionResponse(sessionId, multiAccount, staging, sections, previousImport, jobId,
+                    freePlanLimit);
+        }
+
+        /** See {@link StagingSessionResponse#freePlanLimit()}. */
+        public PdfStagingSessionResponse withFreePlanLimit(FreePlanLimitNotice notice) {
+            return new PdfStagingSessionResponse(sessionId, multiAccount, staging, sections, previousImport,
+                    heldForReviewJobId, notice);
         }
     }
+
+    /**
+     * Shown on the review screen as soon as a statement is staged, when the Free plan's one-month
+     * limit will refuse it at confirm -- so the person learns before reviewing rows, not after.
+     * Built by the same code that refuses ({@code ImportService.freePlanLimitNotice}), so the two can
+     * never disagree: {@code message} is the refusal's own text, and {@code coveredFrom}/{@code
+     * coveredTo}/{@code basis} are its {@code details}. Computed from the plan at the moment of the
+     * request, never stored: the same session reloaded after upgrading carries none.
+     *
+     * @param errorCode the refusal's code, {@code ENTITLEMENT_003}
+     * @param basis {@code PRINTED_PERIOD} or {@code TRANSACTIONS}: which span is too long
+     */
+    public record FreePlanLimitNotice(String errorCode, String message, LocalDate coveredFrom, LocalDate coveredTo,
+                                      String basis) {}
 
     /**
      * A confirmed import of the exact same file bytes by this user, shown on the review screen as a
@@ -611,19 +633,26 @@ public class ImportDto {
      *        same "being checked" state, instead of opening the review screen. Null otherwise.
      */
     public record StagingSessionResponse(UUID sessionId, StagingResponse staging, PreviousImport previousImport,
-                                         UUID heldForReviewJobId) {
+                                         UUID heldForReviewJobId, FreePlanLimitNotice freePlanLimit) {
         /** See {@link PdfStagingSessionResponse}'s matching constructor. */
         public StagingSessionResponse(UUID sessionId, StagingResponse staging) {
-            this(sessionId, staging, null, null);
+            this(sessionId, staging, null, null, null);
         }
 
         /** Every construction site that predates the trust check on this endpoint: not held. */
         public StagingSessionResponse(UUID sessionId, StagingResponse staging, PreviousImport previousImport) {
-            this(sessionId, staging, previousImport, null);
+            this(sessionId, staging, previousImport, null, null);
         }
 
         public StagingSessionResponse heldForReview(UUID jobId) {
-            return new StagingSessionResponse(sessionId, staging, previousImport, jobId);
+            return new StagingSessionResponse(sessionId, staging, previousImport, jobId, freePlanLimit);
+        }
+
+        /** The Free one-month limit this statement will be refused under at confirm, or null when it
+         *  fits or the plan has no such limit -- see {@link FreePlanLimitNotice}. Set by the
+         *  controller on every response the review screen opens from. */
+        public StagingSessionResponse withFreePlanLimit(FreePlanLimitNotice notice) {
+            return new StagingSessionResponse(sessionId, staging, previousImport, heldForReviewJobId, notice);
         }
     }
 

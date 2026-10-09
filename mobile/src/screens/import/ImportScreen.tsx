@@ -16,9 +16,11 @@ import { UploadProgressPanel, type UploadPanelState } from '../../components/Upl
 import { StagedRowCard } from './StagedRowCard';
 import {
   accountsApi, categoriesApi, importApi, importJobsApi, statementImportsApi,
-  type ImportJobProgress, type PreviousImport, type RNFile, type StagingResult,
+  type FreePlanLimitNotice, type ImportJobProgress, type PreviousImport, type RNFile, type StagingResult,
 } from '../../api/endpoints';
-import { PDF_PASSWORD_INVALID, PDF_PASSWORD_REQUIRED } from '../../api/errorCodes';
+import {
+  ACCOUNT_LIMIT_REACHED, PDF_PASSWORD_INVALID, PDF_PASSWORD_REQUIRED, STATEMENT_PERIOD_TOO_LONG,
+} from '../../api/errorCodes';
 import {
   importFailureMessage,
   isUnreadStatementLayout,
@@ -188,6 +190,16 @@ export function ImportScreen() {
   const [verification, setVerification] = useState<VerificationReport | null>(null);
   // F-33: an earlier import of these exact bytes, shown as a notice on the review step. Never a gate.
   const [previousImport, setPreviousImport] = useState<PreviousImport | null>(null);
+  // The Free one-month limit this statement will be refused under at Import, told up front so the
+  // person doesn't review every row first (FreePlanLimitNotice). Unlike the notice above it IS a
+  // gate (canConfirmImport): the backend would refuse. `limitOverridden` is the way past it for
+  // someone who has just upgraded -- the backend checks the plan again at Import either way.
+  const [freePlanLimit, setFreePlanLimit] = useState<FreePlanLimitNotice | null>(null);
+  const [limitOverridden, setLimitOverridden] = useState(false);
+  // The error message a "See plans" button belongs to: a Free-plan limit refusal at Import. Keyed
+  // on the message rather than a separate flag, so any later error replacing it hides the button
+  // without every setError call site having to remember to clear it.
+  const [upgradeErrorMessage, setUpgradeErrorMessage] = useState<string | null>(null);
 
   const [accountChoice, setAccountChoice] = useState<AccountChoice>('new');
   const [selectedAccountId, setSelectedAccountId] = useState('');
@@ -377,6 +389,8 @@ export function ImportScreen() {
     setDetected(null);
     setVerification(null);
     setPreviousImport(null);
+    setFreePlanLimit(null);
+    setLimitOverridden(false);
     setSummary(null);
     setAccountForm(initialAccountForm(null));
     // Cleared here as well as being set explicitly on every successful upload: leaving the
@@ -471,6 +485,8 @@ export function ImportScreen() {
       const res = await importApi.getSession(id);
       setSessionId(res.sessionId);
       setPreviousImport(res.previousImport ?? null);
+      setFreePlanLimit(res.freePlanLimit ?? null);
+      setLimitOverridden(false);
       hydrateReviewFrom(res.staging);
       setStep('review');
     } catch (e) {
@@ -550,6 +566,8 @@ export function ImportScreen() {
       }
       setSessionId(res.sessionId);
       setPreviousImport(res.previousImport ?? null);
+      setFreePlanLimit(res.freePlanLimit ?? null);
+      setLimitOverridden(false);
       hydrateReviewFrom(res.staging);
       setJobId(null);
       setStep('review');
@@ -663,6 +681,8 @@ export function ImportScreen() {
 
       setSessionId(res.sessionId);
       setPreviousImport(res.previousImport ?? null);
+      setFreePlanLimit(res.freePlanLimit ?? null);
+      setLimitOverridden(false);
       // The document opened, so the password has done its whole job -- drop it and the file.
       setPendingPdf(null);
       setPdfPassword('');
@@ -841,12 +861,44 @@ export function ImportScreen() {
       hapticSuccess();
     } catch (e) {
       reportTransportFailure(e, 'import:confirm', startedAt);
-      setError(toUserMessage(e, 'Could not complete the import.'));
+      const message = toUserMessage(e, 'Could not complete the import.');
+      setError(message);
+      // A Free-plan limit is the one refusal the person can act on from here: offer the plans.
+      const code = apiErrorCode(e);
+      setUpgradeErrorMessage(code === STATEMENT_PERIOD_TOO_LONG || code === ACCOUNT_LIMIT_REACHED ? message : null);
       hapticError();
     } finally {
       setConfirming(false);
     }
   }
+
+  // The plans screen lives in the More stack; Import is a tab of its own, so this is the same
+  // nested jump the other tabs make into More (see InsightsScreen's own note on it).
+  function openPlans() {
+    trackNavigation('subscription', 'contextual');
+    navigation.navigate('More', { screen: 'Subscription' });
+  }
+
+  // Coming back to this tab (from the plans screen, most likely) re-asks the server whether the Free
+  // limit still applies. The tab stays mounted while More is open, so without this a person who just
+  // upgraded would come back to the same warning. Only the notice is refreshed: the rows and every
+  // choice made on them stay as they are. A failed re-check changes nothing -- the warning and its
+  // "I've already upgraded" stay, and Import itself is still judged by the server.
+  const latestSessionId = useRef<string | null>(null);
+  latestSessionId.current = sessionId;
+  const recheckFreePlanLimit = useRef<() => void>(() => {});
+  recheckFreePlanLimit.current = () => {
+    if (step !== 'review' || !freePlanLimit || limitOverridden || !sessionId || reimport) return;
+    const id = sessionId;
+    importApi
+      .getSession(id)
+      .then((res) => {
+        // A different statement may have been opened while this was in flight.
+        if (latestSessionId.current === id) setFreePlanLimit(res.freePlanLimit ?? null);
+      })
+      .catch(() => {});
+  };
+  useEffect(() => navigation.addListener('focus', () => recheckFreePlanLimit.current()), [navigation]);
 
   const header = (
     <View>
@@ -854,6 +906,9 @@ export function ImportScreen() {
       {error ? (
         <Card style={{ ...styles.errorCard, borderColor: c.danger }}>
           <Text style={[styles.errorText, { color: c.danger }]}>{error}</Text>
+          {error === upgradeErrorMessage ? (
+            <Button label="See plans" variant="link" onPress={openPlans} />
+          ) : null}
         </Card>
       ) : null}
     </View>
@@ -1238,6 +1293,24 @@ export function ImportScreen() {
               ) : null}
             </Card>
 
+            {freePlanLimit && !reimport ? (
+              <View
+                style={[styles.section, styles.limitNotice, { backgroundColor: c.warningBg }]}
+                testID="free-plan-limit-notice"
+                accessibilityRole="alert"
+              >
+                <Text style={[styles.body, { color: c.warningInk }]}>{freePlanLimit.message}</Text>
+                <Text style={[styles.body, { color: c.warningInk }]}>
+                  You can't import this statement on the Free plan. Upload a statement covering one month, or upgrade.
+                  Your upload stays under "Continue a previous import" for 48 hours.
+                </Text>
+                <Button label="See plans" variant="link" onPress={openPlans} />
+                {!limitOverridden ? (
+                  <Button label="I've already upgraded" variant="link" onPress={() => setLimitOverridden(true)} />
+                ) : null}
+              </View>
+            ) : null}
+
             {previousImport ? (
               <View style={styles.section} testID="previous-import-notice" accessibilityRole="text">
                 <Text style={[styles.body, { color: c.ink }]}>
@@ -1502,6 +1575,7 @@ export function ImportScreen() {
                     isReimport: reimport !== null,
                     accountChoice,
                     selectedAccountId,
+                    freePlanLimitBlocks: freePlanLimit !== null && !limitOverridden,
                   })
                 }
               />
@@ -1640,6 +1714,11 @@ const styles = StyleSheet.create({
   rowsTitle: { fontSize: 15, fontWeight: '700' },
   unparseable: { fontSize: 12, marginTop: 6 },
   actions: { marginTop: spacing.md },
+  limitNotice: {
+    padding: 10,
+    borderRadius: radius.md,
+    gap: spacing.xs,
+  },
   gateNotice: {
     fontSize: 12,
     fontWeight: '500',

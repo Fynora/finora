@@ -39,6 +39,12 @@ export const TRUST_REVIEW_REJECTED = 'IMPORT_015';
 // comment on why this must not be the Java enum NAME).
 export const AUTH_ACCOUNT_DEACTIVATED = 'AUTH_007';
 
+// The Free plan's two limits. ImportScreen branches on these to offer the plans screen next to the
+// refusal, instead of a dead-end error -- same pair, same reason, as the web copy's
+// ACCOUNT_LIMIT_REACHED / STATEMENT_PERIOD_TOO_LONG.
+export const ACCOUNT_LIMIT_REACHED = 'ENTITLEMENT_002';
+export const STATEMENT_PERIOD_TOO_LONG = 'ENTITLEMENT_003';
+
 // VerifyPhoneScreen's change-number step branches on this to offer "Log in instead" rather than a
 // dead-end error -- a Google Sign-In account with no phone number yet, entering a number that
 // already belongs to a DIFFERENT account, most likely already has an account of their own. Found

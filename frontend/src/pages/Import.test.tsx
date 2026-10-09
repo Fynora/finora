@@ -3457,6 +3457,86 @@ describe('Import — re-upload notice', () => {
 });
 
 /**
+ * The Free plan's one-month limit, told on the review step as soon as the statement is staged
+ * (`freePlanLimit`) instead of only when Import is pressed after a full review. The banner shows
+ * the backend's own refusal text and the Import button waits on it -- the backend would refuse.
+ */
+describe('Import — Free plan one-month limit, told on upload', () => {
+  const freePlanLimit = {
+    errorCode: 'ENTITLEMENT_003',
+    message: 'Free plan statements can cover at most one month. Its transactions run from 5 Jan 2026 to 5 Mar 2026. Upgrade to Plus to import longer statement periods.',
+    coveredFrom: '2026-01-05',
+    coveredTo: '2026-03-05',
+    basis: 'TRANSACTIONS',
+  };
+
+  beforeEach(() => {
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(importApi.stagePdf).mockReset().mockResolvedValue(stagingResultWith());
+    vi.mocked(importApi.getSession).mockReset();
+  });
+
+  it('shows the refusal on the review step and holds the Import button', async () => {
+    vi.mocked(importApi.stageCsv).mockReset().mockResolvedValue({ ...stagingResultWith(), freePlanLimit });
+    const user = userEvent.setup();
+    renderImport();
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+
+    const notice = await screen.findByTestId('free-plan-limit-notice');
+    expect(notice).toHaveTextContent('Its transactions run from 5 Jan 2026 to 5 Mar 2026');
+    expect(within(notice).getByRole('link', { name: /see plus plans/i })).toHaveAttribute('href', '/app/billing');
+    expect(screen.getByRole('button', { name: /confirm import/i })).toBeDisabled();
+  });
+
+  it('lets someone who has just upgraded past the button -- the backend still decides', async () => {
+    vi.mocked(importApi.stageCsv).mockReset().mockResolvedValue({ ...stagingResultWith(), freePlanLimit });
+    const user = userEvent.setup();
+    renderImport();
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+    await user.click(await screen.findByRole('button', { name: /i've already upgraded/i }));
+
+    expect(screen.getByRole('button', { name: /confirm import/i })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: /i've already upgraded/i })).not.toBeInTheDocument();
+  });
+
+  it('shows nothing and holds nothing when the statement fits', async () => {
+    vi.mocked(importApi.stageCsv).mockReset().mockResolvedValue({ ...stagingResultWith(), freePlanLimit: null });
+    const user = userEvent.setup();
+    renderImport();
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+
+    expect(await screen.findByRole('button', { name: /confirm import/i })).toBeEnabled();
+    expect(screen.queryByTestId('free-plan-limit-notice')).not.toBeInTheDocument();
+  });
+
+  it('tells it on a resumed import too', async () => {
+    vi.mocked(importApi.stageCsv).mockReset().mockResolvedValue(stagingResultWith());
+    vi.mocked(importApi.getSession).mockResolvedValue({
+      sessionId: 'session-9',
+      staging: stagingResultWith().staging,
+      freePlanLimit,
+    });
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[{ pathname: '/app/import', state: { kind: 'resume', resumeSessionId: 'session-9' } }]}>
+          <AuthProvider>
+            <Import />
+          </AuthProvider>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByTestId('free-plan-limit-notice')).toHaveTextContent('5 Jan 2026 to 5 Mar 2026');
+    expect(screen.getByRole('button', { name: /confirm import/i })).toBeDisabled();
+  });
+});
+
+/**
  * A statement the server's accuracy check held on the synchronous path -- the path a locked PDF takes
  * when the user does not let Fynora keep its password. Its rows cannot be confirmed until a reviewer
  * approves them, so the page must follow the held job to the same "being checked" state a queued hold

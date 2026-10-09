@@ -492,6 +492,19 @@ export interface PreviousImport {
   transactionsImported: number;
 }
 
+// The Free plan's one-month statement limit, told on the review step as soon as a statement is
+// staged rather than only when Import is pressed. Mirrors frontend/src/api/endpoints.ts's identical
+// type -- see ImportDto.FreePlanLimitNotice on the backend. `message` is the confirm-time refusal's
+// own wording. Null/absent when the statement fits, the plan lifts the limit, or the backend
+// predates it.
+export interface FreePlanLimitNotice {
+  errorCode: string;
+  message: string;
+  coveredFrom: string;
+  coveredTo: string;
+  basis: 'PRINTED_PERIOD' | 'TRANSACTIONS' | string;
+}
+
 interface PdfStagingSessionResult {
   sessionId: string;
   multiAccount: boolean;
@@ -502,6 +515,7 @@ interface PdfStagingSessionResult {
   // be confirmed until a reviewer approves them, so the caller follows this import job instead of
   // opening the review. Absent from an older backend, which never held a statement staged here.
   heldForReviewJobId?: string | null;
+  freePlanLimit?: FreePlanLimitNotice | null;
 }
 
 type ProgressCallback = (percent: number) => void;
@@ -593,6 +607,7 @@ export const importApi = {
           previousImport?: PreviousImport | null;
           // See PdfStagingSessionResult.heldForReviewJobId.
           heldForReviewJobId?: string | null;
+          freePlanLimit?: FreePlanLimitNotice | null;
         }>('/import/csv/stage', form, toUploadProgressConfig(onProgress, signal))
         .then((r) => r.data)
     );
@@ -617,7 +632,14 @@ export const importApi = {
     api.post<{ perAccount: ImportSummary[] }>('/import/pdf/confirm-multi', payload).then((r) => r.data),
   listSessions: () => api.get<ImportSessionSummary[]>('/import/sessions').then((r) => r.data),
   getSession: (id: string) =>
-    api.get<{ sessionId: string; staging: StagingResult; previousImport?: PreviousImport | null }>(`/import/sessions/${id}`).then((r) => r.data),
+    api
+      .get<{
+        sessionId: string;
+        staging: StagingResult;
+        previousImport?: PreviousImport | null;
+        freePlanLimit?: FreePlanLimitNotice | null;
+      }>(`/import/sessions/${id}`)
+      .then((r) => r.data),
   discardSession: (id: string) => api.delete(`/import/sessions/${id}`),
   // "Your recent failed imports" -- Premium Import Reliability v1, §2.1. A document that never got
   // far enough to become an ImportSession (no header found, zero transactions, a scanned PDF)

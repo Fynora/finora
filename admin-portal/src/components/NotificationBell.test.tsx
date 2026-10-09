@@ -146,6 +146,9 @@ describe('NotificationBell', () => {
     const overdue = screen.getByText(/held statement is past the 48-hour promise — oldest waiting 3 days/);
     const waiting = screen.getByText(/statements are waiting for trust review/);
     expect(overdue.compareDocumentPosition(waiting) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Shown distinctly: the overdue row in the danger style, the ordinary waiting row not.
+    expect(overdue.closest('[data-overdue]')).toHaveClass('bg-danger-bg');
+    expect(waiting.closest('[data-overdue]')).toBeNull();
     expect(screen.getAllByRole('link', { name: /Open Held Statements/i })[0]).toHaveAttribute('href', '/held-statements');
   });
 

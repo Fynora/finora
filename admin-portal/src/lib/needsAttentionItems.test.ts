@@ -83,6 +83,7 @@ describe('needsAttentionItems', () => {
         }),
       ]);
       expect(items.map((i) => i.count)).toEqual([2, 1, 3, 1, 2]);
+      expect(items.map((i) => Boolean(i.overdue))).toEqual([true, true, false, false, false]);
     });
 
     it('shows no overdue row when nothing is overdue', () => {

@@ -6,6 +6,7 @@ import com.finora.service.HeldItemAdminAlertService;
 import com.finora.service.HeldStatementService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -17,6 +18,7 @@ import java.time.Instant;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.Executor;
 
 /**
  * Gate 1 spec §4: once a hold passes the 48-hour promise its user was given, the admins who can
@@ -52,25 +54,36 @@ public class HoldOverdueEscalationService {
     private final HeldItemAdminAlertService alerts;
     private final HeldStatementService heldStatements;
     private final TransactionTemplate tx;
+    private final Executor executor;
 
     @Value("${app.hold-overdue.escalation.enabled:true}")
     private boolean enabled;
 
     public HoldOverdueEscalationService(ImportJobRepository jobs, HeldItemAdminAlertService alerts,
                                         HeldStatementService heldStatements,
-                                        PlatformTransactionManager transactionManager) {
+                                        PlatformTransactionManager transactionManager,
+                                        @Qualifier("holdOverdueEscalationExecutor") Executor executor) {
         this.jobs = jobs;
         this.alerts = alerts;
         this.heldStatements = heldStatements;
         this.tx = new TransactionTemplate(transactionManager);
+        this.executor = executor;
     }
 
+    /**
+     * Handed off, never run here: each email may take the provider's full timeout, and this thread
+     * is the one the import-queue poll and the notification dispatcher also run on -- see
+     * {@code BackgroundWorkConfig.holdOverdueEscalationExecutor}, which also drops a tick that
+     * arrives while a run is still going.
+     */
     @Scheduled(fixedDelayString = "${app.hold-overdue.escalation.interval-ms:900000}",
             initialDelayString = "${app.hold-overdue.escalation.initial-delay-ms:300000}")
     public void scheduled() {
         if (!enabled) return;
-        int sent = escalate(Instant.now());
-        if (sent > 0) log.info("Hold overdue escalation: {} hold(s) escalated.", sent);
+        executor.execute(() -> {
+            int sent = escalate(Instant.now());
+            if (sent > 0) log.info("Hold overdue escalation: {} hold(s) escalated.", sent);
+        });
     }
 
     /** @return how many holds were escalated by email this run */

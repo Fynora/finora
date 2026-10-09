@@ -81,9 +81,10 @@ export function NotificationBell() {
                   a user waiting on a person -- below the fold of this panel, which is the same
                   "nobody saw it" failure the hold rows exist to fix. */}
               {criticalAlerts.map((alert) => <AlertRow key={alert.title} alert={alert} />)}
-              {attentionItems.map(({ count: itemCount, icon: Icon, label, to, linkLabel }) => (
-                <div key={label} className="flex items-start gap-2.5 px-4 py-2.5">
-                  <Icon size={14} className="text-warning flex-shrink-0 mt-0.5" />
+              {attentionItems.map(({ count: itemCount, icon: Icon, label, to, linkLabel, overdue }) => (
+                <div key={label} data-overdue={overdue ? 'true' : undefined}
+                  className={`flex items-start gap-2.5 px-4 py-2.5 ${overdue ? 'bg-danger-bg' : ''}`}>
+                  <Icon size={14} className={`flex-shrink-0 mt-0.5 ${overdue ? 'text-danger' : 'text-warning'}`} />
                   <div className="min-w-0">
                     <p className="text-xs text-ink">
                       <span className="font-mono font-bold">{itemCount}</span> {label}

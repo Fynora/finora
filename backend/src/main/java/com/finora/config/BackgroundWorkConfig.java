@@ -108,6 +108,27 @@ public class BackgroundWorkConfig {
     }
 
     /**
+     * The overdue-hold escalation's own thread ({@code HoldOverdueEscalationService}, Gate 1 spec
+     * §4). A run emails every eligible admin for every newly overdue hold, and each email may take
+     * the provider's connect-plus-read timeout; on the shared scheduler thread a degraded provider
+     * would hold up the import-queue poll and the notification dispatcher for the whole run. Same
+     * shape as {@link #statementRefreshDryRunExecutor}: one thread, no queue, and a tick arriving
+     * while a run is still going is dropped -- the next tick picks up whatever is still unmarked.
+     */
+    @Bean("holdOverdueEscalationExecutor")
+    public Executor holdOverdueEscalationExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setQueueCapacity(0);
+        executor.setThreadNamePrefix("hold-overdue-escalation-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.DiscardPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(false);
+        executor.initialize();
+        return executor;
+    }
+
+    /**
      * Sends layout review alert emails ({@code LayoutReviewAlertService}) off the upload request.
      * The email provider may take up to its connect-plus-read timeout per recipient; on the request
      * thread that would hold a user's statement upload hostage to an admin notification. One

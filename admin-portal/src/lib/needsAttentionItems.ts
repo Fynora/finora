@@ -8,6 +8,9 @@ export interface NeedsAttentionItem {
   label: string;
   to: string | null;
   linkLabel: string | null;
+  /** A hold past the 48-hour promise: rendered in the danger style so it reads apart from the
+   *  ordinary amber rows (Gate 1 spec §4, "shown distinctly"). */
+  overdue?: boolean;
 }
 
 /**
@@ -28,6 +31,7 @@ export function needsAttentionItems(data: NeedsAttentionDto, now: number = Date.
       label: overdueLabel(trustOverdue, 'held statement', now),
       to: '/held-statements',
       linkLabel: 'Open Held Statements',
+      overdue: true,
     },
     {
       count: importOverdue.count,
@@ -35,6 +39,7 @@ export function needsAttentionItems(data: NeedsAttentionDto, now: number = Date.
       label: overdueLabel(importOverdue, 'held import', now),
       to: '/held-imports',
       linkLabel: 'Open Held Imports',
+      overdue: true,
     },
     // The two holds come first: each is a user waiting on a person, after being told they will
     // hear back within 48 hours. In October 2026 holds sat 3-6 days because nothing here pointed

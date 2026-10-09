@@ -409,13 +409,14 @@ public class ImportJobService {
      * {@link com.finora.util.PageBounds} is the clamp every other paginated endpoint here already
      * uses and exists for exactly this; this one simply never adopted it.
      *
-     * <p>Leaves out jobs the owner dismissed ({@link #dismiss}). Only finished failures and
-     * cancellations can be dismissed, so a client looking for a job it lost track of mid-import
-     * still finds it here.
+     * <p>Leaves out jobs the owner dismissed ({@link #dismiss}), and failures or cancellations whose
+     * file they have since confirmed as a statement import ({@code ImportJobRepository
+     * #findRecentForOwner}). Both only ever remove finished jobs, so a client looking for a job it
+     * lost track of mid-import still finds it here.
      */
     public List<ImportJobDto.Progress> recent(UUID userId, int limit) {
         int size = com.finora.util.PageBounds.safeSize(limit, 50);
-        return repository.findByUserIdAndDismissedAtIsNullOrderByCreatedAtDesc(userId, PageRequest.of(0, size))
+        return repository.findRecentForOwner(userId, PageRequest.of(0, size))
                 .stream().map(ImportJobDto.Progress::of).toList();
     }
 

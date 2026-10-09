@@ -91,8 +91,30 @@ public interface ImportJobRepository extends JpaRepository<ImportJob, UUID> {
 
     List<ImportJob> findByUserIdOrderByCreatedAtDesc(UUID userId, Pageable pageable);
 
-    /** The recent-imports list: everything the owner has not dismissed (V264). */
-    List<ImportJob> findByUserIdAndDismissedAtIsNullOrderByCreatedAtDesc(UUID userId, Pageable pageable);
+    /**
+     * The recent-imports list, newest first: everything the owner has not dismissed (V264), less any
+     * failed or cancelled job whose file ({@code contentHash}) the same user has since confirmed as
+     * a statement import -- the statement is in their accounts, so "Couldn't finish" over it is only
+     * noise. Merely staged or held later uploads do not count. In the query rather than filtered
+     * afterwards, so a page still fills to its size. {@code StatementImport} carries
+     * {@code @SQLRestriction("deleted_at IS NULL")}, so a statement the user deleted no longer counts.
+     */
+    @Query("""
+            SELECT j FROM ImportJob j
+            WHERE j.userId = :userId
+              AND j.dismissedAt IS NULL
+              AND NOT (
+                  j.status IN (com.finora.entity.ImportJob.Status.FAILED,
+                               com.finora.entity.ImportJob.Status.CANCELLED)
+                  AND EXISTS (
+                      SELECT 1 FROM StatementImport i
+                      WHERE i.userId = j.userId
+                        AND j.contentHash IS NOT NULL
+                        AND i.contentHash = j.contentHash
+                        AND i.importedAt > j.createdAt))
+            ORDER BY j.createdAt DESC
+            """)
+    List<ImportJob> findRecentForOwner(@Param("userId") UUID userId, Pageable pageable);
 
     /** Queue depth for the {@code finora.worker.queue_depth} gauge. */
     long countByStatus(ImportJob.Status status);

@@ -872,6 +872,8 @@ class PushCampaignIT extends AbstractIntegrationTest {
         PushCampaignDto campaign = createNowOnly();
         assertThatThrownBy(() -> service.sendTest(adminId, campaign.id(), new PushCampaignTestRequest(null, null)))
                 .isInstanceOf(ApiException.class).hasMessageContaining("exactly one");
+        assertThatThrownBy(() -> service.sendTest(adminId, campaign.id(), null))
+                .isInstanceOf(ApiException.class).hasMessageContaining("exactly one");
         assertThatThrownBy(() -> service.sendTest(adminId, campaign.id(),
                 new PushCampaignTestRequest(UUID.randomUUID(), "a@example.com")))
                 .isInstanceOf(ApiException.class).hasMessageContaining("exactly one");

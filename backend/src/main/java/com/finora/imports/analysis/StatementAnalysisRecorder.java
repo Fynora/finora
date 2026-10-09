@@ -107,11 +107,23 @@ public class StatementAnalysisRecorder {
                                 String sourceFormat, long byteSize, String layoutFingerprint,
                                 String failureCode, String failureDetail, long durationMs,
                                 ParseDiagnostics diagnostics) {
+        return recordFailed(userId, source, fileName, sourceFormat, byteSize, layoutFingerprint,
+                failureCode, failureDetail, durationMs, diagnostics, null);
+    }
+
+    /**
+     * The same, plus which file it was ({@code contentHash}, V265) -- what lets
+     * {@link #recentUnresolvedCustomerFailures} drop this failure once the same file is confirmed.
+     */
+    public String recordFailed(UUID userId, StatementAnalysisSession.Source source, String fileName,
+                                String sourceFormat, long byteSize, String layoutFingerprint,
+                                String failureCode, String failureDetail, long durationMs,
+                                ParseDiagnostics diagnostics, String contentHash) {
         try {
             var session = StatementAnalysisSession.failed(nextReference(), userId, source, fileName,
                     sourceFormat, byteSize, layoutFingerprint, failureCode, truncate(failureDetail),
                     durationMs, diagnostics.rowCount(), writeHistogram(diagnostics, fileName),
-                    currentCorrelationId()).identifiedAs(diagnostics.identity());
+                    currentCorrelationId()).identifiedAs(diagnostics.identity()).ofContent(contentHash);
             return repository.save(session).getReference();
         } catch (RuntimeException e) {
             log.error("Could not record a FAILED analysis session for {} ({}) -- the layout that "
@@ -165,9 +177,32 @@ public class StatementAnalysisRecorder {
                         StatementAnalysisSession.Source.CUSTOMER_IMPORT, StatementAnalysisSession.Outcome.FAILED,
                         PageRequest.of(0, safeLimit))
                 .stream()
-                .map(s -> new ImportFailureSummaryDto(s.getReference(), s.getFileName(),
-                        com.finora.exception.ErrorCode.wireCodeOrNull(s.getFailureCode()), s.getCreatedAt()))
+                .map(StatementAnalysisRecorder::toSummary)
                 .toList();
+    }
+
+    /**
+     * What the customer's own failure list shows: {@link #recentCustomerFailures} without the
+     * failures they have since put right. A failure is left out once a confirmed statement import
+     * of theirs carries the same file ({@code content_hash}), imported after the failure -- the
+     * statement is in their accounts, and "couldn't be read" over it is only noise. Merely staged
+     * or held uploads do not count: the user does not have the data yet.
+     *
+     * <p>Customer-only. The admin view of a user's failures ({@link #recentCustomerFailures}) keeps
+     * the full history: a failure that was later worked around is still evidence about the parser.
+     */
+    public List<ImportFailureSummaryDto> recentUnresolvedCustomerFailures(UUID userId, int limit) {
+        int safeLimit = com.finora.util.PageBounds.safeSize(limit, 50);
+        return repository.findUnresolvedFailures(userId, StatementAnalysisSession.Source.CUSTOMER_IMPORT,
+                        PageRequest.of(0, safeLimit))
+                .stream()
+                .map(StatementAnalysisRecorder::toSummary)
+                .toList();
+    }
+
+    private static ImportFailureSummaryDto toSummary(StatementAnalysisSession s) {
+        return new ImportFailureSummaryDto(s.getReference(), s.getFileName(),
+                com.finora.exception.ErrorCode.wireCodeOrNull(s.getFailureCode()), s.getCreatedAt());
     }
 
     /**

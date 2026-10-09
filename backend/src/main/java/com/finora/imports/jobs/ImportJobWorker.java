@@ -679,6 +679,29 @@ public class ImportJobWorker {
         statementStatusNotifier.notifyHeld(job);
     }
 
+    /**
+     * The failure half of {@link #notifyIfPreviouslyHeld}: a job that was held, reprocessed, and
+     * then ended FAILED rather than held again -- a curated refusal the current parser makes (a
+     * payment app history, a damaged file), or a storage integrity failure, which no reprocess can
+     * clear (see {@code holdsForTriage}). That user was told "we'll notify you", so ending in
+     * silence breaks the promise the hold made. A job that fails on its first pass, never held,
+     * still sends nothing: the upload screen shows that failure itself.
+     *
+     * <p>Not for a reprocess that lands on rows a trust review already rejected (the {@code
+     * rejectedBefore} branch of {@code runOne}): that review's own rejection is the message about
+     * those rows, and one decision about one set of rows gets one message -- the rule
+     * {@code HeldStatementService.reject} follows for the jobs riding a review.
+     *
+     * <p>Same transactional-outbox reasoning as {@code notifyIfPreviouslyHeld}: called inside the
+     * {@code jobStore.update} that writes FAILED, so the two commit together.
+     */
+    private void notifyIfFailedAfterHold(ImportJob job) {
+        if (!job.wasHeldForReview()) {
+            return;
+        }
+        statementStatusNotifier.notifyFailedAfterHold(job);
+    }
+
     private void recordFailure(WorkerExecution execution, UUID jobId, Exception cause) {
         try {
             // Classified once, outside the update lambda: classification reads nothing from the
@@ -709,6 +732,8 @@ public class ImportJobWorker {
                 if (holdsForTriage(policy, outcome[0], cause)) {
                     job.holdForReview(failureCode, Instant.now());
                     notifyHeldForReview(job);
+                } else if (outcome[0] == ImportJob.FailureOutcome.DEAD_LETTERED) {
+                    notifyIfFailedAfterHold(job);
                 }
             });
             // jobStore.update is @Transactional(REQUIRES_NEW), so by this line its transaction has

@@ -287,8 +287,9 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
      * #returnToQueueForReprocess}. {@link #status} cannot answer this question: by the time a
      * reprocessed job completes, its status is COMPLETED and the hold it went through is gone. The
      * completion notification depends on knowing it, because only a user who was told "we're
-     * running additional checks" is owed a follow-up. A first-time success notifies nobody -- we
-     * never asked them to wait.
+     * running additional checks" is owed a follow-up -- and so does the failure one, when the
+     * reprocess ends FAILED instead. A first-time success or failure notifies nobody -- we never
+     * asked them to wait.
      */
     @Column(name = "was_held_for_review", nullable = false)
     private boolean wasHeldForReview;
@@ -695,8 +696,8 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
      * entirely on the customer timeline. The original code is not lost -- it is recorded on the
      * audit entry the admin action writes.
      *
-     * <p>{@link #wasHeldForReview} is deliberately NOT cleared; it is what tells the success path
-     * this user is owed a notification.
+     * <p>{@link #wasHeldForReview} is deliberately NOT cleared; it is what tells the success path,
+     * and a failure that ends this job, that this user is owed a notification.
      */
     public void returnToQueueForReprocess(Instant now) {
         if (status != Status.HELD_FOR_REVIEW) {

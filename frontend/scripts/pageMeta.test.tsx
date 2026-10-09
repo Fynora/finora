@@ -64,7 +64,10 @@ describe('index.html description and social tags', () => {
   });
 
   it('loads no stylesheet or font from Google: the fonts are self-hosted (src/fonts.ts)', () => {
-    expect(indexHtml).not.toMatch(/fonts\.googleapis\.com|fonts\.gstatic\.com/);
+    // Plain substring checks, not one alternation regex: CodeQL reads an unanchored host regex as a
+    // URL check that arbitrary hosts could satisfy and fails the PR on it, even in a test.
+    expect(indexHtml).not.toContain('fonts.googleapis.com');
+    expect(indexHtml).not.toContain('fonts.gstatic.com');
     const fonts = fs.readFileSync(path.join(root, 'src/fonts.ts'), 'utf-8');
     for (const face of ['inter/latin-400', 'inter/latin-800', 'manrope/latin-600', 'manrope/latin-800', 'caveat/latin-600']) {
       expect(fonts).toContain(`@fontsource/${face}.css`);

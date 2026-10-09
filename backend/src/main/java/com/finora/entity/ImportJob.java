@@ -233,8 +233,10 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
     private Instant dismissedAt;
 
     /**
-     * When the one-time admin escalation was sent for this job's current hold -- V266, see {@link
-     * #isHoldOverdue}. Cleared on every entry into a hold, so a re-held job is escalated again.
+     * When this job's current hold was dealt with by the one-time overdue escalation -- V266, see
+     * {@link #isHoldOverdue} and {@code HoldOverdueEscalationService}: emailed, or, for an upload
+     * riding on another job's open review, settled without its own email. Cleared on every entry
+     * into a hold, so a re-held job is escalated again.
      */
     @Column(name = "overdue_alerted_at")
     private Instant overdueAlertedAt;
@@ -987,7 +989,8 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
 
     public Instant getOverdueAlertedAt() { return overdueAlertedAt; }
 
-    /** Records that this hold's one-time overdue escalation was sent (or attempted). */
+    /** Records that the overdue escalation has dealt with this hold -- emailed (even if the email
+     *  failed), or settled without one because another job's review covers it. */
     public void markOverdueAlerted(Instant now) { this.overdueAlertedAt = now; }
 
     // ------------------------------------------------------------------ accessors

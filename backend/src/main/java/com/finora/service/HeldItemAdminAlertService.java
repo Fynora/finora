@@ -24,7 +24,8 @@ import java.util.UUID;
 /**
  * Emails every admin holding the relevant permission the moment a statement lands in one of the
  * two triage queues -- a pointer into the admin portal, never a channel for statement content (see
- * {@code docs/superpowers/specs/2026-09-05-held-item-admin-email-alerts-design.md}).
+ * {@code docs/superpowers/specs/2026-09-05-held-item-admin-email-alerts-design.md}) -- and once
+ * more if that hold passes the 48-hour promise undecided ({@link #alertHoldOverdue}, Gate 1 spec §4).
  *
  * <p>Deliberately bypasses {@link NotificationService}: that system is built entirely around one
  * end-user's own channel preferences per {@code NotificationCategory}, which has no shape for

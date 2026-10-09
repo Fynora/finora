@@ -84,7 +84,7 @@ class PaymentAppHistoryRejectionTest {
         String message = rejection(recovered(
                 "Paytm Statement for 1 JAN'26 - 31 JAN'26", "Passbook Payments History")).getMessage();
 
-        assertThat(message).containsIgnoringCase("Paytm payment history");
+        assertThat(message).containsIgnoringCase("payment app history");
         assertThat(message).containsIgnoringCase("bank statement");
         assertThat(message).doesNotContainIgnoringCase("could not find a transaction table");
     }

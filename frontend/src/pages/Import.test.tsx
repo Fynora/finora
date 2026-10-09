@@ -46,7 +46,7 @@ import Import, { UPLOAD_COMPLETE_DWELL_MS, setUploadCompleteDwellForTests } from
 import { AuthProvider } from '../context/AuthContext';
 import { importApi, importJobsApi, statementImportsApi, categoriesApi, accountsApi, type ImportJobProgress } from '../api/endpoints';
 import type { Account, StagedAccountSection } from '../types';
-import { PDF_PASSWORD_REQUIRED, PDF_PASSWORD_INVALID, NO_HEADER_DETECTED, NO_TRANSACTIONS_FOUND, NO_ACTIVITY_IN_PERIOD, SCANNED_OCR_REQUIRED, CORRUPT_PDF, IMPORT_SESSION_ALREADY_CONFIRMED, ACCOUNT_LIMIT_REACHED, STATEMENT_PERIOD_TOO_LONG } from '../api/errorCodes';
+import { PDF_PASSWORD_REQUIRED, PDF_PASSWORD_INVALID, NO_HEADER_DETECTED, NO_TRANSACTIONS_FOUND, NO_ACTIVITY_IN_PERIOD, SCANNED_OCR_REQUIRED, CORRUPT_PDF, PAYMENT_APP_HISTORY, IMPORT_SESSION_ALREADY_CONFIRMED, ACCOUNT_LIMIT_REACHED, STATEMENT_PERIOD_TOO_LONG } from '../api/errorCodes';
 import { IMPORT_FAILURE_MESSAGES } from '../api/importFailureMessages';
 import type { DetectedAccountInfo } from '../types';
 
@@ -836,6 +836,7 @@ describe('Import — failure UX contract', () => {
     ['the statement itself states zero activity', NO_ACTIVITY_IN_PERIOD],
     ['a scanned/image-only PDF', SCANNED_OCR_REQUIRED],
     ['a corrupt/truncated PDF', CORRUPT_PDF],
+    ['a payment app history rather than a bank statement', PAYMENT_APP_HISTORY],
   ])('shows the contract message, not the server message, for %s', async (_label, code) => {
     vi.mocked(importApi.stagePdf).mockReset().mockRejectedValue(rejectWithCode(code));
     const user = userEvent.setup();
@@ -2412,6 +2413,33 @@ describe('Import — queued imports', () => {
     // Actually back to the dropzone -- not just that the button existed and was clickable.
     await waitFor(() => expect(screen.queryByTestId('import-progress')).not.toBeInTheDocument());
     expect(screen.getByTestId('statement-file-input')).toBeInTheDocument();
+  });
+
+  /**
+   * A UPI app's transaction history is refused while it is staged (IMPORT_018), so the job fails
+   * within seconds instead of being held for review. The page must say plainly what the file is and
+   * what to upload instead -- the per-code headline and the curated reason.
+   */
+  it('tells the user a payment app history is not a bank statement when the job is refused', async () => {
+    vi.mocked(importJobsApi.progress).mockResolvedValue(queuedJob({ status: 'FAILED', error: 'refused' }));
+    vi.mocked(importJobsApi.timeline).mockResolvedValue({
+      jobId: 'job-1',
+      status: 'FAILED',
+      userStatus: 'ACTION_REQUIRED',
+      failureCode: 'IMPORT_018', // PAYMENT_APP_HISTORY
+      stages: [
+        { stage: 'PARSING', attempt: 1, outcome: 'FAILED', startedAt: '2026-10-09T09:00:00Z', endedAt: '2026-10-09T09:00:01Z', durationMs: 1000 },
+      ],
+    });
+    const user = userEvent.setup();
+    renderImport();
+    await waitFor(() => expect(importJobsApi.availability).toHaveBeenCalled());
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+
+    expect(await screen.findByText('This is a payment app history')).toBeInTheDocument();
+    expect(screen.getByText(/not a bank statement.*import those bank statements instead/i)).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Try a different file' })).toBeInTheDocument();
   });
 
   /**

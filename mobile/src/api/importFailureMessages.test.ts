@@ -36,10 +36,13 @@ describe('importFailureMessage', () => {
     }
   });
 
-  it('says what a Paytm payment history is and what to import instead', () => {
-    expect(importFailureMessage('IMPORT_018')).toMatch(/paytm payment history.*not a bank statement/i);
+  it('says the file is a payment app history and what to import instead', () => {
+    expect(importFailureMessage('IMPORT_018')).toMatch(/payment app history.*not a bank statement/i);
     expect(importFailureMessage('IMPORT_018')).toMatch(/import those bank statements instead/i);
-    expect(importFailureTitle('IMPORT_018')).toBe('This is a Paytm payment history');
+    expect(importFailureTitle('IMPORT_018')).toBe('This is a payment app history');
+    // Names no app: the backend recognises a UPI app's history by its row grammar, not its brand,
+    // so the copy must stay true whichever app produced the file.
+    expect(importFailureMessage('IMPORT_018')).not.toMatch(/paytm|phonepe|google pay/i);
   });
 
   it('says what to do when a CSV is malformed, in plain words', () => {

@@ -1028,6 +1028,7 @@ describe('ImportScreen — synchronous upload failure wording', () => {
     ['IMPORT_011', 'This PDF could not be read -- the file appears to be damaged', /downloading it again from your bank/i],
     ['IMPORT_010', 'This PDF has no text in it -- every page is an image', /scanned image rather than text/i],
     ['IMPORT_013', 'This PDF has too many pages to process.', /too many pages/i],
+    ['IMPORT_018', 'This is a payment app history, not a bank statement.', /import those bank statements instead/i],
   ])('shows the plain sentence for %s, not the server wording', async (code, serverMessage, plain) => {
     api.import.stageCsv.mockReset().mockRejectedValue(rejectWithCode(code, serverMessage));
     render(tree());

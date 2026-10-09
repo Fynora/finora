@@ -46,6 +46,24 @@ class PaymentAppHistoryDocumentTest {
     }
 
     @Test
+    void aUpiAppHistoryIsRefusedThroughTheRealGenerator() throws Exception {
+        // Through the real text extractor, so the runs the detector sees are the ones a real PDF
+        // yields -- the rule depends on where each run begins.
+        var generated = generator().generateSectionsWithContext(
+                UUID.randomUUID(), "history.pdf", PdfFixtureBuilder.buildUpiAppTransactionHistory(), null);
+
+        assertThat(generated.documentContext().paymentAppHistory()).isTrue();
+
+        ApiException e = catchThrowableOfType(ApiException.class, () ->
+                ExtractionCheck.rejectIfNothingWasExtracted(generated.sections(), generated.documentContext()));
+        assertThat(e).isNotNull();
+        assertThat(e.getCode()).isEqualTo(ErrorCode.IMPORT_PAYMENT_APP_HISTORY);
+        assertThat(e.getMessage()).containsIgnoringCase("payment app history")
+                .containsIgnoringCase("not a bank statement")
+                .containsIgnoringCase("import those bank statements instead");
+    }
+
+    @Test
     void anOrdinaryStatementIsNotFlagged() throws Exception {
         var generated = generator().generateSectionsWithContext(
                 UUID.randomUUID(), "statement.pdf", PdfFixtureBuilder.buildSingularDepositWithdrawalColumnsSample(), null);

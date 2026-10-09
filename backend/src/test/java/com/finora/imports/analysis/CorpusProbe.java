@@ -242,6 +242,11 @@ public final class CorpusProbe {
          .append(",\"layoutFingerprint\":").append(quote(fingerprint))
          .append(",\"banks\":").append(stringArray(banks))
          .append(",\"capabilities\":").append(stringArray(capabilities))
+         // Whether the document was recognised as a payment app's history, which staging refuses
+         // (PaymentAppHistoryDetector). Recorded so a corpus run can show the detector fires on no
+         // real bank or card statement.
+         .append(",\"paymentAppHistory\":").append(generated.documentContext() != null
+                 && generated.documentContext().paymentAppHistory())
          .append(",\"verification\":").append(stringMap(verification))
          .append(",\"sectionDetail\":").append(sectionsJson(detail))
          .append('}')

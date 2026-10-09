@@ -178,6 +178,7 @@ describe('ImportProgressCard', () => {
     ['IMPORT_010', 'This looks like a scanned copy', /scanned image rather than text/i],
     ['IMPORT_013', 'This statement is too long', /too many pages/i],
     ['IMPORT_001', "This doesn't look like a statement", /couldn't find a transaction table/i],
+    ['IMPORT_018', 'This is a payment app history', /not a bank statement.*import those bank statements instead/i],
   ])('leads with a plain headline for %s instead of "Couldn\'t finish"', async (code, title, body) => {
     api.progress.mockResolvedValue(jobProgress({ status: 'FAILED', userStatus: 'ACTION_REQUIRED' }));
     api.timeline.mockResolvedValue({

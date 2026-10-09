@@ -129,6 +129,30 @@ class SectionStructure(unittest.TestCase):
         self.assertEqual({cd.REVIEW}, severities(changes, "section[0].detectedProduct"))
 
 
+class PaymentAppHistory(unittest.TestCase):
+
+    def test_starting_to_be_recognised_as_a_payment_app_history_is_a_regression(self):
+        """Staging refuses such a document outright, so a statement newly flagged would no longer
+        import -- even though its row count in the probe is unchanged."""
+        changes = cd.compare_record(record(rows=[10], paymentAppHistory=False),
+                                    record(rows=[10], paymentAppHistory=True))
+
+        self.assertEqual({cd.REGRESSION}, severities(changes, "paymentAppHistory"))
+        self.assertNotIn("rows", dimensions(changes))
+
+    def test_no_longer_being_recognised_is_flagged_for_review(self):
+        changes = cd.compare_record(record(paymentAppHistory=True), record(paymentAppHistory=False))
+
+        self.assertEqual({cd.REVIEW}, severities(changes, "paymentAppHistory"))
+
+    def test_a_run_from_before_the_field_existed_is_not_compared(self):
+        self.assertEqual([], cd.compare_record(record(), record(paymentAppHistory=False)))
+        self.assertEqual([], cd.compare_record(record(paymentAppHistory=True), record()))
+
+    def test_an_unchanged_flag_is_no_change(self):
+        self.assertEqual([], cd.compare_record(record(paymentAppHistory=True), record(paymentAppHistory=True)))
+
+
 class Identity(unittest.TestCase):
 
     def test_losing_a_masked_account_number_is_a_regression(self):

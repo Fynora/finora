@@ -40,7 +40,9 @@ export function CountsAsSection({ transactionId }: { transactionId: string }) {
 
   if (countsAsQ.isLoading) return <ActivityIndicator />;
   if (countsAsQ.isError || !countsAsQ.data) {
-    return <Text style={[styles.small, { color: c.dangerInk }]}>Couldn't load what this payment counts as.</Text>;
+    return (
+      <Text style={[styles.small, { color: c.dangerInk }]}>Couldn't load what this payment counts as.</Text>
+    );
   }
   const countsAs = countsAsQ.data;
   const appliedBy = countsAs.appliedBy;

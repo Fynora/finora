@@ -147,7 +147,7 @@ export function ImportProgress({
   // failure and not a cancellation, so neither of those icons is honest. Waiting on us.
   //
   // Both holds, because the fallback below is the cancelled icon: a settled job that is not FAILED
-  // and not recognised here renders a Ban glyph next to "Running additional checks", which tells
+  // and not recognised here renders a Ban glyph next to the held label, which tells
   // the user their import was cancelled and that it is still being worked on, at the same time.
   const held = job ? isHeld(job) : false;
 

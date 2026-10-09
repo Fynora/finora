@@ -51,7 +51,7 @@ function Column({ label, steps, tone }: {
           </li>
         ))}
       </ol>
-      <p className="mt-6 text-2xl" style={{ fontFamily: "'Manrope', Inter, sans-serif", fontWeight: 800, letterSpacing: '-.02em', color: after ? 'var(--m-brand)' : '#94A3B8' }}>
+      <p className="mt-6 text-2xl" style={{ fontFamily: "'Manrope', Inter, sans-serif", fontWeight: 800, letterSpacing: '-.02em', color: after ? 'var(--m-brand)' : 'var(--m-ink-3)' }}>
         {after ? beforeAfter.afterVerdict : beforeAfter.beforeVerdict}
       </p>
     </div>

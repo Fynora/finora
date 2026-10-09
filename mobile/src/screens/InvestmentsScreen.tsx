@@ -225,7 +225,7 @@ export function InvestmentsScreen() {
 
       {error ? (
         <Pressable onPress={() => setError(null)} accessibilityRole="button" accessibilityLabel="Dismiss error">
-          <Text style={[styles.error, { color: c.danger, backgroundColor: c.dangerBg }]}>{error}</Text>
+          <Text style={[styles.error, { color: c.dangerInk, backgroundColor: c.dangerBg }]}>{error}</Text>
         </Pressable>
       ) : null}
 

@@ -112,7 +112,7 @@ export function ChangeEmailSheet({ onClose, signInMethod }: {
           <ScrollView keyboardShouldPersistTaps="handled" style={styles.scroll}>
             {step === 'sent' ? (
               <View style={styles.successBlock}>
-                <Text style={[styles.successMark, { color: c.success }]}>✓</Text>
+                <Text style={[styles.successMark, { color: c.successInk }]}>✓</Text>
                 <Text style={[styles.title, { color: c.ink }]}>Check your inbox</Text>
                 <Text style={[styles.body, { color: c.muted }]}>
                   We sent a confirmation link to {sentToEmail}. Tap it to finish changing your

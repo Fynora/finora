@@ -545,7 +545,7 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
           <div className="space-y-2 rounded-lg border border-border p-3" data-testid="reopen-panel">
             <p className="text-xs text-muted">
               Reopen it to read the statement again once its parser fix is live: it goes back to the
-              open queue, and the user&apos;s import shows &quot;running additional checks&quot; again.
+              open queue, and the user&apos;s import shows &quot;we&apos;re double-checking this statement&quot; again.
               Re-run the parser before approving.
             </p>
             <div className="flex flex-wrap gap-2">

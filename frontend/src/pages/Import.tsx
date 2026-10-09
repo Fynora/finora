@@ -208,7 +208,7 @@ export default function Import() {
   // can never go stale from a PREVIOUS error (e.g. an ACTION_REQUIRED parse failure) while a new,
   // unrelated one (network failure, a validation message, a discard failure) is being shown.
   const [errorActionRequired, setErrorActionRequired] = useState(false);
-  // plans.ts's "Unlimited accounts" / "Extended financial history" Plus/Premium promises: whether
+  // plans.ts's "Unlimited accounts" / "Statements longer than one month" Plus/Premium promises: whether
   // the CURRENT error banner is one of the two Free-tier caps (ACCOUNT_LIMIT_REACHED /
   // STATEMENT_PERIOD_TOO_LONG), which get a "See Plus plans" link the ordinary confirm-failure
   // banner doesn't -- same "actionRequired changes the banner" precedent as Sprint 4 item 22 above.
@@ -1139,8 +1139,8 @@ export default function Import() {
                   // returns straight to the dropzone. A failure does NOT reset here -- ImportTimeline
                   // (below) is about to show the curated reason and the way back to the dropzone; an
                   // immediate reset would unmount it before anyone could read either. A held job does
-                  // not reset either, for the same reason: ImportProgress is about to show the "we're
-                  // running additional checks" message, and it can only do that if it stays mounted.
+                  // not reset either, for the same reason: ImportProgress is about to show the held
+                  // message, and it can only do that if it stays mounted.
                   // Bug fix, caught live: this used to only exempt FAILED, so a held job settled and
                   // unmounted in the same polling tick, before its own message ever painted.
                   if (job.status !== 'FAILED' && !isHeld(job)) {
@@ -1445,7 +1445,7 @@ export default function Import() {
 
               <div className="space-y-4">
                 <FinoraCard className="bg-success-bg border-transparent">
-                  <div className="w-8 h-8 rounded-lg bg-white/60 flex items-center justify-center mb-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-card/60 flex items-center justify-center mb-2.5">
                     <Shield size={16} className="text-success" />
                   </div>
                   <h3 className="text-sm font-semibold text-ink mb-1">Your data is safe with us</h3>
@@ -1462,7 +1462,7 @@ export default function Import() {
                   </button>
                 </FinoraCard>
                 <FinoraCard className="bg-primary-light border-transparent">
-                  <div className="w-8 h-8 rounded-lg bg-white/60 flex items-center justify-center mb-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-card/60 flex items-center justify-center mb-2.5">
                     <Sparkles size={16} className="text-primary" />
                   </div>
                   <h3 className="text-sm font-semibold text-ink mb-1">Paperless &amp; effortless</h3>
@@ -2391,7 +2391,7 @@ function TransactionPreviewTable({
                 )}
                 {r.likelyDuplicate && <span className="text-danger text-2xs uppercase ml-1">duplicate</span>}
                 {isUnconfirmedGuess(r.categorySource) && (
-                  <span className="text-2xs uppercase ml-1" style={{ color: '#d97706' }}>low confidence</span>
+                  <span className="text-2xs uppercase ml-1 text-warning">low confidence</span>
                 )}
                 {r.international && <span className="text-2xs uppercase ml-1 text-muted">international</span>}
               </td>

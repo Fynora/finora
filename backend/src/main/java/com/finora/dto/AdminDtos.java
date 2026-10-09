@@ -114,12 +114,21 @@ public class AdminDtos {
      * per-transaction/per-user purposes (TransactionRepository.countByNeedsCategoryReviewTrue/
      * countByIsDuplicateOfIsNotNull, UserRepository.countByLockedUntilAfter) -- nothing invented,
      * nothing that isn't a real, actionable state for an admin to look into.
+     *
+     * <p>The two hold counts are the users waiting on a person: statementsHeldForTrustReview is
+     * every undecided HeldStatement plus every HELD_FOR_TRUST_REVIEW job the worker held with no
+     * review record (both queues on the admin Held Statements page), and importsHeldForReview is
+     * every HELD_FOR_REVIEW job (the Held Imports queue). They are here because the per-hold email
+     * alert is easy to miss: in October 2026 four alerts were sent and the holds still sat 3-6
+     * days while the user's screen promised a reply.
      */
     public record NeedsAttentionDto(
             long importsWithSkippedRowsToday,
             long lockedAccounts,
             long transactionsNeedingCategoryReview,
-            long transactionsFlaggedAsDuplicates
+            long transactionsFlaggedAsDuplicates,
+            long statementsHeldForTrustReview,
+            long importsHeldForReview
     ) {}
 
     /**

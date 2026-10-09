@@ -74,7 +74,7 @@ export function ConfirmDialog({
               type="button"
               onClick={onConfirm}
               disabled={busy}
-              className={`text-xs font-semibold rounded-lg px-3.5 py-2 disabled:opacity-40 ${danger ? 'bg-danger text-white' : 'bg-primary text-on-primary'}`}
+              className={`text-xs font-semibold rounded-lg px-3.5 py-2 disabled:opacity-40 ${danger ? 'bg-danger text-on-danger' : 'bg-primary text-on-primary'}`}
             >
               {busy ? 'Working…' : confirmLabel}
             </button>

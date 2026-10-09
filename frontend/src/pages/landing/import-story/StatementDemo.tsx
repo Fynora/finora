@@ -78,7 +78,7 @@ export function StatementDemo() {
       className="relative w-[300px] sm:w-[340px] rounded-xl bg-white p-5 mx-auto flex flex-col justify-center"
       style={{ border: '1px solid #E6EAF2', boxShadow: '0 24px 48px -20px rgba(15,23,42,.3)', minHeight: 396 }}
     >
-      <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-1">Sample statement</p>
+      <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">Sample statement</p>
       <p className="text-sm font-semibold text-slate-900 mb-3.5">Aug 2026 · 4-page PDF</p>
 
       {stage === 'idle' && (

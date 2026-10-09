@@ -85,7 +85,7 @@ function ReasonChips({ reasons }: { reasons: LayoutReviewReason[] }) {
   return (
     <div className="flex flex-wrap gap-1">
       {reasons.map((r) => (
-        <span key={r} className="text-[11px] px-1.5 py-0.5 rounded bg-warning/10 text-warning">
+        <span key={r} className="text-[11px] px-1.5 py-0.5 rounded bg-warning-bg text-warning">
           {describeReason(r)}
         </span>
       ))}

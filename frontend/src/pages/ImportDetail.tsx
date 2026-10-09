@@ -5,7 +5,7 @@ import { ArrowLeft, FileQuestion, RefreshCw } from 'lucide-react';
 import { importJobsApi } from '../api/endpoints';
 import { ImportTimeline } from '../components/ImportTimeline';
 import { PageLoading } from '../components/PageLoading';
-import { isReviewable, label } from '../lib/importJob';
+import { HELD_DETAIL, isHeld, isReviewable, label } from '../lib/importJob';
 import { navigateToResumeSession } from '../lib/importNavState';
 import { formatDate } from '../utils/date';
 import { trackNavigation } from '../lib/trackNavigation';
@@ -110,6 +110,13 @@ export default function ImportDetail() {
             Refresh
           </button>
         </div>
+
+        {/* A held import is the one state where the label alone leaves the user guessing: it says
+            we are checking, but not who, how long, or what happens next. This is where Statement
+            History sends someone coming back to ask "what happened to my statement?". */}
+        {isHeld(job) && (
+          <p className="text-sm text-ink mt-3" data-testid="import-detail-held">{HELD_DETAIL}</p>
+        )}
 
         {progressQuery.isError && (
           <p className="text-xs text-danger mt-2">

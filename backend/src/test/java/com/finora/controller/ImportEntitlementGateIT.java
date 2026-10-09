@@ -34,7 +34,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * plans.ts's "Extended financial history" Plus/Premium promise, enforced -- the second and third
+ * plans.ts's "Statements longer than one month" Plus/Premium promise, enforced -- the second and third
  * FeatureEntitlement keys any endpoint actually checks (after ADVANCED_REPORTS): a Free-plan
  * statement's detected period may not exceed one month (ImportService, FreeStatementPeriod,
  * FeatureEntitlement.EXTENDED_HISTORY) and a Free-plan account may not create a 3rd account (AccountService,

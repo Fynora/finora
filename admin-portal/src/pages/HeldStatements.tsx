@@ -220,8 +220,8 @@ function HeldStatementsContent() {
       <p className="text-muted text-sm">
         Statements the pipeline held back because its own evidence contradicted the extraction --
         a count that does not match, a row the layout says should exist but was dropped, or a
-        period that does not hold together. Nothing here is shown to the user beyond &quot;running
-        additional checks&quot;.
+        period that does not hold together. Nothing here is shown to the user beyond &quot;we&apos;re
+        double-checking this statement by hand&quot; and a promise to hear back within 48 hours.
       </p>
 
       {view === 'open' && <HoldsWithoutReviewRecord />}

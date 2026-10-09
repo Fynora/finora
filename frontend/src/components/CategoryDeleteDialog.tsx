@@ -101,7 +101,7 @@ export function CategoryDeleteDialog({ category, onDeleted, onCancel }: Category
         <button type="button" className="text-sm px-3 py-1.5" onClick={onCancel}>Cancel</button>
         <button
           type="button"
-          className="text-sm px-3 py-1.5 bg-danger text-white rounded-lg disabled:opacity-50"
+          className="text-sm px-3 py-1.5 bg-danger text-on-danger rounded-lg disabled:opacity-50"
           disabled={!canDelete || deleting}
           onClick={confirm}
         >

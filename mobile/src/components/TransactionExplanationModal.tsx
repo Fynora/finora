@@ -51,10 +51,10 @@ export function TransactionExplanationModal({
 
   const badge = data?.reconciliation ? reconciliationBadge(data.reconciliation.status) : null;
   const badgeColors = badge ? ({
-    danger: { bg: c.dangerBg, fg: c.danger },
+    danger: { bg: c.dangerBg, fg: c.dangerInk },
     primary: { bg: c.primaryLight, fg: c.primary },
-    success: { bg: c.successBg, fg: c.success },
-    warning: { bg: c.warningBg, fg: c.warning },
+    success: { bg: c.successBg, fg: c.successInk },
+    warning: { bg: c.warningBg, fg: c.warningInk },
     muted: { bg: c.border, fg: c.mutedInk },
   } as const)[badge.tone] : null;
 

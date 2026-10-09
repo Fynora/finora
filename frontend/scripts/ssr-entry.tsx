@@ -13,6 +13,7 @@ import CookiePolicy from '../src/pages/CookiePolicy';
 import TrustSecurity from '../src/pages/TrustSecurity';
 import DataPromise from '../src/pages/DataPromise';
 import { HomeCrawlerFallback } from '../src/pages/HomeCrawlerFallback';
+import NotFound from '../src/pages/NotFound';
 
 // Re-exported so scripts/prerender.mjs (plain Node, no TypeScript) can reach them through this
 // bundle: the JSON-LD each route's HTML carries, built from the pages' own data.
@@ -46,3 +47,10 @@ export const routes: Record<string, () => string> = {
   '/trust': page('/trust', TrustSecurity),
   '/your-data': page('/your-data', DataPromise),
 };
+
+/**
+ * The not-found page, written to dist/404.html. Deliberately NOT an entry in `routes`: those are
+ * the indexable pages, and seoFiles.test.tsx holds every one of them to the sitemap. This one must
+ * never be in the sitemap, carries noindex, and gets no canonical or JSON-LD.
+ */
+export const notFoundPage: () => string = page('/404', NotFound);

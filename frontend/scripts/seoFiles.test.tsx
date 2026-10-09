@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { SITE_ORIGIN, canonicalUrl } from '../src/lib/siteUrl';
-import { SITE_ORIGIN as SCRIPT_ORIGIN, withCanonical } from './prerenderTitle.mjs';
+import { SITE_ORIGIN as SCRIPT_ORIGIN, withCanonical, withRobotsNoindex } from './prerenderTitle.mjs';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const read = (rel: string) => fs.readFileSync(path.join(root, rel), 'utf-8');
@@ -41,6 +41,11 @@ describe('canonicalUrl', () => {
     expect(canonicalUrl('/terms')).toBe('https://app.fynora.net/terms');
     expect(canonicalUrl('/terms/')).toBe('https://app.fynora.net/terms');
     expect(canonicalUrl('/help?topic=billing#x')).toBe('https://app.fynora.net/help');
+  });
+
+  it('names the lower-case route for a case variant, which React Router renders as the same page', () => {
+    expect(canonicalUrl('/About')).toBe('https://app.fynora.net/about');
+    expect(canonicalUrl('/REFUND-POLICY/')).toBe('https://app.fynora.net/refund-policy');
   });
 });
 
@@ -99,6 +104,16 @@ describe('sitemap.xml', () => {
     }
   });
 
+  it('never lists the not-found page, which the build writes to dist/404.html outside the route table', () => {
+    const ssr = read('scripts/ssr-entry.tsx');
+    expect(ssr).toMatch(/export const notFoundPage[^\n]*page\('\/404', NotFound\)/);
+    expect(read('scripts/prerender.mjs')).toContain("const NOT_FOUND_FILE = '404.html';");
+    expect(sitemapPaths).not.toContain('/404');
+    // Not in `routes` either, or the "includes every page the build prerenders" test below would
+    // demand it in the sitemap.
+    expect(ssr).not.toMatch(/^\s*'\/404':/m);
+  });
+
   it('includes every page the build prerenders', () => {
     const ssr = read('scripts/ssr-entry.tsx');
     const prerendered = [...ssr.matchAll(/^\s*'(\/[^']*)':\s*page\(/gm)].map((m) => m[1]);
@@ -119,6 +134,14 @@ describe('canonical in the built HTML', () => {
     expect(() => withCanonical(TEMPLATE.replace('</head>', '<link rel="canonical" href="/" /></head>'), '/terms'))
       .toThrow(/already has a canonical/);
     expect(() => withCanonical('<html></html>', '/terms')).toThrow(/no <\/head>/);
+  });
+
+  it('is never added to the not-found page: withRobotsNoindex and withCanonical do not meet', () => {
+    const out = withRobotsNoindex(TEMPLATE);
+    expect(out).toContain('<meta name="robots" content="noindex" />\n</head>');
+    expect(out).not.toMatch(/canonical/);
+    expect(() => withRobotsNoindex(out)).toThrow(/already has a robots meta/);
+    expect(() => withRobotsNoindex('<html></html>')).toThrow(/no <\/head>/);
   });
 
   it('is absent from index.html: it is the SPA fallback for every unlisted route', () => {

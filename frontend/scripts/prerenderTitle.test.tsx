@@ -7,7 +7,8 @@ import Careers from '../src/pages/Careers';
 import Terms from '../src/pages/Terms';
 import RefundPolicy from '../src/pages/RefundPolicy';
 import Help from '../src/pages/Help';
-import { decodeEntities, pageHeadingFromMarkup, pageTitleFromMarkup, withStructuredData, withTitle } from './prerenderTitle.mjs';
+import NotFound, { NOT_FOUND_DOCUMENT_TITLE } from '../src/pages/NotFound';
+import { decodeEntities, pageDescriptionFromMarkup, pageHeadingFromMarkup, pageTitleFromMarkup, withStructuredData, withTitle } from './prerenderTitle.mjs';
 
 const TEMPLATE = '<html><head><title>Bank statement analyzer for Indian banks and cards — Fynora</title></head><body><div id="root"></div></body></html>';
 
@@ -46,6 +47,17 @@ describe('prerender page titles', () => {
       expect(document.title).toBe(prerendered);
       unmount();
     }
+  });
+
+  it('gives dist/404.html the title and description the browser shows, and no canonical', () => {
+    // The not-found page is prerendered outside the route table (ssr-entry's notFoundPage).
+    const prerendered = pageTitleFromMarkup(render(NotFound));
+    expect(prerendered).toBe(NOT_FOUND_DOCUMENT_TITLE);
+    expect(pageDescriptionFromMarkup(render(NotFound))).not.toBeNull();
+    expect(render(NotFound)).not.toContain('canonical');
+    const { unmount } = rtlRender(<MemoryRouter><NotFound /></MemoryRouter>);
+    expect(document.title).toBe(prerendered);
+    unmount();
   });
 
   it('gives different pages different titles, and none the shared one', () => {

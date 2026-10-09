@@ -12,11 +12,12 @@ import { canonicalUrl, isNonProductionBuild } from '../lib/siteUrl';
  *
  * Does nothing on a non-production build (dev-app, PR previews). Those are served with noindex, and
  * a page that says both "do not index me" and "the real one is over there" gives search engines a
- * conflicting signal.
+ * conflicting signal. For the same reason it does nothing when given `null`: that is how a page
+ * that carries noindex itself (NotFound, through PublicLayout's `noindex` prop) opts out.
  */
-export function useCanonical(path: string): void {
+export function useCanonical(path: string | null): void {
   useEffect(() => {
-    if (isNonProductionBuild()) return;
+    if (path === null || isNonProductionBuild()) return;
     const href = canonicalUrl(path);
     const existing = document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]');
     if (existing) {

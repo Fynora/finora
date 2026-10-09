@@ -18,6 +18,7 @@ import {
   pageTitleFromMarkup,
   withCanonical,
   withPageMeta,
+  withRobotsNoindex,
   withStructuredData,
   withTitle,
 } from './prerenderTitle.mjs';
@@ -48,6 +49,28 @@ const OUTPUT_FILES = {
   '/your-data': 'your-data.html',
 };
 
+// The not-found page. Written beside the routes above but NOT one of them: it is not in the sitemap,
+// gets no canonical and no JSON-LD, and carries a robots noindex meta in the file itself.
+//
+// What Cloudflare does with this file, read from the asset worker wrangler ships (miniflare's
+// workers/assets/assets.worker.js, bundled from workers-shared/asset-worker, the same code that
+// serves production) and measured with `wrangler dev` on 2026-10-09:
+//
+//   - `not_found_handling: "single-page-application"` (wrangler.jsonc) answers EVERY unmatched path
+//     with /index.html and HTTP 200. The file name 404.html means nothing in this mode: the worker's
+//     notFound() only looks for 404.html under "404-page", where it serves it with HTTP 404.
+//     The two modes are exclusive, so there is no configuration in which /app/* falls back to the
+//     SPA shell with 200 AND an unknown path gets a 404 status.
+//   - What this file DOES get is an exact-path match: /404 serves it, with 200, through the same
+//     html_handling rule that serves /terms from terms.html.
+//
+// So the HTTP status for an unknown URL stays 200 under this configuration. What tells a crawler
+// not to index it is the robots noindex meta: added in the browser by the NotFound route, which is
+// what index.html renders for an unknown path, and baked into this file for /404. Switching to "404-page" would make THIS file the shell for every unlisted route with a
+// real 404 status -- but also for /app/*, /auth and every other client-only route. That is a
+// deliberate trade for the owner, not something to flip in a prerender script.
+const NOT_FOUND_FILE = '404.html';
+
 async function main() {
   if (!fs.existsSync(path.join(distDir, 'index.html'))) {
     throw new Error('dist/index.html not found -- run `vite build` before this script.');
@@ -67,7 +90,7 @@ async function main() {
     logLevel: 'warn',
   });
 
-  const { routes, structuredDataFor, jsonLdScripts } = await import(pathToFileURL(path.join(ssrOutDir, 'ssr-entry.mjs')));
+  const { routes, notFoundPage, structuredDataFor, jsonLdScripts } = await import(pathToFileURL(path.join(ssrOutDir, 'ssr-entry.mjs')));
 
   const template = fs.readFileSync(path.join(distDir, 'index.html'), 'utf-8');
   if (!template.includes(ROOT_DIV)) {
@@ -97,6 +120,19 @@ async function main() {
     const outHtml = pageTemplate.replace(ROOT_DIV, `<div id="root">${appHtml}</div>`);
     fs.writeFileSync(path.join(distDir, fileName), outHtml);
     console.log(`prerender: ${route} -> dist/${fileName} (${appHtml.length} chars of markup)`);
+  }
+
+  {
+    const appHtml = notFoundPage();
+    const title = pageTitleFromMarkup(appHtml);
+    if (!title) throw new Error('prerender: no <h1> to take a <title> from for the not-found page');
+    const description = pageDescriptionFromMarkup(appHtml);
+    if (!description) throw new Error('prerender: no subtitle to take a description from for the not-found page');
+    // No canonical, no og:url (route: null) and no JSON-LD: a noindex page names no address of its
+    // own, and a breadcrumb trail for a page that does not exist would be a lie.
+    const pageTemplate = withRobotsNoindex(withPageMeta(withTitle(template, title), { title, description, route: null }));
+    fs.writeFileSync(path.join(distDir, NOT_FOUND_FILE), pageTemplate.replace(ROOT_DIV, `<div id="root">${appHtml}</div>`));
+    console.log(`prerender: not-found page -> dist/${NOT_FOUND_FILE} (${appHtml.length} chars of markup)`);
   }
 
   fs.rmSync(ssrOutDir, { recursive: true, force: true });

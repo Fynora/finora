@@ -32,6 +32,7 @@ const Contact = lazy(() => import('./pages/Contact'));
 const About = lazy(() => import('./pages/About'));
 const Careers = lazy(() => import('./pages/Careers'));
 const Help = lazy(() => import('./pages/Help'));
+const NotFound = lazy(() => import('./pages/NotFound'));
 const AuthEntry = lazy(() => import('./pages/AuthEntry'));
 const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
 const ResetPassword = lazy(() => import('./pages/ResetPassword'));
@@ -195,16 +196,18 @@ export default function App() {
           <Route path="/app/support" element={<Protected><SupportTickets /></Protected>} />
           <Route path="/app/support/:ticketId" element={<Protected><SupportTicketDetail /></Protected>} />
 
-          {/* Bug fix: there was no catch-all, and wrangler.json sets
-              assets.not_found_handling = "single-page-application" -- so Cloudflare answers EVERY
-              unmatched path with index.html, React Router then matches no <Route>, and <Routes>
-              renders null. The result was a completely blank white page (verified: #root's
-              innerHTML was empty) with no message and no way back, for any typo'd URL, any stale
-              bookmark, and any link to a route that has since moved. Redirecting rather than
-              rendering a 404 page keeps this a fix to broken routing rather than a new screen;
-              `replace` keeps the bad URL out of history, so Back doesn't bounce straight into it
-              again. */}
-          <Route path="*" element={<Navigate to="/" replace />} />
+          {/* wrangler.jsonc sets assets.not_found_handling = "single-page-application", so
+              Cloudflare answers EVERY unmatched path with index.html (HTTP 200) and this route is
+              what the visitor then sees. Without a catch-all, <Routes> rendered null: a blank white
+              page for any typo'd URL or stale bookmark. It was then a redirect to "/", which the
+              2026-10-09 SEO audit flagged as a soft 404: a crawler following a dead link got the
+              homepage, with a 200, at the dead URL. NotFound says what happened, keeps the URL the
+              visitor typed (so it can be corrected), and carries a robots noindex meta.
+
+              Nothing protected can land here: every /app route and the auth routes are matched
+              above, and ProtectedRoute's redirects go to /auth and /verify-phone, which are real
+              routes. App.test.tsx checks both. */}
+          <Route path="*" element={<NotFound />} />
         </Routes>
         </Suspense>
         </ErrorBoundary>

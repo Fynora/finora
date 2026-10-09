@@ -112,6 +112,9 @@ export function withPageMeta(templateHtml, { title, description, route }) {
   let out = setMetaContent(templateHtml, 'name', 'description', description);
   out = setMetaContent(out, 'property', 'og:title', title);
   out = setMetaContent(out, 'property', 'og:description', description);
+  // `route: null` is the not-found page: it has no address of its own (it is reached at whatever was
+  // typed), so it names none, the same reason it has no canonical.
+  if (route === null) return out;
   if (!out.includes('</head>')) throw new Error('prerender: the index.html template has no </head>.');
   return out.replace('</head>', () => `<meta property="og:url" content="${SITE_ORIGIN + route}" />\n</head>`);
 }
@@ -132,4 +135,21 @@ export function withStructuredData(templateHtml, scriptsHtml) {
     throw new Error('prerender: withStructuredData was given no script tags.');
   }
   return templateHtml.replace('</head>', () => `${scriptsHtml}\n</head>`);
+}
+
+/**
+ * Adds `<meta name="robots" content="noindex">` before </head>, for the prerendered not-found page
+ * (dist/404.html). A crawler that does not run JavaScript never sees the tag useRobotsNoindex adds
+ * on the client, so the static file has to carry it. Throws if the template already has a robots
+ * meta: the prerender runs from one shared template, and a tag already there belongs to the build
+ * policy (scripts/crawlPolicy.mjs runs after this, not before).
+ */
+export function withRobotsNoindex(templateHtml) {
+  if (/<meta name="robots"/.test(templateHtml)) {
+    throw new Error('prerender: the index.html template already has a robots meta; it must not.');
+  }
+  if (!templateHtml.includes('</head>')) {
+    throw new Error('prerender: the index.html template has no </head> to add a robots meta to.');
+  }
+  return templateHtml.replace('</head>', () => '<meta name="robots" content="noindex" />\n</head>');
 }

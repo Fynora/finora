@@ -540,13 +540,11 @@ public class ImportService {
     }
 
     /** {@code {start, end}}, possibly holding nulls -- a missing period is never on its own a
-     *  reason to hold, so it is carried rather than dropped. Same helper {@code StagedForJob}
-     *  keeps privately for the live path; duplicated here rather than shared across packages for a
-     *  four-line method. */
+     *  reason to hold, so it is carried rather than dropped. The trust check and the Free limit
+     *  both read it, through {@link StatementPeriodPolicy} (which {@code StagedForJob} also uses for
+     *  the live path), so a bank whose printed period is not judged is ignored by both. */
     private static LocalDate[] periodOf(DetectedAccountInfo detected) {
-        return detected == null
-                ? new LocalDate[]{null, null}
-                : new LocalDate[]{detected.statementPeriodStart(), detected.statementPeriodEnd()};
+        return StatementPeriodPolicy.judgedPeriod(detected);
     }
 
     /**

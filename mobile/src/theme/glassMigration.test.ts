@@ -1,3 +1,4 @@
+import { execFileSync } from 'child_process';
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join, relative } from 'path';
 
@@ -43,6 +44,21 @@ it('danger/success are never TEXT colours: text uses dangerInk/successInk', () =
   // cleared AA). `color={c.danger}` on an icon is fine (graphical objects need 3:1); `color: c.x`
   // inside a style object is text, and conditional expressions (`x ? c.success : c.danger`) count.
   expect(unmarked(/\bcolor:\s*[^,}]*\bc\.(danger|success)\b/)).toEqual([]);
+});
+
+it('app version differs from origin/main once native glass modules are added (OTA must not reach old binaries)', () => {
+  // runtimeVersion.policy is 'appVersion': an OTA reaches every binary of the same version. JS
+  // that imports expo-glass-effect / expo-blur would crash a binary built without them, so the
+  // commit that adds the modules must also move `version`. Vacuous once main carries the module.
+  const pkg = JSON.parse(readFileSync(join(SRC, '../package.json'), 'utf8'));
+  if (!pkg.dependencies['expo-glass-effect']) return;
+  const mainCfg = execFileSync('git', ['show', 'origin/main:mobile/app.config.ts'], { encoding: 'utf8' });
+  const mainPkg = JSON.parse(execFileSync('git', ['show', 'origin/main:mobile/package.json'], { encoding: 'utf8' }));
+  if (mainPkg.dependencies['expo-glass-effect']) return;
+  const ours = readFileSync(join(SRC, '../app.config.ts'), 'utf8');
+  const v = (s: string) => /\bversion:\s*'([^']+)'/.exec(s)?.[1];
+  expect(v(ours)).toBeDefined();
+  expect(v(ours)).not.toBe(v(mainCfg));
 });
 
 it('the lock cover is marked exempt (opaque on purpose), not migrated', () => {

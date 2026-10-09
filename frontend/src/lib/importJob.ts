@@ -200,3 +200,12 @@ export function failureReason(job: ImportJobProgress): string | null {
   if (job.status !== 'FAILED') return null;
   return job.error?.trim() || FAILED_IMPORT_FALLBACK;
 }
+
+/**
+ * Whether the owner may dismiss this job from the recent-imports list -- mirrors
+ * `ImportJob.DISMISSABLE` on the server. A running or held import is not over, and hiding it would
+ * hide the one place that says so.
+ */
+export function isDismissable(job: { status: ImportJobProgress['status'] }): boolean {
+  return job.status === 'FAILED' || job.status === 'CANCELLED';
+}

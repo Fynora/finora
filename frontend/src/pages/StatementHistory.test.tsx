@@ -22,6 +22,7 @@ vi.mock('../api/endpoints', () => ({
   },
   importJobsApi: {
     recent: vi.fn(),
+    dismiss: vi.fn(),
   },
   // The refresh banner on this page (statement refresh, step 5): switched off, so it renders nothing.
   statementRefreshApi: {
@@ -333,6 +334,66 @@ describe('StatementHistory — recent imports', () => {
     await openRecentImports(user);
     await screen.findByText('still-going.csv');
     expect(screen.queryByTestId('recent-import-failure-reason')).not.toBeInTheDocument();
+  });
+
+  // A failure stays listed until newer uploads push it out -- including after the statement was
+  // uploaded again and imported -- so once read, the user can clear it.
+  it('dismisses a failed import from the list', async () => {
+    const failed = aJob({ jobId: 'job-failed', fileName: 'rejected.pdf', status: 'FAILED', userStatus: 'ACTION_REQUIRED' });
+    const running = aJob({ jobId: 'job-running', fileName: 'still-going.csv' });
+    vi.mocked(importJobsApi.recent).mockReset()
+      .mockResolvedValueOnce([failed, running])
+      .mockResolvedValue([running]);
+    vi.mocked(importJobsApi.dismiss).mockReset().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    renderPage();
+
+    await openRecentImports(user);
+    await user.click(await screen.findByRole('button', { name: 'Dismiss rejected.pdf' }));
+
+    expect(importJobsApi.dismiss).toHaveBeenCalledWith('job-failed');
+    await waitFor(() => expect(screen.queryByText('rejected.pdf')).not.toBeInTheDocument());
+    expect(screen.getByText('still-going.csv')).toBeInTheDocument();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('offers no dismiss on an import that is not over', async () => {
+    vi.mocked(importJobsApi.recent).mockReset().mockResolvedValue([
+      aJob({ jobId: 'job-running', fileName: 'still-going.csv' }),
+      aJob({ jobId: 'job-held', fileName: 'held.pdf', status: 'HELD_FOR_TRUST_REVIEW', userStatus: 'HELD_FOR_REVIEW' }),
+    ]);
+    const user = userEvent.setup();
+    renderPage();
+
+    await openRecentImports(user);
+    await screen.findByText('held.pdf');
+    expect(screen.queryByRole('button', { name: /^Dismiss/ })).not.toBeInTheDocument();
+  });
+
+  it('offers dismiss on a cancelled import', async () => {
+    vi.mocked(importJobsApi.recent).mockReset().mockResolvedValue([
+      aJob({ jobId: 'job-cancelled', fileName: 'cancelled.csv', status: 'CANCELLED', userStatus: 'CANCELLED' }),
+    ]);
+    const user = userEvent.setup();
+    renderPage();
+
+    await openRecentImports(user);
+    expect(await screen.findByRole('button', { name: 'Dismiss cancelled.csv' })).toBeInTheDocument();
+  });
+
+  it('keeps the row and says so when dismissing fails', async () => {
+    vi.mocked(importJobsApi.recent).mockReset().mockResolvedValue([
+      aJob({ jobId: 'job-failed', fileName: 'rejected.pdf', status: 'FAILED', userStatus: 'FAILED' }),
+    ]);
+    vi.mocked(importJobsApi.dismiss).mockReset().mockRejectedValue(new Error('network error'));
+    const user = userEvent.setup();
+    renderPage();
+
+    await openRecentImports(user);
+    await user.click(await screen.findByRole('button', { name: 'Dismiss rejected.pdf' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't dismiss rejected.pdf");
+    expect(screen.getByText('rejected.pdf')).toBeInTheDocument();
   });
 
   it('excludes a completed job -- it is already surfaced by "Continue previous import" instead', async () => {

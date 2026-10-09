@@ -753,6 +753,10 @@ export const importJobsApi = {
   // of racing its own next poll.
   cancel: (jobId: string) =>
     api.post<ImportJobProgress>(`/import/jobs/${jobId}/cancel`).then((r) => r.data),
+  // Hides a FAILED or CANCELLED job from `recent` (V264). The row is kept; only the list stops
+  // showing it, on every device. 409 for a job that is not over yet.
+  dismiss: (jobId: string) =>
+    api.post<void>(`/import/jobs/${jobId}/dismiss`).then(() => undefined),
 };
 
 export const statementImportsApi = {

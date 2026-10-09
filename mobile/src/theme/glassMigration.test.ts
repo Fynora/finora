@@ -52,8 +52,17 @@ it('app version differs from origin/main once native glass modules are added (OT
   // commit that adds the modules must also move `version`. Vacuous once main carries the module.
   const pkg = JSON.parse(readFileSync(join(SRC, '../package.json'), 'utf8'));
   if (!pkg.dependencies['expo-glass-effect']) return;
-  const mainCfg = execFileSync('git', ['show', 'origin/main:mobile/app.config.ts'], { encoding: 'utf8' });
-  const mainPkg = JSON.parse(execFileSync('git', ['show', 'origin/main:mobile/package.json'], { encoding: 'utf8' }));
+  // A depth-1 checkout has no origin/main; the Mobile CI job fetches the ref for this test, and a
+  // local clone gets it from `git fetch origin main`. Say so instead of a bare git error.
+  const onMain = (file: string) => {
+    try {
+      return execFileSync('git', ['show', `origin/main:mobile/${file}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    } catch {
+      throw new Error(`origin/main is not available in this checkout, so ${file} cannot be compared with main's. Run: git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main`);
+    }
+  };
+  const mainCfg = onMain('app.config.ts');
+  const mainPkg = JSON.parse(onMain('package.json'));
   if (mainPkg.dependencies['expo-glass-effect']) return;
   const ours = readFileSync(join(SRC, '../app.config.ts'), 'utf8');
   const v = (s: string) => /\bversion:\s*'([^']+)'/.exec(s)?.[1];

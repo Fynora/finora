@@ -18,7 +18,7 @@ import { Platform } from 'react-native';
  * closes that by reading the Expo config and asserting the two agree, which turns a silent lie into
  * a failing build at the moment someone bumps one and forgets the other.
  */
-export const APP_VERSION = '1.0.0';
+export const APP_VERSION = '1.1.0';
 
 /**
  * `Platform.OS` is 'ios' | 'android' on device, and can be 'web' under Expo web or a test

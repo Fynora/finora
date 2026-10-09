@@ -25,7 +25,7 @@ describe('useChartColors', () => {
 
   it('returns the light-mode palette by default', () => {
     const { result } = renderHook(() => useChartColors(), { wrapper });
-    expect(result.current.success).toBe('#15803d');
+    expect(result.current.success).toBe('#147b3a');
     expect(result.current.danger).toBe('#b91c1c');
     expect(result.current.blue).toBe('#2563eb');
     expect(result.current.series).toHaveLength(6);
@@ -42,7 +42,7 @@ describe('useChartColors', () => {
     );
 
     const lightSeries = result.current.colors.series;
-    expect(result.current.colors.success).toBe('#15803d');
+    expect(result.current.colors.success).toBe('#147b3a');
 
     act(() => {
       result.current.setTheme('dark');

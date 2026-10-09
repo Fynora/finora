@@ -203,14 +203,14 @@ function FeatureComparisonModal({ onClose }: { onClose: () => void }) {
                   <tr key={label}>
                     <th scope="row" className="text-left font-normal text-ink px-2 py-2.5 whitespace-nowrap">{label}</th>
                     <td className="text-center px-2 py-2.5">
-                      {free ? <Check size={16} className="inline text-success" /> : <Minus size={16} className="inline text-border" />}
+                      {free ? <Check size={16} role="img" aria-label="Included" className="inline text-success" /> : <Minus size={16} role="img" aria-label="Not included" className="inline text-muted" />}
                     </td>
                     <td className="text-center px-2 py-2.5">
-                      {plus ? <Check size={16} className="inline text-success" /> : <Minus size={16} className="inline text-border" />}
+                      {plus ? <Check size={16} role="img" aria-label="Included" className="inline text-success" /> : <Minus size={16} role="img" aria-label="Not included" className="inline text-muted" />}
                     </td>
                     {PREMIUM_PLAN_VISIBLE && (
                       <td className="text-center px-2 py-2.5">
-                        {premium ? <Check size={16} className="inline text-success" /> : <Minus size={16} className="inline text-border" />}
+                        {premium ? <Check size={16} role="img" aria-label="Included" className="inline text-success" /> : <Minus size={16} role="img" aria-label="Not included" className="inline text-muted" />}
                       </td>
                     )}
                   </tr>
@@ -1064,7 +1064,7 @@ export default function Billing() {
                             >
                               View
                             </button>
-                            <span className="text-border mx-1.5">·</span>
+                            <span aria-hidden="true" className="text-border mx-1.5">·</span>
                             <button
                               type="button"
                               onClick={() => downloadInvoice(p.id)}
@@ -1077,7 +1077,7 @@ export default function Billing() {
                         ) : (
                           <>
                             <button type="button" disabled title="Only available for a completed payment" className="text-xs text-muted opacity-50 cursor-not-allowed">View</button>
-                            <span className="text-border mx-1.5">·</span>
+                            <span aria-hidden="true" className="text-border mx-1.5">·</span>
                             <button type="button" disabled title="Only available for a completed payment" className="text-xs text-muted opacity-50 cursor-not-allowed">Download</button>
                           </>
                         )}

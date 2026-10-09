@@ -13,7 +13,7 @@ import { useTheme } from '../context/ThemeContext';
  */
 const PALETTE = {
   light: {
-    success: '#15803d', danger: '#b91c1c',
+    success: '#147b3a', danger: '#b91c1c',
     blue: '#2563eb', green: '#16a34a', red: '#dc2626', purple: '#9333ea', orange: '#ea580c', teal: '#0d9488',
   },
   dark: {

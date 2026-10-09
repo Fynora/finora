@@ -18,7 +18,7 @@
 # an exact pin turns a routine rebuild into a hard failure with no security gain over the digest
 # pin plus the nightly image scan (.github/workflows/image-scan-nightly.yml), which is what actually
 # reports a vulnerable package.
-FROM maven:3.9-eclipse-temurin-25@sha256:dd8e01b3be719853578c07b57ff8d9bbbbfe746f802226f05b19689420815221 AS build
+FROM maven:3.9-eclipse-temurin-26@sha256:b2c1ad85954592f9928e84327c65201f308ad9b5d8ed7d5b823717c97bf23fbb AS build
 WORKDIR /app
 COPY pom.xml .
 RUN mvn dependency:go-offline -B

@@ -1,6 +1,7 @@
 import { ActivityIndicator, Pressable, StyleSheet, Text } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { radius, useTheme } from '../theme';
+import { withAlpha } from '../theme/glass';
 
 interface Props {
   label: string;
@@ -68,8 +69,11 @@ export function Button({
       testID={testID}
       style={({ pressed }) => [
         styles.button,
+        // Secondary's fill is 1.1:1 against the card, so the border carries the button's edge:
+        // ink at 0.5 measures 3.3:1 (light) / 4.4:1 (dark) against the fill, past the 3:1 the
+        // non-text contrast guideline asks of a control boundary. c.border itself was 1.07:1.
         secondary
-          ? { backgroundColor: pressed ? c.border : c.primaryLight, borderWidth: 1, borderColor: c.border }
+          ? { backgroundColor: pressed ? c.border : c.primaryLight, borderWidth: 1, borderColor: withAlpha(c.ink, 0.5) }
           : { backgroundColor: pressed ? c.primaryDark : c.primary },
         isDisabled && styles.disabled,
       ]}

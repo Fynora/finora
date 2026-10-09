@@ -18,7 +18,7 @@ export function SocialConsentNotice() {
   return (
     <View style={styles.wrap}>
       <Text style={[styles.text, { color: c.muted }]}>
-        New to Fynora? Continuing with Google or Apple creates your account and means you agree to
+        New to Fynora? Continuing with Google or Apple creates your account, and means you agree to
         Fynora&apos;s
       </Text>
       <View style={styles.links}>

@@ -7113,6 +7113,15 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        FreePlanLimitNotice: {
+            errorCode?: string;
+            message?: string;
+            /** Format: date */
+            coveredFrom?: string;
+            /** Format: date */
+            coveredTo?: string;
+            basis?: string;
+        };
         PdfStagingSessionResponse: {
             /** Format: uuid */
             sessionId?: string;
@@ -7122,6 +7131,7 @@ export interface components {
             previousImport?: components["schemas"]["PreviousImport"];
             /** Format: uuid */
             heldForReviewJobId?: string;
+            freePlanLimit?: components["schemas"]["FreePlanLimitNotice"];
         };
         PreviousImport: {
             /** Format: uuid */
@@ -7251,6 +7261,7 @@ export interface components {
             previousImport?: components["schemas"]["PreviousImport"];
             /** Format: uuid */
             heldForReviewJobId?: string;
+            freePlanLimit?: components["schemas"]["FreePlanLimitNotice"];
         };
         ApiResponseGoalDto: {
             success?: boolean;

@@ -70,9 +70,12 @@ public class ImportController {
         // The trust check runs here, after staging, exactly as the worker runs it after staging a
         // queued upload -- see StagingTrustGate. Inside the permit: it is part of staging this file.
         UUID userId = currentUser.id();
-        return ResponseEntity.ok(ApiResponse.ok(concurrencyLimiter.runGated(() -> stagingTrustGate.check(
+        StagingSessionResponse staged = concurrencyLimiter.runGated(() -> stagingTrustGate.check(
                 userId, StatementUpload.safeFileName(file, "statement.csv"), file.getBytes(),
-                importService.parseAndStageWithSession(userId, file)))));
+                importService.parseAndStageWithSession(userId, file)));
+        // Outside the permit: a plan lookup, not parsing work. See FreePlanLimitNotice.
+        return ResponseEntity.ok(ApiResponse.ok(
+                staged.withFreePlanLimit(importService.freePlanLimitNotice(userId, staged.staging(), null))));
     }
 
     // PDF Milestone 1 (com.finora.imports.pdf) -- digital/text-based bank statements only, no
@@ -101,9 +104,12 @@ public class ImportController {
         // comes here rather than to the queue: the password is not kept, so a hold is reviewed from
         // its staged rows (HeldStatement.lockedWithoutPassword).
         UUID userId = currentUser.id();
-        return ResponseEntity.ok(ApiResponse.ok(concurrencyLimiter.runGated(() -> stagingTrustGate.check(
+        PdfStagingSessionResponse staged = concurrencyLimiter.runGated(() -> stagingTrustGate.check(
                 userId, StatementUpload.safeFileName(file, "statement.pdf"), file.getBytes(),
-                importService.parseAndStagePdfWithSession(userId, file, password)))));
+                importService.parseAndStagePdfWithSession(userId, file, password)));
+        // Every section of a composite statement, as confirm-multi judges them. See FreePlanLimitNotice.
+        return ResponseEntity.ok(ApiResponse.ok(staged.withFreePlanLimit(
+                importService.freePlanLimitNotice(userId, staged.staging(), staged.multiAccount() ? staged.sections() : null))));
     }
 
     // ADR-0002: plain JSON now, not multipart -- the file no longer needs to be re-uploaded here,
@@ -171,8 +177,11 @@ public class ImportController {
                 importSessionService.readDetectedAccount(session), List.of(), importSessionService.readVerification(session));
         // The async job queue resolves review through this endpoint too, so the re-upload notice has
         // to be here as well as on the synchronous staging responses.
+        // Same early warning as the staging responses: a queued upload and "Continue Import" both
+        // open the review from here. Judged on the plan as it is now, so an upgrade clears it.
         return ApiResponse.ok(new StagingSessionResponse(session.getId(), staging,
-                importService.previousImportOf(currentUser.id(), session.getContentHash())));
+                importService.previousImportOf(currentUser.id(), session.getContentHash()))
+                .withFreePlanLimit(importService.freePlanLimitNotice(currentUser.id(), staging, null)));
     }
 
     @DeleteMapping("/sessions/{id}")

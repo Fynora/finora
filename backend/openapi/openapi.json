@@ -16661,6 +16661,28 @@
                     }
                 }
             },
+            "FreePlanLimitNotice": {
+                "type": "object",
+                "properties": {
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "coveredFrom": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "coveredTo": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "basis": {
+                        "type": "string"
+                    }
+                }
+            },
             "PdfStagingSessionResponse": {
                 "type": "object",
                 "properties": {
@@ -16686,6 +16708,9 @@
                     "heldForReviewJobId": {
                         "type": "string",
                         "format": "uuid"
+                    },
+                    "freePlanLimit": {
+                        "$ref": "#/components/schemas/FreePlanLimitNotice"
                     }
                 }
             },
@@ -17018,6 +17043,9 @@
                     "heldForReviewJobId": {
                         "type": "string",
                         "format": "uuid"
+                    },
+                    "freePlanLimit": {
+                        "$ref": "#/components/schemas/FreePlanLimitNotice"
                     }
                 }
             },

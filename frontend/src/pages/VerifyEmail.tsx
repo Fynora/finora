@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Sparkles } from 'lucide-react';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { authApi } from '../api/endpoints';
 
 /**
@@ -11,6 +12,7 @@ import { authApi } from '../api/endpoints';
  * confirming a fact.
  */
 export default function VerifyEmail() {
+  useDocumentTitle('Verify your email — Fynora');
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token');
   const [error, setError] = useState<string | null>(null);

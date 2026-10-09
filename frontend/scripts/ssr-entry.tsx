@@ -14,6 +14,10 @@ import TrustSecurity from '../src/pages/TrustSecurity';
 import DataPromise from '../src/pages/DataPromise';
 import { HomeCrawlerFallback } from '../src/pages/HomeCrawlerFallback';
 
+// Re-exported so scripts/prerender.mjs (plain Node, no TypeScript) can reach them through this
+// bundle: the JSON-LD each route's HTML carries, built from the pages' own data.
+export { jsonLdScripts, structuredDataFor } from '../src/lib/structuredData';
+
 /**
  * Bundled by scripts/prerender.mjs via Vite's SSR build, then imported from plain Node -- this is
  * the only file that needs to know how to render each route; the script just calls what's here.

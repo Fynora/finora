@@ -6,6 +6,7 @@ export default function ShippingPolicy() {
     <PublicLayout
       title="Shipping Policy"
       subtitle="Last updated: August 2026. Fynora is a digital service — no physical goods are shipped."
+      description="Fynora is a digital service, so nothing is shipped: paid plan access is switched on for your account the moment payment succeeds, and exports are downloads."
     >
       <PublicSection title="Digital Delivery Only">
         <p>

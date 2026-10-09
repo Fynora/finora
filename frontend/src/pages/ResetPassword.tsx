@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Sparkles } from 'lucide-react';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { authApi } from '../api/endpoints';
 import { PasswordInput } from '../components/PasswordInput';
 import {
@@ -58,6 +59,7 @@ function sanitizeLocalPhoneNumber(raw: string): string {
  * client-side, same as before; the backend only ever sees the resulting ID token.
  */
 export default function ResetPassword() {
+  useDocumentTitle('Reset password — Fynora');
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const token = searchParams.get('token');

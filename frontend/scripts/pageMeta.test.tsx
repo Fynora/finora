@@ -6,10 +6,17 @@ import { MemoryRouter, StaticRouter } from 'react-router-dom';
 import { render as rtlRender } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import About from '../src/pages/About';
+import Careers from '../src/pages/Careers';
+import Contact from '../src/pages/Contact';
+import CookiePolicy from '../src/pages/CookiePolicy';
+import DataPromise from '../src/pages/DataPromise';
+import Help from '../src/pages/Help';
 import Privacy from '../src/pages/Privacy';
 import RefundPolicy from '../src/pages/RefundPolicy';
+import ShippingPolicy from '../src/pages/ShippingPolicy';
 import Terms from '../src/pages/Terms';
 import TrustSecurity from '../src/pages/TrustSecurity';
+import { PublicLayout } from '../src/components/PublicLayout';
 import { hero } from '../src/pages/landing/landing-config';
 import { isNonProductionBuild, pageDescription } from '../src/lib/siteUrl';
 import { useCanonical } from '../src/hooks/useCanonical';
@@ -48,10 +55,33 @@ describe('index.html description and social tags', () => {
     expect(indexMetaTags).not.toMatch(/grow your money/i);
   });
 
+  it('titles the homepage with what the product is, brand last, and keeps og:title the same string', () => {
+    const title = /<title>([^<]*)<\/title>/.exec(indexHtml)?.[1];
+    expect(title).toBe('Bank statement analyzer for Indian banks and cards — Fynora');
+    expect(title!.length).toBeLessThanOrEqual(60);
+    expect(title).toMatch(/^Bank statement/);
+    expect(meta('property', 'og:title')).toBe(title);
+  });
+
+  it('loads no stylesheet or font from Google: the fonts are self-hosted (src/fonts.ts)', () => {
+    // Plain substring checks, not one alternation regex: CodeQL reads an unanchored host regex as a
+    // URL check that arbitrary hosts could satisfy and fails the PR on it, even in a test.
+    expect(indexHtml).not.toContain('fonts.googleapis.com');
+    expect(indexHtml).not.toContain('fonts.gstatic.com');
+    const fonts = fs.readFileSync(path.join(root, 'src/fonts.ts'), 'utf-8');
+    for (const face of ['inter/400', 'inter/800', 'manrope/600', 'manrope/800', 'caveat/600']) {
+      expect(fonts).toContain(`@fontsource/${face}.css`);
+    }
+    // The per-subset files (latin-400.css) have no unicode-range and no rupee glyph; the rupee sign
+    // U+20B9 lives in latin-ext. Only the per-weight files keep every subset with its range.
+    expect(fonts).not.toMatch(/@fontsource\/[a-z]+\/latin/);
+    expect(fs.readFileSync(path.join(root, 'src/main.tsx'), 'utf-8')).toContain("import './fonts';");
+  });
+
   it('has the tags a link preview needs, with the large-image card', () => {
     expect(meta('property', 'og:site_name')).toBe('Fynora');
     expect(meta('property', 'og:type')).toBe('website');
-    expect(meta('property', 'og:title')).toBe('Fynora — Personal finance, simplified');
+    expect(meta('property', 'og:title')).toBe('Bank statement analyzer for Indian banks and cards — Fynora');
     expect(meta('property', 'og:image')).toBe('https://app.fynora.net/og-image.png');
     expect(meta('property', 'og:image:type')).toBe('image/png');
     expect(meta('property', 'og:image:width')).toBe('1200');
@@ -101,21 +131,80 @@ describe('page description', () => {
     expect(pageDescription(undefined)).toBeNull();
   });
 
-  it('is the same string in the browser and in the prerendered HTML, for real pages', () => {
+  // Every page scripts/ssr-entry.tsx prerenders, so a page added there is held to the same bar.
+  const PRERENDERED_PAGES = [About, Careers, Contact, CookiePolicy, DataPromise, Help, Privacy, RefundPolicy, ShippingPolicy, Terms, TrustSecurity];
+
+  it('is the same string in the browser and in the prerendered HTML, for every prerendered page', () => {
     // index.html is not loaded in tests, so provide the tag PublicLayout updates, as the real page has.
     const tag = document.createElement('meta');
     tag.setAttribute('name', 'description');
     tag.setAttribute('content', 'placeholder');
     document.head.appendChild(tag);
     try {
-      for (const Page of [About, Privacy, RefundPolicy, Terms, TrustSecurity]) {
+      for (const Page of PRERENDERED_PAGES) {
         const prerendered = decode(pageDescriptionFromMarkup(markup(Page))!);
         const { unmount } = rtlRender(<MemoryRouter><Page /></MemoryRouter>);
         expect(tag.getAttribute('content'), Page.name).toBe(prerendered);
         unmount();
-        expect(prerendered.length, Page.name).toBeGreaterThan(10);
         expect(prerendered, Page.name).not.toMatch(/^Last updated/);
       }
+    } finally {
+      tag.remove();
+    }
+  });
+
+  it('is long enough for a search result to use, and short enough not to be cut, on every page', () => {
+    // Google wrote its own snippets for /help, /terms, /privacy and /about when the descriptions
+    // were the pages' subtitles (41 to 76 characters). 70 is the floor a sentence needs to say what
+    // the page answers; 160 is where results truncate.
+    for (const Page of PRERENDERED_PAGES) {
+      const description = decode(pageDescriptionFromMarkup(markup(Page))!);
+      expect(description.length, `${Page.name}: ${description}`).toBeGreaterThanOrEqual(70);
+      expect(description.length, `${Page.name}: ${description}`).toBeLessThanOrEqual(160);
+      expect(description, Page.name).not.toMatch(/ -- /);
+    }
+  });
+
+  it('is the explicit description when a page gives one, otherwise the subtitle, in both places', () => {
+    function Page() {
+      return (
+        <PublicLayout title="T" subtitle="A short subtitle." description='The real description, with "quotes" & an ampersand.'>
+          body
+        </PublicLayout>
+      );
+    }
+    expect(decode(pageDescriptionFromMarkup(markup(Page))!)).toBe('The real description, with "quotes" & an ampersand.');
+    function Plain() {
+      return <PublicLayout title="T" subtitle="A short subtitle.">body</PublicLayout>;
+    }
+    expect(pageDescriptionFromMarkup(markup(Plain))).toBe('A short subtitle.');
+    expect(markup(Plain)).not.toContain('data-seo-description');
+    // An empty or blank description is no description: both sides fall back to the subtitle.
+    function Blank() {
+      return <PublicLayout title="T" subtitle="A short subtitle." description="  ">body</PublicLayout>;
+    }
+    expect(pageDescriptionFromMarkup(markup(Blank))).toBe('A short subtitle.');
+    const blankTag = document.createElement('meta');
+    blankTag.setAttribute('name', 'description');
+    blankTag.setAttribute('content', 'placeholder');
+    document.head.appendChild(blankTag);
+    try {
+      const { unmount } = rtlRender(<MemoryRouter><Blank /></MemoryRouter>);
+      expect(blankTag.getAttribute('content')).toBe('A short subtitle.');
+      unmount();
+    } finally {
+      blankTag.remove();
+    }
+
+    const tag = document.createElement('meta');
+    tag.setAttribute('name', 'description');
+    tag.setAttribute('content', 'placeholder');
+    document.head.appendChild(tag);
+    try {
+      const { unmount } = rtlRender(<MemoryRouter><Page /></MemoryRouter>);
+      expect(tag.getAttribute('content')).toBe('The real description, with "quotes" & an ampersand.');
+      unmount();
+      expect(tag.getAttribute('content')).toBe('placeholder');
     } finally {
       tag.remove();
     }
@@ -135,7 +224,7 @@ describe('PublicLayout meta description at runtime', () => {
 
     const { unmount } = rtlRender(<MemoryRouter><Terms /></MemoryRouter>);
     expect(tag.getAttribute('content')).toBe(
-      'Please read these terms carefully before using Fynora.'
+      'The terms for using Fynora: who you contract with, account and acceptable-use rules, how automated features and billing work, and the limits of liability.'
     );
     unmount();
     expect(tag.getAttribute('content')).toBe('the homepage description');

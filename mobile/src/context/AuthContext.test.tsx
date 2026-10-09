@@ -1127,6 +1127,69 @@ describe('AuthContext foreground push wiring', () => {
     expect(alertSpy).toHaveBeenCalledTimes(1);
   });
 
+  // The Statements screen's "Recent imports" card shows the job a statement push is about. An open
+  // app only alerts on the push -- nothing navigates or remounts -- so the push itself has to make
+  // that card refetch, or the alert says "rejected" over a card still saying "held".
+  describe('statement-import pushes refresh the recent imports list', () => {
+    let invalidateSpy: jest.SpyInstance;
+
+    beforeEach(() => {
+      invalidateSpy = jest.spyOn(QueryClient.prototype, 'invalidateQueries');
+    });
+
+    afterEach(() => {
+      invalidateSpy.mockRestore();
+    });
+
+    async function signedIn() {
+      mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+      const view = renderAuth();
+      await settle(view);
+      await act(async () => {
+        await auth.login('someone@example.com', 'pw');
+      });
+      invalidateSpy.mockClear();
+    }
+
+    function recentImportsInvalidations() {
+      return invalidateSpy.mock.calls.filter(([filters]) =>
+        JSON.stringify((filters as { queryKey?: unknown })?.queryKey) === JSON.stringify(['import-jobs-recent']));
+    }
+
+    it.each(['IMPORT_STATEMENT_HELD', 'IMPORT_STATEMENT_READY', 'IMPORT_STATEMENT_RESOLVED', 'IMPORT_STATEMENT_REJECTED'])(
+      'refetches it for %s',
+      async (type) => {
+        await signedIn();
+
+        latestHandler()({ notification: { title: 'Fynora', body: 'About your statement.' }, data: { type } } as never);
+
+        expect(recentImportsInvalidations()).toHaveLength(1);
+      },
+    );
+
+    it('refetches it even while the app is locked and the alert cannot show', async () => {
+      await signedIn();
+      appLock.setLockedFlag(true);
+
+      latestHandler()({
+        notification: { title: 'Fynora', body: 'About your statement.' },
+        data: { type: 'IMPORT_STATEMENT_REJECTED' },
+      } as never);
+
+      expect(alertSpy).not.toHaveBeenCalled();
+      expect(recentImportsInvalidations()).toHaveLength(1);
+    });
+
+    it('leaves it alone for a push about something else', async () => {
+      await signedIn();
+
+      latestHandler()({ notification: { title: 'Fynora', body: 'Your Visa payment is due tomorrow.' } } as never);
+      latestHandler()({ notification: { title: 'Hi', body: 'News' }, data: { type: 'CUSTOM_PUSH' } } as never);
+
+      expect(recentImportsInvalidations()).toHaveLength(0);
+    });
+  });
+
   it('falls back to a default title when the message has none', async () => {
     mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
     const view = renderAuth();

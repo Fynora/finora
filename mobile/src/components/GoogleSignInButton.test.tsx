@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
-import { GoogleSignin, GoogleSigninButton } from '@react-native-google-signin/google-signin';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { GoogleSignInButton, isGoogleSignInConfigured } from './GoogleSignInButton';
 import { ThemeProvider, useThemeSetting } from '../theme';
 import { reportHandledEvent } from '../lib/monitoring';
@@ -72,7 +72,21 @@ describe('GoogleSignInButton', () => {
       );
 
       await waitFor(() => expect(resolvedTheme).toBe('dark'));
-      expect(view.UNSAFE_getByType(GoogleSigninButton).props.color).toBe(GoogleSigninButton.Color.Light);
+      expect(view.getByTestId('google-sign-in-button')).toHaveStyle({ backgroundColor: '#ffffff' });
+      expect(view.getByText('Sign in with Google')).toHaveStyle({ color: '#1F1F1F' });
+    });
+
+    it('lays the G and the label out centred in a row, the same height and radius as the Apple button', () => {
+      // The library's own button pins the logo to the left edge; this one is drawn to pair with
+      // the centred AppleAuthenticationButton beneath it.
+      const { view } = renderButton();
+      expect(view.getByTestId('google-sign-in-button')).toHaveStyle({
+        flexDirection: 'row',
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: 48,
+        width: '100%',
+      });
     });
 
     it('hands a successful credential straight to onCredential', async () => {
@@ -164,6 +178,20 @@ describe('GoogleSignInButton', () => {
         stage: 'sign-in',
         code: 'NO_ID_TOKEN',
       });
+    });
+
+    // Placed after the credential test: GoogleSignin.configure() runs once per module load and
+    // that test asserts on it, so it must own the file's first press.
+    it('dims and blocks the button while a sign-in is in flight, like the Apple button', async () => {
+      let finish: () => void = () => {};
+      mockedGoogleSignin.signIn.mockReturnValue(new Promise<never>((resolve) => { finish = () => resolve({ type: 'cancelled', data: null } as never); }));
+
+      const { view } = renderButton();
+      fireEvent.press(view.getByText('Sign in with Google'));
+
+      await waitFor(() => expect(view.getByTestId('google-sign-in-button')).toBeDisabled());
+      finish();
+      await waitFor(() => expect(view.getByTestId('google-sign-in-button')).toBeEnabled());
     });
 
     describe('reporting why it failed', () => {

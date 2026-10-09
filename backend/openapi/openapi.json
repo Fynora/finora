@@ -3570,6 +3570,37 @@
                 }
             }
         },
+        "/api/v1/import/jobs/{jobId}/dismiss": {
+            "post": {
+                "tags": [
+                    "import-job-controller"
+                ],
+                "operationId": "dismiss_1",
+                "parameters": [
+                    {
+                        "name": "jobId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/import/jobs/{jobId}/cancel": {
             "post": {
                 "tags": [

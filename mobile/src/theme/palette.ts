@@ -17,14 +17,15 @@ export const light = {
   card: '#ffffff',
   border: '#E6EAF2',
   ink: '#0F172A',
-  muted: '#64748B',
-  // `muted` (#64748B on this screen's #F8FAFC background) sits at ~4.55:1 -- just over WCAG AA's
-  // 4.5:1 floor for the 11-13pt sizes it's used at (transaction dates, hints, goal metadata), with
-  // almost no margin for a darker background variant or a slightly-off display. Same shape of
-  // problem as `warningInk` below, and the same fix: a separate token rather than a change to
-  // `muted` itself, since that value is shared with frontend/src/index.css's --color-muted and is
-  // fine in the roles it's actually used for there. This slate-600 clears 7.25:1 on the same
-  // background -- real margin, not just over the line.
+  // Was #64748B, mirroring frontend/src/index.css's --color-muted, at 4.55:1 on bg. The glass
+  // redesign puts muted text on translucent surfaces over a mesh backdrop, where #64748B measured
+  // 4.36:1 on glass and 3.43:1 directly on the backdrop -- under AA. This slate-600 measured
+  // 6.94 / 5.46 on the same pixels (see glassContrast.test.ts). Deliberately diverges from web,
+  // which keeps opaque surfaces; palette.test.ts pins the divergence.
+  muted: '#475569',
+  // Same value as `muted` now that muted itself clears AA with margin (7.25:1 on bg). Kept as a
+  // separate token so call sites that chose the darker step keep compiling and can be retuned
+  // independently if `muted` ever lightens again.
   mutedInk: '#475569',
   primary: '#262A33',
   primaryDark: '#15171C',
@@ -78,6 +79,14 @@ export const light = {
   planPlusText: '#F4F1EC',
   planPremiumBg: '#E3EEE9',
   planPremiumText: '#0F4C3F',
+  // Glass surfaces (GlassSurface): glassTint composited at glassAlpha over whatever sits behind
+  // the surface -- the mesh backdrop, or a scrim-dimmed screen under a sheet. 0.72 is the measured
+  // value: glassContrast.test.ts checks every text token against the real mesh PNG pixels at
+  // exactly this alpha, so lowering it has to go back through that test. glassEdge is the
+  // hairline border that separates one glass panel from the next.
+  glassTint: '#FFFFFF',
+  glassAlpha: 0.72,
+  glassEdge: 'rgba(255,255,255,0.85)',
 };
 
 export const dark: typeof light = {
@@ -94,10 +103,13 @@ export const dark: typeof light = {
   card: '#262A33',
   border: '#414757',
   ink: '#EDEDEA',
-  muted: '#98968F',
-  // Still clears AA comfortably against the new bg/card (6.06:1 / 4.85:1), so this stays the same
-  // value as `muted` -- same reasoning as dark.warningInk below.
-  mutedInk: '#98968F',
+  // Was #98968F: 4.57:1 on glass but 3.86:1 directly on the dark mesh backdrop (where screen
+  // headings' metadata renders with no card under it). #B5B3AC measured 6.44 / 5.45 on the same
+  // pixels (glassContrast.test.ts). Same deliberate divergence from web as light.muted above.
+  muted: '#B5B3AC',
+  // Same value as `muted` -- dark already cleared AA before and clears it with more margin now
+  // (8.55:1 on bg / 6.85:1 on card); same reasoning as dark.warningInk below.
+  mutedInk: '#B5B3AC',
   primary: '#F4F1EC',
   primaryDark: '#DAD5C9',
   primaryLight: '#26241F',
@@ -152,6 +164,11 @@ export const dark: typeof light = {
   planPlusText: '#15171C',
   planPremiumBg: '#0A1F19',
   planPremiumText: '#4FE3B8',
+  // Dark glass is `card` at the same measured alpha as light (see light.glassTint's comment);
+  // the edge is a faint light hairline, the way frosted panels read on a dark ground.
+  glassTint: '#262A33',
+  glassAlpha: 0.72,
+  glassEdge: 'rgba(255,255,255,0.14)',
 };
 
 export type Palette = typeof light;

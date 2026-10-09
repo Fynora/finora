@@ -47,6 +47,8 @@ export function NotificationBell() {
   if (!data) return null;
 
   const attentionItems = needsAttentionItems(data.needsAttention);
+  const criticalAlerts = data.alerts.filter((alert) => alert.severity === 'critical');
+  const otherAlerts = data.alerts.filter((alert) => alert.severity !== 'critical');
   const count = data.alerts.length + attentionItems.length;
 
   return (
@@ -74,7 +76,11 @@ export function NotificationBell() {
             </div>
           ) : (
             <>
-              {data.alerts.map((alert) => <AlertRow key={alert.title} alert={alert} />)}
+              {/* Critical alerts, then the needs-attention rows, then warnings. Standing warnings
+                  ("not configured" integrations) used to come first and push a held statement --
+                  a user waiting on a person -- below the fold of this panel, which is the same
+                  "nobody saw it" failure the hold rows exist to fix. */}
+              {criticalAlerts.map((alert) => <AlertRow key={alert.title} alert={alert} />)}
               {attentionItems.map(({ count: itemCount, icon: Icon, label, to, linkLabel }) => (
                 <div key={label} className="flex items-start gap-2.5 px-4 py-2.5">
                   <Icon size={14} className="text-warning flex-shrink-0 mt-0.5" />
@@ -94,6 +100,7 @@ export function NotificationBell() {
                   </div>
                 </div>
               ))}
+              {otherAlerts.map((alert) => <AlertRow key={alert.title} alert={alert} />)}
             </>
           )}
         </div>

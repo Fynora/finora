@@ -11337,6 +11337,10 @@ export interface components {
             transactionsNeedingCategoryReview?: number;
             /** Format: int64 */
             transactionsFlaggedAsDuplicates?: number;
+            /** Format: int64 */
+            statementsHeldForTrustReview?: number;
+            /** Format: int64 */
+            importsHeldForReview?: number;
         };
         OperationalDashboardDto: {
             /** Format: int64 */

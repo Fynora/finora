@@ -51,6 +51,13 @@ class ImportJobCancelReasonTest {
         assertThat(reason).doesNotContain("verify", "genuine", "authentic", "suspicious", "fraud");
     }
 
+    /** The same promise the held screen and the hold email make, so the three never disagree. */
+    @Test
+    void theHoldMessageGivesTheSameFortyEightHourPromise() {
+        assertThat(ImportJobService.uncancellableReason(ImportJob.Status.HELD_FOR_TRUST_REVIEW))
+                .contains("by hand").contains("48 hours");
+    }
+
     /** No status may fall through to null or blank -- the exhaustive switch is only worth having
      *  if every arm actually answers. */
     @ParameterizedTest

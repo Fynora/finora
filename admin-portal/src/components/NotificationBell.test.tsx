@@ -18,7 +18,7 @@ function overview(overrides: Partial<OperationalDashboardDto> = {}): Operational
     importsWithSkippedRowsToday: 0,
     inactiveUsersLast7Days: 0,
     previousDay: { activeUsers: 0, transactions: 0, imports: 0, importsWithSkippedRows: 0 },
-    needsAttention: { importsWithSkippedRowsToday: 0, lockedAccounts: 0, transactionsNeedingCategoryReview: 0, transactionsFlaggedAsDuplicates: 0 },
+    needsAttention: { importsWithSkippedRowsToday: 0, lockedAccounts: 0, transactionsNeedingCategoryReview: 0, transactionsFlaggedAsDuplicates: 0, statementsHeldForTrustReview: 0, importsHeldForReview: 0 },
     health: { overallStatus: 'UP', providers: [] },
     alerts: [],
     recentActivity: [],
@@ -59,7 +59,7 @@ describe('NotificationBell', () => {
     vi.mocked(useDashboardOverview).mockReturnValue({
       data: overview({
         alerts: [{ severity: 'critical', title: 'Database', detail: 'down' }],
-        needsAttention: { importsWithSkippedRowsToday: 3, lockedAccounts: 2, transactionsNeedingCategoryReview: 0, transactionsFlaggedAsDuplicates: 0 },
+        needsAttention: { importsWithSkippedRowsToday: 3, lockedAccounts: 2, transactionsNeedingCategoryReview: 0, transactionsFlaggedAsDuplicates: 0, statementsHeldForTrustReview: 0, importsHeldForReview: 0 },
       }),
     } as never);
 
@@ -96,7 +96,7 @@ describe('NotificationBell', () => {
     vi.mocked(useDashboardOverview).mockReturnValue({
       data: overview({
         alerts: [{ severity: 'warning', title: 'Statement Import Pipeline', detail: 'high skip rate' }],
-        needsAttention: { importsWithSkippedRowsToday: 0, lockedAccounts: 4, transactionsNeedingCategoryReview: 0, transactionsFlaggedAsDuplicates: 0 },
+        needsAttention: { importsWithSkippedRowsToday: 0, lockedAccounts: 4, transactionsNeedingCategoryReview: 0, transactionsFlaggedAsDuplicates: 0, statementsHeldForTrustReview: 0, importsHeldForReview: 0 },
       }),
     } as never);
 
@@ -108,6 +108,44 @@ describe('NotificationBell', () => {
     expect(screen.getByText('4')).toBeInTheDocument();
     expect(screen.getByText(/accounts are currently locked out/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Go to Users/i })).toHaveAttribute('href', '/users');
+  });
+
+  // The bell is on every admin page, so an open hold is visible wherever the admin is -- the email
+  // alert alone was missed in October 2026 while holds sat for days.
+  it('badges an open trust-review hold and links straight to the queue', () => {
+    vi.mocked(useDashboardOverview).mockReturnValue({
+      data: overview({
+        needsAttention: { importsWithSkippedRowsToday: 0, lockedAccounts: 0, transactionsNeedingCategoryReview: 0, transactionsFlaggedAsDuplicates: 0, statementsHeldForTrustReview: 1, importsHeldForReview: 0 },
+      }),
+    } as never);
+
+    renderBell();
+    fireEvent.click(screen.getByRole('button', { name: '1 item needs attention' }));
+
+    expect(screen.getByText(/statement is waiting for trust review/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Open Held Statements/i })).toHaveAttribute('href', '/held-statements');
+  });
+
+  it('lists critical alerts, then needs-attention rows, then warnings', () => {
+    vi.mocked(useDashboardOverview).mockReturnValue({
+      data: overview({
+        alerts: [
+          { severity: 'warning', title: 'Gmail Sync', detail: 'not configured' },
+          { severity: 'critical', title: 'Database', detail: 'down' },
+        ],
+        needsAttention: { importsWithSkippedRowsToday: 0, lockedAccounts: 0, transactionsNeedingCategoryReview: 0, transactionsFlaggedAsDuplicates: 0, statementsHeldForTrustReview: 2, importsHeldForReview: 0 },
+      }),
+    } as never);
+
+    renderBell();
+    fireEvent.click(screen.getByRole('button', { name: '3 items need attention' }));
+
+    const order = ['Database', 'statements are waiting for trust review', 'Gmail Sync']
+      .map((text) => screen.getByText(new RegExp(text)));
+    for (let i = 1; i < order.length; i++) {
+      // DOCUMENT_POSITION_FOLLOWING: the later element comes after the earlier one in the panel.
+      expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
   });
 
   it('closes when clicking outside the bell', () => {

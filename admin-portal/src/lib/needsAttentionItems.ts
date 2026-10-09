@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
-import { AlertTriangle, Lock, Tag, Copy } from 'lucide-react';
+import { AlertTriangle, Clock, Copy, Lock, ShieldAlert, Tag } from 'lucide-react';
 import type { NeedsAttentionDto } from '../types';
 
 export interface NeedsAttentionItem {
@@ -18,6 +18,28 @@ export interface NeedsAttentionItem {
  */
 export function needsAttentionItems(data: NeedsAttentionDto): NeedsAttentionItem[] {
   return [
+    // The two holds come first: each is a user waiting on a person, after being told they will
+    // hear back within 48 hours. In October 2026 holds sat 3-6 days because nothing here pointed
+    // at them and the per-hold alert email was missed. Same icons as the Sidebar's links to the
+    // two queues, so the row and the place it leads read as one thing.
+    {
+      count: data.statementsHeldForTrustReview,
+      icon: ShieldAlert,
+      label: data.statementsHeldForTrustReview === 1
+        ? 'statement is waiting for trust review'
+        : 'statements are waiting for trust review',
+      to: '/held-statements',
+      linkLabel: 'Open Held Statements',
+    },
+    {
+      count: data.importsHeldForReview,
+      icon: Clock,
+      label: data.importsHeldForReview === 1
+        ? 'import is held for review'
+        : 'imports are held for review',
+      to: '/held-imports',
+      linkLabel: 'Open Held Imports',
+    },
     {
       count: data.importsWithSkippedRowsToday,
       icon: AlertTriangle,

@@ -356,7 +356,7 @@ public class ResendEmailProvider implements EmailProvider {
 
     EmailMessage buildStatementReadyMessage(String toEmail, String bankName, String jobId) {
         String bodyHtml = """
-                <p>We've finished the additional checks on your %s statement.</p>
+                <p>We've finished double-checking your %s statement.</p>
                 <p>It's now ready for review and import in Fynora.</p>
                 """.formatted(bankName);
         String statementUrl = emailProperties.resolveBaseUrl(null) + "/app/imports/" + jobId;
@@ -375,15 +375,18 @@ public class ResendEmailProvider implements EmailProvider {
 
     EmailMessage buildStatementHeldMessage(String toEmail) {
         String bodyHtml = """
-                <p>We need to run some additional checks on your statement before we can complete the
-                import.</p>
-                <p>No action is needed from you right now.</p>
-                <p>We'll notify you once it's ready.</p>
+                <p>We're double-checking your statement by hand to make sure every transaction is
+                read correctly.</p>
+                <p>This takes up to 48 hours, and we'll notify you as soon as it's done.</p>
+                <p>There's nothing you need to do, and you can keep using Fynora in the meantime.</p>
                 """;
-        String html = EmailLayout.wrap("We're checking your statement", bodyHtml, null,
+        // Same words as the held screen on web and mobile and as V263's template rows -- see that
+        // migration for why the copy names a time.
+        String html = EmailLayout.wrap("We're double-checking your statement", bodyHtml, null,
                 EmailLayout.Footer.SUPPORT_REPLY, emailProperties.getSupportFromAddress(),
                 notificationSettingsUrl());
-        return EmailMessage.html(toEmail, "We're checking your statement", html, EmailMessage.Sender.SUPPORT);
+        return EmailMessage.html(toEmail, "We're double-checking your statement", html,
+                EmailMessage.Sender.SUPPORT);
     }
 
     @Override
@@ -393,7 +396,7 @@ public class ResendEmailProvider implements EmailProvider {
 
     EmailMessage buildStatementRejectedMessage(String toEmail) {
         String bodyHtml = """
-                <p>We've finished the additional checks on your statement.</p>
+                <p>We've finished double-checking your statement.</p>
                 <p>To keep your accounts accurate, we haven't imported it: we couldn't confirm that
                 every transaction in it was read correctly.</p>
                 <p>Nothing was added to your accounts.</p>

@@ -6,9 +6,13 @@ import com.finora.dto.AdminDtos.OperationalDashboardDto;
 import com.finora.dto.HealthDtos.PlatformHealthDto;
 import com.finora.dto.HealthDtos.ProviderStatusDto;
 import com.finora.entity.AuditLog;
+import com.finora.entity.HeldStatement;
+import com.finora.entity.ImportJob;
 import com.finora.goals.GoalRepository;
 import com.finora.repository.AuditLogRepository;
 import com.finora.repository.BudgetRepository;
+import com.finora.repository.HeldStatementRepository;
+import com.finora.repository.ImportJobRepository;
 import com.finora.repository.StatementImportRepository;
 import com.finora.repository.TransactionRepository;
 import com.finora.repository.UserRepository;
@@ -23,6 +27,8 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.Collection;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.UUID;
 
@@ -46,6 +52,8 @@ class AdminOperationalDashboardServiceTest {
     private GoalRepository goalRepository;
     private AuditLogRepository auditLogRepository;
     private AdminHealthRegistryService healthRegistryService;
+    private HeldStatementRepository heldStatementRepository;
+    private ImportJobRepository importJobRepository;
     private AdminOperationalDashboardService service;
 
     @BeforeEach
@@ -57,8 +65,11 @@ class AdminOperationalDashboardServiceTest {
         goalRepository = mock(GoalRepository.class);
         auditLogRepository = mock(AuditLogRepository.class);
         healthRegistryService = mock(AdminHealthRegistryService.class);
+        heldStatementRepository = mock(HeldStatementRepository.class);
+        importJobRepository = mock(ImportJobRepository.class);
         service = new AdminOperationalDashboardService(userRepository, transactionRepository,
-                statementImportRepository, budgetRepository, goalRepository, auditLogRepository, healthRegistryService);
+                statementImportRepository, budgetRepository, goalRepository, auditLogRepository, healthRegistryService,
+                heldStatementRepository, importJobRepository);
 
         when(userRepository.countByEmailNot(BootstrapService.BOOTSTRAP_IDENTIFIER)).thenReturn(0L);
         when(auditLogRepository.countDistinctUsersByActionSince(any(), any())).thenReturn(0L);
@@ -94,6 +105,34 @@ class AdminOperationalDashboardServiceTest {
         assertThat(dto.needsAttention().lockedAccounts()).isEqualTo(2L);
         assertThat(dto.needsAttention().transactionsNeedingCategoryReview()).isEqualTo(14L);
         assertThat(dto.needsAttention().transactionsFlaggedAsDuplicates()).isEqualTo(5L);
+    }
+
+    /**
+     * Every user waiting on a reviewer is counted: undecided review records (whatever stage the
+     * reviewer has them at) plus trust holds the worker opened with no record, and separately the
+     * parser-gap holds. In October 2026 holds sat 3-6 days with nothing in the portal pointing at
+     * them; this is that pointer.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void overview_countsEveryUndecidedHoldInNeedsAttention() {
+        when(healthRegistryService.platformHealth()).thenReturn(new PlatformHealthDto("UP", List.of()));
+        when(heldStatementRepository.countByStatusIn(any())).thenReturn(3L);
+        when(importJobRepository.countByStatusAndHeldStatementIdIsNull(ImportJob.Status.HELD_FOR_TRUST_REVIEW))
+                .thenReturn(1L);
+        when(importJobRepository.countByStatus(ImportJob.Status.HELD_FOR_REVIEW)).thenReturn(2L);
+
+        OperationalDashboardDto dto = service.overview();
+
+        assertThat(dto.needsAttention().statementsHeldForTrustReview()).isEqualTo(4L);
+        assertThat(dto.needsAttention().importsHeldForReview()).isEqualTo(2L);
+
+        ArgumentCaptor<Collection<HeldStatement.Status>> statuses = ArgumentCaptor.forClass(Collection.class);
+        verify(heldStatementRepository).countByStatusIn(statuses.capture());
+        // Assigned and investigating holds are still a user waiting; only a decision ends the wait.
+        assertThat(statuses.getValue()).containsExactlyInAnyOrderElementsOf(
+                EnumSet.of(HeldStatement.Status.HELD, HeldStatement.Status.ASSIGNED,
+                        HeldStatement.Status.INVESTIGATING, HeldStatement.Status.READY_FOR_IMPORT));
     }
 
     @Test

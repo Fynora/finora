@@ -2428,8 +2428,8 @@ describe('Import — queued imports', () => {
 
     await user.upload(screen.getByTestId('statement-file-input'), csvFile());
 
-    expect(await screen.findByText('Running additional checks')).toBeInTheDocument();
-    expect(await screen.findByText(/We'll notify you once it's ready/)).toBeInTheDocument();
+    expect(await screen.findByText("We're double-checking this statement")).toBeInTheDocument();
+    expect(await screen.findByText(/we'll notify you as soon as it's done/)).toBeInTheDocument();
     // Actually still there, not just rendered once before an immediate unmount.
     expect(screen.getByTestId('import-progress')).toBeInTheDocument();
     expect(screen.queryByTestId('statement-file-input')).not.toBeInTheDocument();
@@ -2459,7 +2459,7 @@ describe('Import — queued imports', () => {
     await waitFor(() => expect(importJobsApi.availability).toHaveBeenCalled());
 
     await user.upload(screen.getByTestId('statement-file-input'), csvFile());
-    await screen.findByText('Running additional checks');
+    await screen.findByText("We're double-checking this statement");
 
     await user.click(await screen.findByRole('button', { name: 'Import another statement' }));
 
@@ -3578,8 +3578,8 @@ describe('Import — a statement held by the accuracy check on the synchronous p
 
     await pickAndUploadPdf(user, pdfFile(), 'sample-pass');
 
-    expect(await screen.findByText('Running additional checks')).toBeInTheDocument();
-    expect(await screen.findByText(/We'll notify you once it's ready/)).toBeInTheDocument();
+    expect(await screen.findByText("We're double-checking this statement")).toBeInTheDocument();
+    expect(await screen.findByText(/we'll notify you as soon as it's done/)).toBeInTheDocument();
     await waitFor(() => expect(importJobsApi.progress).toHaveBeenCalledWith('job-held'));
     expect(screen.queryByText(/which account is this statement for/i)).not.toBeInTheDocument();
     expect(screen.queryByTestId('pdf-password-panel')).not.toBeInTheDocument();
@@ -3600,7 +3600,7 @@ describe('Import — a statement held by the accuracy check on the synchronous p
 
     await user.upload(screen.getByTestId('statement-file-input'), csvFile());
 
-    expect(await screen.findByText('Running additional checks')).toBeInTheDocument();
+    expect(await screen.findByText("We're double-checking this statement")).toBeInTheDocument();
     expect(screen.getByTestId('import-progress')).toBeInTheDocument();
     expect(screen.queryByText(/which account is this statement for/i)).not.toBeInTheDocument();
   });

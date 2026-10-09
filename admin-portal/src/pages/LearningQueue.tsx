@@ -194,7 +194,7 @@ function LearningQueueContent() {
               }`}
             >
               {s}
-              {count !== undefined && <span className="ml-1 opacity-70">{count}</span>}
+              {count !== undefined && <span className="ml-1">{count}</span>}
             </button>
           );
         })}

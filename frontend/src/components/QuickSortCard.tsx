@@ -148,7 +148,7 @@ export function QuickSortCard() {
               {current.payments} {current.payments === 1 ? 'payment' : 'payments'} · {fmt(current.total)} · latest {current.latestDate}
             </p>
             {current.largeOneOff && (
-              <p className="mt-1 inline-block rounded bg-accent-blue-bg px-2 py-0.5 text-xs text-accent-blue">Large one-off payment</p>
+              <p className="mt-1 inline-block rounded bg-accent-blue-bg px-2 py-0.5 text-xs text-ink">Large one-off payment</p>
             )}
           </div>
 

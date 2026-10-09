@@ -214,7 +214,7 @@ export function ImportProgressCard({
         </Text>
       ) : null}
 
-      {pollError ? <Text style={[styles.pollError, { color: c.warning }]}>{pollError}</Text> : null}
+      {pollError ? <Text style={[styles.pollError, { color: c.warningInk }]}>{pollError}</Text> : null}
 
       {/* A held import also needs a way back: it waits on a reviewer, and nothing on this card
           changes until one decides. Leaving it stops nothing -- the review goes on, and approving

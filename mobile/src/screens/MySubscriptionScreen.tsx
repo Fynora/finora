@@ -150,7 +150,7 @@ export function MySubscriptionScreen() {
       {subscription.status === 'PAUSED' ? (
         // Razorpay's charge_at goes null while paused, so renewalDate is stale until resume --
         // same fix as frontend/src/pages/Billing.tsx's own paused-state message.
-        <Text style={[styles.note, { color: c.warning }]}>
+        <Text style={[styles.note, { color: c.warningInk }]}>
           Paused — billing on hold. Resume anytime to pick up where you left off.
         </Text>
       ) : subscription.renewalDate && (

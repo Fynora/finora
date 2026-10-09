@@ -138,7 +138,7 @@ export function BudgetsScreen() {
         <Button label={saving ? 'Saving…' : 'Set Budget'} onPress={() => void save()} loading={saving} />
 
         {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
-        {saved ? <Text style={[styles.saved, { color: c.success }]}>Saved.</Text> : null}
+        {saved ? <Text style={[styles.saved, { color: c.successInk }]}>Saved.</Text> : null}
       </Card>
 
       <View style={styles.list}>

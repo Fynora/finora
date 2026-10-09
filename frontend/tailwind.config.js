@@ -27,7 +27,9 @@ export default {
   // choice — not just the OS setting — controls which palette applies. See src/index.css
   // for the `:root` / `.dark` variable definitions these all resolve to.
   darkMode: 'class',
-  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  // Test files are not scanned: class strings that exist only as test fixtures would otherwise
+  // ship as dead rules in the production stylesheet.
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}', '!./src/**/*.test.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
       colors: {
@@ -52,8 +54,11 @@ export default {
         // Semantic
         success: token('success'),
         'success-bg': token('success-bg'),
+        'on-success': token('on-success'),
+        'success-inverse': token('success-inverse'),
         danger: token('danger'),
         'danger-bg': token('danger-bg'),
+        'on-danger': token('on-danger'),
         warning: token('warning'),
         'warning-bg': token('warning-bg'),
         // Premium brand accent — separate from the decorative accent-* family below; see
@@ -70,6 +75,7 @@ export default {
         'fixed-ink-hover': token('fixed-ink-hover'),
         'premium-fixed': token('premium-fixed'),
         'on-premium-fixed': token('on-premium-fixed'),
+        'warning-fixed': token('warning-fixed'),
         // Shared dark-surface pair for SiteFooter and the marketing surface's own dark
         // sections — see index.css's comment on these.
         'deep-surface': token('deep-surface'),

@@ -63,7 +63,7 @@ export function UploadProgressPanel({
             {...fade}
             className="bg-ink text-card rounded-xl2 py-5 flex flex-col items-center gap-2"
           >
-            <CheckCircle2 size={26} className="text-success" />
+            <CheckCircle2 size={26} className="text-success-inverse" />
             {/* role="status" (same convention as DuplicateReview's own success/failure text) --
                 without it, a screen-reader user gets no announcement that the upload actually
                 succeeded before the page silently moves on to the review step a moment later. Not

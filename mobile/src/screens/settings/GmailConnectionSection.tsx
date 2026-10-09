@@ -197,7 +197,7 @@ export function GmailConnectionSection() {
           </View>
           <Button label="Connect Gmail" onPress={() => void connect()} loading={connecting} />
         </View>
-        {actionNotice ? <Text style={[styles.notice, { color: c.success }]}>{actionNotice}</Text> : null}
+        {actionNotice ? <Text style={[styles.notice, { color: c.successInk }]}>{actionNotice}</Text> : null}
         {actionError ? <Text style={[styles.error, { color: c.danger }]}>{actionError}</Text> : null}
       </View>
     );

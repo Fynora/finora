@@ -46,7 +46,9 @@ function initialsOf(name: string): string {
 function colorFor(name: string): string {
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) | 0;
-  return `hsl(${Math.abs(hash) % 360}, 55%, 40%)`;
+  // 30% lightness so the white initials clear WCAG AA on every hue: at the 40% this used to be,
+  // yellow-green hues put white at 2.84:1; the worst hue at 30% is 4.75:1.
+  return `hsl(${Math.abs(hash) % 360}, 55%, 30%)`;
 }
 
 /**

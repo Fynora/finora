@@ -1445,7 +1445,7 @@ export default function Import() {
 
               <div className="space-y-4">
                 <FinoraCard className="bg-success-bg border-transparent">
-                  <div className="w-8 h-8 rounded-lg bg-white/60 flex items-center justify-center mb-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-card/60 flex items-center justify-center mb-2.5">
                     <Shield size={16} className="text-success" />
                   </div>
                   <h3 className="text-sm font-semibold text-ink mb-1">Your data is safe with us</h3>
@@ -1462,7 +1462,7 @@ export default function Import() {
                   </button>
                 </FinoraCard>
                 <FinoraCard className="bg-primary-light border-transparent">
-                  <div className="w-8 h-8 rounded-lg bg-white/60 flex items-center justify-center mb-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-card/60 flex items-center justify-center mb-2.5">
                     <Sparkles size={16} className="text-primary" />
                   </div>
                   <h3 className="text-sm font-semibold text-ink mb-1">Paperless &amp; effortless</h3>
@@ -2391,7 +2391,7 @@ function TransactionPreviewTable({
                 )}
                 {r.likelyDuplicate && <span className="text-danger text-2xs uppercase ml-1">duplicate</span>}
                 {isUnconfirmedGuess(r.categorySource) && (
-                  <span className="text-2xs uppercase ml-1" style={{ color: '#d97706' }}>low confidence</span>
+                  <span className="text-2xs uppercase ml-1 text-warning">low confidence</span>
                 )}
                 {r.international && <span className="text-2xs uppercase ml-1 text-muted">international</span>}
               </td>

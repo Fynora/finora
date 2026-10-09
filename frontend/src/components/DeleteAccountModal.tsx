@@ -258,7 +258,7 @@ export function DeleteAccountModal({ onClose, onDeleted, signInMethod }: {
               <button
                 onClick={submitDelete}
                 disabled={!understood || submitting}
-                className="bg-danger text-white hover:bg-danger/90 disabled:opacity-50 rounded-lg px-4 py-2 text-xs uppercase font-medium"
+                className="bg-danger text-on-danger hover:bg-danger/90 disabled:opacity-50 rounded-lg px-4 py-2 text-xs uppercase font-medium"
               >
                 {submitting ? 'Deleting…' : 'Permanently Delete Account'}
               </button>

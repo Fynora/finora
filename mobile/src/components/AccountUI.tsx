@@ -32,7 +32,7 @@ export function SectionCard({ title, subtitle, children }: {
 export function VerifiedBadge() {
   const c = useTheme();
   return (
-    <Text style={[styles.badge, { color: c.success, backgroundColor: c.successBg }]}>✓ Verified</Text>
+    <Text style={[styles.badge, { color: c.successInk, backgroundColor: c.successBg }]}>✓ Verified</Text>
   );
 }
 
@@ -56,7 +56,7 @@ export function SaveStatus({ dirty, saving, justSaved, error }: {
     : saving
       ? { text: 'Saving…', color: c.muted }
       : justSaved
-        ? { text: '✓ Saved', color: c.success }
+        ? { text: '✓ Saved', color: c.successInk }
         : dirty
           ? { text: 'Unsaved changes', color: c.warningInk }
           : null;

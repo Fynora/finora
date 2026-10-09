@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { AppState, BackHandler, Keyboard, Text, type AppStateStatus } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
@@ -10,7 +10,7 @@ import { AppModal, LaunchCoveredProvider } from './AppModal';
 import { AppAlert, getCurrentAppAlert, __resetAppAlertForTests } from '../lib/appAlert';
 import { AppBanner, __resetAppBannerForTests } from '../lib/appBanner';
 import { AuthProvider } from '../context/AuthContext';
-import { ThemeProvider } from '../theme';
+import { ThemeProvider, useThemeSetting } from '../theme';
 import App from '../../App';
 import { setLaunchAnimationPlayedForTests } from './LaunchAnimation';
 
@@ -111,14 +111,25 @@ function returnToForeground() {
   appStateListeners.forEach((listener) => listener('active'));
 }
 
-function renderGate(children = <Text>protected content</Text>) {
+// Flips dark on via the real public setter (same approach as AccountsCard.test.tsx) for the
+// lock-cover opacity test below, which has to hold in both themes.
+function ForceDarkTheme({ children }: { children: ReactNode }) {
+  const { setSetting } = useThemeSetting();
+  useEffect(() => { setSetting('dark'); }, [setSetting]);
+  return <>{children}</>;
+}
+
+function renderGate(children = <Text>protected content</Text>, { dark = false } = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  const gate = (
+    <AuthProvider>
+      <AppLockGate>{children}</AppLockGate>
+    </AuthProvider>
+  );
   return render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <AuthProvider>
-          <AppLockGate>{children}</AppLockGate>
-        </AuthProvider>
+        {dark ? <ForceDarkTheme>{gate}</ForceDarkTheme> : gate}
       </ThemeProvider>
     </QueryClientProvider>
   );
@@ -538,6 +549,34 @@ describe('AppLockGate', () => {
 
     await waitFor(() => expect(screen.getByText(LOCK_TEXT)).toBeTruthy());
     expect(screen.queryByText('protected content')).toBeNull();
+  });
+
+  // The glass redesign makes screens translucent over a mesh backdrop. The lock cover is the one
+  // surface that must never be: balances would show through. Pinned in both themes, with the
+  // exact opaque bg value and no mesh anywhere in the tree while the cover is up.
+  it.each([
+    ['light', '#F8FAFC'],
+    ['dark', '#15171C'],
+  ])('%s: lock cover stays fully opaque under the glass redesign', async (theme, bg) => {
+    await signIn();
+    await enableAppLock();
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(3_000_000);
+    mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
+    renderGate(undefined, { dark: theme === 'dark' });
+    await waitFor(() => expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByText(LOCK_TEXT)).toBeNull());
+
+    nowSpy.mockReturnValue(3_000_000 + 5000);
+    mockedAuthenticateAsync.mockResolvedValueOnce({ success: false, error: 'authentication_failed' });
+    goToBackground();
+    act(() => {
+      returnToForeground();
+    });
+    expect(screen.getByTestId('app-lock-cover')).toHaveStyle({ backgroundColor: bg });
+    expect(screen.queryByTestId('glass-mesh', { includeHiddenElements: true })).toBeNull();
+
+    await waitFor(() => expect(screen.getByText(LOCK_TEXT)).toBeTruthy());
+    expect(screen.queryByTestId('glass-mesh', { includeHiddenElements: true })).toBeNull();
   });
 
   it('stays locked and offers a retry when the auto-prompt fails', async () => {

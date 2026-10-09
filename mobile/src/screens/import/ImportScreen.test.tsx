@@ -1415,7 +1415,7 @@ describe('ImportScreen — async import job (Phase 4)', () => {
       await settle();
 
       await waitFor(() => expect(api.importJobs.progress).toHaveBeenCalledWith('job-held'), { timeout: 3000 });
-      expect(await screen.findByText('Running additional checks')).toBeTruthy();
+      expect(await screen.findByText("We're double-checking this statement")).toBeTruthy();
       expect(screen.queryByText(/^Import \d+ transaction/)).toBeNull();
       expect(screen.queryByTestId('pdf-password-panel')).toBeNull();
 

@@ -143,8 +143,8 @@ function HeldImportsContent() {
     <div className="space-y-6">
       <p className="text-muted text-sm">
         Imports that failed on our side: a parser gap on a statement layout Fynora has not seen, or
-        retries that ran out. The user has been told we are running additional checks and has not
-        been asked to do anything. Fix the cause and reprocess — the statement was retained, so nobody
+        retries that ran out. The user has been told we are double-checking the statement by hand and
+        will hear back within 48 hours, and has not been asked to do anything. Fix the cause and reprocess — the statement was retained, so nobody
         re-uploads — or resolve it with a message that tells the user what to do next.
       </p>
 

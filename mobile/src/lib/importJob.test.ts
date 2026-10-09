@@ -1,4 +1,4 @@
-import { detail, isCancellable, isHeld, isReviewable, isSettled, label, percent } from './importJob';
+import { HELD_DETAIL, HELD_LABEL, detail, isCancellable, isHeld, isReviewable, isSettled, label, percent } from './importJob';
 import type { ImportJobProgress } from '../api/endpoints';
 
 /**
@@ -137,7 +137,7 @@ describe('importJob — held for trust review', () => {
   });
 
   it('reads as work in progress rather than as a failure', () => {
-    expect(label(trustHeld())).toBe('Running additional checks');
+    expect(label(trustHeld())).toBe(HELD_LABEL);
   });
 
   it('reads exactly like the other hold, because the user is in the same situation', () => {
@@ -146,18 +146,21 @@ describe('importJob — held for trust review', () => {
     expect(detail(trustHeld())).toBe(detail(otherHold));
   });
 
-  it('promises no deadline and never questions the statement itself', () => {
+  it('says a person is checking it and gives the 48-hour limit, never questioning the statement', () => {
+    // A time, because testers read an open-ended wait as the app having done nothing (see
+    // HELD_DETAIL). "By hand", because it is true and it is why the wait exists.
     const text = detail(trustHeld()) ?? '';
-    for (const forbidden of ['hour', 'minute', 'day', 'soon', 'shortly', 'within']) {
-      expect(text.toLowerCase()).not.toContain(forbidden);
-    }
+    expect(text).toContain('by hand');
+    expect(text).toContain('48 hours');
     for (const forbidden of ['genuine', 'authentic', 'verify', 'legitimate', 'fraud', 'suspicious']) {
       expect(text.toLowerCase()).not.toContain(forbidden);
     }
   });
 
-  it('tells the user there is nothing for them to do', () => {
-    expect(detail(trustHeld())?.toLowerCase()).toContain('no action needed');
+  it('promises a notification and tells the user they can carry on meanwhile', () => {
+    const text = detail(trustHeld()) ?? '';
+    expect(text).toContain("we'll notify you");
+    expect(text).toContain('keep using Fynora');
   });
 });
 
@@ -181,26 +184,29 @@ describe('importJob — held for review', () => {
   });
 
   it('reads as work in progress rather than as a failure', () => {
-    expect(label(held())).toBe('Running additional checks');
+    expect(label(held())).toBe(HELD_LABEL);
   });
 
   it('explains itself even though no rows were ever counted', () => {
     expect(held().rowsTotal).toBeNull();
-    expect(detail(held())).toContain('additional checks');
+    expect(detail(held())).toBe(HELD_DETAIL);
   });
 
-  it('promises no deadline and never questions the statement itself', () => {
+  it('says a person is checking it and gives the 48-hour limit, never questioning the statement', () => {
+    // A time, because testers read an open-ended wait as the app having done nothing (see
+    // HELD_DETAIL). "By hand", because it is true and it is why the wait exists.
     const text = detail(held()) ?? '';
-    for (const forbidden of ['hour', 'minute', 'day', 'soon', 'shortly', 'within']) {
-      expect(text.toLowerCase()).not.toContain(forbidden);
-    }
+    expect(text).toContain('by hand');
+    expect(text).toContain('48 hours');
     for (const forbidden of ['genuine', 'authentic', 'verify', 'legitimate', 'fraud', 'suspicious']) {
       expect(text.toLowerCase()).not.toContain(forbidden);
     }
   });
 
-  it('tells the user there is nothing for them to do', () => {
-    expect(detail(held())?.toLowerCase()).toContain('no action needed');
+  it('promises a notification and tells the user they can carry on meanwhile', () => {
+    const text = detail(held()) ?? '';
+    expect(text).toContain("we'll notify you");
+    expect(text).toContain('keep using Fynora');
   });
 
   it('shows no progress percentage — nothing is running', () => {

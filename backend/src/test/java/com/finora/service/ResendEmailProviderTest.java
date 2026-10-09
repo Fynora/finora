@@ -159,8 +159,10 @@ class ResendEmailProviderTest {
     void statementHeld_hasNoButtonAndSendsFromSupport() {
         EmailMessage message = provider.buildStatementHeldMessage("user@example.test");
 
-        assertThat(message.subject()).isEqualTo("We're checking your statement");
-        assertThat(message.html()).contains("No action is needed");
+        assertThat(message.subject()).isEqualTo("We're double-checking your statement");
+        // The two promises the held screen makes too: a person, and a time.
+        assertThat(message.html()).contains("by hand").contains("48 hours")
+                .contains("keep using Fynora");
         assertThat(message.sender()).isEqualTo(EmailMessage.Sender.SUPPORT);
     }
 

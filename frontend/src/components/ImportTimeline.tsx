@@ -196,7 +196,7 @@ export function ImportTimeline({
               className="mt-2 text-xs font-medium text-primary hover:underline"
             >
               {/* Found live in testing: a held job had no way back to the dropzone at all -- the
-                  user was stuck watching "Running additional checks" with nothing else to do.
+                  user was stuck watching the held message with nothing else to do.
                   Unlike a failure, nothing here needs retrying, so the label says what it actually
                   does instead of implying a retry. */}
               {timeline.status === 'FAILED' ? 'Try a different file' : 'Import another statement'}

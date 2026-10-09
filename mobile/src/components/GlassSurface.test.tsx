@@ -1,10 +1,19 @@
 import { useEffect, type ReactNode } from 'react';
-import { Text } from 'react-native';
+import { Platform, Text } from 'react-native';
 import { render, screen } from '@testing-library/react-native';
 import { GlassSurface, useGlassSurfaceStyle } from './GlassSurface';
+
 import { Card } from './Card';
 import { DashboardCard } from './dashboard/DashboardCard';
 import { ThemeProvider, useThemeSetting } from '../theme';
+
+// This file specifies the TINTED path (Android, rows, and every surface before Phase 2): jest
+// defaults Platform.OS to 'ios', where panels now render native glass with the fill on an inner
+// layer -- GlassSurface.native.test.tsx covers that. Pin Android here so the fill/edge assertions
+// read the outer element.
+const originalOS = Platform.OS;
+beforeEach(() => { (Platform as { OS: string }).OS = 'android'; });
+afterEach(() => { (Platform as { OS: string }).OS = originalOS; });
 
 jest.mock('../lib/useReduceTransparency', () => ({ useReduceTransparency: jest.fn(() => false) }));
 const { useReduceTransparency } = jest.requireMock('../lib/useReduceTransparency');

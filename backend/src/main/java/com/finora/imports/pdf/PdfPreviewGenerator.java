@@ -209,9 +209,9 @@ public class PdfPreviewGenerator {
         ctx.recordTextSource(acquired.source());
         // What the parser had to discard -- read again at verify() time, so a partial import cannot pass as clean.
         ctx.recordContentDamage(acquired.contentDamage());
-        // What the document says it is, from its own headings, before any table reading -- see
-        // PaymentAppHistoryDetector (audit F-08).
-        if (com.finora.imports.PaymentAppHistoryDetector.containsBothHeadings(
+        // What the document is, from its own headings or its row grammar, before any table reading
+        // -- see PaymentAppHistoryDetector (audit F-08).
+        if (com.finora.imports.PaymentAppHistoryDetector.isPaymentAppHistory(
                 positioned.stream().map(PositionedText::text).toList())) {
             ctx.recordPaymentAppHistory();
         }

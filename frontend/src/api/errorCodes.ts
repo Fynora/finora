@@ -26,8 +26,8 @@ export const SCANNED_OCR_REQUIRED = 'IMPORT_010';
 export const CORRUPT_PDF = 'IMPORT_011';
 // The CSV twin of CORRUPT_PDF: an unterminated quote or an otherwise unreadable CSV.
 export const MALFORMED_CSV = 'IMPORT_017';
-// A payment app's own payment history (Paytm's "Passbook Payments History") rather than a bank
-// statement. It spans several bank accounts and every payment in it is already in that bank's own
+// A payment app's own payment history (Paytm's "Passbook Payments History", or a UPI app's
+// "Paid to / Received from" transaction history) rather than a bank statement. It spans several bank accounts and every payment in it is already in that bank's own
 // statement, so the fix is to import those instead. Audit F-08.
 export const PAYMENT_APP_HISTORY = 'IMPORT_018';
 // A PDF over the page ceiling. Thrown while the document is read, so a queued job hits it too.

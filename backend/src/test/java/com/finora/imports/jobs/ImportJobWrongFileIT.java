@@ -139,6 +139,20 @@ class ImportJobWrongFileIT extends AbstractIntegrationTest {
                 "Skills: Java, Postgres")), "IMPORT_NO_HEADER_DETECTED");
     }
 
+    /**
+     * A UPI app's transaction history is the wrong kind of document, not a statement in a layout we
+     * cannot read. It used to be staged as rows and held for review for days; it must fail at once,
+     * under its own code, so the client can tell the user to import their bank statements instead.
+     */
+    @Test
+    void aUpiAppTransactionHistoryFailsStraightAwayAndIsNotHeld() throws Exception {
+        ImportJob job = run("history.pdf",
+                com.finora.imports.pdf.fixtures.PdfFixtureBuilder.buildUpiAppTransactionHistory());
+
+        assertFailsStraightAway(job, "IMPORT_PAYMENT_APP_HISTORY");
+        assertThat(job.getImportSessionId()).as("no import session is created for it").isNull();
+    }
+
     @Test
     void aDamagedPdfFailsStraightAwayAndIsNotHeld() throws Exception {
         assertFailsStraightAway(run("damaged.pdf", "%PDF-1.4\nthis is not a real document\n".getBytes(StandardCharsets.UTF_8)),

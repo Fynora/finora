@@ -1261,6 +1261,47 @@ public final class PdfFixtureBuilder {
         return render(List.of(page));
     }
 
+    /**
+     * A UPI app's transaction history in the "Paid to / Received from" row grammar: each payment is
+     * a block of a dated line led by what happened to the money, reference lines, and a line naming
+     * the bank account it left or reached. No balance column. Every name, number and amount is
+     * invented; only the shape is modelled on a real history.
+     */
+    public static byte[] buildUpiAppTransactionHistory() throws IOException {
+        return buildUpiAppTransactionHistory(5, "This is a system generated statement.");
+    }
+
+    /**
+     * The same history with its first {@code paymentCount} payments (1 to 5) and the given footer --
+     * for the short history a user gets by picking a narrow date range.
+     */
+    public static byte[] buildUpiAppTransactionHistory(int paymentCount, String footer) throws IOException {
+        float[] col = {LEFT_MARGIN, 125f, 420f, 500f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("Transaction Statement for 9000000000")
+                .line("01 Jul, 2026 - 31 Jul, 2026")
+                .blankLine()
+                .row(col, "Date", "Transaction Details", "Type", "Amount");
+        String[][] payments = {
+                {"Jul 01, 2026", "Paid to SAMPLE GROCER", "DEBIT", "250", "Paid by"},
+                {"Jul 03, 2026", "Received from SAMPLE FRIEND", "CREDIT", "1,000", "Credited to"},
+                {"Jul 05, 2026", "Paid to SAMPLE CAFE", "DEBIT", "120", "Paid by"},
+                {"Jul 08, 2026", "Cashback from SAMPLE APP", "CREDIT", "5", "Credited to"},
+                {"Jul 12, 2026", "Refund from SAMPLE STORE", "CREDIT", "300", "Credited to"},
+        };
+        for (String[] p : java.util.Arrays.copyOf(payments, paymentCount)) {
+            page.row(col, p[0], p[1], p[2], p[3])
+                    .row(col, "10:00 am", "Transaction ID T0000000000000000000000")
+                    .row(col, null, "UTR No. 000000000000")
+                    .row(col, null, p[4] + " XXXXXX0000")
+                    .blankLine();
+        }
+        page.line(footer);
+
+        return render(List.of(page));
+    }
+
     public static byte[] buildSingularDepositWithdrawalColumnsSample() throws IOException {
         // Description column kept short and Withdrawal/Deposit/Balance pushed well clear of it --
         // a longer description here would spatially overlap the amount columns' x-position and

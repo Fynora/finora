@@ -70,8 +70,8 @@ const FAILURE_TERMS: Record<string, Term & { wire?: string }> = {
   },
   IMPORT_PAYMENT_APP_HISTORY: {
     wire: 'IMPORT_018',
-    label: 'Paytm history, not a statement',
-    meaning: 'The upload is a Paytm payment history rather than a bank statement.',
+    label: 'Payment app history, not a statement',
+    meaning: 'The upload is a payment app history (Paytm, or a UPI app such as PhonePe) rather than a bank statement.',
   },
   IMPORT_SYSTEM_BUSY: {
     wire: 'IMPORT_006',

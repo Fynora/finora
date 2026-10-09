@@ -229,6 +229,15 @@ def compare_record(before, after):
             parts.append("-" + ", ".join(sorted(bcap - acap)))
         out.append(_c("capabilities", REVIEW, "; ".join(parts)))
 
+    # Staging refuses a document recognised as a payment app's history (IMPORT_018) before any row
+    # reaches the user, so a statement starting to be recognised as one would no longer import at
+    # all -- whatever its row count here says. A run from before the probe recorded the field has
+    # None on that side, which is "not measured", not False, and is skipped.
+    bp, ap = bo.get("paymentAppHistory"), ao.get("paymentAppHistory")
+    if bp is not None and ap is not None and bp != ap:
+        out.append(_c("paymentAppHistory", REGRESSION if ap else REVIEW,
+                      f"{bp} -> {ap}" + (" (staging would now refuse this document)" if ap else "")))
+
     if (bo.get("banks") or []) != (ao.get("banks") or []):
         out.append(_c("banks", REVIEW, f"{bo.get('banks')} -> {ao.get('banks')}"))
 

@@ -188,6 +188,30 @@ describe('ImportTimeline', () => {
     expect(reason.textContent).not.toContain('IMPORT_001');
   });
 
+  // The production case behind this test: a statement held for trust review, then rejected. The
+  // job row carries no last_error or resolution message from that path's own history -- only the
+  // code -- so the code alone has to produce the headline and the reason.
+  it('explains an import rejected in trust review from its code alone', async () => {
+    api.timeline.mockResolvedValue(timeline({
+      status: 'FAILED',
+      userStatus: 'ACTION_REQUIRED', // IMPORT_TRUST_REVIEW_REJECTED is userActionRequired=true
+      failureCode: 'IMPORT_015',
+      resolutionMessage: null,
+      stages: [
+        { stage: 'PARSING', attempt: 1, outcome: 'COMPLETED', startedAt: '2026-08-12T10:00:00Z', endedAt: '2026-08-12T10:00:01Z', durationMs: 1000 },
+        { stage: 'ANALYZING', attempt: 1, outcome: 'COMPLETED', startedAt: '2026-08-12T10:00:01Z', endedAt: '2026-08-12T10:00:58Z', durationMs: 57000 },
+      ],
+    }));
+    render(<ImportTimeline jobId="job-1" />);
+
+    await advance(100);
+
+    expect(screen.getByTestId('import-timeline-failure-title').textContent)
+      .toBe("We couldn't read this accurately");
+    expect(screen.getByTestId('import-timeline-failure-reason').textContent)
+      .toContain('could not read it accurately enough to import it');
+  });
+
   // An admin resolved a held import and wrote to the user. Someone looked at this statement, so
   // their words win over the curated reason for the code.
   it('shows the admin\'s message for a resolved import instead of the curated reason', async () => {

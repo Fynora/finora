@@ -225,5 +225,19 @@ class StatementAnalysisReportServiceIT extends AbstractIntegrationTest {
                 .as("the three outcomes are the whole of the total").isEqualTo(after.totalAnalysesEver());
         assertThat(reportService.failureCounts(Instant.now().minus(1, ChronoUnit.HOURS)))
                 .extracting(FailureCountDto::failureCode).doesNotContain("HTTP_415");
+
+        // The admin drawer opens it like any other row: no fingerprint, size or duration to show,
+        // and none of them may break the view.
+        var detail = reportService.detailByReference(reference).orElseThrow();
+        assertThat(detail.analysis().outcome()).isEqualTo("REJECTED");
+        assertThat(detail.analysis().failureCode()).isEqualTo("HTTP_415");
+        assertThat(detail.analysis().layoutFingerprint()).isNull();
+        assertThat(detail.analysis().byteSize()).isNull();
+        assertThat(detail.timesLayoutSeen()).isZero();
+        assertThat(detail.timesLayoutFailed()).isZero();
+        assertThat(reportService.recent(50)).extracting(StatementAnalysisReportService.AnalysisView::reference)
+                .contains(reference);
+        // In the table, but not in the engine's window: it never reached the engine.
+        assertThat(after.analysesInWindow()).isEqualTo(before.analysesInWindow());
     }
 }

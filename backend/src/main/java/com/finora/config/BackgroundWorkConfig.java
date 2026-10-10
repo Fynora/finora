@@ -129,6 +129,29 @@ public class BackgroundWorkConfig {
     }
 
     /**
+     * Writes the record of an upload turned away because the server was busy
+     * ({@code StatementAnalysisRecorder.recordRejectedOffRequest}, Gate 1 spec §5.1) off the request
+     * thread. That refusal is the import limiter shedding load, and it is meant to be instant; a
+     * database write on the same thread would wait for a pool connection at the very moment the
+     * pool is most contended, turning a shed request into a parked one. One thread, so recording
+     * holds at most one connection however large the burst; a bounded queue, and a full queue
+     * drops the record rather than running it on the caller -- under real overload some evidence
+     * is lost, and responsiveness is not.
+     */
+    @Bean("uploadRefusalRecordExecutor")
+    public Executor uploadRefusalRecordExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setQueueCapacity(200);
+        executor.setThreadNamePrefix("upload-refusal-record-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.DiscardPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(false);
+        executor.initialize();
+        return executor;
+    }
+
+    /**
      * Sends layout review alert emails ({@code LayoutReviewAlertService}) off the upload request.
      * The email provider may take up to its connect-plus-read timeout per recipient; on the request
      * thread that would hold a user's statement upload hostage to an admin notification. One

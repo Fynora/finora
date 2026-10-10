@@ -272,7 +272,11 @@ public class StatementAnalysisReportService {
 
     @Transactional(readOnly = true)
     public AnalysisSummary summary() {
-        List<AnalysisView> window = recent(SUMMARY_WINDOW);
+        // The engine's window: uploads it actually saw. A refused upload (REJECTED) never reached
+        // it, so it has no rows or reasons to add and must not take a read's place in the window.
+        List<AnalysisView> window = repository.findByOutcomeNotOrderByCreatedAtDesc(
+                        StatementAnalysisSession.Outcome.REJECTED, PageRequest.of(0, SUMMARY_WINDOW))
+                .stream().map(this::toView).toList();
 
         Map<String, Integer> combined = new LinkedHashMap<>();
         long rows = 0;

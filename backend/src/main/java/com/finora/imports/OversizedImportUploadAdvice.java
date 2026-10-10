@@ -2,7 +2,7 @@ package com.finora.imports;
 
 import com.finora.dto.ApiResponse;
 import com.finora.exception.GlobalExceptionHandler;
-import com.finora.imports.analysis.StatementAnalysisRecorder;
+import com.finora.imports.analysis.UploadRefusalLog;
 import com.finora.security.CurrentUser;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -43,13 +43,13 @@ public class OversizedImportUploadAdvice {
     static final String REFUSAL_CODE = "UPLOAD_TOO_LARGE";
 
     private final GlobalExceptionHandler delegate;
-    private final StatementAnalysisRecorder analysisRecorder;
+    private final UploadRefusalLog uploadRefusalLog;
     private final CurrentUser currentUser;
 
-    public OversizedImportUploadAdvice(GlobalExceptionHandler delegate, StatementAnalysisRecorder analysisRecorder,
+    public OversizedImportUploadAdvice(GlobalExceptionHandler delegate, UploadRefusalLog uploadRefusalLog,
                                        CurrentUser currentUser) {
         this.delegate = delegate;
-        this.analysisRecorder = analysisRecorder;
+        this.uploadRefusalLog = uploadRefusalLog;
         this.currentUser = currentUser;
     }
 
@@ -59,7 +59,7 @@ public class OversizedImportUploadAdvice {
         try {
             String path = request.getRequestURI();
             if ("POST".equalsIgnoreCase(request.getMethod()) && isStatementUpload(path)) {
-                analysisRecorder.recordRejected(currentUser.id(), formatOf(path), REFUSAL_CODE);
+                uploadRefusalLog.refused(currentUser.id(), formatOf(path), REFUSAL_CODE);
             }
         } catch (RuntimeException e) {
             // No authenticated user, or the write failed: evidence lost, answer unchanged.

@@ -75,7 +75,7 @@
     "pngjs": "^7.0.0",
     "react-refresh": "^0.19.0",
     "react-test-renderer": "19.3.0",
-    "typescript": "~6.0.3"
+    "typescript": "~7.0.2"
   },
   "scripts": {
     "start": "expo start",

@@ -368,6 +368,13 @@ measured in the local Pages emulator only:
   missing from `_redirects` therefore looks fine to someone clicking around, and is broken for
   everything that reads the status or does not run the bundle (link checkers, crawlers, an
   uptime probe, the first paint). Check with `curl`, not by eye.
+- **Leading slashes are collapsed, and only by Pages.** `//terms` is answered with `terms.html` and
+  a `200`, and `//` with the homepage (measured on production, 2026-10-10; `/terms//` and
+  `/terms%2F` are `308` to `/terms` instead). React Router does not collapse them: it matches `//`
+  as the homepage but finds no route for `//terms`, so a browser shows the not-found page over the
+  terms file. The file's canonical is what tells a crawler that does not run JavaScript where the
+  page lives; in the browser `useCanonical` removes it, so the not-found page is never both
+  `noindex` and canonical.
 - **Matching is case-sensitive.** `/Privacy` and `/Auth` return `404` with the not-found page, and
   the browser then shows the real page, as above. Before `404.html` they returned `index.html`
   with a `200`. The paths the backend's emails and the referral page build are lower-case.

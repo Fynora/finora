@@ -3,7 +3,7 @@ import Svg, { Circle } from 'react-native-svg';
 import { DashboardCard } from './DashboardCard';
 import { fmtCurrency } from '../../lib/format';
 import { useLargeFontScale } from '../../lib/useLargeFontScale';
-import { fonts, spacing, useTheme } from '../../theme';
+import { spacing, typography, useTheme } from '../../theme';
 import type { Goal } from '../../types';
 
 const RING_SIZE = 56;
@@ -35,10 +35,7 @@ export function GoalsRow({ goals }: { goals: Goal[] }) {
         const rawPct = g.targetAmount > 0 ? (g.currentAmount / g.targetAmount) * 100 : 0;
         const ringPct = Math.min(100, rawPct);
         return (
-          <DashboardCard key={g.id} style={styles.card}>
-            <Text style={[styles.name, { color: c.ink, fontFamily: fonts.bodySemibold }]} numberOfLines={largeText ? 2 : 1}>
-              {g.name}
-            </Text>
+          <DashboardCard key={g.id} style={styles.card} padding="compact">
             <View style={styles.ringWrap}>
               <Svg width={RING_SIZE} height={RING_SIZE}>
                 <Circle cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RING_R} stroke={c.border} strokeWidth={RING_STROKE} fill="none" />
@@ -58,10 +55,13 @@ export function GoalsRow({ goals }: { goals: Goal[] }) {
                 />
               </Svg>
               <View style={styles.ringCenter} pointerEvents="none">
-                <Text style={[styles.pct, { color: c.ink, fontFamily: fonts.bodyBold }]}>{rawPct.toFixed(0)}%</Text>
+                <Text style={[typography.labelS, { color: c.ink }]}>{rawPct.toFixed(0)}%</Text>
               </View>
             </View>
-            <Text style={[styles.meta, { color: c.mutedInk, fontFamily: fonts.body }]}>
+            <Text style={[typography.labelM, styles.name, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
+              {g.name}
+            </Text>
+            <Text style={[typography.caption, styles.meta, { color: c.mutedInk }]}>
               {fmtCurrency(g.currentAmount)} of {fmtCurrency(g.targetAmount)}
             </Text>
           </DashboardCard>
@@ -72,11 +72,10 @@ export function GoalsRow({ goals }: { goals: Goal[] }) {
 }
 
 const styles = StyleSheet.create({
-  row: { gap: spacing.sm, paddingVertical: spacing.xs },
-  card: { width: 180, alignItems: 'center' },
-  name: { fontSize: 13, alignSelf: 'flex-start' },
-  ringWrap: { marginTop: spacing.sm, width: RING_SIZE, height: RING_SIZE },
+  row: { gap: spacing.ms, paddingVertical: spacing.xs },
+  card: { width: 164, gap: spacing.ms },
+  name: { alignSelf: 'stretch' },
+  ringWrap: { width: RING_SIZE, height: RING_SIZE },
   ringCenter: { position: 'absolute', width: RING_SIZE, height: RING_SIZE, alignItems: 'center', justifyContent: 'center' },
-  pct: { fontSize: 13 },
-  meta: { fontSize: 11, marginTop: spacing.sm, alignSelf: 'flex-start' },
+  meta: { alignSelf: 'stretch' },
 });

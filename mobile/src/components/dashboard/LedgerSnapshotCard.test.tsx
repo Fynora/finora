@@ -1,6 +1,16 @@
 import { render, screen } from '@testing-library/react-native';
+import { Dimensions, StyleSheet } from 'react-native';
 import { LedgerSnapshotCard, type KpiItem } from './LedgerSnapshotCard';
 import { ThemeProvider } from '../../theme';
+import { light } from '../../theme/palette';
+
+// useLargeFontScale reads fontScale through useWindowDimensions, which takes its value from
+// Dimensions.get('window') on mount. Spied the same way DashboardScreen.test.tsx does it, and
+// reset before every test so a large scale cannot leak into the next one.
+const dimensionsGetSpy = jest.spyOn(Dimensions, 'get');
+beforeEach(() => {
+  dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1 });
+});
 
 const KPIS: KpiItem[] = [
   { label: 'Income', value: 145000, delta: 12.5, invert: false, caption: null, isPercent: false },
@@ -18,7 +28,7 @@ function renderCard(kpis: KpiItem[] = KPIS, title = 'This Month') {
 }
 
 describe('LedgerSnapshotCard', () => {
-  it('renders one row per KPI, in a single list, not a grid of separate cards', () => {
+  it('renders one tile per KPI', () => {
     renderCard();
     expect(screen.getByText('Income')).toBeTruthy();
     expect(screen.getByText('Expenses')).toBeTruthy();
@@ -33,9 +43,61 @@ describe('LedgerSnapshotCard', () => {
     expect(screen.queryByText('This Month')).toBeNull();
   });
 
-  it('shows a delta for a KPI that has one', () => {
+  it('shows a delta chip for a KPI that has one, and names the comparison once for the section', () => {
     renderCard();
-    expect(screen.getByText(/12\.5% vs last month/)).toBeTruthy();
+    expect(screen.getByText('▲ 12.5%')).toBeTruthy();
+    expect(screen.getByText('▼ 3.2%')).toBeTruthy();
+    expect(screen.getAllByText('vs last month')).toHaveLength(1);
+  });
+
+  it('colours a rise in expenses as bad and a fall as good', () => {
+    renderCard([{ label: 'Expenses', value: 100, delta: 8, invert: true, caption: null, isPercent: false }]);
+    expect(screen.getByText('▲ 8.0%')).toHaveStyle({ color: light.dangerInk });
+    renderCard([{ label: 'Expenses', value: 100, delta: -8, invert: true, caption: null, isPercent: false }]);
+    expect(screen.getByText('▼ 8.0%')).toHaveStyle({ color: light.successInk });
+  });
+
+  it('names no comparison when no KPI has a delta', () => {
+    renderCard([{ label: 'Total Balance', value: 100000, delta: null, invert: false, caption: 'As of today', isPercent: false }]);
+    expect(screen.queryByText('vs last month')).toBeNull();
+  });
+
+  it('still reads each tile out as one sentence', () => {
+    renderCard();
+    expect(screen.getByLabelText('Income: ₹1,45,000, up 12.5 percent versus last month')).toBeTruthy();
+    expect(screen.getByLabelText('Expenses: ₹12,831, down 3.2 percent versus last month')).toBeTruthy();
+  });
+
+  const basis = (label: string) => StyleSheet.flatten(screen.getByTestId(`kpi-tile-${label}`).props.style).flexBasis;
+
+  it('lays tiles out two per row for ordinary amounts', () => {
+    renderCard();
+    expect(basis('Income')).toBe('47%');
+    expect(basis('Expenses')).toBe('47%');
+  });
+
+  // Ten characters ("₹12,48,320") is the longest amount that fits half a row on a 360 point
+  // phone; this is the boundary, one character either side of it.
+  it('keeps two per row at ten characters and drops to one per row at eleven', () => {
+    renderCard([{ label: 'Income', value: 1248320, delta: null, invert: false, caption: null, isPercent: false }]);
+    expect(basis('Income')).toBe('47%');
+    renderCard([{ label: 'Expenses', value: 12483200, delta: null, invert: false, caption: null, isPercent: false }]);
+    expect(basis('Expenses')).toBe('100%');
+  });
+
+  it('puts every tile on its own row once any one amount is too long, so the grid stays even', () => {
+    renderCard([
+      { label: 'Income', value: 12483200, delta: null, invert: false, caption: null, isPercent: false },
+      { label: 'Expenses', value: 500, delta: null, invert: false, caption: null, isPercent: false },
+    ]);
+    expect(basis('Income')).toBe('100%');
+    expect(basis('Expenses')).toBe('100%');
+  });
+
+  it('falls back to one tile per row under large Dynamic Type', () => {
+    dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1.3 });
+    renderCard();
+    expect(basis('Income')).toBe('100%');
   });
 
   it('shows a percent value without AnimatedNumber', () => {

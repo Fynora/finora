@@ -5,6 +5,8 @@
  */
 export { radius, spacing, type Palette } from './palette';
 export { fonts, FontsReadyProvider, useAppFonts, useFontsReady } from './fonts';
+export { typography } from './typography';
+export { cardShadowRoom, shadows } from './shadows';
 export {
   ThemeProvider,
   useTheme,

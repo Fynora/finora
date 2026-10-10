@@ -10,6 +10,8 @@ interface Props {
   style?: StyleProp<TextStyle>;
   duration?: number;
   testID?: string;
+  /** Caps Dynamic Type growth, for a caller whose layout has room for only so much (the hero). */
+  maxFontSizeMultiplier?: number;
 }
 
 /**
@@ -29,7 +31,9 @@ interface Props {
  * whatever was last shown, same as AnimatedNumber -- only the very first mount counts up from
  * zero, matching web's identical behavior.
  */
-export function AnimatedHealthScoreNumber({ value, style, duration = CHART_REVEAL_DURATION, testID }: Props) {
+export function AnimatedHealthScoreNumber({
+  value, style, duration = CHART_REVEAL_DURATION, testID, maxFontSizeMultiplier,
+}: Props) {
   const animated = useSharedValue(0);
 
   useEffect(() => {
@@ -55,6 +59,7 @@ export function AnimatedHealthScoreNumber({ value, style, duration = CHART_REVEA
       focusable={false}
       pointerEvents="none"
       underlineColorAndroid="transparent"
+      maxFontSizeMultiplier={maxFontSizeMultiplier}
       style={[styles.text, style]}
       animatedProps={animatedProps}
       accessibilityLabel={String(Math.round(value))}

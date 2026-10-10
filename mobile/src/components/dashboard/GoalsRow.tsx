@@ -3,7 +3,7 @@ import Svg, { Circle } from 'react-native-svg';
 import { DashboardCard } from './DashboardCard';
 import { fmtCurrency } from '../../lib/format';
 import { useLargeFontScale } from '../../lib/useLargeFontScale';
-import { fonts, spacing, useTheme } from '../../theme';
+import { cardShadowRoom, spacing, typography, useTheme } from '../../theme';
 import type { Goal } from '../../types';
 
 const RING_SIZE = 56;
@@ -24,7 +24,7 @@ export function GoalsRow({ goals }: { goals: Goal[] }) {
   if (goals.length === 0) return null;
 
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
+    <ScrollView testID="goals-row" horizontal showsHorizontalScrollIndicator={false} style={styles.scroller} contentContainerStyle={styles.row}>
       {goals.map((g) => {
         // Bug fix: the ring's geometry has to stay capped at 100% -- unlike a linear bar's width,
         // which just overflows a fixed container past 100%, a strokeDashoffset past this ring's
@@ -35,10 +35,7 @@ export function GoalsRow({ goals }: { goals: Goal[] }) {
         const rawPct = g.targetAmount > 0 ? (g.currentAmount / g.targetAmount) * 100 : 0;
         const ringPct = Math.min(100, rawPct);
         return (
-          <DashboardCard key={g.id} style={styles.card}>
-            <Text style={[styles.name, { color: c.ink, fontFamily: fonts.bodySemibold }]} numberOfLines={largeText ? 2 : 1}>
-              {g.name}
-            </Text>
+          <DashboardCard key={g.id} style={styles.card} padding="compact">
             <View style={styles.ringWrap}>
               <Svg width={RING_SIZE} height={RING_SIZE}>
                 <Circle cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RING_R} stroke={c.border} strokeWidth={RING_STROKE} fill="none" />
@@ -58,10 +55,13 @@ export function GoalsRow({ goals }: { goals: Goal[] }) {
                 />
               </Svg>
               <View style={styles.ringCenter} pointerEvents="none">
-                <Text style={[styles.pct, { color: c.ink, fontFamily: fonts.bodyBold }]}>{rawPct.toFixed(0)}%</Text>
+                <Text style={[typography.labelS, { color: c.ink }]}>{rawPct.toFixed(0)}%</Text>
               </View>
             </View>
-            <Text style={[styles.meta, { color: c.mutedInk, fontFamily: fonts.body }]}>
+            <Text style={[typography.labelM, styles.name, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
+              {g.name}
+            </Text>
+            <Text style={[typography.caption, styles.meta, { color: c.mutedInk }]}>
               {fmtCurrency(g.currentAmount)} of {fmtCurrency(g.targetAmount)}
             </Text>
           </DashboardCard>
@@ -72,11 +72,26 @@ export function GoalsRow({ goals }: { goals: Goal[] }) {
 }
 
 const styles = StyleSheet.create({
-  row: { gap: spacing.sm, paddingVertical: spacing.xs },
-  card: { width: 180, alignItems: 'center' },
-  name: { fontSize: 13, alignSelf: 'flex-start' },
-  ringWrap: { marginTop: spacing.sm, width: RING_SIZE, height: RING_SIZE },
+  // Edge to edge, same reasoning as HealthFactorsRow: cancels DashboardScreen's side padding
+  // (spacing.ml) so tiles scroll off under the bezel instead of being cut at the padding line.
+  //
+  // Vertically the content is padded by the tiles' shadow reach, because a scroll view clips to
+  // its bounds, and the scroller's margins take the same amount back: the tiles still sit
+  // spacing.xs from whatever is above and below.
+  scroller: {
+    marginTop: spacing.xs - cardShadowRoom.top,
+    marginBottom: spacing.xs - cardShadowRoom.bottom,
+    marginHorizontal: -spacing.ml,
+  },
+  row: {
+    gap: spacing.ms,
+    paddingTop: cardShadowRoom.top,
+    paddingBottom: cardShadowRoom.bottom,
+    paddingHorizontal: spacing.ml,
+  },
+  card: { width: 164, gap: spacing.ms },
+  name: { alignSelf: 'stretch' },
+  ringWrap: { width: RING_SIZE, height: RING_SIZE },
   ringCenter: { position: 'absolute', width: RING_SIZE, height: RING_SIZE, alignItems: 'center', justifyContent: 'center' },
-  pct: { fontSize: 13 },
-  meta: { fontSize: 11, marginTop: spacing.sm, alignSelf: 'flex-start' },
+  meta: { alignSelf: 'stretch' },
 });

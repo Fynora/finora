@@ -1,5 +1,5 @@
 import { light, dark } from '../theme/palette';
-import { healthBarColor, healthColor, healthImprovementSuggestion, healthToneBg, scoreLabel } from './health';
+import { healthBarColor, healthColor, healthImprovementSuggestion, healthLabelInk, healthToneBg, scoreLabel } from './health';
 
 describe('healthColor', () => {
   it('maps every label to its token, in both themes', () => {
@@ -49,5 +49,14 @@ describe('healthImprovementSuggestion', () => {
 
   it('returns an empty string for an unrecognized factor name', () => {
     expect(healthImprovementSuggestion('Some New Factor', 50)).toBe('');
+  });
+});
+
+describe('healthLabelInk', () => {
+  it.each([
+    [95, 'successInk'], [80, 'successInk'], [79, 'ink'], [60, 'ink'], [59, 'warningInk'], [40, 'warningInk'], [39, 'dangerInk'], [0, 'dangerInk'],
+  ] as const)('a score of %d is written in %s', (score, token) => {
+    expect(healthLabelInk(score, light)).toBe(light[token]);
+    expect(healthLabelInk(score, dark)).toBe(dark[token]);
   });
 });

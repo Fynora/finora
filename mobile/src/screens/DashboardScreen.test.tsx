@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { Dimensions, RefreshControl } from 'react-native';
+import { Dimensions, RefreshControl, StyleSheet } from 'react-native';
 import { withBypass } from '../lib/changeSync';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
@@ -738,15 +738,16 @@ describe('Cash Flow loading and failure states', () => {
 });
 
 /**
- * CashFlowMiniCard renders null when it has nothing to draw (its own file's doc comment), but its
- * wrapping cardRowItem View still claimed half the row's width via flex:1 -- a blank gap the exact
- * size of the missing card, sitting next to AccountsCard. Covers both sides: AccountsCard alone
- * (no dead space) when Cash Flow Mini has nothing, and the original side-by-side row once it does.
+ * CashFlowMiniCard renders null when it has nothing to draw (its own file's doc comment). When
+ * the two cards shared a row, its wrapper still claimed half the width and left a blank gap next
+ * to AccountsCard. Since the card redesign (2026-10-10) each is a full-width card of its own, so
+ * what is left to cover is presence: the balance card alone when there is no monthly data, and
+ * both once there is.
  */
-describe('Cash Flow Mini / Accounts row', () => {
+describe('Cash flow trend and balance cards', () => {
   afterEach(() => onlineManager.setOnline(true));
 
-  it('does not reserve a blank column for Cash Flow Mini when there is no monthly data', async () => {
+  it('does not render the cash flow trend card when there is no monthly data', async () => {
     dashboard.summary.mockResolvedValue(emptySummary());
     reports.availableMonths.mockResolvedValue([]);
     accounts.list.mockResolvedValue([]);
@@ -757,7 +758,7 @@ describe('Cash Flow Mini / Accounts row', () => {
     expect(screen.queryByText('Cash Flow Trend')).toBeNull();
   });
 
-  it('renders Cash Flow Mini alongside Accounts once monthly data exists', async () => {
+  it('renders the cash flow trend card and the balance card once monthly data exists', async () => {
     dashboard.summary.mockResolvedValue(emptySummary());
     reports.availableMonths.mockResolvedValue(['2026-07', '2026-08']);
     reports.forMonth.mockResolvedValue({ month: '2026-08', income: 100, expense: 50, categories: [] });
@@ -767,6 +768,47 @@ describe('Cash Flow Mini / Accounts row', () => {
 
     await screen.findByText('Total Balance');
     expect(await screen.findByText('Cash Flow Trend')).toBeTruthy();
+  });
+});
+
+describe('story-layer order (card redesign)', () => {
+  afterEach(() => onlineManager.setOnline(true));
+
+  it('puts the balance before the month figures, and the cash flow trend after them', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+    reports.availableMonths.mockResolvedValue(['2026-07', '2026-08']);
+    reports.forMonth.mockResolvedValue({ month: '2026-08', income: 100, expense: 50, categories: [] });
+    accounts.list.mockResolvedValue([]);
+
+    renderScreen();
+
+    await screen.findByText('Cash Flow Trend');
+    // Every piece of text on the screen, in render order. Walks children only: the rendered
+    // tree's props hold React contexts, which are circular and cannot be serialised.
+    const texts: string[] = [];
+    const walk = (node: unknown): void => {
+      if (typeof node === 'string') { texts.push(node); return; }
+      if (Array.isArray(node)) { node.forEach(walk); return; }
+      if (node && typeof node === 'object') walk((node as { children?: unknown }).children ?? null);
+    };
+    walk(screen.toJSON());
+    const at = (s: string) => texts.indexOf(s);
+    for (const s of ['Total Balance', 'Income', 'Net Savings', 'Cash Flow Trend', 'Spending by Category']) {
+      expect({ s, found: at(s) > -1 }).toEqual({ s, found: true });
+    }
+    expect(at('Total Balance')).toBeLessThan(at('Income'));
+    expect(at('Net Savings')).toBeLessThan(at('Cash Flow Trend'));
+    expect(at('Cash Flow Trend')).toBeLessThan(at('Spending by Category'));
+  });
+
+  it('keeps the search button a 44 point glass circle with its label', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+    renderScreen();
+    const button = await screen.findByLabelText('Search transactions');
+    const circle = StyleSheet.flatten(screen.getByTestId('dashboard-search-button').props.style);
+    expect(button).toBeTruthy();
+    expect(circle.width).toBe(44);
+    expect(circle.height).toBe(44);
   });
 });
 
@@ -1458,12 +1500,67 @@ describe('Subscriptions & Recurring Payments widget (Phase 4)', () => {
 });
 
 /**
+ * Card redesign (2026-10-10). Amount colours did not change with it: income green, expenses red
+ * (Sid's decision the same day; an earlier draft wrote expenses in ordinary ink).
+ */
+describe('Recent Transactions rows (card redesign)', () => {
+  beforeEach(() => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+    const row = {
+      accountId: 'a1', categoryId: 'c1', date: '2026-08-01', paymentMethod: 'CARD', tags: [], notes: null,
+      reconciliationStatus: 'OK', recurring: false, needsCategoryReview: false, categoryManuallySet: false,
+    };
+    transactions.search.mockResolvedValue({
+      content: [
+        { ...row, id: 't1', categoryName: 'Income', description: 'Salary credit', merchant: 'Employer', amount: 145000, type: 'INCOME' },
+        { ...row, id: 't2', categoryName: 'Groceries', description: 'Grocery store', merchant: 'Grocer', amount: 2340, type: 'EXPENSE' },
+      ],
+      page: 0, size: 5, totalElements: 2, totalPages: 1,
+    } as never);
+  });
+
+  it('keeps income in the success ink and expenses in the danger ink', async () => {
+    renderScreen();
+    expect(await screen.findByText('+₹1,45,000')).toHaveStyle({ color: light.successInk });
+    expect(screen.getByText('-₹2,340')).toHaveStyle({ color: light.dangerInk });
+  });
+
+  it('marks each row with a direction icon: money in on the success wash, money out on the neutral one', async () => {
+    renderScreen();
+    await screen.findByText('Salary credit');
+    const well = (id: string) => StyleSheet.flatten(screen.getByTestId(id, { includeHiddenElements: true }).props.style);
+    expect(well('txn-icon-t1').backgroundColor).toBe(light.successBg);
+    expect(well('txn-icon-t2').backgroundColor).not.toBe(light.successBg);
+  });
+
+  it('separates rows with a line between them, never after the last one', async () => {
+    renderScreen();
+    await screen.findByText('Salary credit');
+    const row = (id: string) => StyleSheet.flatten(screen.getByTestId(id).props.style);
+    expect(row('txn-row-t1').borderTopWidth).toBeUndefined();
+    expect(row('txn-row-t2').borderTopWidth).toBe(StyleSheet.hairlineWidth);
+    expect(row('txn-row-t2').borderBottomWidth).toBeUndefined();
+  });
+});
+
+/**
  * Ported from frontend/src/pages/Dashboard.tsx:1216-1235. A shortcut grid to destinations already
  * scattered across this screen's own empty states and CTAs.
  */
 describe('Quick Actions grid (Phase 4)', () => {
   beforeEach(() => {
     dashboard.summary.mockResolvedValue(emptySummary());
+  });
+
+  // Card redesign: each action is its own glass tile, three to a row.
+  it('lays the six actions out three per row, each tile a full touch target', async () => {
+    renderScreen();
+    const tile = StyleSheet.flatten((await screen.findByLabelText('Import Statement')).props.style);
+    expect(tile.flexBasis).toBe('30%');
+    expect(tile.minHeight).toBeGreaterThanOrEqual(44);
+    for (const label of ['Add Transaction', 'Create Budget', 'View Reports', 'Manage Goals', 'Investments']) {
+      expect(StyleSheet.flatten(screen.getByLabelText(label).props.style).flexBasis).toBe('30%');
+    }
   });
 
   it.each([

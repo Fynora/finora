@@ -20,6 +20,7 @@ import {
   withCanonical,
   withFontPreload,
   withPageMeta,
+  withRobotsNoindex,
   withStructuredData,
   withTitle,
 } from './prerenderTitle.mjs';
@@ -32,10 +33,10 @@ const distDir = path.join(frontendRoot, 'dist');
 const ROOT_DIV = '<div id="root"></div>';
 
 // Where each route's rendered markup gets written. "/" overwrites the SPA's own index.html;
-// every other entry is a new file Cloudflare's static-asset handling serves directly for an
-// exact path match (see wrangler.jsonc's default html_handling: auto-trailing-slash, verified
-// against @cloudflare/vite-plugin's own asset-worker source) -- any route not listed here still
-// falls through to the SPA unchanged.
+// every other entry is a new file, which Cloudflare Pages serves for the extensionless path
+// (/privacy from privacy.html; /privacy/ and /privacy.html are redirected to it). A route NOT
+// listed here has no file: it is served the blank shell if public/_redirects names it, and the
+// not-found page below, with HTTP 404, if it does not. spaShell.test.ts reads this list.
 const OUTPUT_FILES = {
   '/': 'index.html',
   '/privacy': 'privacy.html',
@@ -50,6 +51,30 @@ const OUTPUT_FILES = {
   '/trust': 'trust.html',
   '/your-data': 'your-data.html',
 };
+
+// The not-found page. Written beside the routes above but NOT one of them: it is not in the sitemap,
+// gets no canonical and no JSON-LD, and carries a robots noindex meta in the file itself.
+//
+// The file name is the mechanism. Production is a Cloudflare PAGES project, and a top-level
+// 404.html changes what Pages does with a path that has no file and no rewrite: without one it
+// answers with index.html and HTTP 200 (the homepage, at every dead URL: a soft 404); with one it
+// answers with this file and HTTP 404. Measured on this change's Pages preview, 2026-10-10:
+//
+//   - an unknown path, and a case variant of a real page (/Privacy): this file, 404.
+//   - /auth, /reset-password, /app/... : still 200, because public/_redirects rewrites them to the
+//     blank shell and a rewrite is applied before the lookup that would have ended here.
+//   - /404 itself: this file, 200, like any other page with a file. The noindex meta covers it.
+//   - a missing file under /assets/: 404, plain text (functions/assets/[[path]].ts).
+//
+// So this file is also what a route gets if it is added to App.tsx and forgotten in _redirects.
+// Before the rewrites existed that was every browser-only route: this exact file, added on its own,
+// returned 404 for /auth and /app/transactions on a preview. spaShell.test.ts is the guard.
+//
+// `wrangler dev` (`npm run preview`) does not show any of this. It runs Workers static assets from
+// wrangler.jsonc, where `not_found_handling: "single-page-application"` answers every unmatched
+// path with index.html and 200 and the name 404.html means nothing. Use
+// `npx wrangler pages dev dist`, and a PR's Pages preview for the final word.
+const NOT_FOUND_FILE = '404.html';
 
 async function main() {
   if (!fs.existsSync(path.join(distDir, 'index.html'))) {
@@ -70,7 +95,7 @@ async function main() {
     logLevel: 'warn',
   });
 
-  const { routes, structuredDataFor, jsonLdScripts } = await import(pathToFileURL(path.join(ssrOutDir, 'ssr-entry.mjs')));
+  const { routes, notFoundPage, structuredDataFor, jsonLdScripts } = await import(pathToFileURL(path.join(ssrOutDir, 'ssr-entry.mjs')));
 
   const template = fs.readFileSync(path.join(distDir, 'index.html'), 'utf-8');
   if (!template.includes(ROOT_DIV)) {
@@ -100,9 +125,8 @@ async function main() {
       if (!description) throw new Error(`prerender: no subtitle to take a description from for ${route}`);
       pageTemplate = withPageMeta(withCanonical(withTitle(template, title), route), { title, description, route });
     } else {
-      // Only the homepage paints the hero headline. The blank shell written above is taken from
-      // the template, so /auth and /app/... do not carry this preload. An unknown path still gets
-      // index.html, and with it the preload, before the router sends it to "/".
+      // Only the homepage paints the hero headline. The blank shell above and the not-found page
+      // below are both built from the untouched template, so neither carries this preload.
       pageTemplate = withFontPreload(pageTemplate, heroFontHref);
     }
     // JSON-LD for the page (Organization/WebSite/SoftwareApplication/FAQPage on the homepage,
@@ -112,6 +136,19 @@ async function main() {
     const outHtml = pageTemplate.replace(ROOT_DIV, `<div id="root">${appHtml}</div>`);
     fs.writeFileSync(path.join(distDir, fileName), outHtml);
     console.log(`prerender: ${route} -> dist/${fileName} (${appHtml.length} chars of markup)`);
+  }
+
+  {
+    const appHtml = notFoundPage();
+    const title = pageTitleFromMarkup(appHtml);
+    if (!title) throw new Error('prerender: no <h1> to take a <title> from for the not-found page');
+    const description = pageDescriptionFromMarkup(appHtml);
+    if (!description) throw new Error('prerender: no subtitle to take a description from for the not-found page');
+    // No canonical, no og:url (route: null) and no JSON-LD: a noindex page names no address of its
+    // own, and a breadcrumb trail for a page that does not exist would be a lie.
+    const pageTemplate = withRobotsNoindex(withPageMeta(withTitle(template, title), { title, description, route: null }));
+    fs.writeFileSync(path.join(distDir, NOT_FOUND_FILE), pageTemplate.replace(ROOT_DIV, `<div id="root">${appHtml}</div>`));
+    console.log(`prerender: not-found page -> dist/${NOT_FOUND_FILE} (${appHtml.length} chars of markup)`);
   }
 
   fs.rmSync(ssrOutDir, { recursive: true, force: true });

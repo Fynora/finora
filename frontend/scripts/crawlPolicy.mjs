@@ -50,11 +50,19 @@ export function isNonProduction(env) {
 
 const NOINDEX = '<meta name="robots" content="noindex, nofollow" />';
 
-/** Adds the robots meta before </head> (once) and removes any canonical link. */
+/**
+ * Adds the robots meta before </head> (once) and removes any canonical link. A robots meta already
+ * in the file (the prerendered not-found page carries "noindex" of its own) is rewritten to this
+ * policy's "noindex, nofollow" rather than left alone, so every non-production file says the same
+ * thing and there is never a second tag.
+ */
 export function noindexHtml(html) {
   if (!html.includes('</head>')) throw new Error('crawlPolicy: an HTML file has no </head>.');
   let out = html.replace(/<link rel="canonical"[^>]*>\s*/g, '');
-  if (!/<meta name="robots"/.test(out)) {
+  const existing = /<meta name="robots"[^>]*>/;
+  if (existing.test(out)) {
+    out = out.replace(existing, () => NOINDEX);
+  } else {
     out = out.replace('</head>', () => `${NOINDEX}\n</head>`);
   }
   return out;

@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { fireEvent, render, waitFor } from '@testing-library/react';
 import App from './App';
 
 // App mounts the whole provider stack; nothing here should reach the network.
@@ -22,62 +22,98 @@ vi.mock('react-chartjs-2', () => ({
 }));
 
 /**
- * Bug fix regression test: <Routes> had no catch-all, so any unmatched path matched no <Route> and
- * rendered null -- a completely blank white page, verified in a browser as #root with empty
- * innerHTML. This is not a dev-only curiosity: wrangler.json sets
- * assets.not_found_handling = "single-page-application", so Cloudflare serves index.html for every
- * unknown path in production too. A typo'd URL, a stale bookmark, or a link to a route that has
- * since moved all produced a blank screen with no message and no way back.
+ * Regression tests for the catch-all route. <Routes> once had none, so any unmatched path rendered
+ * null -- a completely blank white page, verified in a browser as #root with empty innerHTML. The
+ * catch-all was then a redirect to "/", which handed a crawler following a dead link the homepage,
+ * with HTTP 200, at the dead URL (a soft 404). It is now a real not-found page that keeps the URL
+ * and says noindex.
+ *
+ * These tests cover what React renders once the bundle is running, which is all jsdom can show.
+ * Which document and status an address gets BEFORE that is Cloudflare Pages' decision in
+ * production (a file, a rewrite in public/_redirects, or the build's 404.html with HTTP 404), and
+ * is held by scripts/spaShell.test.ts and measured on a Pages preview, not here.
  */
 describe('App routing — unmatched paths', () => {
   beforeEach(() => {
     window.history.pushState({}, '', '/');
   });
 
+  afterEach(() => {
+    document.head.querySelector('meta[name="robots"]')?.remove();
+  });
+
   it.each([
-    '/app/this-route-does-not-exist',
     '/definitely-not-a-page',
     '/app/transactions/extra/segments',
     // Gmail sync is paused (lib/features.ts): its review page has no route, so it behaves like any
     // unknown path. A real protected route would send a signed-out visitor to sign-in instead, so
-    // ending on "/" is what shows the route is genuinely gone, not merely guarded.
+    // the not-found page is what shows the route is genuinely gone, not merely guarded.
     '/app/settings/gmail/review',
-  ])('redirects %s to the landing page instead of rendering a blank screen', async (path) => {
+  ])('shows the not-found page at %s, keeping the URL, with a noindex robots meta', async (path) => {
     window.history.pushState({}, '', path);
 
     const { container } = render(<App />);
 
-    await waitFor(() => expect(window.location.pathname).toBe('/'));
-    // Something real is on screen. Asserted as "the render is not empty" rather than by hunting
-    // for a specific string, because an empty render is precisely and entirely what the bug was.
-    await waitFor(() => expect(container.textContent?.trim()).not.toBe(''));
-    // And it is specifically the landing page, asserted structurally. This used to match the CTA
-    // text ("Get Started Free"), which contradicted the comment directly above it and duly broke
-    // the moment that button was reworded -- a copy edit failing a routing test tells you nothing
-    // about routing. An entry-flow link is what the landing page is FOR, so it survives rewording.
-    // (Points at /auth, not /register directly, since the landing page's CTAs now route through
-    // the unified identifier-first entry page -- see AuthEntry.tsx.)
-    await waitFor(() => expect(container.querySelector('a[href="/auth"]')).not.toBeNull());
+    await waitFor(() => expect(container.querySelector('h1')?.textContent).toBe('Page not found'));
+    // The URL stays as typed, so the visitor can see and correct it. A redirect to "/" is exactly
+    // what the SEO audit called a soft 404.
+    expect(window.location.pathname).toBe(path);
+    expect(document.title).toBe('Page not found — Fynora');
+    expect(document.head.querySelector('meta[name="robots"]')?.getAttribute('content')).toBe('noindex');
+    expect(document.head.querySelector('link[rel="canonical"]')).toBeNull();
+    for (const href of ['/', '/help', '/contact']) {
+      expect(container.querySelector(`main a[href="${href}"]`), href).not.toBeNull();
+    }
   });
 
   it('leaves a route that does exist alone', async () => {
     window.history.pushState({}, '', '/terms');
 
-    render(<App />);
+    const { container } = render(<App />);
 
-    await waitFor(() => expect(window.location.pathname).toBe('/terms'));
+    await waitFor(() => expect(container.querySelector('h1')).not.toBeNull());
+    expect(window.location.pathname).toBe('/terms');
+    expect(container.querySelector('h1')?.textContent).not.toBe('Page not found');
   });
 
-  it('replaces rather than pushes, so Back does not bounce into the bad URL again', async () => {
-    window.history.pushState({}, '', '/terms');
+  it('renders /About as the About page, since routes match case-insensitively, with the /about canonical', async () => {
+    // Cloudflare Pages matches files case-sensitively, so /About does not get about.html: it gets
+    // the build's 404.html, with HTTP 404. React Router then matches the /about route regardless
+    // of case and mounts the About page over it. So a browser ends up on the real page, and its
+    // canonical must point at the sitemap's lower-case URL.
+    window.history.pushState({}, '', '/About');
+
+    const { container } = render(<App />);
+
+    await waitFor(() => expect(container.querySelector('h1')?.textContent).toBe('About Fynora'));
+    expect(document.head.querySelector('link[rel="canonical"]')?.getAttribute('href')).toBe('https://app.fynora.net/about');
+    expect(document.head.querySelector('meta[name="robots"]')).toBeNull();
+  });
+
+  it('still sends a signed-out visitor on a protected route to sign-in, not to the not-found page', async () => {
+    // ProtectedRoute's <Navigate to="/auth"> must win over the catch-all: /app is a real route,
+    // guarded, and /auth is a real route it redirects to.
+    window.history.pushState({}, '', '/app');
+
+    const { container } = render(<App />);
+
+    await waitFor(() => expect(window.location.pathname).toBe('/auth'));
+    await waitFor(() => expect(container.textContent?.trim()).not.toBe(''));
+    expect(container.querySelector('h1')?.textContent).not.toBe('Page not found');
+    expect(document.head.querySelector('meta[name="robots"]')).toBeNull();
+  });
+
+  it('removes the noindex meta and restores the title when the visitor leaves for a real page', async () => {
     window.history.pushState({}, '', '/definitely-not-a-page');
+    const { container } = render(<App />);
+    await waitFor(() => expect(container.querySelector('h1')?.textContent).toBe('Page not found'));
 
-    render(<App />);
+    fireEvent.click(container.querySelector('main a[href="/help"]')!);
 
-    await waitFor(() => expect(window.location.pathname).toBe('/'));
-
-    window.history.back();
-    await waitFor(() => expect(window.location.pathname).toBe('/terms'));
+    await waitFor(() => expect(window.location.pathname).toBe('/help'));
+    await waitFor(() => expect(container.querySelector('h1')?.textContent).not.toBe('Page not found'));
+    expect(document.head.querySelector('meta[name="robots"]')).toBeNull();
+    expect(document.title).not.toBe('Page not found — Fynora');
   });
 });
 

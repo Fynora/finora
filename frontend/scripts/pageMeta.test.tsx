@@ -247,6 +247,12 @@ describe('withPageMeta', () => {
     expect(out).not.toContain(hero.blurb);
   });
 
+  it('adds no og:url for the not-found page (route: null), which has no address of its own', () => {
+    const out = withPageMeta(TEMPLATE, { title: 'Page not found — Fynora', description: 'Missing.', route: null });
+    expect(out).toContain('<meta property="og:title" content="Page not found — Fynora" />');
+    expect((out.match(/<meta\b[^>]*>/g) ?? []).join('\n')).not.toMatch(/og:url/);
+  });
+
   it('does not interpret $ sequences in a description as replacement patterns', () => {
     const out = withPageMeta(TEMPLATE, { title: 'T', description: 'Save $& and $1', route: '/x' });
     expect(out).toContain('content="Save $& and $1"');

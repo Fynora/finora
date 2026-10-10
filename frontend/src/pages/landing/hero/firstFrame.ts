@@ -8,11 +8,10 @@
  * Hero reads this once to skip that entrance for the copy column only.
  *
  * Read at module evaluation, which happens after the HTML has been parsed (the bundle is a module
- * script) and before React's first render replaces anything. Only the homepage path counts.
- * index.html also answers any path with no file or rewrite of its own. An unknown URL is one: the
- * router redirects it to "/", and the page is empty for a moment in between (about 110 ms measured
- * on a throttled phone), so the hero arrives on a blank page and its usual entrance is right. The
- * same goes for a host with no rewrite rules, where /app gets index.html too and "/" is opened later.
+ * script) and before React's first render replaces anything. Only the homepage path counts. A host
+ * without the rewrite rules and the 404 page answers every unmatched path with index.html
+ * (`wrangler dev` does, see scripts/prerender.mjs). There the first frame is long gone by the time
+ * a visitor reaches "/" and this hero mounts, so its usual entrance is right.
  */
 const FIRST_FRAME_SELECTOR = '[data-hero-first-frame]';
 

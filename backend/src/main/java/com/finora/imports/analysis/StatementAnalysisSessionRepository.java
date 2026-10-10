@@ -84,6 +84,15 @@ public interface StatementAnalysisSessionRepository extends JpaRepository<Statem
     /** Newest first — what an admin opening the diagnostics view wants to see. */
     List<StatementAnalysisSession> findAllByOrderByCreatedAtDesc(Pageable pageable);
 
+    /**
+     * The newest sessions that are not of one outcome -- the engine summary's window, which leaves
+     * out {@code REJECTED} (V267). Those uploads never reached the engine, so they carry no rows
+     * and no unanchored-line reasons; counted in the window they would only push real reads out of
+     * it and dilute the figures the window exists to give.
+     */
+    List<StatementAnalysisSession> findByOutcomeNotOrderByCreatedAtDesc(
+            StatementAnalysisSession.Outcome outcome, Pageable pageable);
+
     /** The same order as a real page, for the admin table's pager. {@code id} breaks ties between
      *  rows written in the same instant, so a row cannot appear on two pages or on none. */
     org.springframework.data.domain.Page<StatementAnalysisSession> findAllByOrderByCreatedAtDescIdDesc(Pageable pageable);

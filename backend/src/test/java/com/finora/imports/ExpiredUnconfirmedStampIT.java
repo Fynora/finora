@@ -162,6 +162,25 @@ class ExpiredUnconfirmedStampIT extends AbstractIntegrationTest {
         assertThat(stampOf(read)).as("withheld from the user, not abandoned by them").isNull();
     }
 
+    /**
+     * A Gmail-sourced session is one Fynora staged for the user, not one they uploaded. Today it has
+     * no evidence row to stamp at all; this pins that it is never counted as an abandoned upload
+     * even if one is ever linked to it.
+     */
+    @Test
+    void aSessionTheUserDidNotUploadIsNeverCountedAsAnAbandonedUpload() {
+        User owner = user();
+        ImportSession session = expiredSession(owner);
+        session.setSource(ImportSession.SOURCE_GMAIL);
+        importSessions.save(session);
+        StatementAnalysisSession read = readOf(owner, session.getId());
+
+        importSessionService.sweepExpiredSessions();
+
+        assertThat(importSessions.findById(session.getId())).isEmpty();
+        assertThat(stampOf(read)).isNull();
+    }
+
     /** Review Focus 3: evidence must never block retention. These rows hold real statement content. */
     @Test
     void aStampThatFailsNeverStopsTheSweep() {

@@ -194,6 +194,10 @@ public class ImportSessionService {
         try {
             List<UUID> staged = expired.stream()
                     .filter(session -> ImportSession.STATUS_STAGED.equals(session.getStatus()))
+                    // A statement the user uploaded (source null). A Gmail-sourced session was put
+                    // in front of them, not brought by them; letting it lapse is not abandoning an
+                    // upload, and it must not be counted as one if it ever gains an evidence row.
+                    .filter(session -> session.getSource() == null)
                     .map(ImportSession::getId)
                     .toList();
             if (staged.isEmpty()) return;

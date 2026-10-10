@@ -68,6 +68,7 @@ class ImportPreReadRejectionIT extends AbstractIntegrationTest {
 
     @MockitoBean private MalwareScanner scanner;
     @MockitoSpyBean private ImportConcurrencyLimiter limiter;
+    @MockitoSpyBean private com.finora.imports.analysis.StatementAnalysisRecorder recorder;
 
     private static final String UNREADABLE_CSV = "this file has no header row and no columns at all";
     private static final String READABLE_CSV = """
@@ -133,7 +134,28 @@ class ImportPreReadRejectionIT extends AbstractIntegrationTest {
      * turned away are two attempts.
      */
     private void assertOneRefusalPerRequest(User user, String format, String code) {
+        assertOneRefusalPerRequest(rowsOf(user), format, code);
+    }
+
+    /**
+     * A busy refusal is recorded off the request thread (the refusal must stay instant -- see
+     * {@code UploadRefusalLog.refusedAsBusy}), so its row arrives shortly after the response.
+     */
+    private void assertOneBusyRefusalPerRequestArrives(User user, String format) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 10_000;
         List<StatementAnalysisSession> rows = rowsOf(user);
+        while (rows.isEmpty() && System.currentTimeMillis() < deadline) {
+            Thread.sleep(50);
+            rows = rowsOf(user);
+        }
+        // The client's own retry of the 503 has already been answered by the time exchange()
+        // returned, so its record is queued behind the first on the same single thread; a moment
+        // for that one to be written too before judging "one per request".
+        Thread.sleep(500);
+        assertOneRefusalPerRequest(rowsOf(user), format, "IMPORT_SYSTEM_BUSY");
+    }
+
+    private static void assertOneRefusalPerRequest(List<StatementAnalysisSession> rows, String format, String code) {
         assertThat(rows).isNotEmpty().allSatisfy(row -> assertIsRefusal(row, format, code));
         assertThat(rows).extracting(StatementAnalysisSession::getCorrelationId)
                 .as("one row per request, never two for one").doesNotContainNull().doesNotHaveDuplicates();
@@ -192,7 +214,7 @@ class ImportPreReadRejectionIT extends AbstractIntegrationTest {
         ResponseEntity<String> response = post(user, "/api/v1/import/csv/stage", bytes(READABLE_CSV), "july.csv");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
-        assertOneRefusalPerRequest(user, "CSV", "IMPORT_SYSTEM_BUSY");
+        assertOneBusyRefusalPerRequestArrives(user, "CSV");
     }
 
     /**
@@ -243,7 +265,7 @@ class ImportPreReadRejectionIT extends AbstractIntegrationTest {
                 PdfFixtureBuilder.buildReverseChronologicalRunningBalanceSample(), "statement.pdf");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
-        assertOneRefusalPerRequest(user, "PDF", "IMPORT_SYSTEM_BUSY");
+        assertOneBusyRefusalPerRequestArrives(user, "PDF");
     }
 
     // --- /jobs (the queued upload): the same refusals, before any job exists -----------------------
@@ -304,5 +326,30 @@ class ImportPreReadRejectionIT extends AbstractIntegrationTest {
 
         assertThat(failures.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(failures.getBody()).contains("\"data\":[]");
+    }
+
+    /**
+     * Recording is evidence; the refusal is the answer the user is owed. A recorder that cannot
+     * write -- thrown here from outside its own try/catch, as a transaction that cannot open is --
+     * must leave every refusal exactly as it was, on every endpoint, never a 500.
+     */
+    @Test
+    void aRecorderThatCannotWriteNeverChangesWhatTheUserIsTold() throws Exception {
+        // Only the on-request write is stubbed. The busy refusal's write is asynchronous, so it
+        // cannot throw into a request at all; that its hand-off never throws is UploadRefusalLogTest's.
+        doThrow(new org.springframework.transaction.CannotCreateTransactionException("no connection available"))
+                .when(recorder).recordRejected(any(), any(), org.mockito.ArgumentMatchers.anyString());
+        User user = user();
+
+        assertThat(post(user, "/api/v1/import/csv/stage", new byte[0], "empty.csv").getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(post(user, "/api/v1/import/pdf/stage", bytes(READABLE_CSV), "statement.pdf").getStatusCode())
+                .isEqualTo(HttpStatus.UNSUPPORTED_MEDIA_TYPE);
+        ResponseEntity<String> locked = post(user, "/api/v1/import/jobs", PdfFixtureBuilder.encrypt(
+                PdfFixtureBuilder.buildReverseChronologicalRunningBalanceSample(), "AAAA1234"), "statement.pdf");
+        assertThat(locked.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(locked.getBody()).contains("IMPORT_008");
+
+        assertThat(rowsOf(user)).as("nothing could be recorded, and nothing else changed").isEmpty();
     }
 }

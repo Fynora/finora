@@ -28,14 +28,36 @@ import { canonicalUrl, isNonProductionBuild } from '../lib/siteUrl';
  * there" gives search engines a conflicting signal, so `null` does not just add nothing: it takes
  * out a tag that is already there. That happens when the not-found page is shown over a document
  * that is another page's file. Measured on production, 2026-10-10: Pages answers //terms with
- * terms.html (canonical /terms), React Router matches no route for "//terms", and the head then
- * said both noindex and canonical /terms.
+ * terms.html (canonical /terms), React Router matched no route for "//terms", and the head then
+ * said both noindex and canonical /terms. That address is now rewritten to /terms before the
+ * router sees it (lib/normalizeLocation.ts), so this is the guard for any other way of getting
+ * there, not the fix for that one.
  *
- * Does nothing on a non-production build (dev-app, PR previews). Those are served with noindex, for
- * the same conflicting-signal reason, and scripts/crawlPolicy.mjs has already taken the canonical
- * out of every file they serve.
+ * The canonical is left alone on a non-production build (dev-app, PR previews). Those are served
+ * with noindex, for the same conflicting-signal reason, and scripts/crawlPolicy.mjs has already
+ * taken the canonical out of every file they serve.
+ *
+ * og:url gets the same treatment, on every build: the prerendered files carry it beside the
+ * canonical (non-production ones keep it, since it is not an indexing signal), and it used to be
+ * static only, so after a move inside the app it went on naming the first page. Same address,
+ * same rule: set while the page is mounted, gone when it unmounts, taken out for `null`.
  */
 export function useCanonical(path: string | null): void {
+  useEffect(() => {
+    const existing = document.head.querySelector<HTMLMetaElement>('meta[property="og:url"]');
+    if (path === null) {
+      existing?.remove();
+      return;
+    }
+    const meta = existing ?? document.createElement('meta');
+    meta.setAttribute('property', 'og:url');
+    meta.setAttribute('content', canonicalUrl(path));
+    if (!existing) document.head.appendChild(meta);
+    return () => {
+      meta.remove();
+    };
+  }, [path]);
+
   useEffect(() => {
     if (isNonProductionBuild()) return;
     const existing = document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]');

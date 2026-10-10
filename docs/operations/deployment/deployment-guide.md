@@ -368,13 +368,16 @@ measured in the local Pages emulator only:
   missing from `_redirects` therefore looks fine to someone clicking around, and is broken for
   everything that reads the status or does not run the bundle (link checkers, crawlers, an
   uptime probe, the first paint). Check with `curl`, not by eye.
-- **Leading slashes are collapsed, and only by Pages.** `//terms` is answered with `terms.html` and
-  a `200`, and `//` with the homepage (measured on production, 2026-10-10; `/terms//` and
-  `/terms%2F` are `308` to `/terms` instead). React Router does not collapse them: it matches `//`
-  as the homepage but finds no route for `//terms`, so a browser shows the not-found page over the
-  terms file. The file's canonical is what tells a crawler that does not run JavaScript where the
-  page lives; in the browser `useCanonical` removes it, so the not-found page is never both
-  `noindex` and canonical.
+- **Leading slashes are collapsed by Pages, and the app has to do the same.** `//terms` is answered
+  with `terms.html` and a `200`, and `//` with the homepage (measured on production, 2026-10-10;
+  `/terms//` and `/terms%2F` are `308` to `/terms` instead). React Router does not collapse them:
+  it found no route for `//terms`, so the visitor was sent the terms page and the bundle then
+  replaced it with "Page not found". `src/lib/normalizeLocation.ts`, the first import in
+  `main.tsx`, now rewrites the address to `/terms` before the router reads it. There is still no
+  redirect: a crawler that does not run JavaScript gets a `200` at `//terms`, and the file's
+  canonical is what tells it where the page lives. A real `301` would be a Cloudflare rule on the
+  zone, like the two host redirects below, not something this repository can do without a
+  Function on every request.
 - **Matching is case-sensitive.** `/Privacy` and `/Auth` return `404` with the not-found page, and
   the browser then shows the real page, as above. Before `404.html` they returned `index.html`
   with a `200`. The paths the backend's emails and the referral page build are lower-case.
@@ -656,6 +659,17 @@ What the build produces, all from `frontend/`:
   production serves `index.html` at `/` alone (see "Which document a path gets" above). While it was
   also the answer for every path without a file, a canonical in it named the homepage as the
   address of those pages.
+- **In the browser the head follows the page, not the document.** The document a visitor opened
+  first is not always the page on screen: it is another page's file after a move inside the app,
+  and it is the blank shell or `404.html` whenever Pages answered with one of those. Measured on
+  production, 2026-10-10, before this was fixed: open `/terms`, go to the homepage in the app, and
+  the tab read "Terms & Conditions — Fynora" with the terms page's description and `og:` tags;
+  open `/auth`, go to the homepage, and the head still said `noindex, nofollow`. So every page that
+  should be indexed writes its own title, description, `og:title`, `og:description`, `og:url` and
+  canonical, and removes a leftover `noindex` (`PublicLayout`, `Landing`, and the hooks
+  `usePageDescription`, `useCanonical`, `useRobotsNoindex`). Tags a page does not own go back to
+  the site's defaults or are removed when it unmounts, never to "what was there before". None of
+  this changes what a crawler that fetches a URL directly is sent.
 - **Non-production builds are `noindex`** (`scripts/crawlPolicy.mjs`, the last step of `npm run
   build`): an `X-Robots-Tag` header, a robots meta tag, no canonical, and no Sitemap line. A build is
   non-production if Cloudflare reports a branch other than `main` (`CF_PAGES=1`, `CF_PAGES_BRANCH`),

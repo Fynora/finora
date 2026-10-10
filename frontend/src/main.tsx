@@ -1,3 +1,5 @@
+// First, before anything that reads the address as it loads. See the file for why.
+import './lib/normalizeLocation';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';

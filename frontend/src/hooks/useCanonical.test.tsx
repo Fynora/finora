@@ -1,6 +1,6 @@
 import { render } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useCanonical } from './useCanonical';
 import { PublicLayout } from '../components/PublicLayout';
 
@@ -10,10 +10,13 @@ function Probe({ path }: { path: string | null }) {
 }
 
 const links = () => document.head.querySelectorAll('link[rel="canonical"]');
+const ogUrls = () => [...document.head.querySelectorAll('meta[property="og:url"]')].map((m) => m.getAttribute('content'));
 
 describe('useCanonical', () => {
   afterEach(() => {
     links().forEach((l) => l.remove());
+    document.head.querySelectorAll('meta[property="og:url"]').forEach((m) => m.remove());
+    vi.unstubAllEnvs();
   });
 
   it('adds an absolute canonical while mounted and removes it after', () => {
@@ -122,5 +125,53 @@ describe('useCanonical', () => {
     );
     expect(links()).toHaveLength(1);
     expect(links()[0].getAttribute('href')).toBe('https://app.fynora.net/cookie-policy');
+  });
+
+  describe('og:url, the same address for link previews', () => {
+    const arriveWithOgUrl = (url: string) => {
+      const tag = document.createElement('meta');
+      tag.setAttribute('property', 'og:url');
+      tag.setAttribute('content', url);
+      document.head.appendChild(tag);
+      return tag;
+    };
+
+    it('is set beside the canonical while mounted and removed after', () => {
+      const { unmount } = render(<Probe path="/terms" />);
+      expect(ogUrls()).toEqual(['https://app.fynora.net/terms']);
+      expect(links()[0].getAttribute('href')).toBe(ogUrls()[0]);
+      unmount();
+      expect(ogUrls()).toEqual([]);
+    });
+
+    it('reuses the one the prerendered file has, and names each page in turn', () => {
+      // It was static only: after a move inside the app it went on naming the first page.
+      const prerendered = arriveWithOgUrl('https://app.fynora.net/terms');
+      const terms = render(<Probe path="/terms" />);
+      expect(document.head.querySelector('meta[property="og:url"]')).toBe(prerendered);
+      terms.unmount();
+      const home = render(<Probe path="/" />);
+      expect(ogUrls()).toEqual(['https://app.fynora.net/']);
+      home.unmount();
+      expect(ogUrls()).toEqual([]);
+    });
+
+    it('is taken out for a page that names no address (null)', () => {
+      arriveWithOgUrl('https://app.fynora.net/terms');
+      render(<Probe path={null} />);
+      expect(ogUrls()).toEqual([]);
+    });
+
+    it('follows the page on a non-production build too, where the canonical is left alone', () => {
+      // Preview files keep og:url (crawlPolicy strips only the canonical), so a stale one is
+      // possible there as well. It is not an indexing signal, so nothing argues for skipping it.
+      vi.stubEnv('VITE_API_BASE_URL', 'https://dev-api.fynora.net');
+      arriveWithOgUrl('https://app.fynora.net/terms');
+      const { unmount } = render(<Probe path="/privacy" />);
+      expect(ogUrls()).toEqual(['https://app.fynora.net/privacy']);
+      expect(links()).toHaveLength(0);
+      unmount();
+      expect(ogUrls()).toEqual([]);
+    });
   });
 });

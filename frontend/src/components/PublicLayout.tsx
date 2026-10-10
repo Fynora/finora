@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { ArrowLeft, Sparkles } from 'lucide-react';
 import { BrandMark } from './BrandMark';
 import { useCanonical } from '../hooks/useCanonical';
+import { usePageDescription } from '../hooks/usePageDescription';
 import { useRobotsNoindex } from '../hooks/useRobotsNoindex';
 import { pageDescription } from '../lib/siteUrl';
 
@@ -15,7 +16,12 @@ import { pageDescription } from '../lib/siteUrl';
  * Also sets the browser-tab / search-result title from `title`. Every one of these pages used to
  * share index.html's single homepage title, so Terms, Privacy, Refunds
  * and the rest were indistinguishable in tabs, history and search results. The previous title is
- * restored on unmount so leaving for another route never keeps a stale one.
+ * restored on unmount, which is what lets a title be nested (the app's "Fynora" under a page's
+ * own). It is NOT what keeps a stale title away: "previous" is the title of whichever document was
+ * opened first. Every route sets its own instead, the homepage included (Landing).
+ *
+ * The rest of the head follows the page the same way: description and social text
+ * (usePageDescription), canonical and og:url (useCanonical), robots (useRobotsNoindex).
  */
 export function PublicLayout({
   title,
@@ -50,32 +56,23 @@ export function PublicLayout({
   useCanonical(noindex ? null : pathname);
   useRobotsNoindex(Boolean(noindex));
 
+  // A title that already names Fynora is used as it is ("About Fynora", not "About Fynora — Fynora").
+  // scripts/prerenderTitle.mjs applies the same rule to the prerendered HTML; a test keeps them equal.
+  const documentTitle = /fynora/i.test(title) ? title : `${title} — Fynora`;
+
   useEffect(() => {
     const previous = document.title;
-    // A title that already names Fynora is used as it is ("About Fynora", not "About Fynora — Fynora").
-    // scripts/prerenderTitle.mjs applies the same rule to the prerendered HTML; a test keeps them equal.
-    document.title = /fynora/i.test(title) ? title : `${title} — Fynora`;
+    document.title = documentTitle;
     return () => {
       document.title = previous;
     };
-  }, [title]);
+  }, [documentTitle]);
 
-  // The meta description is the page's subtitle (see pageDescription). Social-preview crawlers do
-  // not run JavaScript, so the og: tags exist only in the prerendered HTML; this keeps the plain
-  // description right for pages that are not prerendered and for browsers that render the page.
-  useEffect(() => {
-    // `||`, not `??`: an empty description falls back to the subtitle, the same rule the prerender
-    // applies (pageDescriptionFromMarkup), so the two never disagree.
-    const text = description?.trim() || pageDescription(subtitle);
-    const tag = document.head.querySelector<HTMLMetaElement>('meta[name="description"]');
-    if (!text || !tag) return;
-    const previous = tag.getAttribute('content');
-    tag.setAttribute('content', text);
-    return () => {
-      if (previous === null) tag.removeAttribute('content');
-      else tag.setAttribute('content', previous);
-    };
-  }, [subtitle, description]);
+  // The description is the page's own, or its subtitle (see pageDescription). `||`, not `??`: an
+  // empty description falls back to the subtitle, the same rule the prerender applies
+  // (pageDescriptionFromMarkup), so the two never disagree. og:title and og:description follow it,
+  // as they do in the prerendered file.
+  usePageDescription(documentTitle, description?.trim() || pageDescription(subtitle));
 
   return (
     <div className="min-h-screen bg-bg text-ink">

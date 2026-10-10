@@ -3,29 +3,38 @@
  *
  * <h2>What this fixes</h2>
  *
- * Pages answers any unmatched path with the SPA fallback: `index.html`, `200`, `text/html`. That is
- * correct for routes -- `/login` is not a file, the client router owns it -- and wrong for assets.
- * A chunk deleted by a deploy came back as HTML with a success status, so a browser expecting
- * JavaScript reported a MIME mismatch instead of "this file is gone", and every layer downstream
- * had to infer the real cause from the wrong error. See
- * `docs/engineering/incidents/2026-08-08-stale-chunk-login-failure.md`.
+ * Pages answers a path that has no file with a DOCUMENT, and for a path under `/assets/` that is
+ * always the wrong answer. Which document has changed; the handler covers both:
+ *
+ *  - While the build had no top-level `404.html`, it was the SPA fallback: `index.html`, `200`,
+ *    `text/html`. A chunk deleted by a deploy came back as HTML with a success status, so a browser
+ *    expecting JavaScript reported a MIME mismatch instead of "this file is gone", and every layer
+ *    downstream had to infer the real cause from the wrong error. See
+ *    `docs/investigations/incidents/2026-08-08-stale-chunk-login-failure.md`.
+ *  - Now that the build has one (the not-found page, `scripts/prerender.mjs`), it is that page with
+ *    a `404`. The status is right, but the body is still a whole HTML page handed to a script or
+ *    stylesheet request. Measured on a Pages preview of that build before this handler knew about
+ *    it: `/assets/<missing>.js` returned `404 text/html`, the not-found page.
+ *
+ * Either way the answer becomes a short plain-text `404`.
  *
  * <h2>Why a Function, when `_redirects` looks like it should do this</h2>
  *
- * It cannot, and both dead ends are recorded because they look plausible and cost a deploy each to
- * disprove:
+ * It could not when this was written, and both dead ends are recorded because they look plausible
+ * and cost a deploy each to disprove:
  *
  *  - `_redirects` needs a destination, so a 404 rule needs a `404.html` -- and adding that file
  *    REPLACES the SPA fallback, because Pages prefers `404.html` over `index.html` for unmatched
  *    paths. Every client route 404s. Measured on a preview: `/login`, `/about`, `/terms`,
- *    `/dashboard` all gone.
+ *    `/dashboard` all gone. (The build has a `404.html` today only because `public/_redirects` now
+ *    rewrites every client route to a blank shell first.)
  *  - Repairing that with `/* /index.html 200` does not work either: Pages drops that rule. Its
  *    parser rejects a splat rewritten to `/index.html` as an infinite loop, since `/index.html`
  *    itself redirects to `/`. (An earlier version of this comment said Pages does not honour `200`
  *    rewrites at all. It does, to an extensionless path: `public/_redirects` relies on it.)
  *
- * A Function is the only mechanism that can distinguish "no such asset" from "a route" without
- * disturbing the fallback that routes depend on.
+ * A Function is the mechanism that can tell "no such asset" from "a route" without touching what
+ * routes are served.
  *
  * <h2>Scope, and why it is safe</h2>
  *
@@ -54,26 +63,27 @@
  */
 interface AssetRequestContext {
   /** Runs the rest of the Pages pipeline: the next Function if there is one, otherwise the static
-   *  asset lookup -- including the SPA fallback when nothing matches. */
+   *  asset lookup -- which answers with a document when nothing matches. */
   next: () => Promise<Response>;
 }
 
 /**
- * True when a response under `/assets/` is the SPA fallback rather than a real file.
+ * True when a response under `/assets/` is a document standing in for a file that is not there:
+ * the SPA fallback (`200`) or the build's not-found page (`404`).
  *
- * The test is the content type, not the status, because the status is exactly what is wrong: the
- * fallback is a `200`. Under `/assets/` an HTML body can only be the fallback, since Vite emits
- * scripts, stylesheets, fonts and images there and never a document.
+ * The test is the content type, because the status alone cannot tell: the fallback is a `200`, the
+ * same as a real file. Under `/assets/` an HTML body can only be one of those two documents, since
+ * Vite emits scripts, stylesheets, fonts and images there and never a document.
  *
  * Exported so the decision is unit-testable without a Workers runtime. This file is deployed
  * straight to the edge and is not covered by the app's build, so the test is the only thing
  * standing between a mistake here and every asset request in production.
  */
-export function isSpaFallback(response: Response): boolean {
-  // A 304 carries no content type and must pass through untouched -- it means the client already
-  // holds the file, which is the opposite of the file being missing. `ok` is false for 304, so
-  // this returns early rather than mistaking an absent header for HTML.
-  if (!response.ok) return false;
+export function isDocumentForMissingAsset(response: Response): boolean {
+  // Only the two statuses Pages gives those documents. A 304 carries no content type and must pass
+  // through untouched -- it means the client already holds the file, the opposite of the file
+  // being missing -- and a 5xx is an upstream failure that must stay visible as one.
+  if (!response.ok && response.status !== 404) return false;
 
   const contentType = response.headers.get('content-type') ?? '';
   return contentType.toLowerCase().includes('text/html');
@@ -82,7 +92,7 @@ export function isSpaFallback(response: Response): boolean {
 export async function onRequest(context: AssetRequestContext): Promise<Response> {
   const response = await context.next();
 
-  if (!isSpaFallback(response)) return response;
+  if (!isDocumentForMissingAsset(response)) return response;
 
   // Deliberately `no-store`. A content-hashed name is never reused, so a 404 here is permanent in
   // principle -- but "permanent" assumes the deploy that should have published the file is

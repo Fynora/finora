@@ -2,9 +2,12 @@
 #
 # Every rule here is a 200 "proxy": the browser keeps the URL it asked for (query string included)
 # and Pages answers with the body of /spa-shell, the blank document scripts/spaShell.mjs describes.
-# Without them these routes get Pages' fallback for a path with no file, which is index.html, which
-# is the prerendered HOMEPAGE -- so an emailed /reset-password link painted the homepage's headline
-# and buttons until the bundle ran.
+#
+# THESE RULES ARE WHAT KEEPS THE APP REACHABLE. The build has a top-level 404.html (the not-found
+# page, scripts/prerender.mjs), so a path with no file and no rule here is answered with that page
+# and HTTP 404. Without the rules below that is /auth, an emailed /reset-password link and every
+# page under /app. (They were first added for a smaller reason: before 404.html existed such a path
+# got index.html, the prerendered HOMEPAGE, which then sat on screen until the bundle ran.)
 #
 # Rules for editing this file. Each was read from Cloudflare's parser and asset handler (wrangler
 # 4.146.0: workers-shared parseRedirects, pages-shared asset-server/handler) and measured on a Pages
@@ -21,13 +24,19 @@
 #     as dynamic, which is slower and counts against a limit of 100 rather than 2,000.
 #   - An exact rule does not cover its trailing-slash form, hence the pairs. React Router treats
 #     /auth/ as /auth, so both are real addresses.
-#   - A new browser-only route needs a line here (the /app/* splat already covers anything under
-#     /app). Forgetting is not an outage: the route falls back to index.html and paints the homepage
-#     first, which is what every route did before this file existed. The test fails so that it is
-#     noticed.
+#   - A new browser-only route needs a line here, in both forms (the /app/* splat already covers
+#     anything under /app). Forgetting IS an outage for that route: a direct visit, a reload or an
+#     emailed link to it returns 404 and paints the not-found page, and only a visitor whose browser
+#     runs the bundle then sees the real page replace it. The test fails so that it cannot ship.
+#   - Matching is case-sensitive. /Auth has no rule and gets the 404 page; React Router, which is
+#     not case-sensitive, then mounts the sign-in page over it. Not worth a rule per spelling.
+#   - A rule with no route behind it is a soft 404 (the shell, 200, then React's not-found page), so
+#     a line goes when its route goes. The /app/* splat does this for an unknown address under /app.
+#     That one is accepted: robots.txt disallows /app and the shell is noindex.
 #
-# Unknown paths are deliberately not rewritten: there is no rule that means "everything else" without
-# also matching the pages that have files. They still get index.html, as before.
+# Unknown paths are deliberately not rewritten: they get 404.html and a real 404, which is the point
+# of that file. There is also no rule that could mean "everything else" without matching the pages
+# that have files.
 
 /auth /spa-shell 200
 /auth/ /spa-shell 200

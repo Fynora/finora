@@ -38,9 +38,14 @@ export function pageDescription(subtitle: string | undefined): string | null {
   return stripped === '' ? null : stripped;
 }
 
-/** Absolute canonical URL for a route path. No trailing slash except for the root, no query. */
+/**
+ * Absolute canonical URL for a route path. No trailing slash except for the root, no query, and
+ * lower case. React Router matches routes case-insensitively, so /About renders the About page; its
+ * canonical must name /about (the sitemap's URL), not the variant that was typed. Every route that
+ * names a canonical is a lower-case literal path, so lower-casing loses nothing.
+ */
 export function canonicalUrl(path: string): string {
-  const clean = path.split(/[?#]/)[0];
+  const clean = path.split(/[?#]/)[0].toLowerCase();
   const trimmed = clean.length > 1 ? clean.replace(/\/+$/, '') : clean;
   return SITE_ORIGIN + (trimmed === '' ? '/' : trimmed);
 }

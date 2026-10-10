@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { ArrowLeft, Sparkles } from 'lucide-react';
 import { BrandMark } from './BrandMark';
 import { useCanonical } from '../hooks/useCanonical';
+import { useRobotsNoindex } from '../hooks/useRobotsNoindex';
 import { pageDescription } from '../lib/siteUrl';
 
 /**
@@ -20,6 +21,7 @@ export function PublicLayout({
   title,
   subtitle,
   description,
+  noindex,
   children,
 }: {
   title: string;
@@ -33,11 +35,20 @@ export function PublicLayout({
    * see it, since it never runs this component's effects.
    */
   description?: string;
+  /**
+   * The page must not be indexed (NotFound). Adds `<meta name="robots" content="noindex">` while
+   * mounted and names NO canonical: a page that says both "do not index me" and "the real one is
+   * over there" gives search engines a conflicting signal, and the URL a not-found page is reached
+   * at is whatever was typed, never a URL worth naming.
+   */
+  noindex?: boolean;
   children: ReactNode;
 }) {
   // Each public page names its own canonical URL (absolute, on the one indexed host). The
   // prerendered copies of these pages carry the same tag in their HTML; see scripts/prerender.mjs.
-  useCanonical(useLocation().pathname);
+  const pathname = useLocation().pathname;
+  useCanonical(noindex ? null : pathname);
+  useRobotsNoindex(Boolean(noindex));
 
   useEffect(() => {
     const previous = document.title;

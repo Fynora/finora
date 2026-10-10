@@ -50,11 +50,14 @@ test.describe('public pages', () => {
     }
   });
 
-  test('an unknown route does not blank the page', async ({ page }) => {
+  test('an unknown route shows the not-found page, keeps its URL and asks not to be indexed', async ({ page }) => {
     await page.goto('/this-route-does-not-exist');
 
-    // The specific 404 copy is not asserted -- only that routing resolved to something rendered
-    // rather than an empty body, which is what a broken route config actually looks like.
-    await expect(page.locator('body')).not.toBeEmpty();
+    // Asserted by role and the h1 the page is named by, not by its body copy. It used to be a
+    // redirect to the homepage, which a crawler reads as a soft 404; the URL staying put and the
+    // robots meta are what make it a real not-found page.
+    await expect(page.getByRole('heading', { level: 1, name: 'Page not found' })).toBeVisible();
+    await expect(page).toHaveURL(/\/this-route-does-not-exist$/);
+    await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex/);
   });
 });

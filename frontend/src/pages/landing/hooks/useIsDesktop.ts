@@ -4,6 +4,9 @@ const DESKTOP_QUERY = '(min-width: 768px)';
 const COARSE_POINTER_QUERY = '(pointer: coarse)';
 
 function computeIsDesktop(): boolean {
+  // No window during the prerender (scripts/prerender.mjs renders the hero's CTAs, which use
+  // useMagnetic). False there is harmless: the effect below recomputes on mount in a browser.
+  if (typeof window === 'undefined') return false;
   return window.matchMedia(DESKTOP_QUERY).matches && !window.matchMedia(COARSE_POINTER_QUERY).matches;
 }
 

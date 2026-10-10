@@ -137,6 +137,45 @@ export function withStructuredData(templateHtml, scriptsHtml) {
   return templateHtml.replace('</head>', () => `${scriptsHtml}\n</head>`);
 }
 
+// The face the homepage hero's headline is set in: `.m-display` is Manrope 800 (src/index.css), and
+// every character of the headline is in the latin subset (@fontsource's unicode-range split, see
+// src/fonts.ts).
+const HERO_FONT_FILE = /^manrope-latin-800-normal-[\w-]+\.woff2$/;
+
+/**
+ * Picks the hero headline's font file out of dist/assets. Throws unless exactly one file matches,
+ * so a renamed or doubled asset fails the build instead of shipping a preload for nothing.
+ */
+export function heroFontAsset(assetFileNames) {
+  const matches = assetFileNames.filter((name) => HERO_FONT_FILE.test(name));
+  if (matches.length !== 1) {
+    throw new Error(`prerender: expected one Manrope 800 latin woff2 in dist/assets, found ${matches.length}: ${matches.join(', ')}`);
+  }
+  return matches[0];
+}
+
+/**
+ * Preloads the homepage hero's headline font, right after <title> so it is requested alongside the
+ * stylesheet rather than after it. Without it the browser only finds the font once the stylesheet
+ * has been parsed and the headline laid out, so the first paint sets the prerendered headline in
+ * the fallback face. React's headline, painted later in Manrope, is then larger and becomes the
+ * page's Largest Contentful Paint, which is the delay the prerendered first frame removes (see
+ * src/pages/HomeCrawlerFallback.tsx). `crossorigin` is required: fonts are always fetched in CORS
+ * mode, and a preload without it is not reused.
+ */
+export function withFontPreload(templateHtml, href) {
+  if (!templateHtml.includes('</title>')) {
+    throw new Error('prerender: the index.html template has no </title> to add a font preload after.');
+  }
+  if (/rel=["']preload["'][^>]*as=["']font["']/.test(templateHtml)) {
+    throw new Error('prerender: the index.html template already preloads a font; it must not.');
+  }
+  return templateHtml.replace(
+    '</title>',
+    () => `</title>\n  <link rel="preload" href="${href}" as="font" type="font/woff2" crossorigin />`
+  );
+}
+
 /**
  * Adds `<meta name="robots" content="noindex">` before </head>, for the prerendered not-found page
  * (dist/404.html). A crawler that does not run JavaScript never sees the tag useRobotsNoindex adds

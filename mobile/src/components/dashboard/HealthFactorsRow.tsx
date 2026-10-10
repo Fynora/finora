@@ -48,5 +48,5 @@ export function HealthFactorsRow({
 }
 
 const styles = StyleSheet.create({
-  row: { gap: spacing.sm, paddingVertical: spacing.xs },
+  row: { gap: spacing.ms, paddingVertical: spacing.xs },
 });

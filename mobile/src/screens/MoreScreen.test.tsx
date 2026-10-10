@@ -1,3 +1,5 @@
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { MoreScreen } from './MoreScreen';
 import { trackNavigation } from '../lib/trackNavigation';
@@ -132,6 +134,29 @@ describe('where each row goes', () => {
       expect(navigation.navigate).toHaveBeenCalledWith(target.screen);
       expect(tabNavigate).not.toHaveBeenCalled();
     }
+  });
+});
+
+// Every other test here drives a mocked navigation object, which accepts any name. The real
+// navigator does not: asked for a screen it never registered, it does nothing in a release build
+// (a dead row) and raises "The action 'NAVIGATE' ... was not handled by any navigator" in a dev
+// one. TypeScript cannot catch it either -- a name can sit in MoreStackParamList with no
+// <MoreStack.Screen> behind it. So this reads the navigator's own source for what it registers.
+describe('every row leads somewhere the real navigator knows', () => {
+  const appTabs = readFileSync(join(__dirname, '../navigation/AppTabs.tsx'), 'utf8');
+  const registered = (tag: string) =>
+    new Set([...appTabs.matchAll(new RegExp(`<${tag}\\s+name="([A-Za-z]+)"`, 'g'))].map((m) => m[1]));
+  const stackScreens = registered('MoreStack\\.Screen');
+  const tabs = registered('Tab\\.Screen');
+
+  test('the scan finds the navigator at all (guards it against silently matching nothing)', () => {
+    expect(stackScreens).toContain('MoreHome');
+    expect([...tabs].sort()).toEqual(['Home', 'Import', 'Insights', 'More', 'Transactions']);
+  });
+
+  test.each(ROWS)('%s (%s) opens a screen or tab that is registered', (_label, _id, target) => {
+    if ('tab' in target) expect(tabs).toContain(target.tab);
+    else expect(stackScreens).toContain(target.screen);
   });
 });
 

@@ -24,6 +24,14 @@ export type ThemeSetting = 'light' | 'dark' | 'system';
 
 export const THEME_SETTINGS: ThemeSetting[] = ['system', 'light', 'dark'];
 
+/** What each setting is called on screen -- the picker in General and the summary on Settings' own
+ *  General row read the same copy, so the row can never name a choice the picker doesn't offer. */
+export const THEME_LABEL: Record<ThemeSetting, string> = {
+  system: 'System',
+  light: 'Light',
+  dark: 'Dark',
+};
+
 interface ThemeState {
   /** What the user chose -- may literally be "system", unlike `resolved`. */
   setting: ThemeSetting;

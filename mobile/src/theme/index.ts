@@ -10,5 +10,6 @@ export {
   useTheme,
   useThemeSetting,
   THEME_SETTINGS,
+  THEME_LABEL,
   type ThemeSetting,
 } from '../context/ThemeContext';

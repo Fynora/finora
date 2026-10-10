@@ -1,8 +1,8 @@
 import { Children, Fragment, type ComponentProps, type ReactNode, type Ref } from 'react';
-import { Pressable, StyleSheet, Text, useWindowDimensions, View, type AccessibilityRole } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, useWindowDimensions, View, type AccessibilityRole } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from './Card';
-import { spacing, useTheme } from '../theme';
+import { radius, spacing, useTheme } from '../theme';
 
 export type MenuIcon = ComponentProps<typeof Ionicons>['name'];
 
@@ -75,7 +75,10 @@ export function MenuRow({
     <Pressable
       ref={ref}
       onPress={onPress}
-      style={styles.row}
+      // Android answers a touch with its ripple. iOS has no equivalent on a plain Pressable, so the
+      // row tints while held -- without it a tap gave no sign it had registered until the next
+      // screen arrived. Same colour as the ripple, and as Button's own pressed fill.
+      style={({ pressed }) => [styles.row, pressed && Platform.OS === 'ios' && { backgroundColor: c.border }]}
       android_ripple={{ color: c.border }}
       accessibilityRole={accessibilityRole}
       accessibilityLabel={accessibilityLabel}
@@ -98,8 +101,10 @@ export function MenuRow({
         {value && wordsOnly ? <Text style={[styles.rowValueStacked, { color: c.muted }]}>{value}</Text> : null}
       </View>
       {value && !wordsOnly ? <Text style={[styles.rowValue, { color: c.muted }]} numberOfLines={1}>{value}</Text> : null}
+      {/* A link row leaves the app for the browser, so it does not wear the chevron that means
+          "another screen of this app". */}
       <Ionicons
-        name="chevron-forward"
+        name={accessibilityRole === 'link' ? 'open-outline' : 'chevron-forward'}
         size={18}
         color={c.muted}
         accessibilityElementsHidden
@@ -111,10 +116,10 @@ export function MenuRow({
 
 const styles = StyleSheet.create({
   group: { marginTop: spacing.md },
-  groupLabel: { fontSize: 13, fontWeight: '600', marginLeft: spacing.xs, marginBottom: 6 },
+  groupLabel: { fontSize: 13, fontWeight: '600', marginLeft: spacing.xs, marginBottom: spacing.sm },
   card: { paddingVertical: 0 },
   divider: { height: StyleSheet.hairlineWidth },
-  row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, minHeight: 48 },
+  row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, minHeight: 48, borderRadius: radius.md },
   icon: { marginRight: 12 },
   rowMain: { flex: 1, marginRight: spacing.sm },
   rowLabel: { fontSize: 15 },

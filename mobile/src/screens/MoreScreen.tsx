@@ -163,6 +163,8 @@ const styles = StyleSheet.create({
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   // MenuGroup brings its own top margin, so the title carries none below it.
   title: { fontSize: 22, fontWeight: '700' },
-  signOutRow: { marginTop: spacing.lg, alignItems: 'center' },
+  // minHeight, not hitSlop alone: the label is about 17pt tall, and with 12pt of slop either side
+  // the target came to roughly 41pt, under the 44pt a destructive action in particular should have.
+  signOutRow: { marginTop: spacing.lg, alignItems: 'center', justifyContent: 'center', minHeight: 44 },
   signOut: { fontSize: 14, fontWeight: '600' },
 });

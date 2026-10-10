@@ -1,5 +1,5 @@
 import { createRef } from 'react';
-import { Dimensions, type View } from 'react-native';
+import { Dimensions, Platform, StyleSheet, type View } from 'react-native';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { MenuGroup, MenuRow } from './MenuGroup';
 
@@ -133,4 +133,41 @@ describe('at the system text sizes', () => {
     expect(screen.queryByText('card-outline', { includeHiddenElements: true })).toBeNull();
     expect(screen.getByRole('button', { name: 'Subscription' })).toBeTruthy();
   });
+});
+
+describe('the trailing icon says where the row leads', () => {
+  test('a row that opens another screen wears the chevron', () => {
+    render(<MenuGroup><MenuRow icon="wallet-outline" label="Accounts" onPress={noop} /></MenuGroup>);
+    expect(screen.getByText('chevron-forward', { includeHiddenElements: true })).toBeTruthy();
+    expect(screen.queryByText('open-outline', { includeHiddenElements: true })).toBeNull();
+  });
+
+  test('a link row, which leaves the app for the browser, wears the open-in-browser glyph instead', () => {
+    render(<MenuGroup><MenuRow icon="lock-closed-outline" label="Privacy Policy" accessibilityRole="link" onPress={noop} /></MenuGroup>);
+    expect(screen.getByText('open-outline', { includeHiddenElements: true })).toBeTruthy();
+    expect(screen.queryByText('chevron-forward', { includeHiddenElements: true })).toBeNull();
+  });
+});
+
+describe('press feedback', () => {
+  // fireEvent(el, 'pressIn') does not flip Pressable's `pressed` flag -- that lives in the responder
+  // system -- so the press is started the way a finger starts it.
+  const touchDown = { persist() {}, nativeEvent: { touches: [], changedTouches: [], pageX: 1, pageY: 1, locationX: 1, locationY: 1, timestamp: Date.now(), identifier: 1, target: 1 } };
+  const rowBackground = () =>
+    StyleSheet.flatten(screen.getByRole('button', { name: 'Accounts' }).props.style)?.backgroundColor;
+  const originalOS = Platform.OS;
+  afterEach(() => { Platform.OS = originalOS; });
+
+  test('on iOS the row tints while it is held, and is clear before', () => {
+    Platform.OS = 'ios';
+    render(<MenuGroup><MenuRow icon="wallet-outline" label="Accounts" onPress={noop} /></MenuGroup>);
+    expect(rowBackground()).toBeUndefined();
+    fireEvent(screen.getByRole('button', { name: 'Accounts' }), 'responderGrant', touchDown);
+    expect(rowBackground()).toEqual(expect.any(String));
+  });
+
+  // No Android twin of the test above: with Platform.OS set to 'android', holding a Pressable
+  // drives the native ripple, which jest-expo does not provide (it throws on hotspotUpdate before
+  // any style can be read). That throw is itself the ripple path engaging; the tint is gated on
+  // Platform.OS === 'ios' in the component, one condition, read there.
 });

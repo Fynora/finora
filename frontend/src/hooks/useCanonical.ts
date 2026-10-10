@@ -23,15 +23,26 @@ import { canonicalUrl, isNonProductionBuild } from '../lib/siteUrl';
  * starts from (the blank shell and the not-found page must name no address), and the local servers
  * answer every unknown path with it. The build adds the homepage's to dist/index.html only.
  *
- * Does nothing on a non-production build (dev-app, PR previews). Those are served with noindex, and
- * a page that says both "do not index me" and "the real one is over there" gives search engines a
- * conflicting signal. For the same reason it does nothing when given `null`: that is how a page
- * that carries noindex itself (NotFound, through PublicLayout's `noindex` prop) opts out.
+ * `null` is how a page that carries noindex itself (NotFound, through PublicLayout's `noindex` prop)
+ * says it names no address. A page that says both "do not index me" and "the real one is over
+ * there" gives search engines a conflicting signal, so `null` does not just add nothing: it takes
+ * out a tag that is already there. That happens when the not-found page is shown over a document
+ * that is another page's file. Measured on production, 2026-10-10: Pages answers //terms with
+ * terms.html (canonical /terms), React Router matches no route for "//terms", and the head then
+ * said both noindex and canonical /terms.
+ *
+ * Does nothing on a non-production build (dev-app, PR previews). Those are served with noindex, for
+ * the same conflicting-signal reason, and scripts/crawlPolicy.mjs has already taken the canonical
+ * out of every file they serve.
  */
 export function useCanonical(path: string | null): void {
   useEffect(() => {
-    if (path === null || isNonProductionBuild()) return;
+    if (isNonProductionBuild()) return;
     const existing = document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+    if (path === null) {
+      existing?.remove();
+      return;
+    }
     const link = existing ?? document.createElement('link');
     link.rel = 'canonical';
     link.href = canonicalUrl(path);

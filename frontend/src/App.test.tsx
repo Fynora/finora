@@ -128,3 +128,74 @@ describe('App routing — /login and /register redirect to /auth', () => {
     await waitFor(() => expect(window.location.pathname).toBe('/auth'));
   });
 });
+
+/**
+ * dist/index.html arrives with the homepage's canonical already in its head (scripts/prerender.mjs
+ * adds it at build time). Landing and every PublicLayout page then manage that one tag through
+ * useCanonical. These walk the real routes, because the rule that matters is about the hand-over
+ * between pages: exactly one tag on a page that names an address, naming THAT page, and none on a
+ * page that names no address. jsdom does not load dist/index.html, so the tag is put in the head
+ * here the way the file has it.
+ */
+describe('App routing — the canonical the homepage arrives with', () => {
+  const canonicals = () =>
+    [...document.head.querySelectorAll('link[rel="canonical"]')].map((link) => link.getAttribute('href'));
+
+  beforeEach(() => {
+    const prerendered = document.createElement('link');
+    prerendered.rel = 'canonical';
+    prerendered.href = 'https://app.fynora.net/';
+    document.head.appendChild(prerendered);
+    window.history.pushState({}, '', '/');
+  });
+
+  afterEach(() => {
+    document.head.querySelectorAll('link[rel="canonical"]').forEach((link) => link.remove());
+  });
+
+  it('stays the only one on the homepage, and follows the visitor to a public page and back', async () => {
+    const { container } = render(<App />);
+    await waitFor(() => expect(container.querySelector('h1')).not.toBeNull());
+    // Never more than one, at any point in the walk: a second tag would be the bug even if a later
+    // step removed it again.
+    const seen: number[] = [];
+    const watcher = new MutationObserver(() => seen.push(canonicals().length));
+    watcher.observe(document.head, { childList: true });
+    expect(canonicals()).toEqual(['https://app.fynora.net/']);
+
+    fireEvent.click(container.querySelector('a[href="/terms"]')!);
+    await waitFor(() => expect(container.querySelector('h1')?.textContent).toBe('Terms & Conditions'));
+    await waitFor(() => expect(canonicals()).toEqual(['https://app.fynora.net/terms']));
+
+    fireEvent.click(container.querySelector('a[href="/"]')!);
+    await waitFor(() => expect(window.location.pathname).toBe('/'));
+    await waitFor(() => expect(canonicals()).toEqual(['https://app.fynora.net/']));
+    watcher.disconnect();
+    expect(Math.max(1, ...seen)).toBe(1);
+  });
+
+  it('is gone once the visitor moves on to sign-in, which names no address', async () => {
+    // The case the tag in the file created: open "/", press "Sign in". Left in the head, it would
+    // name the homepage as the address of /auth, and of every page under /app after that.
+    const { container } = render(<App />);
+    await waitFor(() => expect(container.querySelector('h1')).not.toBeNull());
+    expect(canonicals()).toEqual(['https://app.fynora.net/']);
+
+    fireEvent.click(container.querySelector('a[href="/auth"]')!);
+    await waitFor(() => expect(window.location.pathname).toBe('/auth'));
+    await waitFor(() => expect(canonicals()).toEqual([]));
+  });
+
+  it('is gone on a dead link reached from the homepage', async () => {
+    const { container } = render(<App />);
+    await waitFor(() => expect(container.querySelector('h1')).not.toBeNull());
+
+    window.history.pushState({}, '', '/definitely-not-a-page');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    await waitFor(() => expect(container.querySelector('h1')?.textContent).toBe('Page not found'));
+    // Waited for, not read straight after the heading: React removes the old page's nodes first and
+    // runs its effect cleanups a moment later, so the new heading can be on screen while the tag is
+    // still there. Asserting at once failed about one run in three.
+    await waitFor(() => expect(canonicals()).toEqual([]));
+  });
+});

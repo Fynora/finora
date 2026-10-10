@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { useCanonical } from './useCanonical';
 import { PublicLayout } from '../components/PublicLayout';
 
-function Probe({ path }: { path: string }) {
+function Probe({ path }: { path: string | null }) {
   useCanonical(path);
   return null;
 }
@@ -76,6 +76,42 @@ describe('useCanonical', () => {
     expect(links()[0].getAttribute('href')).toBe('https://app.fynora.net/');
     home.unmount();
     expect(links()).toHaveLength(0);
+  });
+
+  it("takes out another page's prerendered canonical when the page shown names no address (null)", () => {
+    // Production answers //terms with terms.html, whose head has the /terms canonical, and React
+    // Router then shows the not-found page, which is noindex. Left alone, the head said both.
+    const prerendered = document.createElement('link');
+    prerendered.rel = 'canonical';
+    prerendered.href = 'https://app.fynora.net/terms';
+    document.head.appendChild(prerendered);
+
+    const { unmount } = render(<Probe path={null} />);
+    expect(links()).toHaveLength(0);
+    unmount();
+    expect(links()).toHaveLength(0);
+  });
+
+  it('adds nothing for null when there is no tag to begin with', () => {
+    const { unmount } = render(<Probe path={null} />);
+    expect(links()).toHaveLength(0);
+    unmount();
+    expect(links()).toHaveLength(0);
+  });
+
+  it('the not-found page built on PublicLayout removes the canonical of the file it is shown over', () => {
+    const prerendered = document.createElement('link');
+    prerendered.rel = 'canonical';
+    prerendered.href = 'https://app.fynora.net/terms';
+    document.head.appendChild(prerendered);
+
+    render(
+      <MemoryRouter initialEntries={['//terms']}>
+        <PublicLayout title="Page not found" noindex>body</PublicLayout>
+      </MemoryRouter>
+    );
+    expect(links()).toHaveLength(0);
+    expect(document.head.querySelector('meta[name="robots"]')?.getAttribute('content')).toBe('noindex');
   });
 
   it('is set by every page built on PublicLayout, from its own route', () => {

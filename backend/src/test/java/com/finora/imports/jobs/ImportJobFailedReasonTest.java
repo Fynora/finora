@@ -71,7 +71,7 @@ class ImportJobFailedReasonTest {
         job.holdForTrustReview(UUID.randomUUID(), UUID.randomUUID(), Instant.now());
         job.rejectAfterTrustReview(ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name(), Instant.now());
 
-        job.reopenTrustReview(ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name());
+        job.reopenTrustReview(ErrorCode.IMPORT_TRUST_REVIEW_REJECTED.name(), Instant.now());
 
         assertThat(job.getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_TRUST_REVIEW);
         assertThat(job.getLastError()).as("held again is not a failure").isNull();

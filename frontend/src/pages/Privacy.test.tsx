@@ -142,6 +142,21 @@ describe('Privacy policy matches what the product does', () => {
   // UserActivityInterceptor writes one user_activity_days row (V249) per user per calendar day,
   // keyed by user id, and AccountPurgeSweepService deletes them. That is per-user data, so the
   // "aggregated, non-identifying" analytics sentence alone would understate it.
+  // statement_analysis_sessions holds one row per upload attempt, keyed by user id -- read, failed,
+  // or (since V267) refused before reading. A refused row has no file name; a failed one's
+  // failure_detail can quote a fragment of the document (StatementAnalysisRecorder.truncate), so
+  // the page must not claim the record never holds statement text. On deletion the rows stay, with
+  // user_id, file_name, failure_detail and content_hash nulled (anonymizeByUserId).
+  it('discloses the per-upload technical record, including uploads turned away before reading', () => {
+    const t = policyText();
+    expect(t).toMatch(/keeps a short technical record of that attempt/i);
+    expect(t).toMatch(/turned away before it was\s+read/i);
+    expect(t).toMatch(/a locked PDF sent without its password/i);
+    expect(t).toMatch(/may quote a short piece of the text that caused the problem/i);
+    expect(t).toMatch(/turned away before\s+reading, the record holds nothing about the file/i);
+    expect(t).toMatch(/kept without your identity: the link to your\s+account, the file name and the recorded reason text are removed/i);
+  });
+
   it('discloses the per-account record of which days the app was used, and that it is deleted with the account', () => {
     const t = policyText();
     expect(t).toMatch(/record the dates on which you use Fynora/i);

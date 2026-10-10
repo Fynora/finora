@@ -1,6 +1,6 @@
-import { StyleSheet, Text } from 'react-native';
-import { openWebUrl } from '../lib/webUrl';
-import { spacing, useTheme } from '../theme';
+import { StyleSheet, View } from 'react-native';
+import { LegalLink } from './LegalLink';
+import { spacing } from '../theme';
 
 /**
  * A small legal-link row for auth screens that otherwise have no route to any of these pages --
@@ -10,31 +10,32 @@ import { spacing, useTheme } from '../theme';
  *
  * Carries the same four links, in the same order, as SettingsScreen's own Legal section (#1513)
  * -- kept in sync deliberately, so a link added to one doesn't quietly go missing from the other.
- *
- * Links out via webUrl + Linking rather than an in-app screen -- mobile has no in-app copies of
- * these pages (see RegisterScreen's own comment on this exact constraint).
+ * `hideConsentLinks` is the one sanctioned exception: when SocialConsentNotice is on the same
+ * screen it already links Terms and Privacy directly under the buttons that need them, so the
+ * footer carries only the other two instead of repeating the pair a few lines apart. When the
+ * notice is absent (Google unconfigured on Android), the footer shows all four again.
  */
-export function LegalFooterLinks() {
-  const c = useTheme();
-  const link = (label: string, path: string) => (
-    <Text style={[styles.link, { color: c.primary }]} onPress={() => openWebUrl(path)}>
-      {label}
-    </Text>
-  );
+interface Props {
+  hideConsentLinks?: boolean;
+}
+
+export function LegalFooterLinks({ hideConsentLinks = false }: Props) {
   return (
-    <Text style={[styles.text, { color: c.muted }]}>
-      {link('Privacy Policy', '/privacy')}
-      {'  ·  '}
-      {link('Terms of Service', '/terms')}
-      {'  ·  '}
-      {link('Trust & Security', '/trust')}
-      {'  ·  '}
-      {link('Data Portability Promise', '/your-data')}
-    </Text>
+    <View style={styles.row}>
+      {hideConsentLinks ? null : <LegalLink label="Privacy Policy" path="/privacy" />}
+      {hideConsentLinks ? null : <LegalLink label="Terms of Service" path="/terms" />}
+      <LegalLink label="Trust & Security" path="/trust" />
+      <LegalLink label="Data Portability Promise" path="/your-data" />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  text: { fontSize: 12, textAlign: 'center', marginTop: spacing.sm },
-  link: { fontWeight: '600' },
+  row: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    columnGap: spacing.md,
+    marginTop: spacing.sm,
+  },
 });

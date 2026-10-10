@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
-import { GoogleSignin, GoogleSigninButton } from '@react-native-google-signin/google-signin';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { GoogleSignInButton, isGoogleSignInConfigured } from './GoogleSignInButton';
 import { ThemeProvider, useThemeSetting } from '../theme';
 import { reportHandledEvent } from '../lib/monitoring';
@@ -72,7 +72,22 @@ describe('GoogleSignInButton', () => {
       );
 
       await waitFor(() => expect(resolvedTheme).toBe('dark'));
-      expect(view.UNSAFE_getByType(GoogleSigninButton).props.color).toBe(GoogleSigninButton.Color.Light);
+      expect(view.getByTestId('google-sign-in-button')).toHaveStyle({ backgroundColor: '#ffffff' });
+      expect(view.getByText('Sign in with Google')).toHaveStyle({ color: '#1F1F1F' });
+    });
+
+    it('lays the G and the label out centred in a row, the same height and radius as the Apple button', () => {
+      // The library's own button pins the logo to the left edge; this one is drawn to pair with
+      // the centred AppleAuthenticationButton beneath it.
+      const { view } = renderButton();
+      expect(view.getByText('Sign in with Google')).toHaveStyle({ flexShrink: 1, textAlign: 'center' });
+      expect(view.getByTestId('google-sign-in-button')).toHaveStyle({
+        flexDirection: 'row',
+        justifyContent: 'center',
+        alignItems: 'center',
+        minHeight: 48, // min, not fixed: the row grows with large accessibility text
+        width: '100%',
+      });
     });
 
     it('hands a successful credential straight to onCredential', async () => {
@@ -164,6 +179,31 @@ describe('GoogleSignInButton', () => {
         stage: 'sign-in',
         code: 'NO_ID_TOKEN',
       });
+    });
+
+    // Placed after the credential test: GoogleSignin.configure() runs once per module load and
+    // that test asserts on it, so it must own the file's first press.
+    it('tints the button while a finger is down', () => {
+      // Pressable's pressed flag is set by the responder system, not by fireEvent('pressIn'), so
+      // the touch is delivered as a responder grant (release is deferred by Pressable's minimum
+      // press duration, so only the down state is asserted).
+      const { view } = renderButton();
+      const button = view.getByTestId('google-sign-in-button');
+      expect(button).toHaveStyle({ backgroundColor: '#ffffff' });
+      fireEvent(button, 'responderGrant', { persist: () => {}, nativeEvent: { touches: [], changedTouches: [], pageX: 1, pageY: 1, locationX: 1, locationY: 1, timestamp: Date.now(), identifier: 1, target: 1 } });
+      expect(button).toHaveStyle({ backgroundColor: '#f2f2f2' });
+    });
+
+    it('dims and blocks the button while a sign-in is in flight, like the Apple button', async () => {
+      let finish: () => void = () => {};
+      mockedGoogleSignin.signIn.mockReturnValue(new Promise<never>((resolve) => { finish = () => resolve({ type: 'cancelled', data: null } as never); }));
+
+      const { view } = renderButton();
+      fireEvent.press(view.getByText('Sign in with Google'));
+
+      await waitFor(() => expect(view.getByTestId('google-sign-in-button')).toBeDisabled());
+      finish();
+      await waitFor(() => expect(view.getByTestId('google-sign-in-button')).toBeEnabled());
     });
 
     describe('reporting why it failed', () => {

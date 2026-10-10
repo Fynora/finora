@@ -28,6 +28,21 @@ export const HELD_DETAIL = 'Our team is checking it by hand to make sure every t
   + "correctly. This takes up to 48 hours, and we'll notify you as soon as it's done. You can keep "
   + 'using Fynora in the meantime.';
 
+/**
+ * What a hold says once it has broken the 48-hour promise above (Gate 1 spec §4) -- the identical
+ * sentences web exports under the same name. The server decides it (`holdOverdue`, on its own
+ * clock); this only renders it, and never decides the import.
+ */
+export const HELD_OVERDUE_DETAIL = 'This is taking longer than we promised — sorry. You can keep '
+  + "waiting, or upload a different statement in the meantime. We'll notify you as soon as this one "
+  + 'is done.';
+
+/** The held explanation for this job: the apology once past the promise, else the 48-hour copy. A
+ *  server that predates `holdOverdue` omits it, which reads as within the promise. */
+export function heldDetail(job: Pick<ImportJobProgress, 'holdOverdue'>): string {
+  return job.holdOverdue ? HELD_OVERDUE_DETAIL : HELD_DETAIL;
+}
+
 const LABELS: Record<ImportJobProgress['status'], string> = {
   QUEUED: 'Waiting to start',
   PARSING: 'Reading your statement',
@@ -101,7 +116,7 @@ export function percent(job: ImportJobProgress): number | null {
  */
 export function detail(job: ImportJobProgress): string | null {
   if (job.status === 'FAILED') return null;
-  if (isHeld(job)) return HELD_DETAIL;
+  if (isHeld(job)) return heldDetail(job);
   if (job.rowsTotal === null) return null;
   if (job.status === 'COMPLETED') {
     return `${job.rowsTotal} ${job.rowsTotal === 1 ? 'transaction' : 'transactions'} found`;

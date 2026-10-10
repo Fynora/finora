@@ -8,9 +8,11 @@
  * Hero reads this once to skip that entrance for the copy column only.
  *
  * Read at module evaluation, which happens after the HTML has been parsed (the bundle is a module
- * script) and before React's first render replaces anything. Only the homepage path counts:
- * index.html is also the fallback document for every route that is not prerendered, and a visitor
- * who lands on /app and later opens "/" never saw the first frame.
+ * script) and before React's first render replaces anything. Only the homepage path counts.
+ * index.html also answers any path with no file or rewrite of its own. An unknown URL is one: the
+ * router redirects it to "/", and the page is empty for a moment in between (about 110 ms measured
+ * on a throttled phone), so the hero arrives on a blank page and its usual entrance is right. The
+ * same goes for a host with no rewrite rules, where /app gets index.html too and "/" is opened later.
  */
 const FIRST_FRAME_SELECTOR = '[data-hero-first-frame]';
 

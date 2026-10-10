@@ -8,10 +8,8 @@ import { ArrowRight } from 'lucide-react';
 
 /**
  * The homepage as dist/index.html carries it, rendered by the prerender step (scripts/prerender.mjs).
- * Landing.tsx (the real homepage) is not rendered there. Its hero probes for WebGL and mounts the
- * @react-three/fiber layer, which need a browser (the probe reads `document` during render, so plain
- * Node throws), and its entrance starts every hero column at opacity 0, which would serve invisible
- * text to anything that does not run the bundle.
+ * Landing.tsx (the real homepage) is not rendered there: its hero's entrance starts every column at
+ * opacity 0, which would serve invisible text to anything that does not run the bundle.
  *
  * This page has two readers.
  *

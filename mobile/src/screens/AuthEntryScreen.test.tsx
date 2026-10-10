@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { AuthEntryScreen } from './AuthEntryScreen';
 import { authApi } from '../api/endpoints';
@@ -77,12 +78,36 @@ describe('AuthEntryScreen', () => {
   // Bug fix: this was the one mobile screen (mirroring web's AuthEntry.tsx before its own fix)
   // with no route to Privacy/Terms at all -- RegisterScreen links them from its own consent text,
   // but someone landing here first (the actual entry point) had no way to reach either page.
-  // Twice each: once in the legal footer, once in the consent notice beside Google/Apple.
-  it('links to Privacy Policy and Terms of Service', () => {
+  // Once each: the consent notice beside Google/Apple carries them, and the legal footer then
+  // drops its own copy of the pair rather than repeating it a few lines down.
+  it('links to Privacy Policy and Terms of Service once, from the consent notice', () => {
     renderScreen();
 
-    expect(screen.getAllByText('Privacy Policy')).toHaveLength(2);
-    expect(screen.getAllByText('Terms of Service')).toHaveLength(2);
+    expect(screen.getAllByText('Privacy Policy')).toHaveLength(1);
+    expect(screen.getAllByText('Terms of Service')).toHaveLength(1);
+    expect(screen.getByText('Trust & Security')).toBeTruthy();
+  });
+
+  // Android with no Google web client id has no social buttons at all: the consent notice is
+  // gone, so the footer must carry Privacy and Terms itself again, and the subtitle goes back to
+  // describing the one path that is left.
+  it('with no social sign-in, the footer carries all four legal links and the subtitle names the email path', () => {
+    const originalOS = Platform.OS;
+    const originalEnv = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+    (Platform as { OS: string }).OS = 'android';
+    delete process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+    try {
+      renderScreen();
+
+      expect(screen.queryByText(/continuing with google or apple/i)).toBeNull();
+      expect(screen.getAllByText('Privacy Policy')).toHaveLength(1);
+      expect(screen.getAllByText('Terms of Service')).toHaveLength(1);
+      expect(screen.getByText('Trust & Security')).toBeTruthy();
+      expect(screen.getByText('Enter your email or mobile number to continue')).toBeTruthy();
+    } finally {
+      (Platform as { OS: string }).OS = originalOS;
+      process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID = originalEnv;
+    }
   });
 
   // Google/Apple here create a brand-new account when the identity has none yet, so the Terms and

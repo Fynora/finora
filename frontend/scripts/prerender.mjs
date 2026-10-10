@@ -23,6 +23,7 @@ import {
   withStructuredData,
   withTitle,
 } from './prerenderTitle.mjs';
+import { SPA_SHELL_FILE, spaShellHtml } from './spaShell.mjs';
 
 const frontendRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const ssrOutDir = path.join(frontendRoot, '.prerender-ssr');
@@ -76,6 +77,11 @@ async function main() {
     throw new Error(`dist/index.html doesn't contain ${ROOT_DIV} -- template shape changed, update this script.`);
   }
 
+  // The blank shell for browser-only routes, taken from the template before the loop below fills
+  // index.html with the homepage. public/_redirects is what points /auth, /app/... at it.
+  fs.writeFileSync(path.join(distDir, SPA_SHELL_FILE), spaShellHtml(template));
+  console.log(`prerender: blank shell -> dist/${SPA_SHELL_FILE}`);
+
   const heroFontHref = '/assets/' + heroFontAsset(fs.readdirSync(path.join(distDir, 'assets')));
 
   for (const [route, fileName] of Object.entries(OUTPUT_FILES)) {
@@ -94,8 +100,9 @@ async function main() {
       if (!description) throw new Error(`prerender: no subtitle to take a description from for ${route}`);
       pageTemplate = withPageMeta(withCanonical(withTitle(template, title), route), { title, description, route });
     } else {
-      // Only the homepage paints the hero headline. index.html is also the SPA fallback for every
-      // route not listed here, so those load it too; it is one small, immutable-cached file.
+      // Only the homepage paints the hero headline. The blank shell written above is taken from
+      // the template, so /auth and /app/... do not carry this preload. An unknown path still gets
+      // index.html, and with it the preload, before the router sends it to "/".
       pageTemplate = withFontPreload(pageTemplate, heroFontHref);
     }
     // JSON-LD for the page (Organization/WebSite/SoftwareApplication/FAQPage on the homepage,

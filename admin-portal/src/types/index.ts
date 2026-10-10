@@ -102,6 +102,17 @@ export interface NeedsAttentionDto {
   statementsHeldForTrustReview: number;
   /** Parser-gap holds (HELD_FOR_REVIEW) waiting in the Held Imports queue. */
   importsHeldForReview: number;
+  /** Of the trust holds above, those past the 48-hour promise (one per review) -- Gate 1 spec §4.
+   *  Optional: a backend deployed before it omits the field, which reads as none. */
+  trustHoldsOverdue?: OverdueHolds;
+  /** Of the import holds above, those past the 48-hour promise. Optional for the same reason. */
+  importHoldsOverdue?: OverdueHolds;
+}
+
+/** Mirrors backend AdminDtos.OverdueHoldsDto. `oldestHeldSince` is null when `count` is 0. */
+export interface OverdueHolds {
+  count: number;
+  oldestHeldSince: string | null;
 }
 
 /** Mirrors backend OperationalDashboardDto exactly. importsWithSkippedRowsToday is the honest
@@ -1016,7 +1027,9 @@ export interface StatementAnalysisDto {
   sourceFormat: string | null;
   /** Null when the document failed before it could be characterised -- e.g. a wrong password. */
   layoutFingerprint: string | null;
-  outcome: 'PARSED' | 'FAILED';
+  /** REJECTED (backend V267): refused before the engine read it -- empty or wrong-type file, virus
+   *  scan, server busy. No file name, size, fingerprint or row count; `failureCode` says why. */
+  outcome: 'PARSED' | 'FAILED' | 'REJECTED';
   failureCode: string | null;
   sectionCount: number | null;
   /** Null means never measured. Deliberately NOT the same as 0 -- see the page's RowCount cell. */
@@ -1153,6 +1166,9 @@ export interface StatementAnalysisSummaryDto {
   rowsExtractedInWindow: number;
   unanchoredRowsInWindow: number;
   unanchoredReasons: UnanchoredReasons;
+  /** Uploads refused before reading (outcome REJECTED) -- with `parsed` and `failed`, the three
+   *  parts of `totalAnalysesEver`. Optional: a backend deployed before V267 omits it. */
+  rejected?: number;
 }
 
 /**

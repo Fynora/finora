@@ -147,6 +147,22 @@ describe('ImportDetail', () => {
     expect(screen.queryByRole('button', { name: /upload a different file/i })).not.toBeInTheDocument();
   });
 
+  // Gate 1 spec §4: past the promise the page apologises, and offers the upload its apology names.
+  it('apologises for an overdue hold and offers a different statement meanwhile', async () => {
+    api.progress.mockResolvedValue(job({
+      status: 'HELD_FOR_TRUST_REVIEW', importSessionId: null, finishedAt: null, holdOverdue: true,
+    }));
+    api.timeline.mockResolvedValue(emptyTimeline({ status: 'HELD_FOR_TRUST_REVIEW' }));
+    renderDetail();
+
+    const held = await screen.findByTestId('import-detail-held');
+    expect(held).toHaveTextContent(/taking longer than we promised — sorry/);
+    expect(held).not.toHaveTextContent(/48 hours/);
+    const upload = screen.getByRole('button', { name: /upload a different statement/i });
+    await userEvent.click(upload);
+    expect(navigate).toHaveBeenCalledWith('/app/import');
+  });
+
   it('shows no held explanation for an import that is not held', async () => {
     api.progress.mockResolvedValue(job({ status: 'ANALYZING', importSessionId: null, finishedAt: null }));
     api.timeline.mockResolvedValue(emptyTimeline({ status: 'ANALYZING' }));

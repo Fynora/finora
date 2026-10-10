@@ -89,6 +89,40 @@ class AdminOperationalDashboardServiceTest {
         when(transactionRepository.countByNeedsCategoryReviewTrue()).thenReturn(0L);
         when(transactionRepository.countByIsDuplicateOfIsNotNull()).thenReturn(0L);
         when(auditLogRepository.findAllByOrderByCreatedAtDesc(any(Pageable.class))).thenReturn(Page.empty());
+        when(importJobRepository.summarizeOverdueHolds(any(), any(), any())).thenReturn(new Summary(0, null));
+    }
+
+    /** A plain implementation, not a mock: a projection mock stubbed inside another stubbing is
+     *  Mockito's UnfinishedStubbing trap. */
+    private record Summary(long count, Instant oldest) implements ImportJobRepository.OverdueHoldSummary {
+        @Override public long getCount() { return count; }
+        @Override public Instant getOldest() { return oldest; }
+    }
+
+    /** Gate 1 spec §4: overdue holds, per kind, with their oldest -- so each row links to its queue. */
+    @Test
+    void overview_reportsOverdueHoldsPerKindWithTheOldest() {
+        when(healthRegistryService.platformHealth()).thenReturn(new PlatformHealthDto("UP", List.of()));
+        Instant oldestTrust = Instant.parse("2026-10-05T08:00:00Z");
+        when(importJobRepository.summarizeOverdueHolds(eq(ImportJob.Status.HELD_FOR_TRUST_REVIEW), any(), any()))
+                .thenReturn(new Summary(2, oldestTrust));
+        when(importJobRepository.summarizeOverdueHolds(eq(ImportJob.Status.HELD_FOR_REVIEW), any(), any()))
+                .thenReturn(new Summary(0, null));
+        Instant before = Instant.now();
+
+        OperationalDashboardDto dto = service.overview();
+
+        assertThat(dto.needsAttention().trustHoldsOverdue().count()).isEqualTo(2L);
+        assertThat(dto.needsAttention().trustHoldsOverdue().oldestHeldSince()).isEqualTo(oldestTrust);
+        assertThat(dto.needsAttention().importHoldsOverdue().count()).isZero();
+        assertThat(dto.needsAttention().importHoldsOverdue().oldestHeldSince()).isNull();
+
+        ArgumentCaptor<Instant> cutoff = ArgumentCaptor.forClass(Instant.class);
+        verify(importJobRepository).summarizeOverdueHolds(eq(ImportJob.Status.HELD_FOR_TRUST_REVIEW),
+                cutoff.capture(), eq(HeldStatement.Status.RESOLVED));
+        // 48 hours before "now", taken during the call.
+        assertThat(cutoff.getValue()).isBetween(before.minus(ImportJob.HOLD_PROMISE),
+                Instant.now().minus(ImportJob.HOLD_PROMISE));
     }
 
     @Test

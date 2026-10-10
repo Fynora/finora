@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import {
   RefreshCw, FileSearch, AlertTriangle, CheckCircle2, Layers, Ruler, ChevronRight, ChevronDown, Upload,
-  HelpCircle,
+  HelpCircle, Ban,
 } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { EntityDrawer } from '../components/EntityDrawer';
@@ -16,7 +16,7 @@ import type {
   StatementAnalysisDto, StatementAnalysisSummaryDto, UnanchoredReasons,
 } from '../types';
 import {
-  GLOSSARY, describeBank, describeFailure, describeReason, describeStatementType, isPasswordFailure,
+  GLOSSARY, describeBank, describeFailure, describeReason, describeRefusal, describeStatementType, isPasswordFailure,
 } from './layoutStudioTerms';
 
 /** Rows per page in the analyses table. */
@@ -56,18 +56,24 @@ function formatWhen(iso: string) {
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
 }
 
+/**
+ * Three outcomes, three looks. Only PARSED may say "Read": an upload refused before the engine
+ * read it (REJECTED, backend V267) is neither a success nor a parser failure, and showing it as
+ * either would put a false row in the one table this page exists to keep honest.
+ */
 function OutcomeBadge({ outcome, failureCode }: { outcome: string; failureCode: string | null }) {
   const failed = outcome === 'FAILED';
-  const failure = failed ? describeFailure(failureCode) : null;
+  const refused = outcome === 'REJECTED';
+  const problem = failed ? describeFailure(failureCode) : refused ? describeRefusal(failureCode) : null;
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${
-        failed ? 'text-danger bg-danger-bg' : 'text-success bg-success-bg'
+        failed ? 'text-danger bg-danger-bg' : refused ? 'text-warning bg-warning-bg' : 'text-success bg-success-bg'
       }`}
-      title={failure ? `${failure.meaning}${failureCode ? ` (${failureCode})` : ''}` : 'The engine read transactions from this file.'}
+      title={problem ? `${problem.meaning}${failureCode ? ` (${failureCode})` : ''}` : 'The engine read transactions from this file.'}
     >
-      {failed ? <AlertTriangle size={11} /> : <CheckCircle2 size={11} />}
-      {failure ? failure.label : 'Read'}
+      {failed ? <AlertTriangle size={11} /> : refused ? <Ban size={11} /> : <CheckCircle2 size={11} />}
+      {problem ? problem.label : 'Read'}
     </span>
   );
 }
@@ -139,7 +145,14 @@ function SummaryStrip({ summary }: { summary: StatementAnalysisSummaryDto }) {
   // because a total and a windowed count side by side read as the same kind of number otherwise.
   const recent = `In the last ${summary.analysesInWindow.toLocaleString()} uploads`;
   const cells: { label: string; value: string; hint: string }[] = [
-    { label: 'Uploads analysed', value: summary.totalAnalysesEver.toLocaleString(), hint: 'Every statement upload ever tried, by customers or admins.' },
+    {
+      label: 'Uploads analysed',
+      value: summary.totalAnalysesEver.toLocaleString(),
+      // Refused uploads are in this total but in neither Read nor Failed, so the gap is named here
+      // rather than left for someone to wonder about.
+      hint: 'Every statement upload ever tried, by customers or admins.'
+        + (summary.rejected ? ` ${summary.rejected.toLocaleString()} ${summary.rejected === 1 ? 'was' : 'were'} refused before the engine read ${summary.rejected === 1 ? 'it' : 'them'}.` : ''),
+    },
     { label: 'Read', value: summary.parsed.toLocaleString(), hint: 'The engine got transactions out of the file.' },
     { label: 'Failed', value: summary.failed.toLocaleString(), hint: 'The engine stopped. The table below says why.' },
     { label: 'Statement formats', value: summary.distinctLayouts.toLocaleString(), hint: 'Different statement designs seen (by fingerprint).' },
@@ -182,11 +195,15 @@ function AnalysisDetailPanel({ reference }: { reference: string }) {
 
   const { analysis, timesLayoutSeen, timesLayoutFailed } = data;
   const failed = analysis.outcome === 'FAILED';
-  const failure = failed ? describeFailure(analysis.failureCode) : null;
+  const refused = analysis.outcome === 'REJECTED';
+  const failure = failed ? describeFailure(analysis.failureCode)
+    : refused ? describeRefusal(analysis.failureCode) : null;
 
   return (
     <div className="space-y-4">
-      <p className={`text-sm rounded-lg px-3.5 py-2.5 ${failed ? 'text-danger bg-danger-bg' : 'text-success bg-success-bg'}`}>
+      <p className={`text-sm rounded-lg px-3.5 py-2.5 ${
+        failed ? 'text-danger bg-danger-bg' : refused ? 'text-warning bg-warning-bg' : 'text-success bg-success-bg'
+      }`}>
         {failure
           ? <><strong>{failure.label}.</strong> {failure.meaning}</>
           : <><strong>Read.</strong> The engine got transactions out of this file.</>}
@@ -204,6 +221,7 @@ function AnalysisDetailPanel({ reference }: { reference: string }) {
         />
         <DetailRow label="File type" value={analysis.sourceFormat ?? '—'} />
         {failed && <DetailRow label="Failure code" value={analysis.failureCode ?? '—'} mono />}
+        {refused && <DetailRow label="Refusal code" value={analysis.failureCode ?? '—'} mono />}
         <DetailRow
           label="Transactions found"
           value={analysis.rowCount == null ? 'Never measured' : analysis.rowCount.toLocaleString()}

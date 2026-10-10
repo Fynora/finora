@@ -45,7 +45,7 @@ vi.mock('framer-motion', async (importOriginal) => {
 import Import, { UPLOAD_COMPLETE_DWELL_MS, setUploadCompleteDwellForTests } from './Import';
 import { AuthProvider } from '../context/AuthContext';
 import { importApi, importJobsApi, statementImportsApi, categoriesApi, accountsApi, type ImportJobProgress } from '../api/endpoints';
-import type { Account, StagedAccountSection } from '../types';
+import type { Account, StagedAccountSection, StagedRow } from '../types';
 import { PDF_PASSWORD_REQUIRED, PDF_PASSWORD_INVALID, NO_HEADER_DETECTED, NO_TRANSACTIONS_FOUND, NO_ACTIVITY_IN_PERIOD, SCANNED_OCR_REQUIRED, CORRUPT_PDF, PAYMENT_APP_HISTORY, IMPORT_SESSION_ALREADY_CONFIRMED, ACCOUNT_LIMIT_REACHED, STATEMENT_PERIOD_TOO_LONG } from '../api/errorCodes';
 import { IMPORT_FAILURE_MESSAGES } from '../api/importFailureMessages';
 import type { DetectedAccountInfo } from '../types';
@@ -133,6 +133,34 @@ const detectedAccount: DetectedAccountInfo = {
   },
 };
 
+/**
+ * One ordinary staged row, for every fixture below whose test is about something other than the
+ * rows. They used to stage none at all, which the server never does -- a statement with no
+ * transactions is refused at upload (ExtractionCheck) -- and which the review now refuses to
+ * import: with nothing ticked there is nothing to confirm.
+ */
+const ONE_STAGED_ROW: StagedRow = {
+  date: '2026-07-10',
+  description: 'BLINKIT GROCERIES 9982',
+  amount: 486,
+  type: 'EXPENSE',
+  suggestedCategory: 'Groceries',
+  categorySource: 'rule',
+  ruleId: null,
+  likelyDuplicate: false,
+  duplicateMatch: null,
+  referenceNumber: null,
+  balanceAfter: null,
+  confidence: null,
+  merchant: null,
+  merchantConfidence: null,
+  categoryConfidence: null,
+  rowPosition: null,
+  international: false,
+  foreignCurrency: null,
+  foreignAmount: null,
+};
+
 function stagingResultWith(overrides: Partial<{ sessionId: string }> = {}) {
   return {
     sessionId: overrides.sessionId ?? 'session-1',
@@ -141,7 +169,7 @@ function stagingResultWith(overrides: Partial<{ sessionId: string }> = {}) {
     // importApi.stagePdf's declared return types.
     multiAccount: false,
     sections: null,
-    staging: { rows: [], totalParsed: 0, flaggedDuplicates: 0, detectedAccount, unparseableRows: [] },
+    staging: { rows: [ONE_STAGED_ROW], totalParsed: 1, flaggedDuplicates: 0, detectedAccount, unparseableRows: [] },
   };
 }
 
@@ -1279,6 +1307,49 @@ describe('Import — duplicate review gates the import', () => {
     expect(confirmButton()).toBeEnabled();
   });
 
+  /**
+   * A statement already in the ledger, every row answered "skip": there is nothing to import, and
+   * confirming would still record an empty statement for the file. The mobile app has always
+   * refused this confirm; the web review now does, and says why the button is off.
+   */
+  it('does not import a statement once every row has been skipped, and says why', async () => {
+    stageRows([stagedRow('SWIGGY ORDER 4471', true), stagedRow('UBER TRIP 8891', true)]);
+    const user = userEvent.setup();
+    renderImport();
+
+    await pickAndUploadPdf(user);
+    await screen.findByTestId('duplicate-review');
+    // While the questions are open, the duplicate review is what explains the disabled button.
+    expect(screen.queryByTestId('nothing-selected-gate')).not.toBeInTheDocument();
+
+    await user.click(screen.getAllByRole('button', { name: 'Skip this row' })[0]);
+    await user.click(screen.getAllByRole('button', { name: 'Skip this row' })[1]);
+
+    expect(confirmButton()).toBeDisabled();
+    expect(screen.getByTestId('nothing-selected-gate')).toHaveTextContent(/nothing to import/i);
+    await user.click(confirmButton());
+    expect(importApi.confirm).not.toHaveBeenCalled();
+
+    // One row ticked is an import again.
+    await user.click(screen.getByLabelText('Include UBER TRIP 8891'));
+    expect(confirmButton()).toBeEnabled();
+    expect(screen.queryByTestId('nothing-selected-gate')).not.toBeInTheDocument();
+  });
+
+  it('does not import a statement whose only row was unticked by hand', async () => {
+    stageRows([stagedRow('BLINKIT GROCERIES 9982', false)]);
+    const user = userEvent.setup();
+    renderImport();
+
+    await pickAndUploadPdf(user);
+    await waitFor(() => expect(confirmButton()).toBeEnabled());
+
+    await user.click(screen.getByLabelText('Include BLINKIT GROCERIES 9982'));
+
+    expect(confirmButton()).toBeDisabled();
+    expect(screen.getByTestId('nothing-selected-gate')).toBeInTheDocument();
+  });
+
   /** A statement with nothing suspicious in it must not pay for this feature. */
   it('does not gate an import with no duplicates in it', async () => {
     stageRows([stagedRow('BLINKIT GROCERIES 9982', false)]);
@@ -1589,6 +1660,48 @@ describe('Import — multi-account statements get the same duplicate review', ()
     await user.click(within(card(1)).getByRole('button', { name: 'Skip this row' }));
     expect(confirmAll()).toBeEnabled();
     expect(screen.queryByTestId('multi-duplicate-gate')).not.toBeInTheDocument();
+  });
+
+  /** The same rule as the single-account review, over every account in the file. */
+  it('does not import a multi-account statement once every row in every account is skipped', async () => {
+    stageSections([
+      section('HSBC Savings', [stagedRow('METRO FARE', true)]),
+      section('HSBC Credit Card', [stagedRow('SWIGGY ORDER 4471', true)]),
+    ]);
+    const user = userEvent.setup();
+    renderImport();
+
+    await pickAndUploadPdf(user);
+    await screen.findByText(/this statement covers 2 accounts/i);
+    expect(screen.queryByTestId('multi-nothing-selected-gate')).not.toBeInTheDocument();
+
+    await user.click(within(card(0)).getByRole('button', { name: 'Skip this row' }));
+    await user.click(within(card(1)).getByRole('button', { name: 'Skip this row' }));
+
+    expect(confirmAll()).toBeDisabled();
+    expect(screen.getByTestId('multi-nothing-selected-gate')).toHaveTextContent(/nothing to import/i);
+    await user.click(confirmAll());
+    expect(importApi.confirmMulti).not.toHaveBeenCalled();
+
+    await user.click(within(card(1)).getByLabelText('Include SWIGGY ORDER 4471'));
+    expect(confirmAll()).toBeEnabled();
+    expect(screen.queryByTestId('multi-nothing-selected-gate')).not.toBeInTheDocument();
+  });
+
+  /** One account's rows all skipped while the other's are imported is still an import. */
+  it('still imports a multi-account statement when only one account has anything selected', async () => {
+    stageSections(savingsAndCard());
+    const user = userEvent.setup();
+    renderImport();
+
+    await pickAndUploadPdf(user);
+    await screen.findByText(/this statement covers 2 accounts/i);
+
+    await user.click(within(card(0)).getByRole('button', { name: 'Skip this row' }));
+    await user.click(within(card(1)).getByRole('button', { name: 'Skip this row' }));
+
+    expect(confirmAll()).toBeEnabled();
+    expect(screen.queryByTestId('multi-nothing-selected-gate')).not.toBeInTheDocument();
   });
 
   /** A composite statement with nothing suspicious in it must not pay for this feature. */
@@ -3104,8 +3217,8 @@ describe('Import — ownership name-mismatch warning', () => {
       multiAccount: false,
       sections: null,
       staging: {
-        rows: [],
-        totalParsed: 0,
+        rows: [ONE_STAGED_ROW],
+        totalParsed: 1,
         flaggedDuplicates: 0,
         detectedAccount: detectedAccountWithHolder(accountHolderName),
         unparseableRows: [],

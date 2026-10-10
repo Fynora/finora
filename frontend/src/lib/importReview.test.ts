@@ -4,6 +4,7 @@ import {
   beginReview,
   decide,
   decideAllUnresolved,
+  nothingSelected,
   setIncluded,
   toConfirmedRows,
   unresolvedCount,
@@ -207,6 +208,40 @@ describe('setIncluded', () => {
     expect(after.included).toEqual([true]);
     expect(after.decisions).toEqual(['unresolved']);
     expect(unresolvedCount(rows, after.decisions)).toBe(1);
+  });
+});
+
+describe('nothingSelected', () => {
+  /** The case it exists for: a statement already in the ledger, every row answered "skip". */
+  it('is true once every row has been skipped', () => {
+    const rows = [row('METRO FARE', true), row('SWIGGY 4471', true)];
+
+    const skipped = decideAllUnresolved(rows, beginReview(rows), 'skip');
+
+    expect(unresolvedCount(rows, skipped.decisions)).toBe(0);
+    expect(nothingSelected(skipped)).toBe(true);
+  });
+
+  it('is false while a single row is still ticked', () => {
+    const rows = [row('METRO FARE', true), row('BLINKIT 9982', false)];
+
+    const skipped = decideAllUnresolved(rows, beginReview(rows), 'skip');
+
+    expect(nothingSelected(skipped)).toBe(false);
+  });
+
+  it('is false again when a skipped row is answered "import" or ticked by hand', () => {
+    const rows = [row('METRO FARE', true), row('SWIGGY 4471', true)];
+    const skipped = decideAllUnresolved(rows, beginReview(rows), 'skip');
+
+    expect(nothingSelected(decide(rows, skipped, 1, 'import'))).toBe(false);
+    expect(nothingSelected(setIncluded(skipped, 0, true))).toBe(false);
+  });
+
+  it('is true when every clean row was unticked by hand', () => {
+    const rows = [row('BLINKIT 9982', false)];
+
+    expect(nothingSelected(setIncluded(beginReview(rows), 0, false))).toBe(true);
   });
 });
 

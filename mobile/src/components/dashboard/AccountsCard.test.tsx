@@ -56,6 +56,12 @@ describe('AccountsCard', () => {
     expect(onViewAll).toHaveBeenCalled();
   });
 
+  it('gives View Accounts a 44 point target', () => {
+    render(<ThemeProvider><AccountsCard accounts={[]} totalBalance={0} caption="As of today" onViewAll={jest.fn()} /></ThemeProvider>);
+    const target = screen.getByLabelText('View Accounts');
+    expect(StyleSheet.flatten(target.props.style).minHeight).toBe(44);
+  });
+
   // Regression test for the bug fixed alongside this: the avatar-stack separator ring used to be
   // a hardcoded white borderColor, which rendered as a bright halo on a dark DashboardCard. Light
   // mode alone can't catch this -- light.card is '#ffffff', the exact value the bug hardcoded, so

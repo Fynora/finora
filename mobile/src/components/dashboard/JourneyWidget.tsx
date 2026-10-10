@@ -29,7 +29,7 @@ export function JourneyWidget({ onViewJourney }: { onViewJourney: () => void }) 
           Active {momentum.activeMonths} of the last {momentum.windowMonths} months
         </Text>
       ) : null}
-      <Pressable onPress={onViewJourney} accessibilityRole="button" style={styles.link}>
+      <Pressable onPress={onViewJourney} accessibilityRole="button" accessibilityLabel="View your journey" style={styles.link}>
         <Text style={[typography.labelS, { color: c.primary }]}>View your journey</Text>
         <Ionicons name="chevron-forward" size={14} color={c.primary} />
       </Pressable>

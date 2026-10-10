@@ -1393,6 +1393,66 @@ describe('Budget Progress widget (Phase 4)', () => {
   });
 });
 
+describe('operational layer (card redesign)', () => {
+  beforeEach(() => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+  });
+
+  const style = (el: { props: { style?: unknown } }) => StyleSheet.flatten(el.props.style as never) as Record<string, unknown>;
+
+  it('keeps Manage Budgets reachable by its label, now from the section header, with a 44 point target', async () => {
+    budgets.list.mockResolvedValue([
+      { id: 'b1', categoryId: 'c1', categoryName: 'Groceries', monthlyLimit: 10000, spentThisMonth: 6000 },
+    ]);
+    renderScreen();
+    const button = await screen.findByLabelText('Manage Budgets');
+    expect(style(button).minHeight).toBe(44);
+    // One way in, not two: the old full-width button under the list is gone.
+    expect(screen.getAllByText('Manage Budgets')).toHaveLength(1);
+  });
+
+  it('offers no Manage Budgets action when there are no budgets to manage', async () => {
+    budgets.list.mockResolvedValue([]);
+    renderScreen();
+    await screen.findByText('No budgets set. Create one to track your spending.');
+    expect(screen.queryByLabelText('Manage Budgets')).toBeNull();
+  });
+
+  // The existing over-budget test could not assert this ("the fill's own width value can't be
+  // asserted on"); the bar now has a testID, so it can.
+  it('draws each budget bar at its real share, and never past its track when over budget', async () => {
+    budgets.list.mockResolvedValue([
+      { id: 'b1', categoryId: 'c1', categoryName: 'Groceries', monthlyLimit: 10000, spentThisMonth: 6000 },
+      { id: 'b2', categoryId: 'c2', categoryName: 'Dining', monthlyLimit: 5000, spentThisMonth: 7500 },
+      { id: 'b3', categoryId: 'c3', categoryName: 'Travel', monthlyLimit: 0, spentThisMonth: 0 },
+    ]);
+    renderScreen();
+    await screen.findByText('150%');
+    const fill = (i: number) => style(screen.getByTestId(`budget-bar-${i}-fill`, { includeHiddenElements: true }));
+    expect(fill(0).width).toBe('60%');
+    expect(fill(1).width).toBe('100%');
+    expect(fill(1).backgroundColor).toBe(light.danger);
+    // A budget with no limit has no share to draw: an empty bar, not NaN.
+    expect(fill(2).width).toBe('0%');
+  });
+
+  it('keeps each cash flow range choice at least 44 points tall, and marks the chosen one', async () => {
+    renderScreen();
+    const six = await screen.findByLabelText('Show 6 months');
+    expect(style(six).minHeight).toBe(44);
+    expect(six.props.accessibilityState).toEqual({ selected: true });
+    fireEvent.press(screen.getByLabelText('Show 3 months'));
+    expect(screen.getByLabelText('Show 3 months').props.accessibilityState).toEqual({ selected: true });
+    expect(screen.getByLabelText('Show 6 months').props.accessibilityState).toEqual({ selected: false });
+  });
+
+  it('shows the month tiles as a skeleton grid while the summary is loading, not a single card', async () => {
+    dashboard.summary.mockReturnValue(new Promise(() => {}) as never);
+    renderScreen();
+    expect(await screen.findByTestId('skeleton-kpi-grid', { includeHiddenElements: true })).toBeTruthy();
+  });
+});
+
 /**
  * Ported from frontend/src/pages/Dashboard.tsx:1238-1266. RecurringService.detectForUser has
  * computed this since before this session; the Ledger/Reports "recurring" badge was the only

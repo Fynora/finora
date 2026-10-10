@@ -1,75 +1,119 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AppAlert } from '../lib/appAlert';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Card } from '../components/Card';
+import { MenuGroup, MenuRow, type MenuIcon } from '../components/MenuGroup';
 import { useAuth } from '../context/AuthContext';
-import { initials } from '../lib/format';
 import { spacing, useTheme } from '../theme';
 import { useRegisterTourTarget } from '../onboarding/TourTargetRegistry';
 import { trackNavigation } from '../lib/trackNavigation';
-import type { MoreStackParamList } from '../navigation/types';
+import { NAV_TAXONOMY, type NavGroupId } from '../navigation/taxonomy';
+import type { AppTabParamList, MoreStackParamList } from '../navigation/types';
 import { GlassScreen } from '../components/GlassScreen';
 
 type Props = NativeStackScreenProps<MoreStackParamList, 'MoreHome'>;
 
 /**
- * Ordered roughly by how often they're opened: the money you hold, then the plans against it, then
- * the reporting surfaces. Typed against the stack's own param list, so deleting or renaming a route
- * breaks this at compile time rather than at the tap.
+ * The More menu is the shared navigation taxonomy (src/navigation/taxonomy.ts) rendered as a
+ * grouped list: the same five groups, in the same order, with the same membership the web sidebar
+ * is specified to carry. See docs/superpowers/specs/2026-09-23-shared-nav-taxonomy-design.md.
+ *
+ * Which destinations exist, their labels, their group and their order all come from the taxonomy.
+ * This file adds only what the taxonomy deliberately leaves out -- how mobile reaches each one,
+ * and the icon beside it.
  */
+const GROUP_ORDER: Exclude<NavGroupId, 'root'>[] = ['money', 'statements', 'planning', 'analysis', 'your-account'];
+
+const GROUP_LABEL: Record<Exclude<NavGroupId, 'root'>, string> = {
+  money: 'Money',
+  statements: 'Statements',
+  planning: 'Planning',
+  analysis: 'Analysis',
+  'your-account': 'Your Account',
+};
+
 // A literal union of exactly the routes below, not `keyof Omit<MoreStackParamList, ...>` --
 // that wider type used to work, but as of the Settings redesign (8 new param-list entries)
 // TypeScript's overload resolution for navigation.navigate() below stops matching once the
 // union of possible route names gets large enough (a known React Navigation/TS limitation, not
-// a logic error). None of MENU_ITEMS' entries are Settings sub-routes anyway -- Settings still
-// has its own single "Settings" entry, unchanged -- so the precise type was always this narrower
-// list; the wide `keyof Omit<...>` was looser than the data ever needed.
-//
-// 'SupportTicketDetail' and 'MoreHome' were never members of this narrower type in the first
-// place (their params make them unreachable from a zero-argument navigate() call the way every
-// other entry here is) -- Support has its own entry point in Settings instead (see
-// SettingsScreen's "Help & Support" section), not this generic menu.
+// a logic error). Every member takes no params, which is what lets one zero-argument navigate()
+// call serve them all; 'SupportTicketDetail' and 'MoreHome' are not reachable that way.
 type MenuRoute =
   | 'Accounts' | 'Investments' | 'Budgets' | 'Goals' | 'Reports' | 'AdvancedReports' | 'Fyn'
-  | 'CategoryReview' | 'Statements' | 'FinancialMemory' | 'Subscription' | 'Referrals' | 'Settings';
+  | 'CategoryReview' | 'Statements' | 'FinancialMemory' | 'Subscription' | 'Referrals' | 'Settings'
+  | 'Profile' | 'SupportTickets';
 
-// `id` is the shared taxonomy id (src/navigation/taxonomy.ts), so a destination reports the same
-// name here as it does from the web sidebar. Stored rather than derived from the route: the route
-// is a rendering detail that can change without the destination changing.
-const MENU_ITEMS: { id: string; label: string; route: MenuRoute }[] = [
-  { id: 'accounts', label: 'Accounts', route: 'Accounts' },
-  { id: 'investments', label: 'Investments', route: 'Investments' },
-  { id: 'budgets', label: 'Budgets', route: 'Budgets' },
-  { id: 'goals', label: 'Goals', route: 'Goals' },
-  { id: 'reports', label: 'Reports', route: 'Reports' },
-  { id: 'advanced-reports', label: 'Advanced Reports', route: 'AdvancedReports' },
-  { id: 'ask-fyn', label: 'Ask Fyn', route: 'Fyn' },
-  { id: 'review-categories', label: 'Review Categories', route: 'CategoryReview' },
-  { id: 'statement-history', label: 'Statement History', route: 'Statements' },
-  { id: 'financial-memory', label: 'Financial Memory', route: 'FinancialMemory' },
-  { id: 'subscription', label: 'Subscription', route: 'Subscription' },
-  { id: 'referrals', label: 'Refer & Earn', route: 'Referrals' },
-  { id: 'settings', label: 'Settings', route: 'Settings' },
-];
+// The three destinations that are also tabs (Import is the centre button). They stay listed in
+// their groups: a shortcut never removes an item from its group, or the two clients' group contents
+// drift apart again -- which is the failure the taxonomy exists to prevent.
+type PromotedTab = 'Transactions' | 'Import' | 'Insights';
+
+type Destination = { icon: MenuIcon } & ({ screen: MenuRoute } | { tab: PromotedTab });
+
+// Keyed by taxonomy id. Home is absent on purpose: it is the taxonomy's ungrouped root, not a
+// member of any group. MoreScreen.test.tsx fails if any other taxonomy destination has no entry
+// here, so a destination added to the taxonomy cannot go quietly missing from this menu.
+const DESTINATIONS: Record<string, Destination> = {
+  accounts: { screen: 'Accounts', icon: 'wallet-outline' },
+  transactions: { tab: 'Transactions', icon: 'swap-horizontal-outline' },
+
+  'import-statement': { tab: 'Import', icon: 'cloud-upload-outline' },
+  'statement-history': { screen: 'Statements', icon: 'document-text-outline' },
+  'review-categories': { screen: 'CategoryReview', icon: 'pricetags-outline' },
+  'financial-memory': { screen: 'FinancialMemory', icon: 'bulb-outline' },
+
+  budgets: { screen: 'Budgets', icon: 'pie-chart-outline' },
+  goals: { screen: 'Goals', icon: 'flag-outline' },
+  investments: { screen: 'Investments', icon: 'trending-up-outline' },
+
+  insights: { tab: 'Insights', icon: 'stats-chart-outline' },
+  reports: { screen: 'Reports', icon: 'bar-chart-outline' },
+  'advanced-reports': { screen: 'AdvancedReports', icon: 'analytics-outline' },
+  'ask-fyn': { screen: 'Fyn', icon: 'chatbubbles-outline' },
+
+  profile: { screen: 'Profile', icon: 'person-circle-outline' },
+  subscription: { screen: 'Subscription', icon: 'card-outline' },
+  referrals: { screen: 'Referrals', icon: 'gift-outline' },
+  settings: { screen: 'Settings', icon: 'settings-outline' },
+  // Also reachable from Settings' own Help & Support section, kept as a second way in.
+  support: { screen: 'SupportTickets', icon: 'help-buoy-outline' },
+};
 
 export function MoreScreen({ navigation }: Props) {
   const c = useTheme();
   const insets = useSafeAreaInsets();
   const { email, fullName, logout } = useAuth();
   // Tour target refs (tourSteps.ts) for the 3 rows the mobile tour spotlights on this screen --
-  // hooks can't be called inside the MENU_ITEMS.map() below, so these are registered once here
-  // and looked up per row by route name. Insights used to be a 4th entry here, until it was
-  // promoted to its own top-level tab (see AppTabs.tsx's own registerInsights), swapping with
-  // Goals, which moved the other way and is now registered here instead.
+  // hooks can't be called inside the map() below, so these are registered once here and looked up
+  // per row by taxonomy id. Insights used to be a 4th entry here, until it was promoted to its own
+  // top-level tab (see AppTabs.tsx's own registerInsights), swapping with Goals, which moved the
+  // other way and is now registered here instead.
   const registerAccounts = useRegisterTourTarget('accounts');
   const registerBudgets = useRegisterTourTarget('budgets');
   const registerGoals = useRegisterTourTarget('goals');
-  const registerByRoute: Partial<Record<string, (node: View | null) => void>> = {
-    Accounts: registerAccounts,
-    Budgets: registerBudgets,
-    Goals: registerGoals,
+  const registerById: Partial<Record<string, (node: View | null) => void>> = {
+    accounts: registerAccounts,
+    budgets: registerBudgets,
+    goals: registerGoals,
   };
+
+  // Profile used to be a card above the menu showing who is signed in. It is a row in Your Account
+  // now, like its peers, and carries that same name and email under its label so the screen still
+  // says whose account this is. One per line, as the card had them: joined on one line, a longer
+  // name pushed the email to the next line and left the separator dangling at the end of the first.
+  const signedInAs = [fullName, email].filter((part): part is string => Boolean(part));
+
+  function open(id: string, destination: Destination) {
+    trackNavigation(id, 'group');
+    if ('tab' in destination) {
+      // getParent() reaches the tab navigator this stack sits inside, the same way BudgetsScreen
+      // and StatementHistoryScreen jump to a tab.
+      navigation.getParent<BottomTabNavigationProp<AppTabParamList>>()?.navigate(destination.tab);
+    } else {
+      navigation.navigate(destination.screen);
+    }
+  }
 
   function confirmSignOut() {
     AppAlert.alert('Sign out?', 'You’ll need to sign in again to access your account.', [
@@ -85,55 +129,26 @@ export function MoreScreen({ navigation }: Props) {
     >
       <Text style={[styles.title, { color: c.ink }]}>More</Text>
 
-      {/* The whole card opens Profile -- tapping your own name and photo to edit them is the
-          convention on every phone, and it saves a menu row for the same destination. */}
-      <Pressable
-        onPress={() => { trackNavigation('profile', 'group'); navigation.navigate('Profile'); }}
-        accessibilityRole="button"
-        accessibilityLabel={`Profile: ${fullName ?? email ?? 'your account'}`}
-        accessibilityHint="Opens your profile"
-      >
-        <Card style={styles.profileCard}>
-          {/* Decorative initial -- the name and email are read out right beside it, so announcing
-              a lone "S" first is pure noise. */}
-          <View
-            style={[styles.avatar, { backgroundColor: c.primary }]}
-            accessibilityElementsHidden
-            importantForAccessibility="no-hide-descendants"
-          >
-            <Text style={[styles.avatarText, { color: c.onPrimary }]}>{initials(fullName ?? email)}</Text>
-          </View>
-          <View style={styles.profileText}>
-            <Text style={[styles.name, { color: c.ink }]} numberOfLines={1}>
-              {fullName ?? 'Your account'}
-            </Text>
-            <Text style={[styles.email, { color: c.muted }]} numberOfLines={1}>
-              {email}
-            </Text>
-          </View>
-          <Text style={[styles.chevron, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">›</Text>
-        </Card>
-      </Pressable>
-
-      <Card style={styles.menuCard}>
-        {MENU_ITEMS.map(({ id, label, route }) => (
-          <Pressable
-            key={route}
-            ref={registerByRoute[route]}
-            onPress={() => { trackNavigation(id, 'group'); navigation.navigate(route); }}
-            style={[styles.menuRow, { borderBottomColor: c.border }]}
-            android_ripple={{ color: c.border }}
-            accessibilityRole="button"
-            accessibilityLabel={label}
-          >
-            <Text style={[styles.menuLabel, { color: c.ink }]}>{label}</Text>
-            {/* Decorative -- the row already announces itself as a button, so a screen reader
-                reading "greater-than sign" here would be noise. */}
-            <Text style={[styles.chevron, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">›</Text>
-          </Pressable>
-        ))}
-
-      </Card>
+      {GROUP_ORDER.map((group) => (
+        <MenuGroup key={group} label={GROUP_LABEL[group]}>
+          {NAV_TAXONOMY.filter((entry) => entry.group === group).map(({ id, label }) => {
+            const destination = DESTINATIONS[id];
+            if (!destination) return null;
+            const who = id === 'profile' && signedInAs.length > 0 ? signedInAs : undefined;
+            return (
+              <MenuRow
+                key={id}
+                ref={registerById[id]}
+                icon={destination.icon}
+                label={label}
+                description={who?.join('\n')}
+                accessibilityLabel={who ? `${label}: ${who.join(', ')}` : label}
+                onPress={() => open(id, destination)}
+              />
+            );
+          })}
+        </MenuGroup>
+      ))}
 
       <Pressable onPress={confirmSignOut} style={styles.signOutRow} hitSlop={12} accessibilityRole="button">
         <Text style={[styles.signOut, { color: c.dangerInk }]}>Sign out</Text>
@@ -146,30 +161,10 @@ export function MoreScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   glassRoot: { flex: 1 },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
-  title: { fontSize: 22, fontWeight: '700', marginBottom: spacing.md },
-  profileCard: { flexDirection: 'row', alignItems: 'center' },
-  avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: spacing.sm,
-  },
-  avatarText: { fontWeight: '700', fontSize: 18 },
-  profileText: { flex: 1 },
-  name: { fontSize: 15, fontWeight: '600' },
-  email: { fontSize: 12, marginTop: 2 },
-  menuCard: { marginTop: spacing.md, paddingVertical: 0 },
-  menuRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  menuLabel: { fontSize: 14 },
-  chevron: { fontSize: 20, lineHeight: 20 },
-  signOutRow: { marginTop: spacing.lg, alignItems: 'center' },
+  // MenuGroup brings its own top margin, so the title carries none below it.
+  title: { fontSize: 22, fontWeight: '700' },
+  // minHeight, not hitSlop alone: the label is about 17pt tall, and with 12pt of slop either side
+  // the target came to roughly 41pt, under the 44pt a destructive action in particular should have.
+  signOutRow: { marginTop: spacing.lg, alignItems: 'center', justifyContent: 'center', minHeight: 44 },
   signOut: { fontSize: 14, fontWeight: '600' },
 });

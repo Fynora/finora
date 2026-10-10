@@ -19,6 +19,13 @@ This plan is gated by the companion analytics plan. Confirm before Task 1:
 - [x] A named reviewer and a review cadence exist — `@siddharth705`, weekly while the window is open plus one closing review. Protocol in `docs/engineering/observability.md` §13, "Baseline review protocol": what to check, what each failure means, and what happens if collection breaks mid-window. **Note the start condition** — the cadence begins when production is actually scraping, not when this was written; until then there is nothing to review.
 - [ ] Baseline has collected for **at least four weeks including one complete month-end.** There is no backfill: the moment this plan's Task 2 ships, the pre-grouping distribution is gone permanently.
 
+  **Overruled by the owner on 2026-10-10, for Task 2 only.** The mobile More menu was grouped ahead
+  of this gate, by the owner's explicit choice and with the cost stated at the time: the window had
+  been open at most seventeen days (the counters merged on 2026-09-23, and the date production
+  began scraping was not established), so mobile's pre-grouping distribution ends when that build
+  reaches users and cannot be recollected. Task 1 (web sidebar) has not started and this gate still
+  applies to it; web's baseline is unaffected until then.
+
 ## Global Constraints
 
 - **Promotion never changes taxonomy membership.** Transactions and Insights are tabs *and* group entries; Import Statement is the FAB *and* a group entry. Removing a promoted item from its group is a taxonomy violation, not a cleanup.
@@ -213,6 +220,17 @@ git commit -m "feat(web): group the sidebar by the shared navigation taxonomy"
 
 ### Task 2: Mobile More menu — grouped rendering
 
+> **Done 2026-10-10**, ahead of the baseline gate (see Prerequisites). Built as specified, with
+> three additions the steps below do not describe:
+>
+> - Rows render through a shared `MenuGroup`/`MenuRow` (`mobile/src/components/MenuGroup.tsx`),
+>   which Settings uses too: one short card per group, an icon per row, the group name as a small
+>   label above the card.
+> - The Profile row carries the signed-in name and email as its second line. Moving Profile out of
+>   its header card would otherwise have removed the only place this screen says whose account it is.
+> - `MoreScreen.test.tsx` covers more than the six tests listed: every row's destination and
+>   navigation id, group order, and a check that the menu and `NAV_TAXONOMY` agree.
+
 **Files:**
 - Modify: `mobile/src/screens/MoreScreen.tsx:34-47` (MENU_ITEMS), `:85` (Profile row), `:113-124` (render)
 - Create: `mobile/src/screens/MoreScreen.test.tsx` — **no test file exists for this screen today**
@@ -221,7 +239,7 @@ git commit -m "feat(web): group the sidebar by the shared navigation taxonomy"
 - Consumes: `NAV_TAXONOMY` from `mobile/src/navigation/taxonomy.ts`.
 - Produces: nothing consumed by later tasks.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```tsx
 // mobile/src/screens/MoreScreen.test.tsx
@@ -275,12 +293,12 @@ describe('MoreScreen — taxonomy grouping', () => {
 });
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `cd mobile && npx jest src/screens/MoreScreen.test.tsx`
 Expected: FAIL — `Money` not found.
 
-- [ ] **Step 3: Replace MENU_ITEMS with a grouped render**
+- [x] **Step 3: Replace MENU_ITEMS with a grouped render**
 
 Drive the list from `NAV_TAXONOMY`, mapping each id to its `MoreStack` route. Every taxonomy destination appears, including the four that are also tabs or the FAB. Remove the standalone Profile row at `:85`; it becomes a row in Your Account.
 
@@ -315,12 +333,12 @@ const TARGET: Record<string, { tab?: string; screen?: string }> = {
 };
 ```
 
-- [ ] **Step 4: Run it to verify it passes**
+- [x] **Step 4: Run it to verify it passes**
 
 Run: `cd mobile && npx jest src/screens/MoreScreen.test.tsx`
 Expected: PASS, 6 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add mobile/src/screens/MoreScreen.tsx mobile/src/screens/MoreScreen.test.tsx

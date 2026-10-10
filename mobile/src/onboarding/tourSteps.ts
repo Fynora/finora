@@ -9,8 +9,9 @@ export interface TourStep {
 // bottom tab bar is narrower (Home/Transactions/Import/Insights/More only -- AppTabs.tsx);
 // Accounts/Budgets/Goals live as rows inside the More tab's own list screen (MoreScreen.tsx), not
 // as separate top-level tabs -- Insights used to as well, until it was promoted to its own tab,
-// swapping with Goals (which moved the other way). This tour therefore navigates the tab bar as
-// it advances -- see the design spec's §7 addendum.
+// swapping with Goals (which moved the other way). The More menu lists Insights again now, as the
+// shared taxonomy requires, but the tour still points at its tab. This tour therefore navigates
+// the tab bar as it advances -- see the design spec's §7 addendum.
 export const TOUR_STEPS: TourStep[] = [
   { key: 'home', tab: 'Home', title: 'Your Financial Command Center',
     body: 'This dashboard gives you a complete view of your finances, including spending, budgets, goals, and account balances.' },

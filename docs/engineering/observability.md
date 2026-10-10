@@ -889,6 +889,14 @@ the month-end, the window restarts instead — a baseline whose busiest week is 
 short baseline, it is a different one. Recorded here as the default rather than left to be decided
 under pressure on the day; it is the owner's call to overrule.
 
+**Mobile's window closed early, on 2026-10-10.** The mobile More menu was grouped ahead of the
+four-week mark by the owner's decision, recorded with its cost under Prerequisites in
+`docs/superpowers/plans/2026-09-23-shared-nav-taxonomy.md`. From the release that carries it,
+mobile's navigation distribution is the after-period, and what was collected before it is all the
+mobile baseline there will be. The weekly check and the closing review carry on unchanged for web,
+whose sidebar is not grouped yet; read the mobile panels from that release onward as post-grouping,
+not as a baseline that drifted.
+
 **Why this is not automated.** A scheduled job that checks the counters and complains would be the
 obvious mechanism, and it is not buildable today: the scrape is reachable only from inside Railway's
 private network, which GitHub Actions is not, and the window's start date is not yet known. Both

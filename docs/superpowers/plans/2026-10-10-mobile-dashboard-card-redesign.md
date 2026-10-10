@@ -1254,7 +1254,7 @@ const styles = StyleSheet.create({
   outOf: { marginBottom: 10 },
   deltaPill: { alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   gauge: { width: GAUGE_SIZE, height: GAUGE_SIZE },
-  gaugeLabel: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
+  gaugeLabel: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, alignItems: 'center', justifyContent: 'center' },
   divider: { height: StyleSheet.hairlineWidth, alignSelf: 'stretch' },
   trendRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
   sparkline: { flex: 1, maxWidth: 170 },

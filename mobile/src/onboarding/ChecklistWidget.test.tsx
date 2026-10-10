@@ -1,3 +1,4 @@
+import { StyleSheet } from 'react-native';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ChecklistWidget } from './ChecklistWidget';
@@ -68,5 +69,34 @@ describe('ChecklistWidget', () => {
 
     fireEvent.press(header);
     await waitFor(() => expect(screen.queryByText(/Complete your profile/)).toBeNull());
+  });
+
+  // The rows used to carry a check-mark emoji as text. The indicator is drawn now, so each row
+  // says in words whether it is done, or a screen reader would hear six bare labels.
+  it('says in words whether each item is done', async () => {
+    (onboardingApi.getChecklist as jest.Mock).mockResolvedValue({
+      items: [
+        { key: 'COMPLETE_PROFILE', completed: true },
+        { key: 'IMPORT_STATEMENT', completed: false },
+      ],
+      completedCount: 1, totalCount: 6,
+    });
+    renderWithClient();
+    fireEvent.press(await screen.findByRole('button', { name: /Getting Started/ }));
+
+    expect(await screen.findByLabelText('Complete your profile, done')).toBeTruthy();
+    expect(screen.getByLabelText('Import first statement, not done')).toBeTruthy();
+  });
+
+  it('draws the progress bar at the completed share once expanded', async () => {
+    (onboardingApi.getChecklist as jest.Mock).mockResolvedValue({
+      items: [{ key: 'COMPLETE_PROFILE', completed: true }],
+      completedCount: 3, totalCount: 6,
+    });
+    renderWithClient();
+    fireEvent.press(await screen.findByRole('button', { name: /Getting Started/ }));
+
+    const fill = await screen.findByTestId('checklist-progress-fill', { includeHiddenElements: true });
+    expect(StyleSheet.flatten(fill.props.style).width).toBe('50%');
   });
 });

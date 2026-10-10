@@ -1,24 +1,24 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { SectionCard } from '../components/AccountUI';
+import { MenuGroup, MenuRow, type MenuIcon } from '../components/MenuGroup';
 import { FeedbackSheet } from './support/FeedbackSheet';
-import { spacing, useTheme } from '../theme';
+import { spacing, THEME_LABEL, useThemeSetting } from '../theme';
 import { openWebUrl } from '../lib/webUrl';
 import { trackNavigation } from '../lib/trackNavigation';
 import { GMAIL_SYNC_UI_ENABLED } from '../lib/features';
 import type { MoreStackParamList } from '../navigation/types';
 import { GlassScreen } from '../components/GlassScreen';
 
-const CATEGORIES: { route: keyof MoreStackParamList; label: string; description: string }[] = [
-  { route: 'SettingsGeneral', label: 'General', description: 'Preferences, timezone, theme' },
-  { route: 'SettingsSecurity', label: 'Security', description: 'Password, verification, active sessions' },
-  { route: 'SettingsCategorization', label: 'Categorization', description: 'How confident a suggestion must be to apply on its own' },
-  { route: 'SettingsData', label: 'Data', description: 'Your imported statements and transaction history' },
-  { route: 'SettingsConnectedApps', label: 'Connected Apps', description: 'Link external accounts Fynora can read transactions from' },
-  { route: 'SettingsBankSync', label: 'Bank Sync', description: 'Automatically sync transactions from your linked bank accounts' },
-  { route: 'SettingsAccount', label: 'Account', description: 'Deactivate or permanently delete your Fynora account' },
+const CATEGORIES: { route: keyof MoreStackParamList; label: string; description: string; icon: MenuIcon }[] = [
+  { route: 'SettingsGeneral', label: 'General', description: 'Preferences, timezone, theme', icon: 'options-outline' },
+  { route: 'SettingsSecurity', label: 'Security', description: 'Password, verification, active sessions', icon: 'shield-checkmark-outline' },
+  { route: 'SettingsCategorization', label: 'Categorization', description: 'How confident a suggestion must be to apply on its own', icon: 'pricetags-outline' },
+  { route: 'SettingsData', label: 'Data', description: 'Your imported statements and transaction history', icon: 'server-outline' },
+  { route: 'SettingsConnectedApps', label: 'Connected Apps', description: 'Link external accounts Fynora can read transactions from', icon: 'link-outline' },
+  { route: 'SettingsBankSync', label: 'Bank Sync', description: 'Automatically sync transactions from your linked bank accounts', icon: 'sync-outline' },
+  { route: 'SettingsAccount', label: 'Account', description: 'Deactivate or permanently delete your Fynora account', icon: 'person-circle-outline' },
 ];
 
 /**
@@ -30,101 +30,65 @@ const CATEGORIES: { route: keyof MoreStackParamList; label: string; description:
  * Help & Support and Legal stay exactly as they were -- standalone rows, not folded into a
  * category. They're static links/tickets, not settings that get changed; a one-item category
  * pane for either would be worse than a direct row.
+ *
+ * The categories carry no group label: the screen's own header already says "Settings", and a
+ * second "Settings" a few points below it only repeated that.
  */
 export function SettingsScreen() {
-  const c = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<MoreStackParamList>>();
+  const { setting: themeSetting } = useThemeSetting();
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   // Connected Apps holds only Gmail sync, which is paused (lib/features.ts), so the whole row goes
   // with it. Filtered here at render time rather than edited out of CATEGORIES so switching the
   // feature back on restores the row in its old place with no other change.
   const categories = CATEGORIES.filter((cat) => cat.route !== 'SettingsConnectedApps' || GMAIL_SYNC_UI_ENABLED);
+  // Only General has one current choice worth surfacing on its row. Every other category opens
+  // onto several independent settings, and picking one of them to show would mislead.
+  const valueByRoute: Partial<Record<keyof MoreStackParamList, string>> = {
+    SettingsGeneral: THEME_LABEL[themeSetting],
+  };
 
   return (
     <GlassScreen style={styles.glassRoot}>
     <ScrollView contentContainerStyle={styles.content}>
-      <SectionCard title="Settings" subtitle="Manage your preferences, security, and account data">
+      <MenuGroup>
         {categories.map((cat) => (
-          <Pressable
+          <MenuRow
             key={cat.route}
+            icon={cat.icon}
+            label={cat.label}
+            description={cat.description}
+            value={valueByRoute[cat.route]}
             onPress={() => navigation.navigate(cat.route as never)}
-            style={[styles.row, { borderBottomColor: c.border }]}
-            accessibilityRole="button"
-          >
-            <View style={styles.rowMain}>
-              <Text style={[styles.rowTitle, { color: c.ink }]}>{cat.label}</Text>
-              <Text style={[styles.rowMeta, { color: c.mutedInk }]}>{cat.description}</Text>
-            </View>
-            <Text style={[styles.chevron, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">›</Text>
-          </Pressable>
+          />
         ))}
-      </SectionCard>
+      </MenuGroup>
 
-      <SectionCard title="Help & Support" subtitle="File a ticket, check on one, or tell us what's on your mind">
-        <Pressable
+      <MenuGroup label="Help & Support">
+        <MenuRow
+          icon="help-buoy-outline"
+          label="My Tickets"
+          description="File a new one, or check on an existing one"
           onPress={() => { trackNavigation('support', 'group'); navigation.navigate('SupportTickets'); }}
-          style={[styles.row, { borderBottomColor: c.border }]}
-          accessibilityRole="button"
-        >
-          <View style={styles.rowMain}>
-            <Text style={[styles.rowTitle, { color: c.ink }]}>My Tickets</Text>
-            <Text style={[styles.rowMeta, { color: c.mutedInk }]}>File a new one, or check on an existing one</Text>
-          </View>
-          <Text style={[styles.chevron, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">›</Text>
-        </Pressable>
-        <Pressable
+        />
+        <MenuRow
+          icon="chatbox-ellipses-outline"
+          label="Send Feedback"
+          description="A bug, an idea, or anything else on your mind"
           onPress={() => setFeedbackOpen(true)}
-          style={[styles.row, { borderBottomColor: c.border }]}
-          accessibilityRole="button"
-        >
-          <View style={styles.rowMain}>
-            <Text style={[styles.rowTitle, { color: c.ink }]}>Send Feedback</Text>
-            <Text style={[styles.rowMeta, { color: c.mutedInk }]}>A bug, an idea, or anything else on your mind</Text>
-          </View>
-          <Text style={[styles.chevron, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">›</Text>
-        </Pressable>
-      </SectionCard>
+        />
+      </MenuGroup>
 
-      <SectionCard title="Legal" subtitle="How Fynora handles your data">
-        <Pressable
-          onPress={() => openWebUrl('/privacy')}
-          style={[styles.row, { borderBottomColor: c.border }]}
-          accessibilityRole="link"
-        >
-          <View style={styles.rowMain}><Text style={[styles.rowTitle, { color: c.ink }]}>Privacy Policy</Text></View>
-          <Text style={[styles.chevron, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">›</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => openWebUrl('/terms')}
-          style={[styles.row, { borderBottomColor: c.border }]}
-          accessibilityRole="link"
-        >
-          <View style={styles.rowMain}>
-            <Text style={[styles.rowTitle, { color: c.ink }]}>Terms of Service</Text>
-          </View>
-          <Text style={[styles.chevron, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">›</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => openWebUrl('/trust')}
-          style={[styles.row, { borderBottomColor: c.border }]}
-          accessibilityRole="link"
-        >
-          <View style={styles.rowMain}>
-            <Text style={[styles.rowTitle, { color: c.ink }]}>Trust & Security</Text>
-          </View>
-          <Text style={[styles.chevron, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">›</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => openWebUrl('/your-data')}
-          style={styles.row}
-          accessibilityRole="link"
-        >
-          <View style={styles.rowMain}>
-            <Text style={[styles.rowTitle, { color: c.ink }]}>Data Portability Promise</Text>
-          </View>
-          <Text style={[styles.chevron, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">›</Text>
-        </Pressable>
-      </SectionCard>
+      {/* Written out row by row, not mapped from a table: appLinks.selfOpen.test.ts finds every
+          page the app sends to a browser by scanning for openWebUrl('<literal path>'), to prove
+          none of them is a path Android would hand straight back to the app. A path passed as a
+          variable is invisible to that scan. */}
+      <MenuGroup label="Legal">
+        <MenuRow icon="lock-closed-outline" label="Privacy Policy" accessibilityRole="link" onPress={() => openWebUrl('/privacy')} />
+        <MenuRow icon="document-text-outline" label="Terms of Service" accessibilityRole="link" onPress={() => openWebUrl('/terms')} />
+        <MenuRow icon="shield-outline" label="Trust & Security" accessibilityRole="link" onPress={() => openWebUrl('/trust')} />
+        <MenuRow icon="download-outline" label="Data Portability Promise" accessibilityRole="link" onPress={() => openWebUrl('/your-data')} />
+      </MenuGroup>
 
       {feedbackOpen ? <FeedbackSheet onClose={() => setFeedbackOpen(false)} /> : null}
     </ScrollView>
@@ -134,13 +98,6 @@ export function SettingsScreen() {
 
 const styles = StyleSheet.create({
   glassRoot: { flex: 1 },
-  content: { padding: spacing.md, paddingBottom: spacing.xl },
-  row: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, minHeight: 44,
-  },
-  rowMain: { flex: 1, marginRight: spacing.sm },
-  rowTitle: { fontSize: 15, fontWeight: '600' },
-  rowMeta: { fontSize: 12, marginTop: 2 },
-  chevron: { fontSize: 20, lineHeight: 20 },
+  // MenuGroup brings its own top margin, so the scroll content starts with none of its own.
+  content: { paddingHorizontal: spacing.md, paddingBottom: spacing.xl },
 });

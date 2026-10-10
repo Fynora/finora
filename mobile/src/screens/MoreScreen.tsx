@@ -1,8 +1,10 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AppAlert } from '../lib/appAlert';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Card } from '../components/Card';
+import { MenuGroup, MenuRow, type MenuIcon } from '../components/MenuGroup';
 import { useAuth } from '../context/AuthContext';
 import { initials } from '../lib/format';
 import { spacing, useTheme } from '../theme';
@@ -14,15 +16,16 @@ import { GlassScreen } from '../components/GlassScreen';
 type Props = NativeStackScreenProps<MoreStackParamList, 'MoreHome'>;
 
 /**
- * Ordered roughly by how often they're opened: the money you hold, then the plans against it, then
- * the reporting surfaces. Typed against the stack's own param list, so deleting or renaming a route
- * breaks this at compile time rather than at the tap.
+ * Grouped by what the destination is about, and within a group ordered roughly by how often it's
+ * opened: the money you hold and the plans against it, then the reporting surfaces, then where the
+ * data came from, then the plan you're on. Typed against the stack's own param list, so deleting or
+ * renaming a route breaks this at compile time rather than at the tap.
  */
 // A literal union of exactly the routes below, not `keyof Omit<MoreStackParamList, ...>` --
 // that wider type used to work, but as of the Settings redesign (8 new param-list entries)
 // TypeScript's overload resolution for navigation.navigate() below stops matching once the
 // union of possible route names gets large enough (a known React Navigation/TS limitation, not
-// a logic error). None of MENU_ITEMS' entries are Settings sub-routes anyway -- Settings still
+// a logic error). None of MENU_GROUPS' entries are Settings sub-routes anyway -- Settings still
 // has its own single "Settings" entry, unchanged -- so the precise type was always this narrower
 // list; the wide `keyof Omit<...>` was looser than the data ever needed.
 //
@@ -37,20 +40,48 @@ type MenuRoute =
 // `id` is the shared taxonomy id (src/navigation/taxonomy.ts), so a destination reports the same
 // name here as it does from the web sidebar. Stored rather than derived from the route: the route
 // is a rendering detail that can change without the destination changing.
-const MENU_ITEMS: { id: string; label: string; route: MenuRoute }[] = [
-  { id: 'accounts', label: 'Accounts', route: 'Accounts' },
-  { id: 'investments', label: 'Investments', route: 'Investments' },
-  { id: 'budgets', label: 'Budgets', route: 'Budgets' },
-  { id: 'goals', label: 'Goals', route: 'Goals' },
-  { id: 'reports', label: 'Reports', route: 'Reports' },
-  { id: 'advanced-reports', label: 'Advanced Reports', route: 'AdvancedReports' },
-  { id: 'ask-fyn', label: 'Ask Fyn', route: 'Fyn' },
-  { id: 'review-categories', label: 'Review Categories', route: 'CategoryReview' },
-  { id: 'statement-history', label: 'Statement History', route: 'Statements' },
-  { id: 'financial-memory', label: 'Financial Memory', route: 'FinancialMemory' },
-  { id: 'subscription', label: 'Subscription', route: 'Subscription' },
-  { id: 'referrals', label: 'Refer & Earn', route: 'Referrals' },
-  { id: 'settings', label: 'Settings', route: 'Settings' },
+//
+// Settings sits alone in its own group on purpose: it is the one row that is about the app rather
+// than about your money, and folding it into "Plan" would hide it under a label that isn't it.
+const MENU_GROUPS: { label: string; items: { id: string; label: string; route: MenuRoute; icon: MenuIcon }[] }[] = [
+  {
+    label: 'Money',
+    items: [
+      { id: 'accounts', label: 'Accounts', route: 'Accounts', icon: 'wallet-outline' },
+      { id: 'investments', label: 'Investments', route: 'Investments', icon: 'trending-up-outline' },
+      { id: 'budgets', label: 'Budgets', route: 'Budgets', icon: 'pie-chart-outline' },
+      { id: 'goals', label: 'Goals', route: 'Goals', icon: 'flag-outline' },
+    ],
+  },
+  {
+    label: 'Insights',
+    items: [
+      { id: 'reports', label: 'Reports', route: 'Reports', icon: 'bar-chart-outline' },
+      { id: 'advanced-reports', label: 'Advanced Reports', route: 'AdvancedReports', icon: 'analytics-outline' },
+      { id: 'ask-fyn', label: 'Ask Fyn', route: 'Fyn', icon: 'chatbubbles-outline' },
+      { id: 'financial-memory', label: 'Financial Memory', route: 'FinancialMemory', icon: 'bulb-outline' },
+    ],
+  },
+  {
+    label: 'Statements',
+    items: [
+      { id: 'statement-history', label: 'Statement History', route: 'Statements', icon: 'document-text-outline' },
+      { id: 'review-categories', label: 'Review Categories', route: 'CategoryReview', icon: 'pricetags-outline' },
+    ],
+  },
+  {
+    label: 'Plan',
+    items: [
+      { id: 'subscription', label: 'Subscription', route: 'Subscription', icon: 'card-outline' },
+      { id: 'referrals', label: 'Refer & Earn', route: 'Referrals', icon: 'gift-outline' },
+    ],
+  },
+  {
+    label: 'App',
+    items: [
+      { id: 'settings', label: 'Settings', route: 'Settings', icon: 'settings-outline' },
+    ],
+  },
 ];
 
 export function MoreScreen({ navigation }: Props) {
@@ -58,7 +89,7 @@ export function MoreScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const { email, fullName, logout } = useAuth();
   // Tour target refs (tourSteps.ts) for the 3 rows the mobile tour spotlights on this screen --
-  // hooks can't be called inside the MENU_ITEMS.map() below, so these are registered once here
+  // hooks can't be called inside the MENU_GROUPS.map() below, so these are registered once here
   // and looked up per row by route name. Insights used to be a 4th entry here, until it was
   // promoted to its own top-level tab (see AppTabs.tsx's own registerInsights), swapping with
   // Goals, which moved the other way and is now registered here instead.
@@ -111,29 +142,24 @@ export function MoreScreen({ navigation }: Props) {
               {email}
             </Text>
           </View>
-          <Text style={[styles.chevron, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">›</Text>
+          <Ionicons name="chevron-forward" size={18} color={c.muted} accessibilityElementsHidden importantForAccessibility="no" />
         </Card>
       </Pressable>
 
-      <Card style={styles.menuCard}>
-        {MENU_ITEMS.map(({ id, label, route }) => (
-          <Pressable
-            key={route}
-            ref={registerByRoute[route]}
-            onPress={() => { trackNavigation(id, 'group'); navigation.navigate(route); }}
-            style={[styles.menuRow, { borderBottomColor: c.border }]}
-            android_ripple={{ color: c.border }}
-            accessibilityRole="button"
-            accessibilityLabel={label}
-          >
-            <Text style={[styles.menuLabel, { color: c.ink }]}>{label}</Text>
-            {/* Decorative -- the row already announces itself as a button, so a screen reader
-                reading "greater-than sign" here would be noise. */}
-            <Text style={[styles.chevron, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">›</Text>
-          </Pressable>
-        ))}
-
-      </Card>
+      {MENU_GROUPS.map((group) => (
+        <MenuGroup key={group.label} label={group.label}>
+          {group.items.map(({ id, label, route, icon }) => (
+            <MenuRow
+              key={route}
+              ref={registerByRoute[route]}
+              icon={icon}
+              label={label}
+              accessibilityLabel={label}
+              onPress={() => { trackNavigation(id, 'group'); navigation.navigate(route); }}
+            />
+          ))}
+        </MenuGroup>
+      ))}
 
       <Pressable onPress={confirmSignOut} style={styles.signOutRow} hitSlop={12} accessibilityRole="button">
         <Text style={[styles.signOut, { color: c.dangerInk }]}>Sign out</Text>
@@ -160,16 +186,6 @@ const styles = StyleSheet.create({
   profileText: { flex: 1 },
   name: { fontSize: 15, fontWeight: '600' },
   email: { fontSize: 12, marginTop: 2 },
-  menuCard: { marginTop: spacing.md, paddingVertical: 0 },
-  menuRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  menuLabel: { fontSize: 14 },
-  chevron: { fontSize: 20, lineHeight: 20 },
   signOutRow: { marginTop: spacing.lg, alignItems: 'center' },
   signOut: { fontSize: 14, fontWeight: '600' },
 });

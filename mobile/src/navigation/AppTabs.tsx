@@ -61,8 +61,9 @@ function MoreNavigator() {
       }}
     >
       {/* Header hidden on the menu itself (it renders its own title), shown on pushed screens so
-          there's a native back affordance. */}
-      <MoreStack.Screen name="MoreHome" component={MoreScreen} options={{ headerShown: false }} />
+          there's a native back affordance. The title is still set: iOS labels the next screen's
+          back button with it, and without one that button reads the route name, "MoreHome". */}
+      <MoreStack.Screen name="MoreHome" component={MoreScreen} options={{ headerShown: false, title: 'More' }} />
       <MoreStack.Screen name="Accounts" component={AccountsScreen} options={{ headerShown: false }} />
       {/* Header hidden: the screen renders its own title, same as MoreHome/Accounts above. */}
       <MoreStack.Screen name="CategoryReview" component={CategoryReviewScreen} options={{ headerShown: false }} />

@@ -13,14 +13,8 @@ import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { useTransientFlag } from '../lib/useTransientFlag';
 import { parsePositiveAmount } from '../lib/validation';
-import { radius, spacing, THEME_SETTINGS, useTheme, useThemeSetting, type ThemeSetting } from '../theme';
+import { radius, spacing, THEME_LABEL, THEME_SETTINGS, useTheme, useThemeSetting } from '../theme';
 import { NotificationPreferencesSection } from './settings/NotificationPreferencesSection';
-
-const THEME_LABEL: Record<ThemeSetting, string> = {
-  system: 'System',
-  light: 'Light',
-  dark: 'Dark',
-};
 
 /**
  * Falls back to a curated list where Intl.supportedValuesOf is unavailable, rather than leaving

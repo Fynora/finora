@@ -10,6 +10,11 @@ import { spacing, typography, useTheme } from '../../theme';
 const WIDTH = 320;
 const HEIGHT = 72;
 const PAD = 4; // keeps the 2 point stroke inside the viewBox at the extremes
+// A month label ("Sep 26") is about 38 points wide at default size. The slot is wider than that
+// so the capped Dynamic Type size still fits, and the label is centred in it over its point.
+const AXIS_SLOT = 56;
+// The labels' spacing is fixed by the chart's width, so they cannot grow without colliding.
+const AXIS_MAX_FONT_SCALE = 1.3;
 
 /**
  * Card redesign (2026-10-10): full width, the average as the headline and the net-savings trend
@@ -43,6 +48,9 @@ export function CashFlowMiniCard({
   const line = series.map((s, i) => `${i === 0 ? 'M' : 'L'} ${xAt(i)} ${yAt(s.net)}`).join(' ');
   const area = `${line} L ${xAt(series.length - 1)} ${HEIGHT} L ${xAt(0)} ${HEIGHT} Z`;
   const average = averageMonthlySavings(points);
+  const last = series.length - 1;
+  // Six labels fit under the chart on a 360 point wide phone; a 12 month range names every other one.
+  const labelStep = Math.ceil(series.length / 6);
 
   return (
     <DashboardCard style={styles.card}>
@@ -88,12 +96,42 @@ export function CashFlowMiniCard({
           <>
             <Path d={area} fill="url(#cashFlowTrendFill)" />
             <Path d={line} fill="none" stroke={c.success} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+            {/* The latest month: says which end of the line is "now". */}
+            <Circle testID="cash-flow-trend-end" cx={xAt(last)} cy={yAt(series[last].net)} r={3} fill={c.success} />
           </>
         ) : (
           // One month is a point, not a line; a path with a single "M" draws nothing at all.
           <Circle testID="cash-flow-trend-dot" cx={xAt(0)} cy={yAt(series[0].net)} r={3} fill={c.success} />
         )}
       </Svg>
+      {/* The months, each under its own point. For sighted readers only: the full Cash Flow card
+          further down reads the same months out with their amounts, and bare month names said a
+          second time add nothing. */}
+      <View
+        testID="cash-flow-trend-axis"
+        style={styles.axis}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+      >
+        {/* Absolutely placed labels give the row no height; this in-flow blank gives it one line
+            at the same type size and the same Dynamic Type cap. */}
+        <Text style={typography.caption} maxFontSizeMultiplier={AXIS_MAX_FONT_SCALE}> </Text>
+        {series.map((s, i) => {
+          // Thinned from the latest month back, so "now" is always named.
+          if ((last - i) % labelStep !== 0) return null;
+          const position =
+            series.length === 1 || (i > 0 && i < last)
+              ? [styles.axisCentred, { left: `${Number(((xAt(i) / WIDTH) * 100).toFixed(2))}%` as const }]
+              : i === 0 ? styles.axisFirst : styles.axisLast;
+          return (
+            <View key={`${s.label}-${i}`} testID={`cash-flow-trend-month-${s.label}`} style={[styles.axisSlot, position]}>
+              <Text style={[typography.caption, { color: c.mutedInk }]} numberOfLines={1} maxFontSizeMultiplier={AXIS_MAX_FONT_SCALE}>
+                {s.label}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
     </DashboardCard>
   );
 }
@@ -104,4 +142,10 @@ const styles = StyleSheet.create({
   text: { flex: 1, gap: spacing.xs },
   delta: { alignItems: 'flex-end', gap: spacing.xs, maxWidth: 150 },
   deltaLabel: { textAlign: 'right' },
+  // Sits close under the chart it labels, not a full card gap away.
+  axis: { marginTop: -spacing.sm },
+  axisSlot: { position: 'absolute', top: 0 },
+  axisFirst: { left: 0 },
+  axisLast: { right: 0 },
+  axisCentred: { width: AXIS_SLOT, marginLeft: -AXIS_SLOT / 2, alignItems: 'center' },
 });

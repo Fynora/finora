@@ -765,7 +765,7 @@ jobs:
       # it re-runs. Without overwrite, re-running a failed job would fail at its upload step.
       - name: Upload surefire reports
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: surefire-reports
           path: backend/target/surefire-reports/
@@ -782,7 +782,7 @@ jobs:
             (github.event.repository.private &&
               contains(github.event.pull_request.labels.*.name, 'full-ci'))
           )
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: backend-unit-reports
           path: |
@@ -861,7 +861,7 @@ jobs:
 
       - name: Upload this shard's reports
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: backend-it-reports-${{ matrix.shard }}
           path: backend/target/surefire-reports/
@@ -1008,7 +1008,7 @@ jobs:
       # someone read a specific scenario's assertion message without re-running the suite locally.
       - name: Upload surefire reports
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: reconciliation-benchmark-surefire-reports
           path: backend/target/surefire-reports/
@@ -1589,7 +1589,7 @@ jobs:
       # artefact is a one-line assertion message and nobody can tell what the page looked like.
       - name: Upload the report
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: smoke-report
           path: |
@@ -1601,7 +1601,7 @@ jobs:
       # is re-running the job with a debug step added.
       - name: Upload the backend log
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: smoke-backend-log
           path: ${{ runner.temp }}/backend.log

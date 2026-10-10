@@ -216,7 +216,7 @@ jobs:
       # artefact has to survive until someone looks.
       - name: Upload the report
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: e2e-full-report
           path: |
@@ -226,7 +226,7 @@ jobs:
 
       - name: Upload the backend log
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: e2e-full-backend-log
           path: ${{ runner.temp }}/backend.log

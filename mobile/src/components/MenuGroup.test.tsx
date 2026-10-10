@@ -1,9 +1,18 @@
 import { createRef } from 'react';
-import type { View } from 'react-native';
+import { Dimensions, type View } from 'react-native';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { MenuGroup, MenuRow } from './MenuGroup';
 
 const noop = () => {};
+
+// Spying on Dimensions.get, as DashboardScreen.test.tsx does: useWindowDimensions reads through it,
+// and mocking the react-native module wholesale breaks its lazy native getters under jest-expo.
+const dimensionsGetSpy = jest.spyOn(Dimensions, 'get');
+const atTextScale = (fontScale: number) =>
+  dimensionsGetSpy.mockReturnValue({ width: 402, height: 874, scale: 3, fontScale });
+
+// Back to the default size before every test, so a large scale never leaks into the next one.
+beforeEach(() => { atTextScale(1); });
 
 test('draws a divider between rows and none after the last', () => {
   render(
@@ -89,4 +98,39 @@ test('hands its ref to the pressable row, so a caller can measure it', () => {
   const ref = createRef<View>();
   render(<MenuGroup><MenuRow ref={ref} icon="wallet-outline" label="Accounts" onPress={noop} /></MenuGroup>);
   expect(ref.current).not.toBeNull();
+});
+
+describe('at the system text sizes', () => {
+  // jest-expo's stand-in for an icon renders the glyph's name as text, which is what these look for.
+  const row = (
+    <MenuGroup>
+      <MenuRow icon="options-outline" label="General" description="Preferences, timezone, theme" value="System" onPress={noop} />
+    </MenuGroup>
+  );
+
+  // 1.35 is iOS's largest non-accessibility size and 1.5 Android's; both sit under the line.
+  test.each([1, 1.35, 1.5])('at %s the row keeps its icon and shows the value beside the label, on one line', (scale) => {
+    atTextScale(scale);
+    render(row);
+    expect(screen.getByText('options-outline', { includeHiddenElements: true })).toBeTruthy();
+    expect(screen.getByText('System').props.numberOfLines).toBe(1);
+  });
+
+  // 1.64 is iOS's first accessibility size, 3.12 its largest, 2 Android's largest.
+  test.each([1.6, 1.64, 2, 3.12])('at %s the row drops its icon and lets the value wrap under the label', (scale) => {
+    atTextScale(scale);
+    render(row);
+    expect(screen.queryByText('options-outline', { includeHiddenElements: true })).toBeNull();
+    expect(screen.getByText('System').props.numberOfLines).toBeUndefined();
+    // Nothing is lost, only moved: the screen reader still gets label, description and value.
+    expect(screen.getByText('General')).toBeTruthy();
+    expect(screen.getByText('Preferences, timezone, theme')).toBeTruthy();
+  });
+
+  test('a row with no value still drops its icon at accessibility sizes', () => {
+    atTextScale(3.12);
+    render(<MenuGroup><MenuRow icon="card-outline" label="Subscription" onPress={noop} /></MenuGroup>);
+    expect(screen.queryByText('card-outline', { includeHiddenElements: true })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Subscription' })).toBeTruthy();
+  });
 });

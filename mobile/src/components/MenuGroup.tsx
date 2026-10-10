@@ -1,10 +1,20 @@
 import { Children, Fragment, type ComponentProps, type ReactNode, type Ref } from 'react';
-import { Pressable, StyleSheet, Text, View, type AccessibilityRole } from 'react-native';
+import { Pressable, StyleSheet, Text, useWindowDimensions, View, type AccessibilityRole } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from './Card';
 import { spacing, useTheme } from '../theme';
 
 export type MenuIcon = ComponentProps<typeof Ionicons>['name'];
+
+/**
+ * From the first accessibility text size up (iOS reports 1.64 there; Android's two largest
+ * settings are 1.8 and 2.0), a row gives its whole width to words. Measured on a 402pt-wide
+ * phone at the largest size (3.12): with the icon and a value beside it, the label column is
+ * narrower than one word, and "General" and "Subscription" broke mid-letter where the flat list
+ * this replaced kept them whole. Deliberately higher than useLargeFontScale's 1.3: that one decides
+ * when truncating costs information, and at 1.3 these rows still have room for everything.
+ */
+const ACCESSIBILITY_TEXT_SCALE = 1.6;
 
 /**
  * One short card of menu rows under a small label -- the grouped list More and Settings share, so
@@ -59,6 +69,8 @@ export function MenuRow({
   ref?: Ref<View>;
 }) {
   const c = useTheme();
+  // Reactive, so the row re-lays-out if the system text size changes while the app is open.
+  const wordsOnly = useWindowDimensions().fontScale >= ACCESSIBILITY_TEXT_SCALE;
   return (
     <Pressable
       ref={ref}
@@ -68,19 +80,24 @@ export function MenuRow({
       accessibilityRole={accessibilityRole}
       accessibilityLabel={accessibilityLabel}
     >
-      <Ionicons
-        name={icon}
-        size={20}
-        color={c.mutedInk}
-        style={styles.icon}
-        accessibilityElementsHidden
-        importantForAccessibility="no"
-      />
+      {wordsOnly ? null : (
+        <Ionicons
+          name={icon}
+          size={20}
+          color={c.mutedInk}
+          style={styles.icon}
+          accessibilityElementsHidden
+          importantForAccessibility="no"
+        />
+      )}
       <View style={styles.rowMain}>
         <Text style={[styles.rowLabel, { color: c.ink }]}>{label}</Text>
         {description ? <Text style={[styles.rowDescription, { color: c.mutedInk }]}>{description}</Text> : null}
+        {/* Under the label at accessibility sizes: beside it, the value takes its width first and
+            leaves the label whatever remains. */}
+        {value && wordsOnly ? <Text style={[styles.rowValueStacked, { color: c.muted }]}>{value}</Text> : null}
       </View>
-      {value ? <Text style={[styles.rowValue, { color: c.muted }]} numberOfLines={1}>{value}</Text> : null}
+      {value && !wordsOnly ? <Text style={[styles.rowValue, { color: c.muted }]} numberOfLines={1}>{value}</Text> : null}
       <Ionicons
         name="chevron-forward"
         size={18}
@@ -103,4 +120,5 @@ const styles = StyleSheet.create({
   rowLabel: { fontSize: 15 },
   rowDescription: { fontSize: 12, marginTop: 2 },
   rowValue: { fontSize: 13, marginRight: spacing.xs, flexShrink: 1 },
+  rowValueStacked: { fontSize: 13, marginTop: 2 },
 });

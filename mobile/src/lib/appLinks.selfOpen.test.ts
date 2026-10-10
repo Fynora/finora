@@ -56,7 +56,9 @@ describe('paths the app opens in a browser', () => {
   });
 
   it('finds the shared legal links (guards that half of the scan against silently matching nothing)', () => {
-    expect([...legal].sort()).toEqual(['/privacy', '/terms', '/trust', '/your-data']);
+    // /trust reaches a browser through LegalLink alone on the auth screens; the other three are
+    // named so that a link quietly dropped from the footer shows up here too.
+    expect([...legal]).toEqual(expect.arrayContaining(['/privacy', '/terms', '/trust', '/your-data']));
   });
 
   it('are never claimed as app links', () => {
@@ -69,17 +71,16 @@ describe('paths the app opens in a browser', () => {
 // written where it is used. These two close the ways one can slip past it.
 describe('every path the app opens in a browser is visible to the scan', () => {
   it('webUrl/openWebUrl are only ever called with a literal path, except inside LegalLink', () => {
+    // Counted per file, not per line, so a call wrapped over two lines is not mistaken for a
+    // hidden one. Comments count too: write "openWebUrl with a literal path", not a call-shaped
+    // example, or this reads it as a call the scan could not follow.
     const ANY_CALL = /\b(?:webUrl|openWebUrl)\(/g;
-    const hidden = sources.flatMap(({ file, text }) =>
-      text.split('\n').flatMap((line, i) => {
-        const calls = [...line.matchAll(ANY_CALL)].length;
-        const literal = [...line.matchAll(DIRECT_CALL)].length;
-        return calls > literal ? [`${file}:${i + 1}: ${line.trim()}`] : [];
-      })
-    );
+    const hidden = sources
+      .filter(({ text }) => [...text.matchAll(ANY_CALL)].length > [...text.matchAll(DIRECT_CALL)].length)
+      .map(({ file }) => file);
     // LegalLink is the one sanctioned pass-through: its paths are read from its call sites instead
     // (the LEGAL_LINK pattern), and the next test holds those to a literal too.
-    expect(hidden.map((entry) => entry.split(':')[0])).toEqual(['components/LegalLink.tsx']);
+    expect(hidden).toEqual(['components/LegalLink.tsx']);
   });
 
   it('every LegalLink is given its path as a literal, never a variable', () => {

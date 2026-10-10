@@ -6,7 +6,10 @@ import com.finora.AbstractIntegrationTest;
 import com.finora.dto.ImportDto.ConfirmRequest;
 import com.finora.dto.ImportDto.ConfirmedRow;
 import com.finora.dto.ImportDto.DetectedAccountInfo;
+import com.finora.dto.ImportDto.MultiAccountConfirmRequest;
 import com.finora.dto.ImportDto.NewAccountRequest;
+import com.finora.dto.ImportDto.SectionConfirm;
+import com.finora.dto.ImportDto.StagedAccountSection;
 import com.finora.dto.ImportDto.StagedRow;
 import com.finora.entity.Account;
 import com.finora.entity.HeldStatement;
@@ -16,6 +19,7 @@ import com.finora.entity.Transaction;
 import com.finora.entity.User;
 import com.finora.exception.ErrorCode;
 import com.finora.imports.jobs.ImportJobWorker;
+import com.finora.imports.pdf.fixtures.PdfFixtureBuilder;
 import com.finora.notification.domain.Notification;
 import com.finora.notification.domain.NotificationChannel;
 import com.finora.notification.domain.NotificationStatus;
@@ -48,7 +52,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
-import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
@@ -56,6 +59,7 @@ import org.springframework.util.MultiValueMap;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -68,8 +72,10 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 
 /**
  * Gate 1 spec §6 and the integration half of §7: however an import is retried -- the same file
@@ -170,7 +176,7 @@ class ImportRetrySafetyIT extends AbstractIntegrationTest {
         assertThat(second.get("previousImport").get("transactionsImported").asInt())
                 .as("the user is told this file was imported before").isEqualTo(3);
         assertThat(second.get("previousImport").get("accountId").asText()).isEqualTo(account.getId().toString());
-        assertThat(stagedRowsOf(user, sessionIdOf(second)))
+        assertThat(stagedRowsOf(sessionIdOf(second)))
                 .as("every row is put to the user as a question, with the row it matches")
                 .hasSize(3).allMatch(row -> row.duplicateMatch() != null);
 
@@ -193,7 +199,7 @@ class ImportRetrySafetyIT extends AbstractIntegrationTest {
         JsonNode longer = stage(user, JULY_AND_ONE_MORE);
         assertThat(longer.get("previousImport").isNull())
                 .as("different bytes: not the same file, so no notice").isTrue();
-        List<StagedRow> rows = stagedRowsOf(user, sessionIdOf(longer));
+        List<StagedRow> rows = stagedRowsOf(sessionIdOf(longer));
         assertThat(rows).hasSize(4);
         assertThat(rows.stream().filter(row -> row.duplicateMatch() != null)).hasSize(3);
 
@@ -204,6 +210,81 @@ class ImportRetrySafetyIT extends AbstractIntegrationTest {
         assertThat(all).hasSize(4);
         assertThat(all).extracting(Transaction::getDescription).filteredOn(d -> d.contains("PHARMACY")).hasSize(1);
         assertThat(all).noneMatch(t -> t.getIsDuplicateOf() != null);
+    }
+
+    /**
+     * One file through both doors before anything is confirmed -- the direct upload twice, then the
+     * queue. One set of rows is staged, so there is one review and one import; this is the shape
+     * that once became two sessions and two imports of the same statement.
+     */
+    @Test
+    void theSameFileThroughTheDirectUploadAndTheQueueIsOneReviewAndOneImport() throws Exception {
+        User user = user();
+        UUID sessionId = sessionIdOf(stage(user, JULY));
+        assertThat(sessionIdOf(stage(user, JULY))).as("a second click replays the first read").isEqualTo(sessionId);
+
+        UUID jobId = upload(user, JULY, "statement.csv");
+        worker.drainOnce();
+
+        JsonNode progress = progress(user, jobId);
+        assertThat(progress.get("status").asText()).isEqualTo("COMPLETED");
+        assertThat(progress.get("importSessionId").asText()).isEqualTo(sessionId.toString());
+        assertThat(sessionRepository.findByUserIdOrderByCreatedAtDesc(user.getId())).hasSize(1);
+
+        assertThat(confirm(user, sessionId, null, Answer.SKIP).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(confirm(user, sessionId, null, Answer.SKIP).getStatusCode())
+                .as("opening the review again from the job").isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(transactionRepository.findByUserId(user.getId())).hasSize(3);
+        assertThat(statementImportsOf(user)).isEqualTo(1);
+    }
+
+    /** The queue's door, for a file already imported: the notice and the questions are on the
+     *  review the job opens, exactly as on the direct upload's. */
+    @Test
+    void aQueuedUploadOfAnImportedFileSaysSoAndAddsNothingWhenSkipped() throws Exception {
+        User user = user();
+        assertThat(confirm(user, sessionIdOf(stage(user, JULY)), null, Answer.SKIP).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        Account account = onlyAccountOf(user);
+
+        UUID jobId = upload(user, JULY, "statement.csv");
+        worker.drainOnce();
+
+        JsonNode progress = progress(user, jobId);
+        assertThat(progress.get("status").asText()).isEqualTo("COMPLETED");
+        UUID sessionId = UUID.fromString(progress.get("importSessionId").asText());
+        JsonNode review = mapper.readTree(get(user, "/api/v1/import/sessions/" + sessionId).getBody()).get("data");
+        assertThat(review.get("previousImport").get("transactionsImported").asInt()).isEqualTo(3);
+        assertThat(stagedRowsOf(sessionId)).hasSize(3).allMatch(row -> row.duplicateMatch() != null);
+
+        assertThat(confirm(user, sessionId, account.getId(), Answer.SKIP).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(transactionRepository.findByUserId(user.getId())).hasSize(3);
+    }
+
+    /** The PDF door reads a different format into the same review, so the same file again is the
+     *  same question there. */
+    @Test
+    void aPdfStatementUploadedAgainAndSkippedAddsNothing() throws Exception {
+        User user = user();
+        byte[] pdf = PdfFixtureBuilder.buildSingularDepositWithdrawalColumnsSample();
+        JsonNode first = stagePdf(user, pdf);
+        assertThat(first.get("multiAccount").asBoolean()).isFalse();
+        assertThat(first.get("previousImport").isNull()).isTrue();
+        UUID firstSession = sessionIdOf(first);
+        int staged = stagedRowsOf(firstSession).size();
+        assertThat(staged).isEqualTo(3);
+        assertThat(confirm(user, firstSession, null, Answer.SKIP).getStatusCode()).isEqualTo(HttpStatus.OK);
+        Account account = onlyAccountOf(user);
+        BigDecimal balance = balanceOf(account);
+
+        JsonNode second = stagePdf(user, pdf);
+        assertThat(second.get("previousImport").get("transactionsImported").asInt()).isEqualTo(staged);
+        assertThat(stagedRowsOf(sessionIdOf(second))).hasSize(staged).allMatch(row -> row.duplicateMatch() != null);
+        assertThat(confirm(user, sessionIdOf(second), account.getId(), Answer.SKIP).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+
+        assertThat(transactionRepository.findByUserId(user.getId())).hasSize(staged);
+        assertThat(balanceOf(account)).isEqualByComparingTo(balance);
     }
 
     /**
@@ -235,45 +316,50 @@ class ImportRetrySafetyIT extends AbstractIntegrationTest {
     void twoConfirmsSentAtTheSameMomentImportTheStatementOnce() throws Exception {
         User user = user();
         UUID sessionId = sessionIdOf(stage(user, JULY));
-        ConfirmRequest request = confirmRequest(user, sessionId, null, Answer.SKIP);
-        HttpEntity<ConfirmRequest> entity = new HttpEntity<>(request, jsonBearerFor(user));
-
-        CountDownLatch start = new CountDownLatch(1);
-        ExecutorService pool = Executors.newFixedThreadPool(2);
-        List<ResponseEntity<String>> responses = new ArrayList<>();
-        try {
-            List<Future<ResponseEntity<String>>> sent = new ArrayList<>();
-            for (int i = 0; i < 2; i++) {
-                sent.add(pool.submit(() -> {
-                    start.await(30, TimeUnit.SECONDS);
-                    return restTemplate.exchange("/api/v1/import/csv/confirm", HttpMethod.POST, entity, String.class);
-                }));
-            }
-            start.countDown();
-            for (Future<ResponseEntity<String>> response : sent) {
-                responses.add(response.get(60, TimeUnit.SECONDS));
-            }
-        } finally {
-            pool.shutdownNow();
-        }
-
-        List<Integer> statuses = responses.stream().map(r -> r.getStatusCode().value()).sorted().toList();
-        // 409 when the loser waited on the winner's claim; 400 (IMPORT_012) when it arrived after.
-        assertThat(statuses).as("one import, and the other request told it was already done")
-                .isIn(List.of(200, 409), List.of(200, 400));
-        ResponseEntity<String> refused = responses.stream()
-                .filter(r -> r.getStatusCode() != HttpStatus.OK).findFirst().orElseThrow();
-        assertThat(refused.getBody()).contains("already been");
+        ConfirmRequest request = confirmRequest(sessionId, null, Answer.SKIP);
+        assertOneImportedAndOneRefused(postTwiceAtOnce(user, "/api/v1/import/csv/confirm", request));
         assertThat(transactionRepository.findByUserId(user.getId())).hasSize(3);
         assertThat(statementImportsOf(user)).isEqualTo(1);
         assertThat(accountRepository.findByUserId(user.getId())).hasSize(1);
+    }
+
+    /**
+     * A statement covering two accounts is confirmed by its own endpoint, with its own claim. The
+     * session is staged by hand, as {@code MultiSectionSharedTransferIT} stages one: no synthetic
+     * PDF here reads as two accounts.
+     */
+    @Test
+    void aStatementCoveringTwoAccountsConfirmedTwiceAtOnceIsImportedOnce() throws Exception {
+        User user = user();
+        Account savings = account(user, "Savings", Account.Type.SAVINGS);
+        Account card = account(user, "Credit Card", Account.Type.CREDIT_CARD);
+        LocalDate when = LocalDate.of(2026, 7, 10);
+        BigDecimal amount = new BigDecimal("30000.00");
+        ImportSession session = importSessionService.createMultiSection(user.getId(), "consolidated.pdf",
+                "synthetic consolidated statement".getBytes(StandardCharsets.UTF_8), List.of(
+                        new StagedAccountSection(null, List.of(new StagedRow(when, "CREDIT CARD PAYMENT", amount,
+                                "EXPENSE", "Other", "rule", null, false, null, null)), 1, 0, List.of()),
+                        new StagedAccountSection(null, List.of(new StagedRow(when, "PAYMENT RECEIVED THANK YOU",
+                                amount, "INCOME", "Other", "rule", null, false, null, null)), 1, 0, List.of())));
+        MultiAccountConfirmRequest request = new MultiAccountConfirmRequest(session.getId(), List.of(
+                new SectionConfirm(List.of(new ConfirmedRow(when, "CREDIT CARD PAYMENT", amount, "EXPENSE",
+                        "Other", true, "rule", null, false, null, null, false)), savings.getId(), null, null, null),
+                new SectionConfirm(List.of(new ConfirmedRow(when, "PAYMENT RECEIVED THANK YOU", amount, "INCOME",
+                        "Other", true, "rule", null, false, null, null, false)), card.getId(), null, null, null)));
+
+        assertOneImportedAndOneRefused(postTwiceAtOnce(user, "/api/v1/import/pdf/confirm-multi", request));
+        assertThat(post(user, "/api/v1/import/pdf/confirm-multi", request).getStatusCode())
+                .as("and once more, after it is done").isEqualTo(HttpStatus.BAD_REQUEST);
+
+        assertThat(transactionRepository.findByUserId(user.getId())).hasSize(2);
+        assertThat(statementImportsOf(user)).as("one statement per account, not per request").isEqualTo(2);
     }
 
     @Test
     void aConfirmSentAgainAfterItSucceededIsRefusedAndAddsNothing() throws Exception {
         User user = user();
         UUID sessionId = sessionIdOf(stage(user, JULY));
-        ConfirmRequest request = confirmRequest(user, sessionId, null, Answer.SKIP);
+        ConfirmRequest request = confirmRequest(sessionId, null, Answer.SKIP);
         assertThat(post(user, "/api/v1/import/csv/confirm", request).getStatusCode()).isEqualTo(HttpStatus.OK);
 
         ResponseEntity<String> again = post(user, "/api/v1/import/csv/confirm", request);
@@ -294,7 +380,7 @@ class ImportRetrySafetyIT extends AbstractIntegrationTest {
     void aConfirmThatIsRefusedLeavesNothingBehindAndTheSameSessionStillConfirms() throws Exception {
         User user = user();
         UUID sessionId = sessionIdOf(stage(user, JULY));
-        ConfirmRequest good = confirmRequest(user, sessionId, null, Answer.SKIP);
+        ConfirmRequest good = confirmRequest(sessionId, null, Answer.SKIP);
         List<ConfirmedRow> tampered = new ArrayList<>(good.rows());
         ConfirmedRow r = tampered.get(0);
         tampered.set(0, new ConfirmedRow(r.date(), r.description(), r.amount().add(BigDecimal.ONE), r.type(),
@@ -342,7 +428,7 @@ class ImportRetrySafetyIT extends AbstractIntegrationTest {
         JsonNode progress = progress(user, jobId);
         assertThat(progress.get("status").asText()).isEqualTo("COMPLETED");
         UUID sessionId = UUID.fromString(progress.get("importSessionId").asText());
-        int staged = stagedRowsOf(user, sessionId).size();
+        int staged = stagedRowsOf(sessionId).size();
         assertThat(staged).isPositive();
 
         assertThat(confirm(user, sessionId, null, Answer.SKIP).getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -379,7 +465,7 @@ class ImportRetrySafetyIT extends AbstractIntegrationTest {
 
         assertThat(confirm(user, heldSession, null, Answer.SKIP).getStatusCode())
                 .as("the replaced session cannot be confirmed").isEqualTo(HttpStatus.NOT_FOUND);
-        int staged = stagedRowsOf(user, restaged).size();
+        int staged = stagedRowsOf(restaged).size();
         assertThat(confirm(user, restaged, null, Answer.SKIP).getStatusCode()).isEqualTo(HttpStatus.OK);
 
         assertThat(transactionRepository.findByUserId(user.getId())).hasSize(staged).isNotEmpty();
@@ -437,7 +523,7 @@ class ImportRetrySafetyIT extends AbstractIntegrationTest {
         assertThat(again.get("status").asText()).isEqualTo("COMPLETED");
         UUID sessionId = UUID.fromString(again.get("importSessionId").asText());
         assertThat(sessionId).as("read afresh, not the rejected rows").isNotEqualTo(rejected.getImportSessionId());
-        int staged = stagedRowsOf(user, sessionId).size();
+        int staged = stagedRowsOf(sessionId).size();
         assertThat(recentJobIdsOf(user))
                 .as("until it is imported the failure is still listed, with the new upload")
                 .containsExactlyInAnyOrder(againId, rejected.getId());
@@ -568,6 +654,7 @@ class ImportRetrySafetyIT extends AbstractIntegrationTest {
         heldStatementService.reject(admin, heldIdOf(rejectedJob), "rows do not match the document");
         dispatcher.drainOnce();
 
+        verify(emailProvider, atLeast(2)).send(any());
         for (User told : List.of(approvedUser, rejectedUser)) {
             List<Notification> sent = notificationRepository.findByUserIdOrderByCreatedAtDesc(told.getId());
             assertThat(sent).as("the decision was queued for delivery").isNotEmpty();
@@ -578,7 +665,7 @@ class ImportRetrySafetyIT extends AbstractIntegrationTest {
         JsonNode approved = progress(approvedUser, approvedJob);
         assertThat(approved.get("status").asText()).isEqualTo("COMPLETED");
         UUID sessionId = UUID.fromString(approved.get("importSessionId").asText());
-        int staged = stagedRowsOf(approvedUser, sessionId).size();
+        int staged = stagedRowsOf(sessionId).size();
         assertThat(confirm(approvedUser, sessionId, null, Answer.SKIP).getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(transactionRepository.findByUserId(approvedUser.getId())).hasSize(staged).isNotEmpty();
 
@@ -665,6 +752,42 @@ class ImportRetrySafetyIT extends AbstractIntegrationTest {
         return restTemplate.exchange(path, HttpMethod.POST, new HttpEntity<>(body, jsonBearerFor(user)), String.class);
     }
 
+    /** The same request from two threads released together -- a double click, or a retry racing
+     *  the request it is retrying. */
+    private List<ResponseEntity<String>> postTwiceAtOnce(User user, String path, Object body) throws Exception {
+        HttpEntity<Object> entity = new HttpEntity<>(body, jsonBearerFor(user));
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        List<ResponseEntity<String>> responses = new ArrayList<>();
+        try {
+            List<Future<ResponseEntity<String>>> sent = new ArrayList<>();
+            for (int i = 0; i < 2; i++) {
+                sent.add(pool.submit(() -> {
+                    start.await(30, TimeUnit.SECONDS);
+                    return restTemplate.exchange(path, HttpMethod.POST, entity, String.class);
+                }));
+            }
+            start.countDown();
+            for (Future<ResponseEntity<String>> response : sent) {
+                responses.add(response.get(60, TimeUnit.SECONDS));
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        return responses;
+    }
+
+    /** One request imported; the other told so. 409 when it waited on the winner's claim, 400
+     *  ({@code IMPORT_012}) when it arrived after the winner had committed. */
+    private static void assertOneImportedAndOneRefused(List<ResponseEntity<String>> responses) {
+        List<Integer> statuses = responses.stream().map(r -> r.getStatusCode().value()).sorted().toList();
+        assertThat(statuses).as("one import, and the other request told it was already done")
+                .isIn(List.of(200, 409), List.of(200, 400));
+        ResponseEntity<String> refused = responses.stream()
+                .filter(r -> r.getStatusCode() != HttpStatus.OK).findFirst().orElseThrow();
+        assertThat(refused.getBody()).contains("already been");
+    }
+
     private HttpEntity<MultiValueMap<String, Object>> fileUpload(User user, byte[] content, String fileName) {
         HttpHeaders headers = bearerFor(user);
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
@@ -679,6 +802,16 @@ class ImportRetrySafetyIT extends AbstractIntegrationTest {
     private JsonNode stage(User user, String csv) throws Exception {
         ResponseEntity<String> staged = restTemplate.exchange("/api/v1/import/csv/stage", HttpMethod.POST,
                 fileUpload(user, csv.getBytes(StandardCharsets.UTF_8), "statement.csv"), String.class);
+        assertThat(staged.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = mapper.readTree(staged.getBody()).get("data");
+        assertThat(data.get("heldForReviewJobId").isNull()).isTrue();
+        return data;
+    }
+
+    /** The direct PDF upload: {@code POST /import/pdf/stage}. Returns the response's {@code data}. */
+    private JsonNode stagePdf(User user, byte[] pdf) throws Exception {
+        ResponseEntity<String> staged = restTemplate.exchange("/api/v1/import/pdf/stage", HttpMethod.POST,
+                fileUpload(user, pdf, "statement.pdf"), String.class);
         assertThat(staged.getStatusCode()).isEqualTo(HttpStatus.OK);
         JsonNode data = mapper.readTree(staged.getBody()).get("data");
         assertThat(data.get("heldForReviewJobId").isNull()).isTrue();
@@ -721,7 +854,7 @@ class ImportRetrySafetyIT extends AbstractIntegrationTest {
         return post(admin, "/api/v1/admin/held-imports/" + jobId + "/reprocess", null);
     }
 
-    private List<StagedRow> stagedRowsOf(User user, UUID sessionId) {
+    private List<StagedRow> stagedRowsOf(UUID sessionId) {
         return importSessionService.readStagedRows(sessionRepository.findById(sessionId).orElseThrow());
     }
 
@@ -729,7 +862,7 @@ class ImportRetrySafetyIT extends AbstractIntegrationTest {
      * The confirm payload either app sends for this session: every row the engine did not question
      * is included, and every row it did carries the user's answer.
      */
-    private ConfirmRequest confirmRequest(User user, UUID sessionId, UUID existingAccountId, Answer answer) {
+    private ConfirmRequest confirmRequest(UUID sessionId, UUID existingAccountId, Answer answer) {
         ImportSession session = sessionRepository.findById(sessionId).orElseThrow();
         DetectedAccountInfo detected = importSessionService.readDetectedAccount(session);
         List<ConfirmedRow> rows = importSessionService.readStagedRows(session).stream().map(row -> {
@@ -755,7 +888,7 @@ class ImportRetrySafetyIT extends AbstractIntegrationTest {
      *  endpoint answers it, with nothing to build rows from. */
     private ResponseEntity<String> confirm(User user, UUID sessionId, UUID existingAccountId, Answer answer) {
         ConfirmRequest request = sessionRepository.existsById(sessionId)
-                ? confirmRequest(user, sessionId, existingAccountId, answer)
+                ? confirmRequest(sessionId, existingAccountId, answer)
                 : new ConfirmRequest(sessionId, List.of(), existingAccountId, null, null, null, null);
         return post(user, "/api/v1/import/csv/confirm", request);
     }
@@ -763,6 +896,15 @@ class ImportRetrySafetyIT extends AbstractIntegrationTest {
     // ---------------------------------------------------------------------------------------
     // Reading the result
     // ---------------------------------------------------------------------------------------
+
+    private Account account(User owner, String name, Account.Type type) {
+        Account account = new Account();
+        account.setUserId(owner.getId());
+        account.setName(name);
+        account.setAccountType(type);
+        account.setBalance(BigDecimal.ZERO);
+        return accountRepository.save(account);
+    }
 
     private Account onlyAccountOf(User user) {
         List<Account> accounts = accountRepository.findByUserId(user.getId());
@@ -838,12 +980,15 @@ class ImportRetrySafetyIT extends AbstractIntegrationTest {
         return held;
     }
 
-    /** A different build staged this user's sessions -- what a deploy between two uploads looks
-     *  like to {@code findLiveSessionByContentHash}. */
+    /**
+     * A different build staged this user's sessions -- what a deploy between two uploads looks
+     * like to {@code findLiveSessionByContentHash}. Both of its tests are satisfied: the stored
+     * build id differs from any real one, and the session is older than the short window it falls
+     * back to when the running build cannot be identified ({@code BuildVersionResolver}).
+     */
     private void markSessionsStagedByAnOlderBuild(User owner) {
-        for (ImportSession session : sessionRepository.findByUserIdOrderByCreatedAtDesc(owner.getId())) {
-            ReflectionTestUtils.setField(session, "parserVersion", "0ldbld0");
-            sessionRepository.save(session);
-        }
+        int marked = jdbc.update("UPDATE import_sessions SET parser_version = '0ldbld0', "
+                + "created_at = created_at - interval '1 hour' WHERE user_id = ?", owner.getId());
+        assertThat(marked).isPositive();
     }
 }

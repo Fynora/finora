@@ -58,6 +58,27 @@ class ImportJobCancelReasonTest {
                 .contains("by hand").contains("48 hours");
     }
 
+    /**
+     * Gate 1 spec §4: once a hold is past its 48 hours, repeating "within 48 hours" is a promise
+     * already broken. The overdue answer apologises instead, for both holds alike, and still
+     * never impugns the statement.
+     */
+    @Test
+    void anOverdueHoldApologisesInsteadOfRepeatingTheBrokenPromise() {
+        String trust = ImportJobService.uncancellableReason(ImportJob.Status.HELD_FOR_TRUST_REVIEW, true);
+
+        assertThat(trust).contains("by hand").contains("longer than we promised")
+                .doesNotContain("48 hours");
+        assertThat(trust.toLowerCase()).doesNotContain("verify", "genuine", "authentic", "suspicious", "fraud");
+        assertThat(ImportJobService.uncancellableReason(ImportJob.Status.HELD_FOR_REVIEW, true)).isEqualTo(trust);
+    }
+
+    @Test
+    void aHoldWithinThePromiseKeepsTheFortyEightHourAnswer() {
+        assertThat(ImportJobService.uncancellableReason(ImportJob.Status.HELD_FOR_TRUST_REVIEW, false))
+                .isEqualTo(ImportJobService.uncancellableReason(ImportJob.Status.HELD_FOR_TRUST_REVIEW));
+    }
+
     /** No status may fall through to null or blank -- the exhaustive switch is only worth having
      *  if every arm actually answers. */
     @ParameterizedTest

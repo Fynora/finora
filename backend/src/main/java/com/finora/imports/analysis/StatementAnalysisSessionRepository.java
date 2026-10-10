@@ -36,6 +36,30 @@ public interface StatementAnalysisSessionRepository extends JpaRepository<Statem
     void anonymizeByUserId(@Param("userId") UUID userId);
 
     /**
+     * Stamps the reads whose staged session is being swept unconfirmed (V267, Gate 1 spec §5.2):
+     * read, shown for review, never confirmed, and now past its 48 hours.
+     *
+     * <p>Native for the reason {@link #anonymizeByUserId} is: the entity maps the column read-only,
+     * so this one write is visible rather than accidental. {@code IS NULL} makes it once-only --
+     * the first sweep's time stands, and a later call with the same ids changes nothing.
+     *
+     * <p>{@code @Transactional} so it can run at all (a modifying query needs one); the session
+     * sweep calls it inside a {@code REQUIRES_NEW} transaction of its own
+     * ({@code ImportSessionService.stampAbandoned}), because in PostgreSQL a failed statement
+     * aborts its whole transaction and this must never be the reason expired sessions are not
+     * deleted.
+     *
+     * @return how many reads were stamped
+     */
+    @org.springframework.transaction.annotation.Transactional
+    @Modifying
+    @Query(value = "UPDATE statement_analysis_sessions SET expired_unconfirmed_at = :now "
+            + "WHERE import_session_id IN (:sessionIds) AND expired_unconfirmed_at IS NULL",
+            nativeQuery = true)
+    int stampExpiredUnconfirmed(@Param("sessionIds") java.util.Collection<UUID> sessionIds,
+                                @Param("now") Instant now);
+
+    /**
      * The reference counter, from a database sequence rather than a count of existing rows.
      *
      * <p>{@code SELECT count(*) + 1} would hand the same number to two concurrent uploads, and the

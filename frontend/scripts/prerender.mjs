@@ -22,6 +22,7 @@ import {
   withStructuredData,
   withTitle,
 } from './prerenderTitle.mjs';
+import { SPA_SHELL_FILE, spaShellHtml } from './spaShell.mjs';
 
 const frontendRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const ssrOutDir = path.join(frontendRoot, '.prerender-ssr');
@@ -96,6 +97,11 @@ async function main() {
   if (!template.includes(ROOT_DIV)) {
     throw new Error(`dist/index.html doesn't contain ${ROOT_DIV} -- template shape changed, update this script.`);
   }
+
+  // The blank shell for browser-only routes, taken from the template before the loop below fills
+  // index.html with the homepage. public/_redirects is what points /auth, /app/... at it.
+  fs.writeFileSync(path.join(distDir, SPA_SHELL_FILE), spaShellHtml(template));
+  console.log(`prerender: blank shell -> dist/${SPA_SHELL_FILE}`);
 
   for (const [route, fileName] of Object.entries(OUTPUT_FILES)) {
     const renderRoute = routes[route];

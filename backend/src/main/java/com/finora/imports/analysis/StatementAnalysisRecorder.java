@@ -114,7 +114,14 @@ public class StatementAnalysisRecorder {
     /**
      * The same, plus which file it was ({@code contentHash}, V265) -- what lets
      * {@link #recentUnresolvedCustomerFailures} drop this failure once the same file is confirmed.
+     *
+     * <p>{@code REQUIRES_NEW} here too, not only on the overload above: this is the one
+     * {@code ImportService} calls directly, and an annotation on a method that merely delegates to
+     * this one does nothing for a caller that skips it. It was missing from V265 until V267's
+     * work; no failure was lost in that time only because staging happens to run outside any
+     * transaction -- the class comment's whole argument is that this must not depend on the caller.
      */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public String recordFailed(UUID userId, StatementAnalysisSession.Source source, String fileName,
                                 String sourceFormat, long byteSize, String layoutFingerprint,
                                 String failureCode, String failureDetail, long durationMs,
@@ -130,6 +137,58 @@ public class StatementAnalysisRecorder {
                     + "defeated the parser is now unrecorded", LogSanitizer.sanitize(fileName), failureCode, e);
             return null;
         }
+    }
+
+    /**
+     * A direct upload refused before the parser read it -- an empty or wrong-type file, the virus
+     * scan, the server being busy (Gate 1 spec §5.1). Until V267 these left no record at all, so
+     * "tried to upload and was turned away" was indistinguishable from "never tried".
+     *
+     * <p>Records who, the format asked for, and the code that refused it. No file name, size or
+     * content: the file never entered the pipeline. The code is the {@code ErrorCode} name when the
+     * refusal has one, else {@code HTTP_<status>} ({@code StatementUpload} refuses with a bare
+     * status), else {@code UNCLASSIFIED}.
+     *
+     * <p>Never throws, like every method here: the caller is about to rethrow the refusal itself,
+     * and a bookkeeping failure must not replace it.
+     *
+     * @return the reference of the recorded session, or null if recording failed.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public String recordRejected(UUID userId, String sourceFormat, Throwable refusal) {
+        return recordRejected(userId, sourceFormat, rejectionCodeOf(refusal));
+    }
+
+    /**
+     * The same, for a refusal that is not an {@link ApiException} and so has no code of its own to
+     * read -- the servlet container's upload size limit, which is enforced before any controller
+     * runs ({@code OversizedImportUploadAdvice}). {@code sourceFormat} may be null when the refusal
+     * came before the format could be known.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public String recordRejected(UUID userId, String sourceFormat, String refusalCode) {
+        String code = refusalCode == null || refusalCode.isBlank() ? "UNCLASSIFIED"
+                : refusalCode.length() <= 32 ? refusalCode : refusalCode.substring(0, 32);
+        try {
+            return repository.save(StatementAnalysisSession.rejected(nextReference(), userId, sourceFormat,
+                    code, currentCorrelationId())).getReference();
+        } catch (RuntimeException e) {
+            log.error("Could not record a REJECTED upload ({}) -- the refusal itself is unaffected", code, e);
+            return null;
+        }
+    }
+
+    /** Bounded to {@code failure_code}'s 32 characters rather than trusted to fit. */
+    static String rejectionCodeOf(Throwable refusal) {
+        String code = "UNCLASSIFIED";
+        if (refusal instanceof ApiException api) {
+            if (api.getCode() != null) {
+                code = api.getCode().name();
+            } else if (api.getStatus() != null) {
+                code = "HTTP_" + api.getStatus().value();
+            }
+        }
+        return code.length() <= 32 ? code : code.substring(0, 32);
     }
 
     /**

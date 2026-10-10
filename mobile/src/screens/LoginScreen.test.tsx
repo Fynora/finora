@@ -113,12 +113,14 @@ describe('LoginScreen identifier validation', () => {
 // AuthEntryScreen's own fix. Alongside the existing "No account? Register" footer link, not in
 // place of it.
 describe('LoginScreen legal footer links', () => {
-  // Twice each: once in the legal footer, once in the consent notice beside Google/Apple.
-  it('links to Privacy Policy and Terms of Service', () => {
+  // Once each: the consent notice beside Google/Apple carries them, and the legal footer then
+  // drops its own copy of the pair rather than repeating it a few lines down.
+  it('links to Privacy Policy and Terms of Service once, from the consent notice', () => {
     renderScreen();
 
-    expect(screen.getAllByText('Privacy Policy')).toHaveLength(2);
-    expect(screen.getAllByText('Terms of Service')).toHaveLength(2);
+    expect(screen.getAllByText('Privacy Policy')).toHaveLength(1);
+    expect(screen.getAllByText('Terms of Service')).toHaveLength(1);
+    expect(screen.getByText('Trust & Security')).toBeTruthy();
   });
 
   // Google/Apple here create a brand-new account when the identity has none yet, so the Terms and

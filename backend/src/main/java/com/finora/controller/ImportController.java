@@ -60,17 +60,23 @@ public class ImportController {
     // controller.
     @PostMapping(value = "/csv/stage", consumes = "multipart/form-data")
     public ResponseEntity<ApiResponse<StagingSessionResponse>> stage(@RequestParam("file") MultipartFile file) throws Exception {
-        // Before the limiter, deliberately: rejecting an empty file or a PDF posted to the CSV
-        // endpoint should not consume one of the six permits the expensive work is gated behind
-        // (BH-043: an instant accept/reject now, not a queue -- see ImportConcurrencyLimiter).
-        StatementUpload.requireReadable(file, StatementUpload.Format.CSV);
-        // After the cheap structural check, before the limiter (audit F-18): a rejected file
-        // costs no scanner round trip if it was never a CSV, and no import permit if it was.
-        uploadScanGate.requireClean(file, currentUser.id(), "statement-import");
+        UUID userId = currentUser.id();
+        try {
+            // Before the limiter, deliberately: rejecting an empty file or a PDF posted to the CSV
+            // endpoint should not consume one of the six permits the expensive work is gated behind
+            // (BH-043: an instant accept/reject now, not a queue -- see ImportConcurrencyLimiter).
+            StatementUpload.requireReadable(file, StatementUpload.Format.CSV);
+            // After the cheap structural check, before the limiter (audit F-18): a rejected file
+            // costs no scanner round trip if it was never a CSV, and no import permit if it was.
+            uploadScanGate.requireClean(file, userId, "statement-import");
+        } catch (RuntimeException refused) {
+            // Gate 1 spec §5.1: a refusal before reading used to leave no record at all.
+            analysisRecorder.recordRejected(userId, "CSV", refused);
+            throw refused;
+        }
         // The trust check runs here, after staging, exactly as the worker runs it after staging a
         // queued upload -- see StagingTrustGate. Inside the permit: it is part of staging this file.
-        UUID userId = currentUser.id();
-        StagingSessionResponse staged = concurrencyLimiter.runGated(() -> stagingTrustGate.check(
+        StagingSessionResponse staged = gated("CSV", userId, () -> stagingTrustGate.check(
                 userId, StatementUpload.safeFileName(file, "statement.csv"), file.getBytes(),
                 importService.parseAndStageWithSession(userId, file)));
         // Outside the permit: a plan lookup, not parsing work. See FreePlanLimitNotice.
@@ -98,18 +104,41 @@ public class ImportController {
     public ResponseEntity<ApiResponse<PdfStagingSessionResponse>> stagePdf(
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "password", required = false) String password) throws Exception {
-        StatementUpload.requireReadable(file, StatementUpload.Format.PDF);
-        uploadScanGate.requireClean(file, currentUser.id(), "statement-import");
+        UUID userId = currentUser.id();
+        try {
+            StatementUpload.requireReadable(file, StatementUpload.Format.PDF);
+            uploadScanGate.requireClean(file, userId, "statement-import");
+        } catch (RuntimeException refused) {
+            analysisRecorder.recordRejected(userId, "PDF", refused);
+            throw refused;
+        }
         // The trust check, as for /csv/stage above. A locked PDF is the usual reason a statement
         // comes here rather than to the queue: the password is not kept, so a hold is reviewed from
         // its staged rows (HeldStatement.lockedWithoutPassword).
-        UUID userId = currentUser.id();
-        PdfStagingSessionResponse staged = concurrencyLimiter.runGated(() -> stagingTrustGate.check(
+        PdfStagingSessionResponse staged = gated("PDF", userId, () -> stagingTrustGate.check(
                 userId, StatementUpload.safeFileName(file, "statement.pdf"), file.getBytes(),
                 importService.parseAndStagePdfWithSession(userId, file, password)));
         // Every section of a composite statement, as confirm-multi judges them. See FreePlanLimitNotice.
         return ResponseEntity.ok(ApiResponse.ok(staged.withFreePlanLimit(
                 importService.freePlanLimitNotice(userId, staged.staging(), staged.multiAccount() ? staged.sections() : null))));
+    }
+
+    /**
+     * {@link ImportConcurrencyLimiter#runGated}, recording the one refusal that is its own: no
+     * processing slot (Gate 1 spec §5.1). Only {@code IMPORT_SYSTEM_BUSY}, which the limiter alone
+     * throws and only before the work starts -- anything thrown by the work itself reached the
+     * parser, and {@code ImportService} has already recorded that as a FAILED read with the file's
+     * name and hash. Recording it here too would count one upload twice.
+     */
+    private <T> T gated(String sourceFormat, UUID userId, java.util.concurrent.Callable<T> work) throws Exception {
+        try {
+            return concurrencyLimiter.runGated(work);
+        } catch (com.finora.exception.ApiException refused) {
+            if (refused.getCode() == com.finora.exception.ErrorCode.IMPORT_SYSTEM_BUSY) {
+                analysisRecorder.recordRejected(userId, sourceFormat, refused);
+            }
+            throw refused;
+        }
     }
 
     // ADR-0002: plain JSON now, not multipart -- the file no longer needs to be re-uploaded here,

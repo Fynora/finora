@@ -19,8 +19,10 @@
  *    REPLACES the SPA fallback, because Pages prefers `404.html` over `index.html` for unmatched
  *    paths. Every client route 404s. Measured on a preview: `/login`, `/about`, `/terms`,
  *    `/dashboard` all gone.
- *  - Repairing that with `/* /index.html 200` does not work either: Pages does not honour a `200`
- *    rewrite in `_redirects`.
+ *  - Repairing that with `/* /index.html 200` does not work either: Pages drops that rule. Its
+ *    parser rejects a splat rewritten to `/index.html` as an infinite loop, since `/index.html`
+ *    itself redirects to `/`. (An earlier version of this comment said Pages does not honour `200`
+ *    rewrites at all. It does, to an extensionless path: `public/_redirects` relies on it.)
  *
  * A Function is the only mechanism that can distinguish "no such asset" from "a route" without
  * disturbing the fallback that routes depend on.

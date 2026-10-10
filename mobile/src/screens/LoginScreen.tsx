@@ -9,6 +9,7 @@ import { GoogleSignInButton, isGoogleSignInConfigured } from '../components/Goog
 import { LegalFooterLinks } from '../components/LegalFooterLinks';
 import { SocialConsentNotice } from '../components/SocialConsentNotice';
 import { TextField } from '../components/TextField';
+import { TrustNote } from '../components/TrustNote';
 import { useAuth } from '../context/AuthContext';
 import { apiErrorCode, apiErrorDetails, toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
@@ -305,7 +306,7 @@ export function LoginScreen({ navigation, route }: Props) {
   return (
     <AuthScreenLayout
       title="Sign in"
-      subtitle="Enter your details to access your account"
+      subtitle={showSocialSignIn ? "Choose how you'd like to sign in" : 'Enter your details to access your account'}
       error={mode === 'otp' ? otpError : error}
       banner={banner}
       footer={
@@ -314,7 +315,7 @@ export function LoginScreen({ navigation, route }: Props) {
             <Text style={[styles.footerText, { color: c.muted }]}>No account? </Text>
             <Button label="Register" variant="link" onPress={() => navigation.navigate('Register')} />
           </View>
-          <LegalFooterLinks />
+          <LegalFooterLinks hideConsentLinks={showSocialSignIn} />
         </>
       }
     >
@@ -327,7 +328,7 @@ export function LoginScreen({ navigation, route }: Props) {
           <SocialConsentNotice />
           <View style={styles.dividerRow}>
             <View style={[styles.dividerLine, { backgroundColor: c.border }]} />
-            <Text style={[styles.dividerText, { color: c.muted }]}>Or continue below</Text>
+            <Text style={[styles.dividerText, { color: c.muted }]}>or</Text>
             <View style={[styles.dividerLine, { backgroundColor: c.border }]} />
           </View>
         </>
@@ -337,7 +338,7 @@ export function LoginScreen({ navigation, route }: Props) {
         label="Email or mobile number"
         value={identifier}
         onChangeText={setIdentifier}
-        placeholder="you@example.com or +91XXXXXXXXXX"
+        placeholder="you@example.com"
         autoCapitalize="none"
         autoCorrect={false}
         autoComplete="username"
@@ -424,11 +425,7 @@ export function LoginScreen({ navigation, route }: Props) {
         </>
       )}
 
-      <View style={[styles.notice, { backgroundColor: c.primaryLight }]}>
-        <Text style={[styles.noticeText, { color: c.ink }]}>
-          Your financial data is encrypted and securely protected.
-        </Text>
-      </View>
+      <TrustNote />
     </AuthScreenLayout>
   );
 }
@@ -454,8 +451,18 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 1,
   },
+  // Still used by the reactivation-link screen's "valid for 15 minutes" note.
+  notice: {
+    borderRadius: 8,
+    padding: 12,
+    marginTop: spacing.md,
+  },
+  noticeText: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
   dividerText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
     // Applied here rather than typed in caps: VoiceOver/TalkBack often spell out a long
     // hardcoded-caps phrase letter by letter, mistaking it for an acronym -- this keeps the
@@ -469,14 +476,6 @@ const styles = StyleSheet.create({
   cancelRow: {
     alignItems: 'center',
     marginTop: spacing.sm,
-  },
-  notice: {
-    borderRadius: 8,
-    padding: 12,
-    marginTop: spacing.md,
-  },
-  noticeText: {
-    fontSize: 12,
   },
   footerRow: {
     flexDirection: 'row',

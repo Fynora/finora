@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.finora.dto.AdminDtos;
 import com.finora.dto.AdminDtos.OperationalDashboardDto;
 import com.finora.dto.AdminDtos.NeedsAttentionDto;
 import com.finora.dto.AdminDtos.PreviousDayDto;
@@ -148,7 +149,9 @@ public class AdminOperationalDashboardService {
                         EnumSet.copyOf(HeldStatement.Status.RESOLVED)))
                         + importJobRepository.countByStatusAndHeldStatementIdIsNull(
                                 ImportJob.Status.HELD_FOR_TRUST_REVIEW),
-                importJobRepository.countByStatus(ImportJob.Status.HELD_FOR_REVIEW));
+                importJobRepository.countByStatus(ImportJob.Status.HELD_FOR_REVIEW),
+                overdue(ImportJob.Status.HELD_FOR_TRUST_REVIEW),
+                overdue(ImportJob.Status.HELD_FOR_REVIEW));
 
         // Insights row -- inverse of activeUsersToday's own query, same window this class already
         // uses for "today," just walked back INACTIVITY_WINDOW_DAYS instead of one. See
@@ -229,5 +232,13 @@ public class AdminOperationalDashboardService {
                         p.name(),
                         p.detail()))
                 .toList();
+    }
+
+    /** Holds of one status past the 48-hour promise, one per review -- see
+     *  {@link ImportJobRepository#summarizeOverdueHolds}. */
+    private AdminDtos.OverdueHoldsDto overdue(ImportJob.Status status) {
+        ImportJobRepository.OverdueHoldSummary summary = importJobRepository.summarizeOverdueHolds(
+                status, Instant.now().minus(ImportJob.HOLD_PROMISE), HeldStatement.Status.RESOLVED);
+        return new AdminDtos.OverdueHoldsDto(summary.getCount(), summary.getOldest());
     }
 }

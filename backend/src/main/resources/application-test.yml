@@ -75,6 +75,14 @@ app:
     dry-run:
       enabled: false
 
+  # Same reasoning again: the overdue-hold escalation (HoldOverdueEscalationService) is on by
+  # default, and a background run would mark and re-save other tests' backdated holds mid-test -- a
+  # version conflict for whichever test saves that job next. Tests call escalate() directly, which
+  # does not consult this flag.
+  hold-overdue:
+    escalation:
+      enabled: false
+
   # Bug 14. Same reasoning as import.session-cleanup above: a background thread deleting
   # refresh_tokens rows mid-run is exactly the cross-test pollution BH-058 was about. Tests that
   # exercise the sweep call RefreshTokenService.sweepExpiredTokens() directly, which deliberately

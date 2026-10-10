@@ -80,9 +80,9 @@ export function SettingsScreen() {
       </MenuGroup>
 
       {/* Written out row by row, not mapped from a table: appLinks.selfOpen.test.ts finds every
-          page the app sends to a browser by scanning for openWebUrl('<literal path>'), to prove
+          page the app sends to a browser by reading the literal path out of each call, to prove
           none of them is a path Android would hand straight back to the app. A path passed as a
-          variable is invisible to that scan. */}
+          variable is invisible to that scan, and the same test now fails on one. */}
       <MenuGroup label="Legal">
         <MenuRow icon="lock-closed-outline" label="Privacy Policy" accessibilityRole="link" onPress={() => openWebUrl('/privacy')} />
         <MenuRow icon="document-text-outline" label="Terms of Service" accessibilityRole="link" onPress={() => openWebUrl('/terms')} />

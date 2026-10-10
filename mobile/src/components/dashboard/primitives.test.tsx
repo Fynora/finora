@@ -70,6 +70,15 @@ describe('DeltaChip', () => {
     expect(screen.getByText('▲ 8.1%')).toHaveStyle({ color: light.dangerInk });
   });
 
+  // The chip hugs the start of its row by default (under a tile's number). Beside a
+  // right-aligned label it has to sit at the end instead, or the two visibly disagree.
+  it('can sit at the end of its row', () => {
+    const { rerender } = render(<ThemeProvider><DeltaChip delta={1} good testID="chip" /></ThemeProvider>);
+    expect(flat('chip').alignSelf).toBe('flex-start');
+    rerender(<ThemeProvider><DeltaChip delta={1} good align="end" testID="chip" /></ThemeProvider>);
+    expect(flat('chip').alignSelf).toBe('flex-end');
+  });
+
   it('treats zero as a rise of 0.0%, matching the wording the cards used before', () => {
     render(<ThemeProvider><DeltaChip delta={0} good /></ThemeProvider>);
     expect(screen.getByText('▲ 0.0%')).toBeTruthy();

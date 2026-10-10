@@ -95,6 +95,20 @@ describe('HealthHero', () => {
     expect(screen.getByTestId('glass-tint')).toHaveStyle({ backgroundColor: heroTones(light).surface });
   });
 
+  // Found on an iPhone 17 Pro simulator: "Needs Attention" on one line ran straight across the
+  // dial and out the other side. The label lives inside the dial, so it wraps to two lines within
+  // the dial's inner width and may shrink a little before it is ever allowed to touch the arc.
+  it('keeps a long tier label inside the dial', () => {
+    renderHero({ healthScore: 30, healthLabel: 'Needs Attention' });
+    const label = screen.getByText('Needs Attention');
+    expect(label.props.numberOfLines).toBe(2);
+    expect(label.props.adjustsFontSizeToFit).toBe(true);
+    const style = StyleSheet.flatten(label.props.style);
+    expect(style.textAlign).toBe('center');
+    // Inner diameter is GAUGE_SIZE minus the stroke on both sides (116 - 18 = 98).
+    expect(style.maxWidth).toBeLessThanOrEqual(98 - 12);
+  });
+
   it('keeps the onboarding hero on the same surface as the scored one', () => {
     renderHero({ available: false });
     expect(StyleSheet.flatten(screen.getByTestId('health-hero').props.style).backgroundColor).toBe(light.primaryDark);

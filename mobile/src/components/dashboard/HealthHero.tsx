@@ -162,7 +162,17 @@ export function HealthHero({
             ) : null}
           </Svg>
           <View style={styles.gaugeLabel} pointerEvents="none">
-            <Text style={[typography.cardTitle, { color: t.text }]}>{healthLabel}</Text>
+            {/* Inside the dial, so it must fit inside the dial: "Needs Attention" on one line ran
+                across the arc and out the other side on a real screen. Two lines within the inner
+                width, shrinking slightly before it may touch the stroke. */}
+            <Text
+              style={[typography.cardTitle, styles.gaugeLabelText, { color: t.text }]}
+              numberOfLines={2}
+              adjustsFontSizeToFit
+              minimumFontScale={0.8}
+            >
+              {healthLabel}
+            </Text>
           </View>
         </View>
       </View>
@@ -192,6 +202,8 @@ const styles = StyleSheet.create({
   deltaPill: { alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   gauge: { width: GAUGE_SIZE, height: GAUGE_SIZE },
   gaugeLabel: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, alignItems: 'center', justifyContent: 'center' },
+  // The dial's inner diameter (size minus the stroke on both sides), less 6 points of air each side.
+  gaugeLabelText: { maxWidth: GAUGE_SIZE - GAUGE_STROKE * 2 - 12, textAlign: 'center' },
   divider: { height: StyleSheet.hairlineWidth, alignSelf: 'stretch' },
   trendRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
   sparkline: { flex: 1, maxWidth: 170 },

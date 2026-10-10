@@ -66,7 +66,7 @@ export function CashFlowMiniCard({
           // (summary.netDeltaPct), a DIFFERENT comparison than the multi-month average beside it.
           // Unlabeled, the pair reads as if the average itself moved by this percentage.
           <View style={styles.delta}>
-            <DeltaChip delta={deltaPct} good={deltaPct >= 0} />
+            <DeltaChip delta={deltaPct} good={deltaPct >= 0} align="end" />
             <Text style={[typography.caption, styles.deltaLabel, { color: c.mutedInk }]}>{deltaLabel}</Text>
           </View>
         ) : null}

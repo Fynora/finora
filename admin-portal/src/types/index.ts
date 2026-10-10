@@ -102,6 +102,17 @@ export interface NeedsAttentionDto {
   statementsHeldForTrustReview: number;
   /** Parser-gap holds (HELD_FOR_REVIEW) waiting in the Held Imports queue. */
   importsHeldForReview: number;
+  /** Of the trust holds above, those past the 48-hour promise (one per review) -- Gate 1 spec §4.
+   *  Optional: a backend deployed before it omits the field, which reads as none. */
+  trustHoldsOverdue?: OverdueHolds;
+  /** Of the import holds above, those past the 48-hour promise. Optional for the same reason. */
+  importHoldsOverdue?: OverdueHolds;
+}
+
+/** Mirrors backend AdminDtos.OverdueHoldsDto. `oldestHeldSince` is null when `count` is 0. */
+export interface OverdueHolds {
+  count: number;
+  oldestHeldSince: string | null;
 }
 
 /** Mirrors backend OperationalDashboardDto exactly. importsWithSkippedRowsToday is the honest

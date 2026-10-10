@@ -11,6 +11,7 @@ import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
 import { OpenInAppBanner } from './components/OpenInAppBanner';
 import { GMAIL_SYNC_UI_ENABLED } from './lib/features';
+import { useDocumentTitle } from './hooks/useDocumentTitle';
 // Landing stays eagerly imported: it is the first paint for an unauthenticated visitor, so making
 // it lazy would ADD a round trip to the most common entry point rather than removing one.
 import Landing from './pages/Landing';
@@ -63,6 +64,8 @@ const AccountAggregatorConfirm = lazy(() => import('./pages/AccountAggregatorCon
 const Setup = lazy(() => import('./pages/Setup'));
 
 function AppShell({ children }: { children: ReactNode }) {
+  // The tab shows the product's name inside the app, not index.html's search-result title.
+  useDocumentTitle('Fynora');
   return (
     <div className="min-h-screen bg-bg flex">
       <Sidebar />

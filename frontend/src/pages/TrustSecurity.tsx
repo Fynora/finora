@@ -3,16 +3,17 @@ import { PublicLayout, PublicSection } from '../components/PublicLayout';
 
 // Trust & Security (issue #1453). Deliberately short and narrow: Privacy.tsx already covers
 // encryption, the full infrastructure/vendor list, data retention, and administrative access in
-// legal (DPDP Act) detail -- restating that here risks the two documents drifting apart over
+// legal (DPDP Act) detail — restating that here risks the two documents drifting apart over
 // time. This page covers only what Privacy.tsx doesn't: backup/recovery status and Ask Fyn's real
 // limitations, then links out to Privacy.tsx and Terms.tsx for everything else. Every claim below
 // was checked against the current codebase or confirmed directly by the team before being
-// written -- see this ticket's own PR for what was verified and how.
+// written — see this ticket's own PR for what was verified and how.
 export default function TrustSecurity() {
   return (
     <PublicLayout
       title="Trust & Security"
-      subtitle="What actually happens to your data, in plain terms -- not what sounds reassuring."
+      subtitle="What actually happens to your data, in plain terms — not what sounds reassuring."
+      description="What actually happens to your data, in plain terms: where it lives, how backups and point-in-time recovery work, and what Ask Fyn can and cannot do."
     >
       <PublicSection title="Backups & recovery">
         <p>
@@ -24,19 +25,19 @@ export default function TrustSecurity() {
 
       <PublicSection title="Ask Fyn's limitations">
         <p>
-          Ask Fyn, Fynora's AI assistant, is available on every plan, including Free -- a Free
+          Ask Fyn, Fynora's AI assistant, is available on every plan, including Free — a Free
           account has a small daily question limit, Plus doesn't. Fyn only answers using
-          your own data already stored in Finora -- your balance, budget status, recent
-          transactions, and spending by category -- retrieved through a fixed set of lookups each
+          your own data already stored in Fynora — your balance, budget status, recent
+          transactions, and spending by category — retrieved through a fixed set of lookups each
           time you ask a question. It cannot take any action on your account: it has no way to
           create, edit, or delete anything.
         </p>
         <p>
           It's instructed to state only numbers it actually retrieved, never to guess or estimate
-          one, and it isn't a financial advisor -- asked for investment advice or a recommendation
+          one, and it isn't a financial advisor — asked for investment advice or a recommendation
           about a future financial decision, it declines and suggests a licensed advisor instead.
           Your conversations with Fyn are saved so you can scroll back through them, and every
-          call to the AI is separately logged for cost and safety monitoring -- that monitoring
+          call to the AI is separately logged for cost and safety monitoring — that monitoring
           log never contains your raw conversation text, only what tool was used and how it
           performed. Access to Fyn can be disabled instantly if something needs investigating. See{' '}
           <Link to="/privacy" className="text-primary hover:underline">Privacy Policy</Link> for

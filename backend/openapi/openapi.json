@@ -17027,6 +17027,9 @@
                             "HELD_FOR_REVIEW",
                             "CANCELLED"
                         ]
+                    },
+                    "holdOverdue": {
+                        "type": "boolean"
                     }
                 }
             },
@@ -27485,6 +27488,12 @@
                     "importsHeldForReview": {
                         "type": "integer",
                         "format": "int64"
+                    },
+                    "trustHoldsOverdue": {
+                        "$ref": "#/components/schemas/OverdueHoldsDto"
+                    },
+                    "importHoldsOverdue": {
+                        "$ref": "#/components/schemas/OverdueHoldsDto"
                     }
                 }
             },
@@ -27535,6 +27544,19 @@
                         "items": {
                             "$ref": "#/components/schemas/AuditLogDto"
                         }
+                    }
+                }
+            },
+            "OverdueHoldsDto": {
+                "type": "object",
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "oldestHeldSince": {
+                        "type": "string",
+                        "format": "date-time"
                     }
                 }
             },

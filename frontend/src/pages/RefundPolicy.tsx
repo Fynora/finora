@@ -7,6 +7,7 @@ export default function RefundPolicy() {
     <PublicLayout
       title="Refund & Cancellation Policy"
       subtitle="Last updated: September 2026. Applies to any paid Fynora subscription (Plus)."
+      description="How to cancel a Fynora Plus subscription on the web, iOS or Android, when access ends, and which refunds Fynora, Apple or Google can issue."
     >
       <PublicSection title="Current Billing Status">
         <p>

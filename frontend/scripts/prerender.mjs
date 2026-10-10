@@ -12,10 +12,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
 import {
+  decodeEntities,
   pageDescriptionFromMarkup,
+  pageHeadingFromMarkup,
   pageTitleFromMarkup,
   withCanonical,
   withPageMeta,
+  withStructuredData,
   withTitle,
 } from './prerenderTitle.mjs';
 
@@ -64,7 +67,7 @@ async function main() {
     logLevel: 'warn',
   });
 
-  const { routes } = await import(pathToFileURL(path.join(ssrOutDir, 'ssr-entry.mjs')));
+  const { routes, structuredDataFor, jsonLdScripts } = await import(pathToFileURL(path.join(ssrOutDir, 'ssr-entry.mjs')));
 
   const template = fs.readFileSync(path.join(distDir, 'index.html'), 'utf-8');
   if (!template.includes(ROOT_DIV)) {
@@ -78,13 +81,19 @@ async function main() {
     // keeps index.html's own -- its <h1> is the hero headline, not a page name. A page with no
     // <h1> fails the build instead of quietly shipping the shared title again.
     let pageTemplate = template;
+    let heading = null;
     if (route !== '/') {
       const title = pageTitleFromMarkup(appHtml);
       if (!title) throw new Error(`prerender: no <h1> to take a <title> from for ${route}`);
+      heading = decodeEntities(pageHeadingFromMarkup(appHtml));
       const description = pageDescriptionFromMarkup(appHtml);
       if (!description) throw new Error(`prerender: no subtitle to take a description from for ${route}`);
       pageTemplate = withPageMeta(withCanonical(withTitle(template, title), route), { title, description, route });
     }
+    // JSON-LD for the page (Organization/WebSite/SoftwareApplication/FAQPage on the homepage,
+    // breadcrumbs elsewhere, the Help articles as an FAQPage on /help). Built from the pages' own
+    // data in src/lib/structuredData.ts, so it cannot say something the page does not.
+    pageTemplate = withStructuredData(pageTemplate, jsonLdScripts(structuredDataFor(route, heading)));
     const outHtml = pageTemplate.replace(ROOT_DIV, `<div id="root">${appHtml}</div>`);
     fs.writeFileSync(path.join(distDir, fileName), outHtml);
     console.log(`prerender: ${route} -> dist/${fileName} (${appHtml.length} chars of markup)`);

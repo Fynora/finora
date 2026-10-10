@@ -54,6 +54,41 @@ describe('AmbientCanvas', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  // The probe creates a real WebGL context. On a phone, or with reduced motion, nothing it reports
+  // can change what renders, so it must not run at all there.
+  it('never probes WebGL on mobile', () => {
+    vi.mocked(useReducedMotion).mockReturnValue(false);
+    vi.mocked(isWebglAvailable).mockReturnValue(true);
+    vi.mocked(useIsDesktop).mockReturnValue(false);
+
+    render(<AmbientCanvas />);
+    expect(isWebglAvailable).not.toHaveBeenCalled();
+  });
+
+  it('never probes WebGL when the user prefers reduced motion', () => {
+    vi.mocked(useReducedMotion).mockReturnValue(true);
+    vi.mocked(isWebglAvailable).mockReturnValue(true);
+    vi.mocked(useIsDesktop).mockReturnValue(true);
+
+    render(<AmbientCanvas />);
+    expect(isWebglAvailable).not.toHaveBeenCalled();
+  });
+
+  it('probes WebGL once, when a narrow window widens to desktop, and not again on re-render', async () => {
+    vi.mocked(useReducedMotion).mockReturnValue(false);
+    vi.mocked(isWebglAvailable).mockReturnValue(true);
+    vi.mocked(useIsDesktop).mockReturnValue(false);
+
+    const { rerender } = render(<AmbientCanvas />);
+    expect(isWebglAvailable).not.toHaveBeenCalled();
+
+    vi.mocked(useIsDesktop).mockReturnValue(true);
+    rerender(<AmbientCanvas />);
+    expect(await screen.findByTestId('ambient-scene-stub')).toBeInTheDocument();
+    rerender(<AmbientCanvas />);
+    expect(isWebglAvailable).toHaveBeenCalledTimes(1);
+  });
+
   it('renders nothing when the user prefers reduced motion, even with WebGL and desktop available', () => {
     vi.mocked(useReducedMotion).mockReturnValue(true);
     vi.mocked(isWebglAvailable).mockReturnValue(true);

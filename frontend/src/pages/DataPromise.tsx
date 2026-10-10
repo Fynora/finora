@@ -29,6 +29,7 @@ export default function DataPromise() {
     <PublicLayout
       title="Your Data, Always Yours"
       subtitle="Full export, every plan, no upgrade required."
+      description="Every Fynora plan, Free included, can export the whole account at any time: accounts, transactions, budgets, goals and original statement files, as one ZIP."
     >
       <PublicSection title="The promise">
         <p>

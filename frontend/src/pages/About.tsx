@@ -6,6 +6,7 @@ export default function About() {
     <PublicLayout
       title="About Fynora"
       subtitle="A financial operating system built for people who are tired of spreadsheets."
+      description="Fynora is a personal finance platform that turns a bank or credit card statement into one organized view of your accounts, transactions, budgets and goals."
     >
       <PublicSection title="What Fynora Is">
         <p>

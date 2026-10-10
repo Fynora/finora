@@ -13,7 +13,7 @@ import { usePreventScreenCapture } from '../lib/screenCapture';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { importJobsApi, statementImportsApi, type ImportJobProgress } from '../api/endpoints';
 import {
-  detail as jobDetail, failureReason, isDismissable, label as jobLabel, listedRecentImports,
+  detail as jobDetail, failureReason, isDismissable, isHeld, label as jobLabel, listedRecentImports,
   recentImportsRefetchIntervalMs,
 } from '../lib/importJob';
 import { PDF_PASSWORD_INVALID, PDF_PASSWORD_REQUIRED } from '../api/errorCodes';
@@ -209,7 +209,15 @@ export function StatementHistoryScreen() {
           </Card>
         ) : null}
 
-        {listedJobs.length > 0 ? <RecentImportsCard jobs={listedJobs} /> : null}
+        {listedJobs.length > 0 ? (
+          <RecentImportsCard
+            jobs={listedJobs}
+            onUploadAnother={() => {
+              trackNavigation('import-statement', 'contextual');
+              navigation.getParent<BottomTabNavigationProp<AppTabParamList>>()?.navigate('Import');
+            }}
+          />
+        ) : null}
 
         {isLoading ? (
           <ActivityIndicator color={c.primary} />
@@ -259,7 +267,7 @@ export function StatementHistoryScreen() {
  * there is no detail page to tap through to here, and "Couldn't finish" alone is the dead end this
  * card exists to close.
  */
-function RecentImportsCard({ jobs }: { jobs: ImportJobProgress[] }) {
+function RecentImportsCard({ jobs, onUploadAnother }: { jobs: ImportJobProgress[]; onUploadAnother: () => void }) {
   const c = useTheme();
   const queryClient = useQueryClient();
   const [dismissing, setDismissing] = useState<string | null>(null);
@@ -314,6 +322,19 @@ function RecentImportsCard({ jobs }: { jobs: ImportJobProgress[] }) {
                   icon="close-circle-outline"
                   onPress={() => void dismiss(job)}
                   busy={dismissing === job.jobId}
+                />
+              </View>
+            ) : null}
+            {/* An overdue hold's apology offers uploading a different statement meanwhile (Gate 1
+                spec §4), so its row offers the way to do it. Within the promise there is nothing
+                to do but wait, and the copy says so. */}
+            {isHeld(job) && job.holdOverdue ? (
+              <View style={styles.actionRow}>
+                <RowAction
+                  label="Upload a different statement"
+                  accessibilityLabel={`Upload a different statement instead of ${job.fileName}`}
+                  icon="cloud-upload-outline"
+                  onPress={onUploadAnother}
                 />
               </View>
             ) : null}

@@ -5,7 +5,7 @@ import { PublicLayout } from './PublicLayout';
 import Terms from '../pages/Terms';
 import RefundPolicy from '../pages/RefundPolicy';
 
-const APP_TITLE = 'Fynora — Personal finance, simplified';
+const APP_TITLE = 'Bank statement analyzer for Indian banks and cards — Fynora';
 
 describe('PublicLayout document title', () => {
   beforeEach(() => {

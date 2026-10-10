@@ -335,26 +335,10 @@ jest.mock('@react-native-community/datetimepicker', () => ({
   DateTimePickerAndroid: { open: jest.fn(), dismiss: jest.fn() },
 }));
 
-// D-23 Phase 2. Native module -- rendered as a plain Pressable/Text so GoogleSignInButton's own
+// D-23 Phase 2. Native module -- the button itself is GoogleSignInButton's own Pressable, so its
 // onPress wiring is exercised for real; signIn()/hasPlayServices() are left as bare jest.fn()s for
 // each test to configure, same posture as authApi's own mock in AuthContext.test.tsx.
 jest.mock('@react-native-google-signin/google-signin', () => {
-  const React = require('react');
-  const { Pressable, Text } = require('react-native');
-  const GoogleSigninButton = ({
-    onPress,
-    disabled,
-  }: {
-    onPress: () => void;
-    disabled?: boolean;
-  }) =>
-    React.createElement(
-      Pressable,
-      { onPress, disabled, accessibilityRole: 'button', accessibilityLabel: 'Sign in with Google' },
-      React.createElement(Text, null, 'Sign in with Google')
-    );
-  GoogleSigninButton.Size = { Icon: 0, Standard: 1, Wide: 2 };
-  GoogleSigninButton.Color = { Dark: 'dark', Light: 'light' };
   return {
     __esModule: true,
     GoogleSignin: {
@@ -363,7 +347,6 @@ jest.mock('@react-native-google-signin/google-signin', () => {
       signIn: jest.fn(),
       signOut: jest.fn(async () => {}),
     },
-    GoogleSigninButton,
     isSuccessResponse: (response: { type: string }) => response?.type === 'success',
     isErrorWithCode: (err: unknown): err is { code: string } =>
       typeof (err as { code?: unknown })?.code === 'string',

@@ -17,13 +17,24 @@ const AmbientScene = lazy(() =>
  * WebGL failing specifically (desktop, motion allowed, but no real GPU context) still gets a
  * static CSS gradient so the hero doesn't lose all ambient depth -- reduced-motion and mobile
  * render nothing at all, because the hero's own background already supplies enough surface there.
+ *
+ * The WebGL probe lives in AmbientCanvasLayer, below the cheap gates, so it only runs when its
+ * answer can change what renders. It used to run first, as this component's useState initialiser,
+ * so every phone visit created a real WebGL context during the landing page's first render and
+ * then rendered nothing. A CPU profile of the production homepage under mobile emulation showed
+ * the probe inside that first render task.
  */
 export function AmbientCanvas() {
   const prefersReducedMotion = useReducedMotion();
   const isDesktop = useIsDesktop();
-  const [webglOk] = useState(isWebglAvailable);
 
   if (prefersReducedMotion || !isDesktop) return null;
+
+  return <AmbientCanvasLayer />;
+}
+
+function AmbientCanvasLayer() {
+  const [webglOk] = useState(isWebglAvailable);
 
   if (!webglOk) {
     return (

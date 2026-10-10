@@ -310,4 +310,24 @@ describe('Dashboard — needs attention: open holds', () => {
     expect(screen.getByRole('link', { name: /Open Held Imports/i })).toHaveAttribute('href', '/held-imports');
     expect(screen.queryByText('Nothing needs attention right now.')).not.toBeInTheDocument();
   });
+
+  // Gate 1 spec §4: a hold past its 48-hour promise is shown first and distinctly, with its age.
+  it('leads with an overdue hold, in the danger style, ahead of the ordinary hold rows', async () => {
+    vi.mocked(adminDashboardApi.overview).mockReset().mockResolvedValue(overview({
+      needsAttention: {
+        importsWithSkippedRowsToday: 0, lockedAccounts: 0, transactionsNeedingCategoryReview: 0,
+        transactionsFlaggedAsDuplicates: 0, statementsHeldForTrustReview: 0, importsHeldForReview: 2,
+        trustHoldsOverdue: { count: 0, oldestHeldSince: null },
+        importHoldsOverdue: { count: 1, oldestHeldSince: new Date(Date.now() - 4 * 86_400_000).toISOString() },
+      },
+    }));
+
+    renderPage();
+
+    const overdue = await screen.findByText(/held import is past the 48-hour promise — oldest waiting 4 days/);
+    const held = screen.getByText(/imports are held for review/);
+    expect(overdue.compareDocumentPosition(held) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(overdue.closest('[data-overdue]')).toHaveClass('bg-danger-bg');
+    expect(held.closest('[data-overdue]')).toBeNull();
+  });
 });

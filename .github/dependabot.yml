@@ -135,6 +135,16 @@ updates:
   # when Expo ships SDK 58 with react-native@0.87.x support, at which point expo, jest-expo and
   # react-native should all be bumped together (see #242).
   #
+  # The same ignore covers every `@react-native/*` package, and the `react-native` group makes their
+  # patch releases arrive in the same PR as react-native's own. React Native publishes its scoped
+  # packages from one monorepo at one shared version, and they assume the react-native they shipped
+  # with. Ignoring only `react-native` was not enough: PR #2046 grouped @react-native/jest-preset
+  # 0.86.3 -> 0.87.1 into npm-minor-and-patch while react-native stayed on 0.86.3, and every mobile
+  # test suite failed to load with "Could not locate module react-native/setup-env" -- the 0.87
+  # preset maps react-native/src/setup-env.js, a file 0.86 does not ship. #2061 pinned the preset
+  # back to 0.86.3. `@react-native/*` is a wildcard on purpose; it does not match
+  # `@react-native-community/*` or other `@react-native-*` scopes, which version independently.
+  #
   # react-native-reanimated and react-native-worklets are ignored past 4.5.1/0.10.1 for a peer-
   # dependency conflict, not a react-native-shaped module-path break: PR #1055 grouped
   # reanimated 4.5.1 -> 4.6.0 and worklets 0.10.1 -> 0.12.1 with an expo 57.0.18 -> 57.0.19 bump
@@ -165,10 +175,19 @@ updates:
       day: monday
     open-pull-requests-limit: 2
     groups:
+      # Listed before npm-minor-and-patch so it catches these first -- see the `react` group note on
+      # /frontend. Only patch updates can reach it; minor and major are ignored below.
+      react-native:
+        patterns:
+          - react-native
+          - "@react-native/*"
+        update-types: [patch]
       npm-minor-and-patch:
         update-types: [minor, patch]
     ignore:
       - dependency-name: "react-native"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: "@react-native/*"
         update-types: ["version-update:semver-minor", "version-update:semver-major"]
       - dependency-name: "react-native-reanimated"
         update-types: ["version-update:semver-minor", "version-update:semver-major"]

@@ -6,15 +6,16 @@ import { AppleSignInButton } from '../components/AppleSignInButton';
 import { AuthScreenLayout } from '../components/AuthScreenLayout';
 import { Button } from '../components/Button';
 import { GoogleSignInButton, isGoogleSignInConfigured } from '../components/GoogleSignInButton';
+import { LegalLink } from '../components/LegalLink';
 import { TextField } from '../components/TextField';
+import { TrustNote } from '../components/TrustNote';
 import { useAuth } from '../context/AuthContext';
 import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import {
   EMAIL_PATTERN, FULL_NAME_PATTERN, PHONE_PATTERN, passwordStrength, sanitizePhoneNumber,
 } from '../lib/validation';
-import { openWebUrl } from '../lib/webUrl';
-import { radius, spacing, useTheme } from '../theme';
+import { spacing, useTheme } from '../theme';
 import type { AuthStackParamList } from '../navigation/types';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Register'>;
@@ -143,7 +144,7 @@ export function RegisterScreen({ navigation, route }: Props) {
           </View>
           <View style={styles.dividerRow}>
             <View style={[styles.dividerLine, { backgroundColor: c.border }]} />
-            <Text style={[styles.dividerText, { color: c.muted }]}>Or continue below</Text>
+            <Text style={[styles.dividerText, { color: c.muted }]}>or</Text>
             <View style={[styles.dividerLine, { backgroundColor: c.border }]} />
           </View>
         </>
@@ -247,25 +248,17 @@ export function RegisterScreen({ navigation, route }: Props) {
           out to the web app's Privacy/Terms pages via webUrl -- mobile has no in-app copies of
           them (see SettingsScreen's own Legal section for the same links, reachable
           post-registration too). */}
-      <Text style={[styles.termsLabel, { color: c.muted }]}>
-        By continuing, you agree to Fynora&apos;s{' '}
-        <Text style={[styles.termsLink, { color: c.primary }]} onPress={() => openWebUrl('/terms')}>
-          Terms of Service
-        </Text>{' '}
-        and{' '}
-        <Text style={[styles.termsLink, { color: c.primary }]} onPress={() => openWebUrl('/privacy')}>
-          Privacy Policy
-        </Text>
-        .
-      </Text>
+      <View style={styles.terms}>
+        <Text style={[styles.termsLabel, { color: c.muted }]}>By continuing, you agree to Fynora&apos;s</Text>
+        <View style={styles.termsLinks}>
+          <LegalLink label="Terms of Service" path="/terms" />
+          <LegalLink label="Privacy Policy" path="/privacy" />
+        </View>
+      </View>
 
       <Button label="Create account" onPress={handleSubmit} loading={loading} disabled={!formValid} pressScale />
 
-      <View style={[styles.notice, { backgroundColor: c.primaryLight }]}>
-        <Text style={[styles.noticeText, { color: c.ink }]}>
-          Your financial data is encrypted and securely protected.
-        </Text>
-      </View>
+      <TrustNote />
     </AuthScreenLayout>
   );
 }
@@ -286,7 +279,7 @@ const styles = StyleSheet.create({
     height: 1,
   },
   dividerText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
     // Applied here rather than typed in caps: VoiceOver/TalkBack often spell out a long
     // hardcoded-caps phrase letter by letter, mistaking it for an acronym -- this keeps the
@@ -297,10 +290,9 @@ const styles = StyleSheet.create({
   socialStack: {
     gap: spacing.sm,
   },
-  termsLabel: {
-    fontSize: 12, lineHeight: 17, marginTop: spacing.sm, marginBottom: spacing.md,
-  },
-  termsLink: { fontWeight: '600' },
+  terms: { marginTop: spacing.sm, marginBottom: spacing.md },
+  termsLabel: { fontSize: 13, lineHeight: 18 },
+  termsLinks: { flexDirection: 'row', flexWrap: 'wrap', columnGap: spacing.md },
   strengthBars: {
     flexDirection: 'row',
     gap: 4,
@@ -313,14 +305,6 @@ const styles = StyleSheet.create({
   },
   strengthLabel: {
     fontSize: 11,
-  },
-  notice: {
-    borderRadius: radius.md,
-    padding: 12,
-    marginTop: spacing.md,
-  },
-  noticeText: {
-    fontSize: 12,
   },
   footerRow: {
     flexDirection: 'row',

@@ -689,6 +689,10 @@ export interface ImportJobProgress {
   // working, so a transient error is deliberately not surfaced mid-flight.
   error: string | null;
   correlationId: string | null;
+  // Gate 1 spec §4: true once a held job has passed the 48-hour promise its copy makes, decided on
+  // the server's clock. Optional because a server deployed before it omits the field -- which
+  // must read as "within the promise", never as overdue.
+  holdOverdue?: boolean;
 }
 
 /** One stage's transition, for the import timeline (Premium Import Reliability v1, §3.1).

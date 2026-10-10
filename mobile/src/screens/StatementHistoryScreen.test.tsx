@@ -443,6 +443,22 @@ describe('StatementHistoryScreen — recent imports', () => {
     expect(screen.getByText('held.pdf')).toBeOnTheScreen();
   });
 
+  // Gate 1 spec §4: an overdue hold's apology offers uploading a different statement meanwhile, so
+  // the row that shows the apology offers the way to do it. Within the promise it offers nothing.
+  it('offers a different statement on an overdue hold, and only there', async () => {
+    jobs.recent.mockResolvedValue([
+      job({ jobId: 'job-overdue', status: 'HELD_FOR_TRUST_REVIEW', userStatus: 'HELD_FOR_REVIEW', fileName: 'overdue.pdf', holdOverdue: true }),
+      job({ jobId: 'job-held', status: 'HELD_FOR_REVIEW', userStatus: 'HELD_FOR_REVIEW', fileName: 'held.pdf', holdOverdue: false }),
+    ]);
+    renderScreen();
+
+    expect(await screen.findByText('overdue.pdf')).toBeOnTheScreen();
+    expect(screen.queryByLabelText('Upload a different statement instead of held.pdf')).toBeNull();
+    fireEvent.press(screen.getByLabelText('Upload a different statement instead of overdue.pdf'));
+
+    expect(mockNavigateToImport).toHaveBeenCalledWith('Import');
+  });
+
   it('offers no dismiss on an import that is not over', async () => {
     jobs.recent.mockResolvedValue([
       job({ jobId: 'job-held', status: 'HELD_FOR_TRUST_REVIEW', userStatus: 'HELD_FOR_REVIEW', fileName: 'held.pdf' }),

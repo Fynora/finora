@@ -1,4 +1,4 @@
-import { HELD_DETAIL, HELD_LABEL, detail, isCancellable, isHeld, isReviewable, isSettled, label, percent } from './importJob';
+import { HELD_DETAIL, HELD_LABEL, HELD_OVERDUE_DETAIL, detail, heldDetail,isCancellable, isHeld, isReviewable, isSettled, label, percent } from './importJob';
 import type { ImportJobProgress } from '../api/endpoints';
 
 /**
@@ -211,6 +211,43 @@ describe('importJob — held for review', () => {
 
   it('shows no progress percentage — nothing is running', () => {
     expect(percent(held())).toBeNull();
+  });
+});
+
+describe('importJob — a hold past its 48-hour promise', () => {
+  // Gate 1 spec §4. The server decides (holdOverdue); the client only renders it.
+  const held = (over: Partial<ImportJobProgress> = {}) =>
+    job({ status: 'HELD_FOR_TRUST_REVIEW', userStatus: 'HELD_FOR_REVIEW', ...over });
+
+  it('keeps the 48-hour copy while the hold is within its promise', () => {
+    expect(detail(held({ holdOverdue: false }))).toBe(HELD_DETAIL);
+    expect(heldDetail(held({ holdOverdue: false }))).toBe(HELD_DETAIL);
+  });
+
+  it('apologises instead once the hold is overdue, for both holds alike', () => {
+    expect(detail(held({ holdOverdue: true }))).toBe(HELD_OVERDUE_DETAIL);
+    expect(detail(held({ status: 'HELD_FOR_REVIEW', holdOverdue: true }))).toBe(HELD_OVERDUE_DETAIL);
+    expect(HELD_OVERDUE_DETAIL).toBe(
+      'This is taking longer than we promised — sorry. You can keep waiting, or upload a different '
+      + "statement in the meantime. We'll notify you as soon as this one is done.",
+    );
+  });
+
+  it('never repeats the broken 48-hour promise and never questions the statement', () => {
+    expect(HELD_OVERDUE_DETAIL).not.toContain('48 hours');
+    for (const forbidden of ['genuine', 'authentic', 'verify', 'legitimate', 'fraud', 'suspicious']) {
+      expect(HELD_OVERDUE_DETAIL.toLowerCase()).not.toContain(forbidden);
+    }
+  });
+
+  it('keeps the normal copy when a server that predates holdOverdue omits it', () => {
+    expect(detail(held())).toBe(HELD_DETAIL);
+  });
+
+  it('ignores a stray holdOverdue on a job that is not held', () => {
+    expect(detail(job({ status: 'COMPLETED', userStatus: 'COMPLETED', rowsTotal: 3, holdOverdue: true })))
+      .toBe('3 transactions found');
+    expect(detail(job({ status: 'FAILED', userStatus: 'FAILED', holdOverdue: true }))).toBeNull();
   });
 });
 

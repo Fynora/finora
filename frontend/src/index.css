@@ -494,6 +494,15 @@ input, textarea, select {
   color: var(--m-ink-2);
 }
 
+/* The prerendered homepage (pages/HomeCrawlerFallback.tsx) reserves the space where the hero's
+   dashboard and score row fade in once the bundle runs, and on a tall screen keeps its prose below
+   the fold until the real sections arrive. With scripting off nothing arrives, so both would be
+   empty space between the hero copy and the page below it. */
+@media (scripting: none) {
+  [data-hero-pending] { display: none; }
+  [data-hero-fold] { min-height: 0; }
+}
+
 @layer components {
   /* The small uppercase label above a section heading. Carries more of the "designed" feel
      than any other single element in the layout. */

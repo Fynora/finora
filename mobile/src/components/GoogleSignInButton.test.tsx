@@ -183,6 +183,17 @@ describe('GoogleSignInButton', () => {
 
     // Placed after the credential test: GoogleSignin.configure() runs once per module load and
     // that test asserts on it, so it must own the file's first press.
+    it('tints the button while a finger is down', () => {
+      // Pressable's pressed flag is set by the responder system, not by fireEvent('pressIn'), so
+      // the touch is delivered as a responder grant (release is deferred by Pressable's minimum
+      // press duration, so only the down state is asserted).
+      const { view } = renderButton();
+      const button = view.getByTestId('google-sign-in-button');
+      expect(button).toHaveStyle({ backgroundColor: '#ffffff' });
+      fireEvent(button, 'responderGrant', { persist: () => {}, nativeEvent: { touches: [], changedTouches: [], pageX: 1, pageY: 1, locationX: 1, locationY: 1, timestamp: Date.now(), identifier: 1, target: 1 } });
+      expect(button).toHaveStyle({ backgroundColor: '#f2f2f2' });
+    });
+
     it('dims and blocks the button while a sign-in is in flight, like the Apple button', async () => {
       let finish: () => void = () => {};
       mockedGoogleSignin.signIn.mockReturnValue(new Promise<never>((resolve) => { finish = () => resolve({ type: 'cancelled', data: null } as never); }));

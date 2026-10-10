@@ -8,14 +8,16 @@ import { spacing, useTheme } from '../theme';
  * banners above the form; a lock glyph and a muted caption say the same thing at the weight of a
  * footnote. One component so the three screens cannot drift apart again.
  */
+const COPY = 'Your financial data is encrypted and securely protected.';
+
 export function TrustNote() {
   const c = useTheme();
   return (
-    <View style={styles.row} accessible accessibilityRole="text">
+    // One accessibility element with the sentence as its label: without the label the glyph
+    // joins in as an empty item and the simulator's tree read ", Your financial data…".
+    <View style={styles.row} accessible accessibilityRole="text" accessibilityLabel={COPY}>
       <Ionicons name="lock-closed-outline" size={14} color={c.muted} />
-      <Text style={[styles.text, { color: c.muted }]}>
-        Your financial data is encrypted and securely protected.
-      </Text>
+      <Text style={[styles.text, { color: c.muted }]}>{COPY}</Text>
     </View>
   );
 }

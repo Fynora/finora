@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Platform, StyleSheet, View } from 'react-native';
+import { PixelRatio, Platform, StyleSheet, View } from 'react-native';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { radius, useThemeSetting } from '../theme';
 
@@ -32,6 +32,11 @@ export function AppleSignInButton({
   const [loading, setLoading] = useState(false);
 
   if (Platform.OS !== 'ios') return null;
+
+  // The native button ignores Dynamic Type for its title but draws the title in proportion to
+  // the control's height, so the height follows the font scale instead: 48pt at the default
+  // size, capped at 1.5x so the largest accessibility sizes do not turn it into a banner.
+  const height = Math.round(48 * Math.min(PixelRatio.getFontScale(), 1.5));
 
   async function handlePress() {
     setLoading(true);
@@ -69,7 +74,7 @@ export function AppleSignInButton({
             : AppleAuthentication.AppleAuthenticationButtonStyle.BLACK
         }
         cornerRadius={radius.md}
-        style={styles.button}
+        style={[styles.button, { height }]}
         onPress={handlePress}
       />
     </View>
@@ -85,6 +90,5 @@ const styles = StyleSheet.create({
   },
   button: {
     width: '100%',
-    height: 48,
   },
 });

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 
-import { isSpaFallback, onRequest } from './[[path]]';
+import { isDocumentForMissingAsset, onRequest } from './[[path]]';
 
 /**
  * This file is deployed straight to Cloudflare's edge and is not part of the app's Vite build, so
@@ -16,10 +16,22 @@ function assetResponse(contentType: string, status = 200): Response {
   return new Response('console.log(1)', { status, headers: { 'content-type': contentType } });
 }
 
-describe('isSpaFallback', () => {
-  /** The bug: Pages answers a deleted chunk with index.html and a success status. */
-  it('recognises the fallback by its content type, not its status', () => {
-    expect(isSpaFallback(assetResponse('text/html; charset=utf-8'))).toBe(true);
+describe('isDocumentForMissingAsset', () => {
+  /** The original bug: Pages answered a deleted chunk with index.html and a success status. */
+  it('recognises the SPA fallback by its content type, not its status', () => {
+    expect(isDocumentForMissingAsset(assetResponse('text/html; charset=utf-8'))).toBe(true);
+  });
+
+  /**
+   * What Pages answers with since the build has a top-level 404.html: the not-found page, with a
+   * 404. Measured on a Pages preview. The status is already right; the body is still a document.
+   */
+  it('recognises the not-found page Pages serves for a missing file', () => {
+    expect(isDocumentForMissingAsset(assetResponse('text/html; charset=utf-8', 404))).toBe(true);
+  });
+
+  it('leaves a 404 that is not a document alone', () => {
+    expect(isDocumentForMissingAsset(assetResponse('text/plain; charset=utf-8', 404))).toBe(false);
   });
 
   it.each([
@@ -29,7 +41,7 @@ describe('isSpaFallback', () => {
     ['a font', 'font/woff2'],
     ['an image', 'image/svg+xml'],
   ])('leaves %s alone', (_kind, contentType) => {
-    expect(isSpaFallback(assetResponse(contentType))).toBe(false);
+    expect(isDocumentForMissingAsset(assetResponse(contentType))).toBe(false);
   });
 
   /**
@@ -40,15 +52,15 @@ describe('isSpaFallback', () => {
   it('passes a 304 through rather than reading its missing content type', () => {
     const notModified = new Response(null, { status: 304 });
 
-    expect(isSpaFallback(notModified)).toBe(false);
+    expect(isDocumentForMissingAsset(notModified)).toBe(false);
   });
 
   it('passes a genuine upstream error through untouched', () => {
-    expect(isSpaFallback(assetResponse('text/html', 500))).toBe(false);
+    expect(isDocumentForMissingAsset(assetResponse('text/html', 500))).toBe(false);
   });
 
   it('does not assume a content-type header is present', () => {
-    expect(isSpaFallback(new Response('body', { status: 200 }))).toBe(false);
+    expect(isDocumentForMissingAsset(new Response('body', { status: 200 }))).toBe(false);
   });
 });
 
@@ -60,6 +72,30 @@ describe('onRequest', () => {
 
     expect(response.status).toBe(404);
     expect(response.headers.get('content-type')).toContain('text/plain');
+  });
+
+  it('replaces the not-found page with the same plain 404, so a script request never gets a document', async () => {
+    const page = new Response('<!doctype html><h1>Page not found</h1>', {
+      status: 404,
+      headers: { 'content-type': 'text/html; charset=utf-8' },
+    });
+    const next = vi.fn().mockResolvedValue(page);
+
+    const response = await onRequest({ next });
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get('content-type')).toContain('text/plain');
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.text()).toBe('Not found\n');
+  });
+
+  it('passes an upstream error document through, status and body', async () => {
+    const failure = new Response('<h1>Bad gateway</h1>', { status: 502, headers: { 'content-type': 'text/html' } });
+    const next = vi.fn().mockResolvedValue(failure);
+
+    const response = await onRequest({ next });
+
+    expect(response).toBe(failure);
   });
 
   /** The whole point of the change: a browser asking for a module must get a 404 it understands,

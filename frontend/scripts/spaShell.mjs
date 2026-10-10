@@ -1,12 +1,13 @@
 // The blank document served to routes that only exist in the browser (/auth, /reset-password,
 // /app/... -- see public/_redirects, which names them and explains the mechanism).
 //
-// Why it exists: dist/index.html is the prerendered HOMEPAGE, and it is also what Cloudflare Pages
-// answers with for any path that has no file of its own. So a direct visit to /auth or an emailed
-// /reset-password link painted the homepage -- headline, "Get started" buttons and all -- until the
-// main bundle ran and React replaced it: about 1.6 s on a throttled phone, cold. The shell is the
-// same built document with nothing inside #root, so those routes paint the page background and
-// then their own content, never someone else's.
+// Why it exists: these routes have no file of their own, and neither document Cloudflare Pages
+// would otherwise answer with is theirs. dist/index.html is the prerendered HOMEPAGE: while it was
+// the fallback, a direct visit to /auth or an emailed /reset-password link painted the homepage --
+// headline, "Get started" buttons and all -- until the main bundle ran and React replaced it, about
+// 1.6 s on a throttled phone, cold. dist/404.html, the fallback since the build has had one, is the
+// not-found page and comes with HTTP 404. The shell is the same built document with nothing inside
+// #root, so those routes answer 200, paint the page background and then their own content.
 import { noindexHtml } from './crawlPolicy.mjs';
 
 /** The built file. Served at SPA_SHELL_PATH: Pages drops the extension (and 308s the .html URL). */

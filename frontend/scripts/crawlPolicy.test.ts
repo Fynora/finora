@@ -58,6 +58,13 @@ describe('noindexHtml', () => {
     expect(noindexHtml(once)).toBe(once);
   });
 
+  it('rewrites a robots meta the page already carries, so the not-found page says nofollow too and only once', () => {
+    // scripts/prerender.mjs bakes `noindex` into dist/404.html.
+    const out = noindexHtml('<html><head><meta name="robots" content="noindex" />\n</head><body></body></html>');
+    expect(out.match(/<meta name="robots"/g)).toHaveLength(1);
+    expect(out).toContain('<meta name="robots" content="noindex, nofollow" />');
+  });
+
   it('refuses a file with no </head> instead of silently leaving it indexable', () => {
     expect(() => noindexHtml('<html></html>')).toThrow(/no <\/head>/);
   });

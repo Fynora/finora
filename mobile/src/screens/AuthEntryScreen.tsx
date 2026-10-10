@@ -8,6 +8,7 @@ import { GoogleSignInButton, isGoogleSignInConfigured } from '../components/Goog
 import { LegalFooterLinks } from '../components/LegalFooterLinks';
 import { SocialConsentNotice } from '../components/SocialConsentNotice';
 import { TextField } from '../components/TextField';
+import { TrustNote } from '../components/TrustNote';
 import { useAuth } from '../context/AuthContext';
 import { authApi } from '../api/endpoints';
 import { apiErrorCode, apiErrorDetails, toUserMessage } from '../lib/apiError';
@@ -167,9 +168,11 @@ export function AuthEntryScreen({ navigation }: Props) {
   return (
     <AuthScreenLayout
       title="Sign in or create an account"
-      subtitle="Enter your email or mobile number to continue"
+      // The field label already says what the field wants; above Google/Apple that line read as
+      // an instruction the buttons contradict.
+      subtitle={showSocialSignIn ? "Choose how you'd like to sign in" : 'Enter your email or mobile number to continue'}
       error={error}
-      footer={<LegalFooterLinks />}
+      footer={<LegalFooterLinks hideConsentLinks={showSocialSignIn} />}
     >
       {showSocialSignIn ? (
         <>
@@ -180,7 +183,7 @@ export function AuthEntryScreen({ navigation }: Props) {
           <SocialConsentNotice />
           <View style={styles.dividerRow}>
             <View style={[styles.dividerLine, { backgroundColor: c.border }]} />
-            <Text style={[styles.dividerText, { color: c.muted }]}>Or continue below</Text>
+            <Text style={[styles.dividerText, { color: c.muted }]}>or</Text>
             <View style={[styles.dividerLine, { backgroundColor: c.border }]} />
           </View>
         </>
@@ -190,7 +193,7 @@ export function AuthEntryScreen({ navigation }: Props) {
         label="Email or mobile number"
         value={identifier}
         onChangeText={setIdentifier}
-        placeholder="you@example.com or +91XXXXXXXXXX"
+        placeholder="you@example.com"
         autoCapitalize="none"
         autoCorrect={false}
         autoComplete="username"
@@ -199,13 +202,11 @@ export function AuthEntryScreen({ navigation }: Props) {
         onSubmitEditing={handleSubmit}
       />
 
-      <Button label="Continue" onPress={handleSubmit} loading={loading} pressScale />
+      {/* Tonal, not primary: Google/Apple above are the primary paths, and three equal dark
+          full-width blocks gave the screen no focal point. */}
+      <Button label="Continue" variant="secondary" onPress={handleSubmit} loading={loading} pressScale />
 
-      <View style={[styles.notice, { backgroundColor: c.primaryLight }]}>
-        <Text style={[styles.noticeText, { color: c.ink }]}>
-          Your financial data is encrypted and securely protected.
-        </Text>
-      </View>
+      <TrustNote />
     </AuthScreenLayout>
   );
 }
@@ -227,8 +228,18 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 1,
   },
+  // Still used by the reactivation-link screen's "valid for 15 minutes" note.
+  notice: {
+    borderRadius: 8,
+    padding: 12,
+    marginTop: spacing.md,
+  },
+  noticeText: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
   dividerText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
     // Applied here rather than typed in caps: VoiceOver/TalkBack often spell out a long
     // hardcoded-caps phrase letter by letter, mistaking it for an acronym -- this keeps the
@@ -242,13 +253,5 @@ const styles = StyleSheet.create({
   cancelRow: {
     alignItems: 'center',
     marginTop: spacing.sm,
-  },
-  notice: {
-    borderRadius: 8,
-    padding: 12,
-    marginTop: spacing.md,
-  },
-  noticeText: {
-    fontSize: 12,
   },
 });

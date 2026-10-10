@@ -1,5 +1,5 @@
-import { StyleSheet, Text } from 'react-native';
-import { openWebUrl } from '../lib/webUrl';
+import { StyleSheet, Text, View } from 'react-native';
+import { LegalLink } from './LegalLink';
 import { spacing, useTheme } from '../theme';
 
 /**
@@ -9,26 +9,28 @@ import { spacing, useTheme } from '../theme';
  * to..." line, which left new accounts created without the user ever being shown the terms the
  * backend now records them as accepting (User.termsAcceptedAt). Same wording as web's
  * frontend/src/pages/auth-entry/SocialConsentNotice.tsx.
+ *
+ * The two links sit on their own row under the sentence rather than inline in it: inline Text
+ * links are 12pt-tall targets, and LegalLink gives each a proper one.
  */
 export function SocialConsentNotice() {
   const c = useTheme();
   return (
-    <Text style={[styles.text, { color: c.muted }]}>
-      New to Fynora? Continuing with Google or Apple creates your account, and means you agree to
-      Fynora&apos;s{' '}
-      <Text style={[styles.link, { color: c.primary }]} onPress={() => openWebUrl('/terms')}>
-        Terms of Service
-      </Text>{' '}
-      and{' '}
-      <Text style={[styles.link, { color: c.primary }]} onPress={() => openWebUrl('/privacy')}>
-        Privacy Policy
+    <View style={styles.wrap}>
+      <Text style={[styles.text, { color: c.muted }]}>
+        New to Fynora? Continuing with Google or Apple creates your account, and means you agree to
+        Fynora&apos;s
       </Text>
-      .
-    </Text>
+      <View style={styles.links}>
+        <LegalLink label="Terms of Service" path="/terms" />
+        <LegalLink label="Privacy Policy" path="/privacy" />
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  text: { fontSize: 12, lineHeight: 17, marginTop: spacing.sm },
-  link: { fontWeight: '600' },
+  wrap: { marginTop: spacing.sm },
+  text: { fontSize: 13, lineHeight: 18 },
+  links: { flexDirection: 'row', flexWrap: 'wrap', columnGap: spacing.md },
 });

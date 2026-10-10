@@ -12,6 +12,7 @@ import { AddTransactionSheet } from './AddTransactionSheet';
 import { AccountsCard } from '../components/dashboard/AccountsCard';
 import { DashboardCard } from '../components/dashboard/DashboardCard';
 import { DashboardSectionHeader } from '../components/dashboard/DashboardSectionHeader';
+import { IconWell } from '../components/dashboard/IconWell';
 import { FinancialNoteCard } from '../components/dashboard/FinancialNoteCard';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
 import { GlassScreen } from '../components/GlassScreen';
@@ -667,46 +668,58 @@ export function DashboardScreen() {
           docs/superpowers/specs/2026-09-10-dashboard-passbook-redesign-design.md's resolved
           section-order decision; none of these three sections' own content changed, only where
           they sit on the screen. */}
-      <Card style={styles.section}>
-        <SectionHeading title="Recent Transactions" />
-        {recentTxnsQ.isLoading ? (
-          <>
-            <SkeletonTransactionRow />
-            <SkeletonTransactionRow />
-            <SkeletonTransactionRow />
-          </>
-        ) : recentTxnsQ.isError ? (
-          // A failed request is not an answer of zero -- same reasoning as LedgerScreen's own
-          // isError branch. Without this, a persistent failure here would fall through to the
-          // empty-state message below and tell someone with years of history they have none.
-          <Text style={[styles.errorText, { color: c.dangerInk }]}>
-            Couldn&apos;t load your transactions — pull down to try again.
-          </Text>
-        ) : recentTxns.length === 0 ? (
-          <EmptyState
-            message="No transactions yet. Import a statement to get started."
-            actionLabel="Import a statement"
-            onAction={() => { trackNavigation('import-statement', 'contextual'); navigation.navigate('Import'); }}
-          />
-        ) : (
-          recentTxns.map((t) => (
-            <View key={t.id} style={[styles.txnRow, { borderBottomColor: c.border }]}>
-              <View style={styles.txnMain}>
-                <Text style={[styles.txnDesc, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
-                  {t.description || t.merchant || 'Transaction'}
-                </Text>
-                <Text style={[styles.txnMeta, { color: c.mutedInk }]} numberOfLines={1}>
-                  {t.categoryName} · {t.date}
+      <DashboardCard style={styles.section}>
+        <DashboardSectionHeader title="Recent Transactions" />
+        <View style={styles.cardBody}>
+          {recentTxnsQ.isLoading ? (
+            <>
+              <SkeletonTransactionRow />
+              <SkeletonTransactionRow />
+              <SkeletonTransactionRow />
+            </>
+          ) : recentTxnsQ.isError ? (
+            // A failed request is not an answer of zero -- same reasoning as LedgerScreen's own
+            // isError branch. Without this, a persistent failure here would fall through to the
+            // empty-state message below and tell someone with years of history they have none.
+            <Text style={[typography.bodyM, { color: c.dangerInk }]}>
+              Couldn&apos;t load your transactions — pull down to try again.
+            </Text>
+          ) : recentTxns.length === 0 ? (
+            <EmptyState
+              message="No transactions yet. Import a statement to get started."
+              actionLabel="Import a statement"
+              onAction={() => { trackNavigation('import-statement', 'contextual'); navigation.navigate('Import'); }}
+            />
+          ) : (
+            recentTxns.map((t, i) => (
+              // A line between rows, not under each one: the card must not end on a rule.
+              <View
+                key={t.id}
+                testID={`txn-row-${t.id}`}
+                style={[styles.txnRow, i > 0 && { borderTopColor: c.border, borderTopWidth: StyleSheet.hairlineWidth }]}
+              >
+                <IconWell
+                  testID={`txn-icon-${t.id}`}
+                  name={t.type === 'INCOME' ? 'arrow-down-outline' : 'arrow-up-outline'}
+                  tone={t.type === 'INCOME' ? 'success' : 'neutral'}
+                />
+                <View style={styles.txnMain}>
+                  <Text style={[typography.labelM, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
+                    {t.description || t.merchant || 'Transaction'}
+                  </Text>
+                  <Text style={[typography.bodyS, { color: c.mutedInk }]} numberOfLines={1}>
+                    {t.categoryName} · {t.date}
+                  </Text>
+                </View>
+                <Text style={[typography.numberS, { color: t.type === 'INCOME' ? c.successInk : c.dangerInk }]}>
+                  {t.type === 'INCOME' ? '+' : '-'}
+                  {fmtCurrency(Math.abs(t.amount))}
                 </Text>
               </View>
-              <Text style={[styles.txnAmount, { color: t.type === 'INCOME' ? c.successInk : c.dangerInk }]}>
-                {t.type === 'INCOME' ? '+' : '-'}
-                {fmtCurrency(Math.abs(t.amount))}
-              </Text>
-            </View>
-          ))
-        )}
-      </Card>
+            ))
+          )}
+        </View>
+      </DashboardCard>
 
       {/* Quick Actions -- Phase 4, ported from frontend/src/pages/Dashboard.tsx:1216-1235. A
           shortcut grid to the same destinations already scattered across this screen's own empty
@@ -714,8 +727,8 @@ export function DashboardScreen() {
           it only because it lacks a dedicated empty-state card of its own to live in (unlike
           Import/Add Transaction), and mobile's Gmail connect is already one tap away from
           Settings -- it isn't missing an entry point the way it is on web. */}
-      <Card style={styles.section}>
-        <SectionHeading title="Quick Actions" />
+      <View style={[styles.section, styles.sectionStack]}>
+        <DashboardSectionHeader title="Quick Actions" />
         <View style={styles.quickActionsGrid}>
           {(
             [
@@ -730,18 +743,22 @@ export function DashboardScreen() {
             <Pressable
               key={action.label}
               onPress={action.onPress}
-              style={[styles.quickActionCell, { backgroundColor: c.bg, borderColor: c.border } /* glass-exempt: quick-action tile inside a glass card; opaque bg is its contrast against the card */]}
+              style={styles.quickActionCell}
               accessibilityRole="button"
               accessibilityLabel={action.label}
             >
-              <Ionicons name={action.icon} size={20} color={c.primary} />
-              <Text style={[styles.quickActionLabel, { color: c.ink }]} numberOfLines={2}>
-                {action.label}
-              </Text>
+              {/* Each action is its own glass tile on the backdrop (card redesign); it used to be
+                  an opaque cell inside one glass card. */}
+              <DashboardCard padding="compact" style={styles.quickActionCard}>
+                <IconWell name={action.icon} round />
+                <Text style={[typography.labelS, styles.quickActionLabel, { color: c.ink }]} numberOfLines={2}>
+                  {action.label}
+                </Text>
+              </DashboardCard>
             </Pressable>
           ))}
         </View>
-      </Card>
+      </View>
 
       {/* Upcoming -- the same "Subscriptions & Recurring Payments" card RecurringService has
           always fed. Hidden entirely when there's nothing detected: "no recurring payments found"
@@ -1107,11 +1124,8 @@ const styles = StyleSheet.create({
   // 44pt minimum touch target -- see the same note in LedgerScreen's filter chips.
   rangeChip: { paddingHorizontal: 14, minHeight: 44, justifyContent: 'center' },
   rangeText: { fontSize: 11, fontWeight: '600' },
-  txnRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth },
-  txnMain: { flex: 1, marginRight: spacing.sm },
-  txnDesc: { fontSize: 14, fontWeight: '500' },
-  txnMeta: { fontSize: 11, marginTop: 2 },
-  txnAmount: { fontSize: 14, fontWeight: '700' },
+  txnRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.ms, paddingVertical: 10 },
+  txnMain: { flex: 1, gap: 2 },
   progressTrack: { height: 6, borderRadius: 3, overflow: 'hidden' },
   progressFill: { height: 6, borderRadius: 3 },
   // Phase 4.
@@ -1139,12 +1153,11 @@ const styles = StyleSheet.create({
   recurringDismissButton: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   recurringAmount: { fontSize: 14, fontWeight: '700' },
   recurringMeta: { fontSize: 11, marginTop: 2 },
-  quickActionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  quickActionCell: {
-    width: '31%', minHeight: 76, borderWidth: 1, borderRadius: radius.md,
-    alignItems: 'center', justifyContent: 'center', paddingVertical: spacing.sm, paddingHorizontal: 4, gap: 6,
-  },
-  quickActionLabel: { fontSize: 11, fontWeight: '600', textAlign: 'center' },
+  quickActionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.ms },
+  // Three per row at any phone width: 30% each plus flexGrow across two 12 point gaps.
+  quickActionCell: { flexBasis: '30%', flexGrow: 1, minHeight: 104 },
+  quickActionCard: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: spacing.sm },
+  quickActionLabel: { textAlign: 'center' },
   insight: { fontSize: 13, lineHeight: 20, marginBottom: 4 },
   body: { fontSize: 13, lineHeight: 19 },
   // Track C/C1. healthScoreValue/healthScoreLabel now shared with Categorization Confidence

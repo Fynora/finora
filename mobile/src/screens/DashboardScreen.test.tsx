@@ -1500,12 +1500,67 @@ describe('Subscriptions & Recurring Payments widget (Phase 4)', () => {
 });
 
 /**
+ * Card redesign (2026-10-10). Amount colours did not change with it: income green, expenses red
+ * (Sid's decision the same day; an earlier draft wrote expenses in ordinary ink).
+ */
+describe('Recent Transactions rows (card redesign)', () => {
+  beforeEach(() => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+    const row = {
+      accountId: 'a1', categoryId: 'c1', date: '2026-08-01', paymentMethod: 'CARD', tags: [], notes: null,
+      reconciliationStatus: 'OK', recurring: false, needsCategoryReview: false, categoryManuallySet: false,
+    };
+    transactions.search.mockResolvedValue({
+      content: [
+        { ...row, id: 't1', categoryName: 'Income', description: 'Salary credit', merchant: 'Employer', amount: 145000, type: 'INCOME' },
+        { ...row, id: 't2', categoryName: 'Groceries', description: 'Grocery store', merchant: 'Grocer', amount: 2340, type: 'EXPENSE' },
+      ],
+      page: 0, size: 5, totalElements: 2, totalPages: 1,
+    } as never);
+  });
+
+  it('keeps income in the success ink and expenses in the danger ink', async () => {
+    renderScreen();
+    expect(await screen.findByText('+₹1,45,000')).toHaveStyle({ color: light.successInk });
+    expect(screen.getByText('-₹2,340')).toHaveStyle({ color: light.dangerInk });
+  });
+
+  it('marks each row with a direction icon: money in on the success wash, money out on the neutral one', async () => {
+    renderScreen();
+    await screen.findByText('Salary credit');
+    const well = (id: string) => StyleSheet.flatten(screen.getByTestId(id, { includeHiddenElements: true }).props.style);
+    expect(well('txn-icon-t1').backgroundColor).toBe(light.successBg);
+    expect(well('txn-icon-t2').backgroundColor).not.toBe(light.successBg);
+  });
+
+  it('separates rows with a line between them, never after the last one', async () => {
+    renderScreen();
+    await screen.findByText('Salary credit');
+    const row = (id: string) => StyleSheet.flatten(screen.getByTestId(id).props.style);
+    expect(row('txn-row-t1').borderTopWidth).toBeUndefined();
+    expect(row('txn-row-t2').borderTopWidth).toBe(StyleSheet.hairlineWidth);
+    expect(row('txn-row-t2').borderBottomWidth).toBeUndefined();
+  });
+});
+
+/**
  * Ported from frontend/src/pages/Dashboard.tsx:1216-1235. A shortcut grid to destinations already
  * scattered across this screen's own empty states and CTAs.
  */
 describe('Quick Actions grid (Phase 4)', () => {
   beforeEach(() => {
     dashboard.summary.mockResolvedValue(emptySummary());
+  });
+
+  // Card redesign: each action is its own glass tile, three to a row.
+  it('lays the six actions out three per row, each tile a full touch target', async () => {
+    renderScreen();
+    const tile = StyleSheet.flatten((await screen.findByLabelText('Import Statement')).props.style);
+    expect(tile.flexBasis).toBe('30%');
+    expect(tile.minHeight).toBeGreaterThanOrEqual(44);
+    for (const label of ['Add Transaction', 'Create Budget', 'View Reports', 'Manage Goals', 'Investments']) {
+      expect(StyleSheet.flatten(screen.getByLabelText(label).props.style).flexBasis).toBe('30%');
+    }
   });
 
   it.each([

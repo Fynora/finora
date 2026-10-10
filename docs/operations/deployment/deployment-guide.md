@@ -345,6 +345,12 @@ not-found page with a `404` status.
 It is deliberate. Without it an unknown URL returned the homepage with a `200`, which the
 2026-10-09 SEO audit flagged as a soft 404.
 
+It is also what lets `dist/index.html` carry the homepage's canonical and `og:url`. With it,
+`index.html` is served at `/` and nowhere else: `/index` and `/index.html` answer `308` to `/`, and
+a path without a file gets `404.html` (measured on a Pages preview and on production, 2026-10-10).
+Remove `404.html` and that canonical would again be served at every unknown URL. The blank shell and
+`404.html` itself carry no canonical and no `og:url`; `scripts/seoFiles.test.tsx` holds all three.
+
 Things that are easy to get wrong here. Each was read from Cloudflare's parser and asset handler
 (wrangler 4.146.0) and measured on a Pages preview, except the trailing-slash one, which was
 measured in the local Pages emulator only:
@@ -362,6 +368,16 @@ measured in the local Pages emulator only:
   missing from `_redirects` therefore looks fine to someone clicking around, and is broken for
   everything that reads the status or does not run the bundle (link checkers, crawlers, an
   uptime probe, the first paint). Check with `curl`, not by eye.
+- **Leading slashes are collapsed by Pages, and the app has to do the same.** `//terms` is answered
+  with `terms.html` and a `200`, and `//` with the homepage (measured on production, 2026-10-10;
+  `/terms//` and `/terms%2F` are `308` to `/terms` instead). React Router does not collapse them:
+  it found no route for `//terms`, so the visitor was sent the terms page and the bundle then
+  replaced it with "Page not found". `src/lib/normalizeLocation.ts`, the first import in
+  `main.tsx`, now rewrites the address to `/terms` before the router reads it. There is still no
+  redirect: a crawler that does not run JavaScript gets a `200` at `//terms`, and the file's
+  canonical is what tells it where the page lives. A real `301` would be a Cloudflare rule on the
+  zone, like the two host redirects below, not something this repository can do without a
+  Function on every request.
 - **Matching is case-sensitive.** `/Privacy` and `/Auth` return `404` with the not-found page, and
   the browser then shows the real page, as above. Before `404.html` they returned `index.html`
   with a `200`. The paths the backend's emails and the referral page build are lower-case.
@@ -635,9 +651,25 @@ What the build produces, all from `frontend/`:
 - `public/robots.txt` and `public/sitemap.xml`: keep crawlers out of `/app` and every auth flow, and
   list the 12 public routes. `scripts/seoFiles.test.tsx` fails if a route in `App.tsx` is neither
   in the sitemap nor disallowed.
-- Every prerendered public page has its own `<title>`, description, `og:` tags and an absolute
-  canonical. `index.html` deliberately has no canonical and no `og:url`: it is also the SPA fallback
-  for every route the prerender does not list.
+- Every prerendered public page, the homepage included, has its own `<title>`, description, `og:`
+  tags and an absolute canonical in its built HTML. The homepage's canonical and `og:url` are added
+  to `dist/index.html` by the build (`templateForHomepage` in `scripts/prerenderTitle.mjs`), not
+  written in the source `frontend/index.html`: that file is the template for every other document,
+  and the blank shell and the not-found page must name no address. This is safe only because
+  production serves `index.html` at `/` alone (see "Which document a path gets" above). While it was
+  also the answer for every path without a file, a canonical in it named the homepage as the
+  address of those pages.
+- **In the browser the head follows the page, not the document.** The document a visitor opened
+  first is not always the page on screen: it is another page's file after a move inside the app,
+  and it is the blank shell or `404.html` whenever Pages answered with one of those. Measured on
+  production, 2026-10-10, before this was fixed: open `/terms`, go to the homepage in the app, and
+  the tab read "Terms & Conditions — Fynora" with the terms page's description and `og:` tags;
+  open `/auth`, go to the homepage, and the head still said `noindex, nofollow`. So every page that
+  should be indexed writes its own title, description, `og:title`, `og:description`, `og:url` and
+  canonical, and removes a leftover `noindex` (`PublicLayout`, `Landing`, and the hooks
+  `usePageDescription`, `useCanonical`, `useRobotsNoindex`). Tags a page does not own go back to
+  the site's defaults or are removed when it unmounts, never to "what was there before". None of
+  this changes what a crawler that fetches a URL directly is sent.
 - **Non-production builds are `noindex`** (`scripts/crawlPolicy.mjs`, the last step of `npm run
   build`): an `X-Robots-Tag` header, a robots meta tag, no canonical, and no Sitemap line. A build is
   non-production if Cloudflare reports a branch other than `main` (`CF_PAGES=1`, `CF_PAGES_BRANCH`),

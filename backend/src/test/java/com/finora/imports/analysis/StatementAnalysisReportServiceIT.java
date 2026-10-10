@@ -203,4 +203,27 @@ class StatementAnalysisReportServiceIT extends AbstractIntegrationTest {
                 .extracting(FailureCountDto::bank)
                 .isNull();
     }
+
+    /**
+     * Gate 1 spec §5.1 (V267): an upload refused before the parser read it is its own outcome. It
+     * joins the total, but it is not a parser failure -- counted as one it would inflate "Failed"
+     * and every failure-by-cause report with rows that say nothing about any layout.
+     */
+    @Test
+    void aRefusedUploadIsCountedAsRefused_neverAsAParserFailure() {
+        var before = reportService.summary();
+        String reference = "SA-" + UUID.randomUUID().toString().replace("-", "").substring(0, 20);
+        repository.save(StatementAnalysisSession.rejected(reference, UUID.randomUUID(), "PDF", "HTTP_415", null));
+
+        var after = reportService.summary();
+
+        assertThat(after.rejected()).isEqualTo(before.rejected() + 1);
+        assertThat(after.totalAnalysesEver()).isEqualTo(before.totalAnalysesEver() + 1);
+        assertThat(after.failed()).isEqualTo(before.failed());
+        assertThat(after.parsed()).isEqualTo(before.parsed());
+        assertThat(after.parsed() + after.failed() + after.rejected())
+                .as("the three outcomes are the whole of the total").isEqualTo(after.totalAnalysesEver());
+        assertThat(reportService.failureCounts(Instant.now().minus(1, ChronoUnit.HOURS)))
+                .extracting(FailureCountDto::failureCode).doesNotContain("HTTP_415");
+    }
 }

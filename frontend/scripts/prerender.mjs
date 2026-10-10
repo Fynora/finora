@@ -13,10 +13,12 @@ import path from 'node:path';
 import fs from 'node:fs';
 import {
   decodeEntities,
+  heroFontAsset,
   pageDescriptionFromMarkup,
   pageHeadingFromMarkup,
   pageTitleFromMarkup,
   withCanonical,
+  withFontPreload,
   withPageMeta,
   withRobotsNoindex,
   withStructuredData,
@@ -105,6 +107,8 @@ async function main() {
   fs.writeFileSync(path.join(distDir, SPA_SHELL_FILE), spaShellHtml(template));
   console.log(`prerender: blank shell -> dist/${SPA_SHELL_FILE}`);
 
+  const heroFontHref = '/assets/' + heroFontAsset(fs.readdirSync(path.join(distDir, 'assets')));
+
   for (const [route, fileName] of Object.entries(OUTPUT_FILES)) {
     const renderRoute = routes[route];
     const appHtml = renderRoute();
@@ -120,6 +124,10 @@ async function main() {
       const description = pageDescriptionFromMarkup(appHtml);
       if (!description) throw new Error(`prerender: no subtitle to take a description from for ${route}`);
       pageTemplate = withPageMeta(withCanonical(withTitle(template, title), route), { title, description, route });
+    } else {
+      // Only the homepage paints the hero headline. The blank shell above and the not-found page
+      // below are both built from the untouched template, so neither carries this preload.
+      pageTemplate = withFontPreload(pageTemplate, heroFontHref);
     }
     // JSON-LD for the page (Organization/WebSite/SoftwareApplication/FAQPage on the homepage,
     // breadcrumbs elsewhere, the Help articles as an FAQPage on /help). Built from the pages' own

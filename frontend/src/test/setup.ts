@@ -21,6 +21,11 @@ import { ScrollTrigger } from 'gsap/ScrollTrigger';
 // well before vitest kills the whole test with a far less informative one.
 configure({ asyncUtilTimeout: 5_000 });
 
+// False only in a file that opts into `@vitest-environment node`, to render a component the way
+// scripts/prerender.mjs does: plain Node, no window or document. The browser shims below are
+// skipped there, because a shimmed window would hide exactly what such a test exists to catch.
+const hasDom = typeof window !== 'undefined';
+
 // @testing-library/react's automatic post-test cleanup only self-registers against a *global*
 // afterEach -- since this project doesn't set `test.globals: true` in vitest.config.ts (tests
 // import everything explicitly from 'vitest' instead), that auto-registration never fires, and
@@ -67,7 +72,7 @@ afterEach(() => {
 // ThemeProvider would throw "window.matchMedia is not a function" before it even got to the
 // assertion. addEventListener/removeEventListener are no-ops here since no test in this suite
 // exercises a live OS theme change; a real listener implementation would need a subscribe list.
-if (!window.matchMedia) {
+if (hasDom && !window.matchMedia) {
   window.matchMedia = (query: string) => ({
     matches: false,
     media: query,
@@ -90,7 +95,7 @@ if (!window.matchMedia) {
 // the honest default for a zero-height jsdom viewport where nothing is ever actually scrolled
 // into view; a test that wants to assert the revealed state should drive the callback itself
 // rather than have this pretend everything is visible.
-if (!window.IntersectionObserver) {
+if (hasDom && !window.IntersectionObserver) {
   class NoopIntersectionObserver implements IntersectionObserver {
     readonly root = null;
     readonly rootMargin = '';
@@ -136,7 +141,7 @@ if (!window.IntersectionObserver) {
 // nothing else on the old document is meaningful. Only `href` and `hash` are settable (jsdom
 // performs hash-only navigation itself, so that one is passed straight through); assigning to any
 // other component throws a clear "only a getter" TypeError rather than silently doing nothing.
-const realLocation = window.location;
+const realLocation = hasDom ? window.location : (undefined as unknown as Location);
 let attemptedNavigation: string | null = null;
 
 function installLocationStub() {
@@ -163,14 +168,14 @@ function installLocationStub() {
   Object.defineProperty(window, 'location', { configurable: true, writable: true, value: stub });
 }
 
-installLocationStub();
+if (hasDom) installLocationStub();
 
 // Reinstalled rather than merely reset, so a test that replaced window.location outright cannot
 // leak its replacement into the rest of its file -- which used to happen: Settings.test.tsx's
 // Gmail redirect test left a bare `{ href }` object behind for every test after it.
 afterEach(() => {
   attemptedNavigation = null;
-  installLocationStub();
+  if (hasDom) installLocationStub();
 });
 
 // Node 22+ ships its own experimental global `localStorage`, functional only when the process is

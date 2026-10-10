@@ -75,3 +75,39 @@ describe('Landing — reframed running order', () => {
     expect(container.querySelector('#pricing')?.nextElementSibling).toBe(container.querySelector('#faq'));
   });
 });
+
+describe('Landing — fragment in the URL at mount', () => {
+  // jsdom has no layout and does not implement scrollIntoView, so each case installs its own.
+  const proto = Element.prototype as { scrollIntoView?: Element['scrollIntoView'] };
+  const original = proto.scrollIntoView;
+
+  afterEach(() => {
+    proto.scrollIntoView = original;
+    window.location.hash = '';
+  });
+
+  function renderAt(hash: string) {
+    const scrolled: string[] = [];
+    proto.scrollIntoView = function (this: Element) {
+      scrolled.push(this.id);
+    };
+    window.location.hash = hash;
+    render(
+      <MemoryRouter>
+        <Landing />
+      </MemoryRouter>
+    );
+    return scrolled;
+  }
+
+  it('scrolls to the section the fragment names, which did not exist when the browser first looked', () => {
+    // "#how" is what the hero button in the prerendered first frame sets when it is tapped early.
+    expect(renderAt('#how')).toEqual(['how']);
+  });
+
+  it('does nothing without a fragment, or for one that names no element or is not valid encoding', () => {
+    expect(renderAt('')).toEqual([]);
+    expect(renderAt('#access_token=abc')).toEqual([]);
+    expect(() => renderAt('#%E0%A4%A')).not.toThrow();
+  });
+});

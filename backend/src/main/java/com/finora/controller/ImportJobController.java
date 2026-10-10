@@ -63,14 +63,17 @@ public class ImportJobController {
     private final CurrentUser currentUser;
 
     private final com.finora.imports.passwords.StatementPasswordService statementPasswordService;
+    private final com.finora.imports.analysis.StatementAnalysisRecorder analysisRecorder;
 
     public ImportJobController(ImportJobService importJobService, CurrentUser currentUser,
                                com.finora.uploads.UploadScanGate uploadScanGate,
-                               com.finora.imports.passwords.StatementPasswordService statementPasswordService) {
+                               com.finora.imports.passwords.StatementPasswordService statementPasswordService,
+                               com.finora.imports.analysis.StatementAnalysisRecorder analysisRecorder) {
         this.importJobService = importJobService;
         this.currentUser = currentUser;
         this.uploadScanGate = uploadScanGate;
         this.statementPasswordService = statementPasswordService;
+        this.analysisRecorder = analysisRecorder;
     }
 
     private final com.finora.uploads.UploadScanGate uploadScanGate;
@@ -110,36 +113,47 @@ public class ImportJobController {
         // format this validates is the format the worker will actually parse with" was a property
         // of two call sites agreeing rather than of anything being recorded.
         StatementUpload.Format format = ImportJobService.formatOf(file.getOriginalFilename());
-        StatementUpload.requireReadable(file, format);
-        // Audit F-18: scanned here, while the user is still looking at the upload dialog, not by
-        // the worker minutes later -- same reasoning as the structural check above.
-        uploadScanGate.requireClean(file, currentUser.id(), "statement-import");
-
-        // A protected PDF cannot be queued: the job carries a content address and no password, so
-        // the worker would open it minutes later with nobody to ask and fail with a bare "couldn't
-        // finish". Refused HERE with the same IMPORT_008 the synchronous endpoints return, which
-        // both clients already answer by opening the password field on the same file. Production,
-        // 2026-09-19: a blank password field on a locked statement reached the queue and died there.
         String passwordToSave = null;
-        if (format == StatementUpload.Format.PDF) {
-            boolean locked;
-            try (java.io.InputStream in = file.getInputStream()) {
-                locked = PdfTextExtractor.needsPassword(in);
-            }
-            if (locked) {
-                boolean consented = Boolean.TRUE.equals(savePassword) && password != null && !password.isEmpty()
-                        && statementPasswordService.enabled();
-                if (!consented) {
-                    throw new ApiException(ErrorCode.IMPORT_PDF_PASSWORD_REQUIRED);
-                }
+        // One try around every check an upload passes before it may be queued, so a refusal at any
+        // of them is recorded (Gate 1 spec §5.1): refused before any job exists, nothing recorded it
+        // until V267. The password refusal matters most -- the app answers it by asking for the
+        // password, and a user who gives up at that prompt otherwise looks like one who never
+        // uploaded. Kept inline rather than in a helper: UploadScanGuardTest (FG-034) requires
+        // every controller method that takes the file to call the scan gate itself.
+        try {
+            StatementUpload.requireReadable(file, format);
+            // Audit F-18: scanned here, while the user is still looking at the upload dialog, not by
+            // the worker minutes later -- same reasoning as the structural check above.
+            uploadScanGate.requireClean(file, currentUser.id(), "statement-import");
+
+            // A protected PDF cannot be queued: the job carries a content address and no password, so
+            // the worker would open it minutes later with nobody to ask and fail with a bare "couldn't
+            // finish". Refused HERE with the same IMPORT_008 the synchronous endpoints return, which
+            // both clients already answer by opening the password field on the same file. Production,
+            // 2026-09-19: a blank password field on a locked statement reached the queue and died there.
+            if (format == StatementUpload.Format.PDF) {
+                boolean locked;
                 try (java.io.InputStream in = file.getInputStream()) {
-                    if (!PdfTextExtractor.opensWith(in, password)) {
-                        throw new ApiException(ErrorCode.IMPORT_PDF_PASSWORD_INVALID);
-                    }
+                    locked = PdfTextExtractor.needsPassword(in);
                 }
-                passwordToSave = password;
+                if (locked) {
+                    boolean consented = Boolean.TRUE.equals(savePassword) && password != null && !password.isEmpty()
+                            && statementPasswordService.enabled();
+                    if (!consented) {
+                        throw new ApiException(ErrorCode.IMPORT_PDF_PASSWORD_REQUIRED);
+                    }
+                    try (java.io.InputStream in = file.getInputStream()) {
+                        if (!PdfTextExtractor.opensWith(in, password)) {
+                            throw new ApiException(ErrorCode.IMPORT_PDF_PASSWORD_INVALID);
+                        }
+                    }
+                    passwordToSave = password;
+                }
+                // An unlocked file needs no password, so one sent with it is never kept.
             }
-            // An unlocked file needs no password, so one sent with it is never kept.
+        } catch (RuntimeException refused) {
+            analysisRecorder.recordRejected(currentUser.id(), format.name(), refused);
+            throw refused;
         }
 
         var accepted = ImportJobDto.Accepted.of(

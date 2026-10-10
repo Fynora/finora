@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import LayoutStudio from './LayoutStudio';
+import { describeRefusal } from './layoutStudioTerms';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { mockAdminAuthState } from '../test/mockAdminAuth';
 import { adminStatementAnalysisApi, adminAnalysisRunApi } from '../api/endpoints';
@@ -176,6 +177,73 @@ describe('LayoutStudio', () => {
     const section = history.closest('section');
     expect(within(section as HTMLElement).getByText('12')).toBeInTheDocument();
     expect(within(section as HTMLElement).getByText('11')).toBeInTheDocument();
+  });
+
+  // Backend V267 (Gate 1 spec §5.1): an upload refused before the engine read it is a third
+  // outcome. It must never be shown as "Read" -- nothing was read -- nor as a parser failure.
+  describe('an upload refused before reading', () => {
+    const REFUSED: StatementAnalysisDto = {
+      ...LOCKED,
+      reference: 'SA-20261010-0007',
+      sourceFormat: 'CSV',
+      outcome: 'REJECTED',
+      failureCode: 'HTTP_415',
+      durationMs: null,
+      byteSize: null,
+    };
+
+    it('is badged Refused with its reason, not Read and not a failure', async () => {
+      vi.mocked(adminStatementAnalysisApi.paged).mockResolvedValue(pageOf([PARSED, REFUSED]));
+      renderPage();
+
+      const row = (await screen.findByRole('button', { name: 'SA-20261010-0007' })).closest('tr') as HTMLElement;
+      const badge = within(row).getByText('Refused');
+      expect(badge).toHaveAttribute('title', expect.stringMatching(/not the type the upload asked for.*HTTP_415/));
+      expect(badge).toHaveClass('text-warning');
+      expect(within(row).queryByText('Read')).not.toBeInTheDocument();
+    });
+
+    it('says in the drawer that the file was turned away before the engine read it', async () => {
+      vi.mocked(adminStatementAnalysisApi.paged).mockResolvedValue(pageOf([REFUSED]));
+      vi.mocked(adminStatementAnalysisApi.byReference).mockResolvedValue({
+        analysis: REFUSED, timesLayoutSeen: 0, timesLayoutFailed: 0,
+      });
+      const user = userEvent.setup();
+      renderPage();
+
+      await user.click(await screen.findByRole('button', { name: 'SA-20261010-0007' }));
+
+      const drawer = await screen.findByRole('dialog');
+      expect(await within(drawer).findByText(/not the type the upload asked for/)).toBeInTheDocument();
+      expect(within(drawer).getByText('Refusal code')).toBeInTheDocument();
+      expect(within(drawer).queryByText(/The engine got transactions out of this file/)).not.toBeInTheDocument();
+      expect(within(drawer).queryByText(/every line was matched/i)).not.toBeInTheDocument();
+    });
+
+    it('describes every refusal the backend records, and an unknown one by its code', () => {
+      for (const code of ['HTTP_400', 'HTTP_415', 'UPLOAD_TOO_LARGE', 'UPLOAD_MALWARE_DETECTED', 'UPLOAD_SCANNER_UNAVAILABLE',
+        'IMPORT_SYSTEM_BUSY', 'IMPORT_PDF_PASSWORD_REQUIRED', 'IMPORT_PDF_PASSWORD_INVALID']) {
+        const term = describeRefusal(code);
+        expect(term.label).toBe('Refused');
+        expect(term.meaning, code).not.toMatch(/recorded as/);
+      }
+      expect(describeRefusal('SOMETHING_NEW').meaning).toContain('recorded as "SOMETHING_NEW"');
+      expect(describeRefusal(null).meaning).toContain('no reason was recorded');
+    });
+
+    it('explains the gap between the total and Read + Failed', async () => {
+      vi.mocked(adminStatementAnalysisApi.summary).mockResolvedValue({ ...SUMMARY, totalAnalysesEver: 45, rejected: 3 });
+      renderPage();
+
+      expect(await screen.findByText(/3 were refused before the engine read them/)).toBeInTheDocument();
+    });
+
+    it('says nothing about refusals when there are none, or the backend predates the count', async () => {
+      renderPage();
+
+      await screen.findByText('Uploads analysed');
+      expect(screen.queryByText(/refused before the engine read/)).not.toBeInTheDocument();
+    });
   });
 
   it('names the fields it cannot show instead of rendering empty placeholders for them', async () => {

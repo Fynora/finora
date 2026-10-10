@@ -11045,6 +11045,8 @@ export interface components {
             unanchoredReasons?: {
                 [key: string]: number;
             };
+            /** Format: int64 */
+            rejected?: number;
         };
         ApiResponseAnalysisSummary: {
             success?: boolean;

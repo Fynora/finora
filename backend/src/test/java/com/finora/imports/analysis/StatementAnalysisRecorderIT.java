@@ -54,6 +54,104 @@ class StatementAnalysisRecorderIT extends AbstractIntegrationTest {
                     ParseDiagnostics.of(0, java.util.Map.of("NO_DATE_IN_ANCHOR_COLUMN", 97)));
             throw new ApiException(ErrorCode.IMPORT_NO_HEADER_DETECTED, "No transaction table found");
         }
+
+        /** The overload {@code ImportService} actually calls -- the one that names the file. */
+        @Transactional
+        public String recordWithContentHashThenFail(UUID userId) {
+            recorder.recordFailed(userId, StatementAnalysisSession.Source.CUSTOMER_IMPORT,
+                    "hdfc-savings.pdf", "PDF", 4096L, "FP-TEST-HASH", "IMPORT_001",
+                    "No transaction table found", 120L, ParseDiagnostics.NONE, "a".repeat(64));
+            throw new ApiException(ErrorCode.IMPORT_NO_HEADER_DETECTED, "No transaction table found");
+        }
+
+        /** A refusal before reading, recorded and then rethrown inside a transaction. */
+        @Transactional
+        public String recordRejectedThenFail(UUID userId, ApiException refusal) {
+            recorder.recordRejected(userId, "PDF", refusal);
+            throw refusal;
+        }
+    }
+
+    private java.util.List<StatementAnalysisSession> rowsOf(UUID userId) {
+        return repository.findAll().stream().filter(s -> userId.equals(s.getUserId())).toList();
+    }
+
+    /**
+     * The overload that carries the content hash had no transaction of its own from V265 until
+     * V267's work, so a caller inside a transaction lost the row with its rollback -- the exact
+     * failure this class exists to prevent. Its only caller happened to run outside one.
+     */
+    @Test
+    void aFailureRecordedWithItsContentHashAlsoSurvivesTheRollback() {
+        UUID userId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> harness.recordWithContentHashThenFail(userId)).isInstanceOf(ApiException.class);
+
+        assertThat(rowsOf(userId)).singleElement()
+                .satisfies(row -> assertThat(row.getContentHash()).isEqualTo("a".repeat(64)));
+    }
+
+    // --- Gate 1 spec §5.1: uploads refused before reading ------------------------------------------
+
+    @Test
+    void aRefusedUploadIsRecordedAndSurvivesTheRollbackOfTheRequestThatRefusedIt() {
+        UUID userId = UUID.randomUUID();
+        ApiException refusal = new ApiException(ErrorCode.UPLOAD_SCANNER_UNAVAILABLE, "scanner down");
+
+        assertThatThrownBy(() -> harness.recordRejectedThenFail(userId, refusal)).isSameAs(refusal);
+
+        assertThat(rowsOf(userId)).singleElement().satisfies(row -> {
+            assertThat(row.getOutcome()).isEqualTo(StatementAnalysisSession.Outcome.REJECTED);
+            assertThat(row.getSource()).isEqualTo(StatementAnalysisSession.Source.CUSTOMER_IMPORT);
+            assertThat(row.getFailureCode()).isEqualTo("UPLOAD_SCANNER_UNAVAILABLE");
+            assertThat(row.getSourceFormat()).isEqualTo("PDF");
+            assertThat(row.getReference()).startsWith("SA-");
+            // The file never entered the pipeline: nothing about it is recorded.
+            assertThat(row.getFileName()).isNull();
+            assertThat(row.getByteSize()).isNull();
+            assertThat(row.getContentHash()).isNull();
+            assertThat(row.getLayoutFingerprint()).isNull();
+            assertThat(row.getFailureDetail()).isNull();
+            assertThat(row.getImportSessionId()).isNull();
+            assertThat(row.getExpiredUnconfirmedAt()).isNull();
+        });
+    }
+
+    /** {@code StatementUpload} refuses with a bare status and no ErrorCode. */
+    @Test
+    void aRefusalWithNoErrorCodeIsRecordedByItsHttpStatus() {
+        UUID userId = UUID.randomUUID();
+
+        recorder.recordRejected(userId, "CSV",
+                new ApiException(org.springframework.http.HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Upload a CSV file."));
+
+        assertThat(rowsOf(userId)).singleElement()
+                .satisfies(row -> assertThat(row.getFailureCode()).isEqualTo("HTTP_415"));
+    }
+
+    @Test
+    void rejectionCodes_fallBackToUnclassifiedAndNeverExceedTheColumn() {
+        assertThat(StatementAnalysisRecorder.rejectionCodeOf(new IllegalStateException("boom")))
+                .isEqualTo("UNCLASSIFIED");
+        assertThat(StatementAnalysisRecorder.rejectionCodeOf(null)).isEqualTo("UNCLASSIFIED");
+        for (ErrorCode code : ErrorCode.values()) {
+            assertThat(StatementAnalysisRecorder.rejectionCodeOf(new ApiException(code, "x")))
+                    .hasSizeLessThanOrEqualTo(32);
+        }
+    }
+
+    /**
+     * A refusal is not a parse failure. It has no file name and no content hash, so in the
+     * customer's failure list it would be a nameless row that the "same file later imported" rule
+     * (V265) could never clear -- and the user was already told at the moment of the refusal.
+     */
+    @Test
+    void aRefusedUploadNeverAppearsInAFailureList() {
+        UUID userId = UUID.randomUUID();
+        recorder.recordRejected(userId, "PDF", new ApiException(ErrorCode.IMPORT_SYSTEM_BUSY, "busy"));
+
+        assertThat(recorder.recentCustomerFailures(userId, 10)).isEmpty();
+        assertThat(recorder.recentUnresolvedCustomerFailures(userId, 10)).isEmpty();
     }
 
     @Test

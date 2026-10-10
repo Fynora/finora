@@ -47,8 +47,13 @@ public class StatementAnalysisSession {
      * Deliberately not "SUCCESS": parsing a document is not importing it. A parsed statement can
      * still be abandoned at review, which is a different fact and will get its own outcome once
      * the confirm path records one.
+     *
+     * <p>{@code REJECTED} (V267, Gate 1 spec §5.1) is an upload refused before the parser read it:
+     * an empty or wrong-type file, the virus scan, the server being busy. Distinct from {@code
+     * FAILED} on purpose -- nothing was parsed, so it is no evidence about any layout, and every
+     * failure report and the customer's failure list filter on {@code FAILED} and leave it out.
      */
-    public enum Outcome { PARSED, FAILED }
+    public enum Outcome { PARSED, FAILED, REJECTED }
 
     @Id
     @GeneratedValue
@@ -159,6 +164,20 @@ public class StatementAnalysisSession {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
+    /**
+     * When the staged session this read produced ({@link #importSessionId}) was swept at its expiry
+     * without being confirmed -- V267, Gate 1 spec §5.2. Null while it is live, once confirmed, or
+     * when nothing was staged.
+     *
+     * <p>The one column here written after the row is saved, and still an observation rather than
+     * a revision: the sweep records a later fact about the same upload. Read-only on the entity
+     * ({@code insertable}/{@code updatable} false) so the "no setters" rule holds --
+     * {@link StatementAnalysisSessionRepository#stampExpiredUnconfirmed} writes it with one
+     * {@code UPDATE}, and only where it is still null.
+     */
+    @Column(name = "expired_unconfirmed_at", insertable = false, updatable = false)
+    private Instant expiredUnconfirmedAt;
+
     protected StatementAnalysisSession() {
         // JPA
     }
@@ -246,6 +265,21 @@ public class StatementAnalysisSession {
     }
 
     /**
+     * A direct upload refused before the parser read it (Gate 1 spec §5.1).
+     *
+     * <p>Takes no file name, size, fingerprint, hash or detail, deliberately: the file was never
+     * read, so there is nothing observed to record about it, and a caller cannot be tempted into
+     * storing a name for a document that never entered the pipeline. Who, which format was asked
+     * for, and the code that refused it are the whole observation.
+     */
+    public static StatementAnalysisSession rejected(String reference, UUID userId, String sourceFormat,
+                                                    String failureCode, String correlationId) {
+        return new StatementAnalysisSession(reference, userId, Source.CUSTOMER_IMPORT, null, sourceFormat,
+                null, null, Outcome.REJECTED, failureCode, null, null, null, null, null, null,
+                correlationId);
+    }
+
+    /**
      * Stamps what the engine identified the document as. Package-private and used only by
      * {@link StatementAnalysisRecorder} before the first save -- the columns are not updatable, so
      * this cannot revise a stored row, and the "no setters" evidence rule still holds from outside.
@@ -290,4 +324,5 @@ public class StatementAnalysisSession {
     public String getBankName() { return bankName; }
     public String getStatementType() { return statementType; }
     public Instant getCreatedAt() { return createdAt; }
+    public Instant getExpiredUnconfirmedAt() { return expiredUnconfirmedAt; }
 }

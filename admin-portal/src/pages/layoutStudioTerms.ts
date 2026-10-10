@@ -117,6 +117,37 @@ export function describeFailure(code: string | null): Term {
   };
 }
 
+/**
+ * Why an upload was refused before the engine read it (outcome REJECTED, backend V267). The code is
+ * an ErrorCode name, or `HTTP_<status>` for the two refusals `StatementUpload` makes with a bare
+ * status, or `UNCLASSIFIED`. Not a parser failure: nothing was read, so it says nothing about any
+ * statement format.
+ */
+const REFUSAL_TERMS: Record<string, string> = {
+  HTTP_400: 'The upload was empty.',
+  HTTP_415: 'The file was not the type the upload asked for (a PDF sent as a CSV, or the reverse).',
+  UPLOAD_TOO_LARGE: 'The file was over the upload size limit.',
+  UPLOAD_MALWARE_DETECTED: 'The virus scan flagged the file.',
+  UPLOAD_SCANNER_UNAVAILABLE: 'The virus scanner was unavailable, so the upload was not accepted.',
+  IMPORT_SYSTEM_BUSY: 'Too many imports were running, so the user was asked to try again.',
+  // The queued upload's own door (ImportJobController): a locked PDF is not queued without a
+  // password the user agreed to save. The app answers the first by asking for the password, so
+  // one of these with no later read by the same user is someone who gave up at that prompt.
+  IMPORT_PDF_PASSWORD_REQUIRED: 'The PDF is password-protected, so it was not queued; the app then asks for the password.',
+  IMPORT_PDF_PASSWORD_INVALID: 'The password sent with the locked PDF did not open it, so it was not queued.',
+};
+
+export function describeRefusal(code: string | null): Term {
+  const known = code ? REFUSAL_TERMS[code] : undefined;
+  return {
+    label: 'Refused',
+    meaning: known
+      ?? (code
+        ? `Turned away before the engine read it, recorded as "${code}".`
+        : 'Turned away before the engine read it; no reason was recorded.'),
+  };
+}
+
 /** Both forms of the password failures -- the stored name is what the API actually returns. */
 export function isPasswordFailure(code: string | null): boolean {
   const canonical = canonicalFailureCode(code);

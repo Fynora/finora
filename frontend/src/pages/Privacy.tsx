@@ -69,6 +69,17 @@ export default function Privacy() {
           review, and authorized staff may access the statement to diagnose and fix the problem. Every such
           access is logged and auditable; see Administrative Access below.
         </p>
+        <p>
+          Each time you upload a statement, Fynora also keeps a short technical record of that attempt: when
+          it happened, whether the statement was read, could not be read, or was turned away before it was
+          read (for example an empty file, a file of the wrong type, a locked PDF sent without its password,
+          or a busy server), and the reason. For a statement that was read or could not be read, the record
+          includes the file's name and technical details of its layout, and the reason it could not be read
+          may quote a short piece of the text that caused the problem. For an upload turned away before
+          reading, the record holds nothing about the file. We use these records to find and fix import
+          problems. If you delete your account, they are kept without your identity: the link to your
+          account, the file name and the recorded reason text are removed.
+        </p>
       </PublicSection>
 
       <PublicSection title="Saved Statement Passwords">

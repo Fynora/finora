@@ -5,6 +5,10 @@
   "observability": {
     "enabled": true
   },
+  // Local only. Production is a Cloudflare Pages project, and Pages does not read this file (it
+  // has no pages_build_output_dir): there, the fallback to index.html comes from the build having
+  // no top-level 404.html. This block shapes `wrangler dev` (`npm run preview`) and nothing else.
+  // See docs/operations/deployment/deployment-guide.md, "Which document a path gets".
   "assets": {
     "not_found_handling": "single-page-application"
   },

@@ -1,0 +1,49 @@
+# Cloudflare Pages rewrites. Vite copies public/ verbatim into dist/, so this ships with the build.
+#
+# Every rule here is a 200 "proxy": the browser keeps the URL it asked for (query string included)
+# and Pages answers with the body of /spa-shell, the blank document scripts/spaShell.mjs describes.
+# Without them these routes get Pages' fallback for a path with no file, which is index.html, which
+# is the prerendered HOMEPAGE -- so an emailed /reset-password link painted the homepage's headline
+# and buttons until the bundle ran.
+#
+# Rules for editing this file. Each was read from Cloudflare's parser and asset handler (wrangler
+# 4.146.0: workers-shared parseRedirects, pages-shared asset-server/handler) and measured on a Pages
+# preview (the trailing-slash one in the local Pages emulator only); scripts/spaShell.test.ts
+# enforces them.
+#   - List only routes that exist in the browser alone. A rule is applied BEFORE the file lookup, so
+#     one that matched "/" or a prerendered page (/privacy, /terms, ...) would replace real, crawlable
+#     HTML with a blank noindex document.
+#   - The destination is /spa-shell, never /spa-shell.html. Pages answers an .html destination with a
+#     308 to the extensionless URL instead of serving it. (That, and the parser dropping
+#     "/* /index.html 200" as an infinite loop, is why 200 rewrites were once recorded here as "not
+#     honoured" -- see functions/assets/[[path]].ts.)
+#   - Exact paths go above the splat rule. Once the parser has seen a splat it files every later rule
+#     as dynamic, which is slower and counts against a limit of 100 rather than 2,000.
+#   - An exact rule does not cover its trailing-slash form, hence the pairs. React Router treats
+#     /auth/ as /auth, so both are real addresses.
+#   - A new browser-only route needs a line here (the /app/* splat already covers anything under
+#     /app). Forgetting is not an outage: the route falls back to index.html and paints the homepage
+#     first, which is what every route did before this file existed. The test fails so that it is
+#     noticed.
+#
+# Unknown paths are deliberately not rewritten: there is no rule that means "everything else" without
+# also matching the pages that have files. They still get index.html, as before.
+
+/auth /spa-shell 200
+/auth/ /spa-shell 200
+/login /spa-shell 200
+/login/ /spa-shell 200
+/register /spa-shell 200
+/register/ /spa-shell 200
+/forgot-password /spa-shell 200
+/forgot-password/ /spa-shell 200
+/reset-password /spa-shell 200
+/reset-password/ /spa-shell 200
+/verify-email /spa-shell 200
+/verify-email/ /spa-shell 200
+/verify-phone /spa-shell 200
+/verify-phone/ /spa-shell 200
+/email-change-verify /spa-shell 200
+/email-change-verify/ /spa-shell 200
+/app /spa-shell 200
+/app/* /spa-shell 200

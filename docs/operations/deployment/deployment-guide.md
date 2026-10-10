@@ -319,6 +319,60 @@ human-facing links (Swagger/Actuator) that can't go through the API client at al
 same Railway backend URL as `VITE_API_BASE_URL` above (bare origin, no `/api/v1` — this one really
 is just the origin, used to build a Swagger UI link directly).
 
+### Which document a path gets (user frontend)
+
+`app.fynora.net` is a Cloudflare **Pages** project, so Pages' own rules decide what a URL returns,
+not `frontend/wrangler.jsonc`. That file's `assets.not_found_handling` is Workers configuration:
+it shapes `wrangler dev` (`npm run preview`) and nothing in production, because Pages only reads a
+Wrangler file that has `pages_build_output_dir`. Test routing changes with
+`npx wrangler pages dev dist` and on a PR's Pages preview. `wrangler dev` will agree with
+production on some of this and disagree on the rest, with no warning.
+
+| Path | Served | How |
+|---|---|---|
+| `/` and the pages listed in `scripts/prerender.mjs` (`/privacy`, `/terms`, ...) | that page's prerendered HTML | a file in `dist/` (`index.html`, `privacy.html`, ...) |
+| `/auth`, `/login`, `/register`, `/forgot-password`, `/reset-password`, `/verify-email`, `/verify-phone`, `/email-change-verify`, `/app`, `/app/...` | the blank shell, `dist/spa-shell.html` | a `200` rewrite in `public/_redirects` |
+| any other path | `index.html`, the prerendered homepage, with a `200` | Pages' fallback for a project with no top-level `404.html` |
+| a missing file under `/assets/` | `404`, plain text | `functions/assets/[[path]].ts` |
+
+The blank shell is the built document with an empty `#root`. It exists because `index.html` is the
+prerendered homepage: until `_redirects` named them, the routes in the second row painted the
+homepage's headline and buttons until the bundle ran and React replaced them (about 1.6 s on a
+throttled phone, cold; an emailed password-reset link is the case that matters).
+
+Things that are easy to get wrong here. Each was read from Cloudflare's parser and asset handler
+(wrangler 4.146.0) and measured on a Pages preview, except the trailing-slash one, which was
+measured in the local Pages emulator only:
+
+- **A top-level `404.html` turns off the fallback to `index.html`.** Every path without a file or a
+  rewrite then returns `404` with that page. Before the rewrites existed this took the whole app
+  with it (`/auth`, `/app/...` all `404`; measured twice, see
+  `docs/investigations/incidents/2026-08-08-stale-chunk-login-failure.md` §4a). With them, measured
+  on a preview: the rewritten routes still return `200` and only unknown paths `404`. So a real
+  not-found page is now possible, but from then on a route missing from `_redirects` is a `404`
+  rather than a slower first paint. Do not add one without deciding that on purpose.
+- **A rewrite is applied before the file lookup.** A rule that matched `/` or a prerendered page
+  would replace crawlable HTML with the blank, `noindex` shell.
+- **Rewrite to `/spa-shell`, not `/spa-shell.html`.** Pages answers an `.html` destination with a
+  `308` to the extensionless URL. `/* /index.html 200` fails differently: the parser drops it as an
+  infinite loop.
+- **An exact rule does not match its trailing-slash form**, so each one is listed twice.
+- **A new route outside `/app` needs its own line.** If it is forgotten the route still loads, from
+  `index.html`, homepage first. `scripts/spaShell.test.ts` fails when a route in `App.tsx` is
+  neither prerendered nor rewritten.
+
+Verify after a deploy that touches any of this (expect `200` three times, then an empty `#root`
+for the second and third, and the homepage's `<h1>` for the first):
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" https://app.fynora.net/
+curl -s -o /dev/null -w "%{http_code}\n" https://app.fynora.net/auth
+curl -s -o /dev/null -w "%{http_code}\n" https://app.fynora.net/app/transactions
+curl -s https://app.fynora.net/auth | grep -c '<div id="root"></div>'             # 1
+curl -s https://app.fynora.net/app/transactions | grep -c '<div id="root"></div>' # 1
+curl -s https://app.fynora.net/ | grep -c '<h1'                                    # 1 or more
+```
+
 ### `VITE_SENTRY_DSN` (both frontends) — crash reporting
 
 Optional, and unset is a valid, fully-working configuration: `src/lib/monitoring.ts` no-ops

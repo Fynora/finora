@@ -1169,6 +1169,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # The default checkout carries no `origin/main`. src/theme/glassMigration.test.ts reads
+      # main's app.config.ts and package.json to insist that a branch adding a native module also
+      # moves the app version (runtimeVersion.policy is appVersion: an OTA built from it would
+      # otherwise reach binaries that lack the module and crash). One shallow fetch of the ref is
+      # all it needs; the job stays a depth-1 checkout otherwise.
+      - name: Fetch main for the app-version guard
+        run: git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main
 
       - uses: actions/setup-node@v7
         with:

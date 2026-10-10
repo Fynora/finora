@@ -38,6 +38,7 @@ import {
   decide,
   decideAllUnresolved,
   isUnconfirmedGuess,
+  nothingSelected,
   setIncluded,
   toConfirmedRows,
   unresolvedCount,
@@ -839,6 +840,10 @@ export default function Import() {
   // for the payload sent to the backend below.
   async function confirmImport(ownershipAcknowledgedNow = false, holderIsMineNow = false) {
     if (!reimportState && !sessionId) return;
+    // The button is disabled for this already; here too because the ownership dialog confirms
+    // through this function as well, and an import of nothing must not depend on which control
+    // happened to start it.
+    if (nothingSelected(review)) return;
     const ownershipAcknowledged = ownershipWarningAcknowledged || ownershipAcknowledgedNow;
     const mine = holderIsMine || holderIsMineNow || (claimHolder && holderClaimAvailable());
     if (!ownershipAcknowledged && ownershipNameMismatch()) {
@@ -917,6 +922,7 @@ export default function Import() {
   // loop-calls the same per-account confirm logic confirmImport()'s single request goes through.
   async function confirmMultiImport() {
     if (!sessionId || !multiSections) return;
+    if (multiSections.every((s) => nothingSelected(s.review))) return;
     setConfirming(true);
     clearError();
     try {
@@ -1017,6 +1023,11 @@ export default function Import() {
     .map((s, i) => ({ s, i }))
     .filter(({ s }) => unresolvedCount(s.rows, s.review.decisions) > 0)
     .map(({ s, i }) => sectionLabel(s, i, multiSections?.length ?? 0));
+  // Nothing ticked anywhere -- see nothingSelected. Across EVERY section for a multi-account
+  // statement: one account's rows all skipped while another's are imported is still an import.
+  const nothingSelectedToImport = nothingSelected(review);
+  const nothingSelectedInEverySection =
+    multiSections !== null && multiSections.every((s) => nothingSelected(s.review));
 
   // Shared by the "continue previous import" list, the retry banner, and the dropzone itself below
   // -- hoisted once rather than repeated three times so the three conditions can't silently
@@ -1708,6 +1719,12 @@ export default function Import() {
                     {blockedSectionLabels.join(' and ')}. Nothing is imported or skipped until you decide.
                   </p>
                 )}
+                {outstandingMultiDuplicates === 0 && nothingSelectedInEverySection && (
+                  <p data-testid="multi-nothing-selected-gate" role="status" className="text-xs text-muted mb-3">
+                    No transactions are selected, so there is nothing to import. Tick the ones you want, or
+                    cancel this import.
+                  </p>
+                )}
                 <div className="flex items-center gap-3">
                   <Button
                     onClick={confirmMultiImport}
@@ -1719,6 +1736,9 @@ export default function Import() {
                       // approve -- confirmMulti posts them together, so one unanswered row anywhere
                       // blocks all of it, exactly as one unanswered row blocks a single-account import.
                       outstandingMultiDuplicates > 0 ||
+                      // Every row in every section unticked: nothing to import, and confirming
+                      // would still record an empty statement per account.
+                      nothingSelectedInEverySection ||
                       // The Free one-month limit the backend would refuse this on -- see the banner.
                       limitBlocksImport
                     }
@@ -1839,6 +1859,14 @@ export default function Import() {
                   onDecideAll={decideAllDuplicates}
                 />
 
+                {/* Said only once the duplicate questions are answered: until then that review is
+                    what the user has to act on, and it already explains the disabled button. */}
+                {unresolvedCount(rows, review.decisions) === 0 && nothingSelectedToImport && (
+                  <p data-testid="nothing-selected-gate" role="status" className="text-xs text-muted mt-4">
+                    No transactions are selected, so there is nothing to import. Tick the ones you want, or
+                    cancel this import.
+                  </p>
+                )}
                 <div className="flex items-center gap-3 mt-4">
                   <Button
                     onClick={() => void confirmImport()}
@@ -1850,6 +1878,9 @@ export default function Import() {
                       // written to the ledger -- which is what stops a duplicate being resolved by
                       // inattention rather than by a decision.
                       unresolvedCount(rows, review.decisions) > 0 ||
+                      // Nothing ticked: confirming would import no transactions and still record
+                      // an empty statement for the file. Mobile's canConfirmImport refuses the same.
+                      nothingSelectedToImport ||
                       // The Free one-month limit the backend would refuse this on -- see the banner.
                       // Never on a re-import, which that limit does not apply to.
                       (!reimportState && limitBlocksImport)

@@ -74,7 +74,10 @@ const config: ExpoConfig = {
   // NOT varied: the slug identifies the EAS project, which is shared. Two variants of one app,
   // not two apps.
   slug: 'finora-mobile',
-  version: '1.0.0',
+  // 1.1.0: Phase 2 of the glass UI adds expo-glass-effect and expo-blur (native). With
+  // runtimeVersion.policy 'appVersion' an OTA reaches every binary of the same version, so the
+  // version moves in the same commit as the native modules -- glassMigration.test.ts guards it.
+  version: '1.1.0',
   orientation: 'portrait',
   icon: './assets/icon.png',
   userInterfaceStyle: 'automatic',

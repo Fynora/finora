@@ -126,9 +126,15 @@ export function describeFailure(code: string | null): Term {
 const REFUSAL_TERMS: Record<string, string> = {
   HTTP_400: 'The upload was empty.',
   HTTP_415: 'The file was not the type the upload asked for (a PDF sent as a CSV, or the reverse).',
+  UPLOAD_TOO_LARGE: 'The file was over the upload size limit.',
   UPLOAD_MALWARE_DETECTED: 'The virus scan flagged the file.',
   UPLOAD_SCANNER_UNAVAILABLE: 'The virus scanner was unavailable, so the upload was not accepted.',
   IMPORT_SYSTEM_BUSY: 'Too many imports were running, so the user was asked to try again.',
+  // The queued upload's own door (ImportJobController): a locked PDF is not queued without a
+  // password the user agreed to save. The app answers the first by asking for the password, so
+  // one of these with no later read by the same user is someone who gave up at that prompt.
+  IMPORT_PDF_PASSWORD_REQUIRED: 'The PDF is password-protected, so it was not queued; the app then asks for the password.',
+  IMPORT_PDF_PASSWORD_INVALID: 'The password sent with the locked PDF did not open it, so it was not queued.',
 };
 
 export function describeRefusal(code: string | null): Term {

@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import LayoutStudio from './LayoutStudio';
+import { describeRefusal } from './layoutStudioTerms';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { mockAdminAuthState } from '../test/mockAdminAuth';
 import { adminStatementAnalysisApi, adminAnalysisRunApi } from '../api/endpoints';
@@ -217,6 +218,17 @@ describe('LayoutStudio', () => {
       expect(within(drawer).getByText('Refusal code')).toBeInTheDocument();
       expect(within(drawer).queryByText(/The engine got transactions out of this file/)).not.toBeInTheDocument();
       expect(within(drawer).queryByText(/every line was matched/i)).not.toBeInTheDocument();
+    });
+
+    it('describes every refusal the backend records, and an unknown one by its code', () => {
+      for (const code of ['HTTP_400', 'HTTP_415', 'UPLOAD_TOO_LARGE', 'UPLOAD_MALWARE_DETECTED', 'UPLOAD_SCANNER_UNAVAILABLE',
+        'IMPORT_SYSTEM_BUSY', 'IMPORT_PDF_PASSWORD_REQUIRED', 'IMPORT_PDF_PASSWORD_INVALID']) {
+        const term = describeRefusal(code);
+        expect(term.label).toBe('Refused');
+        expect(term.meaning, code).not.toMatch(/recorded as/);
+      }
+      expect(describeRefusal('SOMETHING_NEW').meaning).toContain('recorded as "SOMETHING_NEW"');
+      expect(describeRefusal(null).meaning).toContain('no reason was recorded');
     });
 
     it('explains the gap between the total and Read + Failed', async () => {

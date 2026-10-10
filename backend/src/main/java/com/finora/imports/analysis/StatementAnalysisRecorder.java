@@ -156,7 +156,19 @@ public class StatementAnalysisRecorder {
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public String recordRejected(UUID userId, String sourceFormat, Throwable refusal) {
-        String code = rejectionCodeOf(refusal);
+        return recordRejected(userId, sourceFormat, rejectionCodeOf(refusal));
+    }
+
+    /**
+     * The same, for a refusal that is not an {@link ApiException} and so has no code of its own to
+     * read -- the servlet container's upload size limit, which is enforced before any controller
+     * runs ({@code OversizedImportUploadAdvice}). {@code sourceFormat} may be null when the refusal
+     * came before the format could be known.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public String recordRejected(UUID userId, String sourceFormat, String refusalCode) {
+        String code = refusalCode == null || refusalCode.isBlank() ? "UNCLASSIFIED"
+                : refusalCode.length() <= 32 ? refusalCode : refusalCode.substring(0, 32);
         try {
             return repository.save(StatementAnalysisSession.rejected(nextReference(), userId, sourceFormat,
                     code, currentCorrelationId())).getReference();

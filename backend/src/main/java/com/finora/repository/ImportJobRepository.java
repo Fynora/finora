@@ -131,6 +131,52 @@ public interface ImportJobRepository extends JpaRepository<ImportJob, UUID> {
     long countByStatusAndHeldStatementIdIsNull(ImportJob.Status status);
 
     /**
+     * Holds past the 48-hour promise with no escalation sent for the current hold, oldest first --
+     * {@code HoldOverdueEscalationService} (Gate 1 spec §4). {@code finishedAt} is when the current
+     * hold began ({@code ImportJob.isHoldOverdue}); {@code overdueAlertedAt} is cleared on every
+     * entry into a hold, so a re-held job comes back here. Paged so a backlog drains over runs.
+     */
+    @Query("""
+            SELECT j FROM ImportJob j
+             WHERE j.status IN :held
+               AND j.finishedAt < :cutoff
+               AND j.overdueAlertedAt IS NULL
+             ORDER BY j.finishedAt ASC
+            """)
+    List<ImportJob> findOverdueUnescalatedHolds(@Param("held") java.util.Collection<ImportJob.Status> held,
+                                                @Param("cutoff") Instant cutoff, Pageable limit);
+
+    /** How many holds in one status are past the promise, and when the oldest of them began. */
+    interface OverdueHoldSummary {
+        long getCount();
+        /** Null when there are none. */
+        Instant getOldest();
+    }
+
+    /**
+     * The admin dashboard's overdue holds (Gate 1 spec §4), counted as the escalation counts them:
+     * one per review. A trust hold with no record of its own whose rows another job's undecided
+     * review already covers (a re-upload riding on it -- {@code
+     * HeldStatementService.isCoveredByOpenReview}) is that review's, not a second overdue hold.
+     * {@code resolved} is {@code HeldStatement.Status.RESOLVED}.
+     */
+    @Query("""
+            SELECT COUNT(j) AS count, MIN(j.finishedAt) AS oldest FROM ImportJob j
+             WHERE j.status = :status
+               AND j.finishedAt < :cutoff
+               AND NOT (j.status = com.finora.entity.ImportJob.Status.HELD_FOR_TRUST_REVIEW
+                        AND j.heldStatementId IS NULL
+                        AND EXISTS (SELECT 1 FROM ImportJob o, HeldStatement h
+                                     WHERE o.importSessionId = j.importSessionId
+                                       AND o.id <> j.id
+                                       AND h.id = o.heldStatementId
+                                       AND h.status NOT IN :resolved))
+            """)
+    OverdueHoldSummary summarizeOverdueHolds(@Param("status") ImportJob.Status status,
+                                             @Param("cutoff") Instant cutoff,
+                                             @Param("resolved") java.util.Collection<com.finora.entity.HeldStatement.Status> resolved);
+
+    /**
      * Jobs an admin has already sent back to the queue that have not finished yet.
      *
      * <p>Deliberately not "every QUEUED job": the queue is mostly ordinary uploads, and counting

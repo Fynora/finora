@@ -83,7 +83,11 @@ public final class ImportJobDto {
             // Appended, not inserted alongside `status` above -- records are positional, and a new
             // field belongs at the end so a future positional construction (today there are none;
             // everything goes through `of()`) can't silently shift every argument after it.
-            UserFacingImportStatus userStatus
+            UserFacingImportStatus userStatus,
+            // Appended for the same reason. Whether a held job has passed the 48-hour promise its
+            // copy makes (Gate 1 spec §4). Decided here, on the server's clock, so a client with a
+            // wrong clock can't show the apology early or never; false for any job not held.
+            boolean holdOverdue
     ) {
         public static Progress of(ImportJob job) {
             return new Progress(
@@ -102,7 +106,8 @@ public final class ImportJobDto {
                     // Given to the client so a support conversation can start from an id that ties
                     // together the worker's logs, its audit rows and any Sentry event.
                     job.getCorrelationId(),
-                    UserFacingImportStatus.of(job.getStatus(), job.getFailureCode()));
+                    UserFacingImportStatus.of(job.getStatus(), job.getFailureCode()),
+                    job.isHoldOverdue(Instant.now()));
         }
 
         /**

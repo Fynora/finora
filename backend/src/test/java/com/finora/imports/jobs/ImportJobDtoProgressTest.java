@@ -65,4 +65,28 @@ class ImportJobDtoProgressTest {
 
         assertThat(ImportJobDto.Progress.of(job).error()).isNull();
     }
+
+    /** Gate 1 spec §4: the server's clock decides when the apology replaces the 48-hour copy. */
+    @Test
+    void aHoldPastTheFortyEightHourPromiseIsReportedOverdue() {
+        ImportJob job = new ImportJob(UUID.randomUUID(), "statement.pdf", "hash", "objects/key", "PDF");
+        job.holdForReview("IMPORT_NO_HEADER_DETECTED", Instant.now().minus(java.time.Duration.ofHours(49)));
+
+        assertThat(ImportJobDto.Progress.of(job).holdOverdue()).isTrue();
+    }
+
+    @Test
+    void aHoldWithinThePromiseIsNotOverdue() {
+        ImportJob job = new ImportJob(UUID.randomUUID(), "statement.pdf", "hash", "objects/key", "PDF");
+        job.holdForTrustReview(UUID.randomUUID(), UUID.randomUUID(), Instant.now().minus(java.time.Duration.ofHours(1)));
+
+        assertThat(ImportJobDto.Progress.of(job).holdOverdue()).isFalse();
+    }
+
+    @Test
+    void aFailedJobIsNeverOverdueHoweverOld() {
+        ImportJob job = failedJob("ApiException: x", "IMPORT_CORRUPT_PDF");
+
+        assertThat(ImportJobDto.Progress.of(job).holdOverdue()).isFalse();
+    }
 }

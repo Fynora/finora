@@ -113,15 +113,16 @@ function NeedsAttentionSection({ data }: { data: NeedsAttentionDto }) {
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      {items.map(({ count, icon: Icon, label, to, linkLabel }) => (
-        <div key={label} className="flex items-start gap-3 bg-warning-bg rounded-lg px-3.5 py-3">
-          <Icon size={16} className="text-warning flex-shrink-0 mt-0.5" />
+      {items.map(({ count, icon: Icon, label, to, linkLabel, overdue }) => (
+        <div key={label} data-overdue={overdue ? 'true' : undefined}
+          className={`flex items-start gap-3 rounded-lg px-3.5 py-3 ${overdue ? 'bg-danger-bg' : 'bg-warning-bg'}`}>
+          <Icon size={16} className={`flex-shrink-0 mt-0.5 ${overdue ? 'text-danger' : 'text-warning'}`} />
           <div className="min-w-0">
-            <p className="text-sm text-warning">
+            <p className={`text-sm ${overdue ? 'text-danger' : 'text-warning'}`}>
               <span className="font-mono font-bold">{count}</span> {label}
             </p>
             {to && (
-              <Link to={to} className="text-xs text-warning font-medium underline underline-offset-2">
+              <Link to={to} className={`text-xs font-medium underline underline-offset-2 ${overdue ? 'text-danger' : 'text-warning'}`}>
                 {linkLabel} →
               </Link>
             )}

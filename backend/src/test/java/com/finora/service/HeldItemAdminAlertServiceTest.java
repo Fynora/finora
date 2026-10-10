@@ -242,6 +242,101 @@ class HeldItemAdminAlertServiceTest {
         verify(emailProvider, never()).send(any());
     }
 
+    // --- overdue holds (Gate 1 spec §4) -------------------------------------------------------
+
+    private EmailMessage onlyEmailSent() {
+        org.mockito.ArgumentCaptor<EmailMessage> captor = org.mockito.ArgumentCaptor.forClass(EmailMessage.class);
+        verify(emailProvider).send(captor.capture());
+        return captor.getValue();
+    }
+
+    @Test
+    void alertHoldOverdue_anImportHoldGoesToTriageAdminsAndLinksTheHeldImportsQueue() {
+        ImportJob job = heldJob();
+        when(importJobRepository.findById(job.getId())).thenReturn(Optional.of(job));
+        when(userRepository.findByPermissionNameAndAccountScope("IMPORT_TRIAGE_MANAGE", User.SCOPE_ADMIN))
+                .thenReturn(List.of(adminUser("triage-admin@example.com")));
+
+        service.alertHoldOverdue(job.getId());
+
+        EmailMessage sent = onlyEmailSent();
+        assertThat(sent.to()).isEqualTo("triage-admin@example.com");
+        assertThat(sent.subject()).startsWith("OVERDUE:").contains("48 hours");
+        assertThat(sent.html()).contains("within 48 hours").contains("no decision")
+                .contains("https://admin.example.com/held-imports").contains("IMPORT_NO_HEADER_DETECTED");
+    }
+
+    @Test
+    void alertHoldOverdue_aTrustHoldNamesItsReviewNotTheFileAndLinksStraightToIt() {
+        UUID heldStatementId = UUID.randomUUID();
+        ImportJob job = new ImportJob(UUID.randomUUID(), "Private_Statement_Name.pdf", "hash", "objects/key", "PDF");
+        job.holdForTrustReview(UUID.randomUUID(), heldStatementId, Instant.now());
+        when(importJobRepository.findById(job.getId())).thenReturn(Optional.of(job));
+        HeldStatement held = new HeldStatement("HLD-2026-000042", job.getId(), job.getUserId(),
+                "objects/key", "Printed and parsed totals disagree");
+        when(heldStatementRepository.findById(heldStatementId)).thenReturn(Optional.of(held));
+        when(userRepository.findByPermissionNameAndAccountScope("TRUST_REVIEW_MANAGE", User.SCOPE_ADMIN))
+                .thenReturn(List.of(adminUser("trust-admin@example.com")));
+
+        service.alertHoldOverdue(job.getId());
+
+        EmailMessage sent = onlyEmailSent();
+        assertThat(sent.to()).isEqualTo("trust-admin@example.com");
+        assertThat(sent.subject()).startsWith("OVERDUE:").contains("HLD-2026-000042")
+                .doesNotContain("Private_Statement_Name");
+        assertThat(sent.html()).contains("https://admin.example.com/held-statements/HLD-2026-000042")
+                .doesNotContain("Private_Statement_Name");
+    }
+
+    @Test
+    void alertHoldOverdue_aTrustHoldWithNoRecordPointsAtTheQueueWhereItIsListed() {
+        ImportJob job = new ImportJob(UUID.randomUUID(), "statement.pdf", "hash", "objects/key", "PDF");
+        job.holdForTrustReview(UUID.randomUUID(), null, Instant.now());
+        when(importJobRepository.findById(job.getId())).thenReturn(Optional.of(job));
+        when(userRepository.findByPermissionNameAndAccountScope("TRUST_REVIEW_MANAGE", User.SCOPE_ADMIN))
+                .thenReturn(List.of(adminUser("trust-admin@example.com")));
+
+        service.alertHoldOverdue(job.getId());
+
+        EmailMessage sent = onlyEmailSent();
+        assertThat(sent.subject()).contains("no review record").contains(job.getId().toString());
+        assertThat(sent.html()).contains("https://admin.example.com/held-statements\"");
+    }
+
+    /** Decided between the escalation marking it and this send: the nudge is moot. */
+    @Test
+    void alertHoldOverdue_sendsNothingForAJobThatIsNoLongerHeld() {
+        ImportJob job = heldJob();
+        job.resolveWithoutFix(Instant.now(), "We could not read this statement.");
+        when(importJobRepository.findById(job.getId())).thenReturn(Optional.of(job));
+
+        service.alertHoldOverdue(job.getId());
+
+        verify(emailProvider, never()).send(any());
+    }
+
+    @Test
+    void alertHoldOverdue_sendsNothingWhenTheJobNoLongerExists() {
+        UUID gone = UUID.randomUUID();
+        when(importJobRepository.findById(gone)).thenReturn(Optional.empty());
+
+        service.alertHoldOverdue(gone);
+
+        verify(emailProvider, never()).send(any());
+    }
+
+    @Test
+    void alertHoldOverdue_neverThrowsWhenTheProviderDoes() {
+        ImportJob job = heldJob();
+        when(importJobRepository.findById(job.getId())).thenReturn(Optional.of(job));
+        when(userRepository.findByPermissionNameAndAccountScope(any(), any()))
+                .thenReturn(List.of(adminUser("triage-admin@example.com")));
+        when(emailProvider.send(any())).thenThrow(new IllegalStateException("provider down"));
+
+        org.assertj.core.api.Assertions.assertThatCode(() -> service.alertHoldOverdue(job.getId()))
+                .doesNotThrowAnyException();
+    }
+
     private static EmailMessage argThatEmailTo(String email) {
         return org.mockito.ArgumentMatchers.argThat(m -> m != null && email.equals(m.to()));
     }

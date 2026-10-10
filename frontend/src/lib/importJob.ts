@@ -35,6 +35,22 @@ export const HELD_DETAIL = 'Our team is checking it by hand to make sure every t
   + 'using Fynora in the meantime.';
 
 /**
+ * What a hold says once it has broken the 48-hour promise above (Gate 1 spec §4). The server decides
+ * that (`holdOverdue`, on its own clock); this only renders it. It apologises and offers a way
+ * forward, and never decides the import -- a person still does. Mobile's importJob.ts carries the
+ * same sentences.
+ */
+export const HELD_OVERDUE_DETAIL = 'This is taking longer than we promised — sorry. You can keep '
+  + "waiting, or upload a different statement in the meantime. We'll notify you as soon as this one "
+  + 'is done.';
+
+/** The held explanation for this job: the apology once past the promise, else the 48-hour copy. A
+ *  server that predates `holdOverdue` omits it, which reads as within the promise. */
+export function heldDetail(job: Pick<ImportJobProgress, 'holdOverdue'>): string {
+  return job.holdOverdue ? HELD_OVERDUE_DETAIL : HELD_DETAIL;
+}
+
+/**
  * What the user is told is happening.
  *
  * Deliberately not the enum name. "ANALYZING" is the queue's vocabulary; someone who has just
@@ -187,7 +203,7 @@ export function detail(job: ImportJobProgress): string | null {
   // HELD_FOR_TRUST_REVIEW), and telling someone their own bank statement is being checked for
   // genuineness is a worse trust hit than the delay it would excuse. And "by hand" has to stay
   // true: a person reviews every hold before the import proceeds.
-  if (isHeld(job)) return HELD_DETAIL;
+  if (isHeld(job)) return heldDetail(job);
   if (job.rowsTotal === null) return null;
   if (job.status === 'COMPLETED') {
     return `${job.rowsTotal} ${job.rowsTotal === 1 ? 'transaction' : 'transactions'} found`;

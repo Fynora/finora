@@ -51,6 +51,7 @@ class HeldStatementServiceRerunIT extends AbstractIntegrationTest {
     @Autowired private HeldStatementRepository heldStatementRepository;
     @Autowired private HeldStatementEventRepository eventRepository;
     @Autowired private ImportJobRepository importJobRepository;
+    @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
     @Autowired private ImportVerificationFindingRepository findingRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private StatementStorage storage;
@@ -384,6 +385,31 @@ class HeldStatementServiceRerunIT extends AbstractIntegrationTest {
         assertThat(job.getFailureCode()).isNull();
         assertThat(eventRepository.findByHeldStatementIdOrderByCreatedAtAsc(held.getId()))
                 .extracting(HeldStatementEvent::getEventType).containsSubsequence("REJECTED", "REOPENED");
+    }
+
+    /**
+     * Gate 1 spec §4: the user waits again from the reopening, so the 48-hour clock restarts there
+     * and the earlier hold's escalation marker no longer counts. Left at the rejection time, a
+     * review reopened days later would read as overdue at once with its escalation suppressed.
+     */
+    @Test
+    void reopeningRestartsTheHoldClockAndClearsTheEscalationMarker() {
+        HeldStatement held = seedHold(CLEAN_CSV);
+        ImportJob before = jobOf(held);
+        before.markOverdueAlerted(java.time.Instant.now().minus(java.time.Duration.ofDays(6)));
+        importJobRepository.save(before);
+        heldStatementService.reject(admin(), held.getHeldId(), "misread");
+        // Rejected five days ago: reopening must not inherit that as the start of the new hold.
+        java.time.Instant rejectedAt = java.time.Instant.now().minus(java.time.Duration.ofDays(5));
+        jdbcTemplate.update("UPDATE import_jobs SET finished_at = ? WHERE id = ?",
+                java.sql.Timestamp.from(rejectedAt), before.getId());
+
+        heldStatementService.reopen(admin(), held.getHeldId(), "parser fixed");
+
+        ImportJob job = jobOf(held);
+        assertThat(job.getFinishedAt()).isAfter(rejectedAt.plus(java.time.Duration.ofDays(4)));
+        assertThat(job.getOverdueAlertedAt()).isNull();
+        assertThat(job.isHoldOverdue(java.time.Instant.now())).isFalse();
     }
 
     @Test

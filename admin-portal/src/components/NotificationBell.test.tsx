@@ -126,6 +126,32 @@ describe('NotificationBell', () => {
     expect(screen.getByRole('link', { name: /Open Held Statements/i })).toHaveAttribute('href', '/held-statements');
   });
 
+  // Gate 1 spec §4: a hold past its 48-hour promise is the first needs-attention row, wherever the
+  // admin is, and links to the queue it sits in.
+  it('puts a hold past the 48-hour promise ahead of the other rows', () => {
+    vi.mocked(useDashboardOverview).mockReturnValue({
+      data: overview({
+        needsAttention: {
+          importsWithSkippedRowsToday: 0, lockedAccounts: 3, transactionsNeedingCategoryReview: 0,
+          transactionsFlaggedAsDuplicates: 0, statementsHeldForTrustReview: 2, importsHeldForReview: 0,
+          trustHoldsOverdue: { count: 1, oldestHeldSince: new Date(Date.now() - 3 * 86_400_000).toISOString() },
+          importHoldsOverdue: { count: 0, oldestHeldSince: null },
+        },
+      }),
+    } as never);
+
+    renderBell();
+    fireEvent.click(screen.getByRole('button', { name: '3 items need attention' }));
+
+    const overdue = screen.getByText(/held statement is past the 48-hour promise — oldest waiting 3 days/);
+    const waiting = screen.getByText(/statements are waiting for trust review/);
+    expect(overdue.compareDocumentPosition(waiting) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Shown distinctly: the overdue row in the danger style, the ordinary waiting row not.
+    expect(overdue.closest('[data-overdue]')).toHaveClass('bg-danger-bg');
+    expect(waiting.closest('[data-overdue]')).toBeNull();
+    expect(screen.getAllByRole('link', { name: /Open Held Statements/i })[0]).toHaveAttribute('href', '/held-statements');
+  });
+
   it('lists critical alerts, then needs-attention rows, then warnings', () => {
     vi.mocked(useDashboardOverview).mockReturnValue({
       data: overview({

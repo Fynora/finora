@@ -123,7 +123,7 @@
     <dependency>
       <groupId>org.springdoc</groupId>
       <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
-      <version>2.9.0</version>
+      <version>3.1.1</version>
     </dependency>
 
     <!-- The actuator context: /actuator/health and /actuator/prometheus, both served on

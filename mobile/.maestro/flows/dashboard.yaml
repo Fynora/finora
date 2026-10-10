@@ -33,16 +33,18 @@ env:
 # looks: Financial Health Hero/Health Factors, Financial Note, Upcoming, Categorization Confidence,
 # Next Actions, and Detected Issues are all gated on real transaction data existing
 # (DashboardScreen.tsx's own isEmpty/healthScoreAvailable/data-length checks) and don't render at
-# all here -- confirmed by reading those gates directly. The effective order for this account is:
-# LedgerSnapshotCard (Income/Expenses/Net Savings/Savings Rate) -> Cash Flow Trend + Accounts row
-# (Total Balance) -> Spending by Category -> Goals (heading only) -> Recent Transactions ->
-# Quick Actions -> Cash Flow (full) -> Budget Progress -> Getting Started.
+# all here -- confirmed by reading those gates directly. The effective order for this account,
+# since the card redesign (2026-10-10), is: balance card (Total Balance) -> month tiles
+# (Income/Expenses/Net Savings/Savings Rate) -> Spending by Category -> Goals (heading only) ->
+# Recent Transactions -> Quick Actions -> Cash Flow (full) -> Budget Progress -> Getting Started.
+# The redesign did not run this flow; the steps were re-read against the new order instead.
 - assertVisible: "Income"
 - assertVisible: "Expenses"
 - assertVisible: "Net Savings"
-# Total Balance lives in AccountsCard, reached after LedgerSnapshotCard -- real added height
-# between the KPI row and here that Income/Expenses/Net Savings/Savings Rate just above don't need
-# to scroll past.
+# Total Balance lives in AccountsCard, which now sits ABOVE the month tiles, so this
+# scrollUntilVisible finds it without scrolling. Its label and the tiles' labels are drawn in
+# capitals by styling only; each sits inside one accessible node whose label keeps the original
+# casing ("Total Balance: ...", "Income: ..."), which is what these steps match.
 - scrollUntilVisible:
     element:
       text: "Total Balance"
@@ -64,9 +66,8 @@ env:
     direction: DOWN
 - assertVisible: "Recent Transactions"
 # Anchored regex, not a plain substring: CashFlowMiniCard's own heading is literally
-# "Cash Flow Trend" and sits in the same row as Total Balance, several scroll-stops above this
-# card -- an unanchored "Cash Flow" pattern risks matching that instead of the full card this step
-# actually means to find.
+# "Cash Flow Trend" and sits several scroll-stops above this card -- an unanchored "Cash Flow"
+# pattern risks matching that instead of the full card this step actually means to find.
 - scrollUntilVisible:
     element:
       text: "^Cash Flow$"

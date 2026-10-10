@@ -24,7 +24,7 @@ export function GoalsRow({ goals }: { goals: Goal[] }) {
   if (goals.length === 0) return null;
 
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.scroller} contentContainerStyle={styles.row}>
       {goals.map((g) => {
         // Bug fix: the ring's geometry has to stay capped at 100% -- unlike a linear bar's width,
         // which just overflows a fixed container past 100%, a strokeDashoffset past this ring's
@@ -72,7 +72,10 @@ export function GoalsRow({ goals }: { goals: Goal[] }) {
 }
 
 const styles = StyleSheet.create({
-  row: { gap: spacing.ms, paddingVertical: spacing.xs },
+  // Edge to edge, same reasoning as HealthFactorsRow: cancels DashboardScreen's side padding
+  // (spacing.ml) so tiles scroll off under the bezel instead of being cut at the padding line.
+  scroller: { marginHorizontal: -spacing.ml },
+  row: { gap: spacing.ms, paddingVertical: spacing.xs, paddingHorizontal: spacing.ml },
   card: { width: 164, gap: spacing.ms },
   name: { alignSelf: 'stretch' },
   ringWrap: { width: RING_SIZE, height: RING_SIZE },

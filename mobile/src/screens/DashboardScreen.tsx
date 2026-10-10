@@ -10,9 +10,12 @@ import { usePreventScreenCapture } from '../lib/screenCapture';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { AddTransactionSheet } from './AddTransactionSheet';
 import { AccountsCard } from '../components/dashboard/AccountsCard';
+import { DashboardCard } from '../components/dashboard/DashboardCard';
+import { DashboardSectionHeader } from '../components/dashboard/DashboardSectionHeader';
 import { FinancialNoteCard } from '../components/dashboard/FinancialNoteCard';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
 import { GlassScreen } from '../components/GlassScreen';
+import { GlassSurface } from '../components/GlassSurface';
 import { CashFlowMiniCard } from '../components/dashboard/CashFlowMiniCard';
 import { GoalsRow } from '../components/dashboard/GoalsRow';
 import { HealthFactorsRow } from '../components/dashboard/HealthFactorsRow';
@@ -43,7 +46,7 @@ import { reviewNudgeLabel, reviewQueueCount } from '../lib/reviewQueue';
 import { useDashboardKpis } from '../lib/useDashboardKpis';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { visiblePlanCode } from '../lib/planDisplay';
-import { fonts, radius, spacing, useTheme } from '../theme';
+import { fonts, radius, spacing, typography, useTheme } from '../theme';
 import { trackNavSearch, trackNavigation } from '../lib/trackNavigation';
 import type { AppTabParamList } from '../navigation/types';
 import { StatementRefreshBanner } from '../components/StatementRefreshBanner';
@@ -262,9 +265,8 @@ export function DashboardScreen() {
     isPausedCold(availableMonthsQ) ||
     (monthsInRange.length > 0 && cashFlowPoints.length === 0);
   // Mirrors CashFlowMiniCard's own `points.length === 0` null-return exactly (same points array
-  // it's handed below) -- when it renders nothing, its sibling cardRowItem View still claims half
-  // the row's width via flex:1, leaving a blank gap the same size as the card that isn't there.
-  // AccountsCard goes full-width instead of sitting in a half-width column with nothing beside it.
+  // it's handed below) -- when it would render nothing, its section wrapper is not rendered
+  // either, so no margin is left behind as a blank gap where the card isn't.
   const showCashFlowMini = !(cashFlowSettling || cashFlowUnavailable) && cashFlowPoints.length > 0;
 
   // Bound now (AccountsCard, below) -- previously fetched only to prewarm AccountsScreen's cache.
@@ -390,7 +392,10 @@ export function DashboardScreen() {
     );
   }
 
-  const chartWidth = width - spacing.md * 2 - spacing.md * 2;
+  // Screen side padding (spacing.ml since the card redesign, see styles.content) and the chart
+  // card's own padding. The full Cash Flow card is still a Card (spacing.md) until it moves onto
+  // DashboardCard, at which point this becomes spacing.ml on both sides.
+  const chartWidth = width - spacing.ml * 2 - spacing.md * 2;
 
   return (
     <>
@@ -421,10 +426,10 @@ export function DashboardScreen() {
 
       <View style={styles.greetingRow}>
         <View style={styles.greetingText}>
-          <Text style={[styles.greeting, { color: c.ink }]}>
+          <Text style={[typography.screenTitle, { color: c.ink }]}>
             {greeting(settingsQ.data?.timezone)}, {firstName}
           </Text>
-          <Text style={[styles.subGreeting, { color: c.mutedInk }]}>
+          <Text style={[typography.bodyM, styles.subGreeting, { color: c.mutedInk }]}>
             Here's what's happening with your finances.
             {!periodIsCurrent && ` Your latest figures are from ${periodLabel}.`}
           </Text>
@@ -443,11 +448,12 @@ export function DashboardScreen() {
             navigation.navigate('Transactions');
           }}
           hitSlop={10}
-          style={styles.searchButton}
           accessibilityRole="button"
           accessibilityLabel="Search transactions"
         >
-          <Ionicons name="search-outline" size={22} color={c.muted} />
+          <GlassSurface testID="dashboard-search-button" style={styles.searchButton}>
+            <Ionicons name="search-outline" size={20} color={c.ink} />
+          </GlassSurface>
         </Pressable>
       </View>
 
@@ -555,6 +561,20 @@ export function DashboardScreen() {
         </>
       ) : null}
 
+      {/* Card redesign (2026-10-10): the balance is its own full-width card, ahead of the month's
+          figures. It used to share a row with Cash Flow Trend, where both were too narrow for
+          their own numbers (CashFlowMiniCard's old footer comment recorded the overflow). */}
+      {summary ? (
+        <View style={styles.section}>
+          <AccountsCard
+            accounts={accountsQ.data ?? []}
+            totalBalance={balanceKpi?.value ?? 0}
+            caption={balanceKpi?.caption ?? ''}
+            onViewAll={() => { trackNavigation('accounts', 'contextual'); navigation.navigate('More', { screen: 'Accounts' }); }}
+          />
+        </View>
+      ) : null}
+
       <View style={styles.section}>
         {summary ? (
           <LedgerSnapshotCard kpis={snapshotKpis} title={periodTitle} deltaLabel={deltaLabel} deltaSpokenLabel={deltaSpokenLabel} />
@@ -591,64 +611,47 @@ export function DashboardScreen() {
         ) : null}
       </View>
 
-      {summary ? (
-        showCashFlowMini ? (
-          <View style={styles.cardRow}>
-            <View style={styles.cardRowItem}>
-              <CashFlowMiniCard points={cashFlowPoints} deltaPct={summary.netDeltaPct} deltaLabel={deltaLabel} />
-            </View>
-            <View style={styles.cardRowItem}>
-              <AccountsCard
-                accounts={accountsQ.data ?? []}
-                totalBalance={balanceKpi?.value ?? 0}
-                caption={balanceKpi?.caption ?? ''}
-                onViewAll={() => { trackNavigation('accounts', 'contextual'); navigation.navigate('More', { screen: 'Accounts' }); }}
-              />
-            </View>
-          </View>
-        ) : (
-          <View style={styles.cardRowSingle}>
-            <AccountsCard
-              accounts={accountsQ.data ?? []}
-              totalBalance={balanceKpi?.value ?? 0}
-              caption={balanceKpi?.caption ?? ''}
-              onViewAll={() => { trackNavigation('accounts', 'contextual'); navigation.navigate('More', { screen: 'Accounts' }); }}
-            />
-          </View>
-        )
+      {/* Renders nothing at all without monthly data: CashFlowMiniCard returns null then, and a
+          wrapper around a null card would still leave its margin behind as a blank gap. */}
+      {summary && showCashFlowMini ? (
+        <View style={styles.section}>
+          <CashFlowMiniCard points={cashFlowPoints} deltaPct={summary.netDeltaPct} deltaLabel={deltaLabel} />
+        </View>
       ) : null}
 
-      <Card style={styles.section}>
-        <SectionHeading title="Spending by Category" />
-        {summary ? (
-          donutSlices.length === 0 ? (
-            <EmptyState message={`No spending recorded ${periodLabel} yet.`} />
+      <DashboardCard style={styles.section}>
+        <DashboardSectionHeader title="Spending by Category" />
+        <View style={styles.cardBody}>
+          {summary ? (
+            donutSlices.length === 0 ? (
+              <EmptyState message={`No spending recorded ${periodLabel} yet.`} />
+            ) : (
+              <DonutChart
+                slices={donutSlices}
+                centerLabel={fmtCurrency(donutSlices.reduce((s, x) => s + x.value, 0))}
+                onSlicePress={(categoryName) => {
+                  // reportingMonth can't be null here -- donutSlices is only non-empty when summary
+                  // has real category spend, which requires a real reporting month behind it.
+                  const { dateFrom, dateTo } = monthDateRange(summary!.reportingMonth!);
+                  trackNavigation('transactions', 'contextual');
+                  navigation.navigate('Transactions', {
+                    filters: {
+                      categoryName, dateFrom, dateTo,
+                      label: `${categoryName} · ${monthLabel(summary!.reportingMonth!)}`,
+                      nonce: Date.now(),
+                    },
+                  });
+                }}
+              />
+            )
           ) : (
-            <DonutChart
-              slices={donutSlices}
-              centerLabel={fmtCurrency(donutSlices.reduce((s, x) => s + x.value, 0))}
-              onSlicePress={(categoryName) => {
-                // reportingMonth can't be null here -- donutSlices is only non-empty when summary
-                // has real category spend, which requires a real reporting month behind it.
-                const { dateFrom, dateTo } = monthDateRange(summary!.reportingMonth!);
-                trackNavigation('transactions', 'contextual');
-                navigation.navigate('Transactions', {
-                  filters: {
-                    categoryName, dateFrom, dateTo,
-                    label: `${categoryName} · ${monthLabel(summary!.reportingMonth!)}`,
-                    nonce: Date.now(),
-                  },
-                });
-              }}
-            />
-          )
-        ) : (
-          <SkeletonChart variant="donut" />
-        )}
-      </Card>
+            <SkeletonChart variant="donut" />
+          )}
+        </View>
+      </DashboardCard>
 
-      <View style={styles.section}>
-        <SectionHeading title="Goals" />
+      <View style={[styles.section, styles.sectionStack]}>
+        <DashboardSectionHeader title="Goals" />
         <GoalsRow goals={goalsQ.data ?? []} />
       </View>
 
@@ -1083,22 +1086,23 @@ const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
   errorText: { fontSize: 14 },
   retry: { fontSize: 14, fontWeight: '600' },
-  content: { padding: spacing.md, paddingBottom: spacing.xl },
+  content: { padding: spacing.ml, paddingBottom: spacing.xl },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: spacing.sm },
   // Manrope ExtraBold like every other FYNORA wordmark (AuthScreenLayout, LaunchAnimation, the
   // web), not the system font at weight 800. No fontWeight alongside it -- see fonts.ts.
   brandWord: { fontFamily: fonts.display, fontSize: 15, letterSpacing: 1.05 },
   planBadge: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 3 },
   planBadgeText: { fontSize: 10.5, fontWeight: '700' },
-  greetingRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
+  greetingRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.ms },
   greetingText: { flex: 1 },
-  searchButton: { padding: 4 },
-  greeting: { fontSize: 22, fontWeight: '700' },
-  subGreeting: { fontSize: 13, marginTop: 2, marginBottom: spacing.md },
+  subGreeting: { marginTop: 2, marginBottom: spacing.md },
+  // A 44 point glass circle: the visible shape is the whole touch target.
+  searchButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
   section: { marginTop: spacing.md },
-  cardRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
-  cardRowItem: { flex: 1 },
-  cardRowSingle: { marginTop: spacing.md },
+  // A section whose header sits on the backdrop above a row or grid of tiles, not inside a card.
+  sectionStack: { gap: spacing.ms },
+  // What follows a section header inside a card.
+  cardBody: { marginTop: spacing.md },
   rangeRow: { flexDirection: 'row', borderWidth: 1, borderRadius: radius.md, overflow: 'hidden' },
   // 44pt minimum touch target -- see the same note in LedgerScreen's filter chips.
   rangeChip: { paddingHorizontal: 14, minHeight: 44, justifyContent: 'center' },

@@ -30,7 +30,7 @@ export function HealthFactorsRow({
   if (!available) return null;
 
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.scroller} contentContainerStyle={styles.row}>
       {Object.entries(breakdown).map(([name, score]) => (
         <FinancialHealthFactorCard
           key={name}
@@ -48,5 +48,9 @@ export function HealthFactorsRow({
 }
 
 const styles = StyleSheet.create({
-  row: { gap: spacing.ms, paddingVertical: spacing.xs },
+  // The row runs edge to edge: the negative margin cancels DashboardScreen's side padding
+  // (styles.content, spacing.ml) and the content padding puts the first tile back on the screen's
+  // left edge, so tiles scroll off under the bezel instead of being cut at the padding line.
+  scroller: { marginTop: spacing.md, marginHorizontal: -spacing.ml },
+  row: { gap: spacing.ms, paddingVertical: spacing.xs, paddingHorizontal: spacing.ml },
 });

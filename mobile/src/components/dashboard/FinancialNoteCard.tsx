@@ -64,9 +64,11 @@ export function FinancialNoteCard({
 }
 
 const styles = StyleSheet.create({
+  // marginTop lives here, not on a wrapper in DashboardScreen: the card renders nothing without
+  // an opportunity, and a wrapper around nothing would leave its margin behind as a gap.
   card: {
     borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.xxl, padding: spacing.md,
-    flexDirection: 'row', alignItems: 'center', gap: spacing.ms,
+    flexDirection: 'row', alignItems: 'center', gap: spacing.ms, marginTop: spacing.md,
   },
   textWrap: { flex: 1, gap: spacing.xs },
   cta: { minHeight: 44, paddingHorizontal: spacing.md, borderRadius: 999, alignItems: 'center', justifyContent: 'center' },

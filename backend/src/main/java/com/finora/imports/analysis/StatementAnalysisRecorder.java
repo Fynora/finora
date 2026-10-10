@@ -167,11 +167,33 @@ public class StatementAnalysisRecorder {
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public String recordRejected(UUID userId, String sourceFormat, String refusalCode) {
+        return saveRejected(userId, sourceFormat, refusalCode, currentCorrelationId());
+    }
+
+    /**
+     * The same, written on {@code uploadRefusalRecordExecutor} instead of the calling thread -- for
+     * the one refusal that is the server shedding load ({@code IMPORT_SYSTEM_BUSY}). See that bean
+     * in {@code BackgroundWorkConfig}: writing it on the request thread would make a refusal meant
+     * to be instant wait for a database connection exactly when connections are scarcest.
+     *
+     * <p>The correlation id is passed in because MDC does not follow a task onto another thread;
+     * the caller reads it on the request thread, where it is the request's own.
+     */
+    @org.springframework.scheduling.annotation.Async("uploadRefusalRecordExecutor")
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordRejectedOffRequest(UUID userId, String sourceFormat, String refusalCode,
+                                         String correlationId) {
+        saveRejected(userId, sourceFormat, refusalCode, correlationId);
+    }
+
+    private String saveRejected(UUID userId, String sourceFormat, String refusalCode, String correlationId) {
         String code = refusalCode == null || refusalCode.isBlank() ? "UNCLASSIFIED"
                 : refusalCode.length() <= 32 ? refusalCode : refusalCode.substring(0, 32);
+        String boundedCorrelationId = correlationId == null || correlationId.isBlank() ? null
+                : correlationId.length() <= 64 ? correlationId : correlationId.substring(0, 64);
         try {
             return repository.save(StatementAnalysisSession.rejected(nextReference(), userId, sourceFormat,
-                    code, currentCorrelationId())).getReference();
+                    code, boundedCorrelationId)).getReference();
         } catch (RuntimeException e) {
             log.error("Could not record a REJECTED upload ({}) -- the refusal itself is unaffected", code, e);
             return null;

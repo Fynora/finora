@@ -89,7 +89,12 @@ class StatementAnalysisReportServiceTest {
         // The question the summary exists to answer: one reason dominating ACROSS documents is a
         // missing capability, the same reason confined to one document is that document. Summing
         // per reason is what makes those two distinguishable.
-        when(repository.findAllByOrderByCreatedAtDesc(any(Pageable.class))).thenReturn(List.of(
+        //
+        // The window is asked for WITHOUT refused uploads (REJECTED, V267): they never reached the
+        // engine, and in the window they would only push real reads out of it.
+        when(repository.findByOutcomeNotOrderByCreatedAtDesc(
+                org.mockito.ArgumentMatchers.eq(StatementAnalysisSession.Outcome.REJECTED), any(Pageable.class)))
+                .thenReturn(List.of(
                 parsed("SA-1", "FP-A", 569, "{\"NO_DATE_IN_ANCHOR_COLUMN\":600,\"AMOUNT_UNPARSEABLE\":49}"),
                 parsed("SA-2", "FP-B", 140, "{\"NO_DATE_IN_ANCHOR_COLUMN\":40}"),
                 parsed("SA-3", "FP-C", 113, null)));
@@ -108,11 +113,13 @@ class StatementAnalysisReportServiceTest {
         // Null and 0 both add nothing to the total, so the sum cannot tell them apart -- but the
         // per-row view must, because "extracted nothing" and "never opened" lead to different
         // investigations.
-        when(repository.findAllByOrderByCreatedAtDesc(any(Pageable.class))).thenReturn(List.of(
+        List<StatementAnalysisSession> sessions = List.of(
                 StatementAnalysisSession.failed("SA-LOCKED", UUID.randomUUID(),
                         StatementAnalysisSession.Source.CUSTOMER_IMPORT, "locked.pdf", "PDF", 1L,
                         null, "IMPORT_008", "wrong password", 10L, null, null),
-                parsed("SA-EMPTY", "FP-E", 0, null)));
+                parsed("SA-EMPTY", "FP-E", 0, null));
+        when(repository.findAllByOrderByCreatedAtDesc(any(Pageable.class))).thenReturn(sessions);
+        when(repository.findByOutcomeNotOrderByCreatedAtDesc(any(), any(Pageable.class))).thenReturn(sessions);
 
         var views = service.recent(10);
 

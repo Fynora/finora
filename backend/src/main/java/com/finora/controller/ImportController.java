@@ -36,11 +36,14 @@ public class ImportController {
     private final StatementAnalysisRecorder analysisRecorder;
     private final UploadScanGate uploadScanGate;
     private final StagingTrustGate stagingTrustGate;
+    private final com.finora.imports.analysis.UploadRefusalLog uploadRefusalLog;
 
     public ImportController(ImportService importService, ImportSessionService importSessionService,
                              ImportConcurrencyLimiter concurrencyLimiter, CurrentUser currentUser,
                              StatementAnalysisRecorder analysisRecorder, UploadScanGate uploadScanGate,
-                             StagingTrustGate stagingTrustGate) {
+                             StagingTrustGate stagingTrustGate,
+                             com.finora.imports.analysis.UploadRefusalLog uploadRefusalLog) {
+        this.uploadRefusalLog = uploadRefusalLog;
         this.uploadScanGate = uploadScanGate;
         this.stagingTrustGate = stagingTrustGate;
         this.importService = importService;
@@ -71,7 +74,7 @@ public class ImportController {
             uploadScanGate.requireClean(file, userId, "statement-import");
         } catch (RuntimeException refused) {
             // Gate 1 spec §5.1: a refusal before reading used to leave no record at all.
-            analysisRecorder.recordRejected(userId, "CSV", refused);
+            uploadRefusalLog.refused(userId, "CSV", refused);
             throw refused;
         }
         // The trust check runs here, after staging, exactly as the worker runs it after staging a
@@ -109,7 +112,7 @@ public class ImportController {
             StatementUpload.requireReadable(file, StatementUpload.Format.PDF);
             uploadScanGate.requireClean(file, userId, "statement-import");
         } catch (RuntimeException refused) {
-            analysisRecorder.recordRejected(userId, "PDF", refused);
+            uploadRefusalLog.refused(userId, "PDF", refused);
             throw refused;
         }
         // The trust check, as for /csv/stage above. A locked PDF is the usual reason a statement
@@ -129,13 +132,16 @@ public class ImportController {
      * throws and only before the work starts -- anything thrown by the work itself reached the
      * parser, and {@code ImportService} has already recorded that as a FAILED read with the file's
      * name and hash. Recording it here too would count one upload twice.
+     *
+     * <p>Recorded off this thread ({@code UploadRefusalLog.refusedAsBusy}): this refusal is the
+     * limiter shedding load, and it must not wait on a database connection to say so.
      */
     private <T> T gated(String sourceFormat, UUID userId, java.util.concurrent.Callable<T> work) throws Exception {
         try {
             return concurrencyLimiter.runGated(work);
         } catch (com.finora.exception.ApiException refused) {
             if (refused.getCode() == com.finora.exception.ErrorCode.IMPORT_SYSTEM_BUSY) {
-                analysisRecorder.recordRejected(userId, sourceFormat, refused);
+                uploadRefusalLog.refusedAsBusy(userId, sourceFormat);
             }
             throw refused;
         }

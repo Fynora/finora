@@ -63,17 +63,17 @@ public class ImportJobController {
     private final CurrentUser currentUser;
 
     private final com.finora.imports.passwords.StatementPasswordService statementPasswordService;
-    private final com.finora.imports.analysis.StatementAnalysisRecorder analysisRecorder;
+    private final com.finora.imports.analysis.UploadRefusalLog uploadRefusalLog;
 
     public ImportJobController(ImportJobService importJobService, CurrentUser currentUser,
                                com.finora.uploads.UploadScanGate uploadScanGate,
                                com.finora.imports.passwords.StatementPasswordService statementPasswordService,
-                               com.finora.imports.analysis.StatementAnalysisRecorder analysisRecorder) {
+                               com.finora.imports.analysis.UploadRefusalLog uploadRefusalLog) {
         this.importJobService = importJobService;
         this.currentUser = currentUser;
         this.uploadScanGate = uploadScanGate;
         this.statementPasswordService = statementPasswordService;
-        this.analysisRecorder = analysisRecorder;
+        this.uploadRefusalLog = uploadRefusalLog;
     }
 
     private final com.finora.uploads.UploadScanGate uploadScanGate;
@@ -152,7 +152,7 @@ public class ImportJobController {
                 // An unlocked file needs no password, so one sent with it is never kept.
             }
         } catch (RuntimeException refused) {
-            analysisRecorder.recordRejected(currentUser.id(), format.name(), refused);
+            uploadRefusalLog.refused(currentUser.id(), format.name(), refused);
             throw refused;
         }
 

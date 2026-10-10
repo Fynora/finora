@@ -89,6 +89,14 @@ updates:
       # as a deliberate migration task, not a Dependabot merge.
       - dependency-name: "tailwindcss"
         update-types: ["version-update:semver-major"]
+      # TypeScript 7 cannot be installed next to typescript-eslint yet: PR #2026 (5.9.3 -> 7.0.2)
+      # failed `npm ci` with ERESOLVE ("While resolving: typescript-eslint@8.71.0"). Revisit once
+      # typescript-eslint publishes a release whose peer range accepts TS 7.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      # NOTE: `ignore` covers version updates only. Dependabot SECURITY updates are exempt from it:
+      # PR #2044 proposed tailwindcss 3 -> 4 anyway, as the only route to a patched
+      # postcss-selector-parser (alert #40, fixed in 7.1.6; tailwind 3 depends on 6.x).
     commit-message:
       prefix: "chore(deps)"
 
@@ -110,6 +118,17 @@ updates:
         update-types: [major, minor, patch]
       npm-minor-and-patch:
         update-types: [minor, patch]
+    ignore:
+      # /frontend has had this ignore since #1296; /admin-portal never got it, so #1490 (3.4.19 ->
+      # 4.3.3) arrived here. Same reason: tailwind 4 moved its PostCSS plugin into a separate
+      # package, and with it the Admin portal's tailwindColorClasses.test.ts (3 tests) and the e2e
+      # smoke test fail. A migration task, not a Dependabot merge.
+      - dependency-name: "tailwindcss"
+        update-types: ["version-update:semver-major"]
+      # Same TypeScript 7 / typescript-eslint conflict as /frontend: PR #2025 failed `npm ci` with
+      # ERESOLVE. Revisit when typescript-eslint supports TS 7.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "chore(deps)"
 
@@ -202,6 +221,10 @@ updates:
       # new Linter removed. Upstream (Expo) incompatibility, nothing to fix in this repo. Revisit
       # once eslint-config-expo publishes an ESLint-10-compatible release.
       - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
+      # TypeScript 7: PR #2072 (6.0.3 -> 7.0.2) failed `npm run lint` with "typescript-eslint does
+      # not support TS 7.0." Revisit when typescript-eslint supports TS 7 (and Expo SDK allows it).
+      - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "chore(deps)"

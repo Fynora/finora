@@ -39,12 +39,20 @@ export function HomeCrawlerFallback() {
     <div className="marketing">
       <Nav overHero />
       <main id="main-content">
-        {/* The same wrapper Landing gives Hero (its IntersectionObserver target), so the first
-            frame lays out exactly where the real hero will. */}
-        <div>
-          <Hero firstFrame />
+        {/* Keeps everything after the hero below the fold. Only a screen taller than the hero
+            (a large monitor, a big tablet held upright) shows anything under it, and there the
+            real page starts as a white surface its sections then fade onto. Without this, such a
+            screen showed the plain prose below for a moment and then swapped it for those
+            sections. 4rem is the Nav above (h-16). Released when scripting is off (index.css),
+            where the prose is the page. */}
+        <div data-hero-fold="" className="min-h-[calc(100vh-4rem)]">
+          {/* The same wrapper Landing gives Hero (its IntersectionObserver target), so the first
+              frame lays out exactly where the real hero will. */}
+          <div>
+            <Hero firstFrame />
+          </div>
+          <Transition from="#15171C" to="#FFFFFF" height={80} />
         </div>
-        <Transition from="#15171C" to="#FFFFFF" height={80} />
         <div className="bg-bg text-ink">
           <div className="max-w-4xl mx-auto px-6 py-14">
             <PublicSection title={problem.title}>

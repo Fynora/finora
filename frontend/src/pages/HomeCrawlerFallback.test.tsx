@@ -51,6 +51,21 @@ describe('HomeCrawlerFallback', () => {
     for (const badge of heroBadges) expect(html).not.toContain(badge.label);
   });
 
+  it('holds the prose below the fold by wrapping the hero and its fade band, and nothing else', () => {
+    // On a screen taller than the hero, the real page shows a white surface under it, not this
+    // page's prose. The wrapper must end before the prose starts, or it would push nothing down.
+    const html = renderPage();
+    const fold = html.indexOf('data-hero-fold=""');
+    const hero = html.indexOf('data-hero-first-frame=""');
+    const prose = html.indexOf('<section id="how"');
+    expect(fold).toBeGreaterThan(-1);
+    expect(fold).toBeLessThan(hero);
+    expect(html).toMatch(/data-hero-fold="" class="min-h-\[calc\(100vh-4rem\)\]"/);
+    // The band is the wrapper's last child: its closing tag is followed by the wrapper's, then the prose.
+    expect(html).toMatch(/linear-gradient\(180deg, #15171C 0%, #FFFFFF 100%\)"><\/div><\/div><div class="bg-bg text-ink">/);
+    expect(prose).toBeGreaterThan(hero);
+  });
+
   it('keeps every piece of landing copy the crawler page carried', () => {
     const text = visibleText(renderPage());
     const expected = [

@@ -13,7 +13,7 @@
     "generate:types": "npx --yes openapi-typescript@7.13.0 ../backend/openapi/openapi.json -o src/api/generated-types.ts"
   },
   "dependencies": {
-    "@sentry/react": "^10.73.0",
+    "@sentry/react": "^11.5.0",
     "@tanstack/react-query": "^5.104.1",
     "axios": "^1.20.0",
     "firebase": "^12.19.0",

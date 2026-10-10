@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, type ReactNode } from 'react';
+import { Platform, Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
 import Svg, { Circle, Defs, Path, RadialGradient, Stop } from 'react-native-svg';
 import Animated, { Easing, useAnimatedProps, useSharedValue, withTiming } from 'react-native-reanimated';
 import { AnimatedHealthScoreNumber } from '../AnimatedHealthScoreNumber';
@@ -10,7 +10,7 @@ import { useLargeFontScale } from '../../lib/useLargeFontScale';
 import { useReduceTransparency } from '../../lib/useReduceTransparency';
 import { HealthSparkline } from './HealthSparkline';
 import { ProgressBar } from './ProgressBar';
-import { radius, spacing, typography, useTheme } from '../../theme';
+import { radius, shadows, spacing, typography, useTheme } from '../../theme';
 import type { HealthScorePoint } from '../../types';
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
@@ -42,6 +42,22 @@ function Glow({ color }: { color: string }) {
       </Defs>
       <Circle cx={GLOW / 2} cy={GLOW / 2} r={GLOW / 2} fill="url(#heroGlow)" />
     </Svg>
+  );
+}
+
+/**
+ * The hero's surface and its shadow. The card clips (the glow runs past its corner), and on iOS
+ * a view that clips also clips its own shadow, so the shadow is cast by a wrapper that has the
+ * card's radius and nothing else. iOS only, like the cards' own shadow: Android has never drawn
+ * one under the hero and this change was not checked there.
+ */
+function HeroSurface({ surface, children }: { surface: ViewStyle; children: ReactNode }) {
+  return (
+    <View testID="health-hero-shadow" style={Platform.OS === 'ios' ? styles.shadow : styles.shadowless}>
+      <GlassSurface testID="health-hero" style={[styles.card, surface]}>
+        {children}
+      </GlassSurface>
+    </View>
   );
 }
 
@@ -91,7 +107,7 @@ export function HealthHero({
     const share = healthScoreMinTransactions > 0 ? healthScoreTransactionCount / healthScoreMinTransactions : 0;
     const percent = Math.round(Math.min(100, share * 100));
     return (
-      <GlassSurface testID="health-hero" style={[styles.card, surface]}>
+      <HeroSurface surface={surface}>
         <Glow color={c.brass} />
         <Text style={[typography.eyebrow, { color: t.textSoft }]}>Financial Health Score</Text>
         <View style={styles.lockedText}>
@@ -117,14 +133,14 @@ export function HealthHero({
         >
           <Text style={[typography.labelM, { color: t.solidSurface }]}>Continue Setup</Text>
         </Pressable>
-      </GlassSurface>
+      </HeroSurface>
     );
   }
 
   const deltaPositive = (healthScoreDeltaVsLastMonth ?? 0) > 0;
 
   return (
-    <GlassSurface testID="health-hero" style={[styles.card, surface]}>
+    <HeroSurface surface={surface}>
       <Glow color={c.brass} />
       <Text style={[typography.eyebrow, { color: t.textSoft }]}>Financial Health Score</Text>
 
@@ -199,11 +215,13 @@ export function HealthHero({
           </View>
         </>
       ) : null}
-    </GlassSurface>
+    </HeroSurface>
   );
 }
 
 const styles = StyleSheet.create({
+  shadow: { borderRadius: radius.hero, boxShadow: shadows.hero },
+  shadowless: { borderRadius: radius.hero },
   card: { borderRadius: radius.hero, padding: spacing.lg, overflow: 'hidden', gap: spacing.ml },
   glow: { position: 'absolute', top: -GLOW / 2, right: -GLOW / 3 },
   scoreRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },

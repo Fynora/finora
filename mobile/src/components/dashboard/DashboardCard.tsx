@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Platform, StyleSheet, type ViewStyle } from 'react-native';
-import { radius, spacing } from '../../theme';
+import { radius, shadows, spacing } from '../../theme';
 import { GlassSurface, type GlassVariant } from '../GlassSurface';
 
 /**
@@ -31,7 +31,13 @@ export function DashboardCard({
     <GlassSurface
       testID={testID}
       variant={variant}
-      style={[styles.card, padding === 'compact' ? styles.compact : styles.regular, style]}
+      style={[
+        styles.card,
+        // Read at render like GlassSurface's own platform check, so a test can drive both.
+        Platform.OS === 'ios' ? styles.shadowIos : styles.shadowAndroid,
+        padding === 'compact' ? styles.compact : styles.regular,
+        style,
+      ]}
     >
       {children}
     </GlassSurface>
@@ -39,22 +45,14 @@ export function DashboardCard({
 }
 
 const styles = StyleSheet.create({
-  card: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.xxl,
-    // Soft, deliberately subtle -- separation without a hard edge. iOS/Android render shadow
-    // props differently (Android ignores shadowColor/Offset/Opacity/Radius and uses elevation
-    // instead), so both are set to the same visual intent rather than picking one platform.
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000000',
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.07,
-        shadowRadius: 18,
-      },
-      android: { elevation: 2 },
-    }),
-  },
+  card: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.xxl },
+  // Soft separation without a hard edge. On iOS this is a box shadow, and GlassSurface builds a
+  // surface that carries one as an unclipped view with the glass behind it. Until 2026-10-10 the
+  // card set shadowColor/Opacity/Radius on the glass view itself, which clips to its radius and
+  // so clipped the shadow away: measured on an iOS 26 screenshot, the page right under a card
+  // was the bare page colour. Android keeps the elevation it has always had.
+  shadowIos: { boxShadow: shadows.card },
+  shadowAndroid: { elevation: 2 },
   regular: { padding: spacing.ml },
   compact: { padding: spacing.md },
 });

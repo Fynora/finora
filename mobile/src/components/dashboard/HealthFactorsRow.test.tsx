@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
-import { Dimensions } from 'react-native';
+import { Dimensions, StyleSheet } from 'react-native';
 import { HealthFactorsRow } from './HealthFactorsRow';
-import { ThemeProvider } from '../../theme';
+import { cardShadowRoom, ThemeProvider } from '../../theme';
 
 function renderRow(props: Partial<React.ComponentProps<typeof HealthFactorsRow>> = {}) {
   return render(
@@ -32,6 +32,21 @@ describe('HealthFactorsRow', () => {
     dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1.3 });
     renderRow();
     expect(screen.getByText('Savings Rate').props.numberOfLines).toBe(2);
+  });
+
+  // A scroll view clips to its bounds. Found on an iPhone 17 Pro simulator: with 4 points of
+  // padding the tiles' shadow stopped dead 4 points under them. The row pads its content by the
+  // shadow's reach and takes the same amount back in margin, so nothing around it moves.
+  it('leaves room for the tiles\' shadow inside the scroller without moving anything around it', () => {
+    renderRow();
+    const scroller = screen.getByTestId('health-factors-row');
+    const content = StyleSheet.flatten(scroller.props.contentContainerStyle);
+    const outer = StyleSheet.flatten(scroller.props.style);
+    expect(content.paddingTop).toBe(cardShadowRoom.top);
+    expect(content.paddingBottom).toBe(cardShadowRoom.bottom);
+    // 20 points under the hero (a 16 point gap plus 4) and 4 below the tiles, as before.
+    expect(outer.marginTop + content.paddingTop).toBe(20);
+    expect(outer.marginBottom + content.paddingBottom).toBe(4);
   });
 
   it('renders nothing when not available', () => {

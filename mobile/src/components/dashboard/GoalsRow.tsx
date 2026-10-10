@@ -3,7 +3,7 @@ import Svg, { Circle } from 'react-native-svg';
 import { DashboardCard } from './DashboardCard';
 import { fmtCurrency } from '../../lib/format';
 import { useLargeFontScale } from '../../lib/useLargeFontScale';
-import { spacing, typography, useTheme } from '../../theme';
+import { cardShadowRoom, spacing, typography, useTheme } from '../../theme';
 import type { Goal } from '../../types';
 
 const RING_SIZE = 56;
@@ -24,7 +24,7 @@ export function GoalsRow({ goals }: { goals: Goal[] }) {
   if (goals.length === 0) return null;
 
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.scroller} contentContainerStyle={styles.row}>
+    <ScrollView testID="goals-row" horizontal showsHorizontalScrollIndicator={false} style={styles.scroller} contentContainerStyle={styles.row}>
       {goals.map((g) => {
         // Bug fix: the ring's geometry has to stay capped at 100% -- unlike a linear bar's width,
         // which just overflows a fixed container past 100%, a strokeDashoffset past this ring's
@@ -74,8 +74,21 @@ export function GoalsRow({ goals }: { goals: Goal[] }) {
 const styles = StyleSheet.create({
   // Edge to edge, same reasoning as HealthFactorsRow: cancels DashboardScreen's side padding
   // (spacing.ml) so tiles scroll off under the bezel instead of being cut at the padding line.
-  scroller: { marginHorizontal: -spacing.ml },
-  row: { gap: spacing.ms, paddingVertical: spacing.xs, paddingHorizontal: spacing.ml },
+  //
+  // Vertically the content is padded by the tiles' shadow reach, because a scroll view clips to
+  // its bounds, and the scroller's margins take the same amount back: the tiles still sit
+  // spacing.xs from whatever is above and below.
+  scroller: {
+    marginTop: spacing.xs - cardShadowRoom.top,
+    marginBottom: spacing.xs - cardShadowRoom.bottom,
+    marginHorizontal: -spacing.ml,
+  },
+  row: {
+    gap: spacing.ms,
+    paddingTop: cardShadowRoom.top,
+    paddingBottom: cardShadowRoom.bottom,
+    paddingHorizontal: spacing.ml,
+  },
   card: { width: 164, gap: spacing.ms },
   name: { alignSelf: 'stretch' },
   ringWrap: { width: RING_SIZE, height: RING_SIZE },

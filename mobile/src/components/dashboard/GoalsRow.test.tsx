@@ -1,6 +1,7 @@
+import { StyleSheet } from 'react-native';
 import { render, screen } from '@testing-library/react-native';
 import { GoalsRow } from './GoalsRow';
-import { ThemeProvider } from '../../theme';
+import { cardShadowRoom, ThemeProvider } from '../../theme';
 
 describe('GoalsRow', () => {
   it('shows each goal name, amounts and percent', () => {
@@ -17,6 +18,21 @@ describe('GoalsRow', () => {
     expect(screen.getByText('30%')).toBeTruthy();
     expect(screen.getByText('Europe Trip')).toBeTruthy();
     expect(screen.getByText('40%')).toBeTruthy();
+  });
+
+  // A scroll view clips to its bounds. Found on an iPhone 17 Pro simulator: with 4 points of
+  // padding the tiles' shadow stopped dead 4 points under them. The row pads its content by the
+  // shadow's reach and takes the same amount back in margin, so nothing around it moves.
+  it('leaves room for the tiles\' shadow inside the scroller without moving anything around it', () => {
+    render(<ThemeProvider><GoalsRow goals={[{ id: 'g1', name: 'Emergency Fund', currentAmount: 1, targetAmount: 2 }]} /></ThemeProvider>);
+    const scroller = screen.getByTestId('goals-row');
+    const content = StyleSheet.flatten(scroller.props.contentContainerStyle);
+    const outer = StyleSheet.flatten(scroller.props.style);
+    expect(content.paddingTop).toBe(cardShadowRoom.top);
+    expect(content.paddingBottom).toBe(cardShadowRoom.bottom);
+    // 4 points above and below the tiles, as before the shadow needed room.
+    expect(outer.marginTop + content.paddingTop).toBe(4);
+    expect(outer.marginBottom + content.paddingBottom).toBe(4);
   });
 
   it('renders nothing with no goals', () => {

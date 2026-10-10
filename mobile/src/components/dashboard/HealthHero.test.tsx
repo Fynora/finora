@@ -1,8 +1,8 @@
 import { fireEvent, render, screen, act } from '@testing-library/react-native';
-import { Dimensions, StyleSheet } from 'react-native';
+import { Dimensions, Platform, StyleSheet } from 'react-native';
 import { HealthHero } from './HealthHero';
 import { heroTones } from '../../lib/heroTones';
-import { ThemeProvider } from '../../theme';
+import { shadows, ThemeProvider } from '../../theme';
 import { light } from '../../theme/palette';
 
 // null = "not known yet", which every glass surface renders as its solid look. Pinned because the
@@ -133,6 +133,31 @@ describe('HealthHero', () => {
   it('lets the score grow with Dynamic Type only as far as the hero has room for', () => {
     renderHero();
     expect(screen.getByTestId('health-score-value').props.maxFontSizeMultiplier).toBe(1.3);
+  });
+
+  // The hero clips its own content (the glow runs past its corner), and on iOS a view that clips
+  // also clips its shadow, so the shadow sits on a wrapper that does not clip.
+  it.each([true, false])('casts the hero shadow from an unclipped wrapper (available: %s)', (available) => {
+    mockReduce.value = false;
+    renderHero({ available });
+    const wrapper = StyleSheet.flatten(screen.getByTestId('health-hero-shadow').props.style);
+    expect(wrapper.boxShadow).toEqual(shadows.hero);
+    expect(wrapper.borderRadius).toBe(28);
+    expect(wrapper.overflow).toBeUndefined();
+    const hero = StyleSheet.flatten(screen.getByTestId('health-hero').props.style);
+    expect(hero.overflow).toBe('hidden');
+    expect(hero.boxShadow).toBeUndefined();
+  });
+
+  it('Android keeps the hero without a shadow, as it has always been', () => {
+    const originalOS = Platform.OS;
+    (Platform as { OS: string }).OS = 'android';
+    try {
+      renderHero();
+      expect(StyleSheet.flatten(screen.getByTestId('health-hero-shadow').props.style).boxShadow).toBeUndefined();
+    } finally {
+      (Platform as { OS: string }).OS = originalOS;
+    }
   });
 
   it('keeps the onboarding hero on the same surface as the scored one', () => {

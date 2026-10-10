@@ -52,7 +52,12 @@ export function HomeCrawlerFallback() {
                 {problem.closer} {problem.closerMuted}
               </p>
             </PublicSection>
-            <PublicSection title={importSection.title + ' ' + importSection.titleLine2}>
+            {/* The ids are the real sections' ids (ImportSection, Capabilities, AskFyn, Faq), so the
+                Nav links and the hero's "See how it works" button above already go somewhere
+                before the real page mounts, and for a visitor without JavaScript. Landing scrolls
+                to the same fragment again once it has replaced this page. "#trust" and "#pricing"
+                have no section here. */}
+            <PublicSection id="how" title={importSection.title + ' ' + importSection.titleLine2}>
               <p>{importSection.blurb}</p>
               {importSection.proofs.map((p) => (
                 <p key={p.title}>
@@ -60,7 +65,7 @@ export function HomeCrawlerFallback() {
                 </p>
               ))}
             </PublicSection>
-            <PublicSection title={capabilities.title + ' ' + capabilities.titleLine2}>
+            <PublicSection id="features" title={capabilities.title + ' ' + capabilities.titleLine2}>
               <p>{capabilities.blurb}</p>
               <ul>
                 {capabilities.items.map((i) => (
@@ -70,10 +75,10 @@ export function HomeCrawlerFallback() {
                 ))}
               </ul>
             </PublicSection>
-            <PublicSection title={askFyn.title}>
+            <PublicSection id="ask-fyn" title={askFyn.title}>
               <p>{askFyn.blurb}</p>
             </PublicSection>
-            <PublicSection title={faq.title}>
+            <PublicSection id="faq" title={faq.title}>
               {faq.items.map(([q, a]) => (
                 <p key={q}>
                   <strong>{q}</strong> {a}

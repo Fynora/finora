@@ -107,7 +107,7 @@ describe('Hero', () => {
     expect(dashboardColumn?.style.opacity).toBe('0');
   });
 
-  it('firstFrame renders the copy column only: no motion, no dashboard, no score, no canvas', () => {
+  it('firstFrame renders the copy column with no motion, and only empty placeholders for the rest', () => {
     vi.mocked(useReducedMotion).mockReturnValue(false);
     const { container } = renderHero({ firstFrame: true });
     expect(container.querySelector('section')).toHaveAttribute('data-hero-first-frame', '');
@@ -117,11 +117,27 @@ describe('Hero', () => {
     expect(screen.queryByRole('img', { name: /Financial health score/ })).not.toBeInTheDocument();
     expect(screen.queryByText(heroIntelligence.heading)).not.toBeInTheDocument();
     expect(container.querySelector('canvas')).not.toBeInTheDocument();
+
+    // The dashboard column and the score row are held open by two empty blocks, so the section is
+    // as tall as the real hero and its background gradient does not change when React takes over.
+    // Empty and hidden from assistive technology: nothing in them is content.
+    const pending = Array.from(container.querySelectorAll('[data-hero-pending]'));
+    expect(pending).toHaveLength(2);
+    for (const block of pending) {
+      expect(block).toBeEmptyDOMElement();
+      expect(block).toHaveAttribute('aria-hidden', 'true');
+    }
+    // The dashboard placeholder is the copy column's sibling in the grid, where the real column
+    // goes; the score row's follows the grid, with the real row's top margin.
+    expect(pending[0].parentElement).toBe(copyColumn().parentElement);
+    expect(pending[0].className).toContain('lg:h-0');
+    expect(pending[1].className).toContain('mt-14');
   });
 
-  it('the real hero does not carry the first-frame marker', () => {
+  it('the real hero carries neither the first-frame marker nor its placeholders', () => {
     vi.mocked(useReducedMotion).mockReturnValue(false);
     const { container } = renderHero();
     expect(container.querySelector('[data-hero-first-frame]')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-hero-pending]')).not.toBeInTheDocument();
   });
 });

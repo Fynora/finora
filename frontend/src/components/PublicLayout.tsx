@@ -108,7 +108,10 @@ export function PublicFooter() {
     <footer className="border-t border-border">
       <div className="max-w-4xl mx-auto px-6 py-8 flex flex-col sm:flex-row justify-between items-center gap-3 text-xs text-muted">
         <span>© {new Date().getFullYear()} Fynora Technovation LLP. Not a bank. Not investment advice.</span>
-        <div className="flex items-center gap-4">
+        {/* flex-wrap is load-bearing on phones. Ten links in one unwrapped row are about 480px wide,
+            so on a 412px screen the whole page could be panned sideways, and any position:fixed bar
+            (the homepage's mobile action bar) was laid out against that wider viewport. */}
+        <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
           <Link to="/terms" className="hover:text-ink">Terms</Link>
           <Link to="/privacy" className="hover:text-ink">Privacy</Link>
           <Link to="/cookie-policy" className="hover:text-ink">Cookies</Link>
@@ -127,9 +130,9 @@ export function PublicFooter() {
 
 /** A titled prose section — consistent spacing/typography for every legal/info page built on
  *  PublicLayout, so Terms/Privacy/About don't each reinvent heading styles. */
-export function PublicSection({ title, children }: { title: string; children: ReactNode }) {
+export function PublicSection({ id, title, children }: { id?: string; title: string; children: ReactNode }) {
   return (
-    <section className="mb-10">
+    <section id={id} className="mb-10">
       <h2 className="text-xl font-bold text-ink mb-3">{title}</h2>
       <div className="text-sm text-muted leading-relaxed space-y-3">{children}</div>
     </section>

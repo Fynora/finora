@@ -494,6 +494,13 @@ input, textarea, select {
   color: var(--m-ink-2);
 }
 
+/* The prerendered homepage (pages/HomeCrawlerFallback.tsx) reserves the space where the hero's
+   dashboard and score row fade in once the bundle runs. With scripting off they never arrive, so
+   the reserved space would be a long empty band between the hero copy and the page below it. */
+@media (scripting: none) {
+  [data-hero-pending] { display: none; }
+}
+
 @layer components {
   /* The small uppercase label above a section heading. Carries more of the "designed" feel
      than any other single element in the layout. */

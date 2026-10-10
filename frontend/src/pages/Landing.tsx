@@ -91,6 +91,22 @@ export default function Landing() {
     return () => observer.disconnect();
   }, []);
 
+  // A visitor can arrive with a fragment already in the URL: a shared link such as /#pricing, or a
+  // tap on "See how it works" in the prerendered first frame (HomeCrawlerFallback) before this page
+  // mounted. The browser looked for that id before these sections existed and found nothing, or
+  // found the first frame's own section, which this page has just replaced. So it is honoured here.
+  useEffect(() => {
+    const fragment = window.location.hash.slice(1);
+    if (!fragment) return;
+    let id: string;
+    try {
+      id = decodeURIComponent(fragment);
+    } catch {
+      return;
+    }
+    document.getElementById(id)?.scrollIntoView();
+  }, []);
+
   return (
     <div className="marketing">
       {/* Keyboard/screen-reader users otherwise have to tab through the entire nav (5 anchors +

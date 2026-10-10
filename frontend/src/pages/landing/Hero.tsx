@@ -38,16 +38,42 @@ const EASE = [0.16, 1, 0.3, 1] as const;
  * NOT own its own exit fade.
  *
  * `firstFrame` renders the static first frame that scripts/prerender.mjs bakes into
- * dist/index.html (through HomeCrawlerFallback): the same section, container, grid and copy
- * column, with no motion, no WebGL and no dashboard column. It exists for Largest Contentful
- * Paint. The headline is the largest thing above the fold, and before this the prerendered page
- * was a different, plain layout, so the headline only painted once the main bundle had downloaded
- * and React had rendered: about 1.7 s after first paint on a throttled mobile load. With the
- * headline in the HTML at its final size, the paint that counts happens at first paint. Its copy
- * column must stay identical to the real one. A larger headline painted later by React counts as a
- * new, later LCP. When the real hero replaces this frame, the copy column skips its entrance (see
- * hero/firstFrame.ts), so the headline the visitor is already reading does not blink out and back.
+ * dist/index.html (through HomeCrawlerFallback). It is frame 0 of this hero with the copy column
+ * already shown: the same section, container, grid and copy column, with no motion, no WebGL and
+ * nothing yet where the dashboard and the score row will fade in.
+ *
+ * It exists for Largest Contentful Paint. The headline is the largest thing above the fold, and
+ * before this the prerendered page was a different, plain layout, so the headline only painted once
+ * the main bundle had downloaded and React had rendered: about 1.7 s after first paint on a
+ * throttled mobile load. With the headline in the HTML at its final size, the paint that counts
+ * happens at first paint. Its copy column must stay identical to the real one. A larger headline
+ * painted later by React counts as a new, later LCP. When the real hero replaces this frame, the
+ * copy column skips its entrance (see hero/firstFrame.ts), so the headline the visitor is already
+ * reading does not blink out and back.
+ *
+ * The first frame holds the dashboard column's and the score row's places with two empty blocks of
+ * the same height (PENDING_* below). The section's background is a gradient sized by the section's
+ * own box, so a first frame without them was shorter, and the surface behind the headline visibly
+ * brightened the moment the real hero replaced it (12 to 17 levels per channel across the lower
+ * half, measured). Empty blocks rather than the real components rendered hidden, which was tried:
+ * hidden text still loads its fonts, which delayed the main bundle by about 0.7 s on a throttled
+ * phone, and on desktop the headline moved 7 px when those fonts arrived.
  */
+
+// The heights the real blocks have, measured in Chrome with fonts loaded, at every width from 320
+// to 1920 px. Each is constant between these breakpoints: the dashboard column is 476.5 px stacked
+// under `sm` and 484.5 px from `sm`; the score row is 353 px while its two cards wrap (under 516 px
+// wide) and 179 px once they sit side by side. If either block's content changes, re-measure. A
+// stale number is not a layout bug, it only brings back a faint change in the background at the
+// moment the real hero takes over.
+//
+// From `lg` the dashboard sits beside the copy column and is the shorter of the two (410.5 px
+// against 415.7 px or more), so it adds no height and its placeholder is zero. It has to be: the
+// grid centres the two columns on each other, and the copy column is about 20 px shorter until its
+// body font loads, so a 410.5 px placeholder moved the headline 7 px when that font arrived.
+const PENDING_DASHBOARD = 'h-[476.5px] sm:h-[484.5px] lg:h-0';
+const PENDING_SCORE_ROW = 'mt-14 h-[353px] min-[516px]:h-[179px]';
+
 export function Hero({ firstFrame = false }: { firstFrame?: boolean }) {
   const prefersReducedMotion = useReducedMotion();
   const [copyAlreadyShown] = useState(heroFirstFrameWasShown);
@@ -128,7 +154,9 @@ export function Hero({ firstFrame = false }: { firstFrame?: boolean }) {
             <motion.div {...reveal(0, copyAlreadyShown)}>{copy}</motion.div>
           )}
 
-          {firstFrame ? null : (
+          {firstFrame ? (
+            <div aria-hidden="true" data-hero-pending="" className={PENDING_DASHBOARD} />
+          ) : (
             <motion.div {...reveal(0.25)} className="relative">
               <FloatingDashboardCard />
               <FloatingBadges />
@@ -141,7 +169,9 @@ export function Hero({ firstFrame = false }: { firstFrame?: boolean }) {
             shown above, and read as disconnected filler crammed under one side of it. Still part
             of this same dark section (not a new <Transition>-bounded band): the claim belongs to
             Hero's story, just after the visual it's describing rather than boxed inside it. */}
-        {firstFrame ? null : (
+        {firstFrame ? (
+          <div aria-hidden="true" data-hero-pending="" className={PENDING_SCORE_ROW} />
+        ) : (
           <motion.div {...reveal(0.5)} className="mt-14">
             <AnalysisSequence />
           </motion.div>

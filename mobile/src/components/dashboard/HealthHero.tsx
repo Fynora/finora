@@ -6,6 +6,7 @@ import { AnimatedHealthScoreNumber } from '../AnimatedHealthScoreNumber';
 import { GlassSurface } from '../GlassSurface';
 import { GAUGE_SIZE, GAUGE_STROKE, gaugeArcPath } from '../../lib/heroGauge';
 import { heroTones } from '../../lib/heroTones';
+import { useLargeFontScale } from '../../lib/useLargeFontScale';
 import { useReduceTransparency } from '../../lib/useReduceTransparency';
 import { HealthSparkline } from './HealthSparkline';
 import { ProgressBar } from './ProgressBar';
@@ -14,6 +15,9 @@ import type { HealthScorePoint } from '../../types';
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 const GLOW = 260;
+// The score is display type. 1.3 takes its 56 points to about 73, which the row still has room
+// for beside the dial; uncapped, accessibility sizes push it past 100 and into its neighbours.
+const SCORE_MAX_FONT_SCALE = 1.3;
 
 interface Props {
   available: boolean;
@@ -61,6 +65,9 @@ export function HealthHero({
   // so the opaque fallback for Reduce Transparency, or before the setting is known, is chosen
   // here. The edge takes the fill's colour on that path: a solid hero has never had an outline.
   const solid = useReduceTransparency() !== false;
+  // The dial is a fixed-size graphic, so a label inside it cannot grow with Dynamic Type without
+  // leaving it. At large text sizes the label is written under the score instead.
+  const largeText = useLargeFontScale();
   const surface = solid
     ? { backgroundColor: t.solidSurface, borderColor: t.solidSurface }
     : { backgroundColor: t.surface };
@@ -128,9 +135,11 @@ export function HealthHero({
               testID="health-score-value"
               value={healthScore}
               style={[typography.display, { color: t.text }]}
+              maxFontSizeMultiplier={SCORE_MAX_FONT_SCALE}
             />
             <Text style={[typography.bodyM, styles.outOf, { color: t.textSoft }]}>/ 100</Text>
           </View>
+          {largeText ? <Text style={[typography.cardTitle, { color: t.text }]}>{healthLabel}</Text> : null}
           {/* Brass, not directional green/red: the sign and the number already carry the
               direction. "vs last score", not "this month": the delta is against the most recent
               PRIOR snapshot, which DashboardService's gap-skipping lookup can resolve further
@@ -161,19 +170,21 @@ export function HealthHero({
               />
             ) : null}
           </Svg>
-          <View style={styles.gaugeLabel} pointerEvents="none">
-            {/* Inside the dial, so it must fit inside the dial: "Needs Attention" on one line ran
-                across the arc and out the other side on a real screen. Two lines within the inner
-                width, shrinking slightly before it may touch the stroke. */}
-            <Text
-              style={[typography.cardTitle, styles.gaugeLabelText, { color: t.text }]}
-              numberOfLines={2}
-              adjustsFontSizeToFit
-              minimumFontScale={0.8}
-            >
-              {healthLabel}
-            </Text>
-          </View>
+          {largeText ? null : (
+            <View style={styles.gaugeLabel} pointerEvents="none">
+              {/* Inside the dial, so it must fit inside the dial: "Needs Attention" on one line ran
+                  across the arc and out the other side on a real screen. Two lines within the inner
+                  width, shrinking slightly before it may touch the stroke. */}
+              <Text
+                style={[typography.cardTitle, styles.gaugeLabelText, { color: t.text }]}
+                numberOfLines={2}
+                adjustsFontSizeToFit
+                minimumFontScale={0.8}
+              >
+                {healthLabel}
+              </Text>
+            </View>
+          )}
         </View>
       </View>
 

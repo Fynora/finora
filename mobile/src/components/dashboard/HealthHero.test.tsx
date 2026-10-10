@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, act } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { Dimensions, StyleSheet } from 'react-native';
 import { HealthHero } from './HealthHero';
 import { heroTones } from '../../lib/heroTones';
 import { ThemeProvider } from '../../theme';
@@ -11,6 +11,14 @@ import { light } from '../../theme/palette';
 const mockReduce = { value: null as boolean | null };
 jest.mock('../../lib/useReduceTransparency', () => ({ useReduceTransparency: () => mockReduce.value }));
 afterEach(() => { mockReduce.value = null; });
+
+// useLargeFontScale reads fontScale through useWindowDimensions, which takes it from
+// Dimensions.get('window') on mount (same spy as DashboardScreen.test.tsx). Reset before every
+// test so a large scale cannot leak into the next one.
+const dimensionsGetSpy = jest.spyOn(Dimensions, 'get');
+beforeEach(() => {
+  dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1 });
+});
 
 function renderHero(props: Partial<React.ComponentProps<typeof HealthHero>> = {}) {
   return render(
@@ -107,6 +115,24 @@ describe('HealthHero', () => {
     expect(style.textAlign).toBe('center');
     // Inner diameter is GAUGE_SIZE minus the stroke on both sides (116 - 18 = 98).
     expect(style.maxWidth).toBeLessThanOrEqual(98 - 12);
+  });
+
+  // Found on an iPhone 17 Pro simulator at an accessibility text size: the dial is a fixed 116
+  // point graphic, so text inside it cannot grow with Dynamic Type without leaving it. At large
+  // sizes the label moves out of the dial and under the score, where it can grow freely.
+  it('moves the tier label out of the dial under large Dynamic Type', () => {
+    dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1.3 });
+    renderHero({ healthScore: 30, healthLabel: 'Needs Attention' });
+    const label = screen.getByText('Needs Attention');
+    expect(StyleSheet.flatten(label.props.style).maxWidth).toBeUndefined();
+    expect(label.props.numberOfLines).toBeUndefined();
+  });
+
+  // The score is display type (56 point). Uncapped, the largest accessibility sizes push it to
+  // well over 100 points, into the label above it and the dial beside it.
+  it('lets the score grow with Dynamic Type only as far as the hero has room for', () => {
+    renderHero();
+    expect(screen.getByTestId('health-score-value').props.maxFontSizeMultiplier).toBe(1.3);
   });
 
   it('keeps the onboarding hero on the same surface as the scored one', () => {

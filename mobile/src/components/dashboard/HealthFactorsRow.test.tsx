@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
+import { Dimensions } from 'react-native';
 import { HealthFactorsRow } from './HealthFactorsRow';
 import { ThemeProvider } from '../../theme';
 
@@ -17,7 +18,22 @@ function renderRow(props: Partial<React.ComponentProps<typeof HealthFactorsRow>>
   );
 }
 
+const dimensionsGetSpy = jest.spyOn(Dimensions, 'get');
+beforeEach(() => {
+  dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1 });
+});
+
 describe('HealthFactorsRow', () => {
+  // Found on a simulator at an accessibility text size: "Savings Rate" was cut to "Savings..."
+  // beside its "Why?" link. One line is a fair trade at ordinary sizes, not at large ones.
+  it('lets a factor name wrap to two lines under large Dynamic Type', () => {
+    renderRow();
+    expect(screen.getByText('Savings Rate').props.numberOfLines).toBe(1);
+    dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1.3 });
+    renderRow();
+    expect(screen.getByText('Savings Rate').props.numberOfLines).toBe(2);
+  });
+
   it('renders nothing when not available', () => {
     const { toJSON } = renderRow({ available: false });
     expect(toJSON()).toBeNull();

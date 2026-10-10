@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { DashboardCard } from './DashboardCard';
 import { ProgressBar } from './ProgressBar';
 import { healthBarColor, healthImprovementSuggestion, healthLabelInk, scoreLabel } from '../../lib/health';
+import { useLargeFontScale } from '../../lib/useLargeFontScale';
 import { spacing, typography, useTheme } from '../../theme';
 
 /**
@@ -28,10 +29,13 @@ export function FinancialHealthFactorCard({
   topOpportunityPotentialGain: number | null;
 }) {
   const c = useTheme();
+  const largeText = useLargeFontScale();
   return (
     <DashboardCard style={styles.card} padding="compact">
       <View style={styles.headerRow}>
-        <Text style={[typography.labelS, styles.name, { color: c.mutedInk }]} numberOfLines={1}>{name}</Text>
+        {/* One line is a fair trade at ordinary sizes; at large ones it cut "Savings Rate" to
+            "Savings..." beside the link, which is the factor's whole identity. */}
+        <Text style={[typography.labelS, styles.name, { color: c.mutedInk }]} numberOfLines={largeText ? 2 : 1}>{name}</Text>
         {detail ? (
           <Pressable
             onPress={onToggle}

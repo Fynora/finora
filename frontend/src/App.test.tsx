@@ -215,9 +215,10 @@ describe('App routing — the canonical the homepage arrives with', () => {
  * nodes out, and only later, in a task of its own, runs effects and their cleanups. Outside act()
  * that task is queued with setImmediate, while waitFor returns after a setTimeout(0), and Node
  * does not promise which of the two fires first. Three older tests in this file read the head at
- * once and failed for exactly that reason, about once in fifty full runs. Holding React's task back
- * 20 ms (a setup file wrapping setImmediate) made all three fail every time, and pass every time
- * once they waited.
+ * once. One of them failed for exactly that reason, once, and then not again in 46 further runs,
+ * which is how rare the bad ordering is on an idle machine. Holding React's task back 20 ms (a
+ * setup file wrapping setImmediate) made all three fail every time, and pass every time once they
+ * waited.
  */
 describe('App routing — the head follows the page, whichever document was opened first', () => {
   const HOME_TITLE = 'Bank statement analyzer for Indian banks and cards — Fynora';

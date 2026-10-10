@@ -106,7 +106,7 @@ jobs:
 
       - name: Upload surefire report
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: corpus-coverage-surefire-report
           path: backend/target/surefire-reports/

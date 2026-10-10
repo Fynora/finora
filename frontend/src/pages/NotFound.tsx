@@ -14,10 +14,11 @@ export const NOT_FOUND_SUBTITLE = 'There is no page at this address. It may have
  * that anything was wrong, and a crawler following a dead link was handed the homepage with HTTP
  * 200 at the dead URL, which the 2026-10-09 SEO audit flagged as a soft 404.
  *
- * The status code is not this component's to fix: Cloudflare serves index.html with 200 for every
- * unlisted route (wrangler.jsonc, `not_found_handling: "single-page-application"`; measured
- * behaviour in scripts/prerender.mjs). What a page can do is say so in its head, which is what
- * PublicLayout's `noindex` does: a robots noindex meta while mounted, and no canonical.
+ * The status code is not this component's to set. It comes from the build: scripts/prerender.mjs
+ * writes this page to dist/404.html, and Cloudflare Pages answers a path that has no file and no
+ * rewrite with that file and HTTP 404. What the component adds is the head: PublicLayout's
+ * `noindex` keeps a robots noindex meta while mounted, and no canonical, for the cases where it is
+ * reached without that status (a client-side navigation, `vite dev`, `wrangler dev`).
  *
  * The title is set here as well as by PublicLayout, with the same string PublicLayout and the
  * prerender build from NOT_FOUND_TITLE (NotFound.test.tsx checks all three agree), so the tab reads

@@ -332,46 +332,75 @@ production on some of this and disagree on the rest, with no warning.
 |---|---|---|
 | `/` and the pages listed in `scripts/prerender.mjs` (`/privacy`, `/terms`, ...) | that page's prerendered HTML | a file in `dist/` (`index.html`, `privacy.html`, ...) |
 | `/auth`, `/login`, `/register`, `/forgot-password`, `/reset-password`, `/verify-email`, `/verify-phone`, `/email-change-verify`, `/app`, `/app/...` | the blank shell, `dist/spa-shell.html` | a `200` rewrite in `public/_redirects` |
-| any other path | `index.html`, the prerendered homepage, with a `200` | Pages' fallback for a project with no top-level `404.html` |
-| a missing file under `/assets/` | `404`, plain text | `functions/assets/[[path]].ts` |
+| any other path | the not-found page, `dist/404.html`, with a `404` | Pages' answer for an unmatched path when the build has a top-level `404.html` |
+| a missing file under `/assets/` | `404`, plain text | `functions/assets/[[path]].ts`, which replaces the not-found page Pages would send |
 
-The blank shell is the built document with an empty `#root`. It exists because `index.html` is the
-prerendered homepage: until `_redirects` named them, the routes in the second row painted the
-homepage's headline and buttons until the bundle ran and React replaced them (about 1.6 s on a
-throttled phone, cold; an emailed password-reset link is the case that matters).
+The blank shell is the built document with an empty `#root`. It exists because neither document
+Pages would otherwise send for those routes is theirs: `index.html` is the prerendered homepage
+(until `_redirects` named them, the routes in the second row painted the homepage's headline and
+buttons until the bundle ran, about 1.6 s on a throttled phone, cold), and `404.html` is the
+not-found page with a `404` status.
+
+`404.html` is the not-found page (`src/pages/NotFound.tsx`), prerendered by `scripts/prerender.mjs`.
+It is deliberate. Without it an unknown URL returned the homepage with a `200`, which the
+2026-10-09 SEO audit flagged as a soft 404.
 
 Things that are easy to get wrong here. Each was read from Cloudflare's parser and asset handler
 (wrangler 4.146.0) and measured on a Pages preview, except the trailing-slash one, which was
 measured in the local Pages emulator only:
 
-- **A top-level `404.html` turns off the fallback to `index.html`.** Every path without a file or a
-  rewrite then returns `404` with that page. Before the rewrites existed this took the whole app
-  with it (`/auth`, `/app/...` all `404`; measured twice, see
-  `docs/investigations/incidents/2026-08-08-stale-chunk-login-failure.md` §4a). With them, measured
-  on a preview: the rewritten routes still return `200` and only unknown paths `404`. So a real
-  not-found page is now possible, but from then on a route missing from `_redirects` is a `404`
-  rather than a slower first paint. Do not add one without deciding that on purpose.
+- **The top-level `404.html` is why `_redirects` is load-bearing.** Pages has no fallback to
+  `index.html` while that file exists: every path without a file or a rewrite returns `404` with
+  the not-found page. The rewrites are the only thing that keeps `/auth`, an emailed
+  `/reset-password` link and everything under `/app` at `200`. Measured both ways on Pages previews:
+  with `404.html` and no rewrites, `/auth`, `/app/transactions` and `/reset-password` all returned
+  `404` (and once before, see `docs/investigations/incidents/2026-08-08-stale-chunk-login-failure.md`
+  §4a); with both, the rewritten routes return `200` and only unknown paths `404`. Never delete
+  `_redirects`, or a line from it, as tidying.
+- **A browser can hide a missing rule.** The `404` response is still a document that loads the
+  bundle, so React mounts the real page over the not-found page a moment later. A route that is
+  missing from `_redirects` therefore looks fine to someone clicking around, and is broken for
+  everything that reads the status or does not run the bundle (link checkers, crawlers, an
+  uptime probe, the first paint). Check with `curl`, not by eye.
+- **Matching is case-sensitive.** `/Privacy` and `/Auth` return `404` with the not-found page, and
+  the browser then shows the real page, as above. Before `404.html` they returned `index.html`
+  with a `200`. The paths the backend's emails and the referral page build are lower-case.
 - **A rewrite is applied before the file lookup.** A rule that matched `/` or a prerendered page
   would replace crawlable HTML with the blank, `noindex` shell.
 - **Rewrite to `/spa-shell`, not `/spa-shell.html`.** Pages answers an `.html` destination with a
   `308` to the extensionless URL. `/* /index.html 200` fails differently: the parser drops it as an
   infinite loop.
 - **An exact rule does not match its trailing-slash form**, so each one is listed twice.
-- **A new route outside `/app` needs its own line.** If it is forgotten the route still loads, from
-  `index.html`, homepage first. `scripts/spaShell.test.ts` fails when a route in `App.tsx` is
-  neither prerendered nor rewritten.
+- **A new route outside `/app` needs its own line, in both forms** (`/x` and `/x/`). If it is
+  forgotten, a direct visit to the route returns `404`. `scripts/spaShell.test.ts` fails when a
+  route in `App.tsx` is neither prerendered nor rewritten, and it is the only guard: it reads the
+  routes from the source, so a route behind a build flag is covered, but a route declared any
+  other way than `<Route path="/literal">` in `App.tsx` is not (the test fails on that shape too,
+  so that it gets taught rather than skipped).
+- **An unknown address under `/app` is a `200`, not a `404`.** The `/app/*` rule sends it to the
+  blank shell, and React then shows the not-found page. Accepted: `robots.txt` disallows `/app`
+  and the shell is `noindex`.
+- **`wrangler dev` (`npm run preview`) still answers every unknown path with `index.html` and a
+  `200`.** It shows neither the `404` nor a missing rewrite.
 
-Verify after a deploy that touches any of this (expect `200` three times, then an empty `#root`
-for the second and third, and the homepage's `<h1>` for the first):
+Verify after a deploy that touches any of this. Expect `200` three times and `404` twice; then an
+empty `#root` for `/auth` and `/app/transactions`, the homepage's `<h1>` for `/`, the not-found
+page for the unknown path, and plain text for the missing asset:
 
 ```bash
 curl -s -o /dev/null -w "%{http_code}\n" https://app.fynora.net/
 curl -s -o /dev/null -w "%{http_code}\n" https://app.fynora.net/auth
 curl -s -o /dev/null -w "%{http_code}\n" https://app.fynora.net/app/transactions
+curl -s -o /dev/null -w "%{http_code}\n" https://app.fynora.net/no-such-page
+curl -s -o /dev/null -w "%{http_code} %{content_type}\n" https://app.fynora.net/assets/no-such-file.js # 404 text/plain
 curl -s https://app.fynora.net/auth | grep -c '<div id="root"></div>'             # 1
 curl -s https://app.fynora.net/app/transactions | grep -c '<div id="root"></div>' # 1
 curl -s https://app.fynora.net/ | grep -c '<h1'                                    # 1 or more
+curl -s https://app.fynora.net/no-such-page | grep -c 'Page not found'             # 1 or more
 ```
+
+If `/auth` or `/app/transactions` is ever `404`, the app is down for direct visits and emailed
+links: roll the Pages deployment back first, then look at `_redirects`.
 
 ### `VITE_SENTRY_DSN` (both frontends) — crash reporting
 

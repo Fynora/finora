@@ -23,12 +23,15 @@ vi.mock('react-chartjs-2', () => ({
 
 /**
  * Regression tests for the catch-all route. <Routes> once had none, so any unmatched path rendered
- * null -- a completely blank white page, verified in a browser as #root with empty innerHTML. This
- * is not a dev-only curiosity: wrangler.jsonc sets assets.not_found_handling =
- * "single-page-application", so Cloudflare serves index.html for every unknown path in production
- * too. The catch-all was then a redirect to "/", which handed a crawler following a dead link the
- * homepage, with HTTP 200, at the dead URL (a soft 404). It is now a real not-found page that keeps
- * the URL and says noindex.
+ * null -- a completely blank white page, verified in a browser as #root with empty innerHTML. The
+ * catch-all was then a redirect to "/", which handed a crawler following a dead link the homepage,
+ * with HTTP 200, at the dead URL (a soft 404). It is now a real not-found page that keeps the URL
+ * and says noindex.
+ *
+ * These tests cover what React renders once the bundle is running, which is all jsdom can show.
+ * Which document and status an address gets BEFORE that is Cloudflare Pages' decision in
+ * production (a file, a rewrite in public/_redirects, or the build's 404.html with HTTP 404), and
+ * is held by scripts/spaShell.test.ts and measured on a Pages preview, not here.
  */
 describe('App routing — unmatched paths', () => {
   beforeEach(() => {
@@ -74,9 +77,10 @@ describe('App routing — unmatched paths', () => {
   });
 
   it('renders /About as the About page, since routes match case-insensitively, with the /about canonical', async () => {
-    // Cloudflare has no about.html match for /About, so it serves the SPA shell; React Router then
-    // matches the /about route regardless of case. A case variant is a duplicate, not a missing
-    // page, and its canonical must point at the sitemap's lower-case URL.
+    // Cloudflare Pages matches files case-sensitively, so /About does not get about.html: it gets
+    // the build's 404.html, with HTTP 404. React Router then matches the /about route regardless
+    // of case and mounts the About page over it. So a browser ends up on the real page, and its
+    // canonical must point at the sitemap's lower-case URL.
     window.history.pushState({}, '', '/About');
 
     const { container } = render(<App />);

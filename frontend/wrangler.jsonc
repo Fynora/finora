@@ -6,8 +6,9 @@
     "enabled": true
   },
   // Local only. Production is a Cloudflare Pages project, and Pages does not read this file (it
-  // has no pages_build_output_dir): there, the fallback to index.html comes from the build having
-  // no top-level 404.html. This block shapes `wrangler dev` (`npm run preview`) and nothing else.
+  // has no pages_build_output_dir). There, an unmatched path gets the build's 404.html with a 404,
+  // not index.html. This block shapes `wrangler dev` (`npm run preview`) and nothing else, so that
+  // command still answers every unknown path with index.html and a 200.
   // See docs/operations/deployment/deployment-guide.md, "Which document a path gets".
   "assets": {
     "not_found_handling": "single-page-application"

@@ -20,8 +20,18 @@ const robots = read('public/robots.txt');
 
 // Read from the sources, the way seoFiles.test.tsx reads App.tsx, so a route or a prerendered page
 // added later is checked here without anyone remembering to update a second list.
+//
+// This file is the only thing between a forgotten route and an outage for it. The build has a
+// top-level 404.html, so on Cloudflare Pages a path with no file and no rule in public/_redirects
+// returns HTTP 404 with the not-found page (measured on a Pages preview; see
+// docs/operations/deployment/deployment-guide.md, "Which document a path gets"). The routes are
+// read from the SOURCE, not from a rendered app, so one behind a build-time flag that is currently
+// off (/app/settings/gmail/review) is held to the same rule as the rest.
+const prerenderSource = read('scripts/prerender.mjs');
+const routeTags = appSource.match(/<Route\b/g) ?? [];
 const routePaths = [...appSource.matchAll(/<Route path="([^"]+)"/g)].map((m) => m[1]).filter((p) => p !== '*');
-const prerenderedPaths = [...read('scripts/prerender.mjs').matchAll(/^\s*'(\/[^']*)':\s*'[^']+\.html',?\s*$/gm)].map((m) => m[1]);
+const prerenderedPaths = [...prerenderSource.matchAll(/^\s*'(\/[^']*)':\s*'[^']+\.html',?\s*$/gm)].map((m) => m[1]);
+const notFoundFile = prerenderSource.match(/^const NOT_FOUND_FILE = '([^']+)';$/m)?.[1];
 
 const disallowRules = robots
   .split('\n')
@@ -42,6 +52,26 @@ describe('the lists this file reads', () => {
     expect(prerenderedPaths).toContain('/');
     expect(prerenderedPaths).toContain('/privacy');
     expect(prerenderedPaths.length).toBeGreaterThanOrEqual(12);
+  });
+
+  it('reads every <Route> in App.tsx: each has a literal, absolute path this file can check', () => {
+    // A route written as path={SOMETHING}, as a relative child path, or as an index route would be
+    // invisible to the regex above, and so to the rule below that keeps it from returning 404.
+    // If this fails, teach this file to read the new shape before adding the route.
+    expect(routePaths.length + 1, 'every <Route> but the "*" catch-all').toBe(routeTags.length);
+    expect(appSource.match(/<Route path="\*"/g)).toHaveLength(1);
+    for (const route of routePaths) expect(route.startsWith('/'), route).toBe(true);
+    expect(new Set(routePaths).size).toBe(routePaths.length);
+  });
+
+  it('includes a route that only exists behind a build flag', () => {
+    expect(appSource).toMatch(/\{GMAIL_SYNC_UI_ENABLED && \(\s*<Route path="\/app\/settings\/gmail\/review"/);
+    expect(routePaths).toContain('/app/settings/gmail/review');
+  });
+
+  it('finds the not-found page, the file that makes a missed route a 404', () => {
+    // Top-level and named exactly 404.html: that name is what Cloudflare Pages looks for.
+    expect(notFoundFile).toBe('404.html');
   });
 });
 
@@ -77,8 +107,25 @@ describe('public/_redirects', () => {
     expect(browserOnly.length).toBeGreaterThan(0);
     for (const route of browserOnly) {
       for (const address of [concrete(route), `${concrete(route)}/`]) {
-        expect(matchRedirect(rules, address), `${address} would paint the homepage first`).toBeDefined();
+        expect(
+          matchRedirect(rules, address),
+          `${address} has no file and no rule in public/_redirects: Cloudflare Pages would answer it with 404.html and HTTP 404`,
+        ).toBeDefined();
       }
+    }
+  });
+
+  it('gives every prerendered page a route, so no file is served for an address the app does not know', () => {
+    for (const page of prerenderedPaths) expect(routePaths, page).toContain(page);
+  });
+
+  it('has no exact rule left over for a route that is gone', () => {
+    // A stale rule is a soft 404: the address would get the shell with a 200, and React would then
+    // show the not-found page. (An unknown address UNDER /app does exactly that, because of the
+    // splat. Accepted: robots.txt disallows /app and the shell is noindex.)
+    for (const rule of rules.filter((r) => !isDynamicRule(r))) {
+      const route = rule.from.length > 1 ? rule.from.replace(/\/$/, '') : rule.from;
+      expect(routePaths, `${rule.from} (line ${rule.lineNumber}) names no route in App.tsx`).toContain(route);
     }
   });
 
@@ -89,8 +136,11 @@ describe('public/_redirects', () => {
     }
   });
 
-  it('leaves unknown paths and build assets alone', () => {
+  it('leaves unknown paths, the not-found page and build assets alone', () => {
+    // An unknown path must reach 404.html and its 404 status, not be handed the shell with a 200.
     expect(matchRedirect(rules, '/no-such-page')).toBeUndefined();
+    expect(matchRedirect(rules, '/404')).toBeUndefined();
+    expect(matchRedirect(rules, '/404.html')).toBeUndefined();
     expect(matchRedirect(rules, '/assets/index-abc123.js')).toBeUndefined();
     expect(matchRedirect(rules, '/robots.txt')).toBeUndefined();
     expect(matchRedirect(rules, '/.well-known/apple-app-site-association')).toBeUndefined();

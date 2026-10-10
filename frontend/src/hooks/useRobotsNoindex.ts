@@ -4,10 +4,10 @@ import { useEffect } from 'react';
  * Keeps `<meta name="robots" content="noindex">` in the head while the page is mounted, and puts
  * the head back the way it found it on unmount.
  *
- * For the not-found page. Cloudflare serves the prerendered index.html with HTTP 200 for every
- * route this app does not list (wrangler.jsonc, `not_found_handling: "single-page-application"`),
- * so a crawler that runs the bundle sees a real page at /any-typo. This tag is what tells it not to
- * index that page; the status code cannot (scripts/prerender.mjs has the measured behaviour).
+ * For the not-found page. In production an unknown address is answered with the build's 404.html
+ * and HTTP 404 (scripts/prerender.mjs), and that file carries the tag itself. This hook is for the
+ * ways the page is reached with no such status: a client-side navigation to a dead link, and the
+ * local servers (`vite dev`, `wrangler dev`), which answer every unknown path with a 200.
  *
  * A tag already in the head is reused, never duplicated. One that already says noindex (the
  * "noindex, nofollow" scripts/crawlPolicy.mjs bakes into every non-production HTML file) is left

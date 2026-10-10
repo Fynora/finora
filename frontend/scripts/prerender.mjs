@@ -31,10 +31,10 @@ const distDir = path.join(frontendRoot, 'dist');
 const ROOT_DIV = '<div id="root"></div>';
 
 // Where each route's rendered markup gets written. "/" overwrites the SPA's own index.html;
-// every other entry is a new file Cloudflare's static-asset handling serves directly for an
-// exact path match (see wrangler.jsonc's default html_handling: auto-trailing-slash, verified
-// against @cloudflare/vite-plugin's own asset-worker source) -- any route not listed here still
-// falls through to the SPA unchanged.
+// every other entry is a new file, which Cloudflare Pages serves for the extensionless path
+// (/privacy from privacy.html; /privacy/ and /privacy.html are redirected to it). A route NOT
+// listed here has no file: it is served the blank shell if public/_redirects names it, and the
+// not-found page below, with HTTP 404, if it does not. spaShell.test.ts reads this list.
 const OUTPUT_FILES = {
   '/': 'index.html',
   '/privacy': 'privacy.html',
@@ -53,23 +53,25 @@ const OUTPUT_FILES = {
 // The not-found page. Written beside the routes above but NOT one of them: it is not in the sitemap,
 // gets no canonical and no JSON-LD, and carries a robots noindex meta in the file itself.
 //
-// What Cloudflare does with this file, read from the asset worker wrangler ships (miniflare's
-// workers/assets/assets.worker.js, bundled from workers-shared/asset-worker, the same code that
-// serves production) and measured with `wrangler dev` on 2026-10-09:
+// The file name is the mechanism. Production is a Cloudflare PAGES project, and a top-level
+// 404.html changes what Pages does with a path that has no file and no rewrite: without one it
+// answers with index.html and HTTP 200 (the homepage, at every dead URL: a soft 404); with one it
+// answers with this file and HTTP 404. Measured on this change's Pages preview, 2026-10-10:
 //
-//   - `not_found_handling: "single-page-application"` (wrangler.jsonc) answers EVERY unmatched path
-//     with /index.html and HTTP 200. The file name 404.html means nothing in this mode: the worker's
-//     notFound() only looks for 404.html under "404-page", where it serves it with HTTP 404.
-//     The two modes are exclusive, so there is no configuration in which /app/* falls back to the
-//     SPA shell with 200 AND an unknown path gets a 404 status.
-//   - What this file DOES get is an exact-path match: /404 serves it, with 200, through the same
-//     html_handling rule that serves /terms from terms.html.
+//   - an unknown path, and a case variant of a real page (/Privacy): this file, 404.
+//   - /auth, /reset-password, /app/... : still 200, because public/_redirects rewrites them to the
+//     blank shell and a rewrite is applied before the lookup that would have ended here.
+//   - /404 itself: this file, 200, like any other page with a file. The noindex meta covers it.
+//   - a missing file under /assets/: 404, plain text (functions/assets/[[path]].ts).
 //
-// So the HTTP status for an unknown URL stays 200 under this configuration. What tells a crawler
-// not to index it is the robots noindex meta: added in the browser by the NotFound route, which is
-// what index.html renders for an unknown path, and baked into this file for /404. Switching to "404-page" would make THIS file the shell for every unlisted route with a
-// real 404 status -- but also for /app/*, /auth and every other client-only route. That is a
-// deliberate trade for the owner, not something to flip in a prerender script.
+// So this file is also what a route gets if it is added to App.tsx and forgotten in _redirects.
+// Before the rewrites existed that was every browser-only route: this exact file, added on its own,
+// returned 404 for /auth and /app/transactions on a preview. spaShell.test.ts is the guard.
+//
+// `wrangler dev` (`npm run preview`) does not show any of this. It runs Workers static assets from
+// wrangler.jsonc, where `not_found_handling: "single-page-application"` answers every unmatched
+// path with index.html and 200 and the name 404.html means nothing. Use
+// `npx wrangler pages dev dist`, and a PR's Pages preview for the final word.
 const NOT_FOUND_FILE = '404.html';
 
 async function main() {

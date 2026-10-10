@@ -196,13 +196,20 @@ export default function App() {
           <Route path="/app/support" element={<Protected><SupportTickets /></Protected>} />
           <Route path="/app/support/:ticketId" element={<Protected><SupportTicketDetail /></Protected>} />
 
-          {/* wrangler.jsonc sets assets.not_found_handling = "single-page-application", so
-              Cloudflare answers EVERY unmatched path with index.html (HTTP 200) and this route is
-              what the visitor then sees. Without a catch-all, <Routes> rendered null: a blank white
-              page for any typo'd URL or stale bookmark. It was then a redirect to "/", which the
-              2026-10-09 SEO audit flagged as a soft 404: a crawler following a dead link got the
-              homepage, with a 200, at the dead URL. NotFound says what happened, keeps the URL the
-              visitor typed (so it can be corrected), and carries a robots noindex meta.
+          {/* What an address with no route above shows. Without a catch-all, <Routes> rendered null:
+              a blank white page for any typo'd URL or stale bookmark. It was then a redirect to
+              "/", which the 2026-10-09 SEO audit flagged as a soft 404: a crawler following a dead
+              link got the homepage, with a 200, at the dead URL. NotFound says what happened, keeps
+              the URL the visitor typed (so it can be corrected), and carries a robots noindex meta.
+
+              In production the visitor usually has this page before the bundle runs. The site is
+              a Cloudflare Pages project, and the build's top-level 404.html (this same component,
+              prerendered) is what Pages answers with, with HTTP 404, for a path that has no file
+              and no rewrite in public/_redirects. This route is what React then mounts over it,
+              and what a client-side navigation to a dead link shows. The other side of that rule:
+              a NEW route outside /app needs a line in public/_redirects, or a direct visit to it
+              gets that 404 too (scripts/spaShell.test.ts fails until it has one). See
+              docs/operations/deployment/deployment-guide.md, "Which document a path gets".
 
               Nothing protected can land here: every /app route and the auth routes are matched
               above, and ProtectedRoute's redirects go to /auth and /verify-phone, which are real

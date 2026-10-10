@@ -14,8 +14,11 @@
        reviewed copy; seoFiles.test.tsx fails if the two drift. It replaced "grow your money", which
        the product does not do. Every prerendered page overrides description/og:title/og:description
        and adds og:url (scripts/prerender.mjs). There is deliberately NO og:url and NO canonical
-       here: this file is also the SPA fallback for every unlisted route, so either would name the
-       homepage as the address of /trust, /your-data and /cookie-policy.
+       here: this file is the template every other document is built from (each prerendered page,
+       the blank shell for /auth and /app, the not-found page), and the local servers answer every
+       unknown path with it, so either tag would name the homepage as the address of another page.
+       In production it is served only at "/" (see "Which document a path gets" in the deployment
+       guide), and useCanonical adds the homepage's canonical in the browser.
        og:image is public/og-image.png, a 1200x630 card (the hero headline and a sample statement,
        both taken from the landing page's own copy and demo), so the card type is the large-image
        one. The absolute URL is deliberate: link-preview crawlers do not resolve relative paths.

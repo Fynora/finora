@@ -144,8 +144,10 @@ describe('canonical in the built HTML', () => {
     expect(() => withRobotsNoindex('<html></html>')).toThrow(/no <\/head>/);
   });
 
-  it('is absent from index.html: it is the SPA fallback for every unlisted route', () => {
-    // A canonical here would mark /cookie-policy, /trust and /your-data as duplicates of the home page.
+  it('is absent from index.html: it is the template for every other document the build writes', () => {
+    // withCanonical refuses a template that already has one (above), and the not-found page must
+    // have none at all. When index.html was also the fallback for unlisted routes, a canonical in
+    // it marked /cookie-policy, /trust and /your-data as duplicates of the home page.
     expect(read('index.html')).not.toMatch(/rel=["']canonical["']/);
   });
 });

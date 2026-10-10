@@ -99,9 +99,10 @@ export function MoreScreen({ navigation }: Props) {
   };
 
   // Profile used to be a card above the menu showing who is signed in. It is a row in Your Account
-  // now, like its peers, and carries that same name and email as its second line so the screen
-  // still says whose account this is.
-  const signedInAs = [fullName, email].filter(Boolean).join(' · ');
+  // now, like its peers, and carries that same name and email under its label so the screen still
+  // says whose account this is. One per line, as the card had them: joined on one line, a longer
+  // name pushed the email to the next line and left the separator dangling at the end of the first.
+  const signedInAs = [fullName, email].filter((part): part is string => Boolean(part));
 
   function open(id: string, destination: Destination) {
     trackNavigation(id, 'group');
@@ -133,15 +134,15 @@ export function MoreScreen({ navigation }: Props) {
           {NAV_TAXONOMY.filter((entry) => entry.group === group).map(({ id, label }) => {
             const destination = DESTINATIONS[id];
             if (!destination) return null;
-            const who = id === 'profile' && signedInAs ? signedInAs : undefined;
+            const who = id === 'profile' && signedInAs.length > 0 ? signedInAs : undefined;
             return (
               <MenuRow
                 key={id}
                 ref={registerById[id]}
                 icon={destination.icon}
                 label={label}
-                description={who}
-                accessibilityLabel={who ? `${label}: ${who}` : label}
+                description={who?.join('\n')}
+                accessibilityLabel={who ? `${label}: ${who.join(', ')}` : label}
                 onPress={() => open(id, destination)}
               />
             );

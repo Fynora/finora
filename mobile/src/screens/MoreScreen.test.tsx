@@ -72,7 +72,7 @@ const GROUPS: [string, Row[]][] = [
 const ROWS = GROUPS.flatMap(([, rows]) => rows);
 
 /** The row for `label`. Matched by its visible text, so the Profile row's longer spoken label
- *  ("Profile: Ada Lovelace · ...") does not need special-casing. */
+ *  ("Profile: Ada Lovelace, ...") does not need special-casing. */
 const row = (label: string) => screen.getByText(label);
 
 test('shows the five group headings, in taxonomy order', () => {
@@ -138,8 +138,9 @@ describe('where each row goes', () => {
 describe('Profile', () => {
   test('is a row inside Your Account that still says whose account this is', () => {
     renderScreen();
-    expect(screen.getByText('Ada Lovelace · you@example.com')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Profile: Ada Lovelace · you@example.com' })).toBeTruthy();
+    // Name and email on separate lines; read out as one comma-separated phrase.
+    expect(screen.getByText('Ada Lovelace\nyou@example.com')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Profile: Ada Lovelace, you@example.com' })).toBeTruthy();
   });
 
   test('shows the email alone when the account has no name', () => {

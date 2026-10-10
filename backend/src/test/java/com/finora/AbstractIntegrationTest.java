@@ -275,12 +275,6 @@ public abstract class AbstractIntegrationTest {
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         // Flyway runs against the real containerized Postgres exactly as it would in production —
         // this is what makes the soft-delete / JSONB / array-column tests meaningful.
-
-        // The overdue-hold escalation is on by default (production needs no setting for it), but a
-        // scheduled run inside this long-lived shared context would mark and re-save other tests'
-        // backdated holds mid-test -- a version conflict for whichever test saves next. Its own
-        // tests call escalate() directly.
-        registry.add("app.hold-overdue.escalation.enabled", () -> "false");
     }
 
     @DynamicPropertySource

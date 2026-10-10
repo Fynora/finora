@@ -87,6 +87,18 @@ class HoldOverdueEscalationServiceIT extends AbstractIntegrationTest {
         return jobs.findById(job.getId()).orElseThrow();
     }
 
+    @Autowired private org.springframework.core.env.Environment environment;
+
+    /**
+     * The scheduled run must be off in every integration context (application-test.yml): on, it
+     * would mark and re-save other tests' backdated holds mid-test. If this fails, that switch was
+     * lost, and the failures it causes elsewhere will look unrelated.
+     */
+    @Test
+    void theScheduledRunIsSwitchedOffUnderTest() {
+        assertThat(environment.getProperty("app.hold-overdue.escalation.enabled", Boolean.class)).isFalse();
+    }
+
     @Test
     void aHoldPastFortyEightHoursIsEscalatedOnceAndMarked() {
         ImportJob job = importHold(Duration.ofHours(49));

@@ -3,7 +3,15 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { SITE_ORIGIN, canonicalUrl } from '../src/lib/siteUrl';
-import { SITE_ORIGIN as SCRIPT_ORIGIN, withCanonical, withRobotsNoindex } from './prerenderTitle.mjs';
+import {
+  SITE_ORIGIN as SCRIPT_ORIGIN,
+  templateForHomepage,
+  templateForNotFound,
+  templateForPage,
+  withCanonical,
+  withRobotsNoindex,
+} from './prerenderTitle.mjs';
+import { spaShellHtml } from './spaShell.mjs';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const read = (rel: string) => fs.readFileSync(path.join(root, rel), 'utf-8');
@@ -144,10 +152,91 @@ describe('canonical in the built HTML', () => {
     expect(() => withRobotsNoindex('<html></html>')).toThrow(/no <\/head>/);
   });
 
-  it('is absent from index.html: it is the template for every other document the build writes', () => {
-    // withCanonical refuses a template that already has one (above), and the not-found page must
-    // have none at all. When index.html was also the fallback for unlisted routes, a canonical in
-    // it marked /cookie-policy, /trust and /your-data as duplicates of the home page.
+  it('is absent from the source index.html: it is the template for every other document the build writes', () => {
+    // withCanonical refuses a template that already has one (above), and the blank shell and the
+    // not-found page, both built from it, must have none at all. The homepage's own canonical is
+    // added to dist/index.html by the build, which the next block holds.
     expect(read('index.html')).not.toMatch(/rel=["']canonical["']/);
+  });
+});
+
+// A crawler that does not run JavaScript reads only these static tags. Until the build had a
+// 404.html the homepage could not have them: production answered every path without a file with
+// index.html, so a canonical in it named the homepage as the address of other pages. Now
+// index.html is served at "/" alone, and each document says where it lives, or says nothing.
+describe('the address each built document names', () => {
+  // The committed template. The build's is Vite's output of this same file (hashed script and
+  // stylesheet tags added), which touches none of the tags counted here.
+  const template = read('index.html');
+  const prerenderSource = read('scripts/prerender.mjs');
+  const outputRoutes = [...prerenderSource.matchAll(/^\s*'(\/[^']*)':\s*'[^']+\.html',/gm)].map((m) => m[1]);
+  const FONT = '/assets/manrope-latin-800-normal-x.woff2';
+
+  const hrefs = (html: string, tag: RegExp, attr: string) =>
+    (html.match(tag) ?? []).map((t) => new RegExp(`${attr}="([^"]*)"`).exec(t)?.[1]);
+  const canonicals = (html: string) => hrefs(html, /<link\b[^>]*rel=["']canonical["'][^>]*>/g, 'href');
+  const ogUrls = (html: string) => hrefs(html, /<meta\b[^>]*property=["']og:url["'][^>]*>/g, 'content');
+  const titleOf = (html: string) => /<title>([^<]*)<\/title>/.exec(html)?.[1];
+  const descriptionOf = (html: string) => /<meta name="description" content="([^"]*)"/.exec(html)?.[1];
+
+  it('homepage (dist/index.html): exactly one canonical and one og:url, the address the browser also sets', () => {
+    const home = templateForHomepage(template, FONT);
+    expect(canonicals(home)).toEqual(['https://app.fynora.net/']);
+    expect(ogUrls(home)).toEqual(['https://app.fynora.net/']);
+    // Landing calls useCanonical('/'), which sets the tag it finds to canonicalUrl('/'). If the two
+    // strings differed, a crawler that runs JavaScript and one that does not would be told
+    // different addresses.
+    expect(canonicals(home)[0]).toBe(canonicalUrl('/'));
+    // Only address tags and the font preload are added: the title and description stay the
+    // template's, and the root stays empty for the markup.
+    expect(titleOf(home)).toBe(titleOf(template));
+    expect(descriptionOf(home)).toBe(descriptionOf(template));
+    expect(home).toContain(`<link rel="preload" href="${FONT}" as="font"`);
+    expect(home).toContain('<div id="root"></div>');
+  });
+
+  it('every other prerendered page: exactly one of each, for its own route', () => {
+    const pages = outputRoutes.filter((route) => route !== '/');
+    expect(pages.length).toBeGreaterThan(0);
+    expect(outputRoutes).toContain('/');
+    for (const route of pages) {
+      const page = templateForPage(template, { title: 'T — Fynora', description: 'D.', route });
+      expect(canonicals(page), route).toEqual([SITE_ORIGIN + route]);
+      expect(ogUrls(page), route).toEqual([SITE_ORIGIN + route]);
+      expect(canonicals(page)[0], route).toBe(canonicalUrl(route));
+    }
+  });
+
+  it('blank shell (dist/spa-shell.html) and not-found page (dist/404.html): neither tag, and noindex', () => {
+    const shell = spaShellHtml(template);
+    const notFound = templateForNotFound(template, { title: 'Page not found — Fynora', description: 'Missing.' });
+    for (const [name, doc] of [['spa-shell.html', shell], ['404.html', notFound]] as const) {
+      expect(canonicals(doc), name).toEqual([]);
+      expect(ogUrls(doc), name).toEqual([]);
+      expect(doc, name).toMatch(/<meta name="robots" content="noindex[^"]*" \/>/);
+    }
+  });
+
+  it('refuses to build the homepage from a template that already names an address', () => {
+    // The guard that keeps the tags out of the source index.html: put one there and the build of
+    // every page, the homepage first, stops instead of shipping two.
+    const withTag = (tag: string) => template.replace('</head>', `${tag}\n</head>`);
+    expect(() => templateForHomepage(withTag('<link rel="canonical" href="https://app.fynora.net/" />'), FONT))
+      .toThrow(/already has a canonical/);
+    expect(() => templateForHomepage(withTag('<meta property="og:url" content="https://app.fynora.net/" />'), FONT))
+      .toThrow(/already has an og:url/);
+    expect(() => templateForPage(withTag('<meta property="og:url" content="https://app.fynora.net/" />'), { title: 'T', description: 'D', route: '/terms' }))
+      .toThrow(/already has an og:url/);
+  });
+
+  it('is what prerender.mjs writes: every document from the untouched template, through these builders', () => {
+    // `template` is read once, before any page is rendered into it. A document built from an
+    // already-tagged copy instead (the loop's `pageTemplate`) would carry another page's address.
+    expect(prerenderSource).toContain('fs.writeFileSync(path.join(distDir, SPA_SHELL_FILE), spaShellHtml(template));');
+    expect(prerenderSource).toContain('pageTemplate = templateForHomepage(template, heroFontHref);');
+    expect(prerenderSource).toContain('pageTemplate = templateForPage(template, { title, description, route });');
+    expect(prerenderSource).toContain('const pageTemplate = templateForNotFound(template, { title, description });');
+    // No address tag is added anywhere else in the script.
+    expect(prerenderSource).not.toMatch(/\bwith(Canonical|OgUrl|PageMeta)\(/);
   });
 });

@@ -12,7 +12,8 @@ import { useEffect } from 'react';
  * A tag already in the head is reused, never duplicated. One that already says noindex (the
  * "noindex, nofollow" scripts/crawlPolicy.mjs bakes into every non-production HTML file) is left
  * exactly as it is, so this never weakens it. Any other is set to noindex while this page is mounted
- * and restored afterwards, the same way useCanonical treats an existing canonical link.
+ * and restored afterwards. (useCanonical does not restore: a canonical names one page, so it is
+ * removed when that page unmounts.)
  */
 export function useRobotsNoindex(enabled = true): void {
   useEffect(() => {

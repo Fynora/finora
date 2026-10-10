@@ -345,6 +345,12 @@ not-found page with a `404` status.
 It is deliberate. Without it an unknown URL returned the homepage with a `200`, which the
 2026-10-09 SEO audit flagged as a soft 404.
 
+It is also what lets `dist/index.html` carry the homepage's canonical and `og:url`. With it,
+`index.html` is served at `/` and nowhere else: `/index` and `/index.html` answer `308` to `/`, and
+a path without a file gets `404.html` (measured on a Pages preview and on production, 2026-10-10).
+Remove `404.html` and that canonical would again be served at every unknown URL. The blank shell and
+`404.html` itself carry no canonical and no `og:url`; `scripts/seoFiles.test.tsx` holds all three.
+
 Things that are easy to get wrong here. Each was read from Cloudflare's parser and asset handler
 (wrangler 4.146.0) and measured on a Pages preview, except the trailing-slash one, which was
 measured in the local Pages emulator only:
@@ -635,9 +641,14 @@ What the build produces, all from `frontend/`:
 - `public/robots.txt` and `public/sitemap.xml`: keep crawlers out of `/app` and every auth flow, and
   list the 12 public routes. `scripts/seoFiles.test.tsx` fails if a route in `App.tsx` is neither
   in the sitemap nor disallowed.
-- Every prerendered public page has its own `<title>`, description, `og:` tags and an absolute
-  canonical. `index.html` deliberately has no canonical and no `og:url`: it is also the SPA fallback
-  for every route the prerender does not list.
+- Every prerendered public page, the homepage included, has its own `<title>`, description, `og:`
+  tags and an absolute canonical in its built HTML. The homepage's canonical and `og:url` are added
+  to `dist/index.html` by the build (`templateForHomepage` in `scripts/prerenderTitle.mjs`), not
+  written in the source `frontend/index.html`: that file is the template for every other document,
+  and the blank shell and the not-found page must name no address. This is safe only because
+  production serves `index.html` at `/` alone (see "Which document a path gets" above). While it was
+  also the answer for every path without a file, a canonical in it named the homepage as the
+  address of those pages.
 - **Non-production builds are `noindex`** (`scripts/crawlPolicy.mjs`, the last step of `npm run
   build`): an `X-Robots-Tag` header, a robots meta tag, no canonical, and no Sitemap line. A build is
   non-production if Cloudflare reports a branch other than `main` (`CF_PAGES=1`, `CF_PAGES_BRANCH`),

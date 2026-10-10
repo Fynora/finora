@@ -20,7 +20,7 @@ import { PublicLayout } from '../src/components/PublicLayout';
 import { hero } from '../src/pages/landing/landing-config';
 import { isNonProductionBuild, pageDescription } from '../src/lib/siteUrl';
 import { useCanonical } from '../src/hooks/useCanonical';
-import { pageDescriptionFromMarkup, withPageMeta } from './prerenderTitle.mjs';
+import { pageDescriptionFromMarkup, withOgUrl, withPageMeta } from './prerenderTitle.mjs';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const indexHtml = fs.readFileSync(path.join(root, 'index.html'), 'utf-8');
@@ -115,7 +115,9 @@ describe('index.html description and social tags', () => {
     });
   });
 
-  it('has no og:url: this file is the fallback for every unlisted route', () => {
+  it('has no og:url in the source file: it is the template for every other document the build writes', () => {
+    // The homepage's og:url is added to dist/index.html by the build (seoFiles.test.tsx holds it).
+    // Here it would also land in the blank shell and the not-found page, and stop the build.
     expect(indexMetaTags).not.toMatch(/og:url/);
     expect(indexMetaTags.length).toBeGreaterThan(0);
   });
@@ -251,6 +253,14 @@ describe('withPageMeta', () => {
     const out = withPageMeta(TEMPLATE, { title: 'Page not found — Fynora', description: 'Missing.', route: null });
     expect(out).toContain('<meta property="og:title" content="Page not found — Fynora" />');
     expect((out.match(/<meta\b[^>]*>/g) ?? []).join('\n')).not.toMatch(/og:url/);
+  });
+
+  it('adds og:url once: a template that already has one, or has no </head>, is refused', () => {
+    const once = withOgUrl(TEMPLATE, '/');
+    expect(once).toContain('<meta property="og:url" content="https://app.fynora.net/" />\n</head>');
+    expect(() => withOgUrl(once, '/')).toThrow(/already has an og:url/);
+    expect(() => withPageMeta(once, { title: 'T', description: 'D', route: '/terms' })).toThrow(/already has an og:url/);
+    expect(() => withOgUrl('<html></html>', '/')).toThrow(/no <\/head>/);
   });
 
   it('does not interpret $ sequences in a description as replacement patterns', () => {

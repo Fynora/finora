@@ -31,17 +31,51 @@ describe('useCanonical', () => {
     expect(links()[0].getAttribute('href')).toBe('https://app.fynora.net/privacy');
   });
 
-  it('reuses and then restores a canonical already in the head (the prerendered one)', () => {
+  it('reuses a canonical already in the head (the prerendered one) rather than adding a second', () => {
     const prerendered = document.createElement('link');
     prerendered.rel = 'canonical';
     prerendered.href = 'https://app.fynora.net/terms';
     document.head.appendChild(prerendered);
 
-    const { unmount } = render(<Probe path="/terms" />);
+    render(<Probe path="/terms" />);
     expect(links()).toHaveLength(1);
-    unmount();
-    expect(links()).toHaveLength(1);
+    expect(links()[0]).toBe(prerendered);
     expect(links()[0].getAttribute('href')).toBe('https://app.fynora.net/terms');
+  });
+
+  it("removes the homepage's prerendered canonical when the visitor leaves for a page that names none", () => {
+    // dist/index.html carries the homepage's canonical (scripts/prerender.mjs), and Landing calls
+    // useCanonical('/'). Opening "/" and going on to /auth or into /app unmounts Landing; nothing
+    // on those pages calls this hook, so a tag left behind, or put back, would still say "/".
+    const prerendered = document.createElement('link');
+    prerendered.rel = 'canonical';
+    prerendered.href = 'https://app.fynora.net/';
+    document.head.appendChild(prerendered);
+
+    const home = render(<Probe path="/" />);
+    expect(links()).toHaveLength(1);
+    expect(links()[0]).toBe(prerendered);
+    expect(links()[0].getAttribute('href')).toBe('https://app.fynora.net/');
+
+    home.unmount();
+    expect(links()).toHaveLength(0);
+  });
+
+  it("names each page in turn, never the first page's address on a later one", () => {
+    // In-app navigation from a prerendered /terms to the homepage and on to a page with no
+    // canonical. Putting the previous value back on unmount left "/terms" in the head at the end.
+    const prerendered = document.createElement('link');
+    prerendered.rel = 'canonical';
+    prerendered.href = 'https://app.fynora.net/terms';
+    document.head.appendChild(prerendered);
+
+    const terms = render(<Probe path="/terms" />);
+    terms.unmount();
+    const home = render(<Probe path="/" />);
+    expect(links()).toHaveLength(1);
+    expect(links()[0].getAttribute('href')).toBe('https://app.fynora.net/');
+    home.unmount();
+    expect(links()).toHaveLength(0);
   });
 
   it('is set by every page built on PublicLayout, from its own route', () => {

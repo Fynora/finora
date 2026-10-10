@@ -26706,6 +26706,10 @@
                             "type": "integer",
                             "format": "int32"
                         }
+                    },
+                    "rejected": {
+                        "type": "integer",
+                        "format": "int64"
                     }
                 }
             },

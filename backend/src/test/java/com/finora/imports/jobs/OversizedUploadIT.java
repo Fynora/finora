@@ -91,4 +91,49 @@ class OversizedUploadIT extends AbstractIntegrationTest {
                 .as("a rejected upload must not leave a job behind")
                 .isEmpty();
     }
+
+    @Autowired private com.finora.imports.analysis.StatementAnalysisSessionRepository analysisSessions;
+
+    private ResponseEntity<String> postOversized(User user, String path, String fileName) {
+        HttpHeaders headers = bearerFor(user);
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        body.add("file", new ByteArrayResource("A".repeat(20 * 1024).getBytes(StandardCharsets.UTF_8)) {
+            @Override public String getFilename() { return fileName; }
+        });
+        return restTemplate.exchange(path, HttpMethod.POST, new HttpEntity<>(body, headers), String.class);
+    }
+
+    /**
+     * Gate 1 spec §5.1: neither app checks a file's size before sending it, so a statement over the
+     * limit is refused here -- and until V267 that left no record, the same as never uploading.
+     * The size check runs before any controller, so the record is written by an advice of its own
+     * ({@code OversizedImportUploadAdvice}); the 413 the client receives is unchanged.
+     */
+    @Test
+    void anOversizedStatementUploadIsRecordedAsRefused_onEveryUploadEndpoint() {
+        record Case(String path, String fileName, String format) {}
+        for (Case c : java.util.List.of(
+                new Case("/api/v1/import/csv/stage", "statement.csv", "CSV"),
+                new Case("/api/v1/import/pdf/stage", "statement.pdf", "PDF"),
+                // The queue takes either format and decides from the file name, which the size
+                // check never got as far as reading: the format is honestly unknown.
+                new Case("/api/v1/import/jobs", "statement.pdf", null))) {
+            User user = user();
+
+            ResponseEntity<String> response = postOversized(user, c.path(), c.fileName());
+
+            assertThat(response.getStatusCode()).as(c.path()).isEqualTo(HttpStatus.PAYLOAD_TOO_LARGE);
+            assertThat(response.getBody()).as(c.path()).contains("UPLOAD_TOO_LARGE");
+            assertThat(analysisSessions.findAll().stream().filter(s -> user.getId().equals(s.getUserId())))
+                    .as(c.path()).singleElement().satisfies(row -> {
+                        assertThat(row.getOutcome())
+                                .isEqualTo(com.finora.imports.analysis.StatementAnalysisSession.Outcome.REJECTED);
+                        assertThat(row.getFailureCode()).isEqualTo("UPLOAD_TOO_LARGE");
+                        assertThat(row.getSourceFormat()).isEqualTo(c.format());
+                        assertThat(row.getFileName()).isNull();
+                        assertThat(row.getByteSize()).isNull();
+                    });
+        }
+    }
 }

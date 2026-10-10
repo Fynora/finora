@@ -64,7 +64,9 @@ class ImportSessionServiceTest {
         when(buildVersionResolver.currentCommit()).thenReturn(null);
         service = new ImportSessionService(importSessionRepository, importJobRepository,
                 heldStatementRepository, objectMapper, buildVersionResolver,
-                org.mockito.Mockito.mock(com.finora.repository.StatementPasswordRepository.class));
+                org.mockito.Mockito.mock(com.finora.repository.StatementPasswordRepository.class),
+                org.mockito.Mockito.mock(com.finora.imports.analysis.StatementAnalysisSessionRepository.class),
+                org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class));
         when(importSessionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         // No test in this class is about a trust hold unless it says so -- default to "nothing is
         // held" so every existing claimForConfirmation/listResumableSessions test keeps exercising

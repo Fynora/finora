@@ -108,7 +108,11 @@ public class StatementAnalysisReportService {
             long distinctLayouts,
             long rowsExtractedInWindow,
             int unanchoredRowsInWindow,
-            Map<String, Integer> unanchoredReasons
+            Map<String, Integer> unanchoredReasons,
+            // Appended (records are positional). Uploads refused before the parser read them
+            // (V267, Outcome.REJECTED) -- the third part of totalAnalysesEver, alongside parsed
+            // and failed, so the three still add up to it.
+            long rejected
     ) {}
 
     /**
@@ -287,7 +291,8 @@ public class StatementAnalysisReportService {
                 repository.countDistinctLayouts(),
                 rows,
                 unanchored,
-                byCountDescending(combined));
+                byCountDescending(combined),
+                repository.countByOutcome(StatementAnalysisSession.Outcome.REJECTED));
     }
 
     /**

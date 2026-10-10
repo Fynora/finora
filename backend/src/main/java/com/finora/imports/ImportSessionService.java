@@ -90,12 +90,21 @@ public class ImportSessionService {
     private final BuildVersionResolver buildVersionResolver;
 
     private final com.finora.repository.StatementPasswordRepository statementPasswordRepository;
+    private final com.finora.imports.analysis.StatementAnalysisSessionRepository analysisSessionRepository;
+    /** {@code REQUIRES_NEW}, for {@link #stampAbandoned} -- see there for why it must be separate. */
+    private final org.springframework.transaction.support.TransactionTemplate separateTransaction;
 
     public ImportSessionService(ImportSessionRepository importSessionRepository,
                                  ImportJobRepository importJobRepository,
                                  HeldStatementRepository heldStatementRepository, ObjectMapper objectMapper,
                                  BuildVersionResolver buildVersionResolver,
-                                 com.finora.repository.StatementPasswordRepository statementPasswordRepository) {
+                                 com.finora.repository.StatementPasswordRepository statementPasswordRepository,
+                                 com.finora.imports.analysis.StatementAnalysisSessionRepository analysisSessionRepository,
+                                 org.springframework.transaction.PlatformTransactionManager transactionManager) {
+        this.analysisSessionRepository = analysisSessionRepository;
+        this.separateTransaction = new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+        this.separateTransaction.setPropagationBehavior(
+                org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.statementPasswordRepository = statementPasswordRepository;
         this.importSessionRepository = importSessionRepository;
         this.importJobRepository = importJobRepository;
@@ -160,8 +169,47 @@ public class ImportSessionService {
                 Instant.now(), SESSIONS_PROTECTED_FROM_CLEANUP,
                 PageRequest.of(0, CLEANUP_BATCH_SIZE));
         if (expired.isEmpty()) return 0;
+        stampAbandoned(expired);
         importSessionRepository.deleteAll(expired);
         return expired.size();
+    }
+
+    /**
+     * Before the rows go: marks the reads whose statement was shown for review and never confirmed
+     * (Gate 1 spec §5.2). Once the session is deleted nothing else says it was ever waiting -- the
+     * October 2026 baseline found exactly that, a statement read successfully and then gone.
+     *
+     * <p>Only sessions the user could have confirmed and did not: still {@code STAGED}, and not
+     * withheld by a trust review. A statement whose review was rejected is swept unconfirmed too,
+     * but the confirm step was never offered to its user, so it is not theirs to have abandoned --
+     * the same {@link #sessionsBlockedByTrustReview} answer the confirm step itself uses.
+     *
+     * <p>In a transaction of its own, and never allowed to fail the sweep. In PostgreSQL a failed
+     * statement aborts its whole transaction, so a stamp sharing this one could stop the delete --
+     * and the delete is a retention promise on rows holding real statement content, while the
+     * stamp is a count. Caught out here rather than inside the write, because a failed write
+     * surfaces again when its transaction tries to commit.
+     */
+    private void stampAbandoned(List<ImportSession> expired) {
+        try {
+            List<UUID> staged = expired.stream()
+                    .filter(session -> ImportSession.STATUS_STAGED.equals(session.getStatus()))
+                    .map(ImportSession::getId)
+                    .toList();
+            if (staged.isEmpty()) return;
+            Instant now = Instant.now();
+            // The trust-review lookup is inside the separate transaction too: it is queries, and a
+            // failed one would abort the sweep's transaction just as a failed write would.
+            separateTransaction.executeWithoutResult(status -> {
+                java.util.Set<UUID> withheld = sessionsBlockedByTrustReview(staged);
+                List<UUID> abandoned = staged.stream().filter(id -> !withheld.contains(id)).toList();
+                if (!abandoned.isEmpty()) {
+                    analysisSessionRepository.stampExpiredUnconfirmed(abandoned, now);
+                }
+            });
+        } catch (RuntimeException e) {
+            log.warn("Could not stamp expired-unconfirmed import sessions; sweeping them anyway", e);
+        }
     }
 
     /**

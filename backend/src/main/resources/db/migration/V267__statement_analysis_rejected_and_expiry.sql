@@ -1,0 +1,12 @@
+-- Gate 1 spec §5: two outcomes of an upload that left no trace.
+--
+-- REJECTED (a new value of statement_analysis_sessions.outcome): a direct upload refused before
+-- the parser read it -- empty or wrong file type, the virus scan, the server being busy. The
+-- column is VARCHAR(16) with no CHECK constraint (V59), so the value needs no schema change; such
+-- a row carries who and why, and no file name, size, hash or layout.
+--
+-- expired_unconfirmed_at: the staged session this read produced was swept at its 48-hour expiry
+-- without the user confirming it. The session row is deleted; this stamp stays, so statements that
+-- were read and then abandoned at review are countable. Null = confirmed, still live, or the
+-- upload never staged anything.
+ALTER TABLE statement_analysis_sessions ADD COLUMN expired_unconfirmed_at TIMESTAMPTZ;

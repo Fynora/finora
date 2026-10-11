@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ScrollView, StyleSheet } from 'react-native';
 import { FinancialHealthFactorCard } from './FinancialHealthFactorCard';
-import { spacing } from '../../theme';
+import { cardShadowRoom, spacing } from '../../theme';
 
 interface Props {
   available: boolean;
@@ -30,7 +30,7 @@ export function HealthFactorsRow({
   if (!available) return null;
 
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
+    <ScrollView testID="health-factors-row" horizontal showsHorizontalScrollIndicator={false} style={styles.scroller} contentContainerStyle={styles.row}>
       {Object.entries(breakdown).map(([name, score]) => (
         <FinancialHealthFactorCard
           key={name}
@@ -48,5 +48,22 @@ export function HealthFactorsRow({
 }
 
 const styles = StyleSheet.create({
-  row: { gap: spacing.sm, paddingVertical: spacing.xs },
+  // The row runs edge to edge: the negative margin cancels DashboardScreen's side padding
+  // (styles.content, spacing.ml) and the content padding puts the first tile back on the screen's
+  // left edge, so tiles scroll off under the bezel instead of being cut at the padding line.
+  //
+  // Vertically the content is padded by the tiles' shadow reach, because a scroll view clips to
+  // its bounds, and the scroller's margins take the same amount back: the tiles still sit
+  // spacing.md + spacing.xs under the hero and spacing.xs above whatever follows.
+  scroller: {
+    marginTop: spacing.md + spacing.xs - cardShadowRoom.top,
+    marginBottom: spacing.xs - cardShadowRoom.bottom,
+    marginHorizontal: -spacing.ml,
+  },
+  row: {
+    gap: spacing.ms,
+    paddingTop: cardShadowRoom.top,
+    paddingBottom: cardShadowRoom.bottom,
+    paddingHorizontal: spacing.ml,
+  },
 });

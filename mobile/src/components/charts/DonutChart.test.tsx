@@ -11,6 +11,17 @@ const slice = (over: Partial<Slice> = {}): Slice => ({
   label: 'Dining', value: 4000, color: '#3b82f6', drillable: true, ...over,
 });
 
+// Found on an iPhone 17 Pro simulator at an accessibility text size: the total grew with the text
+// size and the ring did not, so "₹1,21,162" ran across the ring on both sides. The ring is a
+// fixed-size graphic; its centre text grows only as far as the hole has room for.
+describe('DonutChart centre', () => {
+  it('caps how far the centre total and its label grow with Dynamic Type', () => {
+    render(<DonutChart slices={[slice()]} centerLabel="₹1,21,162" />);
+    expect(screen.getByText('₹1,21,162').props.maxFontSizeMultiplier).toBe(1.3);
+    expect(screen.getByText('Total').props.maxFontSizeMultiplier).toBe(1.3);
+  });
+});
+
 describe('DonutChart legend', () => {
   it('renders a drillable row as a real button that reports its own label when pressed', () => {
     const onSlicePress = jest.fn();

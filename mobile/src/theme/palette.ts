@@ -181,12 +181,19 @@ export const radius = {
   md: 8,
   lg: 12,
   xl: 16,
+  // Dashboard card redesign (2026-10-10): cards and the health hero.
+  xxl: 20,
+  hero: 28,
 };
 
 export const spacing = {
   xs: 4,
   sm: 8,
+  // Dashboard card redesign (2026-10-10): the gap inside tile grids.
+  ms: 12,
   md: 16,
+  // Dashboard card redesign (2026-10-10): screen side padding and regular card padding.
+  ml: 20,
   lg: 24,
   xl: 32,
 };

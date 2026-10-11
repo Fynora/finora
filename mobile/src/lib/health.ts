@@ -31,6 +31,18 @@ export function healthBarColor(score: number, c: Palette): string {
   return c.danger;
 }
 
+/**
+ * The colour for a tier's LABEL. healthBarColor is for bars and arcs (graphics need 3:1); its
+ * success and danger tones do not clear 4.5:1 as text on a glass card, which is what the *Ink
+ * tokens exist for (see glassMigration.test.ts). Same cutoffs as scoreLabel.
+ */
+export function healthLabelInk(score: number, c: Palette): string {
+  if (score >= 80) return c.successInk;
+  if (score >= 60) return c.ink;
+  if (score >= 40) return c.warningInk;
+  return c.dangerInk;
+}
+
 /** Background token to pair with healthBarColor's foreground, for a factor card's tone pill. */
 export function healthToneBg(score: number, c: Palette): string {
   if (score >= 80) return c.successBg;

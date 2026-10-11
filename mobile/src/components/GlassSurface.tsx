@@ -49,9 +49,37 @@ export function GlassSurface({ style, children, variant = 'panel', ...rest }: Vi
   // Scheme from palette identity, same reason as GlassScreen: useThemeSetting() throws without a
   // provider, useTheme() falls back, and both hand back the exact `dark`/`light` module objects.
   const scheme = c === dark ? 'dark' : 'light';
+  const liquid = isLiquidGlassAvailable() && isGlassEffectAPIAvailable();
+  const blurTint = scheme === 'dark' ? 'systemThinMaterialDark' : 'systemThinMaterialLight';
+
+  // A surface that casts a shadow cannot be the effect view itself: the effect view has to clip
+  // to its corner radius (below), and on iOS a view that clips also clips its own shadow -- the
+  // dashboard cards declared one that was never drawn. So the caller's whole style, shadow
+  // included, goes on a plain unclipped view, and the glass is a clipped layer behind the
+  // children. Such a surface no longer clips its children; a caller that needs both (the health
+  // hero's glow) wraps a shadowless GlassSurface in its own shadow view instead.
+  if (shape.boxShadow) {
+    const corners = Object.fromEntries(Object.entries(shape).filter(([key]) => /^border.*Radius$/.test(key)));
+    const layer = [StyleSheet.absoluteFill, styles.clip, corners];
+    return (
+      <View {...rest} style={[styles.edge, { borderColor: c.glassEdge }, shape]}>
+        {liquid ? (
+          <GlassView testID="glass-layer" pointerEvents="none" glassEffectStyle="regular" colorScheme={scheme} style={layer}>
+            {tint}
+          </GlassView>
+        ) : (
+          <BlurView testID="glass-layer" pointerEvents="none" intensity={60} tint={blurTint} style={layer}>
+            {tint}
+          </BlurView>
+        )}
+        {children}
+      </View>
+    );
+  }
+
   const outer = [styles.edge, styles.clip, { borderColor: c.glassEdge }, shape];
 
-  if (isLiquidGlassAvailable() && isGlassEffectAPIAvailable()) {
+  if (liquid) {
     return (
       <GlassView {...rest} glassEffectStyle="regular" colorScheme={scheme} style={outer}>
         {tint}
@@ -60,7 +88,7 @@ export function GlassSurface({ style, children, variant = 'panel', ...rest }: Vi
     );
   }
   return (
-    <BlurView {...rest} intensity={60} tint={scheme === 'dark' ? 'systemThinMaterialDark' : 'systemThinMaterialLight'} style={outer}>
+    <BlurView {...rest} intensity={60} tint={blurTint} style={outer}>
       {tint}
       {children}
     </BlurView>

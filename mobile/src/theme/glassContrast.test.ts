@@ -72,6 +72,13 @@ describe.each([['light', light], ['dark', dark]] as const)('%s mesh', (theme, p)
     expectAA(worst(ON_GLASS[theme], glass), 'glass card');
   });
 
+  // Financial Note: the brass wash at glass alpha instead of the neutral tint. Measured when
+  // added: light 14.45 / 6.14 / 5.14, dark 14.36 / 8.03 / 7.04 at the worst pixel.
+  it('the Financial Note text clears AA on brass glass, at every pixel', () => {
+    const brassGlass = (px: number[]) => over(rgb(p.brassBg), p.glassAlpha, px);
+    expectAA(worst(['ink', 'mutedInk', 'brassInk'], brassGlass), 'brass glass');
+  });
+
   it('text that may sit directly on the backdrop clears AA at every pixel', () => {
     expectAA(worst(ON_BACKDROP, (px) => px), 'backdrop');
   });

@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { Dimensions, RefreshControl } from 'react-native';
+import { Dimensions, Platform, RefreshControl, StyleSheet } from 'react-native';
+import { shadows } from '../theme';
 import { withBypass } from '../lib/changeSync';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
@@ -738,15 +739,16 @@ describe('Cash Flow loading and failure states', () => {
 });
 
 /**
- * CashFlowMiniCard renders null when it has nothing to draw (its own file's doc comment), but its
- * wrapping cardRowItem View still claimed half the row's width via flex:1 -- a blank gap the exact
- * size of the missing card, sitting next to AccountsCard. Covers both sides: AccountsCard alone
- * (no dead space) when Cash Flow Mini has nothing, and the original side-by-side row once it does.
+ * CashFlowMiniCard renders null when it has nothing to draw (its own file's doc comment). When
+ * the two cards shared a row, its wrapper still claimed half the width and left a blank gap next
+ * to AccountsCard. Since the card redesign (2026-10-10) each is a full-width card of its own, so
+ * what is left to cover is presence: the balance card alone when there is no monthly data, and
+ * both once there is.
  */
-describe('Cash Flow Mini / Accounts row', () => {
+describe('Cash flow trend and balance cards', () => {
   afterEach(() => onlineManager.setOnline(true));
 
-  it('does not reserve a blank column for Cash Flow Mini when there is no monthly data', async () => {
+  it('does not render the cash flow trend card when there is no monthly data', async () => {
     dashboard.summary.mockResolvedValue(emptySummary());
     reports.availableMonths.mockResolvedValue([]);
     accounts.list.mockResolvedValue([]);
@@ -757,7 +759,7 @@ describe('Cash Flow Mini / Accounts row', () => {
     expect(screen.queryByText('Cash Flow Trend')).toBeNull();
   });
 
-  it('renders Cash Flow Mini alongside Accounts once monthly data exists', async () => {
+  it('renders the cash flow trend card and the balance card once monthly data exists', async () => {
     dashboard.summary.mockResolvedValue(emptySummary());
     reports.availableMonths.mockResolvedValue(['2026-07', '2026-08']);
     reports.forMonth.mockResolvedValue({ month: '2026-08', income: 100, expense: 50, categories: [] });
@@ -767,6 +769,68 @@ describe('Cash Flow Mini / Accounts row', () => {
 
     await screen.findByText('Total Balance');
     expect(await screen.findByText('Cash Flow Trend')).toBeTruthy();
+  });
+});
+
+describe('story-layer order (card redesign)', () => {
+  afterEach(() => onlineManager.setOnline(true));
+
+  it('puts the balance before the month figures, and the cash flow trend after them', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+    reports.availableMonths.mockResolvedValue(['2026-07', '2026-08']);
+    reports.forMonth.mockResolvedValue({ month: '2026-08', income: 100, expense: 50, categories: [] });
+    accounts.list.mockResolvedValue([]);
+
+    renderScreen();
+
+    await screen.findByText('Cash Flow Trend');
+    // Every piece of text on the screen, in render order. Walks children only: the rendered
+    // tree's props hold React contexts, which are circular and cannot be serialised.
+    const texts: string[] = [];
+    const walk = (node: unknown): void => {
+      if (typeof node === 'string') { texts.push(node); return; }
+      if (Array.isArray(node)) { node.forEach(walk); return; }
+      if (node && typeof node === 'object') walk((node as { children?: unknown }).children ?? null);
+    };
+    walk(screen.toJSON());
+    const at = (s: string) => texts.indexOf(s);
+    for (const s of ['Total Balance', 'Income', 'Net Savings', 'Cash Flow Trend', 'Spending by Category']) {
+      expect({ s, found: at(s) > -1 }).toEqual({ s, found: true });
+    }
+    expect(at('Total Balance')).toBeLessThan(at('Income'));
+    expect(at('Net Savings')).toBeLessThan(at('Cash Flow Trend'));
+    expect(at('Cash Flow Trend')).toBeLessThan(at('Spending by Category'));
+  });
+
+  it('keeps the search button a 44 point glass circle with its label', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+    renderScreen();
+    const button = await screen.findByLabelText('Search transactions');
+    const circle = StyleSheet.flatten(screen.getByTestId('dashboard-search-button').props.style);
+    expect(button).toBeTruthy();
+    expect(circle.width).toBe(44);
+    expect(circle.height).toBe(44);
+  });
+
+  // The approved design lifts the button off the page with the same shadow as the cards.
+  it('the search button casts the card shadow on iOS', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+    renderScreen();
+    await screen.findByLabelText('Search transactions');
+    expect(StyleSheet.flatten(screen.getByTestId('dashboard-search-button').props.style).boxShadow).toEqual(shadows.card);
+  });
+
+  it('the search button declares no box shadow on Android', async () => {
+    const originalOS = Platform.OS;
+    (Platform as { OS: string }).OS = 'android';
+    try {
+      dashboard.summary.mockResolvedValue(emptySummary());
+      renderScreen();
+      await screen.findByLabelText('Search transactions');
+      expect(StyleSheet.flatten(screen.getByTestId('dashboard-search-button').props.style).boxShadow).toBeUndefined();
+    } finally {
+      (Platform as { OS: string }).OS = originalOS;
+    }
   });
 });
 
@@ -1458,12 +1522,121 @@ describe('Subscriptions & Recurring Payments widget (Phase 4)', () => {
 });
 
 /**
+ * Card redesign (2026-10-10). Amount colours did not change with it: income green, expenses red
+ * (Sid's decision the same day; an earlier draft wrote expenses in ordinary ink).
+ */
+describe('Recent Transactions rows (card redesign)', () => {
+  beforeEach(() => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+    const row = {
+      accountId: 'a1', categoryId: 'c1', date: '2026-08-01', paymentMethod: 'CARD', tags: [], notes: null,
+      reconciliationStatus: 'OK', recurring: false, needsCategoryReview: false, categoryManuallySet: false,
+    };
+    transactions.search.mockResolvedValue({
+      content: [
+        { ...row, id: 't1', categoryName: 'Income', description: 'Salary credit', merchant: 'Employer', amount: 145000, type: 'INCOME' },
+        { ...row, id: 't2', categoryName: 'Groceries', description: 'Grocery store', merchant: 'Grocer', amount: 2340, type: 'EXPENSE' },
+      ],
+      page: 0, size: 5, totalElements: 2, totalPages: 1,
+    } as never);
+  });
+
+  // The approved design has "See all" on this card; the app had no way from here to the full list.
+  it('offers See all, which opens the Transactions tab', async () => {
+    const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
+    navigate.mockClear();
+    renderScreen();
+    fireEvent.press(await screen.findByRole('button', { name: 'See all transactions' }));
+    expect(navigate).toHaveBeenCalledWith('Transactions');
+  });
+
+  it('does not offer See all when there is nothing more to see', async () => {
+    transactions.search.mockResolvedValue({ content: [], page: 0, size: 5, totalElements: 0, totalPages: 0 } as never);
+    renderScreen();
+    await screen.findByTestId('kpi-Expenses');
+    await waitFor(() => expect(transactions.search).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: 'See all transactions' })).toBeNull();
+  });
+
+  it('keeps income in the success ink and expenses in the danger ink', async () => {
+    renderScreen();
+    expect(await screen.findByText('+₹1,45,000')).toHaveStyle({ color: light.successInk });
+    expect(screen.getByText('-₹2,340')).toHaveStyle({ color: light.dangerInk });
+  });
+
+  it('marks each row with a direction icon: money in on the success wash, money out on the neutral one', async () => {
+    renderScreen();
+    await screen.findByText('Salary credit');
+    const well = (id: string) => StyleSheet.flatten(screen.getByTestId(id, { includeHiddenElements: true }).props.style);
+    expect(well('txn-icon-t1').backgroundColor).toBe(light.successBg);
+    expect(well('txn-icon-t2').backgroundColor).not.toBe(light.successBg);
+  });
+
+  it('separates rows with a line between them, never after the last one', async () => {
+    renderScreen();
+    await screen.findByText('Salary credit');
+    const row = (id: string) => StyleSheet.flatten(screen.getByTestId(id).props.style);
+    expect(row('txn-row-t1').borderTopWidth).toBeUndefined();
+    expect(row('txn-row-t2').borderTopWidth).toBe(StyleSheet.hairlineWidth);
+    expect(row('txn-row-t2').borderBottomWidth).toBeUndefined();
+  });
+
+  // Found on an iPhone 17 Pro simulator at an accessibility text size: the category and date line
+  // was cut to "Credit C...", which loses the date altogether, and two lines still cut it for a
+  // longer category ("Credit Card bill · 2026-0..."). It is a short line (a category and a date),
+  // so at large sizes it is never cut; one line at ordinary sizes.
+  it('never cuts the category and date line under large Dynamic Type', async () => {
+    renderScreen();
+    expect((await screen.findByText('Income · 2026-08-01')).props.numberOfLines).toBe(1);
+    dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1.3 });
+    renderScreen();
+    expect((await screen.findByText('Income · 2026-08-01')).props.numberOfLines).toBeUndefined();
+  });
+
+  // Same simulator run: even on two lines the date was cut, because the direction icon takes 52
+  // points the row did not give up before the redesign. The icon is decoration (the sign and the
+  // colour of the amount already say which way the money went), so at large sizes it steps aside.
+  it('drops the direction icon under large Dynamic Type so the text keeps the width it had', async () => {
+    dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1.3 });
+    renderScreen();
+    await screen.findByText('Salary credit');
+    expect(screen.queryByTestId('txn-icon-t1', { includeHiddenElements: true })).toBeNull();
+    expect(screen.getByText('+₹1,45,000')).toHaveStyle({ color: light.successInk });
+  });
+});
+
+/**
  * Ported from frontend/src/pages/Dashboard.tsx:1216-1235. A shortcut grid to destinations already
  * scattered across this screen's own empty states and CTAs.
  */
 describe('Quick Actions grid (Phase 4)', () => {
   beforeEach(() => {
     dashboard.summary.mockResolvedValue(emptySummary());
+  });
+
+  // Card redesign: each action is its own glass tile, three to a row.
+  it('lays the six actions out three per row, each tile a full touch target', async () => {
+    renderScreen();
+    const tile = StyleSheet.flatten((await screen.findByLabelText('Import Statement')).props.style);
+    expect(tile.flexBasis).toBe('30%');
+    expect(tile.minHeight).toBeGreaterThanOrEqual(44);
+    for (const label of ['Add Transaction', 'Create Budget', 'View Reports', 'Manage Goals', 'Investments']) {
+      expect(StyleSheet.flatten(screen.getByLabelText(label).props.style).flexBasis).toBe('30%');
+    }
+    expect(screen.getByText('Import Statement').props.numberOfLines).toBe(2);
+  });
+
+  // Found on an iPhone 17 Pro simulator at an accessibility text size: three to a row left each
+  // label about 80 points, so "Import Statement" was cut to "Import State..." and "Investments"
+  // broke as "Invest / ments". At large sizes each action takes a full row and its label is whole.
+  it('gives each action its own row, with its whole label, under large Dynamic Type', async () => {
+    dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1.3 });
+    renderScreen();
+    await screen.findByLabelText('Import Statement');
+    for (const label of ['Import Statement', 'Add Transaction', 'Create Budget', 'View Reports', 'Manage Goals', 'Investments']) {
+      expect(StyleSheet.flatten(screen.getByLabelText(label).props.style).flexBasis).toBe('100%');
+      expect(screen.getByText(label).props.numberOfLines).toBeUndefined();
+    }
   });
 
   it.each([

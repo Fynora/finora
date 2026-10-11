@@ -129,7 +129,10 @@ describe('TopBar — Add Transaction', () => {
 
       await user.click(modal.getByRole('button', { name: /^add transaction$/i }));
       await waitFor(() => expect(transactionsApi.create).toHaveBeenCalledTimes(1));
-      await user.click(modal.getByRole('button', { name: /^add transaction$/i }));
+      // findBy, not getBy: the button reads differently while the request is in flight, and it only
+      // goes back to "Add Transaction" in the render after the failure. The mock having been called
+      // says the request was sent, not that the form is ready for a retry.
+      await user.click(await modal.findByRole('button', { name: /^add transaction$/i }));
       await waitFor(() => expect(transactionsApi.create).toHaveBeenCalledTimes(2));
 
       const calls = vi.mocked(transactionsApi.create).mock.calls;

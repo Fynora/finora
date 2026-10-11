@@ -133,10 +133,22 @@ public class TransactionService {
         // arm quietly yields txnDate) -- a sort direction is a presentation preference, and
         // refusing to return a user's transactions over one would be a worse answer than sorting
         // them the usual way.
-        Sort sort = Sort.by(
-                Sort.Direction.fromOptionalString(f.sortDir() == null ? "" : f.sortDir())
-                        .orElse(Sort.Direction.DESC),
-                f.sortField() == null ? "txnDate" : mapSortField(f.sortField()));
+        //
+        // Paging fix: the sort used to stop at that one field. Rows sharing a date (or an amount)
+        // then had no defined order, Postgres was free to arrange them differently for each page
+        // request, and a row could come back on two pages while another came back on none -- the
+        // mobile list showed a repeated row at a page boundary, counted twice in its day's total.
+        // createdAt and then id settle every tie, in the same direction as the field the caller
+        // asked for, so the ascending list is exactly the descending one reversed. createdAt first
+        // because it keeps a day's rows in the order they were added, which an id (a random UUID)
+        // would not; id last because rows written by one SQL statement can share a createdAt, and
+        // only a unique column makes the order total. Neither ever changes after insert, so
+        // editing a row between two page requests cannot move it.
+        Sort.Direction direction = Sort.Direction.fromOptionalString(f.sortDir() == null ? "" : f.sortDir())
+                .orElse(Sort.Direction.DESC);
+        Sort sort = Sort.by(direction,
+                f.sortField() == null ? "txnDate" : mapSortField(f.sortField()),
+                "createdAt", "id");
         // Bank-aware search (PRD's "Improve Search"): a keyword like "Punjab National" should
         // also match transactions on accounts held with that bank, not just description/merchant
         // text. bankManagementService.search() covers both the built-in registry and admin-added

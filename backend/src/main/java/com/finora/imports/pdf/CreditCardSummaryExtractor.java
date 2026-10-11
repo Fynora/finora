@@ -190,7 +190,12 @@ public final class CreditCardSummaryExtractor {
         /** Named for what each strategy IS, not the shape it happens to exploit today —
          *  {@code INLINE_LABEL_VALUE} may gain other label/value-alignment layouts later without a
          *  rename, the way "SAME_ROW" would have implied only one geometry forever. */
-        public enum ExtractionMethod { GRID, INLINE_LABEL_VALUE, STACKED_LABEL_COLUMNS }
+        public enum ExtractionMethod {
+            GRID, INLINE_LABEL_VALUE, STACKED_LABEL_COLUMNS,
+            /** Figures joined by the signs of the billing equation, each under a label wrapped
+             *  over two lines -- see {@link CardSummarySignedFigureRowReader}. */
+            SIGNED_FIGURE_ROW
+        }
 
         public static final CreditCardSummaryEvidence NONE =
                 new CreditCardSummaryEvidence(null, null, null, null, null, null, null, List.of());
@@ -308,6 +313,23 @@ public final class CreditCardSummaryExtractor {
         if (chosen.totalAmountDue() == null) {
             BigDecimal bestEffort = bestEffortTotalAmountDue(grid, sameRow);
             if (bestEffort != null) chosen = chosen.withTotalAmountDue(bestEffort);
+        }
+
+        // Last, and only where no strategy above formed its equation, so nothing read today can
+        // change: a real Kotak card prints its figures joined by the equation's own signs, under
+        // labels no strategy above can read whole -- see CardSummarySignedFigureRowReader. The
+        // same statement prints its total due a second time, as the headline read above; two
+        // readings of one figure that disagree mean one of them is wrong.
+        if (chosen.extractionMethod() == null) {
+            CreditCardSummaryEvidence signedRow = CardSummarySignedFigureRowReader.read(runs);
+            if (signedRow.hasReconcilableFields()) {
+                if (ctx != null) ctx.record("CREDIT_CARD_SUMMARY_SIGNED_FIGURE_ROW");
+                if (disagree(chosen.totalAmountDue(), signedRow.totalAmountDue())
+                        && !conflicts.contains("totalAmountDue")) {
+                    conflicts.add("totalAmountDue");
+                }
+                chosen = signedRow;
+            }
         }
 
         return conflicts.isEmpty() ? chosen : chosen.withConflictingFields(conflicts);
@@ -938,7 +960,7 @@ public final class CreditCardSummaryExtractor {
         return count;
     }
 
-    private static String keyFor(String normalized) {
+    static String keyFor(String normalized) {
         String stripped = stripDecoration(normalized);
         if (matches(stripped, PREVIOUS_BALANCE_LABELS)) return "previousBalance";
         if (matches(stripped, PURCHASES_LABELS)) return "purchases";

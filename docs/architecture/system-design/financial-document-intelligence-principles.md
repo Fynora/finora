@@ -1205,6 +1205,21 @@ actually works — no test, no claim.
   (`NO_SUMMARY`) — this rule cannot see a document its sibling rule cannot see either. No document
   in the current corpus exercises the `WARNING` (aggregate mismatch) path yet; that outcome is
   covered only by synthetic tests until a real document surfaces it.
+- **A summary whose figures are joined by the equation's own signs (Kotak), measured 2026-10-11.**
+  One Kotak card layout prints its "My Summary" box as four figures with `-`, `+` and `=` between
+  them, each under a label wrapped over two lines ("Previous / Amount Due", "Payments",
+  "Purchases & / Other Charges", "Total / Amount Due"), every word a text run of its own. No
+  strategy could read a label whole, so both card rules were `NOT_APPLICABLE` and nothing checked
+  the statement's amounts. (The same-row strategy did pair the rewards box's "Opening Balance"
+  with the points count beside it; that reading never formed an equation and is still dropped.)
+  `CardSummarySignedFigureRowReader` finds the row by its signs, bounds each figure's column by
+  them, joins the words above a figure into its label, and requires each label to be a known one
+  on the side of the sign it belongs on (`CREDIT_CARD_SUMMARY_SIGNED_FIGURE_ROW`). It runs only
+  where no other reading forms the equation. Measured on the one real statement of this layout
+  before wiring: the box's own arithmetic holds exactly, payments match the income rows, purchases
+  and other charges match the expense rows, and the rows carry the previous balance to the total
+  due, all to the paisa. So both existing rules apply to it unchanged. One statement is the whole
+  of the evidence.
 
 #### `OFFSET_COLUMN_ANCHORS`
 - **Purpose:** correctly bucket a row's text into columns even when a column's header LABEL

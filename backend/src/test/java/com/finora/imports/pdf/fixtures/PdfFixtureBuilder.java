@@ -1976,6 +1976,41 @@ public final class PdfFixtureBuilder {
     }
 
     /**
+     * A Kotak-shaped card statement: a summary box whose four figures are joined by the signs of
+     * the billing equation, each under a label wrapped over two lines (CardSummarySignedFigureRowReader),
+     * with a rewards box beside it whose "Opening Balance" is a points count. 9,000.00 - 9,000.00
+     * + 4,250.00 = 4,250.00. {@code aPurchaseRowIsMissing} drops one of the purchases the summary
+     * counts from the transactions. Invented figures.
+     */
+    public static byte[] buildCardWithSignedFigureRowSummarySample(boolean aPurchaseRowIsMissing) throws IOException {
+        float[] headline = {LEFT_MARGIN, 250f};
+        float[] col = {LEFT_MARGIN, 110f, 350f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("SAMPLE BANK")
+                .line("Credit Card Statement")
+                .row(headline, "Total Amount Due (TAD)", "4,250.00")
+                .line("Minimum Amount Due 213.00");
+        // The box, placed by hand: its label lines sit a few points apart, not a row height.
+        page.rowAt(716f, new float[]{231f, 430f}, "Purchases &", "Opening Balance")
+                .rowAt(716f, new float[]{540f}, "1200")
+                .rowAt(713f, new float[]{65f, 345f}, "Previous", "Total")
+                .rowAt(711f, new float[]{152f}, "Payments")
+                .rowAt(703f, new float[]{231f}, "Other Charges")
+                .rowAt(700f, new float[]{60f, 333f}, "Amount Due", "Amount Due")
+                .rowAt(680f, new float[]{50f, 80f, 127f, 141f, 171f, 217f, 233f, 263f, 308f, 325f, 355f},
+                        "Rs.", "9,000.00", "-", "Rs.", "9,000.00", "+", "Rs.", "4,250.00", "=", "Rs.", "4,250.00");
+        page.y = 650f;
+        page.row(col, "DATE", "TRANSACTION DETAILS", "AMOUNT (Rs.)")
+                .row(col, "02/06/2026", "Sample Store Purchase", "3,000.00 Dr");
+        if (!aPurchaseRowIsMissing) {
+            page.row(col, "04/06/2026", "Sample Market Purchase", "1,250.00 Dr");
+        }
+        page.row(col, "10/06/2026", "Payment Received Thank You", "9,000.00 Cr");
+        return render(List.of(page));
+    }
+
+    /**
      * The lower half of the distinct-signal boundary: a ledger whose free text carries EXACTLY
      * ONE phrase from the credit-card signal list ("Total Payment Due", here a bill-payment
      * reminder printed on an ordinary account statement) and no others.

@@ -237,6 +237,13 @@ class CapabilityCorpusCoverageTest {
                         + "against real geometry is covered by AccountNumberTransactionHeaderExtractorTest "
                         + "using the real header/value coordinates, and independently confirmed against the "
                         + "actual un-redacted PDF via scripts/corpus-run.py.");
+        DECLARED_WITHOUT_A_TRACE.put("CREDIT_CARD_SUMMARY_SIGNED_FIGURE_ROW",
+                "no trace -- it fires in CreditCardSummaryExtractor, called from PdfPreviewGenerator, "
+                        + "never from PdfTableLocator.locateAll (the same reason as "
+                        + "CREDIT_CARD_SUMMARY_TOTALS below). Motivated by a real Kotak card whose summary "
+                        + "figures are joined by the signs of its billing equation; covered by synthetic "
+                        + "fixtures in CardSummarySignedFigureRowReaderTest and confirmed against the real "
+                        + "statement via scripts/corpus-run.py.");
         DECLARED_WITHOUT_A_TRACE.put("CREDIT_CARD_SUMMARY_TOTALS",
                 "no trace yet -- CreditCardSummaryExtractorTest exercises the GRID strategy on "
                         + "synthetic fixtures reproducing real observed shapes (a clean stacked grid, "

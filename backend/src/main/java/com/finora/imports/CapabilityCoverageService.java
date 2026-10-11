@@ -264,6 +264,11 @@ public class CapabilityCoverageService {
             // unrelated layouts, each producing a one-row phantom section immediately superseded by
             // the real ledger's header. See PdfTableLocator.looksLikePaymentSummaryPanel.
             "PAYMENT_SUMMARY_PANEL_SUPPRESSED",
+            // A card summary whose figures are joined by the signs of its own billing equation,
+            // each under a label wrapped over two lines (real evidence: a Kotak card's "My
+            // Summary" box). Tried only where no other reading of the summary forms the equation.
+            // See CardSummarySignedFigureRowReader.
+            "CREDIT_CARD_SUMMARY_SIGNED_FIGURE_ROW",
             // A credit-card statement's own billing-summary panel read via one of two independent
             // strategies -- see CreditCardSummaryExtractor's own class doc comment for why they are
             // kept separate rather than merged into one extractor. CREDIT_CARD_SUMMARY_TOTALS is the

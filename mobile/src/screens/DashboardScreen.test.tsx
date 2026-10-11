@@ -895,6 +895,18 @@ describe('categorization review nudge', () => {
     expect(await screen.findByText('1 transaction needs a quick look')).toBeTruthy();
   });
 
+  // Found on an iPhone 17 Pro simulator at an accessibility text size: two lines cut the one
+  // sentence under the count to "Label them once and Fynora remembers the...".
+  it('never cuts the sentence under the count under large Dynamic Type', async () => {
+    transactions.needsReview.mockResolvedValue([{ id: 't-1' }] as never);
+    renderScreen();
+    expect((await screen.findByText('Label them once and Fynora remembers the merchant for good.')).props.numberOfLines).toBe(2);
+
+    dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1.3 });
+    renderScreen();
+    expect((await screen.findByText('Label them once and Fynora remembers the merchant for good.')).props.numberOfLines).toBeUndefined();
+  });
+
   it('shows no count at all when only one half of the backlog loads', async () => {
     // The two queries are disjoint halves of one number. If one fails and the other returns rows,
     // `data ?? []` still produces a specific, confident, WRONG total -- and it is the
@@ -1393,6 +1405,66 @@ describe('Budget Progress widget (Phase 4)', () => {
   });
 });
 
+describe('operational layer (card redesign)', () => {
+  beforeEach(() => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+  });
+
+  const style = (el: { props: { style?: unknown } }) => StyleSheet.flatten(el.props.style as never) as Record<string, unknown>;
+
+  it('keeps Manage Budgets reachable by its label, now from the section header, with a 44 point target', async () => {
+    budgets.list.mockResolvedValue([
+      { id: 'b1', categoryId: 'c1', categoryName: 'Groceries', monthlyLimit: 10000, spentThisMonth: 6000 },
+    ]);
+    renderScreen();
+    const button = await screen.findByLabelText('Manage Budgets');
+    expect(style(button).minHeight).toBe(44);
+    // One way in, not two: the old full-width button under the list is gone.
+    expect(screen.getAllByText('Manage Budgets')).toHaveLength(1);
+  });
+
+  it('offers no Manage Budgets action when there are no budgets to manage', async () => {
+    budgets.list.mockResolvedValue([]);
+    renderScreen();
+    await screen.findByText('No budgets set. Create one to track your spending.');
+    expect(screen.queryByLabelText('Manage Budgets')).toBeNull();
+  });
+
+  // The existing over-budget test could not assert this ("the fill's own width value can't be
+  // asserted on"); the bar now has a testID, so it can.
+  it('draws each budget bar at its real share, and never past its track when over budget', async () => {
+    budgets.list.mockResolvedValue([
+      { id: 'b1', categoryId: 'c1', categoryName: 'Groceries', monthlyLimit: 10000, spentThisMonth: 6000 },
+      { id: 'b2', categoryId: 'c2', categoryName: 'Dining', monthlyLimit: 5000, spentThisMonth: 7500 },
+      { id: 'b3', categoryId: 'c3', categoryName: 'Travel', monthlyLimit: 0, spentThisMonth: 0 },
+    ]);
+    renderScreen();
+    await screen.findByText('150%');
+    const fill = (i: number) => style(screen.getByTestId(`budget-bar-${i}-fill`, { includeHiddenElements: true }));
+    expect(fill(0).width).toBe('60%');
+    expect(fill(1).width).toBe('100%');
+    expect(fill(1).backgroundColor).toBe(light.danger);
+    // A budget with no limit has no share to draw: an empty bar, not NaN.
+    expect(fill(2).width).toBe('0%');
+  });
+
+  it('keeps each cash flow range choice at least 44 points tall, and marks the chosen one', async () => {
+    renderScreen();
+    const six = await screen.findByLabelText('Show 6 months');
+    expect(style(six).minHeight).toBe(44);
+    expect(six.props.accessibilityState).toEqual({ selected: true });
+    fireEvent.press(screen.getByLabelText('Show 3 months'));
+    expect(screen.getByLabelText('Show 3 months').props.accessibilityState).toEqual({ selected: true });
+    expect(screen.getByLabelText('Show 6 months').props.accessibilityState).toEqual({ selected: false });
+  });
+
+  it('shows the month tiles as a skeleton grid while the summary is loading, not a single card', async () => {
+    dashboard.summary.mockReturnValue(new Promise(() => {}) as never);
+    renderScreen();
+    expect(await screen.findByTestId('skeleton-kpi-grid', { includeHiddenElements: true })).toBeTruthy();
+  });
+});
+
 /**
  * Ported from frontend/src/pages/Dashboard.tsx:1238-1266. RecurringService.detectForUser has
  * computed this since before this session; the Ledger/Reports "recurring" badge was the only
@@ -1439,6 +1511,26 @@ describe('Subscriptions & Recurring Payments widget (Phase 4)', () => {
     expect(await screen.findByText('Netflix')).toBeTruthy();
     expect(screen.getByText('Subscription')).toBeTruthy();
     expect(screen.getByText('₹499')).toBeTruthy();
+  });
+
+  // Found on an iPhone 17 Pro simulator at an accessibility text size: the amount, the expected
+  // date and the dismiss button took the whole row, and the payee's name was left a column 4
+  // points wide, one sliver of a letter per line. At large sizes the name takes a line of its own
+  // and the amount and date go under it.
+  it('gives the payee a line of its own under large Dynamic Type, with the amount and date under it', async () => {
+    recurring.list.mockResolvedValue([recurringItem({ merchant: 'Netflix', label: 'Subscription', averageAmount: 499 })]);
+    renderScreen();
+    await screen.findByText('Netflix');
+    expect(StyleSheet.flatten(screen.getByTestId('recurring-row-Netflix').props.style).flexWrap).toBeUndefined();
+
+    dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1.3 });
+    renderScreen();
+    await screen.findByText('Netflix');
+    expect(StyleSheet.flatten(screen.getByTestId('recurring-row-Netflix').props.style).flexWrap).toBe('wrap');
+    expect(StyleSheet.flatten(screen.getByTestId('recurring-main-Netflix').props.style).flexBasis).toBe('100%');
+    const right = StyleSheet.flatten(screen.getByTestId('recurring-right-Netflix').props.style);
+    expect(right.alignItems).toBe('flex-start');
+    expect(right.flexGrow).toBe(1);
   });
 
   it('still asks "still Rent?" for a payee whose amount moved when no group is detected at all', async () => {

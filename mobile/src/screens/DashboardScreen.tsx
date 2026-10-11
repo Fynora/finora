@@ -11,10 +11,12 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { AddTransactionSheet } from './AddTransactionSheet';
 import { AccountsCard } from '../components/dashboard/AccountsCard';
 import { DashboardCard } from '../components/dashboard/DashboardCard';
+import { DashboardEmptyState } from '../components/dashboard/DashboardEmptyState';
 import { DashboardSectionHeader } from '../components/dashboard/DashboardSectionHeader';
 import { IconWell } from '../components/dashboard/IconWell';
+import { ProgressBar } from '../components/dashboard/ProgressBar';
 import { FinancialNoteCard } from '../components/dashboard/FinancialNoteCard';
-import { Card, EmptyState, SectionHeading } from '../components/Card';
+import { Card } from '../components/Card';
 import { GlassScreen } from '../components/GlassScreen';
 import { GlassSurface } from '../components/GlassSurface';
 import { CashFlowMiniCard } from '../components/dashboard/CashFlowMiniCard';
@@ -22,7 +24,7 @@ import { GoalsRow } from '../components/dashboard/GoalsRow';
 import { HealthFactorsRow } from '../components/dashboard/HealthFactorsRow';
 import { HealthHero } from '../components/dashboard/HealthHero';
 import { LedgerSnapshotCard } from '../components/dashboard/LedgerSnapshotCard';
-import { SkeletonCard, SkeletonChart, SkeletonTransactionRow } from '../components/skeletons/Skeletons';
+import { SkeletonCard, SkeletonChart, SkeletonKpiGrid, SkeletonTransactionRow } from '../components/skeletons/Skeletons';
 import { ChecklistWidget } from '../onboarding/ChecklistWidget';
 import { JourneyWidget } from '../components/dashboard/JourneyWidget';
 import { DonutChart, type Slice } from '../components/charts/DonutChart';
@@ -40,7 +42,7 @@ import {
 } from '../lib/format';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { usePrefetchAdjacentScreens } from '../lib/prefetchAdjacentScreens';
-import { scoreLabel, healthColor } from '../lib/health';
+import { healthBarColor, healthLabelInk, scoreLabel } from '../lib/health';
 import { withBypass } from '../lib/changeSync';
 import { deriveRefreshing, isPausedCold } from '../lib/refreshingIndicator';
 import { reviewNudgeLabel, reviewQueueCount } from '../lib/reviewQueue';
@@ -393,10 +395,10 @@ export function DashboardScreen() {
     );
   }
 
-  // Screen side padding (spacing.ml since the card redesign, see styles.content) and the chart
-  // card's own padding. The full Cash Flow card is still a Card (spacing.md) until it moves onto
-  // DashboardCard, at which point this becomes spacing.ml on both sides.
-  const chartWidth = width - spacing.ml * 2 - spacing.md * 2;
+  // Screen side padding (styles.content) plus the Cash Flow card's own padding (DashboardCard's
+  // regular padding), both spacing.ml. The chart draws at a fixed width, so this has to stay in
+  // step with those two.
+  const chartWidth = width - spacing.ml * 2 - spacing.ml * 2;
 
   return (
     <>
@@ -479,13 +481,13 @@ export function DashboardScreen() {
           accessibilityHint="Opens the Import screen"
         >
           <Card style={{ ...styles.coverageBanner, backgroundColor: c.warningBg }}>
-            <Text style={[styles.coverageBannerTitle, { color: c.warningInk }]}>
+            <Text style={[typography.labelM, { color: c.warningInk }]}>
               Possible gap in {monthLabelLong(coverageCaveat.month)}
             </Text>
-            <Text style={[styles.coverageBannerBody, { color: c.warningInk }]}>
+            <Text style={[typography.bodyS, { color: c.warningInk }]}>
               Some transactions may be missing from your history.
             </Text>
-            <Text style={[styles.coverageBannerCta, { color: c.primary }]}>Import that statement ›</Text>
+            <Text style={[typography.labelS, styles.bannerCta, { color: c.primary }]}>Import that statement ›</Text>
           </Card>
         </Pressable>
       ) : null}
@@ -504,12 +506,14 @@ export function DashboardScreen() {
         >
           <Card style={styles.nudge}>
             <View style={styles.nudgeText}>
-              <Text style={[styles.nudgeTitle, { color: c.ink }]}>{reviewNudgeLabel(reviewCount)}</Text>
-              <Text style={[styles.nudgeBody, { color: c.mutedInk }]} numberOfLines={2}>
+              <Text style={[typography.labelM, { color: c.ink }]}>{reviewNudgeLabel(reviewCount)}</Text>
+              <Text style={[typography.bodyS, { color: c.mutedInk }]} numberOfLines={largeText ? undefined : 2}>
                 Label them once and Fynora remembers the merchant for good.
               </Text>
             </View>
-            <Text style={[styles.nudgeChevron, { color: c.primary }]} accessibilityElementsHidden importantForAccessibility="no">›</Text>
+            <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+              <Ionicons name="chevron-forward" size={18} color={c.muted} />
+            </View>
           </Card>
         </Pressable>
       ) : null}
@@ -525,10 +529,10 @@ export function DashboardScreen() {
           its own terms. */}
       {!isEmpty && summary && summary.limitedHistory ? (
         <Card style={{ ...styles.limitedHistoryBanner, backgroundColor: c.warningBg }}>
-          <Text style={[styles.limitedHistoryTitle, { color: c.warningInk }]}>
+          <Text style={[typography.labelM, { color: c.warningInk }]}>
             Limited financial history
           </Text>
-          <Text style={[styles.limitedHistoryBody, { color: c.warningInk }]}>
+          <Text style={[typography.bodyS, { color: c.warningInk }]}>
             Based on {summary.statementCount} statement{summary.statementCount === 1 ? '' : 's'}{' '}
             across {summary.accountCount} account{summary.accountCount === 1 ? '' : 's'} and{' '}
             {summary.historyMonthCount} month{summary.historyMonthCount === 1 ? '' : 's'} of
@@ -581,7 +585,7 @@ export function DashboardScreen() {
         {summary ? (
           <LedgerSnapshotCard kpis={snapshotKpis} title={periodTitle} deltaLabel={deltaLabel} deltaSpokenLabel={deltaSpokenLabel} />
         ) : (
-          <SkeletonCard lines={4} />
+          <SkeletonKpiGrid />
         )}
         {/* Money that came in this reporting month but is not counted in Income -- a transfer from
             a person, an unexplained credit on a card (see FlowClassifier on the backend). Without
@@ -597,17 +601,17 @@ export function DashboardScreen() {
             }}
           >
             <Card style={styles.unresolvedBanner} testID="unresolved-inflow-banner">
-              <Text style={[styles.unresolvedTitle, { color: c.ink }]}>
+              <Text style={[typography.labelM, { color: c.ink }]}>
                 {summary.unresolvedInflowCount}{' '}
                 {summary.unresolvedInflowCount === 1 ? 'transaction needs' : 'transactions need'} classification
                 {' · '}{fmtCurrency(summary.unresolvedInflow)} not counted as income
               </Text>
               {summary.unresolvedTopReason && UNRESOLVED_REASON_LINE[summary.unresolvedTopReason] ? (
-                <Text style={[styles.unresolvedBody, { color: c.mutedInk }]}>
+                <Text style={[typography.bodyS, { color: c.mutedInk }]}>
                   {UNRESOLVED_REASON_LINE[summary.unresolvedTopReason]}
                 </Text>
               ) : null}
-              <Text style={[styles.unresolvedBody, { color: c.primary, fontWeight: '600' }]}>Review these payments</Text>
+              <Text style={[typography.labelS, { color: c.primary }]}>Review these payments</Text>
             </Card>
           </Pressable>
         ) : null}
@@ -626,7 +630,7 @@ export function DashboardScreen() {
         <View style={styles.cardBody}>
           {summary ? (
             donutSlices.length === 0 ? (
-              <EmptyState message={`No spending recorded ${periodLabel} yet.`} />
+              <DashboardEmptyState icon="pie-chart-outline" message={`No spending recorded ${periodLabel} yet.`} />
             ) : (
               <DonutChart
                 slices={donutSlices}
@@ -695,7 +699,8 @@ export function DashboardScreen() {
               Couldn&apos;t load your transactions — pull down to try again.
             </Text>
           ) : recentTxns.length === 0 ? (
-            <EmptyState
+            <DashboardEmptyState
+              icon="receipt-outline"
               message="No transactions yet. Import a statement to get started."
               actionLabel="Import a statement"
               onAction={() => { trackNavigation('import-statement', 'contextual'); navigation.navigate('Import'); }}
@@ -787,67 +792,82 @@ export function DashboardScreen() {
       {/* A "still X?" row shows even with nothing detected: an amount that moved past the range is
           exactly what stops the detector grouping the payee, so it may be the only row. */}
       {upcomingRecurring.length > 0 || changedAmounts.length > 0 ? (
-        <Card style={styles.section}>
-          <SectionHeading title="Upcoming" />
-          {upcomingRecurring.map((r) => (
-            <View key={r.merchant} style={[styles.recurringItem, { borderBottomColor: c.border }]}>
-            <View style={styles.recurringRow}>
-              <View style={styles.recurringMain}>
-                <Text style={[styles.recurringMerchant, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
-                  {r.merchant}
-                </Text>
-                {/* primaryLight on Card's white background is a 1.13:1 contrast (computed, same
-                    class of bug as the FinancialHealthFactorCard "Good" pill) -- the badge's fill
-                    was invisible, not just subtle. A border makes the pill's own boundary visible
-                    without introducing a new fill color into this still-unredesigned section. */}
-                <Text
-                  style={[styles.recurringBadge, { color: c.primary, backgroundColor: c.primaryLight, borderWidth: 1, borderColor: c.border }]}
-                  numberOfLines={1}
-                >
-                  {r.label}
-                </Text>
-              </View>
-              <View style={styles.recurringRight}>
-                {/* RecurringService filters to Transaction.Type.EXPENSE only (confirmed by
-                    reading the backend, not assumed) -- same debit color as Recent Transactions.
-                    No "-" prefix, unlike that list: this is a forward-looking "what's coming due"
-                    figure, not a past ledger entry, and the pinned test for this card asserts the
-                    bare amount ('₹499', no sign). */}
-                <Text style={[styles.recurringAmount, { color: c.dangerInk }]}>{fmtCurrency(r.averageAmount)}</Text>
-                <Text style={[styles.recurringMeta, { color: c.mutedInk }]} numberOfLines={1}>
-                  {recurringExpectedLabel(r.nextEstimate)}
-                </Text>
-              </View>
-              <Pressable
-                onPress={() => dismissRecurring.mutate(r.merchant)}
-                disabled={dismissRecurring.isPending}
-                // Design review (Apple HIG / touch-target guidance): a bare 16pt glyph plus
-                // hitSlop 10 was only a ~36x36pt effective target, short of the 44pt minimum this
-                // same file already applies to rangeChip below. minWidth/minHeight replaces the
-                // hitSlop (the box itself now meets the minimum, so there's nothing left for
-                // hitSlop to add).
-                style={styles.recurringDismissButton}
-                accessibilityRole="button"
-                accessibilityLabel={`Not recurring: dismiss ${r.merchant}`}
+        <DashboardCard style={styles.section}>
+          <DashboardSectionHeader title="Upcoming" />
+          <View style={styles.cardBody}>
+            {upcomingRecurring.map((r, i) => (
+              // A line between items, not under each one: the card must not end on a rule.
+              <View
+                key={r.merchant}
+                style={[styles.recurringItem, i > 0 && { borderTopColor: c.border, borderTopWidth: StyleSheet.hairlineWidth }]}
               >
-                <Ionicons name="close" size={16} color={c.muted} />
-              </Pressable>
-            </View>
-            <RecurringQuestion
-              merchant={r.merchant}
-              state={r.state ?? 'NONE'}
-              answer={r.answer ?? null}
-              amount={r.state === 'NEEDS_ANSWER' ? r.averageAmount : (r.latestAmount ?? r.averageAmount)}
-              label={r.label}
-            />
-            </View>
-          ))}
-          {changedAmounts.map((ca) => (
-            <View key={`changed-${ca.merchant}`} style={[styles.recurringItem, { borderBottomColor: c.border }]}>
-              <RecurringQuestion merchant={ca.merchant} state="AMOUNT_CHANGED" answer={ca.category} amount={ca.latestAmount} />
-            </View>
-          ))}
-        </Card>
+                {/* In one row the amount, the date and the dismiss button take what they need and
+                    the payee gets the rest: at large text that was 4 points, a sliver of a letter
+                    per line. The row then wraps, the payee takes its own line, and the amount and
+                    date go under it. */}
+                <View testID={`recurring-row-${r.merchant}`} style={[styles.recurringRow, largeText && styles.recurringRowWrapped]}>
+                  <View testID={`recurring-main-${r.merchant}`} style={[styles.recurringMain, largeText && styles.recurringMainWrapped]}>
+                    <Text style={[typography.labelM, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
+                      {r.merchant}
+                    </Text>
+                    {/* primaryLight on a card is a 1.13:1 contrast in light and 1.01:1 in dark
+                        (computed) -- the badge's fill alone is invisible, not just subtle. The
+                        border is what makes the pill's own boundary visible. */}
+                    <Text
+                      style={[typography.caption, styles.recurringBadge, { color: c.primary, backgroundColor: c.primaryLight, borderWidth: 1, borderColor: c.border }]}
+                      numberOfLines={1}
+                    >
+                      {r.label}
+                    </Text>
+                  </View>
+                  <View testID={`recurring-right-${r.merchant}`} style={[styles.recurringRight, largeText && styles.recurringRightWrapped]}>
+                    {/* RecurringService filters to Transaction.Type.EXPENSE only (confirmed by
+                        reading the backend, not assumed) -- same debit color as Recent Transactions.
+                        No "-" prefix, unlike that list: this is a forward-looking "what's coming due"
+                        figure, not a past ledger entry, and the pinned test for this card asserts the
+                        bare amount ('₹499', no sign). */}
+                    <Text style={[typography.numberS, { color: c.dangerInk }]}>{fmtCurrency(r.averageAmount)}</Text>
+                    <Text style={[typography.caption, { color: c.mutedInk }]} numberOfLines={largeText ? undefined : 1}>
+                      {recurringExpectedLabel(r.nextEstimate)}
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={() => dismissRecurring.mutate(r.merchant)}
+                    disabled={dismissRecurring.isPending}
+                    // Design review (Apple HIG / touch-target guidance): a bare 16pt glyph plus
+                    // hitSlop 10 was only a ~36x36pt effective target, short of the 44pt minimum this
+                    // same file already applies to rangeChip below. minWidth/minHeight replaces the
+                    // hitSlop (the box itself now meets the minimum, so there's nothing left for
+                    // hitSlop to add).
+                    style={styles.recurringDismissButton}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Not recurring: dismiss ${r.merchant}`}
+                  >
+                    <Ionicons name="close" size={16} color={c.muted} />
+                  </Pressable>
+                </View>
+                <RecurringQuestion
+                  merchant={r.merchant}
+                  state={r.state ?? 'NONE'}
+                  answer={r.answer ?? null}
+                  amount={r.state === 'NEEDS_ANSWER' ? r.averageAmount : (r.latestAmount ?? r.averageAmount)}
+                  label={r.label}
+                />
+              </View>
+            ))}
+            {changedAmounts.map((ca, i) => (
+              <View
+                key={`changed-${ca.merchant}`}
+                style={[
+                  styles.recurringItem,
+                  (upcomingRecurring.length > 0 || i > 0) && { borderTopColor: c.border, borderTopWidth: StyleSheet.hairlineWidth },
+                ]}
+              >
+                <RecurringQuestion merchant={ca.merchant} state="AMOUNT_CHANGED" answer={ca.category} amount={ca.latestAmount} />
+              </View>
+            ))}
+          </View>
+        </DashboardCard>
       ) : null}
 
       {/* Categorization Confidence -- how sure the categorization engine was, on average, about
@@ -856,32 +876,27 @@ export function DashboardScreen() {
           Hidden below categorizationConfidenceMinTransactions engine-decided transactions this
           month (server-side floor, same reasoning as healthScoreAvailable above). */}
       {!isEmpty && summary && summary.categorizationConfidenceScore !== null ? (
-        <Card style={styles.section}>
-          <SectionHeading title="Categorization Confidence" />
-          <View style={styles.confidenceRow}>
-            <Text
-              style={[
-                styles.healthScoreValue,
-                { color: healthColor(scoreLabel(summary.categorizationConfidenceScore), c) },
-              ]}
-            >
-              {summary.categorizationConfidenceScore}
+        <DashboardCard style={styles.confidenceCard}>
+          <View style={styles.confidenceTop}>
+            <View style={styles.confidenceText}>
+              <Text accessibilityRole="header" style={[typography.eyebrow, { color: c.mutedInk }]}>Categorization Confidence</Text>
+              <View style={styles.confidenceRow}>
+                <Text style={[typography.numberL, { color: c.ink }]}>{summary.categorizationConfidenceScore}</Text>
+                <Text style={[typography.bodyS, { color: c.mutedInk }]}>out of 100</Text>
+              </View>
+            </View>
+            {/* The tier is carried by the bar's colour and by this word, in the text-safe ink for
+                its tier; the number itself stays in ordinary ink. */}
+            <Text style={[typography.labelS, { color: healthLabelInk(summary.categorizationConfidenceScore, c) }]}>
+              {scoreLabel(summary.categorizationConfidenceScore)}
             </Text>
-            <Text style={[styles.body, { color: c.mutedInk }]}>out of 100</Text>
           </View>
-          <Text
-            style={[
-              styles.healthScoreLabel,
-              { color: healthColor(scoreLabel(summary.categorizationConfidenceScore), c) },
-            ]}
-          >
-            {scoreLabel(summary.categorizationConfidenceScore)}
-          </Text>
-          <Text style={[styles.body, styles.confidenceCaption, { color: c.mutedInk }]}>
+          <ProgressBar percent={summary.categorizationConfidenceScore} color={healthBarColor(summary.categorizationConfidenceScore, c)} />
+          <Text style={[typography.bodyS, { color: c.mutedInk }]}>
             Based on {summary.categorizationConfidenceTransactionCount} automatically categorized
             transaction{summary.categorizationConfidenceTransactionCount === 1 ? '' : 's'} {periodLabel}.
           </Text>
-        </Card>
+        </DashboardCard>
       ) : null}
 
       {/* Next Actions -- summary.notifications (DashboardService.buildNotifications: credit-card
@@ -892,21 +907,23 @@ export function DashboardScreen() {
           isEmpty, same reasoning as Financial Health Score above: a brand-new account has nothing
           computed here to act on yet. */}
       {!isEmpty && summary ? (
-        <Card style={styles.section}>
-          <SectionHeading title="Next Actions" />
-          {summary.notifications.length === 0 ? (
-            <Text style={[styles.body, { color: c.mutedInk }]}>Nothing needs your attention right now.</Text>
-          ) : (
-            <View style={styles.notificationList}>
-              {summary.notifications.map((n, i) => (
-                <View key={i} style={styles.notificationRow}>
-                  <Ionicons name="warning-outline" size={14} color={c.warningInk} style={styles.notificationIcon} />
-                  <Text style={[styles.body, styles.notificationText, { color: c.ink }]}>{n}</Text>
-                </View>
-              ))}
-            </View>
-          )}
-        </Card>
+        <DashboardCard style={styles.section}>
+          <DashboardSectionHeader title="Next Actions" />
+          <View style={styles.cardBody}>
+            {summary.notifications.length === 0 ? (
+              <Text style={[typography.bodyM, { color: c.mutedInk }]}>Nothing needs your attention right now.</Text>
+            ) : (
+              <View style={styles.notificationList}>
+                {summary.notifications.map((n, i) => (
+                  <View key={i} style={styles.notificationRow}>
+                    <IconWell name="warning-outline" tone="warning" round size={32} />
+                    <Text style={[typography.bodyM, styles.notificationText, { color: c.ink }]}>{n}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+        </DashboardCard>
       ) : null}
 
       {/* Detected Issues -- ReconciliationService's own duplicate pass already silently excludes a
@@ -915,64 +932,70 @@ export function DashboardScreen() {
           transactions") already existed on the backend to let a human overrule that guess -- this
           is the first mobile UI that calls it. Shown only when something was actually flagged. */}
       {summary && summary.duplicateTransactionCount > 0 ? (
-        <Card style={styles.section}>
-          <SectionHeading title="Detected Issues" />
-          <Text style={[styles.body, { color: c.mutedInk, marginBottom: spacing.sm }]}>
-            {summary.duplicateTransactionCount === 1
-              ? 'We found 1 transaction that looks like a duplicate and excluded it from your totals.'
-              : `We found ${summary.duplicateTransactionCount} transactions that look like duplicates and excluded them from your totals.`}
-          </Text>
-          {duplicateConfirmError ? (
-            <Text style={[styles.body, { color: c.dangerInk, marginBottom: spacing.sm }]}>
-              {duplicateConfirmError}
+        <DashboardCard style={styles.section}>
+          <DashboardSectionHeader title="Detected Issues" />
+          <View style={styles.cardBody}>
+            <Text style={[typography.bodyS, { color: c.mutedInk, marginBottom: spacing.sm }]}>
+              {summary.duplicateTransactionCount === 1
+                ? 'We found 1 transaction that looks like a duplicate and excluded it from your totals.'
+                : `We found ${summary.duplicateTransactionCount} transactions that look like duplicates and excluded them from your totals.`}
             </Text>
-          ) : null}
-          {summary.detectedDuplicates.map((d) => (
-            <View key={d.transactionId} style={[styles.duplicateRow, { borderBottomColor: c.border }]}>
-              <View style={styles.duplicateMain}>
-                <Text style={[styles.duplicateMerchant, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
-                  {d.merchant}
-                </Text>
-                <Text style={[styles.duplicateMeta, { color: c.mutedInk }]}>
-                  {fromLocalDateString(d.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                  {' · '}
-                  {fmtCurrency(d.amount)}
-                </Text>
-              </View>
-              <Pressable
-                onPress={() => void handleConfirmNotDuplicate(d.transactionId)}
-                disabled={confirmingDuplicateId === d.transactionId}
-                // Design review (Apple HIG / touch-target guidance): a 12pt text label plus
-                // hitSlop 8 was only ~32pt tall, short of the 44pt minimum. minHeight extends the
-                // Pressable's own hit area vertically without changing the text's rendered size.
-                style={styles.duplicateActionButton}
-                accessibilityRole="button"
-                accessibilityLabel={`Not a duplicate: ${d.merchant}`}
+            {duplicateConfirmError ? (
+              <Text style={[typography.bodyS, { color: c.dangerInk, marginBottom: spacing.sm }]}>
+                {duplicateConfirmError}
+              </Text>
+            ) : null}
+            {summary.detectedDuplicates.map((d, i) => (
+              <View
+                key={d.transactionId}
+                style={[styles.duplicateRow, i > 0 && { borderTopColor: c.border, borderTopWidth: StyleSheet.hairlineWidth }]}
               >
-                <Text
-                  style={[
-                    styles.duplicateAction,
-                    { color: c.primary },
-                    confirmingDuplicateId === d.transactionId && styles.duplicateActionDisabled,
-                  ]}
+                <View style={styles.duplicateMain}>
+                  <Text style={[typography.labelM, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
+                    {d.merchant}
+                  </Text>
+                  <Text style={[typography.bodyS, { color: c.mutedInk }]}>
+                    {fromLocalDateString(d.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                    {' · '}
+                    {fmtCurrency(d.amount)}
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={() => void handleConfirmNotDuplicate(d.transactionId)}
+                  disabled={confirmingDuplicateId === d.transactionId}
+                  // Design review (Apple HIG / touch-target guidance): a 12pt text label plus
+                  // hitSlop 8 was only ~32pt tall, short of the 44pt minimum. minHeight extends the
+                  // Pressable's own hit area vertically without changing the text's rendered size.
+                  style={styles.duplicateActionButton}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Not a duplicate: ${d.merchant}`}
                 >
-                  {confirmingDuplicateId === d.transactionId ? 'Confirming…' : 'Not a duplicate'}
-                </Text>
-              </Pressable>
-            </View>
-          ))}
-          {summary.duplicateTransactionCount > summary.detectedDuplicates.length ? (
-            <Text style={[styles.body, { color: c.mutedInk, marginTop: spacing.sm }]}>
-              and {summary.duplicateTransactionCount - summary.detectedDuplicates.length} more
-            </Text>
-          ) : null}
-        </Card>
+                  <Text
+                    style={[
+                      typography.labelS,
+                      styles.duplicateAction,
+                      { color: c.primary },
+                      confirmingDuplicateId === d.transactionId && styles.duplicateActionDisabled,
+                    ]}
+                  >
+                    {confirmingDuplicateId === d.transactionId ? 'Confirming…' : 'Not a duplicate'}
+                  </Text>
+                </Pressable>
+              </View>
+            ))}
+            {summary.duplicateTransactionCount > summary.detectedDuplicates.length ? (
+              <Text style={[typography.bodyS, { color: c.mutedInk, marginTop: spacing.sm }]}>
+                and {summary.duplicateTransactionCount - summary.detectedDuplicates.length} more
+              </Text>
+            ) : null}
+          </View>
+        </DashboardCard>
       ) : null}
 
-      <Card style={styles.section}>
-        <SectionHeading
+      <DashboardCard style={styles.section}>
+        <DashboardSectionHeader
           title="Cash Flow"
-          action={
+          accessory={
             <View style={[styles.rangeRow, { borderColor: c.border }]}>
               {(Object.keys(RANGE_MONTHS) as CashFlowRange[]).map((r) => (
                 <Pressable
@@ -981,9 +1004,12 @@ export function DashboardScreen() {
                   accessibilityRole="button"
                   accessibilityState={{ selected: cashFlowRange === r }}
                   accessibilityLabel={`Show ${RANGE_MONTHS[r]} months`}
-                  style={[styles.rangeChip, cashFlowRange === r && { backgroundColor: c.primaryLight }]}
+                  style={styles.rangeChip}
                 >
-                  <Text style={[styles.rangeText, { color: cashFlowRange === r ? c.primary : c.mutedInk }]}>{r}</Text>
+                  {/* The pressable is the 44 point target; the pill inside it is the visual. */}
+                  <View style={[styles.rangePill, cashFlowRange === r && { backgroundColor: c.primary }]}>
+                    <Text style={[typography.labelS, { color: cashFlowRange === r ? c.onPrimary : c.mutedInk }]}>{r}</Text>
+                  </View>
                 </Pressable>
               ))}
             </View>
@@ -1004,12 +1030,12 @@ export function DashboardScreen() {
         {cashFlowSettling ? (
           <SkeletonChart width={chartWidth} />
         ) : cashFlowUnavailable ? (
-          <Text style={[styles.errorText, { color: c.dangerInk }]}>Couldn’t load your cash flow.</Text>
+          <Text style={[typography.bodyM, { color: c.dangerInk }]}>Couldn’t load your cash flow.</Text>
         ) : (
           <>
             <CashFlowChart points={cashFlowPoints} width={chartWidth} />
             {cashFlowMissingMonths > 0 ? (
-              <Text style={[styles.errorText, { color: c.mutedInk }]}>
+              <Text style={[typography.bodyS, { color: c.mutedInk }]}>
                 {cashFlowMissingMonths === 1
                   ? 'One month couldn’t be loaded, so it isn’t shown.'
                   : `${cashFlowMissingMonths} months couldn’t be loaded, so they aren’t shown.`}
@@ -1017,7 +1043,7 @@ export function DashboardScreen() {
             ) : null}
           </>
         )}
-      </Card>
+      </DashboardCard>
 
       {/* Budget Progress -- Phase 4 (Medium-Tier Parity), ported from
           frontend/src/pages/Dashboard.tsx:1023-1079. Always rendered, unlike Goals just below (its
@@ -1026,73 +1052,69 @@ export function DashboardScreen() {
           render on this screen rather than vanishing with nothing to show). isError is checked
           before length === 0 for the same reason every other card on this screen does: a failed
           fetch is not the same answer as a genuinely empty list. */}
-      <Card style={styles.section}>
-        <SectionHeading title="Budget Progress" />
-        {budgetsQ.isLoading ? (
-          <SkeletonCard lines={2} />
-        ) : budgetsQ.isError ? (
-          <Text style={[styles.errorText, { color: c.dangerInk }]}>Couldn&apos;t load your budgets.</Text>
-        ) : budgets.length === 0 ? (
-          <EmptyState message="No budgets set. Create one to track your spending." />
-        ) : (
-          <>
-            {budgets.map((b) => {
+      <DashboardCard style={styles.section}>
+        {/* "Manage Budgets" is the header's action, and only when there is something to manage:
+            with no budgets the empty state below is the whole card. */}
+        <DashboardSectionHeader
+          title="Budget Progress"
+          actionLabel={budgets.length > 0 ? 'Manage Budgets' : undefined}
+          onAction={budgets.length > 0
+            ? () => { trackNavigation('budgets', 'contextual'); navigation.navigate('More', { screen: 'Budgets' }); }
+            : undefined}
+        />
+        <View style={[styles.cardBody, styles.budgetList]}>
+          {budgetsQ.isLoading ? (
+            <SkeletonCard lines={2} />
+          ) : budgetsQ.isError ? (
+            <Text style={[typography.bodyM, { color: c.dangerInk }]}>Couldn&apos;t load your budgets.</Text>
+          ) : budgets.length === 0 ? (
+            <DashboardEmptyState icon="wallet-outline" message="No budgets set. Create one to track your spending." />
+          ) : (
+            budgets.map((b, i) => {
               // Bug fix: the bar's width must stay capped at 100% (nothing to gain from a fill
               // wider than its own track), but the TEXT next to it was reusing that same capped
               // value -- so a budget spent at 150% displayed "100%" forever, with color as the
               // only signal anything was wrong. Web's own Dashboard widget had the identical bug
               // (frontend/src/pages/Dashboard.tsx) and is now fixed the same way; web's real
               // Budgets page (Budgets.tsx) already used this split. rawPct is the real, uncapped
-              // figure for the label; barPct stays capped and drives the bar's width only.
+              // figure for the label; ProgressBar clamps what it draws to its own track.
               const rawPct = b.monthlyLimit > 0 ? (b.spentThisMonth / b.monthlyLimit) * 100 : 0;
-              const barPct = Math.min(100, rawPct);
               const over = b.spentThisMonth > b.monthlyLimit;
               return (
                 <View key={b.id} style={styles.budgetRow}>
                   <View style={styles.budgetHeader}>
-                    <Text style={[styles.budgetName, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
+                    <Text style={[typography.labelM, styles.budgetName, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
                       {b.categoryName}
                     </Text>
-                    <Text style={[styles.budgetPct, { color: over ? c.dangerInk : c.mutedInk }]}>
+                    <Text style={[typography.labelS, { color: over ? c.dangerInk : c.mutedInk }]}>
                       {rawPct.toFixed(0)}%
                     </Text>
                   </View>
-                  <View style={[styles.progressTrack, { backgroundColor: c.border }]}>
-                    <View
-                      style={[
-                        styles.progressFill,
-                        { width: `${barPct}%`, backgroundColor: over ? c.danger : c.primary },
-                      ]}
-                    />
-                  </View>
-                  <Text style={[styles.budgetMeta, { color: c.mutedInk }]}>
+                  <ProgressBar testID={`budget-bar-${i}`} percent={rawPct} color={over ? c.danger : c.primary} />
+                  <Text style={[typography.caption, { color: c.mutedInk }]}>
                     {fmtCurrency(b.spentThisMonth)} of {fmtCurrency(b.monthlyLimit)}
                   </Text>
                 </View>
               );
-            })}
-            <Pressable
-              onPress={() => { trackNavigation('budgets', 'contextual'); navigation.navigate('More', { screen: 'Budgets' }); }}
-              hitSlop={8}
-              style={[styles.manageBudgets, { backgroundColor: c.primaryLight }]}
-              accessibilityRole="button"
-              accessibilityLabel="Manage Budgets"
-            >
-              <Text style={[styles.manageBudgetsText, { color: c.primary }]}>Manage Budgets</Text>
-            </Pressable>
-          </>
-        )}
-      </Card>
+            })
+          )}
+        </View>
+      </DashboardCard>
 
       {sentences.length > 0 ? (
-        <Card style={styles.section}>
-          <SectionHeading title="Insights" />
-          {sentences.slice(0, 3).map((s) => (
-            <Text key={s} style={[styles.insight, { color: c.ink }]}>
-              • {s}
-            </Text>
-          ))}
-        </Card>
+        <DashboardCard style={styles.section}>
+          <DashboardSectionHeader title="Insights" />
+          <View style={[styles.cardBody, styles.insightList]}>
+            {sentences.slice(0, 3).map((s) => (
+              <View key={s} style={styles.insightRow}>
+                {/* brassInk, not brass: brass measured 2.97:1 on a light glass card at the worst
+                    backdrop pixel. brassInk is 5.82:1 there and the same value as brass in dark. */}
+                <View style={[styles.insightDot, { backgroundColor: c.brassInk }]} />
+                <Text style={[typography.bodyM, styles.insightText, { color: c.ink }]}>{s}</Text>
+              </View>
+            ))}
+          </View>
+        </DashboardCard>
       ) : null}
 
       <JourneyWidget onViewJourney={() => navigation.navigate('More', { screen: 'Journey' })} />
@@ -1114,11 +1136,8 @@ export function DashboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  nudge: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md },
-  nudgeText: { flex: 1, marginRight: spacing.sm },
-  nudgeTitle: { fontSize: 14, fontWeight: '600' },
-  nudgeBody: { fontSize: 12, marginTop: 2 },
-  nudgeChevron: { fontSize: 20, lineHeight: 20 },
+  nudge: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md, borderRadius: radius.xxl },
+  nudgeText: { flex: 1, marginRight: spacing.sm, gap: 2 },
   flex: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
   errorText: { fontSize: 14 },
@@ -1141,79 +1160,68 @@ const styles = StyleSheet.create({
   sectionStack: { gap: spacing.ms },
   // What follows a section header inside a card.
   cardBody: { marginTop: spacing.md },
-  rangeRow: { flexDirection: 'row', borderWidth: 1, borderRadius: radius.md, overflow: 'hidden' },
-  // 44pt minimum touch target -- see the same note in LedgerScreen's filter chips.
-  rangeChip: { paddingHorizontal: 14, minHeight: 44, justifyContent: 'center' },
-  rangeText: { fontSize: 11, fontWeight: '600' },
+  rangeRow: { flexDirection: 'row', borderWidth: StyleSheet.hairlineWidth, borderRadius: 999, paddingHorizontal: 3 },
+  // 44pt minimum touch target -- see the same note in LedgerScreen's filter chips. The pressable
+  // is the target; the pill inside it is the 30 point visual.
+  rangeChip: { minHeight: 44, justifyContent: 'center' },
+  rangePill: { paddingHorizontal: 12, minHeight: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
   txnRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.ms, paddingVertical: 10 },
   txnMain: { flex: 1, gap: 2 },
-  progressTrack: { height: 6, borderRadius: 3, overflow: 'hidden' },
-  progressFill: { height: 6, borderRadius: 3 },
   // Phase 4.
-  budgetRow: { marginBottom: spacing.sm },
-  budgetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 },
-  budgetName: { fontSize: 13, fontWeight: '600', flex: 1 },
-  budgetPct: { fontSize: 12, fontWeight: '600' },
-  budgetMeta: { fontSize: 11, marginTop: 4 },
-  // Design review (Apple HIG / touch-target guidance): was 40pt, 4pt short of the 44pt minimum
-  // this same file already applies to rangeChip below.
-  manageBudgets: { minHeight: 44, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', marginTop: spacing.xs },
-  manageBudgetsText: { fontSize: 12, fontWeight: '600' },
+  budgetList: { gap: spacing.md },
+  budgetRow: { gap: 6 },
+  budgetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: spacing.sm },
+  budgetName: { flex: 1 },
   // One recurring payment: its row plus, under it, the recurring-payment question.
-  recurringItem: { paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth },
+  recurringItem: { paddingVertical: 10 },
   recurringRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm,
   },
+  recurringRowWrapped: { flexWrap: 'wrap', rowGap: spacing.xs },
   recurringMain: { flex: 1, minWidth: 0 },
-  recurringMerchant: { fontSize: 14, fontWeight: '500' },
+  recurringMainWrapped: { flexGrow: 0, flexShrink: 0, flexBasis: '100%' },
   recurringBadge: {
-    alignSelf: 'flex-start', fontSize: 10, fontWeight: '600', marginTop: 4,
-    paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, overflow: 'hidden',
+    alignSelf: 'flex-start', marginTop: 4, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, overflow: 'hidden',
   },
-  recurringRight: { alignItems: 'flex-end' },
+  recurringRight: { alignItems: 'flex-end', gap: 2 },
+  recurringRightWrapped: { alignItems: 'flex-start', flexGrow: 1, flexShrink: 1, flexBasis: 0 },
   recurringDismissButton: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-  recurringAmount: { fontSize: 14, fontWeight: '700' },
-  recurringMeta: { fontSize: 11, marginTop: 2 },
   quickActionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.ms },
   // Three per row at any phone width: 30% each plus flexGrow across two 12 point gaps.
   quickActionCell: { flexBasis: '30%', flexGrow: 1, minHeight: 104 },
   quickActionCellWide: { flexBasis: '100%' },
   quickActionCard: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: spacing.sm },
   quickActionLabel: { textAlign: 'center' },
-  insight: { fontSize: 13, lineHeight: 20, marginBottom: 4 },
-  body: { fontSize: 13, lineHeight: 19 },
-  // Track C/C1. healthScoreValue/healthScoreLabel now shared with Categorization Confidence
-  // only -- the Financial Health Score's own score/label rendering moved into HealthHero.
-  healthScoreValue: { fontSize: 32, fontWeight: '700' },
-  healthScoreLabel: { fontSize: 13, fontWeight: '600', marginTop: 2 },
-  confidenceRow: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.xs },
-  confidenceCaption: { marginTop: spacing.xs },
-  notificationList: { gap: spacing.sm },
-  notificationRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs },
-  notificationIcon: { marginTop: 2 },
-  notificationText: { flex: 1, fontSize: 14 },
+  insightList: { gap: spacing.sm },
+  insightRow: { flexDirection: 'row', gap: spacing.ms },
+  // marginTop centres the 6 point dot on the first line of 14/20 text.
+  insightDot: { width: 6, height: 6, borderRadius: 3, marginTop: 7 },
+  insightText: { flex: 1 },
+  // styles.section's margin plus even air between the card's three parts; it has no section
+  // header of its own to space them. One entry because DashboardCard takes a single style.
+  confidenceCard: { marginTop: spacing.md, gap: spacing.ms },
+  confidenceTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.ms },
+  confidenceText: { flex: 1, gap: spacing.xs },
+  confidenceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
+  notificationList: { gap: spacing.ms },
+  notificationRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.ms },
+  notificationText: { flex: 1 },
   duplicateRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, gap: spacing.sm,
+    paddingVertical: 10, gap: spacing.sm,
   },
-  duplicateMain: { flex: 1 },
-  duplicateMerchant: { fontSize: 14 },
-  duplicateMeta: { fontSize: 11, marginTop: 2 },
+  duplicateMain: { flex: 1, gap: 2 },
   duplicateActionButton: { minHeight: 44, justifyContent: 'center' },
-  duplicateAction: { fontSize: 12, fontWeight: '600' },
+  duplicateAction: { textDecorationLine: 'underline' },
   duplicateActionDisabled: { opacity: 0.5 },
+  // The banners above the story layer and the "money not counted" one under the month tiles.
+  // They stay on Card: each is a glass panel that keeps its own warning tint where it has one.
+  bannerCta: { marginTop: spacing.sm },
   // Track C/C2.
-  coverageBanner: { marginBottom: spacing.md },
-  coverageBannerTitle: { fontSize: 14, fontWeight: '600' },
-  coverageBannerBody: { fontSize: 12, marginTop: 2 },
-  coverageBannerCta: { fontSize: 12, fontWeight: '600', marginTop: spacing.sm },
+  coverageBanner: { marginBottom: spacing.md, borderRadius: radius.xxl, gap: 2 },
   // Phase 4.
-  limitedHistoryBanner: { marginBottom: spacing.md },
-  limitedHistoryTitle: { fontSize: 14, fontWeight: '600' },
-  limitedHistoryBody: { fontSize: 12, lineHeight: 17, marginTop: 2 },
-  unresolvedBanner: { marginTop: spacing.md },
-  unresolvedTitle: { fontSize: 14, fontWeight: '500' },
-  unresolvedBody: { fontSize: 12, lineHeight: 17, marginTop: 2 },
+  limitedHistoryBanner: { marginBottom: spacing.md, borderRadius: radius.xxl, gap: 2 },
+  unresolvedBanner: { marginTop: spacing.md, borderRadius: radius.xxl, gap: 2 },
 });
 
 // The unresolved-inflow banner's second line, keyed by the backend's FlowReason name. Any other

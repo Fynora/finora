@@ -1,9 +1,11 @@
 import { Pressable, StyleSheet, Text } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { dashboardApi } from '../../api/endpoints';
 import { mostRecentHighlight } from '../../lib/timeline';
-import { spacing, useTheme } from '../../theme';
-import { Card, SectionHeading } from '../Card';
+import { spacing, typography, useTheme } from '../../theme';
+import { DashboardCard } from './DashboardCard';
+import { DashboardSectionHeader } from './DashboardSectionHeader';
 
 /** Mobile counterpart of frontend/src/components/JourneyWidget.tsx. Renders nothing until there is
  *  a real Landmark/Major milestone to show, and nothing while loading or on a fetch failure --
@@ -19,29 +21,26 @@ export function JourneyWidget({ onViewJourney }: { onViewJourney: () => void }) 
   if (!highlight) return null;
 
   return (
-    <Card>
-      <SectionHeading title="Your Journey" />
-      <Text style={[styles.title, { color: c.ink }]}>{highlight.title}</Text>
+    <DashboardCard style={styles.card}>
+      <DashboardSectionHeader title="Your Journey" />
+      <Text style={[typography.labelM, { color: c.ink }]}>{highlight.title}</Text>
       {momentum && momentum.activeMonths > 0 ? (
-        <Text style={[styles.momentum, { color: c.muted }]}>
+        <Text style={[typography.bodyS, { color: c.mutedInk }]}>
           Active {momentum.activeMonths} of the last {momentum.windowMonths} months
         </Text>
       ) : null}
-      <Pressable
-        onPress={onViewJourney}
-        hitSlop={{ top: 14, bottom: 14, left: 12, right: 12 }}
-        accessibilityRole="button"
-        style={styles.link}
-      >
-        <Text style={[styles.linkText, { color: c.primary }]}>View your journey</Text>
+      <Pressable onPress={onViewJourney} accessibilityRole="button" accessibilityLabel="View your journey" style={styles.link}>
+        <Text style={[typography.labelS, { color: c.primary }]}>View your journey</Text>
+        <Ionicons name="chevron-forward" size={14} color={c.primary} />
       </Pressable>
-    </Card>
+    </DashboardCard>
   );
 }
 
 const styles = StyleSheet.create({
-  title: { fontSize: 14 },
-  momentum: { fontSize: 12, marginTop: spacing.xs },
-  link: { marginTop: spacing.sm, alignSelf: 'flex-start' },
-  linkText: { fontSize: 12, fontWeight: '600' },
+  // marginTop lives on the card, not on a wrapper in DashboardScreen: the widget renders nothing
+  // without a milestone, and a wrapper around nothing would leave its margin behind as a gap.
+  card: { marginTop: spacing.md, gap: spacing.sm },
+  // The row itself is the 44 point target (it used to rely on hitSlop around a 12 point label).
+  link: { flexDirection: 'row', alignItems: 'center', gap: 2, minHeight: 44, alignSelf: 'flex-start' },
 });

@@ -36,6 +36,9 @@ describe('JourneyWidget', () => {
 
     expect(await screen.findByText('Completed Emergency Fund')).toBeTruthy();
     expect(await screen.findByText('Active 4 of the last 6 months')).toBeTruthy();
+    // The link carries its own label: without one, the chevron drawn beside the text is read out
+    // as part of the button's name ("View your journey, " on a real device).
+    expect(screen.getByLabelText('View your journey')).toBeTruthy();
     fireEvent.press(screen.getByText('View your journey'));
     expect(onViewJourney).toHaveBeenCalledTimes(1);
   });

@@ -78,7 +78,9 @@ export function CashFlowChart({ points, width }: { points: CashFlowPoint[]; widt
 
       <View style={[styles.axis, { width }]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
         {points.map((p) => (
-          <Text key={p.label} style={[styles.axisLabel, { color: c.muted }]} numberOfLines={1}>
+          // Capped: the labels share the chart's fixed width, so at accessibility sizes they were
+          // cut to "Apr...". The chart's own accessibility label carries every month in full.
+          <Text key={p.label} style={[styles.axisLabel, { color: c.muted }]} numberOfLines={1} maxFontSizeMultiplier={1.3}>
             {p.label}
           </Text>
         ))}

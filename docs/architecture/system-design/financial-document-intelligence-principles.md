@@ -1141,7 +1141,7 @@ actually works — no test, no claim.
 - **Evidence-gated, not just summary-gated.** `CreditCardFlowEvidenceLevel` records how much of the
   billing-summary panel AND the extracted rows were actually usable — `NO_SUMMARY`,
   `PARTIAL_SUMMARY_ONLY`, `NO_CLASSIFIED_TRANSACTIONS`, or `FULL_SUMMARY_RECONCILIATION` — because
-  "no panel at all" (HDFC), "a panel that doesn't print a purchases/payments split" (Axis), and "a
+  "no panel at all" (HDFC), "a panel that doesn't print a purchases/payments split", and "a
   full panel but zero EXPENSE/INCOME rows extracted" are three different claims even though all
   three currently resolve to the same `NOT_APPLICABLE` outcome. The third is deliberately kept apart
   from the first two: it is a statement-format gap, while the first two are extraction failures —
@@ -1171,6 +1171,24 @@ actually works — no test, no claim.
   mismatch to either side, all four evidence levels each independently distinguished by both outcome
   and reason text, `NO_CLASSIFIED_TRANSACTIONS` covering both zero rows and rows present but none
   EXPENSE/INCOME, and a non-EXPENSE/INCOME row type ignored rather than breaking the sum).
+- **A summary printed as its own equation (Axis), measured 2026-10-11.** Axis was this section's
+  example of a panel that prints no purchases/payments split. It prints one: the whole billing
+  equation as a single line of text ("Previous Balance - Payments - Credits + Purchase + Cash
+  Advance + Other Debit&Charges =Total Payment Due") over one row of seven figures. No strategy
+  could name a figure under a label that is one run, so both card rules were `NOT_APPLICABLE` and
+  nothing checked the statement's amounts. `CardSummaryEquationReader` reads it, a figure by its
+  place in the row (`CREDIT_CARD_SUMMARY_EQUATION_ROW`), only where neither older strategy forms
+  the equation. Measured on the two real statements of this layout before any rule was wired:
+  on both, the charges match the rows to the paisa and the rows carry the previous balance to the
+  total due exactly. On one, the printed equation is short of its own total by exactly one refund
+  row, which the summary counted in neither "Payments" nor "Credits". So, for this kind of summary
+  only, rows whose credits run over the summary's still verify when the charges match exactly and
+  the rows carry the previous balance to the total due exactly (`creditsNotCountedInSummary`), and
+  `CREDIT_CARD_STATEMENT_TOTALS` reports that gap as `NOT_APPLICABLE` with the reason
+  `SUMMARY_LEAVES_OUT_A_CREDIT` rather than as a misread. Credits short of the summary, any gap in
+  the charges, or rows that do not reach the total still warn, and that warning holds the import.
+  A figure marked `Cr` (a balance in the customer's favour) has not been seen on this layout and is
+  left unread. Two statements of one cardholder is the whole of the evidence.
 - **Maturity:** Beta.
 - **Known limitations — real-corpus measurement, not a claim.** Run against all 6 real credit-card
   documents: `VERIFIED` on **AU** (the exact match the design was built from), `NOT_APPLICABLE` on

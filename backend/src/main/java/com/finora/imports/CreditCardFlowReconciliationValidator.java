@@ -57,10 +57,13 @@ public class CreditCardFlowReconciliationValidator {
      * How much of the billing-summary panel and the extracted rows this check actually had to work
      * with — recorded even though {@link #NO_SUMMARY}, {@link #PARTIAL_SUMMARY_ONLY}, and
      * {@link #NO_CLASSIFIED_TRANSACTIONS} currently all produce the same {@code NOT_APPLICABLE}
-     * outcome, because they are three different claims, not one: Axis (PARTIAL) has a readable panel
-     * that simply doesn't print a purchases/payments split; HDFC (NO_SUMMARY) has no readable panel
+     * outcome, because they are three different claims, not one: a panel read only in part (PARTIAL:
+     * a total due with no purchases/payments split beside it); HDFC (NO_SUMMARY) has no readable panel
      * at all; a statement with a full panel but zero EXPENSE/INCOME rows (NO_CLASSIFIED_TRANSACTIONS)
      * has neither of those problems — its transaction table failed to extract or classify anything.
+     * (Axis was long this file's example of PARTIAL, as a panel that "doesn't print" the split. It
+     * does print it, as one line of equation over a row of figures that no strategy could name --
+     * a reading gap, not a format gap. See {@code CardSummaryEquationReader}.)
      * Collapsing these into one {@code NOT_APPLICABLE} count would hide that the first two are a
      * statement-format gap and the third is an extraction failure — a future failure-rate breakdown
      * needs this distinction to tell "the bank doesn't print this" from "our own extraction broke"
@@ -146,6 +149,29 @@ public class CreditCardFlowReconciliationValidator {
         if (chargesSurplus.signum() >= 0 && chargesSurplus.compareTo(creditsSurplus) == 0) {
             details.put("expectedChargesAmount", expectedCharges);
             details.put("creditsNettedIntoPurchases", chargesSurplus);
+            return new ImportDto.VerificationFinding(RULE, "VERIFIED", details);
+        }
+
+        // A third reading, for a summary printed as its own equation only (a real Axis card), and
+        // again only once everything above has failed. Measured on a real statement: the charges
+        // matched to the paisa, the credits ran over by exactly one refund row, and the printed
+        // equation was short of its own total by that same row -- the summary counted the refund
+        // in neither "Payments" nor "Credits", yet its total due reflects it. The rows are then
+        // checked against the two balances instead of the payments figure: charges must match
+        // exactly, and the rows must carry the previous balance to the total due exactly. That
+        // pins both sides, since the credits are whatever the balances and the charges leave.
+        // Only credits the summary left out qualify: credits short of it, or any gap in the
+        // charges, still warns. So does a total due the statement's two printings of it disagree
+        // on: a balance two readings contest is not one to check rows against.
+        if (summary.extractionMethod() == CreditCardSummaryEvidence.ExtractionMethod.EQUATION_ROW
+                && chargesSurplus.signum() == 0 && creditsSurplus.signum() > 0
+                && summary.conflictingFields().isEmpty()
+                && summary.previousBalance() != null && summary.totalAmountDue() != null
+                && summary.previousBalance().add(observedExpenseAmount).subtract(observedIncomeAmount)
+                        .compareTo(summary.totalAmountDue()) == 0) {
+            details.put("expectedChargesAmount", expectedCharges);
+            details.put("creditsNotCountedInSummary", creditsSurplus);
+            details.put("rowsCarryPreviousBalanceToTotalDue", true);
             return new ImportDto.VerificationFinding(RULE, "VERIFIED", details);
         }
 

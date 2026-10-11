@@ -152,6 +152,86 @@ class CreditCardStatementTotalsValidatorTest {
                 .isEqualTo("WARNING");
     }
 
+    // --- Read again once the rows have been checked ---
+
+    /** 4000 + 6050 charged - 3250 credited reaches 6800; the summary prints 6650 as its total. */
+    private CreditCardStatementTotalsValidatorTest.Findings summaryShortOfItsOwnFiguresBy150() {
+        var totals = validator.check(summary("4000", "6000", "0", "50", "3250", "6650"));
+        assertThat(totals.outcome()).isEqualTo("WARNING");
+        return new Findings(totals);
+    }
+
+    private record Findings(com.finora.dto.ImportDto.VerificationFinding totals) {
+        com.finora.dto.ImportDto.VerificationFinding inLightOf(String rowOutcome, String creditsLeftOut) {
+            java.util.Map<String, Object> details = new java.util.LinkedHashMap<>();
+            if (creditsLeftOut != null) details.put("creditsNotCountedInSummary", new BigDecimal(creditsLeftOut));
+            return CreditCardStatementTotalsValidator.inLightOfTheRows(totals,
+                    new com.finora.dto.ImportDto.VerificationFinding(
+                            CreditCardFlowReconciliationValidator.RULE, rowOutcome, details));
+        }
+    }
+
+    @Test
+    void aGapTheRowsShowToBeACreditTheSummaryLeftOut_isNotAWarning() {
+        var finding = summaryShortOfItsOwnFiguresBy150().inLightOf("VERIFIED", "150.00");
+
+        assertThat(finding.rule()).isEqualTo("CREDIT_CARD_STATEMENT_TOTALS");
+        assertThat(finding.outcome()).isEqualTo("NOT_APPLICABLE");
+        assertThat((String) finding.details().get("reason")).startsWith("SUMMARY_LEAVES_OUT_A_CREDIT");
+        assertThat(finding.details()).doesNotContainKey("explanation");
+        // The figures stay, so a reviewer can still see what the summary printed.
+        assertThat(finding.details().get("difference")).isEqualTo(new BigDecimal("-150"));
+        assertThat(finding.details().get("totalAmountDue")).isEqualTo(new BigDecimal("6650"));
+    }
+
+    @Test
+    void aGapOfAnyOtherSize_stillWarns() {
+        assertThat(summaryShortOfItsOwnFiguresBy150().inLightOf("VERIFIED", "100.00").outcome())
+                .isEqualTo("WARNING");
+    }
+
+    @Test
+    void aGapStillWarns_whenTheRowsWereNotVerifiedOrNameNoCreditLeftOut() {
+        assertThat(summaryShortOfItsOwnFiguresBy150().inLightOf("WARNING", "150.00").outcome())
+                .isEqualTo("WARNING");
+        assertThat(summaryShortOfItsOwnFiguresBy150().inLightOf("VERIFIED", null).outcome())
+                .isEqualTo("WARNING");
+        assertThat(CreditCardStatementTotalsValidator
+                .inLightOfTheRows(summaryShortOfItsOwnFiguresBy150().totals(), null).outcome())
+                .isEqualTo("WARNING");
+    }
+
+    @Test
+    void aConflictBetweenTwoReadings_isNeverExplainedAwayByTheRows() {
+        var conflicted = validator.check(new CreditCardSummaryEvidence(new BigDecimal("4000"),
+                new BigDecimal("6000"), null, null, new BigDecimal("3250"), new BigDecimal("6650"),
+                CreditCardSummaryEvidence.ExtractionMethod.EQUATION_ROW, List.of("totalAmountDue")));
+
+        var finding = new Findings(conflicted).inLightOf("VERIFIED", "150.00");
+
+        assertThat(finding.outcome()).isEqualTo("WARNING");
+        assertThat((String) finding.details().get("reason")).contains("SUMMARY_EXTRACTION_CONFLICT");
+    }
+
+    @Test
+    void aVerifiedSummary_isReturnedUntouched() {
+        var verified = validator.check(summary("4000", "6000", "0", "50", "3250", "6800"));
+
+        assertThat(new Findings(verified).inLightOf("VERIFIED", "150.00")).isSameAs(verified);
+
+        // Verified to within the paise a whole-rupee total drops: a gap that is not a warning is
+        // never re-read, even when a credit of exactly that size is named.
+        var rounded = validator.check(summary("0", "2500.50", "0", null, "0", "2500.00"));
+        assertThat(rounded.outcome()).isEqualTo("VERIFIED");
+        assertThat(new Findings(rounded).inLightOf("VERIFIED", "0.50")).isSameAs(rounded);
+    }
+
+    @Test
+    void theReasonSurvivesTheStoredCopysLengthLimit() {
+        // ImportVerificationRecorder cuts a stored reason at 200 characters.
+        assertThat(CreditCardStatementTotalsValidator.SUMMARY_LEAVES_OUT_A_CREDIT).hasSizeLessThanOrEqualTo(200);
+    }
+
     @Test
     void aCrossStrategyConflictOutranksBothNotApplicableAndTheEquationCheck() {
         // A complete, internally-consistent equation (10000 + 5000 - 2000 = 13000) that would

@@ -298,7 +298,9 @@ const RULE_RENDERERS: Record<string, { label: string; render: (f: VerificationFi
     render: (finding) => {
       const d = finding.details as {
         reason?: string; explanation?: string; rowsChecked?: number; ambiguousRows?: number;
-        ambiguities?: { rowIndex: number; kind: string; column: string; value: string }[];
+        // rowIndex is the row's place among the rows listed for review. The server leaves it out
+        // for a row that is not among them, rather than send a number that would name another row.
+        ambiguities?: { rowIndex?: number; kind: string; column: string; value: string }[];
       };
       if (d?.reason) return <p className="text-xs text-muted">{d.reason}</p>;
       const rows = d?.ambiguities ?? [];
@@ -322,10 +324,10 @@ const RULE_RENDERERS: Record<string, { label: string; render: (f: VerificationFi
                 </tr>
               </thead>
               <tbody>
-                {rows.map((a) => (
-                  <tr key={`${a.rowIndex}-${a.column}`} className="text-ink border-t border-border">
+                {rows.map((a, i) => (
+                  <tr key={`${a.rowIndex ?? `unlisted-${i}`}-${a.column}`} className="text-ink border-t border-border">
                     {/* +1 so it matches the row number a person counts on screen. */}
-                    <td className="pr-3 py-1">{a.rowIndex + 1}</td>
+                    <td className="pr-3 py-1">{a.rowIndex == null ? 'Not in the list' : a.rowIndex + 1}</td>
                     <td className="pr-3 py-1 text-muted">{a.column}</td>
                     <td className="py-1 text-warning">{a.value}</td>
                   </tr>

@@ -145,7 +145,7 @@ public class ImportVerifier {
      *                            for a producer that checks the rows in one order and displays them
      *                            in another (the PDF path: document sequence checked, date-sorted
      *                            copy shown). Null when the two are the same list. Only the balance
-     *                            chain names rows by position, so only it reads this -- see {@link
+     *                            chain names staged rows by position, so only it reads this -- see {@link
      *                            BalanceChainValidator#report(List, BigDecimal, int[])}.
      */
     public ImportDto.VerificationReport verify(List<StagedRow> rows, BigDecimal openingBalance,
@@ -158,6 +158,33 @@ public class ImportVerifier {
                                                 TextSource textSource,
                                                 com.finora.imports.pdf.ContentDamage contentDamage,
                                                 int[] displayedPositionOf) {
+        return verify(rows, openingBalance, closingBalance, printedSummary, rawRows, unparseableRows,
+                droppedTransactionCandidates, printedCreditCardSummary, headerReconstructionFindings, textSource,
+                contentDamage, displayedPositionOf, null);
+    }
+
+    /**
+     * @param displayedPositionOfRawRow where each of {@code rawRows} ends up in the list the client
+     *                            is shown, or {@link ColumnAmbiguityValidator#NOT_SHOWN} for a
+     *                            located row that did not stage. A different mapping from {@code
+     *                            displayedPositionOf} because it starts from a different list: the
+     *                            located rows include every row that failed to stage, so the two
+     *                            cannot share an index. Null when no raw rows are handed over. Read
+     *                            only by the column-ambiguity rule, the one rule that names a
+     *                            located row -- see {@link ColumnAmbiguityValidator#check(List,
+     *                            List, int[])}.
+     */
+    public ImportDto.VerificationReport verify(List<StagedRow> rows, BigDecimal openingBalance,
+                                                BigDecimal closingBalance, PrintedSummary printedSummary,
+                                                List<java.util.Map<String, String>> rawRows,
+                                                List<UnparseableRow> unparseableRows,
+                                                List<DroppedCandidateRow> droppedTransactionCandidates,
+                                                CreditCardSummaryEvidence printedCreditCardSummary,
+                                                List<HeaderReconstructionFinding> headerReconstructionFindings,
+                                                TextSource textSource,
+                                                com.finora.imports.pdf.ContentDamage contentDamage,
+                                                int[] displayedPositionOf,
+                                                int[] displayedPositionOfRawRow) {
         List<ImportDto.VerificationFinding> findings = new ArrayList<>();
         findings.addAll(balanceChainValidator.report(rows, openingBalance, displayedPositionOf).findings());
         findings.add(statementTotalsValidator.check(rows, openingBalance, closingBalance));
@@ -169,7 +196,7 @@ public class ImportVerifier {
         // The rows BEFORE normalization, which is the only point at which an ambiguous cell is
         // still ambiguous -- every other rule here sees values whose reading is already settled.
         // unparseableRows too: a row nothing was read from has no reading to be ambiguous about.
-        findings.add(columnAmbiguityValidator.check(rawRows, unparseableRows));
+        findings.add(columnAmbiguityValidator.check(rawRows, unparseableRows, displayedPositionOfRawRow));
         findings.add(rowAccountingValidator.check(rows, unparseableRows, droppedTransactionCandidates, locatedRowCount));
         // Reads BOTH rows and the summary panel, deliberately unlike the summary-only rule below --
         // see its own doc comment for what that lets it prove (transaction classification

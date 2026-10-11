@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -53,11 +54,22 @@ public class ColumnAmbiguityValidator {
             List.of("withdrawal", "withdrawals", "debit", "debits", "withdrawal amount", "debit amount",
                     "dr amount", "withdrawal amt", "debit amt");
 
-    /** One row that could be read more than one way, and how. */
-    private record Ambiguity(int rowIndex, String kind, String column, String value) {
+    /** A located row that did not become one of the rows the client is shown. */
+    public static final int NOT_SHOWN = -1;
+
+    /**
+     * One row that could be read more than one way, and how.
+     *
+     * @param rowIndex the row's zero-based place among the rows the client is shown, which is the
+     *                 number a person counts to; null when the row is not among them
+     */
+    private record Ambiguity(Integer rowIndex, String kind, String column, String value) {
         Map<String, Object> toDetails() {
             Map<String, Object> m = new LinkedHashMap<>();
-            m.put("rowIndex", rowIndex);
+            // Left out rather than sent as a stand-in. The client prints this number as "Row N"
+            // beside a table of rows, so any number here names one of them, and a row that is not
+            // in the table must not be given another row's.
+            if (rowIndex != null) m.put("rowIndex", rowIndex);
             m.put("kind", kind);
             m.put("column", column);
             m.put("value", value);
@@ -79,6 +91,35 @@ public class ColumnAmbiguityValidator {
      */
     public ImportDto.VerificationFinding check(List<Map<String, String>> rawRows,
                                                List<ImportDto.UnparseableRow> unparseableRows) {
+        return check(rawRows, unparseableRows, null);
+    }
+
+    /**
+     * Names each ambiguous row by where the client shows it.
+     *
+     * <p>This rule reads the located rows, and the client shows the staged ones, which are a
+     * different list twice over. Not every located row stages: a statement's own opening-balance
+     * line and a row whose amount could not be read are both located and neither is shown, so every
+     * row printed after one sits one place earlier on screen than it did in the document. And the
+     * staged rows are shown sorted by date, so a newest-first statement or a back-dated entry moves
+     * them again. The index used to be the position among the located rows, which is the displayed
+     * position only when every located row staged and the dates were already in order. Measured
+     * through the real PDF path before the fix, 6 of 10 synthetic statements named a row other than
+     * the ambiguous one.
+     *
+     * @param displayedPositionOf for each row in {@code rawRows}, its zero-based position in the
+     *                            list the client is given, or {@link #NOT_SHOWN} for a row that did
+     *                            not stage; null when the client is shown exactly these rows in
+     *                            this order
+     * @throws IllegalArgumentException if it does not describe exactly these rows, or sends two of
+     *                                  them to one position -- a number that might point anywhere
+     *                                  is the defect this exists to remove, so it is refused rather
+     *                                  than guessed at
+     */
+    public ImportDto.VerificationFinding check(List<Map<String, String>> rawRows,
+                                               List<ImportDto.UnparseableRow> unparseableRows,
+                                               int[] displayedPositionOf) {
+        requireOnePositionPerRow(rawRows, displayedPositionOf);
         Map<String, Object> details = new LinkedHashMap<>();
         // By value: two rows with identical cells always normalise the same way, so if one was set
         // aside, so was the other.
@@ -110,6 +151,8 @@ public class ColumnAmbiguityValidator {
             // Only rows something was read from: see the unparseableRows parameter above.
             if (setAside.contains(row)) continue;
 
+            Integer shownAt = displayedPositionOf == null ? Integer.valueOf(i)
+                    : displayedPositionOf[i] == NOT_SHOWN ? null : Integer.valueOf(displayedPositionOf[i]);
             String creditColumn = null, debitColumn = null;
             BigDecimal credit = null, debit = null;
 
@@ -124,7 +167,7 @@ public class ColumnAmbiguityValidator {
                 // Two amounts in one cell. Whichever the parser picked, the other had an equal
                 // claim -- this is the shape that made a 25,000 deposit read as an expense.
                 if (countAmounts(value) > 1) {
-                    found.add(new Ambiguity(i, "MULTIPLE_AMOUNTS_IN_ONE_COLUMN", e.getKey(), value));
+                    found.add(new Ambiguity(shownAt, "MULTIPLE_AMOUNTS_IN_ONE_COLUMN", e.getKey(), value));
                     continue;
                 }
 
@@ -138,10 +181,15 @@ public class ColumnAmbiguityValidator {
             // side that did not move, so two non-zero values are a contradiction rather than a
             // layout quirk -- and the row can be read as either a credit or a debit.
             if (credit != null && debit != null) {
-                found.add(new Ambiguity(i, "BOTH_DIRECTIONS_HAVE_A_VALUE",
+                found.add(new Ambiguity(shownAt, "BOTH_DIRECTIONS_HAVE_A_VALUE",
                         creditColumn + " / " + debitColumn, credit + " / " + debit));
             }
         }
+        // Down the page, in the order the rows are shown: the list is read beside the review table,
+        // and after a date sort the document's own order need not run in either direction along it.
+        // Rows that are not shown go last. The sort is stable, so two findings on one row keep the
+        // order their columns were read in.
+        found.sort(Comparator.comparing(Ambiguity::rowIndex, Comparator.nullsLast(Comparator.naturalOrder())));
 
         details.put("rowsChecked", rawRows.size());
         details.put("ambiguousRows", found.size());
@@ -157,6 +205,32 @@ public class ColumnAmbiguityValidator {
                 : found.size() + " rows could be read more than one way. The import used its best "
                   + "reading of each, but the statement did not settle them — worth checking them.");
         return new ImportDto.VerificationFinding(RULE, "WARNING", details);
+    }
+
+    /**
+     * Refuses a mapping that is not one position per located row, or that shows two rows in one
+     * place. Checked before anything is numbered by it, and whether or not anything is ambiguous:
+     * a wrong mapping that only surfaced on the statement with a finding would be found by a
+     * customer.
+     */
+    private static void requireOnePositionPerRow(List<Map<String, String>> rawRows, int[] displayedPositionOf) {
+        if (displayedPositionOf == null) return;
+        int located = rawRows == null ? 0 : rawRows.size();
+        if (displayedPositionOf.length != located) {
+            throw new IllegalArgumentException("displayedPositionOf names " + displayedPositionOf.length
+                    + " row(s) but " + located + " were located");
+        }
+        boolean[] taken = new boolean[located];
+        for (int position : displayedPositionOf) {
+            if (position == NOT_SHOWN) continue;
+            // No more rows can be shown than were located, so a position at or past that count is
+            // not one of them.
+            if (position < 0 || position >= located || taken[position]) {
+                throw new IllegalArgumentException("displayedPositionOf is not a placement of the located "
+                        + "rows: position " + position + " is out of range or used twice");
+            }
+            taken[position] = true;
+        }
     }
 
     /** Checked by value rather than by column name: a summary block's text lands in whichever

@@ -100,6 +100,30 @@ describe('VerificationPanel', () => {
     expect(screen.getByText(/first transaction could not be checked/)).toBeInTheDocument();
   });
 
+  it('numbers an ambiguous row by its place in the list, and gives no number to a row that is not in it', async () => {
+    // The server sends rowIndex as the row's place among the rows listed for review, and leaves it
+    // out for a row that never made the list. Printing a number for that one would name some other
+    // row -- which is the mistake the number exists to prevent.
+    const user = userEvent.setup();
+    render(<VerificationPanel verification={report([{
+      rule: 'COLUMN_AMBIGUITY', outcome: 'WARNING',
+      details: {
+        rowsChecked: 40, ambiguousRows: 2,
+        ambiguities: [
+          { rowIndex: 11, kind: 'BOTH_DIRECTIONS_HAVE_A_VALUE', column: 'Deposit / Withdrawal', value: '50.00 / 300.00' },
+          { kind: 'MULTIPLE_AMOUNTS_IN_ONE_COLUMN', column: 'Deposit', value: '0.00 25.00' },
+        ],
+      },
+    }])} />);
+
+    await user.click(screen.getByRole('button', { name: /Statement verification/ }));
+
+    const [, listed, unlisted] = screen.getAllByRole('row');
+    expect(listed).toHaveTextContent(/^12Deposit \/ Withdrawal50\.00 \/ 300\.00$/);
+    expect(unlisted).toHaveTextContent(/^Not in the listDeposit0\.00 25\.00$/);
+    expect(screen.queryByText('NaN')).not.toBeInTheDocument();
+  });
+
   it('names an unknown rule instead of hiding it or dumping raw data', async () => {
     // A newer backend reporting a check this build has no renderer for. Deliberately a rule that
     // does not exist yet. This test has now been rewritten twice, first off STATEMENT_TOTALS and

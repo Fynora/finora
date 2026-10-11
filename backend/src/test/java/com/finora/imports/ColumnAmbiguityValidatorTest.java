@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Reporting rows the document did not settle.
@@ -109,6 +110,74 @@ class ColumnAmbiguityValidatorTest {
 
         assertThat(finding.details().get("ambiguities").toString()).contains("rowIndex=1");
         assertThat(finding.details()).containsEntry("rowsChecked", 2);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void namesARowByWhereItIsShownNotWhereItWasLocated() {
+        // Located newest first behind a line that never stages; shown oldest first. The first
+        // located transaction is the last one shown, and the list is given in the order shown.
+        var finding = validator.check(List.of(
+                row("Txn Date", "01/07/2026", "Narration", "OPENING BALANCE", "Balance", "10,000.00"),
+                row("Txn Date", "03/07/2026", "Withdrawals", "20.00", "Deposits", "5.00"),
+                row("Txn Date", "02/07/2026", "Withdrawals", "30.00", "Deposits", "0.00"),
+                row("Txn Date", "01/07/2026", "Withdrawals", "40.00", "Deposits", "0.00 7.00")),
+                List.of(), new int[] {ColumnAmbiguityValidator.NOT_SHOWN, 2, 1, 0});
+
+        var ambiguities = (List<Map<String, Object>>) finding.details().get("ambiguities");
+        assertThat(ambiguities).extracting(a -> a.get("rowIndex")).containsExactly(0, 2);
+        assertThat(ambiguities).extracting(a -> a.get("kind"))
+                .containsExactly("MULTIPLE_AMOUNTS_IN_ONE_COLUMN", "BOTH_DIRECTIONS_HAVE_A_VALUE");
+        assertThat(finding.details()).containsEntry("rowsChecked", 4);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void reportsARowThatIsNotShownWithoutGivingItANumber() {
+        // Still reported: the document did not settle it, and dropping it would turn a warning into
+        // a pass on the strength of a row going missing. But the client prints the number as "Row N"
+        // beside the rows it shows, so any number here would name one of those instead.
+        var finding = validator.check(List.of(
+                row("Txn Date", "01/07/2026", "Withdrawals", "20.00", "Deposits", "5.00"),
+                row("Txn Date", "02/07/2026", "Withdrawals", "30.00", "Deposits", "6.00")),
+                List.of(), new int[] {ColumnAmbiguityValidator.NOT_SHOWN, 0});
+
+        assertThat(finding.outcome()).isEqualTo("WARNING");
+        assertThat(finding.details()).containsEntry("ambiguousRows", 2);
+        var ambiguities = (List<Map<String, Object>>) finding.details().get("ambiguities");
+        assertThat(ambiguities).hasSize(2);
+        assertThat(ambiguities.get(0)).containsEntry("rowIndex", 0).containsEntry("value", "6.00 / 30.00");
+        assertThat(ambiguities.get(1)).doesNotContainKey("rowIndex").containsEntry("value", "5.00 / 20.00");
+    }
+
+    @Test
+    void refusesAMappingThatDoesNotDescribeTheLocatedRows() {
+        List<Map<String, String>> located = List.of(
+                row("Txn Date", "01/07/2026", "Withdrawals", "20.00", "Deposits", "0.00"),
+                row("Txn Date", "02/07/2026", "Withdrawals", "30.00", "Deposits", "0.00"));
+
+        // Refused even though nothing here is ambiguous: a wrong mapping that only surfaced on the
+        // statement with a finding would be found by a customer.
+        assertThatThrownBy(() -> validator.check(located, List.of(), new int[] {0}))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("1 row(s) but 2 were located");
+        assertThatThrownBy(() -> validator.check(located, List.of(), new int[] {0, 0}))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("used twice");
+        assertThatThrownBy(() -> validator.check(located, List.of(), new int[] {0, 2}))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("out of range");
+        assertThatThrownBy(() -> validator.check(located, List.of(), new int[] {0, -2}))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("out of range");
+        assertThatThrownBy(() -> validator.check(null, List.of(), new int[] {0}))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void acceptsAMappingInWhichNoLocatedRowIsShown() {
+        var finding = validator.check(List.of(
+                row("Txn Date", "01/07/2026", "Withdrawals", "20.00", "Deposits", "0.00")),
+                List.of(), new int[] {ColumnAmbiguityValidator.NOT_SHOWN});
+
+        assertThat(finding.outcome()).isEqualTo("VERIFIED");
+        assertThat(validator.check(List.of(), List.of(), new int[0]).outcome()).isEqualTo("NOT_APPLICABLE");
     }
 
     @Test

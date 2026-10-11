@@ -37,6 +37,7 @@ import { fmtCurrency, fromLocalDateString, toLocalDateString } from '../lib/form
 import type { KpiItem } from '../components/dashboard/LedgerSnapshotCard';
 import { counterpartyLabel } from '../lib/counterpartyLabel';
 import { reconciliationBadge } from '../lib/reconciliationBadge';
+import { CARD_INSTALMENT_LABEL, CARD_INSTALMENT_NOTE } from '../lib/cardInstalment';
 import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList, LedgerDrillThroughFilters } from '../navigation/types';
 import type { ReconciliationStatus, Transaction } from '../types';
@@ -838,7 +839,11 @@ export function LedgerScreen() {
                 // rather than as a tooltip: there is nowhere else a screen-reader user could
                 // otherwise learn it, since the pill below is grouped into this same atomic node.
                 badge ? `, ${badge.hint}` : ''
-              }, ${badges.map((b) => b.label).join(', ')}${t.international ? ', international' : ''}`}
+              }, ${badges.map((b) => b.label).join(', ')}${t.international ? ', international' : ''}${
+                // The full note, not the pill's two words: same reason as the reconciliation
+                // hint above -- a listener has no other way to learn what the mark means.
+                t.cardInstalment ? `, ${CARD_INSTALMENT_NOTE}` : ''
+              }`}
               // Describes the OUTCOME, not the gesture: VoiceOver and TalkBack both append their
               // own "double tap to activate" to a button, so spelling the gesture out here had the
               // row announce the same instruction twice in conflicting words. Default activation
@@ -893,6 +898,16 @@ export function LedgerScreen() {
                       style={[styles.reconciliationBadge, { backgroundColor: c.border, color: c.mutedInk }]}
                     >
                       International
+                    </Text>
+                  ) : null}
+                  {/* Also a fact about the row. What it means is in the detail sheet this row
+                      opens, and in the accessibility label above. */}
+                  {t.cardInstalment ? (
+                    <Text
+                      testID={`card-instalment-badge-${t.id}`}
+                      style={[styles.reconciliationBadge, { backgroundColor: c.border, color: c.mutedInk }]}
+                    >
+                      {CARD_INSTALMENT_LABEL}
                     </Text>
                   ) : null}
                 </View>

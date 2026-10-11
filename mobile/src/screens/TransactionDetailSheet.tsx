@@ -7,6 +7,7 @@ import { MerchantLogo } from '../components/MerchantLogo';
 import { counterpartyLabel } from '../lib/counterpartyLabel';
 import { fmtCurrency, fmtForeignAmount, fmtStatementBalance } from '../lib/format';
 import { reconciliationBadge } from '../lib/reconciliationBadge';
+import { CARD_INSTALMENT_LABEL, CARD_INSTALMENT_NOTE } from '../lib/cardInstalment';
 import { radius, spacing, useTheme } from '../theme';
 import type { Transaction } from '../types';
 import { statusBadges } from './LedgerScreen';
@@ -130,7 +131,20 @@ export function TransactionDetailSheet({
                   {b.label}
                 </Text>
               ))}
+              {t.cardInstalment ? (
+                <Text style={[styles.pill, { backgroundColor: c.border, color: c.mutedInk }]}>
+                  {CARD_INSTALMENT_LABEL}
+                </Text>
+              ) : null}
             </View>
+
+            {/* The mark's two words do not say why it matters, and a phone has no tooltip: the
+                full note sits right under the pills, where the list row's badge leads. */}
+            {t.cardInstalment ? (
+              <Text testID={`card-instalment-note-${t.id}`} style={[styles.note, { color: c.mutedInk }]}>
+                {CARD_INSTALMENT_NOTE}
+              </Text>
+            ) : null}
 
             <View style={[styles.infoCard, { borderColor: c.border }]}>
               <InfoRow label="Category" value={t.categoryName} />
@@ -320,6 +334,7 @@ const styles = StyleSheet.create({
     fontSize: 10, fontWeight: '700', textTransform: 'uppercase',
     paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.md, overflow: 'hidden',
   },
+  note: { fontSize: 13, lineHeight: 18, marginBottom: spacing.md },
   infoCard: {
     borderWidth: 1, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.md,
   },

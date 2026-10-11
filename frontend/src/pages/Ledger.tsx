@@ -28,6 +28,7 @@ import { useMemoryReinforcement } from '../hooks/useMemoryReinforcement';
 import { MemoryReinforcementToast } from '../components/MemoryReinforcementToast';
 import { ICON_COMPONENTS, COLOR_HEX } from '../lib/categoryIcons';
 import { formatForeignAmount } from '../lib/foreignAmount';
+import { CARD_INSTALMENT_LABEL, CARD_INSTALMENT_NOTE } from '../lib/cardInstalment';
 import { CountsAsSection } from '../components/inflow/CountsAsSection';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
@@ -888,6 +889,20 @@ export default function Ledger() {
                         {/* A fact the statement printed, not a status -- so it sits beside the
                             status badges rather than inside statusBadges' fallback chain. */}
                         {t.international && <Badge tone="neutral" label="International" />}
+                        {/* Also a fact about the row, not a status. A button, because the label
+                            alone does not say why it matters: the panel it opens does, and a
+                            tooltip is out of reach on a touch screen. */}
+                        {t.cardInstalment && (
+                          <motion.button
+                            type="button"
+                            whileTap={prefersReducedMotion ? undefined : { scale: 0.9 }}
+                            title={CARD_INSTALMENT_NOTE}
+                            onClick={() => setExplaining(t)}
+                            className="hover:opacity-80"
+                          >
+                            <Badge tone="neutral" label={CARD_INSTALMENT_LABEL} />
+                          </motion.button>
+                        )}
                         {badge && (
                           <motion.button
                             type="button"
@@ -1114,6 +1129,15 @@ function ExplanationModal({ transaction, onClose }: { transaction: Transaction; 
           <p className="text-xs text-muted mb-3">
             {transaction.description || transaction.merchant} · {transaction.categoryName}
           </p>
+
+          {/* Outside the fetch below on purpose: it is already known from the row, so it shows
+              while the explanation loads and when it fails to. */}
+          {transaction.cardInstalment && (
+            <div className="space-y-2 pb-4 mb-4 border-b border-border">
+              <Badge tone="neutral" label={CARD_INSTALMENT_LABEL} />
+              <p className="text-ink text-sm">{CARD_INSTALMENT_NOTE}</p>
+            </div>
+          )}
 
           {loadError ? (
             <p className="text-danger text-xs">Couldn't load this explanation — please try again.</p>

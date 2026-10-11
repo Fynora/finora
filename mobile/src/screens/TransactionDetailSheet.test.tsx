@@ -84,6 +84,27 @@ describe('TransactionDetailSheet', () => {
     expect(screen.queryByText('International')).toBeNull();
   });
 
+  it('marks a card instalment and says in full what the mark means', () => {
+    renderSheet({ ...TXN, cardInstalment: true } as Transaction);
+
+    expect(screen.getByText('EMI instalment')).toBeTruthy();
+    expect(screen.getByTestId('card-instalment-note-t-1')).toHaveTextContent(
+      'A monthly instalment on an earlier card purchase. If that purchase is also in Fynora, your spending totals count both the purchase and its instalments.'
+    );
+  });
+
+  it('shows neither the mark nor the note for an ordinary transaction', () => {
+    renderSheet({ ...TXN, cardInstalment: false } as Transaction);
+    expect(screen.queryByText('EMI instalment')).toBeNull();
+    expect(screen.queryByTestId('card-instalment-note-t-1')).toBeNull();
+  });
+
+  it('shows neither for a row from a server that sends no flag', () => {
+    renderSheet();
+    expect(screen.queryByText('EMI instalment')).toBeNull();
+    expect(screen.queryByText(/monthly instalment/i)).toBeNull();
+  });
+
   it('shows the reference number and running balance the statement printed', () => {
     renderSheet({ ...TXN, referenceNumber: 'REF000000001', balanceAfter: 24361.97 } as Transaction);
 

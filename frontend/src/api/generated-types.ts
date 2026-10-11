@@ -5763,6 +5763,7 @@ export interface components {
             awaitingTransferPartner?: boolean;
             referenceNumber?: string;
             balanceAfter?: number;
+            cardInstalment?: boolean;
         };
         SetChoiceRequest: {
             /** Format: uuid */

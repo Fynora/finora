@@ -298,6 +298,26 @@ describe('status badges (Phase 5)', () => {
     expect(screen.getByLabelText(/Grocery run.*, international$/)).toBeTruthy();
   });
 
+  it('marks a card instalment beside its status, and reads out what the mark means', async () => {
+    transactions.search.mockResolvedValue(page([
+      txn({ id: 't-emi', description: 'FP EMI 02/06', cardInstalment: true }),
+      txn({ id: 't-plain', description: 'Salary', cardInstalment: false }),
+      // A server that predates the flag sends none: not marked.
+      txn({ id: 't-old', description: 'Old row' }),
+    ]) as never);
+
+    renderScreen();
+
+    expect(await screen.findByTestId('card-instalment-badge-t-emi')).toHaveTextContent('EMI instalment');
+    expect(screen.queryByTestId('card-instalment-badge-t-plain')).toBeNull();
+    expect(screen.queryByTestId('card-instalment-badge-t-old')).toBeNull();
+    // A fact beside the status, never a replacement for it.
+    expect(screen.getAllByText('Categorized')).toHaveLength(3);
+    // The whole note, not the pill's two words: a listener has no detail sheet open yet.
+    expect(screen.getByLabelText(/FP EMI 02\/06.*A monthly instalment on an earlier card purchase\..*count both the purchase and its instalments\.$/)).toBeTruthy();
+    expect(screen.getByLabelText(/^Salary/).props.accessibilityLabel).not.toMatch(/instalment/i);
+  });
+
   it('shows "Reviewed" instead, once the category was set by hand', async () => {
     transactions.search.mockResolvedValue(page([txn({ categoryManuallySet: true })]) as never);
 

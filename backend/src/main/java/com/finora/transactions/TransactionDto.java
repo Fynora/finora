@@ -69,7 +69,13 @@ public record TransactionDto(
          *  prints a negative one. Null when there was none, as on most card statements. It is the
          *  bank's figure for that moment, never recomputed, so it does not change when the user
          *  edits the row's amount. */
-        BigDecimal balanceAfter
+        BigDecimal balanceAfter,
+        /** One month's share of a card instalment plan -- see
+         *  {@link com.finora.util.BankActivityCategory#isCardInstalment}. Display only: a client
+         *  marks the row, because it repeats part of an earlier purchase that spending totals also
+         *  count when that purchase is in the ledger. Read from the row's own words each time, not
+         *  stored, so it follows an edited description. */
+        boolean cardInstalment
 ) {
     public static TransactionDto from(Transaction t, String categoryName) {
         return new TransactionDto(t.getId(), t.getAccountId(), t.getCategoryId(), categoryName, t.getTxnDate(),
@@ -84,7 +90,8 @@ public record TransactionDto(
                 t.getCounterpartyType().name(),
                 t.isInternational(), t.getForeignCurrency(), t.getForeignAmount(),
                 t.isTransfer() && t.getTransferPairId() == null,
-                t.getReferenceNumber(), t.getBalanceAfter());
+                t.getReferenceNumber(), t.getBalanceAfter(),
+                com.finora.util.BankActivityCategory.isCardInstalment(t.getDescription(), t.getTxnType()));
     }
 
     // Bug fix: neither request record had any Bean Validation at all, and TransactionController's

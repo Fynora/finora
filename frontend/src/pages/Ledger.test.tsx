@@ -1096,6 +1096,81 @@ describe('Ledger — international transactions', () => {
   });
 });
 
+// A card instalment repeats part of an earlier purchase, and spending totals count both when that
+// purchase was imported too. The row is marked so a total that looks too high can be explained.
+describe('Ledger — card instalment rows', () => {
+  const NOTE = /a monthly instalment on an earlier card purchase/i;
+
+  beforeEach(() => {
+    vi.mocked(transactionsApi.needsReview).mockReset().mockResolvedValue([]);
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(transactionsApi.explanation).mockReset();
+  });
+
+  it('marks an instalment row beside its status, with what the mark means as its tooltip', async () => {
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [txn({ cardInstalment: true, description: 'FP EMI 02/06(EXCL TAX 49.40)', categoryName: 'Loan EMI' })],
+      page: 0, size: 10, totalElements: 1, totalPages: 1,
+    });
+    renderLedger();
+
+    const row = (await screen.findByText('FP EMI 02/06(EXCL TAX 49.40)')).closest('tr')!;
+    const mark = within(row).getByRole('button', { name: 'EMI instalment' });
+    expect(mark).toHaveAttribute('title', expect.stringMatching(NOTE));
+    // A fact beside the status, never a replacement for it.
+    expect(within(row).getByText('Categorized')).toBeInTheDocument();
+  });
+
+  it('opens the explanation panel from the mark, with the note shown before the explanation loads', async () => {
+    const user = userEvent.setup();
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [txn({ cardInstalment: true })], page: 0, size: 10, totalElements: 1, totalPages: 1,
+    });
+    // Never resolves: the note comes from the row, not from this fetch.
+    vi.mocked(transactionsApi.explanation).mockReturnValue(new Promise(() => {}));
+    renderLedger();
+
+    await user.click(await screen.findByRole('button', { name: 'EMI instalment' }));
+
+    const panel = await screen.findByRole('dialog');
+    expect(within(panel).getByText(NOTE)).toBeInTheDocument();
+    expect(within(panel).getByText('Loading…')).toBeInTheDocument();
+  });
+
+  it('keeps the note when the explanation fails to load', async () => {
+    const user = userEvent.setup();
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [txn({ cardInstalment: true })], page: 0, size: 10, totalElements: 1, totalPages: 1,
+    });
+    vi.mocked(transactionsApi.explanation).mockRejectedValue(new Error('offline'));
+    renderLedger();
+
+    await user.click(await screen.findByRole('button', { name: 'EMI instalment' }));
+
+    const panel = await screen.findByRole('dialog');
+    expect(await within(panel).findByText(/couldn't load this explanation/i)).toBeInTheDocument();
+    expect(within(panel).getByText(NOTE)).toBeInTheDocument();
+  });
+
+  it('shows no mark and no note for an ordinary row, or one from a server that sends no flag', async () => {
+    const user = userEvent.setup();
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [txn({ id: 'txn-1', cardInstalment: false }), txn({ id: 'txn-2', description: 'OLD SERVER ROW' })],
+      page: 0, size: 10, totalElements: 2, totalPages: 1,
+    });
+    vi.mocked(transactionsApi.explanation).mockResolvedValue({ decisionSource: 'GLOBAL_RULE', summary: 'Matched a rule.', evidence: [] });
+    renderLedger();
+
+    await screen.findByText('OLD SERVER ROW');
+    expect(screen.queryByText('EMI instalment')).not.toBeInTheDocument();
+
+    await user.click(screen.getAllByTitle('Why this category?')[0]);
+    const panel = await screen.findByRole('dialog');
+    expect(await within(panel).findByText('Matched a rule.')).toBeInTheDocument();
+    expect(within(panel).queryByText(NOTE)).not.toBeInTheDocument();
+  });
+});
+
 describe('Ledger — Bank Correction badge (Plan 6, Track B)', () => {
   beforeEach(() => {
     vi.mocked(transactionsApi.needsReview).mockReset().mockResolvedValue([]);

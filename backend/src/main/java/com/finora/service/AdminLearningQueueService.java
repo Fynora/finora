@@ -73,7 +73,7 @@ public class AdminLearningQueueService {
 
         var result = repository.findQueueRows(filter, PageRequest.of(
                 PageBounds.safePage(page), PageBounds.safeSize(size > 0 ? size : 25),
-                Sort.by(direction, property)));
+                Sort.by(direction, property, "id")));
         return PagedResponse.of(result.map(LearningQueueDto::from));
     }
 

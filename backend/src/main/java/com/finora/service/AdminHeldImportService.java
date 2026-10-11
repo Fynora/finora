@@ -86,7 +86,7 @@ public class AdminHeldImportService {
         var result = repository.findByStatus(
                 ImportJob.Status.HELD_FOR_REVIEW,
                 PageRequest.of(PageBounds.safePage(page), PageBounds.safeSize(size > 0 ? size : 25),
-                        Sort.by(Sort.Direction.ASC, "createdAt")));
+                        Sort.by(Sort.Direction.ASC, "createdAt", "id")));
         return PagedResponse.of(result.map(HeldImportDto::from));
     }
 

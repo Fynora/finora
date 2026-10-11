@@ -66,7 +66,7 @@ public interface HeldStatementRepository extends JpaRepository<HeldStatement, UU
                AND (:bankName IS NULL OR h.bankName = :bankName)
                AND (CAST(:olderThan AS timestamp) IS NULL OR h.createdAt <= :olderThan)
                AND (:assignedEngineerId IS NULL OR h.assignedEngineerId = :assignedEngineerId)
-             ORDER BY h.createdAt ASC
+             ORDER BY h.createdAt ASC, h.id ASC
             """)
     Page<HeldStatement> findForAdmin(@Param("openStatuses") Collection<HeldStatement.Status> openStatuses,
                                      @Param("status") HeldStatement.Status status,
@@ -87,7 +87,7 @@ public interface HeldStatementRepository extends JpaRepository<HeldStatement, UU
                AND (:bankName IS NULL OR h.bankName = :bankName)
                AND (CAST(:olderThan AS timestamp) IS NULL OR h.createdAt <= :olderThan)
                AND (:assignedEngineerId IS NULL OR h.assignedEngineerId = :assignedEngineerId)
-             ORDER BY h.resolvedAt DESC, h.createdAt DESC
+             ORDER BY h.resolvedAt DESC, h.createdAt DESC, h.id DESC
             """)
     Page<HeldStatement> findResolvedForAdmin(
             @Param("resolvedStatuses") Collection<HeldStatement.Status> resolvedStatuses,

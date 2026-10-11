@@ -507,7 +507,7 @@ class ReferralServiceTest {
         referral.setReferredUserId(referredId);
         referral.setStatus(Referral.STATUS_SUBSCRIBED);
         Page<Referral> page = new PageImpl<>(List.of(referral), PageRequest.of(0, 20), 1);
-        when(referralRepository.findAllByOrderByCreatedAtDesc(any())).thenReturn(page);
+        when(referralRepository.findAllByOrderByCreatedAtDescIdDesc(any())).thenReturn(page);
 
         User referrer = new User();
         ReflectionTestUtils.setField(referrer, "id", referrerId);

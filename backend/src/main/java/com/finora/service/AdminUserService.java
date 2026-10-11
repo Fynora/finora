@@ -178,7 +178,7 @@ public class AdminUserService {
         String normalizedStatus = (status == null || status.isBlank()) ? null : status.trim();
 
         var pageResult = userRepository.search(normalizedQ, normalizedStatus,
-                PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "createdAt")));
+                PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "createdAt", "id")));
         return PagedResponse.of(pageResult.map(this::toSummary));
     }
 

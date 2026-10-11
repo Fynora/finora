@@ -62,10 +62,14 @@ import java.util.regex.Pattern;
  *
  * <p><b>Evidence, not invention.</b> Every label below was drawn from reading real documents in the
  * Credit Card Direction Evidence Study or this follow-up pass — never invented in advance. A
- * document whose layout matches neither strategy (HDFC, whose summary text is corrupted by an
- * unmapped-glyph font issue; ICICI/SBI, degraded by their own already-documented table-formation
- * bugs) returns {@link CreditCardSummaryEvidence#NONE} — the same "refuse rather than guess"
- * discipline {@link StatementSummaryExtractor} already follows, not a defect in this extractor.
+ * document whose layout matches neither strategy (ICICI/SBI, degraded by their own
+ * already-documented table-formation bugs) returns {@link CreditCardSummaryEvidence#NONE} — the
+ * same "refuse rather than guess" discipline {@link StatementSummaryExtractor} already follows, not
+ * a defect in this extractor. (That list used to open with HDFC, "whose summary text is corrupted
+ * by an unmapped-glyph font issue". Of the two real HDFC cards measured since, one has its summary
+ * read and checked; on the other every label of the summary extracts whole, only the rupee sign
+ * arrives as a letter, which the number parser already allows for, and what kept it unread was
+ * its rewards grid -- see {@link #namesPointsJustBelow}.)
  *
  * <p>Reuses {@link StatementSummaryExtractor}'s row-grouping and value-matching position logic
  * (widened to package-private for exactly this reuse) rather than re-implementing it, since that
@@ -409,6 +413,16 @@ public final class CreditCardSummaryExtractor {
             if (labelRow.stream().anyMatch(t -> StatementSummaryExtractor.normalize(t.text()).matches(".*\\bpoints\\b.*"))) {
                 continue;
             }
+            // The same grid with its "points" one line down. A real HDFC card heads its rewards
+            // grid "Opening Balance | Feature + Bonus Reward | Disbursed | Adjusted/Lapsed" and
+            // prints "Reward Points" and "Points Earned" a few points lower, as the grid's own
+            // title and a heading's second line, over a row of point counts. Nothing on the
+            // heading row itself said points, so its "Opening Balance" was read as a second
+            // previous balance; that disagreed with the real "Previous Statement Dues", the field
+            // was refused as ambiguous, and with it the whole summary: no amount check ran.
+            if (namesPointsJustBelow(rows, i)) {
+                continue;
+            }
 
             List<PositionedText> valueRow = valueRowWithinGap(rows, i, MAX_VALUE_ROW_GAP);
             List<PositionedText> effectiveRow = valueRow;
@@ -452,6 +466,23 @@ public final class CreditCardSummaryExtractor {
         }
 
         return bestPageEvidence(resolvedByPageAndKey, CreditCardSummaryEvidence.ExtractionMethod.GRID);
+    }
+
+    /** Whether a line within a label's own second-line distance under row {@code i}, on its page,
+     *  carries the word "points" -- the rest of a rewards grid's heading. */
+    private static boolean namesPointsJustBelow(List<List<PositionedText>> rows, int i) {
+        PositionedText label = rows.get(i).get(0);
+        for (int j = i + 1; j < rows.size(); j++) {
+            List<PositionedText> row = rows.get(j);
+            if (row.get(0).pageIndex() != label.pageIndex()
+                    || row.get(0).y() - label.y() > LABEL_CONTINUATION_GAP) {
+                return false;
+            }
+            if (row.stream().anyMatch(t -> StatementSummaryExtractor.normalize(t.text()).matches(".*\\bpoints\\b.*"))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -917,7 +948,7 @@ public final class CreditCardSummaryExtractor {
 
         if (best.isEmpty()) return Reading.NONE;
         return new Reading(new CreditCardSummaryEvidence(
-                amount(best.get("previousBalance")), amount(best.get("purchases")),
+                previousBalanceOf(best.get("previousBalance")), amount(best.get("purchases")),
                 amount(best.get("cashAdvances")), amount(best.get("fees")),
                 amount(best.get("paymentsAndCredits")), amount(best.get("totalAmountDue")),
                 method, List.of()), bestPage);
@@ -984,5 +1015,30 @@ public final class CreditCardSummaryExtractor {
         if (t == null) return null;
         BigDecimal parsed = CsvParser.parseNumeric(t.text().trim());
         return parsed == null ? null : parsed.abs();
+    }
+
+    /** A minus sign printed before a figure's first digit, after any currency mark. */
+    private static final Pattern PRINTED_MINUS = Pattern.compile("^[^0-9]*-\\s*\\d");
+
+    /**
+     * The previous balance, the balance a statement starts from: printed with its own minus sign,
+     * it is money the bank owes the customer, and it is returned negative. Every other field
+     * stays a magnitude, on the side its label names.
+     *
+     * <p>Real case, the HDFC card above: previous dues printed a few paise below zero. Read as a
+     * magnitude it put the statement's own equation off by twice the amount, and would have
+     * opened a new account that much on the wrong side (see
+     * {@code CardStatementBalances.openingBalance}, which hands this figure on once the rows carry
+     * it to the total due).
+     *
+     * <p>Only an explicit minus, and only this field. A trailing "Dr" stays what {@link #amount}
+     * makes of it, money owed. A balance marked "Cr", a minus printed after the figure, and a
+     * total due below zero have not been seen in a summary this class reads, and are still read
+     * as magnitudes.
+     */
+    private static BigDecimal previousBalanceOf(PositionedText t) {
+        BigDecimal magnitude = amount(t);
+        if (magnitude == null) return null;
+        return PRINTED_MINUS.matcher(t.text().trim()).find() ? magnitude.negate() : magnitude;
     }
 }

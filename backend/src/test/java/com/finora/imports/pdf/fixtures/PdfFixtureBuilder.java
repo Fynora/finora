@@ -1976,6 +1976,47 @@ public final class PdfFixtureBuilder {
     }
 
     /**
+     * An HDFC-shaped card statement: a summary grid printed as its own equation (two label lines
+     * staggered a few points apart, a row of figures behind a rupee sign that extracts as "C", the
+     * minus drawn as an underscore above the row), and under it a rewards grid whose heading row
+     * says "Opening Balance" while the word "points" sits one line lower. The previous dues are
+     * forty paise in the customer's favour and the total due is printed in whole rupees:
+     * -0.40 - 0.00 + 6,200.30 + 0.00 = 6,199.90, printed as 6,200.00. {@code aPurchaseRowIsMissing}
+     * drops one of the purchases the summary counts from the transactions. Invented figures.
+     */
+    public static byte[] buildCardWithSummaryAboveARewardsGridSample(boolean aPurchaseRowIsMissing) throws IOException {
+        float[] col = {LEFT_MARGIN, 110f, 350f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("SAMPLE BANK")
+                .line("Credit Card Statement");
+        page.rowAt(700f, new float[]{180f, 290f}, "PAYMENTS/CREDITS", "PURCHASES/DEBIT")
+                .rowAt(696f, new float[]{40f, 395f, 495f}, "PREVIOUS STATEMENT DUES", "FINANCE CHARGES", "TOTAL AMOUNT DUE")
+                .rowAt(691.5f, new float[]{200f, 290f}, "RECEIVED", "(Current Billing Cycle)")
+                .rowAt(677f, new float[]{173f}, "_")
+                .rowAt(672.5f, new float[]{282f, 387f, 489f}, "+", "+", "=")
+                .rowAt(672f, new float[]{60f, 200f, 300f, 410f, 500f},
+                        "C-0.40", "C0.00", "C6,200.30", "C0.00", "C6,200.00")
+                // The second band of the same panel, as the real statement prints it.
+                .rowAt(645f, new float[]{410f, 495f}, "MINIMUM DUE", "DUE DATE")
+                .rowAt(627f, new float[]{410f, 495f}, "C310.00", "24 Jun, 2026");
+        // The rewards grid: its title and one heading's second line carry the word, a little lower.
+        page.rowAt(560f, new float[]{300f, 375f, 480f, 530f},
+                        "Opening Balance", "Feature + Bonus Reward", "Disbursed", "Adjusted/Lapsed")
+                .rowAt(557.5f, new float[]{198f}, "Reward Points")
+                .rowAt(552.6f, new float[]{375f}, "Points Earned")
+                .rowAt(544f, new float[]{300f, 375f, 480f, 530f}, "310", "62", "0", "0")
+                .rowAt(539.4f, new float[]{198f}, "372");
+        page.y = 500f;
+        page.row(col, "DATE", "TRANSACTION DETAILS", "AMOUNT (Rs.)")
+                .row(col, "02/06/2026", "Sample Store Purchase", "4,000.30 Dr");
+        if (!aPurchaseRowIsMissing) {
+            page.row(col, "04/06/2026", "Sample Market Purchase", "2,200.00 Dr");
+        }
+        return render(List.of(page));
+    }
+
+    /**
      * The lower half of the distinct-signal boundary: a ledger whose free text carries EXACTLY
      * ONE phrase from the credit-card signal list ("Total Payment Due", here a bill-payment
      * reminder printed on an ordinary account statement) and no others.

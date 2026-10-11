@@ -1069,7 +1069,18 @@ actually works — no test, no claim.
     2. **Duplicate-label refusal**, applied within a page. A field is accepted only when exactly one
        label occurrence on the winning page resolves a value for it — the pre-fix code took
        whichever occurrence it scanned first, which happened to be correct for AU; that was luck,
-       not correctness.
+       not correctness. A rewards-points grid is the usual second occurrence, and GRID passes over
+       a heading row that says "points". Measured 2026-10-11 on a real HDFC card: its rewards grid
+       is headed "Opening Balance | Feature + Bonus Reward | Disbursed | Adjusted/Lapsed", with
+       "Reward Points" and "Points Earned" printed a few points lower, so nothing on the heading
+       row said points. Its "Opening Balance" was read as a second previous balance, the field was
+       refused, and the whole summary with it: both card rules were `NOT_APPLICABLE` on a
+       statement whose summary is otherwise read in full. A heading row is now also passed over
+       when a line within a label's own second-line distance under it says "points". (An older
+       note blamed an unmapped-glyph font for HDFC's summary; on this statement every label
+       extracts whole.) The same statement prints its previous dues below zero, a few paise in the
+       customer's favour: the previous balance alone is now read with a printed minus sign kept,
+       so the equation and a new account's opening balance start on the right side of zero.
     3. **Cross-strategy conflict detection.** `CreditCardSummaryEvidence.conflictingFields()` names
        any field where GRID and INLINE_LABEL_VALUE disagree, checked by the validator FIRST, ahead
        of both `NOT_APPLICABLE` and the equation math. This is not redundant with page-scoping: on

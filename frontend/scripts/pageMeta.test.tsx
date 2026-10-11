@@ -18,9 +18,9 @@ import Terms from '../src/pages/Terms';
 import TrustSecurity from '../src/pages/TrustSecurity';
 import { PublicLayout } from '../src/components/PublicLayout';
 import { hero } from '../src/pages/landing/landing-config';
-import { isNonProductionBuild, pageDescription } from '../src/lib/siteUrl';
+import { HOME_TITLE, SITE_DESCRIPTION, isNonProductionBuild, pageDescription } from '../src/lib/siteUrl';
 import { useCanonical } from '../src/hooks/useCanonical';
-import { pageDescriptionFromMarkup, withPageMeta } from './prerenderTitle.mjs';
+import { pageDescriptionFromMarkup, withOgUrl, withPageMeta } from './prerenderTitle.mjs';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const indexHtml = fs.readFileSync(path.join(root, 'index.html'), 'utf-8');
@@ -49,6 +49,16 @@ describe('index.html description and social tags', () => {
   it('describes the product with the homepage hero\'s own reviewed sentence', () => {
     expect(meta('name', 'description')).toBe(hero.blurb);
     expect(meta('property', 'og:description')).toBe(hero.blurb);
+  });
+
+  it("is what the browser falls back to: the app's copies of the title and description match this file", () => {
+    // usePageDescription and Landing put these back once the document's own page is gone. A copy
+    // that drifted would have the homepage describe itself two ways, by file and by script.
+    expect(HOME_TITLE).toBe(/<title>([^<]*)<\/title>/.exec(indexHtml)?.[1]);
+    expect(HOME_TITLE).toBe(meta('property', 'og:title'));
+    expect(SITE_DESCRIPTION).toBe(meta('name', 'description'));
+    expect(SITE_DESCRIPTION).toBe(meta('property', 'og:description'));
+    expect(SITE_DESCRIPTION).toBe(hero.blurb);
   });
 
   it('no longer says Fynora helps you "grow" your money, which it does not do', () => {
@@ -115,7 +125,9 @@ describe('index.html description and social tags', () => {
     });
   });
 
-  it('has no og:url: this file is the fallback for every unlisted route', () => {
+  it('has no og:url in the source file: it is the template for every other document the build writes', () => {
+    // The homepage's og:url is added to dist/index.html by the build (seoFiles.test.tsx holds it).
+    // Here it would also land in the blank shell and the not-found page, and stop the build.
     expect(indexMetaTags).not.toMatch(/og:url/);
     expect(indexMetaTags.length).toBeGreaterThan(0);
   });
@@ -204,30 +216,68 @@ describe('page description', () => {
       const { unmount } = rtlRender(<MemoryRouter><Page /></MemoryRouter>);
       expect(tag.getAttribute('content')).toBe('The real description, with "quotes" & an ampersand.');
       unmount();
-      expect(tag.getAttribute('content')).toBe('placeholder');
+      // The site's description, not "placeholder": see the runtime block below.
+      expect(tag.getAttribute('content')).toBe(SITE_DESCRIPTION);
     } finally {
       tag.remove();
     }
   });
 });
 
-describe('PublicLayout meta description at runtime', () => {
+describe('PublicLayout description and social text at runtime', () => {
+  const HEAD_TAGS: [string, string, string][] = [
+    ['name', 'description', 'the first document description'],
+    ['property', 'og:title', 'The first document — Fynora'],
+    ['property', 'og:description', 'the first document description'],
+  ];
+  const content = (attr: string, key: string) =>
+    document.head.querySelector(`meta[${attr}="${key}"]`)?.getAttribute('content');
+
+  // The head a visitor is in after opening some OTHER page first: every tag is that page's.
+  const arriveOnAnotherDocument = () => {
+    for (const [attr, key, value] of HEAD_TAGS) {
+      const tag = document.createElement('meta');
+      tag.setAttribute(attr, key);
+      tag.setAttribute('content', value);
+      document.head.appendChild(tag);
+    }
+  };
+
   afterEach(() => {
-    document.head.querySelectorAll('meta[name="description"]').forEach((m) => m.remove());
+    for (const [attr, key] of HEAD_TAGS) document.head.querySelectorAll(`meta[${attr}="${key}"]`).forEach((m) => m.remove());
   });
 
-  it('sets the page\'s description and puts the previous one back on unmount', () => {
-    const tag = document.createElement('meta');
-    tag.setAttribute('name', 'description');
-    tag.setAttribute('content', 'the homepage description');
-    document.head.appendChild(tag);
+  it("sets the page's description, og:title and og:description, the strings its prerendered file has", () => {
+    arriveOnAnotherDocument();
+    rtlRender(<MemoryRouter><Terms /></MemoryRouter>);
+    const description =
+      'The terms for using Fynora: who you contract with, account and acceptable-use rules, how automated features and billing work, and the limits of liability.';
+    expect(content('name', 'description')).toBe(description);
+    expect(content('property', 'og:description')).toBe(description);
+    expect(content('property', 'og:title')).toBe('Terms & Conditions — Fynora');
+    // The same three strings scripts/prerender.mjs writes into terms.html.
+    expect(decode(pageDescriptionFromMarkup(markup(Terms))!)).toBe(description);
+    expect(document.title).toBe(content('property', 'og:title'));
+  });
 
+  it("puts the SITE's text back on unmount, not the first document's", () => {
+    // Measured in Chrome on production, 2026-10-10: open /terms, go to the homepage inside the
+    // app, and its description, og:title and og:description were still the terms page's. Every page
+    // restored "what it found", and what it found was the document it happened to be shown in.
+    arriveOnAnotherDocument();
     const { unmount } = rtlRender(<MemoryRouter><Terms /></MemoryRouter>);
-    expect(tag.getAttribute('content')).toBe(
-      'The terms for using Fynora: who you contract with, account and acceptable-use rules, how automated features and billing work, and the limits of liability.'
-    );
     unmount();
-    expect(tag.getAttribute('content')).toBe('the homepage description');
+    expect(content('name', 'description')).toBe(SITE_DESCRIPTION);
+    expect(content('property', 'og:description')).toBe(SITE_DESCRIPTION);
+    expect(content('property', 'og:title')).toBe(HOME_TITLE);
+  });
+
+  it('adds no tag the document does not have', () => {
+    const { unmount } = rtlRender(<MemoryRouter><Terms /></MemoryRouter>);
+    expect(document.head.querySelector('meta[name="description"]')).toBeNull();
+    expect(document.head.querySelector('meta[property="og:title"]')).toBeNull();
+    unmount();
+    expect(document.head.querySelector('meta[name="description"]')).toBeNull();
   });
 });
 
@@ -251,6 +301,14 @@ describe('withPageMeta', () => {
     const out = withPageMeta(TEMPLATE, { title: 'Page not found — Fynora', description: 'Missing.', route: null });
     expect(out).toContain('<meta property="og:title" content="Page not found — Fynora" />');
     expect((out.match(/<meta\b[^>]*>/g) ?? []).join('\n')).not.toMatch(/og:url/);
+  });
+
+  it('adds og:url once: a template that already has one, or has no </head>, is refused', () => {
+    const once = withOgUrl(TEMPLATE, '/');
+    expect(once).toContain('<meta property="og:url" content="https://app.fynora.net/" />\n</head>');
+    expect(() => withOgUrl(once, '/')).toThrow(/already has an og:url/);
+    expect(() => withPageMeta(once, { title: 'T', description: 'D', route: '/terms' })).toThrow(/already has an og:url/);
+    expect(() => withOgUrl('<html></html>', '/')).toThrow(/no <\/head>/);
   });
 
   it('does not interpret $ sequences in a description as replacement patterns', () => {

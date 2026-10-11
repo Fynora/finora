@@ -1,11 +1,13 @@
 import { Link } from 'react-router-dom';
 import { PublicLayout } from '../components/PublicLayout';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import { NOT_FOUND_DOCUMENT_TITLE } from '../lib/siteUrl';
 
 export const NOT_FOUND_TITLE = 'Page not found';
 // `${title} — Fynora`, the rule PublicLayout and scripts/prerenderTitle.mjs apply to a title that does
-// not already name the brand.
-export const NOT_FOUND_DOCUMENT_TITLE = `${NOT_FOUND_TITLE} — Fynora`;
+// not already name the brand. The string lives in lib/siteUrl.ts (see there for why);
+// NotFound.test.tsx checks it is still this page's title with the brand added.
+export { NOT_FOUND_DOCUMENT_TITLE };
 export const NOT_FOUND_SUBTITLE = 'There is no page at this address. It may have moved, or the link may have a typo in it.';
 
 /**

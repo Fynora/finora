@@ -16,6 +16,10 @@ describe('NotFound', () => {
     document.title = SEARCH_TITLE;
   });
 
+  it('keeps the title constant in lib/siteUrl.ts equal to its own heading with the brand added', () => {
+    expect(NOT_FOUND_DOCUMENT_TITLE).toBe(`${NOT_FOUND_TITLE} — Fynora`);
+  });
+
   it('says the page is missing and links to the homepage, the Help Center and Contact', () => {
     const { container } = render(<MemoryRouter initialEntries={['/nope']}><NotFound /></MemoryRouter>);
     expect(container.querySelector('h1')?.textContent).toBe(NOT_FOUND_TITLE);

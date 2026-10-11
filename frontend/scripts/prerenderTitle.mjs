@@ -1,5 +1,5 @@
-// Pure helpers for scripts/prerender.mjs (per-page <title> and canonical), split out so they can be
-// unit-tested without running a whole build.
+// Pure helpers for scripts/prerender.mjs (per-page <title>, canonical and social tags), split out so
+// they can be unit-tested without running a whole build.
 //
 // Why this exists: prerender.mjs stamps every route's markup into one shared index.html template,
 // so every prerendered page (Terms, Privacy, Refunds, ...) shipped the SAME <title>. That is what a
@@ -62,10 +62,9 @@ export function withTitle(templateHtml, title) {
 export const SITE_ORIGIN = 'https://app.fynora.net';
 
 /**
- * Adds <link rel="canonical"> for a route, just before </head>. The homepage is deliberately not
- * given one here: the prerendered index.html is also what the SPA fallback serves for every route
- * this build does not list, so a canonical in it would mark those pages as duplicates of the home
- * page. Landing sets its own on the client instead (useCanonical).
+ * Adds <link rel="canonical"> for a route, just before </head>. Called once per written page, the
+ * homepage included (templateForHomepage below), and never on the template itself: the blank shell
+ * and the not-found page are built from the same template and must name no address.
  */
 export function withCanonical(templateHtml, route) {
   if (/rel=["']canonical["']/.test(templateHtml)) {
@@ -115,8 +114,20 @@ export function withPageMeta(templateHtml, { title, description, route }) {
   // `route: null` is the not-found page: it has no address of its own (it is reached at whatever was
   // typed), so it names none, the same reason it has no canonical.
   if (route === null) return out;
-  if (!out.includes('</head>')) throw new Error('prerender: the index.html template has no </head>.');
-  return out.replace('</head>', () => `<meta property="og:url" content="${SITE_ORIGIN + route}" />\n</head>`);
+  return withOgUrl(out, route);
+}
+
+/**
+ * Adds og:url for a route, just before </head>. Throws if the template already has one, for the
+ * same reason withCanonical does: every document is built from one shared template, so a tag
+ * already there would be another page's address.
+ */
+export function withOgUrl(templateHtml, route) {
+  if (/<meta property=["']og:url["']/.test(templateHtml)) {
+    throw new Error('prerender: the index.html template already has an og:url; it must not.');
+  }
+  if (!templateHtml.includes('</head>')) throw new Error('prerender: the index.html template has no </head>.');
+  return templateHtml.replace('</head>', () => `<meta property="og:url" content="${SITE_ORIGIN + route}" />\n</head>`);
 }
 
 /**
@@ -191,4 +202,39 @@ export function withRobotsNoindex(templateHtml) {
     throw new Error('prerender: the index.html template has no </head> to add a robots meta to.');
   }
   return templateHtml.replace('</head>', () => '<meta name="robots" content="noindex" />\n</head>');
+}
+
+// The three kinds of document prerender.mjs writes from the one shared template, each with the
+// address tags it should have and no others. (The fourth document, the blank shell, is
+// spaShellHtml in spaShell.mjs.) They are here, not inline in prerender.mjs, so seoFiles.test.tsx
+// can hold each to its rule without running a build.
+
+/**
+ * The homepage, dist/index.html: the template's own title and description, the hero font preload,
+ * and the canonical and og:url for "/".
+ *
+ * The address tags go on this OUTPUT, never into frontend/index.html. For as long as the build had
+ * no 404.html, Cloudflare Pages answered every path without a file with index.html, so a canonical
+ * in it named the homepage as the address of /cookie-policy, /trust and /your-data, which were not
+ * prerendered then. With a top-level 404.html Pages serves index.html at "/" only (measured on a
+ * Pages preview and on production, 2026-10-10: /index and /index.html answer 308 to "/", an unknown
+ * path gets 404.html with a 404), so the file can say where it lives. The template still cannot:
+ * withCanonical and withOgUrl refuse a template that has the tag, and the local servers (`vite dev`,
+ * `wrangler dev`) still answer every unknown path with index.html.
+ */
+export function templateForHomepage(templateHtml, heroFontHref) {
+  return withOgUrl(withCanonical(withFontPreload(templateHtml, heroFontHref), '/'), '/');
+}
+
+/** Every other prerendered page: its own title, description, social tags, canonical and og:url. */
+export function templateForPage(templateHtml, { title, description, route }) {
+  return withPageMeta(withCanonical(withTitle(templateHtml, title), route), { title, description, route });
+}
+
+/**
+ * The not-found page, dist/404.html: its own title and description, a robots noindex, and no
+ * canonical and no og:url (route: null). A noindex page names no address of its own.
+ */
+export function templateForNotFound(templateHtml, { title, description }) {
+  return withRobotsNoindex(withPageMeta(withTitle(templateHtml, title), { title, description, route: null }));
 }

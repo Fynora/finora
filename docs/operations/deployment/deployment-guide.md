@@ -668,8 +668,11 @@ What the build produces, all from `frontend/`:
   should be indexed writes its own title, description, `og:title`, `og:description`, `og:url` and
   canonical, and removes a leftover `noindex` (`PublicLayout`, `Landing`, and the hooks
   `usePageDescription`, `useCanonical`, `useRobotsNoindex`). Tags a page does not own go back to
-  the site's defaults or are removed when it unmounts, never to "what was there before". None of
-  this changes what a crawler that fetches a URL directly is sent.
+  the site's defaults or are removed when it unmounts, never to "what was there before". `404.html`
+  is the one file that can be on screen under a route that is not its own (a wrong-case address
+  such as `/Auth`), so `main.tsx` replaces its description and social text with the site's before
+  the first render; the not-found page writes its own back when the address really is unknown.
+  None of this changes what a crawler that fetches a URL directly is sent.
 - **Non-production builds are `noindex`** (`scripts/crawlPolicy.mjs`, the last step of `npm run
   build`): an `X-Robots-Tag` header, a robots meta tag, no canonical, and no Sitemap line. A build is
   non-production if Cloudflare reports a branch other than `main` (`CF_PAGES=1`, `CF_PAGES_BRANCH`),

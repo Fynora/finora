@@ -4,6 +4,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import { initMonitoring } from './lib/monitoring';
+import { dropNotFoundDocumentText } from './lib/notFoundDocument';
 // Before index.css, so the @font-face rules precede the stylesheet that names the families.
 import './fonts';
 import './index.css';
@@ -11,6 +12,9 @@ import './index.css';
 // Before render, so an error thrown during the very first mount is still captured. A no-op unless
 // VITE_SENTRY_DSN is set, which is why it is safe to call unconditionally here.
 initMonitoring();
+
+// Before render: the first page's effects then write over the defaults, never the other way round.
+dropNotFoundDocumentText();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

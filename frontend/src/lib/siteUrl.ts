@@ -29,6 +29,14 @@ export const SITE_DESCRIPTION =
   'Fynora reads PDF and CSV statements from Indian banks and credit cards, checks its own work, and sorts every transaction.';
 
 /**
+ * The not-found page's title, as its file (dist/404.html) carries it in <title> and og:title. Here,
+ * not in pages/NotFound.tsx, because lib/notFoundDocument.ts needs it before any page has loaded
+ * and that page is a lazy chunk. NotFound.tsx builds its own title from the same two parts and
+ * NotFound.test.tsx holds them equal.
+ */
+export const NOT_FOUND_DOCUMENT_TITLE = 'Page not found — Fynora';
+
+/**
  * True when this build talks to the DEV API: a Cloudflare preview or the `dev` branch alias
  * (dev-app.fynora.net). deployment-guide.md puts VITE_API_BASE_URL=https://dev-api.fynora.net in the
  * Pages Preview bucket, which every non-production build inherits, and production builds use

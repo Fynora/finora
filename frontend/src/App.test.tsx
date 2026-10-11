@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, render, waitFor } from '@testing-library/react';
 import App from './App';
+import { dropNotFoundDocumentText } from './lib/notFoundDocument';
 
 // App mounts the whole provider stack; nothing here should reach the network.
 vi.mock('./api/endpoints', () => ({
@@ -343,6 +344,39 @@ describe('App routing — the head follows the page, whichever document was open
     await waitFor(() => expect(window.location.pathname).toBe('/'));
     await waitFor(() => expect(head().robots).toBeNull());
     await waitFor(() => expect(head().title).toBe(HOME_TITLE));
+  });
+
+  it('/Auth, answered with 404.html: the sign-in page is not described as "Page not found"', async () => {
+    // The sign-in page sets a title and nothing else. main.tsx puts the site's text in the head
+    // before the first render when the document is 404.html; the same call is made here.
+    arriveOn('/Auth', NOT_FOUND_FILE);
+    dropNotFoundDocumentText();
+    render(<App />);
+    await waitFor(() => expect(document.title).toBe('Sign in — Fynora'));
+    expect(head()).toMatchObject({
+      description: SITE_DESCRIPTION,
+      ogTitle: HOME_TITLE,
+      ogDescription: SITE_DESCRIPTION,
+      ogUrl: null,
+      canonical: null,
+    });
+  });
+
+  it('a real dead address, same file: the not-found page writes its own text back', async () => {
+    arriveOn('/definitely-not-a-page', NOT_FOUND_FILE);
+    dropNotFoundDocumentText();
+    const { container } = render(<App />);
+    await waitFor(() => expect(container.querySelector('h1')?.textContent).toBe('Page not found'));
+    await waitFor(() =>
+      expect(head()).toMatchObject({
+        title: 'Page not found — Fynora',
+        ogTitle: 'Page not found — Fynora',
+        robots: 'noindex',
+        canonical: null,
+        ogUrl: null,
+      }));
+    expect(head().description).toBe('There is no page at this address. It may have moved, or the link may have a typo in it.');
+    expect(head().ogDescription).toBe(head().description);
   });
 
   it('/Auth (404.html again), then the homepage: none of the not-found file is left on it', async () => {

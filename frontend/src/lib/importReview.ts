@@ -87,6 +87,20 @@ export function unresolvedCount(rows: StagedRow[], decisions: DuplicateDecision[
   return rows.reduce((n, row, i) => (isUnderReview(row) && decisions[i] === 'unresolved' ? n + 1 : n), 0);
 }
 
+/**
+ * Whether there is nothing to import: no row is ticked.
+ *
+ * Reached most easily by uploading a statement that is already in the ledger and answering "skip"
+ * on every row. Confirming then adds no transactions, but the server still records a statement for
+ * the file -- one with nothing in it, which then shows in statement history and is what the next
+ * upload of the file is told was "imported before". The mobile app has always refused this
+ * (`canConfirmImport` in its `importGate.ts`); this is the same rule for the web review, in the one
+ * module both of its confirm paths already share.
+ */
+export function nothingSelected(review: RowReview): boolean {
+  return !review.included.some(Boolean);
+}
+
 /** Records one decision and syncs that row's include flag, so the confirm payload stays the single
  *  source of truth about what actually gets imported. */
 export function decide(

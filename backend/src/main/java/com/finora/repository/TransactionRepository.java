@@ -423,6 +423,13 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     // it a NON-null dateFrom/dateTo failed with "could not determine data type of parameter $N"
     // (SQLState 42P18) and the Transactions screen returned 500 on any date filter -- production,
     // 2026-09-19. See AuditLogRepository.search's doc comment for the identical failure.
+    //
+    // The last clause continues a list from a row instead of from a page number. The list is
+    // sorted by (date or amount), then createdAt, then id, all one way, and "after the row" means
+    // after it in exactly that order -- so :place has to name the same field and direction as the
+    // Sort passed in, which TransactionService.search guarantees by deriving both from one place.
+    // A page number counts rows from the top, so a row added or deleted above the reader between
+    // two requests shifts every later page by one; this comparison does not count from the top.
     @Query("""
         SELECT t FROM Transaction t
         WHERE t.userId = :userId
@@ -451,8 +458,17 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
                         OR a.bankId IN :bankIds
                       )
                ))
+          AND (:place = 0
+               OR (:place = 1 AND (t.txnDate < :placeDate OR (t.txnDate = :placeDate
+                    AND (t.createdAt < :placeCreatedAt OR (t.createdAt = :placeCreatedAt AND t.id < :placeId)))))
+               OR (:place = 2 AND (t.txnDate > :placeDate OR (t.txnDate = :placeDate
+                    AND (t.createdAt > :placeCreatedAt OR (t.createdAt = :placeCreatedAt AND t.id > :placeId)))))
+               OR (:place = 3 AND (t.amount < :placeAmount OR (t.amount = :placeAmount
+                    AND (t.createdAt < :placeCreatedAt OR (t.createdAt = :placeCreatedAt AND t.id < :placeId)))))
+               OR (:place = 4 AND (t.amount > :placeAmount OR (t.amount = :placeAmount
+                    AND (t.createdAt > :placeCreatedAt OR (t.createdAt = :placeCreatedAt AND t.id > :placeId))))))
         """)
-    Page<Transaction> search(
+    Page<Transaction> searchFromPlace(
             @Param("userId") UUID userId,
             @Param("accountId") UUID accountId,
             @Param("categoryId") UUID categoryId,
@@ -467,8 +483,50 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
             @Param("categoryIds") List<UUID> categoryIds,
             @Param("liveAccountIds") List<UUID> liveAccountIds,
             @Param("international") Boolean international,
+            @Param("place") int place,
+            @Param("placeDate") LocalDate placeDate,
+            @Param("placeAmount") BigDecimal placeAmount,
+            @Param("placeCreatedAt") Instant placeCreatedAt,
+            @Param("placeId") UUID placeId,
             Pageable pageable
     );
+
+    /** {@link #searchFromPlace}'s {@code place}: the whole list, counted from the top by the page number. */
+    int WHOLE_LIST = 0;
+    /** Only rows that come after the given row in a list sorted by date, newest first. */
+    int AFTER_IN_DATE_DESC = 1;
+    /** Only rows that come after the given row in a list sorted by date, oldest first. */
+    int AFTER_IN_DATE_ASC = 2;
+    /** Only rows that come after the given row in a list sorted by amount, largest first. */
+    int AFTER_IN_AMOUNT_DESC = 3;
+    /** Only rows that come after the given row in a list sorted by amount, smallest first. */
+    int AFTER_IN_AMOUNT_ASC = 4;
+
+    /**
+     * The search every caller used before a list could be continued from a row: the whole list,
+     * paged by number. {@link #searchFromPlace} is the one query behind both; this passes it
+     * {@link #WHOLE_LIST}, under which the four place values are never compared with anything.
+     * They are still bound, and to real values, because PostgreSQL cannot type a null placeholder
+     * (see the query's comment on its date bounds).
+     */
+    default Page<Transaction> search(UUID userId, UUID accountId, UUID categoryId, Transaction.Type type,
+                                     Transaction.ReconciliationStatus status, LocalDate dateFrom, LocalDate dateTo,
+                                     BigDecimal amountMin, BigDecimal amountMax, String keyword,
+                                     List<String> bankIds, List<UUID> categoryIds, List<UUID> liveAccountIds,
+                                     Boolean international, Pageable pageable) {
+        return searchFromPlace(userId, accountId, categoryId, type, status, dateFrom, dateTo, amountMin, amountMax,
+                keyword, bankIds, categoryIds, liveAccountIds, international,
+                WHOLE_LIST, LocalDate.EPOCH, BigDecimal.ZERO, Instant.EPOCH, new UUID(0L, 0L), pageable);
+    }
+
+    /**
+     * One of the user's transactions whether or not it has since been deleted. A list is continued
+     * from "the rows after this one", and the row a reader names may have been deleted between two
+     * of their requests; its date, amount, creation time and id still say where the reader was.
+     * Native because every JPQL query on this entity hides deleted rows.
+     */
+    @Query(value = "SELECT * FROM transactions WHERE id = :id AND user_id = :userId", nativeQuery = true)
+    Optional<Transaction> findByIdAndUserIdIncludingDeleted(@Param("id") UUID id, @Param("userId") UUID userId);
 
     /** {@link #search} with no international filter -- the shape every caller used before the
      *  Ledger's "International" filter existed. The nullable Boolean is CAST in the query for the

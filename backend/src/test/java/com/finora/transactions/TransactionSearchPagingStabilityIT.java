@@ -12,6 +12,7 @@ import com.finora.repository.TransactionRepository;
 import com.finora.repository.UserRepository;
 import com.finora.security.JwtService;
 import com.finora.testsupport.TestSessions;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -104,9 +105,14 @@ class TransactionSearchPagingStabilityIT extends AbstractIntegrationTest {
     }
 
     private JsonNode page(User user, String sortField, String sortDir, int page) throws Exception {
+        return page(user, sortField, sortDir, page, null);
+    }
+
+    private JsonNode page(User user, String sortField, String sortDir, int page, UUID after) throws Exception {
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(TestSessions.accessTokenFor(jwtService, refreshTokens, user));
-        String query = "?page=" + page + "&size=" + PAGE_SIZE + "&sortField=" + sortField + "&sortDir=" + sortDir;
+        String query = "?page=" + page + "&size=" + PAGE_SIZE + "&sortField=" + sortField + "&sortDir=" + sortDir
+                + (after == null ? "" : "&after=" + after);
         ResponseEntity<String> response = restTemplate.exchange(
                 "/api/v1/transactions" + query, HttpMethod.GET, new HttpEntity<>(headers), String.class);
         assertThat(response.getStatusCode()).as(query).isEqualTo(HttpStatus.OK);
@@ -221,5 +227,154 @@ class TransactionSearchPagingStabilityIT extends AbstractIntegrationTest {
                 .toList();
 
         assertThat(idsAcrossAllPages(s.user(), sortField, sortDir)).containsExactlyElementsOf(ids(expected));
+    }
+
+    /**
+     * Pages the way the mobile list does once it knows the server understands {@code after}: each
+     * request names the last row it already holds, and also still sends the page number, which a
+     * server that does not know {@code after} falls back on.
+     */
+    private List<UUID> idsAcrossAllPagesFollowingTheLastRow(User user, String sortField, String sortDir,
+                                                            BetweenPages between) throws Exception {
+        List<UUID> ids = new ArrayList<>();
+        UUID after = null;
+        for (int p = 0; p < 4 * ROWS / PAGE_SIZE; p++) {
+            JsonNode data = page(user, sortField, sortDir, p, after);
+            List<UUID> onThisPage = new ArrayList<>();
+            data.get("content").forEach(row -> onThisPage.add(UUID.fromString(row.get("id").asText())));
+            ids.addAll(onThisPage);
+            if (onThisPage.isEmpty() || data.get("page").asInt() + 1 >= data.get("totalPages").asInt()) {
+                return ids;
+            }
+            after = onThisPage.get(onThisPage.size() - 1);
+            between.afterPage(onThisPage);
+        }
+        throw new AssertionError("the list never reported a last page");
+    }
+
+    private Transaction newRow(Seeded s, LocalDate date, BigDecimal amount, String description) {
+        Transaction t = new Transaction();
+        t.setUserId(s.user().getId());
+        t.setAccountId(s.rows().get(0).getAccountId());
+        t.setAmount(amount);
+        t.setTxnType(Transaction.Type.EXPENSE);
+        t.setTxnDate(date);
+        t.setDescription(description);
+        return transactionRepository.save(t);
+    }
+
+    /**
+     * A page number counts rows from the top of the list, so a row that arrives above the reader
+     * (an import finishing, a payment added on another device) pushes every later row down by one,
+     * and the next page starts with a row the reader already has. Asking for "the rows after this
+     * one" does not count from the top, so nothing shifts.
+     */
+    @ParameterizedTest(name = "sortField={0} sortDir={1}")
+    @CsvSource({"date,desc", "date,asc", "amount,desc", "amount,asc"})
+    void followingTheLastRow_everyRowAppearsExactlyOnceWhenRowsAreAddedBetweenPageRequests(
+            String sortField, String sortDir) throws Exception {
+        Seeded s = seed();
+
+        List<UUID> returned = idsAcrossAllPagesFollowingTheLastRow(s.user(), sortField, sortDir, idsOnThatPage -> {
+            // One row that sorts before everything seeded and one that sorts after it, so whichever
+            // way the list runs, one of them lands above the reader.
+            newRow(s, LocalDate.of(2020, 1, 1), BigDecimal.ONE, "ADDED EARLY AND SMALL");
+            newRow(s, LocalDate.of(2030, 1, 1), BigDecimal.valueOf(999_999), "ADDED LATE AND LARGE");
+        });
+
+        assertThat(returned).as("no row is repeated on a later page").doesNotHaveDuplicates();
+        assertThat(returned).as("no row that was there from the start is skipped").containsAll(ids(s.rows()));
+    }
+
+    /**
+     * The mirror case: a row the reader already has is deleted, every later row moves up by one,
+     * and a page number would step over the row that moved into the gap.
+     */
+    @ParameterizedTest(name = "sortField={0} sortDir={1}")
+    @CsvSource({"date,desc", "date,asc", "amount,desc", "amount,asc"})
+    void followingTheLastRow_everyRowAppearsExactlyOnceWhenRowsAreDeletedBetweenPageRequests(
+            String sortField, String sortDir) throws Exception {
+        Seeded s = seed();
+
+        List<UUID> returned = idsAcrossAllPagesFollowingTheLastRow(s.user(), sortField, sortDir,
+                idsOnThatPage -> transactionRepository.deleteById(idsOnThatPage.get(0)));
+
+        assertThat(returned).as("no row is repeated on a later page").doesNotHaveDuplicates();
+        assertThat(returned).as("no row is skipped").containsExactlyInAnyOrderElementsOf(ids(s.rows()));
+    }
+
+    /** The row the reader names may itself be the one that was deleted. Its place still stands. */
+    @ParameterizedTest(name = "sortField={0} sortDir={1}")
+    @CsvSource({"date,desc", "date,asc", "amount,desc", "amount,asc"})
+    void followingTheLastRow_stillWorksWhenThatRowHasBeenDeleted(String sortField, String sortDir)
+            throws Exception {
+        Seeded s = seed();
+
+        List<UUID> returned = idsAcrossAllPagesFollowingTheLastRow(s.user(), sortField, sortDir,
+                idsOnThatPage -> transactionRepository.deleteById(idsOnThatPage.get(idsOnThatPage.size() - 1)));
+
+        assertThat(returned).as("no row is repeated on a later page").doesNotHaveDuplicates();
+        assertThat(returned).as("no row is skipped").containsExactlyInAnyOrderElementsOf(ids(s.rows()));
+    }
+
+    /**
+     * {@code after} only ever names a place in the caller's own list. Another customer's
+     * transaction, or an id that is no transaction at all, is not a place in it, so the request is
+     * answered by its page number as if {@code after} had not been sent.
+     */
+    @Test
+    void anAfterThatIsNotTheCallersOwnTransactionIsIgnored() throws Exception {
+        Seeded mine = seed();
+        Seeded someoneElse = seed();
+        JsonNode plain = page(mine.user(), "date", "desc", 1, null);
+
+        JsonNode withAnothersRow = page(mine.user(), "date", "desc", 1, someoneElse.rows().get(0).getId());
+        JsonNode withNoSuchRow = page(mine.user(), "date", "desc", 1, UUID.randomUUID());
+
+        assertThat(withAnothersRow).isEqualTo(plain);
+        assertThat(withNoSuchRow).isEqualTo(plain);
+        assertThat(plain.get("page").asInt()).isEqualTo(1);
+    }
+
+    /**
+     * Continued from a row, the response describes what is left rather than the whole list: it is
+     * always the first page of the remainder. "More to fetch" stays {@code page + 1 < totalPages}.
+     */
+    @Test
+    void followingTheLastRow_theResponseCountsOnlyWhatIsLeft() throws Exception {
+        Seeded s = seed();
+        JsonNode first = page(s.user(), "date", "desc", 0, null);
+        UUID lastOnFirstPage = UUID.fromString(first.get("content").get(PAGE_SIZE - 1).get("id").asText());
+
+        JsonNode rest = page(s.user(), "date", "desc", 1, lastOnFirstPage);
+
+        assertThat(first.get("totalElements").asInt()).isEqualTo(ROWS);
+        assertThat(rest.get("page").asInt()).isEqualTo(0);
+        assertThat(rest.get("totalElements").asInt()).isEqualTo(ROWS - PAGE_SIZE);
+        assertThat(rest.get("totalPages").asInt()).isEqualTo((ROWS - PAGE_SIZE + PAGE_SIZE - 1) / PAGE_SIZE);
+        assertThat(rest.get("content")).hasSize(PAGE_SIZE);
+        // And it is the same page the page number would have given, nothing having changed between.
+        assertThat(rest.get("content")).isEqualTo(page(s.user(), "date", "desc", 1, null).get("content"));
+    }
+
+    /**
+     * "After this row" has to mean the same thing the sort means, all the way down to the id: with
+     * every row sharing a date, an amount and a creation instant, the id alone says which rows
+     * follow the one named.
+     */
+    @ParameterizedTest(name = "sortField={0} sortDir={1}")
+    @CsvSource({"date,desc", "date,asc", "amount,desc", "amount,asc"})
+    void followingTheLastRow_agreesWithTheSortWhenOnlyTheIdTellsRowsApart(String sortField, String sortDir)
+            throws Exception {
+        Seeded s = seed();
+        jdbc.update("UPDATE transactions SET created_at = TIMESTAMPTZ '2026-07-10 09:00:00+00', "
+                + "txn_date = DATE '2026-07-10', amount = 250 WHERE user_id = ?", s.user().getId());
+        List<UUID> expected = s.rows().stream().map(Transaction::getId)
+                .sorted(inDirection(sortDir, Comparator.comparing(UUID::toString)))
+                .toList();
+
+        List<UUID> returned = idsAcrossAllPagesFollowingTheLastRow(s.user(), sortField, sortDir, idsOnThatPage -> { });
+
+        assertThat(returned).containsExactlyElementsOf(expected);
     }
 }

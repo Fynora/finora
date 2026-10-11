@@ -3243,3 +3243,20 @@ Verified: 235 suites, 2,854 tests, typecheck, lint, `expo export --platform andr
 - Not established: why React Native 0.86 leaves the frame short, how often this happens at other text sizes, and whether Android is affected. A real fix probably belongs below this redesign (how text height is rounded), which is why none is in this pull request.
 
 Also found, in a file this work does not touch: `LedgerScreen.tsx` gives two neighbouring modals the same React key (`'none'`) when neither is open, which React warns about on the Transactions screen.
+
+## Execution record, pull request 2 (lower sections, empty and loading states)
+
+Pull request 1 (#2106) was squash-merged to `main` on 2026-10-11 as `d678d103b`. Checked before continuing: the pull request's recorded head is `6d8a2bd96`, the branch tip, and `git diff origin/main 6d8a2bd96 -- mobile docs/superpowers` is empty, so everything pushed is on `main`. The old branches are not reused: the five commits of this part were cherry-picked onto a new branch cut from `main` (`feature/mobile-dashboard-lower-sections`), and the result is file-for-file the tree they were written and tested on (`git diff` against the old tip is empty under `mobile`).
+
+What this part carries:
+
+- **Empty state and loading.** A dashboard empty state card and a skeleton for the KPI grid.
+- **Operational sections in the card language.** The sections under Quick Actions on the dashboard, the journey card and the getting started checklist.
+- **The journey link is read out by its own name**, without the chevron glyph.
+- **Large text, lower sections.** Upcoming wraps the amount under the payee instead of squeezing the name to a column 4 points wide; the review banner shows its whole sentence; the Cash Flow chart's axis labels stop growing at 1.3 so they stay inside the chart. As recorded above, the Upcoming and review banner tests were written with their fixes and were not watched failing first.
+
+Verified on the new branch, Node 22: 237 suites, 2,869 tests; typecheck; lint; `expo export --platform android`; the three repository guards.
+
+Not verified, same list as pull request 1 plus what is specific to this part: a brand-new empty account on a device (the empty state is unit-tested only, since the simulator is signed in to an account with data and production data is read only); the lower sections in the dark theme on a device; Android on a device; iOS below 26; Reduce Transparency on a device; text sizes above `accessibility-large`; a physical phone; the Maestro flow.
+
+Still open after this part, each waiting for a decision rather than forgotten: the banners (`Card`, not `DashboardCard`) carry no shadow, which the approved design shows; the page backdrop is paler than the design's and is shared by every screen. The two findings from the previous record have their own pull requests, #2112 (the cut-off last line, a native iOS change) and #2111 (the duplicate key), neither part of this work.

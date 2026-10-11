@@ -249,6 +249,13 @@ class CapabilityCorpusCoverageTest {
                         + "INLINE_LABEL_VALUE strategy motivated by a real AU statement's label-left/value-right "
                         + "layout. Covered by synthetic fixtures in CreditCardSummaryExtractorTest, "
                         + "not yet by a committed real-document trace.");
+        DECLARED_WITHOUT_A_TRACE.put("CREDIT_CARD_SUMMARY_STACKED_LABEL_COLUMNS",
+                "no trace yet -- same situation as the two strategies above, for the stacked-label "
+                        + "strategy motivated by a real SBI card's \"Account Summary\", whose labels are "
+                        + "each wrapped over two or three lines. Covered by synthetic fixtures in "
+                        + "CreditCardSummaryExtractorTest reproducing that shape, and measured against "
+                        + "the unredacted document via scripts/corpus-run.py: it fires on that one "
+                        + "statement of the 34 in the real corpus and changes no other.");
         DECLARED_WITHOUT_A_TRACE.put("TRANSACTION_TABLE_TOTAL_CLOSED",
                 "no trace yet -- motivated by a real Kotak Mahindra Bank credit-card statement's "
                         + "own \"Total Purchase & Other Charges\" column-total row; real-corpus verified "

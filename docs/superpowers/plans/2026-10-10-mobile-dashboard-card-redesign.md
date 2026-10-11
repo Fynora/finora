@@ -3224,3 +3224,22 @@ Sid asked for a bug and gap check of the work above. Done by the author, on the 
 - Checked and found sound: nothing inside a dashboard card relies on the card clipping it (the shadow change removed that clipping); a neighbouring tile's shadow does not darken a tile's own surface (`#fcfcfd` to the edge); the negative margins on the tile rows do not overlap a header's touch target (the section gap is larger than the overlap); the budget card's empty state has no action on `main` either.
 - Verified after this round, Node 22: pull request 1 branch 235 suites, 2,847 tests; pull request 2 branch 237 suites, 2,862 tests; typecheck and lint clean on both.
 - Still not verified: Android on a device; iOS below 26 (only iOS 26.5 and 27.0 simulators are installed on this Mac); Reduce Transparency on a device; text sizes above `accessibility-large`, where a long word can still be wider than a tile; a physical phone; a brand-new empty account; the Maestro flow.
+
+## Execution record, three design differences closed and one open defect (2026-10-11)
+
+Sid chose three of the remaining differences from the approved design to close in pull request 1:
+
+- **Hero near-black.** `HERO_GLASS_ALPHA` 0.86 to 0.96. Measured on the simulator: `#35373b` before, `#1e2025` after, against the design's `#15171c`. `heroTones.test.ts` still measures every colour on every backdrop pixel in both themes, and now also that no channel of the light-theme hero is lighter than 40.
+- **Balance card in one row.** The date and the counts on one line under the balance, and an arrow that opens Accounts. The arrow is still a button named "View Accounts" with a 44 point target; the counts joined the balance's spoken label; a count and its noun are kept together by a no-break space (the line broke as "3" / "banks" on the simulator).
+- **"See all" on Recent Transactions.** Opens the Transactions tab, tracked like the screen's other contextual links, read out as "See all transactions", and absent when there is no list behind it. Tapped on the simulator: it opens Transactions.
+
+Verified: 235 suites, 2,854 tests, typecheck, lint, `expo export --platform android`, the three guards; on the simulator at default size and at `accessibility-large`.
+
+**Open defect, not fixed: at `accessibility-large` the last line of some paragraphs is cut off on iOS.** Seen first on the left health factor tile: "Aim to save at least 24% of your income each month." drew four lines, the fourth unwrapped and clipped ("income each m"), with "month." missing.
+
+- It is not caused by the three changes above: it shows on the commit before them (`c7d3ed852`) in the same session. It is not caused by the iOS font weight from the review round: switching that off made no difference. It survives a simulator reboot. `main` has 70 fixed line heights under `screens` and `components`, including this same sentence at 11/15, so the exposure is not new with this redesign; whether `main` shows it was not checked.
+- Measured with the native view inspector: that paragraph's view is 182.0 points high, and five lines at its line height (17 points times the 2.143 text-size multiplier, 36.431) need 182.155. The frame is short by 0.155 of a point, and React Native then draws the last line that fits unwrapped and clipped. Whether a paragraph comes out short depends on where it sits on the screen, which is why the same code drew it correctly in the morning session.
+- Two remedies were tried and neither is kept. Moving line heights to whole pixels cured that paragraph, but applied to every step it shrank the balance amount (auto-shrinking text) to a few points high, and applied to body steps only a different paragraph was clipped instead ("Transfer · 202", frame 72.6665 against 72.6667 needed). Removing the fixed line height from that one paragraph drew it correctly, on one data point.
+- Not established: why React Native 0.86 leaves the frame short, how often this happens at other text sizes, and whether Android is affected. A real fix probably belongs below this redesign (how text height is rounded), which is why none is in this pull request.
+
+Also found, in a file this work does not touch: `LedgerScreen.tsx` gives two neighbouring modals the same React key (`'none'`) when neither is open, which React warns about on the Transactions screen.

@@ -1,7 +1,8 @@
 # Mobile Transactions screen redesign
 
 **Date:** 2026-10-11
-**Status:** design, waiting for the owner's approval. No code is written.
+**Status:** design approved by the owner on 2026-10-12, with softened capitals for row titles. The
+build plan is `docs/superpowers/plans/2026-10-12-mobile-transactions-redesign.md`.
 **Screen:** `mobile/src/screens/LedgerScreen.tsx` (the Transactions tab).
 
 ## Goal
@@ -34,6 +35,16 @@ Success, in things that can be checked:
   again. Until then the "Design reference" table below is the binding record.
 - Standing decisions carried over from the dashboard: expenses red and income green; everything
   glass; Android keeps elevation where iOS draws a shadow.
+
+Decided on 2026-10-12, after the corrected picture:
+
+- **The design is approved.**
+- **Row titles use softened capitals.** A word printed entirely in capitals is shown with only its
+  first letter capital. The owner chose this knowing that abbreviations become words ("IRCTC"
+  reads "Irctc"). The exact rule is under "Row title".
+- **Names the bank cut short:** the owner asked for the linked-merchant route to be checked before
+  anything is built. What the code shows, and what still has to be counted in production, is under
+  "Names cut to eight characters".
 
 ## What was measured before designing
 
@@ -187,11 +198,21 @@ All values are existing tokens in `mobile/src/theme` unless marked new. Sizes ar
   rule 3 for 373, rule 4 for 5 (three "interest" labels and two names whose words are not next to
   each other in the narration). Titles have a median of 8 characters; 6 are longer than 24 and
   end in an ellipsis on one line. Where the name is found in the description it is printed in all
-  capitals on 274 rows, mixed case on 100 and lower case on 7, so most titles are capitals, as on
-  the statement. Whether to soften capitals into ordinary capitalisation is the owner's choice:
-  it reads more easily but turns abbreviations into words ("IRCTC" would become "Irctc"), so this
-  design keeps what is printed unless told otherwise. The narration stays in the details sheet, in
-  the delete confirmation and in search.
+  capitals on 274 rows, mixed case on 100 and lower case on 7.
+
+  **Softened capitals (the owner's choice, 2026-10-12).** Whatever the four rules give is then
+  softened (`softenCapitals`, a pure function): a word of two or more letters that has no small
+  letter in it is rewritten with its first letter capital and the rest small. A word is an unbroken
+  run of the letters A to Z, and an apostrophe between letters stays inside the word, so
+  "DOMINO'S" reads "Domino's". Everything else is left exactly as printed: a word that already has
+  a small letter ("PhonePe", "McDonald"), a single letter (the "L" a cut name ends in), digits and
+  punctuation. Known costs, accepted with the choice: an abbreviation reads as a word ("IRCTC" as
+  "Irctc", "HDFC" as "Hdfc"), and so does one the person typed themselves in a hand-entered
+  transaction ("ATM cash" reads "Atm cash"), because the list does not say which rows were typed
+  by hand. How many titles change was not counted word by word; at least the 274 printed entirely
+  in capitals do.
+
+  The narration stays in the details sheet, in the delete confirmation and in search, unsoftened.
 - **Second line:** the category, then who was on the other side in its short form ("Person",
   "Business", "Bank", "Government") when known. No date: the heading says it.
 - **Tags**, on a third line that exists only when there is a tag, in this order:
@@ -287,8 +308,8 @@ chose option A. Items 5 and 7 were visible in that picture but not listed. Item 
 in that picture (tidy names the app cannot produce) and is shown correctly in the corrected one.
 All seven are called out here for the review of this document:
 
-1. The row title is the payee's name as the statement prints it (mostly capitals), not the whole
-   bank narration.
+1. The row title is the payee's name as the statement prints it, with capitals softened ("RAHUL SH"
+   reads "Rahul Sh"), not the whole bank narration.
 2. Rows no longer show the date.
 3. Rows no longer show "Reviewed" or "Categorized".
 4. Status, date range and International move into the Filters sheet.
@@ -337,8 +358,8 @@ expensive kind. The month card, the pinned bar and the sheet are single surfaces
   platforms where a style differs.
 - `LedgerScreen.test.tsx` keeps passing. Tests that reach status, date range or International
   open the sheet first; nothing else in them changes. A test that
-  asserted a title by narration asserts the merchant, with a separate test that the narration is
-  used when there is no merchant.
+  asserted a title by narration asserts the title the rule gives, with a separate test that the
+  narration is used when there is no merchant.
 - Contrast tests for the new pairings, both themes.
 - Full mobile suite, typecheck, lint, the Android bundle and the three repository guards, on
   Node 22.
@@ -450,6 +471,26 @@ name's letters, is not a number, and its own separators give the word breaks.
 - Nothing was built. Whether a rule with this little reach is worth a parser change is the owner's
   decision.
 
+**The linked-merchant route (the owner's choice on 2026-10-12: check it).** Read in the code first
+(`MerchantNormalizationEngine`, `MerchantSeedService`):
+
+- Every transaction is linked to one merchant record of its owner. The link is found in this
+  order: the same text seen before; the first two significant words of the payee; then the first
+  significant word alone, but only against a confirmed merchant whose name is a single word (the
+  starter brands every account is given, such as "Swiggy" or "IRCTC", or one a person confirmed).
+  When nothing matches, a new merchant is created and named from the same payee text.
+- All three matches compare whole words. A word the bank cut in the middle is a different word from
+  the full one, so a cut name cannot reach the full name this way. What it can reach is a brand,
+  when the cut falls after the brand's own word: a payee printed as a brand followed by a few more
+  letters links to the one-word brand.
+- So this route cannot complete a person's name. It can give a brand's proper name, with the
+  brand's own capitals, on rows that link to a starter brand.
+- The transaction the phone receives does not carry the linked merchant's name, so using it would
+  mean a new field from the server. That is outside this redesign.
+- Not yet counted: how many of the test account's rows link to a merchant whose name differs from
+  the row's own. That is a read of production data, which the owner runs; the query was handed
+  over on 2026-10-12 and its result is not in this document yet.
+
 ### A paging defect found on the way
 
 - 6 of the 200 loaded rows are a transaction that is already in the list. Each repeat sits exactly
@@ -464,7 +505,9 @@ name's letters, is not a number, and its own separators give the word breaks.
   transactions. Six are shown twice and six are never shown.
   The web Ledger pages through the same endpoint, so the same can happen there; it was not
   observed there.
-- It is a server fix (a second sort key) and is tracked separately from this redesign.
+- It is a server fix (a second sort key) and is tracked separately from this redesign: pull request
+  #2125, which adds the creation time and then the id as tie-breakers. It was open, with its checks
+  passing, on 2026-10-12.
 
 ## Review of this design (2026-10-11)
 

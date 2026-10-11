@@ -139,7 +139,9 @@ describe('PasswordStep', () => {
     await userEvent.click(screen.getByRole('button', { name: /login with otp/i }));
     await userEvent.click(screen.getByRole('button', { name: /send code/i }));
     await waitFor(() => expect(authApi.otpEmailRequest).toHaveBeenCalledWith('jane@example.com'));
-    await userEvent.type(screen.getByLabelText(/code/i), '482913');
+    // findBy, not getBy: the code field appears in the render after the request resolves, which is
+    // later than the moment the mock records the call.
+    await userEvent.type(await screen.findByLabelText(/code/i), '482913');
     await userEvent.click(screen.getByRole('button', { name: /verify/i }));
 
     await waitFor(() => expect(onSuccess).toHaveBeenCalledWith(true));
@@ -233,7 +235,9 @@ describe('PasswordStep', () => {
     await userEvent.click(screen.getByRole('button', { name: /login with otp/i }));
     await userEvent.click(screen.getByRole('button', { name: /send code/i }));
     await waitFor(() => expect(authApi.otpEmailRequest).toHaveBeenCalledWith('jane@example.com'));
-    await userEvent.type(screen.getByLabelText(/code/i), '482913');
+    // findBy, not getBy: the code field appears in the render after the request resolves, which is
+    // later than the moment the mock records the call.
+    await userEvent.type(await screen.findByLabelText(/code/i), '482913');
     await userEvent.click(screen.getByRole('button', { name: /verify/i }));
 
     expect(await screen.findByText('Welcome back')).toBeInTheDocument();

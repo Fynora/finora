@@ -477,8 +477,10 @@ describe('Billing', () => {
     renderPage();
     await screen.findByTestId('current-plan-name');
 
-    // Must snap to the real YEARLY cycle despite the stale MONTHLY carry-through.
-    expect(await screen.findByTestId('plan-price-plus')).toHaveTextContent('₹1,999/year');
+    // Must snap to the real YEARLY cycle despite the stale MONTHLY carry-through. Waited for: the
+    // card is on screen with the carried-through monthly price first, and the snap is a later
+    // render. Reading the price as soon as the card exists fails whenever that render is late.
+    await waitFor(() => expect(screen.getByTestId('plan-price-plus')).toHaveTextContent('₹1,999/year'));
     expect(screen.getByRole('button', { name: 'Current Plan' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: /switch to monthly billing/i })).not.toBeInTheDocument();
   });

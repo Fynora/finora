@@ -148,4 +148,317 @@ describe('VerificationPanel', () => {
       expect(screen.queryByText(/transaction\(s\) checked/)).toBeNull();
     });
   });
+
+  // Both card checks reach every import, and until they had renderers each showed its rule id over
+  // "doesn't know how to display yet". Same cases as the web panel's tests, with the details each
+  // backend validator sends for that outcome, the server's own sentences included, so a test can
+  // prove those stay unseen.
+  describe('credit card checks', () => {
+    const SUMMARY = 'CREDIT_CARD_STATEMENT_TOTALS';
+    const FLOW = 'CREDIT_CARD_FLOW_RECONCILIATION';
+
+    const amountDue = {
+      extractionMethod: 'GRID', previousBalance: 12000, purchases: 8500.5, cashAdvances: 0, fees: 0,
+      paymentsAndCredits: 12000, totalAmountDue: 8500.5, expectedTotalAmountDue: 8500.5, difference: 0,
+    };
+    const outstanding = {
+      extractionMethod: 'STACKED_LABEL_COLUMNS', previousBalance: 40000, purchases: 9000.4, cashAdvances: 0,
+      fees: 590, paymentsAndCredits: 15000, totalOutstanding: 34590.4, expectedTotalOutstanding: 34590.4,
+      difference: 0,
+    };
+    const summaryMisread = 'The previous balance, purchases, cash advances, fees, and payments/credits this '
+      + 'statement prints about itself do not add up to its own printed total amount due. This does not '
+      + 'implicate any parsed transaction -- no transaction row was read to produce this finding -- it means '
+      + 'this extraction misread one of the statement\'s own summary figures.';
+    const flowAmounts = {
+      evidenceLevel: 'FULL_SUMMARY_RECONCILIATION',
+      expectedExpenseAmount: 8500.5, observedExpenseAmount: 8500.5, differenceExpenseAmount: 0,
+      expectedIncomeAmount: 12000, observedIncomeAmount: 12000, differenceIncomeAmount: 0,
+    };
+    const flowDisagrees = 'The extracted transactions, summed by direction, do not match this statement\'s own '
+      + 'printed purchases and/or payments/credits totals. This does not identify which side is wrong '
+      + '-- only that they disagree.';
+
+    interface Case {
+      name: string; finding: VerificationFinding; label: string; tag: string; body: RegExp; note?: RegExp;
+    }
+
+    const cases: Case[] = [
+      {
+        name: 'summary adds up to the amount due',
+        finding: { rule: SUMMARY, outcome: 'VERIFIED', details: amountDue },
+        label: 'Card statement summary', tag: 'verified',
+        body: /figures in this statement's summary add up to its total amount due\.$/,
+      },
+      {
+        name: 'summary adds up to an amount due printed in whole rupees',
+        finding: {
+          rule: SUMMARY, outcome: 'VERIFIED',
+          details: { ...amountDue, totalAmountDue: 8500, difference: -0.5, totalAmountDueRoundedToRupee: true },
+        },
+        label: 'Card statement summary', tag: 'verified',
+        body: /add up to its total amount due\. The statement prints that total in whole rupees/,
+      },
+      {
+        name: 'summary adds up to the outstanding balance',
+        finding: { rule: SUMMARY, outcome: 'VERIFIED', details: outstanding },
+        label: 'Card statement summary', tag: 'verified',
+        body: /figures in this statement's summary add up to its total outstanding\.$/,
+      },
+      {
+        name: 'summary adds up to an outstanding balance printed in whole rupees',
+        finding: {
+          rule: SUMMARY, outcome: 'VERIFIED',
+          details: { ...outstanding, totalOutstanding: 34590, difference: -0.4, totalRoundedToRupee: true },
+        },
+        label: 'Card statement summary', tag: 'verified',
+        body: /add up to its total outstanding\. The statement prints that total in whole rupees/,
+      },
+      {
+        name: 'summary does not add up to the amount due',
+        finding: {
+          rule: SUMMARY, outcome: 'WARNING',
+          details: { ...amountDue, totalAmountDue: 9100.5, difference: 600, explanation: summaryMisread },
+        },
+        label: 'Card statement summary', tag: 'needs review',
+        body: /figures read from this statement's summary do not add up to its total amount due/,
+        note: /one of the summary figures was read incorrectly.*not at your transactions/,
+      },
+      {
+        name: 'summary does not add up to the outstanding balance',
+        finding: {
+          rule: SUMMARY, outcome: 'WARNING',
+          details: { ...outstanding, totalOutstanding: 35000, difference: 409.6, explanation: summaryMisread },
+        },
+        label: 'Card statement summary', tag: 'needs review',
+        body: /do not add up to its total outstanding/,
+        note: /not at your transactions/,
+      },
+      {
+        name: 'summary was read two ways',
+        finding: {
+          rule: SUMMARY, outcome: 'WARNING',
+          details: {
+            conflictingFields: ['previousBalance', 'fees'],
+            reason: 'SUMMARY_EXTRACTION_CONFLICT: GRID and INLINE_LABEL_VALUE read different values for the '
+              + 'same field(s) on this statement\'s billing-summary panel. At least one of the two readings '
+              + 'is wrong, so neither is trusted here.',
+          },
+        },
+        label: 'Card statement summary', tag: 'needs review',
+        body: /read in two ways that give different figures.*differ on: previous balance, fees\./,
+        note: /not at your transactions/,
+      },
+      {
+        name: 'no summary to add up',
+        finding: {
+          rule: SUMMARY, outcome: 'NOT_APPLICABLE',
+          details: {
+            reason: 'This statement\'s billing-summary panel did not print enough of previous balance, '
+              + 'purchases, and payments/credits, alongside the total amount due, to check them against each other.',
+          },
+        },
+        label: 'Card statement summary', tag: 'not applicable',
+        body: /No card summary with a previous balance, purchases, payments and a total was found/,
+      },
+      {
+        name: 'transactions add up to the summary',
+        finding: { rule: FLOW, outcome: 'VERIFIED', details: flowAmounts },
+        label: 'Card purchases and payments', tag: 'verified',
+        body: /purchases and the payments read from this statement add up to the totals in its summary/,
+      },
+      {
+        name: 'transactions add up once refunds and fees are allowed for',
+        finding: {
+          rule: FLOW, outcome: 'VERIFIED',
+          details: {
+            ...flowAmounts, observedExpenseAmount: 9590.5, differenceExpenseAmount: 1090,
+            observedIncomeAmount: 12500, differenceIncomeAmount: 500,
+            expectedChargesAmount: 9090.5, creditsNettedIntoPurchases: 500,
+          },
+        },
+        label: 'Card purchases and payments', tag: 'verified',
+        body: /groups some amounts differently.*for example fees.*or refunds.*transactions read from it add up to its totals/,
+      },
+      {
+        name: 'transactions add up once one instalment is set aside',
+        finding: {
+          rule: FLOW, outcome: 'VERIFIED',
+          details: {
+            ...flowAmounts, observedExpenseAmount: 10500.5, differenceExpenseAmount: 2000,
+            expectedChargesAmount: 8500.5, instalmentRowsSetAside: 1,
+          },
+        },
+        label: 'Card purchases and payments', tag: 'verified',
+        body: /Purchases match too once 1 instalment \(EMI\) transaction is set aside/,
+      },
+      {
+        name: 'transactions add up once several instalments are set aside',
+        finding: {
+          rule: FLOW, outcome: 'VERIFIED',
+          details: {
+            ...flowAmounts, observedExpenseAmount: 14500.5, differenceExpenseAmount: 6000,
+            expectedChargesAmount: 8500.5, instalmentRowsSetAside: 3,
+          },
+        },
+        label: 'Card purchases and payments', tag: 'verified',
+        body: /Purchases match too once 3 instalment \(EMI\) transactions are set aside/,
+      },
+      // Payments proven, purchases over by more than instalments explain. The backend holds this
+      // for a person rather than passing it with a softer label, so it reads as any other warning.
+      {
+        name: 'payments match but purchases are over, with instalments that do not explain it',
+        finding: {
+          rule: FLOW, outcome: 'WARNING',
+          details: {
+            ...flowAmounts, observedExpenseAmount: 11750.5, differenceExpenseAmount: 3250,
+            expectedChargesAmount: 8500.5, instalmentRowsRecognised: 2, explanation: flowDisagrees,
+          },
+        },
+        label: 'Card purchases and payments', tag: 'needs review',
+        body: /Payments and credits match this statement's summary, but the purchases and charges read from it add up to more than the summary counts\. The 2 instalment \(EMI\) transactions found on it do not account for the difference exactly\./,
+        note: /cannot tell which side is off\. Compare the transactions with your statement/,
+      },
+      {
+        name: 'payments match but purchases are over, with one instalment that does not explain it',
+        finding: {
+          rule: FLOW, outcome: 'WARNING',
+          details: {
+            ...flowAmounts, observedExpenseAmount: 11750.5, differenceExpenseAmount: 3250,
+            expectedChargesAmount: 8500.5, instalmentRowsRecognised: 1, explanation: flowDisagrees,
+          },
+        },
+        label: 'Card purchases and payments', tag: 'needs review',
+        body: /The one instalment \(EMI\) transaction found on it does not account for the difference exactly\./,
+        note: /cannot tell which side is off/,
+      },
+      {
+        name: 'payments match but purchases are over, with no instalment found',
+        finding: {
+          rule: FLOW, outcome: 'WARNING',
+          details: {
+            ...flowAmounts, observedExpenseAmount: 11750.5, differenceExpenseAmount: 3250,
+            expectedChargesAmount: 8500.5, instalmentRowsRecognised: 0, explanation: flowDisagrees,
+          },
+        },
+        label: 'Card purchases and payments', tag: 'needs review',
+        body: /purchases and charges read from it add up to more than the summary counts\.$/,
+        note: /cannot tell which side is off/,
+      },
+      {
+        name: 'no card summary on the statement',
+        finding: {
+          rule: FLOW, outcome: 'NOT_APPLICABLE',
+          details: {
+            evidenceLevel: 'NO_SUMMARY',
+            reason: 'No billing-summary panel evidence was extracted for this statement.',
+          },
+        },
+        label: 'Card purchases and payments', tag: 'not applicable',
+        body: /No card summary was found on this statement/,
+      },
+      {
+        name: 'summary prints only one of the two totals',
+        finding: {
+          rule: FLOW, outcome: 'NOT_APPLICABLE',
+          details: {
+            evidenceLevel: 'PARTIAL_SUMMARY_ONLY',
+            reason: 'The billing-summary panel did not print both purchases and payments/credits, so the '
+              + 'extracted transactions could not be reconciled against it.',
+          },
+        },
+        label: 'Card purchases and payments', tag: 'not applicable',
+        body: /does not print both a purchases total and a payments total/,
+      },
+      {
+        name: 'no transaction read as a purchase or a payment',
+        finding: {
+          rule: FLOW, outcome: 'NOT_APPLICABLE',
+          details: {
+            evidenceLevel: 'NO_CLASSIFIED_TRANSACTIONS',
+            reason: 'This statement\'s billing-summary panel printed both purchases and payments/credits, but '
+              + 'no extracted row was classified as either an expense or an income -- there is nothing to '
+              + 'reconcile the panel against.',
+          },
+        },
+        label: 'Card purchases and payments', tag: 'not applicable',
+        body: /no transaction on it was read as a purchase or a payment/,
+      },
+      {
+        name: 'a reason for not checking that this build has not heard of',
+        finding: { rule: FLOW, outcome: 'NOT_APPLICABLE', details: { evidenceLevel: 'SOME_FUTURE_LEVEL' } },
+        label: 'Card purchases and payments', tag: 'not applicable',
+        body: /This check could not be run on this statement\./,
+      },
+      {
+        name: 'transactions do not add up to the summary',
+        finding: {
+          rule: FLOW, outcome: 'WARNING',
+          details: {
+            ...flowAmounts, observedExpenseAmount: 7300.5, differenceExpenseAmount: -1200,
+            explanation: flowDisagrees,
+          },
+        },
+        label: 'Card purchases and payments', tag: 'needs review',
+        body: /do not add up to the purchases and payments totals in its summary/,
+        note: /cannot tell which side is off\. Compare the transactions with your statement/,
+      },
+      // Neither validator reports FAILED today. One that did would still mean a disagreement, so
+      // it must not fall through to "could not be run".
+      {
+        name: 'a failed summary check from a later backend',
+        finding: { rule: SUMMARY, outcome: 'FAILED', details: { ...amountDue, totalAmountDue: 9100.5, difference: 600 } },
+        label: 'Card statement summary', tag: 'did not reconcile',
+        body: /figures read from this statement's summary do not add up to its total amount due/,
+        note: /not at your transactions/,
+      },
+      {
+        name: 'a failed transactions check from a later backend',
+        finding: {
+          rule: FLOW, outcome: 'FAILED',
+          details: { ...flowAmounts, observedExpenseAmount: 7300.5, differenceExpenseAmount: -1200 },
+        },
+        label: 'Card purchases and payments', tag: 'did not reconcile',
+        body: /do not add up to the purchases and payments totals in its summary/,
+        note: /cannot tell which side is off/,
+      },
+    ];
+
+    const expand = (...findings: VerificationFinding[]) => {
+      render(<VerificationPanel verification={report({ findings })} />);
+      fireEvent.press(screen.getByText('Statement verification'));
+    };
+
+    it.each(cases)('$name', ({ finding, label, tag, body, note }) => {
+      expand(finding);
+
+      // The label shares a Text node with its outcome.
+      expect(screen.getByText(`${label} · ${tag}`)).toBeTruthy();
+      expect(screen.getByText(body)).toBeTruthy();
+      if (note) expect(screen.getByText(note)).toBeTruthy();
+
+      // Nothing of the machinery: not the rule id, not the fallback line, not a details key or
+      // value, and not the server's own sentence about panels and extraction.
+      expect(screen.queryByText(
+        /CREDIT_CARD|doesn't know how to display|billing-summary|GRID|INLINE_LABEL|extract|evidenceLevel|_ONLY|NO_SUMMARY|NO_CLASSIFIED|FULL_SUMMARY|FUTURE_LEVEL|undefined|NaN/,
+      )).toBeNull();
+    });
+
+    it('never tells someone a statement with one side unproven can go ahead', () => {
+      // The owner's rule (2026-10-11): an import goes ahead only once its amounts are confirmed,
+      // by a check or by a person. A softer label here would say the opposite.
+      expand(cases.find((c) => c.name.startsWith('payments match but purchases are over, with instalments'))!.finding);
+
+      expect(screen.queryByText(/not applicable|not fully checked|verified|go ahead/i)).toBeNull();
+    });
+
+    it('survives a finding that arrives with no details at all', () => {
+      const bare = (rule: string): VerificationFinding =>
+        ({ rule, outcome: 'VERIFIED', details: null } as unknown as VerificationFinding);
+      expand(bare(SUMMARY), bare(FLOW));
+
+      expect(screen.getByText('Card statement summary · verified')).toBeTruthy();
+      expect(screen.getByText('Card purchases and payments · verified')).toBeTruthy();
+    });
+  });
 });

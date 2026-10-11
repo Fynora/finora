@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { CheckCircle2, AlertTriangle, ChevronDown, ChevronRight, ShieldQuestion } from 'lucide-react';
 import type { BalanceChainDetails, VerificationFinding, VerificationReport } from '../types';
+import { cardFlowCopy, cardSummaryCopy } from './cardVerificationCopy';
 
 /**
  * Shows whether an import could be proven faithful to the statement it came from.
@@ -336,7 +337,109 @@ const RULE_RENDERERS: Record<string, { label: string; render: (f: VerificationFi
       );
     },
   },
+  // The two card checks word themselves through cardVerificationCopy -- see that file for why they
+  // cannot show the server's own sentences. What is added here is the figures behind the wording.
+  CREDIT_CARD_STATEMENT_TOTALS: {
+    label: 'Card statement summary',
+    render: (finding) => {
+      const copy = cardSummaryCopy(finding);
+      const d = (finding.details ?? {}) as {
+        previousBalance?: number; purchases?: number; cashAdvances?: number; fees?: number;
+        paymentsAndCredits?: number; totalAmountDue?: number; expectedTotalAmountDue?: number;
+        totalOutstanding?: number; expectedTotalOutstanding?: number;
+      };
+      // A statement totals to one or the other, never both -- see the backend validator.
+      const outstanding = d.totalOutstanding !== undefined;
+      const printedTotal = outstanding ? d.totalOutstanding : d.totalAmountDue;
+      const addedUp = outstanding ? d.expectedTotalOutstanding : d.expectedTotalAmountDue;
+      return (
+        <>
+          <p className="text-xs text-muted">{copy.body}</p>
+          {printedTotal !== undefined && (
+            <p className="text-xs text-muted mt-1">
+              Previous balance {money(d.previousBalance)} + purchases {money(d.purchases)}
+              {/* Sent as zero when the statement prints none, and a zero term is only noise. */}
+              {d.cashAdvances ? ` + cash advances ${money(d.cashAdvances)}` : ''}
+              {d.fees ? ` + fees ${money(d.fees)}` : ''}
+              {' '}− payments and credits {money(d.paymentsAndCredits)} = {money(addedUp)}, against a
+              printed {outstanding ? 'total outstanding' : 'total amount due'} of {money(printedTotal)}.
+            </p>
+          )}
+          {copy.note && (
+            <p className={`text-xs mt-1 ${disagrees(finding) ? 'text-warning' : 'text-muted'}`}>
+              {copy.note}
+            </p>
+          )}
+        </>
+      );
+    },
+  },
+  CREDIT_CARD_FLOW_RECONCILIATION: {
+    label: 'Card purchases and payments',
+    render: (finding) => {
+      const copy = cardFlowCopy(finding);
+      const d = (finding.details ?? {}) as {
+        expectedExpenseAmount?: number; observedExpenseAmount?: number;
+        expectedIncomeAmount?: number; observedIncomeAmount?: number;
+        expectedChargesAmount?: number;
+      };
+      // Verified only after an allowance (refunds netted into purchases, instalments set aside):
+      // the two columns then differ on purpose, and a table of unequal figures under "verified"
+      // would read as a mistake. The sentence above says what was allowed for instead.
+      const allowanceMade = finding.outcome === 'VERIFIED'
+        && ('creditsNettedIntoPurchases' in d || 'instalmentRowsSetAside' in d);
+      const rows = allowanceMade || d.observedExpenseAmount === undefined ? [] : [
+        {
+          // With fees and cash advances added in, the statement's figure is no longer purchases alone.
+          label: d.expectedChargesAmount !== undefined ? 'Purchases and charges' : 'Purchases',
+          printed: d.expectedChargesAmount ?? d.expectedExpenseAmount,
+          imported: d.observedExpenseAmount,
+        },
+        { label: 'Payments and credits', printed: d.expectedIncomeAmount, imported: d.observedIncomeAmount },
+      ];
+      return (
+        <>
+          <p className="text-xs text-muted">{copy.body}</p>
+          {rows.length > 0 && (
+            <div className="mt-2 overflow-x-auto">
+              <table className="text-xs w-full">
+                <thead>
+                  <tr className="text-muted text-left">
+                    <th className="pr-3 font-medium py-1"></th>
+                    <th className="pr-3 font-medium py-1">Statement says</th>
+                    <th className="font-medium py-1">Imported</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => {
+                    const marked = r.printed !== r.imported;
+                    return (
+                      <tr key={r.label} className="text-ink border-t border-border">
+                        <td className="pr-3 py-1 text-muted">{r.label}</td>
+                        <td className="pr-3 py-1">{money(r.printed)}</td>
+                        <td className={`py-1 ${marked ? 'text-warning' : ''}`}>{money(r.imported)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {copy.note && (
+            <p className={`text-xs mt-2 ${disagrees(finding) ? 'text-warning' : 'text-muted'}`}>
+              {copy.note}
+            </p>
+          )}
+        </>
+      );
+    },
+  },
 };
+
+/** A card check's note takes the warning colour only when the check found a disagreement. */
+function disagrees(finding: VerificationFinding) {
+  return finding.outcome === 'WARNING' || finding.outcome === 'FAILED';
+}
 
 function money(n: number | null | undefined) {
   if (n === null || n === undefined) return '—';

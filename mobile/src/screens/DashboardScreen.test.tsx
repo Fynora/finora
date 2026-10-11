@@ -895,6 +895,18 @@ describe('categorization review nudge', () => {
     expect(await screen.findByText('1 transaction needs a quick look')).toBeTruthy();
   });
 
+  // Found on an iPhone 17 Pro simulator at an accessibility text size: two lines cut the one
+  // sentence under the count to "Label them once and Fynora remembers the...".
+  it('never cuts the sentence under the count under large Dynamic Type', async () => {
+    transactions.needsReview.mockResolvedValue([{ id: 't-1' }] as never);
+    renderScreen();
+    expect((await screen.findByText('Label them once and Fynora remembers the merchant for good.')).props.numberOfLines).toBe(2);
+
+    dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1.3 });
+    renderScreen();
+    expect((await screen.findByText('Label them once and Fynora remembers the merchant for good.')).props.numberOfLines).toBeUndefined();
+  });
+
   it('shows no count at all when only one half of the backlog loads', async () => {
     // The two queries are disjoint halves of one number. If one fails and the other returns rows,
     // `data ?? []` still produces a specific, confident, WRONG total -- and it is the
@@ -1499,6 +1511,26 @@ describe('Subscriptions & Recurring Payments widget (Phase 4)', () => {
     expect(await screen.findByText('Netflix')).toBeTruthy();
     expect(screen.getByText('Subscription')).toBeTruthy();
     expect(screen.getByText('₹499')).toBeTruthy();
+  });
+
+  // Found on an iPhone 17 Pro simulator at an accessibility text size: the amount, the expected
+  // date and the dismiss button took the whole row, and the payee's name was left a column 4
+  // points wide, one sliver of a letter per line. At large sizes the name takes a line of its own
+  // and the amount and date go under it.
+  it('gives the payee a line of its own under large Dynamic Type, with the amount and date under it', async () => {
+    recurring.list.mockResolvedValue([recurringItem({ merchant: 'Netflix', label: 'Subscription', averageAmount: 499 })]);
+    renderScreen();
+    await screen.findByText('Netflix');
+    expect(StyleSheet.flatten(screen.getByTestId('recurring-row-Netflix').props.style).flexWrap).toBeUndefined();
+
+    dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1.3 });
+    renderScreen();
+    await screen.findByText('Netflix');
+    expect(StyleSheet.flatten(screen.getByTestId('recurring-row-Netflix').props.style).flexWrap).toBe('wrap');
+    expect(StyleSheet.flatten(screen.getByTestId('recurring-main-Netflix').props.style).flexBasis).toBe('100%');
+    const right = StyleSheet.flatten(screen.getByTestId('recurring-right-Netflix').props.style);
+    expect(right.alignItems).toBe('flex-start');
+    expect(right.flexGrow).toBe(1);
   });
 
   it('still asks "still Rent?" for a payee whose amount moved when no group is detected at all', async () => {

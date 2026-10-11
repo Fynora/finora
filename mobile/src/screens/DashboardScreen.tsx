@@ -507,7 +507,7 @@ export function DashboardScreen() {
           <Card style={styles.nudge}>
             <View style={styles.nudgeText}>
               <Text style={[typography.labelM, { color: c.ink }]}>{reviewNudgeLabel(reviewCount)}</Text>
-              <Text style={[typography.bodyS, { color: c.mutedInk }]} numberOfLines={2}>
+              <Text style={[typography.bodyS, { color: c.mutedInk }]} numberOfLines={largeText ? undefined : 2}>
                 Label them once and Fynora remembers the merchant for good.
               </Text>
             </View>
@@ -801,8 +801,12 @@ export function DashboardScreen() {
                 key={r.merchant}
                 style={[styles.recurringItem, i > 0 && { borderTopColor: c.border, borderTopWidth: StyleSheet.hairlineWidth }]}
               >
-                <View style={styles.recurringRow}>
-                  <View style={styles.recurringMain}>
+                {/* In one row the amount, the date and the dismiss button take what they need and
+                    the payee gets the rest: at large text that was 4 points, a sliver of a letter
+                    per line. The row then wraps, the payee takes its own line, and the amount and
+                    date go under it. */}
+                <View testID={`recurring-row-${r.merchant}`} style={[styles.recurringRow, largeText && styles.recurringRowWrapped]}>
+                  <View testID={`recurring-main-${r.merchant}`} style={[styles.recurringMain, largeText && styles.recurringMainWrapped]}>
                     <Text style={[typography.labelM, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
                       {r.merchant}
                     </Text>
@@ -816,14 +820,14 @@ export function DashboardScreen() {
                       {r.label}
                     </Text>
                   </View>
-                  <View style={styles.recurringRight}>
+                  <View testID={`recurring-right-${r.merchant}`} style={[styles.recurringRight, largeText && styles.recurringRightWrapped]}>
                     {/* RecurringService filters to Transaction.Type.EXPENSE only (confirmed by
                         reading the backend, not assumed) -- same debit color as Recent Transactions.
                         No "-" prefix, unlike that list: this is a forward-looking "what's coming due"
                         figure, not a past ledger entry, and the pinned test for this card asserts the
                         bare amount ('₹499', no sign). */}
                     <Text style={[typography.numberS, { color: c.dangerInk }]}>{fmtCurrency(r.averageAmount)}</Text>
-                    <Text style={[typography.caption, { color: c.mutedInk }]} numberOfLines={1}>
+                    <Text style={[typography.caption, { color: c.mutedInk }]} numberOfLines={largeText ? undefined : 1}>
                       {recurringExpectedLabel(r.nextEstimate)}
                     </Text>
                   </View>
@@ -1173,11 +1177,14 @@ const styles = StyleSheet.create({
   recurringRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm,
   },
+  recurringRowWrapped: { flexWrap: 'wrap', rowGap: spacing.xs },
   recurringMain: { flex: 1, minWidth: 0 },
+  recurringMainWrapped: { flexGrow: 0, flexShrink: 0, flexBasis: '100%' },
   recurringBadge: {
     alignSelf: 'flex-start', marginTop: 4, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, overflow: 'hidden',
   },
   recurringRight: { alignItems: 'flex-end', gap: 2 },
+  recurringRightWrapped: { alignItems: 'flex-start', flexGrow: 1, flexShrink: 1, flexBasis: 0 },
   recurringDismissButton: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   quickActionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.ms },
   // Three per row at any phone width: 30% each plus flexGrow across two 12 point gaps.

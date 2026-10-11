@@ -74,6 +74,11 @@ public class ImportVerificationRecorder {
             // ROW_ACCOUNTING's own counts -- same category as the pair above: facts about how many
             // of OUR rows landed in which bucket, never a value read off the statement.
             "unparseableRowCount", "droppedTransactionCandidateCount",
+            // CREDIT_CARD_FLOW_RECONCILIATION: how many of our own rows were recognised as
+            // instalments -- and left out of the comparison (SetAside, a verified finding), or
+            // found but not enough to explain the surplus (Recognised, a warning). Counts, like the
+            // four above.
+            "instalmentRowsSetAside", "instalmentRowsRecognised",
             "suspectedCause");
 
     /**

@@ -274,6 +274,11 @@ public class CapabilityCoverageService {
             // doc's Credit Card Direction Evidence Study addendum for the measured fire rate against
             // the real 6-document corpus.
             "CREDIT_CARD_SUMMARY_TOTALS", "CREDIT_CARD_SUMMARY_INLINE_LABEL_VALUE",
+            // The third strategy: a panel whose labels are each wrapped over several lines above
+            // one row of figures, tried only where neither strategy above could form its equation
+            // (real evidence: a real SBI card's "Account Summary"). Fires only when the whole of
+            // the panel's own equation was read -- see CreditCardSummaryExtractor.tryStackedColumns.
+            "CREDIT_CARD_SUMMARY_STACKED_LABEL_COLUMNS",
             // The same panel read a third way, tried only where neither strategy above can form
             // the equation: the whole billing equation printed as one line of text over one row of
             // figures (real evidence: an Axis card). See CardSummaryEquationReader.

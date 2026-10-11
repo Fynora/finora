@@ -1082,6 +1082,31 @@ actually works — no test, no claim.
   Neither strategy's own result is trusted alone in any case — completeness
   (`hasReconcilableFields()`), not "found anything", decides which one's numbers win when there is
   no conflict.
+- **A third strategy, STACKED_LABEL_COLUMNS, tried only where neither of those can form its
+  equation.** A real SBI card's "Account Summary" wraps every label over two or three lines in its
+  own column ("Payments," / "Reversals & other" / "Credits") above a single row of figures, so no
+  line of any label is a label on its own and both older strategies read nothing. This one joins a
+  column's lines before matching them against the same fixed label lists, accepts a field only when
+  the first thing under its column is a figure on a row of figures alone, and reads together only
+  the fields whose figures share one row. It reports nothing unless that row carries the whole
+  equation. Three things about that panel are measured on the real statement, not assumed:
+    1. **Its total is the outstanding balance, not the amount due.** The two are printed in
+       different boxes and differ by the instalment principal not yet billed. The outstanding total
+       is therefore its own field (`totalOutstanding`) and never replaces `totalAmountDue`, which an
+       account's balance is taken from; `CreditCardStatementTotalsValidator` checks such a panel
+       against the outstanding total (`hasOutstandingEquation()`), with the same whole-rupee
+       allowance, because that statement prints the total without paise.
+    2. **Its transactions list instalments its summary does not count.** Each instalment on an
+       earlier purchase is a ledger row, but is in neither the purchases nor the fees figure. The
+       payments side matches to the paisa; the charges exceed purchases plus fees by exactly the
+       instalment rows. `CreditCardFlowReconciliationValidator` sets those rows aside (recognised by
+       the instalment's own "n/m" counter in the narration) on this kind of panel only.
+    3. **A surplus the recognised instalments do not explain exactly still warns, and so holds the
+       import.** It may be an instalment worded another way, or a row read twice, and nothing here
+       can tell which. The owner's decision (2026-10-11): an import goes ahead only once its amounts
+       are confirmed, by a check or by a person. The finding carries `instalmentRowsRecognised` so
+       the reviewer sees how much of the surplus was understood. Built on one SBI statement: each
+       new instalment wording seen in a held review is a candidate for the recogniser.
 - **Supported layouts:** GRID's row-merge recovery (found and fixed against a real Axis statement:
   a date-range row and its amount row sit only ~1.0pt apart in y, close enough for shared
   row-grouping logic to merge them, which then fails the "value row must be numeric" safety check

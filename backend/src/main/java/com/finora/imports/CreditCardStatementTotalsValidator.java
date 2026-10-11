@@ -67,6 +67,13 @@ public class CreditCardStatementTotalsValidator {
             return new ImportDto.VerificationFinding(RULE, "WARNING", details);
         }
 
+        // Before the amount-due equation, never after: a panel of this kind sits beside a separately
+        // printed amount due, so it has every field that equation asks for and would be compared
+        // against a figure it was never meant to add up to.
+        if (summary != null && summary.hasOutstandingEquation()) {
+            return checkOutstandingEquation(summary, details);
+        }
+
         if (summary == null || !summary.hasReconcilableFields()) {
             details.put("reason", "This statement's billing-summary panel did not print enough of "
                     + "previous balance, purchases, and payments/credits, alongside the total amount "
@@ -157,6 +164,51 @@ public class CreditCardStatementTotalsValidator {
     static final String SUMMARY_LEAVES_OUT_A_CREDIT = "SUMMARY_LEAVES_OUT_A_CREDIT: the summary's "
             + "payments and credits leave out a credit its own total includes. The rows carry the "
             + "previous balance to that total exactly.";
+
+    /**
+     * The same arithmetic for a panel that ends on its outstanding balance rather than its amount
+     * due -- a real SBI card's "Account Summary", whose "Total Outstanding" also counts instalment
+     * principal not yet billed and so is larger than the "Total Amount Due" printed in another box.
+     * That statement prints the outstanding total in whole rupees over figures carrying paise, so
+     * the allowance the amount-due equation makes for a rounded total applies here unchanged.
+     */
+    private ImportDto.VerificationFinding checkOutstandingEquation(CreditCardSummaryEvidence summary,
+                                                                   Map<String, Object> details) {
+        BigDecimal cashAdvances = summary.cashAdvances() == null ? BigDecimal.ZERO : summary.cashAdvances();
+        BigDecimal fees = summary.fees() == null ? BigDecimal.ZERO : summary.fees();
+        BigDecimal expectedTotalOutstanding = summary.previousBalance()
+                .add(summary.purchases())
+                .add(cashAdvances)
+                .add(fees)
+                .subtract(summary.paymentsAndCredits());
+        BigDecimal difference = summary.totalOutstanding().subtract(expectedTotalOutstanding);
+
+        details.put("extractionMethod", summary.extractionMethod().name());
+        details.put("previousBalance", summary.previousBalance());
+        details.put("purchases", summary.purchases());
+        details.put("cashAdvances", cashAdvances);
+        details.put("fees", fees);
+        details.put("paymentsAndCredits", summary.paymentsAndCredits());
+        details.put("totalOutstanding", summary.totalOutstanding());
+        details.put("expectedTotalOutstanding", expectedTotalOutstanding);
+        details.put("difference", difference);
+
+        if (difference.signum() == 0) {
+            return new ImportDto.VerificationFinding(RULE, "VERIFIED", details);
+        }
+        if (isWholeRupees(summary.totalOutstanding()) && !isWholeRupees(expectedTotalOutstanding)
+                && difference.abs().compareTo(BigDecimal.ONE) < 0) {
+            details.put("totalRoundedToRupee", true);
+            return new ImportDto.VerificationFinding(RULE, "VERIFIED", details);
+        }
+
+        details.put("explanation", "The previous balance, purchases, cash advances, fees, and "
+                + "payments/credits this statement prints about itself do not add up to its own "
+                + "printed outstanding balance. This does not implicate any parsed transaction -- no "
+                + "transaction row was read to produce this finding -- it means this extraction "
+                + "misread one of the statement's own summary figures.");
+        return new ImportDto.VerificationFinding(RULE, "WARNING", details);
+    }
 
     private static boolean isWholeRupees(BigDecimal amount) {
         return amount.stripTrailingZeros().scale() <= 0;

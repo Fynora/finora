@@ -9,6 +9,7 @@ import java.math.BigDecimal;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * Checks that a credit-card statement's own EXTRACTED transactions, aggregated by direction,
@@ -152,11 +153,35 @@ public class CreditCardFlowReconciliationValidator {
             return new ImportDto.VerificationFinding(RULE, "VERIFIED", details);
         }
 
-        // A third reading, for a summary printed as its own equation only (a real Axis card), and
-        // again only once everything above has failed. Measured on a real statement: the charges
-        // matched to the paisa, the credits ran over by exactly one refund row, and the printed
-        // equation was short of its own total by that same row -- the summary counted the refund
-        // in neither "Payments" nor "Credits", yet its total due reflects it. The rows are then
+        // A third reading, for a panel that totals to the outstanding balance rather than to the
+        // amount due (a real SBI card). Such a statement lists each instalment on an earlier
+        // purchase among its transactions, but counts it in neither its purchases nor its fees
+        // figure: the principal was already part of the outstanding balance, and billing it moves
+        // nothing. Measured on that statement: payments match to the paisa, and the charges exceed
+        // purchases plus fees by exactly the instalment rows. So on this kind of panel, and with
+        // the payments side proven, a surplus made up of instalment rows is not a misread.
+        if (summary.hasOutstandingEquation() && paymentsMatch && chargesSurplus.signum() > 0) {
+            List<StagedRow> instalments = rows.stream().filter(CreditCardFlowReconciliationValidator::isInstalment).toList();
+            BigDecimal instalmentAmount = sumOf(instalments, "EXPENSE");
+            details.put("expectedChargesAmount", expectedCharges);
+            if (instalmentAmount.compareTo(chargesSurplus) == 0) {
+                details.put("instalmentRowsSetAside", instalments.size());
+                return new ImportDto.VerificationFinding(RULE, "VERIFIED", details);
+            }
+            // A surplus the recognised instalments do not account for exactly is not explained by
+            // anything here -- an instalment worded some other way, or a row read twice -- so it
+            // falls through to the warning below like any other disagreement, and the import is
+            // held for review. Sid's decision (2026-10-11): an import goes ahead only once its
+            // amounts are confirmed, by a check or by a person. How many rows were recognised is
+            // kept, so the reviewer can see how much of the surplus was understood.
+            details.put("instalmentRowsRecognised", instalments.size());
+        }
+
+        // A further reading, for a summary printed as its own equation only (a real Axis card),
+        // and again only once everything above has failed. Measured on a real statement: the
+        // charges matched to the paisa, the credits ran over by exactly one refund row, and the
+        // printed equation was short of its own total by that same row -- the summary counted the
+        // refund in neither "Payments" nor "Credits", yet its total due reflects it. The rows are then
         // checked against the two balances instead of the payments figure: charges must match
         // exactly, and the rows must carry the previous balance to the total due exactly. That
         // pins both sides, since the credits are whatever the balances and the charges leave.
@@ -179,6 +204,20 @@ public class CreditCardFlowReconciliationValidator {
                 + "this statement's own printed purchases and/or payments/credits totals. This does "
                 + "not identify which side is wrong -- only that they disagree.");
         return new ImportDto.VerificationFinding(RULE, "WARNING", details);
+    }
+
+    /**
+     * An instalment's own counter in a row's narration -- "EMI 03/06", the third of six. The real
+     * statement words its instalment rows "FP EMI 03/06(EXCL TAX ...)" and the interest on them
+     * "INTEREST ON EMI"; only the first is principal the summary leaves out, and the counter is
+     * what tells them apart. Narrower than the word alone on purpose: a row merely mentioning
+     * instalments is a charge like any other.
+     */
+    private static final Pattern INSTALMENT_COUNTER = Pattern.compile("(?i)\\bEMI\\s+\\d{1,2}\\s*/\\s*\\d{1,2}\\b");
+
+    private static boolean isInstalment(StagedRow row) {
+        return "EXPENSE".equals(row.type()) && row.description() != null
+                && INSTALMENT_COUNTER.matcher(row.description()).find();
     }
 
     /** {@code StagedRow.amount()} is documented as absolute by the time it reaches here; {@code abs()}

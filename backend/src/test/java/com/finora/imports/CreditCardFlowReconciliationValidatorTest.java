@@ -379,4 +379,139 @@ class CreditCardFlowReconciliationValidatorTest {
 
         assertThat(finding.outcome()).isEqualTo("WARNING");
     }
+
+    // ---- A panel that totals to the outstanding balance, with instalment rows in the ledger ----
+
+    /**
+     * The summary a real SBI card prints: purchases, fees and payments, totalling to "Total
+     * Outstanding" rather than to the amount due. An instalment on an earlier purchase is listed
+     * among the transactions but is in neither the purchases nor the fees figure, because its
+     * principal was already part of the outstanding balance.
+     */
+    private static CreditCardSummaryEvidence outstandingSummary(String purchases, String fees, String payments) {
+        return new CreditCardSummaryEvidence(
+                new BigDecimal("40000"), new BigDecimal(purchases), null, new BigDecimal(fees),
+                new BigDecimal(payments), new BigDecimal("25000"),
+                CreditCardSummaryEvidence.ExtractionMethod.STACKED_LABEL_COLUMNS, List.of(),
+                new BigDecimal("30500"));
+    }
+
+    @Test
+    void verifiesWhenInstalmentRowsAccountForTheWholeSurplusOnAnOutstandingPanel() {
+        var rows = List.of(
+                row("SAMPLE STORE", "12000", "EXPENSE"),
+                row("SAMPLE PHARMACY", "8000", "EXPENSE"),
+                row("INTEREST ON EMI", "424.15", "EXPENSE"),
+                row("IGST DB @ 18.00%", "76.35", "EXPENSE"),
+                row("FP EMI 03/06(EXCL TAX   76.35)", "3000", "EXPENSE"),
+                row("PAYMENT RECEIVED", "30000", "INCOME"));
+
+        var finding = validator.check(rows, outstandingSummary("20000", "500.50", "30000"));
+
+        assertThat(finding.outcome()).isEqualTo("VERIFIED");
+        assertThat(finding.details().get("evidenceLevel")).isEqualTo("FULL_SUMMARY_RECONCILIATION");
+        assertThat(finding.details().get("instalmentRowsSetAside")).isEqualTo(1);
+    }
+
+    @Test
+    void anOutstandingPanelWithNoInstalmentsVerifiesOnTheChargesAlone() {
+        var rows = List.of(
+                row("SAMPLE STORE", "20000", "EXPENSE"),
+                row("LATE FEE", "500.50", "EXPENSE"),
+                row("PAYMENT RECEIVED", "30000", "INCOME"));
+
+        var finding = validator.check(rows, outstandingSummary("20000", "500.50", "30000"));
+
+        assertThat(finding.outcome()).isEqualTo("VERIFIED");
+        assertThat(finding.details()).doesNotContainKey("instalmentRowsSetAside");
+    }
+
+    @Test
+    void anUnexplainedSurplusOnAnOutstandingPanelWarnsSoTheImportIsHeld() {
+        // An instalment worded in a way nothing here recognises -- or a row read twice. The two
+        // cannot be told apart, so the amounts are not confirmed and the import waits for a person.
+        var rows = List.of(
+                row("SAMPLE STORE", "20000", "EXPENSE"),
+                row("LATE FEE", "500.50", "EXPENSE"),
+                row("LOAN INSTALMENT", "3000", "EXPENSE"),
+                row("PAYMENT RECEIVED", "30000", "INCOME"));
+
+        var finding = validator.check(rows, outstandingSummary("20000", "500.50", "30000"));
+
+        assertThat(finding.outcome()).isEqualTo("WARNING");
+        assertThat(finding.details().get("instalmentRowsRecognised")).isEqualTo(0);
+        assertThat(finding.details()).doesNotContainKey("instalmentRowsSetAside");
+    }
+
+    @Test
+    void aSurplusOnlyPartlyMadeOfInstalmentsWarnsRatherThanGuessing() {
+        // Recognised instalments come to 3000 but the surplus is 2000: setting them aside would
+        // leave the charges short, and which reading is right is not knowable from here.
+        var rows = List.of(
+                row("SAMPLE STORE", "19000", "EXPENSE"),
+                row("LATE FEE", "500.50", "EXPENSE"),
+                row("FP EMI 03/06(EXCL TAX   76.35)", "3000", "EXPENSE"),
+                row("PAYMENT RECEIVED", "30000", "INCOME"));
+
+        var finding = validator.check(rows, outstandingSummary("20000", "500.50", "30000"));
+
+        assertThat(finding.outcome()).isEqualTo("WARNING");
+        assertThat(finding.details().get("instalmentRowsRecognised")).isEqualTo(1);
+    }
+
+    @Test
+    void chargesShortOfAnOutstandingPanelStillWarn() {
+        // Fewer charges than the summary counts is a row that was not read, whatever the panel.
+        var rows = List.of(
+                row("SAMPLE STORE", "12000", "EXPENSE"),
+                row("LATE FEE", "500.50", "EXPENSE"),
+                row("PAYMENT RECEIVED", "30000", "INCOME"));
+
+        var finding = validator.check(rows, outstandingSummary("20000", "500.50", "30000"));
+
+        assertThat(finding.outcome()).isEqualTo("WARNING");
+    }
+
+    @Test
+    void paymentsDisagreeingWithAnOutstandingPanelStillWarnEvenWithASurplus() {
+        var rows = List.of(
+                row("SAMPLE STORE", "20000", "EXPENSE"),
+                row("LATE FEE", "500.50", "EXPENSE"),
+                row("FP EMI 03/06(EXCL TAX   76.35)", "3000", "EXPENSE"),
+                row("PAYMENT RECEIVED", "29000", "INCOME"));
+
+        var finding = validator.check(rows, outstandingSummary("20000", "500.50", "30000"));
+
+        assertThat(finding.outcome()).isEqualTo("WARNING");
+    }
+
+    @Test
+    void instalmentRowsAreNotSetAsideOnAPanelThatTotalsToTheAmountDue() {
+        // No statement of that kind has shown instalments left out of its purchases figure, so the
+        // old rule stands there: an unexplained surplus is a disagreement.
+        var rows = List.of(
+                row("SAMPLE STORE", "500", "EXPENSE"),
+                row("GST", "18", "EXPENSE"),
+                row("FP EMI 03/06(EXCL TAX   76.35)", "3000", "EXPENSE"),
+                row("PAYMENT RECEIVED", "1000", "INCOME"));
+
+        var finding = validator.check(rows, summaryWithFees("500", "18", "1000"));
+
+        assertThat(finding.outcome()).isEqualTo("WARNING");
+    }
+
+    @Test
+    void aRowMentioningInstalmentsWithoutACounterIsNotAnInstalment() {
+        // "INTEREST ON EMI" is a charge the fees figure counts. Only a row carrying its own
+        // "n of m" counter is an instalment.
+        var rows = List.of(
+                row("SAMPLE STORE", "20000", "EXPENSE"),
+                row("INTEREST ON EMI", "500.50", "EXPENSE"),
+                row("PAYMENT RECEIVED", "30000", "INCOME"));
+
+        var finding = validator.check(rows, outstandingSummary("20000", "500.50", "30000"));
+
+        assertThat(finding.outcome()).isEqualTo("VERIFIED");
+        assertThat(finding.details()).doesNotContainKey("instalmentRowsSetAside");
+    }
 }

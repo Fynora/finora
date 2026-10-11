@@ -250,4 +250,51 @@ class CreditCardStatementTotalsValidatorTest {
                 .as("a contested reading is not trusted enough to even attempt the equation math")
                 .doesNotContainKey("difference");
     }
+
+    // ---- A panel whose own total is the outstanding balance, not the amount due ----
+
+    /** Previous balance, purchases, fees and payments totalling to "Total Outstanding", beside a
+     *  separate and smaller amount due -- the shape of a real SBI card's Account Summary. */
+    private static CreditCardSummaryEvidence outstandingSummary(String previousBalance, String purchases,
+            String fees, String paymentsAndCredits, String totalAmountDue, String totalOutstanding) {
+        return new CreditCardSummaryEvidence(
+                new BigDecimal(previousBalance), new BigDecimal(purchases), null, new BigDecimal(fees),
+                new BigDecimal(paymentsAndCredits), new BigDecimal(totalAmountDue),
+                CreditCardSummaryEvidence.ExtractionMethod.STACKED_LABEL_COLUMNS, List.of(),
+                new BigDecimal(totalOutstanding));
+    }
+
+    @Test
+    void anOutstandingPanelIsCheckedAgainstItsOwnTotalNotTheAmountDue() {
+        // 40000 + 20000 + 500 - 30000 = 30500, the outstanding balance. The amount due (25000) is a
+        // different figure and plays no part.
+        var finding = validator.check(outstandingSummary("40000", "20000", "500", "30000", "25000", "30500"));
+
+        assertThat(finding.outcome()).isEqualTo("VERIFIED");
+        assertThat(finding.details().get("totalOutstanding")).isEqualTo(new BigDecimal("30500"));
+        assertThat(finding.details().get("difference")).isEqualTo(BigDecimal.ZERO);
+    }
+
+    @Test
+    void anOutstandingTotalPrintedInWholeRupeesMatchesWithinTheDroppedPaise() {
+        // 40000 + 20000 + 500.50 - 30000 = 30500.50, printed as 30,500.00.
+        var finding = validator.check(outstandingSummary("40000", "20000", "500.50", "30000", "25000", "30500.00"));
+
+        assertThat(finding.outcome()).isEqualTo("VERIFIED");
+        assertThat(finding.details().get("totalRoundedToRupee")).isEqualTo(true);
+    }
+
+    @Test
+    void anOutstandingTotalARupeeOrMoreAwayStillWarns() {
+        var finding = validator.check(outstandingSummary("40000", "20000", "500.50", "30000", "25000", "30499.00"));
+
+        assertThat(finding.outcome()).isEqualTo("WARNING");
+    }
+
+    @Test
+    void anOutstandingTotalPrintedWithPaiseMustMatchExactly() {
+        var finding = validator.check(outstandingSummary("40000", "20000", "500.50", "30000", "25000", "30500.25"));
+
+        assertThat(finding.outcome()).isEqualTo("WARNING");
+    }
 }

@@ -20,7 +20,7 @@ import { sweepSharedContainers } from './src/lib/sharedContainerSweep';
 import { initMonitoring, withMonitoring } from './src/lib/monitoring';
 import { primeReduceTransparency } from './src/lib/useReduceTransparency';
 import { RootNavigator } from './src/navigation/RootNavigator';
-import { FontsReadyProvider, ThemeProvider, useAppFonts } from './src/theme';
+import { FontsReadyProvider, setCustomFontsUnavailable, ThemeProvider, useAppFonts } from './src/theme';
 
 // Before the component, not inside an effect: an error thrown during the first render is exactly
 // the kind worth capturing, and by the time an effect runs it would already be too late. No-ops
@@ -68,6 +68,9 @@ function App() {
   // spent behind the splash rather than in front of it.
   const [fontsLoaded, fontError] = useAppFonts();
   const splashReleased = fontsLoaded || fontError != null;
+  // On the system-font fallback the dashboard's type ramp keeps its weights (see typography.ts).
+  // Set during render, before the screens it gates can mount; it is idempotent.
+  setCustomFontsUnavailable(fontError != null);
 
   // The launch animation covers the app from the very first commit, so the native splash (the same
   // graphite, see app.config.ts) hands over to it with no visible change. It starts moving only once

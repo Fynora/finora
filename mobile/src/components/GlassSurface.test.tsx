@@ -104,5 +104,6 @@ it.each([true, null])('useGlassSurfaceStyle falls back to solid card + border wh
 
 it('DashboardCard renders through GlassSurface and keeps its hairline border and padding', () => {
   render(<ThemeProvider><DashboardCard testID="d">{null}</DashboardCard></ThemeProvider>);
-  expect(screen.getByTestId('d')).toHaveStyle({ backgroundColor: 'rgba(255,255,255,0.72)', padding: 24 });
+  // 20 (spacing.ml) since the card redesign of 2026-10-10; it was 24 (spacing.lg) before.
+  expect(screen.getByTestId('d')).toHaveStyle({ backgroundColor: 'rgba(255,255,255,0.72)', padding: 20 });
 });

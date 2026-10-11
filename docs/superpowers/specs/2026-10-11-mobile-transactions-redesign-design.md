@@ -376,6 +376,26 @@ Separately, for 9 of the 88 a longer form of the same name appears on another ro
 - That makes it its own piece of server work, not a step of this screen. This screen shows whatever
   name the server gives.
 
+The owner asked for it to be done, so the candidate rule was measured on the real statement
+collection before any code was written (a throwaway probe, counts and masked shapes only). The
+rule: a name is completed from a later field of its narration when that field continues the
+name's letters, is not a number, and its own separators give the word breaks.
+
+- 34 statements, 1,965 rows. A structured payee name was found on 456 rows. On 322 of those the
+  field after the name is mostly digits.
+- The rule fired on 31 rows in 6 statements. Most of those are not cut names at all: a short name
+  followed by a longer code that happens to start with the same letters. Applied as written it
+  would replace correct names with codes, so it must be limited to names sitting on a statement's
+  cut length.
+- Only one statement in the collection cuts names to eight characters (33 of its 46 names). There
+  the rule gives a properly spaced, longer name on 4 rows and a run-together one on 3.
+- So across the collection the honest gain is 4 rows of 1,965. Other banks cut at 10, 15 or 30
+  characters and print a phone number after the name, where nothing can be completed.
+- Not measured: whether the merchant a row is linked to (the server groups rows under known
+  brands) carries a better name than the cut one. That needs the production data and was not read.
+- Nothing was built. Whether a rule with this little reach is worth a parser change is the owner's
+  decision.
+
 ### A paging defect found on the way
 
 - 6 of the 200 loaded rows are a transaction that is already in the list. Each repeat sits exactly

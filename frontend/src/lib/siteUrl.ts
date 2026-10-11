@@ -17,6 +17,26 @@
 export const SITE_ORIGIN = 'https://app.fynora.net';
 
 /**
+ * The homepage's title and description, which are also the site's defaults: frontend/index.html
+ * carries them, and so does every document built from it that has none of its own (the blank shell
+ * for /auth and /app). Copies of what index.html says, because the browser needs them after the
+ * document has gone: a visitor who opened /terms and then went to the homepage or into the app is
+ * still on the terms document, whose head says "Terms & Conditions". pageMeta.test.tsx fails if
+ * these, index.html and the hero's sentence in landing-config.ts disagree.
+ */
+export const HOME_TITLE = 'Bank statement analyzer for Indian banks and cards — Fynora';
+export const SITE_DESCRIPTION =
+  'Fynora reads PDF and CSV statements from Indian banks and credit cards, checks its own work, and sorts every transaction.';
+
+/**
+ * The not-found page's title, as its file (dist/404.html) carries it in <title> and og:title. Here,
+ * not in pages/NotFound.tsx, because lib/notFoundDocument.ts needs it before any page has loaded
+ * and that page is a lazy chunk. NotFound.tsx builds its own title from the same two parts and
+ * NotFound.test.tsx holds them equal.
+ */
+export const NOT_FOUND_DOCUMENT_TITLE = 'Page not found — Fynora';
+
+/**
  * True when this build talks to the DEV API: a Cloudflare preview or the `dev` branch alias
  * (dev-app.fynora.net). deployment-guide.md puts VITE_API_BASE_URL=https://dev-api.fynora.net in the
  * Pages Preview bucket, which every non-production build inherits, and production builds use

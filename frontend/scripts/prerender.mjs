@@ -17,12 +17,10 @@ import {
   pageDescriptionFromMarkup,
   pageHeadingFromMarkup,
   pageTitleFromMarkup,
-  withCanonical,
-  withFontPreload,
-  withPageMeta,
-  withRobotsNoindex,
+  templateForHomepage,
+  templateForNotFound,
+  templateForPage,
   withStructuredData,
-  withTitle,
 } from './prerenderTitle.mjs';
 import { SPA_SHELL_FILE, spaShellHtml } from './spaShell.mjs';
 
@@ -112,10 +110,11 @@ async function main() {
   for (const [route, fileName] of Object.entries(OUTPUT_FILES)) {
     const renderRoute = routes[route];
     const appHtml = renderRoute();
-    // Every route but the homepage gets its own <title> (see prerenderTitle.mjs). The homepage
-    // keeps index.html's own -- its <h1> is the hero headline, not a page name. A page with no
-    // <h1> fails the build instead of quietly shipping the shared title again.
-    let pageTemplate = template;
+    // Every route but the homepage gets its own <title> and description (see prerenderTitle.mjs).
+    // The homepage keeps index.html's own -- its <h1> is the hero headline, not a page name. A page
+    // with no <h1> fails the build instead of quietly shipping the shared title again. Every route,
+    // the homepage included, gets the canonical and og:url for its own address.
+    let pageTemplate;
     let heading = null;
     if (route !== '/') {
       const title = pageTitleFromMarkup(appHtml);
@@ -123,11 +122,12 @@ async function main() {
       heading = decodeEntities(pageHeadingFromMarkup(appHtml));
       const description = pageDescriptionFromMarkup(appHtml);
       if (!description) throw new Error(`prerender: no subtitle to take a description from for ${route}`);
-      pageTemplate = withPageMeta(withCanonical(withTitle(template, title), route), { title, description, route });
+      pageTemplate = templateForPage(template, { title, description, route });
     } else {
       // Only the homepage paints the hero headline. The blank shell above and the not-found page
-      // below are both built from the untouched template, so neither carries this preload.
-      pageTemplate = withFontPreload(pageTemplate, heroFontHref);
+      // below are both built from the untouched template, so neither carries this preload, nor
+      // the homepage's canonical and og:url, which templateForHomepage adds to this file alone.
+      pageTemplate = templateForHomepage(template, heroFontHref);
     }
     // JSON-LD for the page (Organization/WebSite/SoftwareApplication/FAQPage on the homepage,
     // breadcrumbs elsewhere, the Help articles as an FAQPage on /help). Built from the pages' own
@@ -144,9 +144,9 @@ async function main() {
     if (!title) throw new Error('prerender: no <h1> to take a <title> from for the not-found page');
     const description = pageDescriptionFromMarkup(appHtml);
     if (!description) throw new Error('prerender: no subtitle to take a description from for the not-found page');
-    // No canonical, no og:url (route: null) and no JSON-LD: a noindex page names no address of its
-    // own, and a breadcrumb trail for a page that does not exist would be a lie.
-    const pageTemplate = withRobotsNoindex(withPageMeta(withTitle(template, title), { title, description, route: null }));
+    // No canonical, no og:url and no JSON-LD: a noindex page names no address of its own, and a
+    // breadcrumb trail for a page that does not exist would be a lie.
+    const pageTemplate = templateForNotFound(template, { title, description });
     fs.writeFileSync(path.join(distDir, NOT_FOUND_FILE), pageTemplate.replace(ROOT_DIV, `<div id="root">${appHtml}</div>`));
     console.log(`prerender: not-found page -> dist/${NOT_FOUND_FILE} (${appHtml.length} chars of markup)`);
   }

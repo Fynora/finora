@@ -17,8 +17,9 @@
        here: this file is the template every other document is built from (each prerendered page,
        the blank shell for /auth and /app, the not-found page), and the local servers answer every
        unknown path with it, so either tag would name the homepage as the address of another page.
-       In production it is served only at "/" (see "Which document a path gets" in the deployment
-       guide), and useCanonical adds the homepage's canonical in the browser.
+       The homepage does get both, in the built file only: the build adds them to dist/index.html
+       (templateForHomepage in scripts/prerenderTitle.mjs), which production serves only at "/"
+       (see "Which document a path gets" in the deployment guide).
        og:image is public/og-image.png, a 1200x630 card (the hero headline and a sample statement,
        both taken from the landing page's own copy and demo), so the card type is the large-image
        one. The absolute URL is deliberate: link-preview crawlers do not resolve relative paths.

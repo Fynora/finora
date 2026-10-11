@@ -50,6 +50,7 @@ On an iPhone 17 Pro simulator (iOS 26.5), default text size, the owner's own acc
   - All 200 rows also have a `merchant` value, and none of those is a narration. Median 8
     characters. 90 of the 200 are exactly eight characters taken from the narration, because the
     bank itself cuts a payee's name to eight characters there, so some of these names end mid-word.
+    The stored value is always lower case and at most four words (see "Review of this design").
   - Every row shows a review tag. On 123 of 200 it is "Reviewed" or "Categorized", which are
     the normal state; on 74 it is "Needs Review"; 3 are also "Recurring". 44 rows carry a match
     tag as well (transfer, investment, refund).
@@ -112,10 +113,12 @@ All values are existing tokens in `mobile/src/theme` unless marked new. Sizes ar
 - One round add button on the right (today's "Add transaction").
 - The line "All your financial activity in one place." is removed.
 - The title, the count and everything down to the list scroll away with the list.
-- **Pinned bar.** Once the title has scrolled out of view, a 54 point glass bar appears under the
-  status bar with "Transactions", a search button and the add button. It covers what scrolls
-  beneath it. The search button scrolls the list to the top and puts the cursor in the search box.
-  The bar fades in and out over 150 ms; with Reduce Motion on it appears and disappears at once.
+- **Pinned bar.** A glass surface runs from the very top of the screen, behind the status bar,
+  down to 54 points below it. It is clear while the list is at rest and becomes solid as soon as
+  the list has moved 24 points, so nothing slides behind the clock or is cut by a hard edge. Its
+  contents, "Transactions", a search button and the add button, appear once the large title has
+  gone under it. The search button scrolls the list to the top and puts the cursor in the search
+  box. Both changes take 150 ms; with Reduce Motion on they happen at once.
 
 ### Month card
 
@@ -126,6 +129,11 @@ All values are existing tokens in `mobile/src/theme` unless marked new. Sizes ar
   change figure shows no chip.
 - Same data as today (the dashboard's figures, shared cache key), same rule for hiding the card
   when there is no summary. It does not follow the filters, as today.
+- The figures keep their count-up animation and their test identifiers (`kpi-Income`,
+  `kpi-Expenses`). A change chip is spoken with the comparison in words (`deltaSpokenLabel`), not
+  as a bare percentage.
+- The new component file is added to `scripts/check-reporting-period-labels.py` as a companion of
+  `LedgerScreen.tsx`, so a hard-coded "This Month" or "vs last month" cannot be written into it.
 
 ### Search
 
@@ -153,10 +161,37 @@ All values are existing tokens in `mobile/src/theme` unless marked new. Sizes ar
 - Each day is a heading and one card. The heading is the day ("Today", "Yesterday", or
   "Wed, 30 Sep", with the year added when it is not the current year) and the day's total on the
   right, coloured as today. Which rows count toward the total does not change.
+- The heading is written from the day's date by a new function; `groupTransactionsByDay` and its
+  existing labels are left as they are for their tests.
+- A transaction is shown once. Pages are merged by transaction id, so a row the server returns on
+  two pages (the paging defect below) is not listed twice and is not counted twice in the day's
+  total. A transaction the server leaves out of every page cannot be recovered on the phone; only
+  the server fix restores it.
 - Inside the card, one row per transaction, hairline dividers between rows.
-- **Row title:** the merchant name; the bank narration when there is no merchant; "Transaction"
-  when there is neither. The narration stays in the details sheet, in the delete confirmation and
-  in search.
+- **Row title:** who the transaction was with, written the way the statement prints it. The
+  server's `merchant` value cannot be shown as it is: it is lower case, stripped of punctuation
+  and cut to four words, and for a hand-entered transaction it is a mangled copy of the person's
+  own words. So the title is worked out in this order (`rowTitle`, a pure function):
+  1. No merchant: the description; "Transaction" when there is none.
+  2. The description has no slash in it and, lower-cased and stripped the same way, begins with
+     the merchant: the description is plain words already (a hand-entered transaction, an
+     unstructured bank line), so the description itself is the title, in full. The slash test
+     keeps out the layouts that print the payee ahead of a structured narration.
+  3. Otherwise the merchant's words are looked for inside the description, ignoring case and
+     whatever punctuation sits between them, and that stretch of the description is the title,
+     exactly as printed.
+  4. Not found (the server's "interest" label, a merchant the person typed in the edit sheet): the
+     merchant as stored, with each word's first letter capitalised when it is all lower case.
+
+  Measured on the 386 different transactions of the test account: rule 2 gives the title for 8,
+  rule 3 for 373, rule 4 for 5 (three "interest" labels and two names whose words are not next to
+  each other in the narration). Titles have a median of 8 characters; 6 are longer than 24 and
+  end in an ellipsis on one line. Where the name is found in the description it is printed in all
+  capitals on 274 rows, mixed case on 100 and lower case on 7, so most titles are capitals, as on
+  the statement. Whether to soften capitals into ordinary capitalisation is the owner's choice:
+  it reads more easily but turns abbreviations into words ("IRCTC" would become "Irctc"), so this
+  design keeps what is printed unless told otherwise. The narration stays in the details sheet, in
+  the delete confirmation and in search.
 - **Second line:** the category, then who was on the other side in its short form ("Person",
   "Business", "Bank", "Government") when known. No date: the heading says it.
 - **Tags**, on a third line that exists only when there is a tag, in this order:
@@ -186,6 +221,9 @@ All values are existing tokens in `mobile/src/theme` unless marked new. Sizes ar
   type switch, or a filter that came from another screen.
 - Filters apply as they are changed, as today. The button at the bottom closes the sheet and reads
   "Show 21 transactions" with the live count, or "Done" while the count is loading or failed.
+- The sheet scrolls when its content is taller than the screen (the date picker opens in place on
+  iOS). Android's back button and a tap outside close it. A From date after the To date is not
+  blocked, as today, and simply matches nothing.
 
 ## States
 
@@ -244,11 +282,13 @@ after 1.5 seconds. Screen-capture protection. Navigation tracking.
 
 ## Changes to what a person reads, called out
 
-These are content changes, not only looks. All seven are visible in the options picture. Items 1
-to 4 and 6 were also listed in words when the owner chose option A; items 5 and 7 were not, so
-they are called out here for the review of this document:
+These are content changes, not only looks. Items 2 to 4 and 6 were listed in words when the owner
+chose option A. Items 5 and 7 were visible in that picture but not listed. Item 1 was shown wrongly
+in that picture (tidy names the app cannot produce) and is shown correctly in the corrected one.
+All seven are called out here for the review of this document:
 
-1. The row title is the merchant name, not the bank narration.
+1. The row title is the payee's name as the statement prints it (mostly capitals), not the whole
+   bank narration.
 2. Rows no longer show the date.
 3. Rows no longer show "Reviewed" or "Categorized".
 4. Status, date range and International move into the Filters sheet.
@@ -278,7 +318,12 @@ inside one very long card is cheap too. What is expensive is drawing a very long
 So a day is cut into pieces of at most 25 rows. The first piece carries the heading and the
 rounded top, the last the rounded bottom, and pieces in between are square, so a long day still
 reads as one card while the list only ever draws 25 rows at a time. A row is a memoised component,
-so a new page arriving does not redraw the rows already on screen.
+so a new page arriving does not redraw the rows already on screen. The day's total is worked out
+over the whole day, not per piece.
+
+The list's tuning changes with the item size. Today it draws 12 items first, which is 12 rows; with
+day pieces 12 items could be 300 rows. The first draw is set to 4 pieces, and the plan measures the
+time to the first drawn row before and after.
 
 **Glass in the list.** Day cards use the list-row glass style the rows use today (tinted fill and
 edge, no native blur per card), because a native glass view per card in a long list is the
@@ -312,6 +357,14 @@ expensive kind. The month card, the pinned bar and the sheet are single surfaces
   cannot be recovered is under "Follow-up measurements"; it is server work with its own review.
 - The paging defect below repeats rows in today's list and will do the same in the new one until
   the server is fixed. The new list must not crash or mis-key on a repeated row meanwhile.
+- Android draws the card shadow as an elevation under a see-through fill. Elevation under a
+  see-through view is known to show as a grey patch inside the view on Android. The dashboard's
+  cards have the same pairing and were not looked at on Android either. The plan includes a look at
+  both on an Android emulator before this is merged; if that cannot be done it is said so.
+- The details sheet still titles a transaction by its narration while the row now shows the
+  payee's name. Bringing the sheet in line is not in this round.
+- Found in passing and not touched: the web Ledger shows the lower-case `merchant` as its row
+  title (`frontend/src/pages/Ledger.tsx`).
 - Not verifiable here: iOS below 26, a physical phone, Android on a device.
 - This ships in the next store build with the rest of the redesign, never over the air to 1.0.0.
 
@@ -333,7 +386,8 @@ The owner asked for the open points to be settled rather than carried. Same simu
 ### Scroll cost
 
 Twelve identical swipes down from the top of the list, recorded with the Time Profiler attached to
-the app only. One sample is one millisecond of work on that thread, in a 22 second recording.
+the app only. The figures are counts of profiler samples on that thread in a 22 second recording (the sampling
+interval was the tool's default and was not read back).
 
 | Version | JavaScript thread | Main thread |
 |---|---|---|
@@ -346,9 +400,9 @@ the app only. One sample is one millisecond of work on that thread, in a 22 seco
   JavaScript thread does about a third less work. One difference between the runs is not design:
   today's list was showing a development-only warning (the repeated row below) that the prototype
   did not, which may account for part of the gap.
-- A 200-row card scrolls cheaply once drawn. Drawing it took about 3.6 seconds of JavaScript work.
-  That figure includes a development reload and is an upper bound, not a clean cost; it is still
-  the reason for the 25-row pieces.
+- A 200-row card scrolls cheaply once drawn. Drawing it cost 3,610 samples on the JavaScript
+  thread, more than a whole scroll. That figure includes a development reload and is an upper
+  bound, not a clean cost; it is still the reason for the 25-row pieces.
 - The prototype was throwaway code and is not in the repository.
 
 ### Names cut to eight characters
@@ -405,7 +459,37 @@ name's letters, is not a number, and its own separators give the word breaks.
   different order for each page request, so a row can appear on two pages while another appears
   on none.
 - Effect for a person: a transaction listed twice, its amount counted twice in that day's total,
-  and possibly another transaction missing from the list (a missing one was not looked for).
+  and another transaction missing from the list. Measured after scrolling to the very end: the
+  server reports 392 transactions, the phone loaded 392 rows, and they are 386 different
+  transactions. Six are shown twice and six are never shown.
   The web Ledger pages through the same endpoint, so the same can happen there; it was not
   observed there.
 - It is a server fix (a second sort key) and is tracked separately from this redesign.
+
+## Review of this design (2026-10-11)
+
+The owner asked for a check for bugs and gaps. Done by the author against the code and the running
+app, with no second reviewer. What it found is corrected above; the list is kept here so the
+changes can be traced.
+
+- **The row title was wrong as first written.** It said "the merchant name". The server derives
+  that value from the description (`CategoryRules.extractMerchantLabel`): lower case, punctuation
+  removed, four words at most, for hand-entered transactions too. On the test account all 386
+  values are lower case. The first options picture showed tidy names that the app could not have
+  produced. The title rule above replaces it, and a corrected picture was sent to the owner.
+- **Transactions are missing, not only repeated.** See the paging defect: six of 392 are never
+  shown. The server fix is separate work already started; this design adds the merge by id.
+- **The first draw would have been up to 25 times heavier** with day pieces and the list's current
+  setting. Corrected under "Code shape".
+- **A hard edge under the clock.** With the title scrolling, the list would have been cut at the
+  status bar until the pinned bar appeared. Corrected under "Pinned bar".
+- **The month card would have dropped out of the period-label guard, and lost its test identifiers
+  and its spoken comparison.** Corrected under "Month card".
+- **Android's shadow under a see-through card was never looked at**, here or on the dashboard.
+  Added to the risks with a check in the plan.
+- **A claim was too strong.** The scroll figures were called milliseconds; the sampling interval
+  was not read back. They are sample counts.
+- Checked and found sound: the eight status choices match the code; the short forms for who was
+  on the other side match `counterpartyLabel`; the date picker works inside a sheet (it opens in
+  place on iOS and as a system dialog on Android); the search box keeps its focus while results
+  reload, because it is part of the list's header element as today.

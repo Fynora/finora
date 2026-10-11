@@ -402,9 +402,9 @@ const RULE_RENDERERS: Record<string, { label: string; render: (f: VerificationFi
           // With fees and cash advances added in, the statement's figure is no longer purchases alone.
           label: d.expectedChargesAmount !== undefined ? 'Purchases and charges' : 'Purchases',
           printed: d.expectedChargesAmount ?? d.expectedExpenseAmount,
-          imported: d.observedExpenseAmount,
+          addsUpTo: d.observedExpenseAmount,
         },
-        { label: 'Payments and credits', printed: d.expectedIncomeAmount, imported: d.observedIncomeAmount },
+        { label: 'Payments and credits', printed: d.expectedIncomeAmount, addsUpTo: d.observedIncomeAmount },
       ];
       return (
         <>
@@ -416,17 +416,18 @@ const RULE_RENDERERS: Record<string, { label: string; render: (f: VerificationFi
                   <tr className="text-muted text-left">
                     <th className="pr-3 font-medium py-1"></th>
                     <th className="pr-3 font-medium py-1">Statement says</th>
-                    <th className="font-medium py-1">Imported</th>
+                    {/* Not "Imported": this screen comes before the import is confirmed. */}
+                    <th className="font-medium py-1">Transactions add up to</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((r) => {
-                    const marked = r.printed !== r.imported;
+                    const marked = r.printed !== r.addsUpTo;
                     return (
                       <tr key={r.label} className="text-ink border-t border-border">
                         <td className="pr-3 py-1 text-muted">{r.label}</td>
                         <td className="pr-3 py-1">{money(r.printed)}</td>
-                        <td className={`py-1 ${marked ? 'text-warning' : ''}`}>{money(r.imported)}</td>
+                        <td className={`py-1 ${marked ? 'text-warning' : ''}`}>{money(r.addsUpTo)}</td>
                       </tr>
                     );
                   })}

@@ -186,11 +186,12 @@ export function rowAccountingCopy(finding: VerificationFinding): CheckCopy {
   const read = countOf(d.stagedTransactionCount);
   const unreadable = countOf(d.unparseableRowCount) ?? 0;
   const opening = (read === null ? '' : `${read} ${read === 1 ? 'transaction was' : 'transactions were'} read. `)
-    // The screen already says these will not be imported. Repeated here because this check passes
-    // with them present, and "verified" beside a silence about them would read as none skipped.
+    // Mentioned because this check passes with them present, and "verified" beside a silence
+    // about them would read as none skipped. Not counted: the screen's own count can be higher
+    // than this finding's, since rows from a table that turned out not to be an account are
+    // carried onto this one after the check has run (StagedAccountSectionFilter).
     + (unreadable > 0
-      ? `${unreadable} ${unreadable === 1 ? 'row' : 'rows'} in the table could not be read as `
-        + `${unreadable === 1 ? 'a transaction' : 'transactions'} and will not be imported. `
+      ? 'Rows in the table that could not be read are counted separately on this screen and will not be imported. '
       : '');
 
   // Says what this check found, not that nothing was missed: it sees only lines the reader
@@ -213,19 +214,15 @@ export function rowAccountingCopy(finding: VerificationFinding): CheckCopy {
   return { body: COULD_NOT_RUN };
 }
 
-/** How many row numbers a sentence names before it says "and N more". */
-const ROWS_NAMED = 8;
-
-/** "3", "3 and 14", "3, 14 and 20", "3, 14, 20 and 2 more". */
-function listRows(rows: number[]): string {
-  const named = rows.slice(0, ROWS_NAMED).map(String);
-  const rest = rows.length - named.length;
-  if (rest > 0) return `${named.join(', ')} and ${rest} more`;
-  if (named.length === 1) return named[0];
-  return `${named.slice(0, -1).join(', ')} and ${named[named.length - 1]}`;
-}
-
-/** DESCRIPTION_CORRUPTION: did a transaction's description pick up text that was never part of it? */
+/**
+ * DESCRIPTION_CORRUPTION: did a transaction's description pick up text that was never part of it?
+ *
+ * <b>No row number, on purpose.</b> Each outlier carries a `rowIndex`, but it counts rows in the
+ * order the document printed them, and the review list of a PDF is sorted by date afterwards
+ * (PdfPreviewGenerator). On a statement printed newest-first the number would name a different
+ * transaction, and send the person to read the wrong description. What is safe to say is how
+ * many there are and how long they run, which is enough to find them by eye.
+ */
 export function descriptionCopy(finding: VerificationFinding): CheckCopy {
   const d = detailsOf(finding);
   const pickedUp = 'picked up text that is not part of the transaction, such as a page footer';
@@ -249,29 +246,35 @@ export function descriptionCopy(finding: VerificationFinding): CheckCopy {
 
   if (finding.outcome === 'WARNING' || finding.outcome === 'FAILED') {
     const outliers = Array.isArray(d.outliers) ? d.outliers : [];
-    // +1 so it matches the row a person counts down to in the list, not the index.
-    const rows = outliers
-      .map((o) => countOf((o as { rowIndex?: unknown } | null)?.rowIndex))
-      .filter((index): index is number => index !== null)
-      .map((index) => index + 1);
-    if (rows.length === 1) {
+    const lengths = outliers
+      .map((o) => countOf((o as { length?: unknown } | null)?.length))
+      .filter((length): length is number => length !== null);
+    const typical = countOf(d.sectionMedianLength);
+    // Only when every outlier's length arrived: a figure for some of them would describe none.
+    const sized = typical !== null && typical > 0 && lengths.length === outliers.length && lengths.length > 0;
+
+    if (outliers.length === 1) {
       return {
-        body: `Row ${rows[0]} in the list has a description much longer than the others, and it reads `
-          + `like more than one sentence. It may have ${pickedUp}.`,
-        note: 'Read that description before you import.',
+        body: 'One transaction has a description much longer than the others here, and it reads '
+          + `like more than one sentence. It may have ${pickedUp}.`
+          + (sized ? ` It is ${lengths[0]} characters long, where a typical one here is about ${typical}.` : ''),
+        note: 'Find that description in the list and read it before you import.',
       };
     }
-    if (rows.length > 1) {
+    if (outliers.length > 1) {
       return {
-        body: `Rows ${listRows(rows)} in the list have descriptions much longer than the others, and they `
-          + `read like more than one sentence. They may have ${pickedUp}.`,
-        note: 'Read those descriptions before you import.',
+        body: `${outliers.length} transactions have descriptions much longer than the others here, and they `
+          + `read like more than one sentence. They may have ${pickedUp}.`
+          + (sized
+            ? ` Each is at least ${Math.min(...lengths)} characters long, where a typical one here is about ${typical}.`
+            : ''),
+        note: 'Find those descriptions in the list and read them before you import.',
       };
     }
     return {
-      body: 'At least one transaction has a description much longer than the others, and it reads '
+      body: 'At least one transaction has a description much longer than the others here, and it reads '
         + `like more than one sentence. It may have ${pickedUp}.`,
-      note: 'Read the longest descriptions before you import.',
+      note: 'Find the longest descriptions in the list and read them before you import.',
     };
   }
 

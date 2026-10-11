@@ -596,7 +596,8 @@ describe('VerificationPanel', () => {
       stagedTransactionCount: 42, locatedRowCount: 42, unparseableRowCount: 0, droppedTransactionCandidateCount: 0,
     };
     const allAccounted = 'Every row this parser located has an accounted-for fate.';
-    const outlier = (rowIndex: number) => ({ rowIndex, length: 412, sectionMedianLength: 47, sentenceBreaks: 3 });
+    const outlier = (rowIndex: number, length: number | null = 412) =>
+      ({ rowIndex, length, sectionMedianLength: 47, sentenceBreaks: 3 });
     const absorbed = 'One transaction\'s description is far longer than this statement\'s own typical narration and '
       + 'reads like more than one sentence -- it may have absorbed text that was never part of it, such as a '
       + 'page footer or disclaimer.';
@@ -632,16 +633,7 @@ describe('VerificationPanel', () => {
           },
         },
         label: 'Rows accounted for', tag: /· verified/,
-        body: /^42 transactions were read\. 2 rows in the table could not be read as transactions and will not be imported\. This check found no line/,
-      },
-      {
-        name: 'accounted for, with one row that could not be read',
-        finding: {
-          rule: ROWS, outcome: 'VERIFIED',
-          details: { ...counts, locatedRowCount: 43, unparseableRowCount: 1, explanation: allAccounted },
-        },
-        label: 'Rows accounted for', tag: /· verified/,
-        body: /1 row in the table could not be read as a transaction and will not be imported\./,
+        body: /^42 transactions were read\. Rows in the table that could not be read are counted separately on this screen and will not be imported\. This check found no line/,
       },
       {
         name: 'a line that looks like a transaction was left out',
@@ -703,49 +695,40 @@ describe('VerificationPanel', () => {
           details: { rowsChecked: 42, sectionMedianLength: 47, outliers: [outlier(13)], explanation: absorbed },
         },
         label: 'Transaction descriptions', tag: /· needs review/,
-        // Row 14 as a person counts it, from rowIndex 13.
-        body: /^Row 14 in the list has a description much longer than the others, and it reads like more than one sentence\. It may have picked up text that is not part of the transaction, such as a page footer\.$/,
-        note: /Read that description before you import\./,
-      },
-      {
-        name: 'two descriptions picked up extra text',
-        finding: {
-          rule: DESCRIPTIONS, outcome: 'WARNING',
-          details: { rowsChecked: 42, sectionMedianLength: 47, outliers: [outlier(2), outlier(13)] },
-        },
-        label: 'Transaction descriptions', tag: /· needs review/,
-        body: /^Rows 3 and 14 in the list have descriptions much longer than the others/,
-        note: /Read those descriptions before you import\./,
+        body: /^One transaction has a description much longer than the others here, and it reads like more than one sentence\. It may have picked up text that is not part of the transaction, such as a page footer\. It is 412 characters long, where a typical one here is about 47\.$/,
+        note: /Find that description in the list and read it before you import\./,
       },
       {
         name: 'three descriptions picked up extra text',
         finding: {
           rule: DESCRIPTIONS, outcome: 'WARNING',
-          details: { rowsChecked: 42, sectionMedianLength: 47, outliers: [outlier(2), outlier(13), outlier(19)] },
-        },
-        label: 'Transaction descriptions', tag: /· needs review/,
-        body: /^Rows 3, 14 and 20 in the list have descriptions much longer than the others, and they read like more than one sentence\. They may have picked up text/,
-        note: /Read those descriptions before you import\./,
-      },
-      {
-        name: 'more descriptions picked up extra text than a sentence can name',
-        finding: {
-          rule: DESCRIPTIONS, outcome: 'WARNING',
           details: {
             rowsChecked: 42, sectionMedianLength: 47,
-            outliers: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(outlier),
+            outliers: [outlier(2, 380), outlier(13, 300), outlier(19, 412)],
           },
         },
         label: 'Transaction descriptions', tag: /· needs review/,
-        body: /^Rows 1, 2, 3, 4, 5, 6, 7, 8 and 2 more in the list have descriptions/,
-        note: /Read those descriptions before you import\./,
+        // The shortest of the three, so "at least" is true of each.
+        body: /^3 transactions have descriptions much longer than the others here, and they read like more than one sentence\. They may have picked up text that is not part of the transaction, such as a page footer\. Each is at least 300 characters long, where a typical one here is about 47\.$/,
+        note: /Find those descriptions in the list and read them before you import\./,
       },
       {
-        name: 'a description warning that names no row',
+        // A length for only some of them would describe none of them, so no figure is given.
+        name: 'descriptions picked up extra text, one arriving without its length',
+        finding: {
+          rule: DESCRIPTIONS, outcome: 'WARNING',
+          details: { rowsChecked: 42, sectionMedianLength: 47, outliers: [outlier(2), outlier(13, null)] },
+        },
+        label: 'Transaction descriptions', tag: /· needs review/,
+        body: /^2 transactions have descriptions much longer than the others here, and they read like more than one sentence\. They may have picked up text that is not part of the transaction, such as a page footer\.$/,
+        note: /Find those descriptions in the list and read them before you import\./,
+      },
+      {
+        name: 'a description warning that lists no transaction',
         finding: { rule: DESCRIPTIONS, outcome: 'WARNING', details: { rowsChecked: 42, sectionMedianLength: 47 } },
         label: 'Transaction descriptions', tag: /· needs review/,
-        body: /^At least one transaction has a description much longer than the others/,
-        note: /Read the longest descriptions before you import\./,
+        body: /^At least one transaction has a description much longer than the others here/,
+        note: /Find the longest descriptions in the list and read them before you import\./,
       },
     ];
 
@@ -769,6 +752,25 @@ describe('VerificationPanel', () => {
       expect(container.textContent).not.toMatch(
         /ROW_ACCOUNTING|DESCRIPTION_CORRUPTION|doesn't know how to display|candidate|parser|accounted-for|non-blank|sample|narration|PRE_HEADER|PAGE_LEGEND|sectionMedian|undefined|NaN/,
       );
+    });
+
+    it('never names a transaction by its row number', async () => {
+      // The backend counts rows in the order the document printed them, and a PDF's review list is
+      // sorted by date afterwards. On a statement printed newest-first a row number from the
+      // finding names a different transaction, so none is shown -- here rowIndex 13, row 14.
+      const one = cases.find((c) => c.name === 'one description picked up extra text')!;
+      const { container } = await expand(one.finding);
+
+      expect(container.textContent).not.toMatch(/\brows? \d|\b1[34]\b/i);
+    });
+
+    it('gives no count of the rows that could not be read', async () => {
+      // The screen's own count can be higher than the finding's: rows from a table that was not an
+      // account are carried onto this one after the check has run. Two counts would disagree.
+      const unread = cases.find((c) => c.name === 'accounted for, with rows that could not be read')!;
+      const { container } = await expand(unread.finding);
+
+      expect(container.textContent).not.toMatch(/\b2 rows?\b/);
     });
 
     it('marks what to do in the warning colour, and only on a warning', async () => {

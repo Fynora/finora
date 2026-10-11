@@ -57,6 +57,7 @@ import { radius, spacing, useTheme } from '../../theme';
 import type { AppTabParamList } from '../../navigation/types';
 import type { DetectedAccountInfo, ImportSummary, StagedRow, UnparseableRow, VerificationReport } from '../../types';
 import { VerificationPanel } from '../../components/VerificationPanel';
+import { flaggedRows } from '../../components/verificationFlags';
 import { trackNavigation } from '../../lib/trackNavigation';
 import { GlassScreen } from '../../components/GlassScreen';
 
@@ -263,6 +264,9 @@ export function ImportScreen() {
   const accountsUnavailable = accountsQ.isError || isPausedCold(accountsQ);
 
   const includedCount = useMemo(() => review.included.filter(Boolean).length, [review.included]);
+  // The rows the verification panel is talking about, marked on their own cards -- see
+  // components/verificationFlags.ts for when a report can and cannot say where they are.
+  const flagged = useMemo(() => flaggedRows(verification, rows.length), [verification, rows.length]);
   // The gate. Confirm stays disabled while the engine has asked a question nobody has answered --
   // the same rule the web app enforces, so a duplicate cannot be skipped by not looking at it.
   const outstanding = useMemo(
@@ -1324,7 +1328,7 @@ export function ImportScreen() {
 
             {verification ? (
               <View style={styles.section}>
-                <VerificationPanel verification={verification} />
+                <VerificationPanel verification={verification} flagged={flagged} />
               </View>
             ) : null}
 
@@ -1529,6 +1533,8 @@ export function ImportScreen() {
               setReview((prev) => setIncluded(prev, index, !prev.included[index]))
             }
             onPressCategory={() => setCategoryPickerFor(index)}
+            balanceFlagged={flagged.balance?.includes(index) ?? false}
+            descriptionFlagged={flagged.description?.includes(index) ?? false}
             decision={review.decisions[index]}
             onDecide={(d: DuplicateDecision) => setReview((prev) => decide(rows, prev, index, d))}
             similarUnresolved={similarUnresolved[index] ?? 0}

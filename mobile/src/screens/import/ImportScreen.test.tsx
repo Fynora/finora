@@ -753,6 +753,89 @@ describe('ImportScreen — statement verification panel (Phase 5)', () => {
 
     expect(await screen.findByText(/12 transaction\(s\) checked/)).toBeTruthy();
   });
+
+  // The panel says "that row is marked in the list below", so the mark has to be on the card of the
+  // row the backend says is SHOWN there (displayIndex), not the one at a finding's rowIndex, which
+  // on a PDF counts a list the customer never sees.
+  describe('rows a finding points at', () => {
+    const stageWith = (discrepancies: object[], outliers: object[]) =>
+      api.import.stageCsv.mockReset().mockResolvedValue({
+        sessionId: 'session-1',
+        multiAccount: false,
+        sections: null,
+        staging: {
+          rows: [stagedRow('Row A'), stagedRow('Row B'), stagedRow('Row C'), stagedRow('Row D')],
+          totalParsed: 4,
+          flaggedDuplicates: 0,
+          detectedAccount: detected,
+          unparseableRows: [],
+          verification: {
+            reliabilityStatus: 'REVIEW_RECOMMENDED',
+            textSource: 'NATIVE_PDF',
+            headerReconstructionUncertain: false,
+            findings: [
+              {
+                rule: 'BALANCE_CHAIN',
+                outcome: 'WARNING',
+                details: { rowsChecked: 4, rowsWithBalance: 4, anchoredOnOpeningBalance: true, discrepancies },
+              },
+              {
+                rule: 'DESCRIPTION_CORRUPTION',
+                outcome: 'WARNING',
+                details: { rowsChecked: 4, sectionMedianLength: 5, outliers },
+              },
+            ],
+          },
+        },
+      } as never);
+
+    /** The card a badge sits on: the nearest ancestor holding exactly one row's include checkbox. */
+    const descriptionOnCardOf = (badge: ReturnType<typeof screen.getByText>, description: string) => {
+      let node = badge.parent;
+      while (node && within(node).queryAllByLabelText(/^Include /).length !== 1) node = node.parent;
+      return node ? within(node).queryByText(description) : null;
+    };
+    const amounts = { expectedBalance: 100, actualBalance: 90, difference: 10 };
+
+    it('marks the card at displayIndex, and the panel points at the marks', async () => {
+      // Checked first (rowIndex 0) and shown third; printed fourth (rowIndex 3) and shown second.
+      stageWith(
+        [{ rowIndex: 0, displayIndex: 2, ...amounts }],
+        [{ rowIndex: 3, displayIndex: 1, length: 162, sectionMedianLength: 5, sentenceBreaks: 2 }],
+      );
+
+      await reachReview();
+
+      const balance = screen.getAllByText("Balance didn't match");
+      expect(balance).toHaveLength(1);
+      expect(descriptionOnCardOf(balance[0], 'Row C')).toBeTruthy();
+      const description = screen.getAllByText('Check description');
+      expect(description).toHaveLength(1);
+      expect(descriptionOnCardOf(description[0], 'Row B')).toBeTruthy();
+
+      fireEvent.press(screen.getByText('Statement verification'));
+      expect(await screen.findByText('That row is marked "Balance didn\'t match" in the list below.')).toBeTruthy();
+      expect(screen.getByText('It is marked "Check description" in the list below. Read it before you import.'))
+        .toBeTruthy();
+    });
+
+    it('marks no card for a report that only has rowIndex', async () => {
+      // A review staged before the backend sent displayIndex, opened again on this build.
+      stageWith(
+        [{ rowIndex: 0, ...amounts }],
+        [{ rowIndex: 3, length: 162, sectionMedianLength: 5, sentenceBreaks: 2 }],
+      );
+
+      await reachReview();
+      fireEvent.press(screen.getByText('Statement verification'));
+
+      expect(await screen.findByText(/1 row didn't match/)).toBeTruthy();
+      expect(screen.queryByText("Balance didn't match")).toBeNull();
+      expect(screen.queryByText('Check description')).toBeNull();
+      expect(screen.queryByText(/in the list below/)).toBeNull();
+      expect(screen.getByText('Find that description in the list and read it before you import.')).toBeTruthy();
+    });
+  });
 });
 
 /**

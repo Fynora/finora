@@ -5,6 +5,7 @@ import com.finora.dto.ImportDto.StagedRow;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -75,11 +76,18 @@ public class DescriptionCorruptionValidator {
      *  boilerplate prose reliably does, regardless of which bank wrote it. */
     private static final Pattern SENTENCE_BREAK = Pattern.compile("[.!?]\\s+[A-Z]");
 
-    /** One row whose description looks like it absorbed text that was never part of it. */
-    private record Outlier(int rowIndex, int length, int medianLength, int sentenceBreaks) {
+    /**
+     * One row whose description looks like it absorbed text that was never part of it.
+     *
+     * <p>{@code rowIndex} is the row's position in the list this validator was given, and stays
+     * that. {@code displayIndex} is its position in the list the client is shown, which is the only
+     * one of the two a review screen may point at -- see {@link #check(List, int[])}.
+     */
+    private record Outlier(int rowIndex, int displayIndex, int length, int medianLength, int sentenceBreaks) {
         Map<String, Object> toDetails() {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("rowIndex", rowIndex);
+            m.put("displayIndex", displayIndex);
             m.put("length", length);
             m.put("sectionMedianLength", medianLength);
             m.put("sentenceBreaks", sentenceBreaks);
@@ -87,7 +95,29 @@ public class DescriptionCorruptionValidator {
         }
     }
 
+    /** For a caller that shows the rows in the order it has them checked in. */
     public ImportDto.VerificationFinding check(List<StagedRow> rows) {
+        return check(rows, null);
+    }
+
+    /**
+     * As {@link #check(List)}, for a caller that shows the rows in a different order from the one it
+     * hands over.
+     *
+     * <p>The PDF path does: it has the document's own sequence checked and shows a date-sorted
+     * copy. An outlier used to carry only its place in the first of those, so on a statement printed
+     * newest first it named a row nowhere near the one with the long description -- measured on a
+     * synthetic seven-row statement through the real generator, position 5 for a row shown at
+     * position 1. Each outlier now also says where its row is shown, and they are listed top to
+     * bottom of that list.
+     *
+     * @param displayedPositionOf for each row in {@code rows}, its zero-based position in the list
+     *                            the client is given; null when the two orders are the same
+     * @throws IllegalArgumentException if it is not a rearrangement of exactly these rows. Checked
+     *                                  on every statement and not only one with an outlier, so a
+     *                                  wrong mapping is found by a test and not by a customer.
+     */
+    public ImportDto.VerificationFinding check(List<StagedRow> rows, int[] displayedPositionOf) {
         // Normalized once, here, rather than null-checked at each of the two rows.size()/rows.get(i)
         // call sites below -- MIN_ROWS_FOR_BASELINE already guarantees the early return a few lines
         // down whenever rows is null (lengths stays empty), so this was never reachable with a null
@@ -95,6 +125,7 @@ public class DescriptionCorruptionValidator {
         // loop's bare rows.size() as a possible null deref. Collapsing "null" into "empty" here
         // removes the possibility outright instead of relying on that guarantee staying true.
         if (rows == null) rows = List.of();
+        requireRearrangement(displayedPositionOf, rows.size());
         Map<String, Object> details = new LinkedHashMap<>();
 
         List<Integer> lengths = new ArrayList<>();
@@ -120,8 +151,11 @@ public class DescriptionCorruptionValidator {
             if (trimmed.length() < threshold) continue;
             int breaks = countSentenceBreaks(trimmed);
             if (breaks < 1) continue;
-            found.add(new Outlier(i, trimmed.length(), median, breaks));
+            int displayIndex = displayedPositionOf == null ? i : displayedPositionOf[i];
+            found.add(new Outlier(i, displayIndex, trimmed.length(), median, breaks));
         }
+        // The order a reader meets them in: down the list they are looking at.
+        found.sort(Comparator.comparingInt(Outlier::displayIndex));
 
         details.put("rowsChecked", rows.size());
         details.put("sectionMedianLength", median);
@@ -139,6 +173,26 @@ public class DescriptionCorruptionValidator {
                   + "own typical narration and read like more than one sentence -- they may have "
                   + "absorbed text that was never part of them, such as a page footer or disclaimer.");
         return new ImportDto.VerificationFinding(RULE, "WARNING", details);
+    }
+
+    /**
+     * Refuses a mapping that sends two rows to one position or a row past the end. Either would
+     * still give every outlier a number -- a confident one, pointing at the wrong row or at none.
+     */
+    private static void requireRearrangement(int[] displayedPositionOf, int rowCount) {
+        if (displayedPositionOf == null) return;
+        if (displayedPositionOf.length != rowCount) {
+            throw new IllegalArgumentException("displayedPositionOf names " + displayedPositionOf.length
+                    + " row(s) but " + rowCount + " were checked");
+        }
+        boolean[] taken = new boolean[rowCount];
+        for (int position : displayedPositionOf) {
+            if (position < 0 || position >= rowCount || taken[position]) {
+                throw new IllegalArgumentException("displayedPositionOf is not a rearrangement of the "
+                        + "checked rows: position " + position + " is out of range or used twice");
+            }
+            taken[position] = true;
+        }
     }
 
     private static int countSentenceBreaks(String text) {

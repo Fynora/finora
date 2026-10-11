@@ -144,9 +144,11 @@ public class ImportVerifier {
      * @param displayedPositionOf where each of {@code rows} ends up in the list the client is shown,
      *                            for a producer that checks the rows in one order and displays them
      *                            in another (the PDF path: document sequence checked, date-sorted
-     *                            copy shown). Null when the two are the same list. Only the balance
-     *                            chain names rows by position, so only it reads this -- see {@link
-     *                            BalanceChainValidator#report(List, BigDecimal, int[])}.
+     *                            copy shown). Null when the two are the same list. Read by the two
+     *                            rules that point at a row of that list: the balance chain ({@link
+     *                            BalanceChainValidator#report(List, BigDecimal, int[])}) and the
+     *                            description check ({@link DescriptionCorruptionValidator#check(List,
+     *                            int[])}).
      */
     public ImportDto.VerificationReport verify(List<StagedRow> rows, BigDecimal openingBalance,
                                                 BigDecimal closingBalance, PrintedSummary printedSummary,
@@ -187,7 +189,7 @@ public class ImportVerifier {
         findings.add(cardRowCheck);
         // The normalized rows, same as balanceChainValidator above -- this checks the FINAL
         // description a user would see, not a raw pre-normalization cell.
-        findings.add(descriptionCorruptionValidator.check(rows));
+        findings.add(descriptionCorruptionValidator.check(rows, displayedPositionOf));
         // Last, and only when there is something to report -- see ContentIntegrityValidator for why it
         // is the one rule that can see a row that never arrived.
         ContentIntegrityValidator.check(contentDamage).ifPresent(findings::add);

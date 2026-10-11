@@ -465,10 +465,15 @@ public class ImportDto {
 
     /**
      * A row whose recorded amount does not move the balance the way the statement says it did.
-     * {@code rowIndex} points into the staged rows the client is already displaying, so a UI can
-     * highlight the exact line rather than asking someone to re-read the statement.
+     *
+     * <p>{@code displayIndex} is the row's zero-based position in the staged rows the client is
+     * shown, so a review screen can print "Row 13" and mark that line. Clients read this and not
+     * {@code rowIndex}: the two are the same number today, but a report staged by an earlier
+     * version carries a {@code rowIndex} that counted along the validator's own walk, and a stored
+     * report cannot be told from a new one by that field. A report without {@code displayIndex} is
+     * one whose row numbers must not be shown.
      */
-    public record RowDiscrepancy(int rowIndex, BigDecimal expectedBalance,
+    public record RowDiscrepancy(int rowIndex, int displayIndex, BigDecimal expectedBalance,
                                   BigDecimal actualBalance, BigDecimal difference) {}
 
     public record StagingResponse(List<StagedRow> rows, int totalParsed, int flaggedDuplicates,

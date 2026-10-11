@@ -1,4 +1,5 @@
 import type { VerificationFinding } from '../types';
+import { ROW_FLAG_LABEL } from './verificationFlags';
 
 /**
  * The wording for four checks: the two credit-card ones (CREDIT_CARD_STATEMENT_TOTALS,
@@ -243,13 +244,17 @@ export function rowAccountingCopy(finding: VerificationFinding): CheckCopy {
 /**
  * DESCRIPTION_CORRUPTION: did a transaction's description pick up text that was never part of it?
  *
- * <b>No row number, on purpose.</b> Each outlier carries a `rowIndex`, but it counts rows in the
- * order the document printed them, and the review list of a PDF is sorted by date afterwards
- * (PdfPreviewGenerator). On a statement printed newest-first the number would name a different
- * transaction, and send the person to read the wrong description. What is safe to say is how
- * many there are and how long they run, which is enough to find them by eye.
+ * <b>No row number here, and never from `rowIndex`.</b> Each outlier's `rowIndex` counts rows in
+ * the order the document printed them, and the review list of a PDF is sorted by date afterwards
+ * (PdfPreviewGenerator). On a statement printed newest-first that number names a different
+ * transaction, and would send the person to read the wrong description. Where the row is shown is
+ * a separate field, read by verificationFlags.ts, which the review list uses to mark the row.
+ *
+ * @param markedInList whether the list on this screen has marked every one of these rows. Only
+ *   then does the note point at the marks. Otherwise (a report that does not say where they are)
+ *   it says how many there are and how long they run, which is enough to find them by eye.
  */
-export function descriptionCopy(finding: VerificationFinding): CheckCopy {
+export function descriptionCopy(finding: VerificationFinding, markedInList = false): CheckCopy {
   const d = detailsOf(finding);
   const pickedUp = 'picked up text that is not part of the transaction, such as a page footer';
 
@@ -284,7 +289,9 @@ export function descriptionCopy(finding: VerificationFinding): CheckCopy {
         body: 'One transaction has a description much longer than the others here, and it reads '
           + `like more than one sentence. It may have ${pickedUp}.`
           + (sized ? ` It is ${lengths[0]} characters long, where a typical one here is about ${typical}.` : ''),
-        note: 'Find that description in the list and read it before you import.',
+        note: markedInList
+          ? `It is marked "${ROW_FLAG_LABEL.description}" in the list below. Read it before you import.`
+          : 'Find that description in the list and read it before you import.',
       };
     }
     if (outliers.length > 1) {
@@ -294,7 +301,9 @@ export function descriptionCopy(finding: VerificationFinding): CheckCopy {
           + (sized
             ? ` Each is at least ${Math.min(...lengths)} characters long, where a typical one here is about ${typical}.`
             : ''),
-        note: 'Find those descriptions in the list and read them before you import.',
+        note: markedInList
+          ? `They are marked "${ROW_FLAG_LABEL.description}" in the list below. Read them before you import.`
+          : 'Find those descriptions in the list and read them before you import.',
       };
     }
     return {

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { VerificationPanel } from './VerificationPanel';
+import { flaggedRows } from './verificationFlags';
 import type { VerificationFinding, VerificationReport } from '../types';
 
 /**
@@ -70,10 +71,79 @@ describe('VerificationPanel', () => {
 
     await user.click(screen.getByRole('button', { name: /Statement verification/ }));
 
-    // Row 17 as a person counts it, from rowIndex 16.
-    expect(screen.getByText('17')).toBeInTheDocument();
     expect(screen.getByText(/54,220\.00/)).toBeInTheDocument();
     expect(screen.getByText(/54,656\.00/)).toBeInTheDocument();
+  });
+
+  // A finding's rowIndex has counted lists the customer never sees (the document's own sequence,
+  // the balance walk along it). Only displayIndex says where a row is in the list on screen, and
+  // only a report that carries it may have a row number printed from it.
+  describe('which row the balance check points at', () => {
+    const chain = (discrepancies: Record<string, number>[]): VerificationReport => report([{
+      rule: 'BALANCE_CHAIN',
+      outcome: 'WARNING',
+      details: { rowsChecked: 40, rowsWithBalance: 40, anchoredOnOpeningBalance: true, discrepancies },
+    }]);
+    const amounts = { expectedBalance: 54220, actualBalance: 54656, difference: 436 };
+
+    const expand = async (verification: VerificationReport, rowCount: number | null) => {
+      const user = userEvent.setup();
+      const view = render(rowCount === null
+        ? <VerificationPanel verification={verification} />
+        : <VerificationPanel verification={verification} flagged={flaggedRows(verification, rowCount)} />);
+      await user.click(screen.getByRole('button', { name: /Statement verification/ }));
+      return view;
+    };
+
+    it('prints the row number the list shows beside that transaction', async () => {
+      // rowIndex and displayIndex differ here on purpose: the number has to come from the second.
+      await expand(chain([{ rowIndex: 2, displayIndex: 4, ...amounts }]), 40);
+
+      expect(screen.getByRole('columnheader', { name: 'Row' })).toBeInTheDocument();
+      expect(screen.getByRole('cell', { name: '5' })).toBeInTheDocument();
+      expect(screen.queryByRole('cell', { name: '3' })).not.toBeInTheDocument();
+      expect(screen.getByText('That row is marked "Balance didn\'t match" in the list below.')).toBeInTheDocument();
+    });
+
+    it('says rows, for several', async () => {
+      await expand(chain([{ rowIndex: 4, displayIndex: 4, ...amounts }, { rowIndex: 9, displayIndex: 9, ...amounts }]), 40);
+
+      expect(screen.getByRole('cell', { name: '5' })).toBeInTheDocument();
+      expect(screen.getByRole('cell', { name: '10' })).toBeInTheDocument();
+      expect(screen.getByText('Those rows are marked "Balance didn\'t match" in the list below.')).toBeInTheDocument();
+    });
+
+    it('prints no row number for a report staged before the position was sent', async () => {
+      // The same statement as stored by an earlier version: rowIndex only. It may name a
+      // neighbouring row, so the balances are shown and the number is not.
+      const { container } = await expand(chain([{ rowIndex: 16, ...amounts }]), 40);
+
+      expect(screen.getByText(/54,220\.00/)).toBeInTheDocument();
+      expect(screen.queryByRole('columnheader', { name: 'Row' })).not.toBeInTheDocument();
+      expect(container.textContent).not.toMatch(/\b1[67]\b|marked/);
+    });
+
+    it('prints no row number when one of several rows has no position', async () => {
+      const { container } = await expand(
+        chain([{ rowIndex: 4, displayIndex: 4, ...amounts }, { rowIndex: 9, ...amounts }]), 40);
+
+      expect(screen.queryByRole('columnheader', { name: 'Row' })).not.toBeInTheDocument();
+      expect(container.textContent).not.toMatch(/marked/);
+    });
+
+    it('prints no row number for a position past the end of the list', async () => {
+      const { container } = await expand(chain([{ rowIndex: 16, displayIndex: 16, ...amounts }]), 10);
+
+      expect(screen.queryByRole('columnheader', { name: 'Row' })).not.toBeInTheDocument();
+      expect(container.textContent).not.toMatch(/\b17\b|marked/);
+    });
+
+    it('prints no row number where no list is shown beside the panel', async () => {
+      const { container } = await expand(chain([{ rowIndex: 4, displayIndex: 4, ...amounts }]), null);
+
+      expect(screen.queryByRole('columnheader', { name: 'Row' })).not.toBeInTheDocument();
+      expect(container.textContent).not.toMatch(/marked/);
+    });
   });
 
   it('collapses again on a second click', async () => {
@@ -790,14 +860,76 @@ describe('VerificationPanel', () => {
       );
     });
 
-    it('never names a transaction by its row number', async () => {
-      // The backend counts rows in the order the document printed them, and a PDF's review list is
-      // sorted by date afterwards. On a statement printed newest-first a row number from the
-      // finding names a different transaction, so none is shown -- here rowIndex 13, row 14.
+    it('never names a transaction by its rowIndex', async () => {
+      // rowIndex counts rows in the order the document printed them, and a PDF's review list is
+      // sorted by date afterwards. On a statement printed newest-first it names a different
+      // transaction, so a report that carries nothing else names none -- here rowIndex 13, row 14.
       const one = cases.find((c) => c.name === 'one description picked up extra text')!;
-      const { container } = await expand(one.finding);
+      const user = userEvent.setup();
+      const verification = report([one.finding]);
+      const { container } = render(
+        <VerificationPanel verification={verification} flagged={flaggedRows(verification, 42)} />);
+      await user.click(screen.getByRole('button', { name: /Statement verification/ }));
 
-      expect(container.textContent).not.toMatch(/\brows? \d|\b1[34]\b/i);
+      expect(container.textContent).not.toMatch(/\brows? \d|\b1[34]\b|marked/i);
+      expect(screen.getByText(one.note!)).toBeInTheDocument();
+    });
+
+    describe('when the report says where the rows are shown', () => {
+      const shownAt = (displayIndex: number, rowIndex: number, length = 412) =>
+        ({ rowIndex, displayIndex, length, sectionMedianLength: 47, sentenceBreaks: 3 });
+      const warning = (outliers: Record<string, number>[]): VerificationFinding => ({
+        rule: DESCRIPTIONS, outcome: 'WARNING', details: { rowsChecked: 42, sectionMedianLength: 47, outliers },
+      });
+
+      const expandMarked = async (finding: VerificationFinding, rowCount: number | null) => {
+        const user = userEvent.setup();
+        const verification = report([finding]);
+        const view = render(rowCount === null
+          ? <VerificationPanel verification={verification} />
+          : <VerificationPanel verification={verification} flagged={flaggedRows(verification, rowCount)} />);
+        await user.click(screen.getByRole('button', { name: /Statement verification/ }));
+        return view;
+      };
+
+      it('points at the mark and names the row by its place in the list shown', async () => {
+        // Printed sixth in the document (rowIndex 5), shown second (displayIndex 1).
+        const { container } = await expandMarked(warning([shownAt(1, 5)]), 42);
+
+        expect(screen.getByText(/^It is marked "Check description" in the list below\. Read it before you import\.$/))
+          .toBeInTheDocument();
+        expect(screen.getByText('It is row 2.')).toHaveClass('text-warning');
+        expect(container.textContent).not.toMatch(/row 6|Find that description/i);
+      });
+
+      it('names several rows top to bottom', async () => {
+        await expandMarked(warning([shownAt(19, 2), shownAt(2, 19), shownAt(13, 13)]), 42);
+
+        expect(screen.getByText(/^They are marked "Check description" in the list below\. Read them before you import\.$/))
+          .toBeInTheDocument();
+        expect(screen.getByText('They are rows 3, 14 and 20.')).toBeInTheDocument();
+      });
+
+      it('names two rows', async () => {
+        await expandMarked(warning([shownAt(2, 2), shownAt(13, 13)]), 42);
+
+        expect(screen.getByText('They are rows 3 and 14.')).toBeInTheDocument();
+      });
+
+      it('goes back to the unmarked wording when one row has no position', async () => {
+        const { container } = await expandMarked(
+          warning([shownAt(2, 2), { rowIndex: 13, length: 300, sectionMedianLength: 47, sentenceBreaks: 3 }]), 42);
+
+        expect(screen.getByText(/Find those descriptions in the list and read them before you import\./)).toBeInTheDocument();
+        expect(container.textContent).not.toMatch(/\brows? \d|marked/i);
+      });
+
+      it('goes back to the unmarked wording where no list is shown beside the panel', async () => {
+        const { container } = await expandMarked(warning([shownAt(1, 5)]), null);
+
+        expect(screen.getByText(/Find that description in the list and read it before you import\./)).toBeInTheDocument();
+        expect(container.textContent).not.toMatch(/\brows? \d|marked/i);
+      });
     });
 
     it('gives no count of the rows that could not be read', async () => {

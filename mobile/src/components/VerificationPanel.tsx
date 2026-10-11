@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import type { BalanceChainDetails, VerificationFinding, VerificationReport } from '../types';
 import { Card } from './Card';
-import { cardFlowCopy, cardSummaryCopy, type CardCheckCopy } from './cardVerificationCopy';
+import { cardFlowCopy, cardSummaryCopy, descriptionCopy, rowAccountingCopy, type CheckCopy } from './verificationCopy';
 import { spacing, useTheme, type Palette } from '../theme';
 
 /**
@@ -207,21 +207,29 @@ const RULE_RENDERERS: Record<string, { label: string; summary: (f: VerificationF
       );
     },
   },
-  // The two card checks word themselves through cardVerificationCopy -- see that file for why they
-  // cannot show the server's own sentences. Web adds the figures beneath; this shows the sentences.
+  // The rest word themselves through verificationCopy -- see that file for why they cannot show
+  // the server's own sentences. Web adds figures beneath the two card checks; this shows the sentences.
+  ROW_ACCOUNTING: {
+    label: 'Rows accounted for',
+    summary: (finding, c) => copySummary(rowAccountingCopy(finding), finding, c),
+  },
+  DESCRIPTION_CORRUPTION: {
+    label: 'Transaction descriptions',
+    summary: (finding, c) => copySummary(descriptionCopy(finding), finding, c),
+  },
   CREDIT_CARD_STATEMENT_TOTALS: {
     label: 'Card statement summary',
-    summary: (finding, c) => cardCheckSummary(cardSummaryCopy(finding), finding, c),
+    summary: (finding, c) => copySummary(cardSummaryCopy(finding), finding, c),
   },
   CREDIT_CARD_FLOW_RECONCILIATION: {
     label: 'Card purchases and payments',
-    summary: (finding, c) => cardCheckSummary(cardFlowCopy(finding), finding, c),
+    summary: (finding, c) => copySummary(cardFlowCopy(finding), finding, c),
   },
 };
 
-/** The note is what the finding means for the person importing, so when the check found a
- *  disagreement it takes the warning ink rather than the muted ink of the sentence it follows. */
-function cardCheckSummary(copy: CardCheckCopy, finding: VerificationFinding, c: Palette): ReactNode {
+/** The note is what the finding means for the person importing, so when the check found something
+ *  to look at it takes the warning ink rather than the muted ink of the sentence it follows. */
+function copySummary(copy: CheckCopy, finding: VerificationFinding, c: Palette): ReactNode {
   const disagrees = finding.outcome === 'WARNING' || finding.outcome === 'FAILED';
   return (
     <>

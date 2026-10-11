@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { CheckCircle2, AlertTriangle, ChevronDown, ChevronRight, ShieldQuestion } from 'lucide-react';
 import type { BalanceChainDetails, VerificationFinding, VerificationReport } from '../types';
-import { cardFlowCopy, cardSummaryCopy } from './cardVerificationCopy';
+import { cardFlowCopy, cardSummaryCopy, descriptionCopy, rowAccountingCopy, type CheckCopy } from './verificationCopy';
 
 /**
  * Shows whether an import could be proven faithful to the statement it came from.
@@ -337,8 +337,17 @@ const RULE_RENDERERS: Record<string, { label: string; render: (f: VerificationFi
       );
     },
   },
-  // The two card checks word themselves through cardVerificationCopy -- see that file for why they
-  // cannot show the server's own sentences. What is added here is the figures behind the wording.
+  // The rest word themselves through verificationCopy -- see that file for why they cannot show
+  // the server's own sentences. These two are the sentences alone.
+  ROW_ACCOUNTING: {
+    label: 'Rows accounted for',
+    render: (finding) => <CopyLines copy={rowAccountingCopy(finding)} finding={finding} />,
+  },
+  DESCRIPTION_CORRUPTION: {
+    label: 'Transaction descriptions',
+    render: (finding) => <CopyLines copy={descriptionCopy(finding)} finding={finding} />,
+  },
+  // The two card checks add the figures behind their wording.
   CREDIT_CARD_STATEMENT_TOTALS: {
     label: 'Card statement summary',
     render: (finding) => {
@@ -436,9 +445,21 @@ const RULE_RENDERERS: Record<string, { label: string; render: (f: VerificationFi
   },
 };
 
-/** A card check's note takes the warning colour only when the check found a disagreement. */
+/** A note takes the warning colour only when its check found something to look at. */
 function disagrees(finding: VerificationFinding) {
   return finding.outcome === 'WARNING' || finding.outcome === 'FAILED';
+}
+
+/** A check that is worded and nothing more: what was found, then what to do about it. */
+function CopyLines({ copy, finding }: { copy: CheckCopy; finding: VerificationFinding }) {
+  return (
+    <>
+      <p className="text-xs text-muted">{copy.body}</p>
+      {copy.note && (
+        <p className={`text-xs mt-1 ${disagrees(finding) ? 'text-warning' : 'text-muted'}`}>{copy.note}</p>
+      )}
+    </>
+  );
 }
 
 function money(n: number | null | undefined) {

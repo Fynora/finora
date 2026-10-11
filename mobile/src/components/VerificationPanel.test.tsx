@@ -461,4 +461,201 @@ describe('VerificationPanel', () => {
       expect(screen.getByText('Card purchases and payments · verified')).toBeTruthy();
     });
   });
+
+  // The other two checks every report carries that had no renderer. Same cases as the web panel's
+  // tests, with what RowAccountingValidator and DescriptionCorruptionValidator send, their own
+  // sentences included.
+  describe('row accounting and description checks', () => {
+    const ROWS = 'ROW_ACCOUNTING';
+    const DESCRIPTIONS = 'DESCRIPTION_CORRUPTION';
+
+    const counts = {
+      stagedTransactionCount: 42, locatedRowCount: 42, unparseableRowCount: 0, droppedTransactionCandidateCount: 0,
+    };
+    const allAccounted = 'Every row this parser located has an accounted-for fate.';
+    const outlier = (rowIndex: number) => ({ rowIndex, length: 412, sectionMedianLength: 47, sentenceBreaks: 3 });
+    const absorbed = 'One transaction\'s description is far longer than this statement\'s own typical narration and '
+      + 'reads like more than one sentence -- it may have absorbed text that was never part of it, such as a '
+      + 'page footer or disclaimer.';
+
+    interface Case {
+      name: string; finding: VerificationFinding; label: string; tag: string; body: RegExp; note?: RegExp;
+    }
+
+    const cases: Case[] = [
+      {
+        name: 'every row accounted for',
+        finding: { rule: ROWS, outcome: 'VERIFIED', details: { ...counts, explanation: allAccounted } },
+        label: 'Rows accounted for', tag: 'verified',
+        body: /^42 transactions were read\. This check found no line outside the transaction table that looks like a missed transaction\.$/,
+      },
+      {
+        name: 'a statement of one transaction',
+        finding: {
+          rule: ROWS, outcome: 'VERIFIED',
+          details: { ...counts, stagedTransactionCount: 1, locatedRowCount: 1, explanation: allAccounted },
+        },
+        label: 'Rows accounted for', tag: 'verified',
+        body: /^1 transaction was read\. This check found no line/,
+      },
+      {
+        // Passes with rows it could not read, and with a line dropped for a known reason.
+        name: 'accounted for, with rows that could not be read',
+        finding: {
+          rule: ROWS, outcome: 'VERIFIED',
+          details: {
+            ...counts, locatedRowCount: 44, unparseableRowCount: 2, droppedTransactionCandidateCount: 1,
+            droppedTransactionCandidateReasons: { PAGE_LEGEND_BLOCK_SUPPRESSED: 1 }, explanation: allAccounted,
+          },
+        },
+        label: 'Rows accounted for', tag: 'verified',
+        body: /^42 transactions were read\. 2 rows in the table could not be read as transactions and will not be imported\. This check found no line/,
+      },
+      {
+        name: 'accounted for, with one row that could not be read',
+        finding: {
+          rule: ROWS, outcome: 'VERIFIED',
+          details: { ...counts, locatedRowCount: 43, unparseableRowCount: 1, explanation: allAccounted },
+        },
+        label: 'Rows accounted for', tag: 'verified',
+        body: /1 row in the table could not be read as a transaction and will not be imported\./,
+      },
+      {
+        name: 'a line that looks like a transaction was left out',
+        finding: {
+          rule: ROWS, outcome: 'WARNING',
+          details: {
+            ...counts, droppedTransactionCandidateCount: 3,
+            droppedTransactionCandidateReasons: { PRE_HEADER_ACTIVITY_CANDIDATE: 2, PAGE_LEGEND_BLOCK_SUPPRESSED: 1 },
+            explanation: '2 rows outside the recognized transaction table had the shape of a transaction candidate '
+              + '(a date and an amount on the same line) and were discarded. Nothing here says they were '
+              + 'transactions -- only that they were never explained, and require review.',
+          },
+        },
+        label: 'Rows accounted for', tag: 'needs review',
+        body: /^42 transactions were read\. At least one line outside the transaction table has both a date and an amount, and was left out\. It may not be a transaction, but nothing confirmed that\.$/,
+        note: /Compare this import with your statement for any transaction that is missing\./,
+      },
+      {
+        name: 'no table to account for',
+        finding: {
+          rule: ROWS, outcome: 'NOT_APPLICABLE',
+          details: {
+            ...counts, stagedTransactionCount: 0, locatedRowCount: 0,
+            reason: 'No transaction table was located, so there is nothing to account for.',
+          },
+        },
+        label: 'Rows accounted for', tag: 'not applicable',
+        body: /^No transaction table was found, so there were no rows to account for\.$/,
+      },
+      {
+        name: 'a failed row check from a later backend',
+        finding: { rule: ROWS, outcome: 'FAILED', details: { ...counts, droppedTransactionCandidateCount: 1 } },
+        label: 'Rows accounted for', tag: 'did not reconcile',
+        body: /At least one line outside the transaction table/,
+        note: /Compare this import with your statement/,
+      },
+      {
+        name: 'descriptions all look like descriptions',
+        finding: { rule: DESCRIPTIONS, outcome: 'VERIFIED', details: { rowsChecked: 42, sectionMedianLength: 47 } },
+        label: 'Transaction descriptions', tag: 'verified',
+        body: /^The descriptions of 42 transactions were checked\. None looks like it picked up text from elsewhere on the page, such as a footer\.$/,
+      },
+      {
+        name: 'too few transactions to judge descriptions',
+        finding: {
+          rule: DESCRIPTIONS, outcome: 'NOT_APPLICABLE',
+          details: {
+            reason: 'Fewer than 5 non-blank descriptions -- too small a sample to know what this section\'s own '
+              + 'normal length looks like.',
+          },
+        },
+        label: 'Transaction descriptions', tag: 'not applicable',
+        body: /^There are too few transactions here to tell what a normal description looks like, so this check was skipped\.$/,
+      },
+      {
+        name: 'one description picked up extra text',
+        finding: {
+          rule: DESCRIPTIONS, outcome: 'WARNING',
+          details: { rowsChecked: 42, sectionMedianLength: 47, outliers: [outlier(13)], explanation: absorbed },
+        },
+        label: 'Transaction descriptions', tag: 'needs review',
+        // Row 14 as a person counts it, from rowIndex 13.
+        body: /^Row 14 in the list has a description much longer than the others, and it reads like more than one sentence\. It may have picked up text that is not part of the transaction, such as a page footer\.$/,
+        note: /Read that description before you import\./,
+      },
+      {
+        name: 'two descriptions picked up extra text',
+        finding: {
+          rule: DESCRIPTIONS, outcome: 'WARNING',
+          details: { rowsChecked: 42, sectionMedianLength: 47, outliers: [outlier(2), outlier(13)] },
+        },
+        label: 'Transaction descriptions', tag: 'needs review',
+        body: /^Rows 3 and 14 in the list have descriptions much longer than the others/,
+        note: /Read those descriptions before you import\./,
+      },
+      {
+        name: 'three descriptions picked up extra text',
+        finding: {
+          rule: DESCRIPTIONS, outcome: 'WARNING',
+          details: { rowsChecked: 42, sectionMedianLength: 47, outliers: [outlier(2), outlier(13), outlier(19)] },
+        },
+        label: 'Transaction descriptions', tag: 'needs review',
+        body: /^Rows 3, 14 and 20 in the list have descriptions much longer than the others, and they read like more than one sentence\. They may have picked up text/,
+        note: /Read those descriptions before you import\./,
+      },
+      {
+        name: 'more descriptions picked up extra text than a sentence can name',
+        finding: {
+          rule: DESCRIPTIONS, outcome: 'WARNING',
+          details: {
+            rowsChecked: 42, sectionMedianLength: 47,
+            outliers: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(outlier),
+          },
+        },
+        label: 'Transaction descriptions', tag: 'needs review',
+        body: /^Rows 1, 2, 3, 4, 5, 6, 7, 8 and 2 more in the list have descriptions/,
+        note: /Read those descriptions before you import\./,
+      },
+      {
+        name: 'a description warning that names no row',
+        finding: { rule: DESCRIPTIONS, outcome: 'WARNING', details: { rowsChecked: 42, sectionMedianLength: 47 } },
+        label: 'Transaction descriptions', tag: 'needs review',
+        body: /^At least one transaction has a description much longer than the others/,
+        note: /Read the longest descriptions before you import\./,
+      },
+    ];
+
+    const expand = (...findings: VerificationFinding[]) => {
+      render(<VerificationPanel verification={report({ findings })} />);
+      fireEvent.press(screen.getByText('Statement verification'));
+    };
+
+    it.each(cases)('$name', ({ finding, label, tag, body, note }) => {
+      expand(finding);
+
+      // The label shares a Text node with its outcome.
+      expect(screen.getByText(`${label} · ${tag}`)).toBeTruthy();
+      expect(screen.getByText(body)).toBeTruthy();
+      if (note) expect(screen.getByText(note)).toBeTruthy();
+
+      // Nothing of the machinery: not the rule id, not the fallback line, not a details key or
+      // a reason code, and not the server's own sentence about parsers and candidates.
+      expect(screen.queryByText(
+        /ROW_ACCOUNTING|DESCRIPTION_CORRUPTION|doesn't know how to display|candidate|parser|accounted-for|non-blank|sample|narration|PRE_HEADER|PAGE_LEGEND|sectionMedian|undefined|NaN/,
+      )).toBeNull();
+    });
+
+    it('survives findings that arrive with no details at all', () => {
+      const bare = (rule: string, outcome: VerificationFinding['outcome']): VerificationFinding =>
+        ({ rule, outcome, details: null } as unknown as VerificationFinding);
+      expand(bare(ROWS, 'VERIFIED'), bare(ROWS, 'WARNING'), bare(DESCRIPTIONS, 'VERIFIED'), bare(DESCRIPTIONS, 'WARNING'));
+
+      expect(screen.getByText('Rows accounted for · verified')).toBeTruthy();
+      expect(screen.getByText('Rows accounted for · needs review')).toBeTruthy();
+      expect(screen.getByText(/^This check found no line outside the transaction table/)).toBeTruthy();
+      expect(screen.getByText(/^Every transaction's description was checked\./)).toBeTruthy();
+      expect(screen.queryByText(/undefined|NaN|null/)).toBeNull();
+    });
+  });
 });

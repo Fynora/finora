@@ -1,23 +1,24 @@
 import type { VerificationFinding } from '../types';
 
 /**
- * The wording for the two credit-card checks, CREDIT_CARD_STATEMENT_TOTALS and
- * CREDIT_CARD_FLOW_RECONCILIATION.
+ * The wording for four checks: the two credit-card ones (CREDIT_CARD_STATEMENT_TOTALS,
+ * CREDIT_CARD_FLOW_RECONCILIATION), ROW_ACCOUNTING and DESCRIPTION_CORRUPTION.
  *
  * <b>Our sentences, not the server's.</b> Other rules show the backend's own `reason` and
- * `explanation`. These two cannot: theirs name the parser's reading strategies and call the
- * statement's summary box a "billing-summary panel", which means nothing to the person importing.
- * So each case the validators can report is given fixed wording here, chosen from the outcome and
- * the facts in `details`, the same way CONTENT_INTEGRITY is worded.
+ * `explanation`. These cannot: theirs name the parser's reading strategies, call a statement's
+ * summary box a "billing-summary panel" and a line of the page a "transaction candidate", which
+ * mean nothing to the person importing. So each case the validators can report is given fixed
+ * wording here, chosen from the outcome and the facts in `details`, the same way
+ * CONTENT_INTEGRITY is worded.
  *
- * <b>Both checks run on every import,</b> a savings statement included, where they report
- * NOT_APPLICABLE because there is no card summary to read. That wording has to be true for a
+ * <b>All four run on every import.</b> The card checks report NOT_APPLICABLE on a savings
+ * statement, because there is no card summary to read, so that wording has to be true for a
  * savings statement and for a card statement whose summary could not be read.
  *
  * <b>Kept identical in frontend/src/components and mobile/src/components.</b> The two apps share no
  * package, and this is the one place the wording is decided, so a change here is made in both files.
  */
-export interface CardCheckCopy {
+export interface CheckCopy {
   /** What was compared and how it came out. */
   body: string;
   /** What it means for the person importing. */
@@ -42,7 +43,7 @@ const SUMMARY_FIGURES: Record<string, string> = {
 };
 
 /** CREDIT_CARD_STATEMENT_TOTALS: does the statement's summary add up to its own total? */
-export function cardSummaryCopy(finding: VerificationFinding): CardCheckCopy {
+export function cardSummaryCopy(finding: VerificationFinding): CheckCopy {
   const d = detailsOf(finding);
   // Some card statements total to the outstanding balance, the rest to the amount due.
   const total = 'totalOutstanding' in d ? 'total outstanding' : 'total amount due';
@@ -87,7 +88,7 @@ export function cardSummaryCopy(finding: VerificationFinding): CardCheckCopy {
 }
 
 /** CREDIT_CARD_FLOW_RECONCILIATION: do the transactions read add up to the summary's totals? */
-export function cardFlowCopy(finding: VerificationFinding): CardCheckCopy {
+export function cardFlowCopy(finding: VerificationFinding): CheckCopy {
   const d = detailsOf(finding);
 
   if (finding.outcome === 'VERIFIED') {
@@ -159,6 +160,118 @@ export function cardFlowCopy(finding: VerificationFinding): CardCheckCopy {
       body: 'The transactions read from this statement do not add up to the purchases and '
         + 'payments totals in its summary.',
       note,
+    };
+  }
+
+  return { body: COULD_NOT_RUN };
+}
+
+const countOf = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+
+/**
+ * ROW_ACCOUNTING: was any line that looks like a transaction left behind on the way in?
+ *
+ * No count of the lines left out. The details count every dropped line, explained ones included,
+ * and which reasons count as explained is the backend's to decide: a figure worked out here would
+ * be wrong the day that list grows.
+ */
+export function rowAccountingCopy(finding: VerificationFinding): CheckCopy {
+  const d = detailsOf(finding);
+
+  if (finding.outcome === 'NOT_APPLICABLE') {
+    return { body: 'No transaction table was found, so there were no rows to account for.' };
+  }
+
+  const read = countOf(d.stagedTransactionCount);
+  const unreadable = countOf(d.unparseableRowCount) ?? 0;
+  const opening = (read === null ? '' : `${read} ${read === 1 ? 'transaction was' : 'transactions were'} read. `)
+    // The screen already says these will not be imported. Repeated here because this check passes
+    // with them present, and "verified" beside a silence about them would read as none skipped.
+    + (unreadable > 0
+      ? `${unreadable} ${unreadable === 1 ? 'row' : 'rows'} in the table could not be read as `
+        + `${unreadable === 1 ? 'a transaction' : 'transactions'} and will not be imported. `
+      : '');
+
+  // Says what this check found, not that nothing was missed: it sees only lines the reader
+  // dropped after noticing a date and an amount on them, never a line it did not notice at all.
+  if (finding.outcome === 'VERIFIED') {
+    return {
+      body: `${opening}This check found no line outside the transaction table that looks like a missed transaction.`,
+    };
+  }
+
+  // The validator only ever warns; a FAILED from a later backend is the same finding, said louder.
+  if (finding.outcome === 'WARNING' || finding.outcome === 'FAILED') {
+    return {
+      body: `${opening}At least one line outside the transaction table has both a date and an amount, `
+        + 'and was left out. It may not be a transaction, but nothing confirmed that.',
+      note: 'Compare this import with your statement for any transaction that is missing.',
+    };
+  }
+
+  return { body: COULD_NOT_RUN };
+}
+
+/** How many row numbers a sentence names before it says "and N more". */
+const ROWS_NAMED = 8;
+
+/** "3", "3 and 14", "3, 14 and 20", "3, 14, 20 and 2 more". */
+function listRows(rows: number[]): string {
+  const named = rows.slice(0, ROWS_NAMED).map(String);
+  const rest = rows.length - named.length;
+  if (rest > 0) return `${named.join(', ')} and ${rest} more`;
+  if (named.length === 1) return named[0];
+  return `${named.slice(0, -1).join(', ')} and ${named[named.length - 1]}`;
+}
+
+/** DESCRIPTION_CORRUPTION: did a transaction's description pick up text that was never part of it? */
+export function descriptionCopy(finding: VerificationFinding): CheckCopy {
+  const d = detailsOf(finding);
+  const pickedUp = 'picked up text that is not part of the transaction, such as a page footer';
+
+  if (finding.outcome === 'NOT_APPLICABLE') {
+    return {
+      body: 'There are too few transactions here to tell what a normal description looks like, '
+        + 'so this check was skipped.',
+    };
+  }
+
+  if (finding.outcome === 'VERIFIED') {
+    const checked = countOf(d.rowsChecked);
+    return {
+      body: (checked === null
+        ? "Every transaction's description was checked. "
+        : `The ${checked === 1 ? 'description of 1 transaction was' : `descriptions of ${checked} transactions were`} checked. `)
+        + 'None looks like it picked up text from elsewhere on the page, such as a footer.',
+    };
+  }
+
+  if (finding.outcome === 'WARNING' || finding.outcome === 'FAILED') {
+    const outliers = Array.isArray(d.outliers) ? d.outliers : [];
+    // +1 so it matches the row a person counts down to in the list, not the index.
+    const rows = outliers
+      .map((o) => countOf((o as { rowIndex?: unknown } | null)?.rowIndex))
+      .filter((index): index is number => index !== null)
+      .map((index) => index + 1);
+    if (rows.length === 1) {
+      return {
+        body: `Row ${rows[0]} in the list has a description much longer than the others, and it reads `
+          + `like more than one sentence. It may have ${pickedUp}.`,
+        note: 'Read that description before you import.',
+      };
+    }
+    if (rows.length > 1) {
+      return {
+        body: `Rows ${listRows(rows)} in the list have descriptions much longer than the others, and they `
+          + `read like more than one sentence. They may have ${pickedUp}.`,
+        note: 'Read those descriptions before you import.',
+      };
+    }
+    return {
+      body: 'At least one transaction has a description much longer than the others, and it reads '
+        + `like more than one sentence. It may have ${pickedUp}.`,
+      note: 'Read the longest descriptions before you import.',
     };
   }
 

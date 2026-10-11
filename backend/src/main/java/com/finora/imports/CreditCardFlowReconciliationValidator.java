@@ -9,6 +9,7 @@ import java.math.BigDecimal;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * Checks that a credit-card statement's own EXTRACTED transactions, aggregated by direction,
@@ -68,6 +69,10 @@ public class CreditCardFlowReconciliationValidator {
      */
     public enum CreditCardFlowEvidenceLevel {
         FULL_SUMMARY_RECONCILIATION,
+        /** Payments and credits matched the panel; the charges exceeded it by more than the
+         *  recognised instalment rows explain, so that side was left unchecked. Only ever reported
+         *  for a panel that totals to the outstanding balance -- see {@link #check}. */
+        PAYMENTS_SIDE_ONLY,
         PARTIAL_SUMMARY_ONLY,
         NO_CLASSIFIED_TRANSACTIONS,
         NO_SUMMARY
@@ -149,10 +154,52 @@ public class CreditCardFlowReconciliationValidator {
             return new ImportDto.VerificationFinding(RULE, "VERIFIED", details);
         }
 
+        // A third reading, for a panel that totals to the outstanding balance rather than to the
+        // amount due (a real SBI card). Such a statement lists each instalment on an earlier
+        // purchase among its transactions, but counts it in neither its purchases nor its fees
+        // figure: the principal was already part of the outstanding balance, and billing it moves
+        // nothing. Measured on that statement: payments match to the paisa, and the charges exceed
+        // purchases plus fees by exactly the instalment rows. So on this kind of panel, and with
+        // the payments side proven, a surplus of charges is not evidence of a misread.
+        if (summary.hasOutstandingEquation() && paymentsMatch && chargesSurplus.signum() > 0) {
+            List<StagedRow> instalments = rows.stream().filter(CreditCardFlowReconciliationValidator::isInstalment).toList();
+            BigDecimal instalmentAmount = sumOf(instalments, "EXPENSE");
+            details.put("expectedChargesAmount", expectedCharges);
+            if (instalmentAmount.compareTo(chargesSurplus) == 0) {
+                details.put("instalmentRowsSetAside", instalments.size());
+                return new ImportDto.VerificationFinding(RULE, "VERIFIED", details);
+            }
+            // Extra charges the recognised instalments do not account for exactly: an instalment
+            // worded some other way, most likely. Which rows those are is not knowable from here,
+            // so the charges side is left unchecked rather than called wrong -- a correctly read
+            // statement must not be held for carrying a kind of instalment nothing here has seen.
+            // Charges SHORT of the panel never reach this branch, and still warn below.
+            details.put("evidenceLevel", CreditCardFlowEvidenceLevel.PAYMENTS_SIDE_ONLY.name());
+            details.put("reason", "The payments and credits match this statement's summary. Its "
+                    + "charges add up to more than the summary counts, by an amount the recognised "
+                    + "instalment rows do not account for, so the purchases side could not be fully "
+                    + "checked.");
+            return new ImportDto.VerificationFinding(RULE, "NOT_APPLICABLE", details);
+        }
+
         details.put("explanation", "The extracted transactions, summed by direction, do not match "
                 + "this statement's own printed purchases and/or payments/credits totals. This does "
                 + "not identify which side is wrong -- only that they disagree.");
         return new ImportDto.VerificationFinding(RULE, "WARNING", details);
+    }
+
+    /**
+     * An instalment's own counter in a row's narration -- "EMI 03/06", the third of six. The real
+     * statement words its instalment rows "FP EMI 03/06(EXCL TAX ...)" and the interest on them
+     * "INTEREST ON EMI"; only the first is principal the summary leaves out, and the counter is
+     * what tells them apart. Narrower than the word alone on purpose: a row merely mentioning
+     * instalments is a charge like any other.
+     */
+    private static final Pattern INSTALMENT_COUNTER = Pattern.compile("(?i)\\bEMI\\s+\\d{1,2}\\s*/\\s*\\d{1,2}\\b");
+
+    private static boolean isInstalment(StagedRow row) {
+        return "EXPENSE".equals(row.type()) && row.description() != null
+                && INSTALMENT_COUNTER.matcher(row.description()).find();
     }
 
     /** {@code StagedRow.amount()} is documented as absolute by the time it reaches here; {@code abs()}

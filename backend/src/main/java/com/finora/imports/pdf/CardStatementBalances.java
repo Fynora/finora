@@ -58,7 +58,6 @@ final class CardStatementBalances {
     static CreditCardSummaryEvidence withBoxTotalPaymentDue(CreditCardSummaryEvidence summary, BigDecimal boxTotal) {
         if (boxTotal == null) return summary;
         CreditCardSummaryEvidence s = summary == null ? CreditCardSummaryEvidence.NONE : summary;
-        return new CreditCardSummaryEvidence(s.previousBalance(), s.purchases(), s.cashAdvances(), s.fees(),
-                s.paymentsAndCredits(), boxTotal, s.extractionMethod(), s.conflictingFields());
+        return s.withTotalAmountDue(boxTotal);
     }
 }

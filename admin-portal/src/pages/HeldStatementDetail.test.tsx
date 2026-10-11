@@ -169,6 +169,74 @@ describe('HeldStatementDetail', () => {
     expect(screen.getByText(/PAGE_FOOTER_OR_CLOSING_MARKER/)).toBeInTheDocument();
   });
 
+  /** A held statement is usually held BECAUSE its balance chain failed, so this is the page an
+   *  engineer reads the mismatch on. It printed the row descriptions as one line of JSON. */
+  it('describes a balance mismatch in the same sentences Import Trace uses, not as JSON', async () => {
+    vi.mocked(adminHeldStatementApi.get).mockResolvedValue({
+      ...detail,
+      findings: [{
+        sectionIndex: 1,
+        rule: 'BALANCE_CHAIN',
+        outcome: 'FAILED',
+        details: {
+          rowsChecked: 40,
+          discrepanciesCount: 23,
+          discrepancyShapes: [
+            {
+              rowIndex: 12, sameDayAsPrevious: true, sameDayAsNext: true,
+              directionLooksFlipped: false, balanceDidNotMove: true, gapMatchesAmountOfRows: [13, 11],
+            },
+            {
+              rowIndex: 16, sameDayAsPrevious: false, sameDayAsNext: false,
+              directionLooksFlipped: true, balanceDidNotMove: false, gapMatchesAmountOfRows: [],
+            },
+          ],
+          gapsCancel: false,
+        },
+        createdAt: '2026-09-01T07:59:00Z',
+      }],
+    });
+    mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
+    renderPage();
+
+    expect(await screen.findByText(
+      'Row 13: balance did not move; gap equals the amount on rows 12, 14; same day as the rows before and after',
+    )).toBeInTheDocument();
+    expect(screen.getByText('Row 17: gap is twice this row’s own amount')).toBeInTheDocument();
+    expect(screen.getByText(/Showing the first 2 of 23 rows that disagreed\./)).toBeInTheDocument();
+    expect(screen.getByText(/The gaps do not cancel each other out\./)).toBeInTheDocument();
+    // Says which list the numbers count down, and for which section of a composite statement.
+    expect(screen.getByText(/# column of section 2’s staged rows/)).toBeInTheDocument();
+
+    // The counts stay as pairs; what was put into sentences is not also printed as a pair.
+    expect(screen.getByText('discrepanciesCount')).toBeInTheDocument();
+    expect(screen.queryByText('discrepancyShapes')).not.toBeInTheDocument();
+    expect(screen.queryByText('gapsCancel')).not.toBeInTheDocument();
+    expect(screen.queryByText(/"rowIndex"/)).not.toBeInTheDocument();
+  });
+
+  it('still shows a balance description it cannot read, rather than hiding it', async () => {
+    // Written by a later version, or damaged. Nothing here can be put into a sentence, so it stays
+    // visible as a pair -- an operator must not be left thinking nothing was recorded.
+    vi.mocked(adminHeldStatementApi.get).mockResolvedValue({
+      ...detail,
+      findings: [{
+        sectionIndex: 0,
+        rule: 'BALANCE_CHAIN',
+        outcome: 'FAILED',
+        details: { discrepancyShapes: [{ row: 12 }], gapsCancel: true },
+        createdAt: '2026-09-01T07:59:00Z',
+      }],
+    });
+    mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
+    renderPage();
+
+    expect(await screen.findByText('discrepancyShapes')).toBeInTheDocument();
+    expect(screen.getByText('[{"row":12}]')).toBeInTheDocument();
+    expect(screen.getByText('gapsCancel')).toBeInTheDocument();
+    expect(screen.queryByText(/Row numbers are/)).not.toBeInTheDocument();
+  });
+
   it('renders the audit timeline oldest first', async () => {
     mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
     renderPage();
@@ -548,6 +616,10 @@ describe('HeldStatementDetail', () => {
       expect(screen.getByText('SAMPLE GROCERY')).toBeInTheDocument();
       expect(screen.getByText(/2 staged of 3 read/)).toBeInTheDocument();
       expect(adminHeldStatementApi.stagedRows).toHaveBeenCalledWith('HLD-2026-100001');
+      // Numbered from one, so the row a balance-mismatch finding calls "Row 2" can be found
+      // without counting down the table.
+      const secondRow = screen.getByText('SAMPLE GROCERY').closest('tr') as HTMLElement;
+      expect(secondRow.querySelector('td')?.textContent).toBe('2');
     });
 
     it('shows the server\'s reason when the rows are gone', async () => {

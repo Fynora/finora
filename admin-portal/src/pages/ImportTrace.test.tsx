@@ -248,6 +248,9 @@ describe('Import Trace — a balance mismatch is readable without a database que
       'Row 17: gap equals the amount on row 16; same day as the row before',
     )).toBeInTheDocument();
     expect(screen.getByText(/The gaps cancel each other out\./)).toBeInTheDocument();
+    // What the numbers count, said in words: this page has no rows on it to count them against.
+    expect(screen.getByText(/Row numbers count down the rows as the customer’s review screen lists them/))
+      .toBeInTheDocument();
   });
 
   it('keeps the counts on the flat line and never prints a list of objects there', async () => {
@@ -323,7 +326,7 @@ describe('Import Trace — a balance mismatch is readable without a database que
 
     expect(screen.getByText('checked=128')).toBeInTheDocument();
     expect(screen.queryByRole('list', { name: MISMATCH_LIST })).not.toBeInTheDocument();
-    expect(screen.queryByText(/Row numbers are/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Row numbers/)).not.toBeInTheDocument();
   });
 
   it('prints a reason histogram as its contents, not as [object Object]', async () => {

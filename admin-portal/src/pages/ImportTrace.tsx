@@ -4,7 +4,8 @@ import { Search, Route, Clock, ShieldQuestion, GraduationCap, CheckCircle2, Aler
 import { AdminLayout } from '../components/AdminLayout';
 import { RequirePermission } from '../components/ProtectedRoute';
 import { adminImportTraceApi, adminStatementAnalysisApi } from '../api/endpoints';
-import type { BalanceDiscrepancyShape, ImportTrace, ImportTraceFinding, ImportTraceStage } from '../types';
+import { BALANCE_MISMATCH_KEYS, BalanceMismatchList, balanceMismatchShapes } from '../components/BalanceMismatchList';
+import type { ImportTrace, ImportTraceFinding, ImportTraceStage } from '../types';
 
 /**
  * One import, end to end — Milestone 2's sixth success criterion.
@@ -107,65 +108,6 @@ function StageRow({ stage }: { stage: ImportTraceStage }) {
   );
 }
 
-/**
- * A balance-chain mismatch, row by row, in words.
- *
- * <h2>Why these get sentences when every other detail is `key=value`</h2>
- * A count says two rows disagreed. Whether that is a balance column that slipped a row or a credit
- * read as a debit decides what happens next, and telling them apart used to mean querying the
- * customer's staged rows by hand before they were deleted. The backend now records the part of that
- * answer which is not statement content — where each row is and how its numbers relate, never the
- * numbers — and this is where an operator reads it.
- *
- * <h2>Facts, not a diagnosis</h2>
- * Each line states what was measured. It does not name a cause, for the reason this page carries no
- * verdict: "balance did not move" is consistent with a slipped column and with a row extracted
- * twice, and choosing between them is the operator's call.
- */
-const SHAPES_KEY = 'discrepancyShapes';
-const GAPS_CANCEL_KEY = 'gapsCancel';
-
-/** Read defensively: a finding written by a later version may hold a shape this one does not expect,
- *  and that must cost one line rather than the page. */
-function discrepancyShapes(details: Record<string, unknown>): BalanceDiscrepancyShape[] {
-  const raw = details[SHAPES_KEY];
-  if (!Array.isArray(raw)) return [];
-  return raw.filter((shape): shape is BalanceDiscrepancyShape =>
-    shape !== null && typeof shape === 'object'
-    && Number.isInteger((shape as { rowIndex?: unknown }).rowIndex));
-}
-
-/** Rows are counted from one, as the balance-check table on the customer's own review screen counts
- *  them — so "row 13" in a support conversation and "Row 13" here are the same row. */
-function rowNumber(index: number): number {
-  return index + 1;
-}
-
-function describeShape(shape: BalanceDiscrepancyShape): string {
-  const facts: string[] = [];
-  if (shape.balanceDidNotMove === true) facts.push('balance did not move');
-  if (shape.directionLooksFlipped === true) facts.push('gap is twice this row’s own amount');
-
-  const matches = Array.isArray(shape.gapMatchesAmountOfRows)
-    ? shape.gapMatchesAmountOfRows.filter((row) => Number.isInteger(row))
-    : [];
-  if (matches.length > 0) {
-    const rows = [...matches].sort((a, b) => a - b).map(rowNumber).join(', ');
-    facts.push(`gap equals the amount on ${matches.length === 1 ? 'row' : 'rows'} ${rows}`);
-  }
-  // Said rather than left blank: a row with nothing after its number reads as a rendering fault.
-  if (facts.length === 0) facts.push('gap matches no amount in the rows');
-
-  if (shape.sameDayAsPrevious === true && shape.sameDayAsNext === true) {
-    facts.push('same day as the rows before and after');
-  } else if (shape.sameDayAsPrevious === true) {
-    facts.push('same day as the row before');
-  } else if (shape.sameDayAsNext === true) {
-    facts.push('same day as the row after');
-  }
-  return `Row ${rowNumber(shape.rowIndex)}: ${facts.join('; ')}`;
-}
-
 /** A histogram (ROW_ACCOUNTING's reason counts) is an object, and `String()` of one is
  *  "[object Object]". Lists of names keep the comma form they have always had. */
 function detailValue(value: unknown): string {
@@ -180,14 +122,13 @@ function FindingRow({ finding }: { finding: ImportTraceFinding }) {
     : finding.outcome === 'VERIFIED' ? 'text-success'
     : 'text-muted';
   const details = finding.details ?? {};
-  const shapes = discrepancyShapes(details);
-  // Whatever is rendered as sentences below is left out of the flat line, so nothing is said twice
-  // and a list of objects never reaches String().
+  // A balance mismatch is described in sentences by BalanceMismatchList. Whatever it renders is left
+  // out of the flat line, so nothing is said twice and a list of objects never reaches String().
+  const described = balanceMismatchShapes(details).length > 0;
   const flat = Object.entries(details)
-    .filter(([k]) => k !== SHAPES_KEY && !(shapes.length > 0 && k === GAPS_CANCEL_KEY))
+    .filter(([k]) => k !== 'discrepancyShapes' && !(described && BALANCE_MISMATCH_KEYS.includes(k)))
     .map(([k, v]) => `${k}=${detailValue(v)}`)
     .join('  ');
-  const mismatches = typeof details.discrepanciesCount === 'number' ? details.discrepanciesCount : shapes.length;
   return (
     <tr className="border-b border-border last:border-0 align-top">
       <td className="py-2 pr-3 text-muted">{finding.sectionIndex}</td>
@@ -195,19 +136,10 @@ function FindingRow({ finding }: { finding: ImportTraceFinding }) {
       <td className={`py-2 pr-3 font-medium ${tone}`}>{finding.outcome}</td>
       <td className="py-2 text-muted text-xs">
         <span className="font-mono break-all">{flat === '' ? '—' : flat}</span>
-        {shapes.length > 0 && (
-          <div className="mt-2">
-            <ul className="list-disc pl-4 space-y-0.5 text-ink" aria-label="Rows that disagreed with the running balance">
-              {shapes.map((shape) => <li key={shape.rowIndex}>{describeShape(shape)}</li>)}
-            </ul>
-            <p className="mt-1.5">
-              {mismatches > shapes.length && `Showing the first ${shapes.length} of ${mismatches} rows that disagreed. `}
-              {mismatches > 1 && details[GAPS_CANCEL_KEY] === true && 'The gaps cancel each other out. '}
-              {mismatches > 1 && details[GAPS_CANCEL_KEY] === false && 'The gaps do not cancel each other out. '}
-              Row numbers are the ones in the balance-check table on the customer’s review screen.
-            </p>
-          </div>
-        )}
+        <BalanceMismatchList
+          details={details}
+          rowNumbersNote="Row numbers count down the rows as the customer’s review screen lists them, and are the ones in its balance-check table."
+        />
       </td>
     </tr>
   );

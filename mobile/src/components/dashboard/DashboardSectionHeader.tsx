@@ -10,9 +10,12 @@ import { spacing, typography, useTheme } from '../../theme';
  * cash flow range control). Card.tsx's SectionHeading stays as it is for the rest of the app.
  */
 export function DashboardSectionHeader({
-  title, caption, actionLabel, onAction, showChevron = true, accessory,
+  title, caption, actionLabel, actionAccessibilityLabel, onAction, showChevron = true, accessory,
 }: {
-  title: string; caption?: string; actionLabel?: string; onAction?: () => void; showChevron?: boolean; accessory?: ReactNode;
+  title: string; caption?: string; actionLabel?: string;
+  /** What the action is read out as, when its visible words ("See all") need the card's context. */
+  actionAccessibilityLabel?: string;
+  onAction?: () => void; showChevron?: boolean; accessory?: ReactNode;
 }) {
   const c = useTheme();
   // Beside a caption the title is squeezed as the text grows ("Sep 26" took two lines on a
@@ -29,7 +32,7 @@ export function DashboardSectionHeader({
           style={styles.action}
           hitSlop={8}
           accessibilityRole="button"
-          accessibilityLabel={actionLabel}
+          accessibilityLabel={actionAccessibilityLabel ?? actionLabel}
         >
           <Text style={[typography.labelS, { color: c.mutedInk }]}>{actionLabel}</Text>
           {showChevron ? <Ionicons name="chevron-forward" size={14} color={c.muted} /> : null}

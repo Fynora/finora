@@ -670,7 +670,16 @@ export function DashboardScreen() {
           section-order decision; none of these three sections' own content changed, only where
           they sit on the screen. */}
       <DashboardCard style={styles.section}>
-        <DashboardSectionHeader title="Recent Transactions" />
+        {/* "See all" only when there is a list to see the rest of: while loading, on an error and
+            on the empty state (which has its own way forward) there is nothing behind it. */}
+        <DashboardSectionHeader
+          title="Recent Transactions"
+          actionLabel={recentTxns.length > 0 ? 'See all' : undefined}
+          actionAccessibilityLabel="See all transactions"
+          onAction={recentTxns.length > 0
+            ? () => { trackNavigation('transactions', 'contextual'); navigation.navigate('Transactions'); }
+            : undefined}
+        />
         <View style={styles.cardBody}>
           {recentTxnsQ.isLoading ? (
             <>

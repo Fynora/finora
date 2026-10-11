@@ -2,12 +2,19 @@ import { dark, light, type Palette } from '../theme/palette';
 import { withAlpha } from '../theme/glass';
 
 /**
- * How opaque the hero's glass tint is. Higher than the app's glass alpha (0.72) on purpose: the
- * backdrop shows through the tint, and at 0.72 the dark theme's soft text measured 4.13:1 and
- * three gauge colours fell under 3:1. heroTones.test.ts measures this value on every backdrop
- * pixel; lowering it has to go back through that test.
+ * How opaque the hero's glass tint is. Far higher than the app's glass alpha (0.72) on purpose.
+ *
+ * - Contrast: the backdrop shows through the tint, and at 0.72 the dark theme's soft text
+ *   measured 4.13:1 and three gauge colours fell under 3:1.
+ * - The approved look (Sid, 2026-10-11): the hero is near-black in the light theme. At 0.86 it
+ *   cleared contrast but the near-white page showed through enough to make it dark grey
+ *   (#35373B measured on an iPhone 17 Pro screenshot, against the design's #15171C). At 0.96 no
+ *   channel is lighter than 40 over any backdrop pixel.
+ *
+ * heroTones.test.ts measures this value on every backdrop pixel; lowering it has to go back
+ * through that test.
  */
-export const HERO_GLASS_ALPHA = 0.86;
+export const HERO_GLASS_ALPHA = 0.96;
 
 export interface HeroTones {
   /** The glass tint: `primaryDark` at HERO_GLASS_ALPHA. */

@@ -39,6 +39,17 @@ describe.each([['light', light], ['dark', dark]] as const)('hero tones in the %s
     expect(seen(t.surface, [0, 0, 0])).toEqual(seen(palette.primaryDark, [0, 0, 0]).map((v) => v * HERO_GLASS_ALPHA));
   });
 
+  // Sid, 2026-10-11, comparing the device with the approved design: the hero there is near-black
+  // (#15171C). At a tint of 0.86 the page showed through enough to make it dark grey (#35373B
+  // measured on an iPhone 17 Pro screenshot). In the light theme no channel of the hero, over any
+  // backdrop pixel, may now be lighter than 40.
+  if (theme === 'light') {
+    it('is near-black over every backdrop pixel, as in the approved design', () => {
+      const lightest = Math.max(...surfaces.flat());
+      expect(lightest).toBeLessThanOrEqual(40);
+    });
+  }
+
   it.each(['text', 'textSoft'] as const)('%s clears 4.5:1 on the hero, on every backdrop pixel and on the solid fallback', (key) => {
     expect(worst(t[key])).toBeGreaterThanOrEqual(4.5);
   });

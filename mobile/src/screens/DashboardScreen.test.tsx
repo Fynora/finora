@@ -1541,6 +1541,23 @@ describe('Recent Transactions rows (card redesign)', () => {
     } as never);
   });
 
+  // The approved design has "See all" on this card; the app had no way from here to the full list.
+  it('offers See all, which opens the Transactions tab', async () => {
+    const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
+    navigate.mockClear();
+    renderScreen();
+    fireEvent.press(await screen.findByRole('button', { name: 'See all transactions' }));
+    expect(navigate).toHaveBeenCalledWith('Transactions');
+  });
+
+  it('does not offer See all when there is nothing more to see', async () => {
+    transactions.search.mockResolvedValue({ content: [], page: 0, size: 5, totalElements: 0, totalPages: 0 } as never);
+    renderScreen();
+    await screen.findByTestId('kpi-Expenses');
+    await waitFor(() => expect(transactions.search).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: 'See all transactions' })).toBeNull();
+  });
+
   it('keeps income in the success ink and expenses in the danger ink', async () => {
     renderScreen();
     expect(await screen.findByText('+₹1,45,000')).toHaveStyle({ color: light.successInk });

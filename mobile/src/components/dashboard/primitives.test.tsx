@@ -97,6 +97,19 @@ describe('ProgressBar', () => {
 });
 
 describe('DashboardSectionHeader', () => {
+  // "See all" says nothing on its own to someone who cannot see which card it sits in.
+  it('lets an action be read out with more words than it shows', () => {
+    const onAction = jest.fn();
+    render(
+      <ThemeProvider>
+        <DashboardSectionHeader title="Recent Transactions" actionLabel="See all" actionAccessibilityLabel="See all transactions" onAction={onAction} />
+      </ThemeProvider>,
+    );
+    expect(screen.getByText('See all')).toBeTruthy();
+    fireEvent.press(screen.getByRole('button', { name: 'See all transactions' }));
+    expect(onAction).toHaveBeenCalledTimes(1);
+  });
+
   // Found on an iPhone 17 Pro simulator at an accessibility text size: beside its caption the
   // month title was squeezed until "Sep 26" took two lines. At large sizes the title has the row
   // to itself and whatever sat on its right goes under it.

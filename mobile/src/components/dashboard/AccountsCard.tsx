@@ -2,7 +2,6 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { DashboardCard } from './DashboardCard';
 import { fmtCurrency } from '../../lib/format';
-import { useLargeFontScale } from '../../lib/useLargeFontScale';
 import { fonts, spacing, typography, useTheme } from '../../theme';
 import type { Account } from '../../types';
 
@@ -10,7 +9,12 @@ const MAX_AVATARS = 4;
 
 /**
  * The balance card. Card redesign (2026-10-10): full width on its own row, with the balance as
- * the headline, the bank avatars beside it, and the counts and "View Accounts" in a footer.
+ * the headline and the bank avatars beside it.
+ *
+ * 2026-10-11, to the approved design: one line under the balance (the date, then the counts)
+ * and an arrow that opens Accounts. It had a second row with the counts and a "View Accounts"
+ * text link, which at an accessibility text size broke "Accounts" in the middle of the word.
+ * The arrow is still a button named "View Accounts".
  */
 export function AccountsCard({
   accounts, totalBalance, caption, onViewAll,
@@ -21,25 +25,38 @@ export function AccountsCard({
   onViewAll: () => void;
 }) {
   const c = useTheme();
-  // Side by side, the link leaves the counts a column too narrow for large text ("Accounts" broke
-  // mid-word on a simulator at an accessibility size), so at large sizes they stack.
-  const largeText = useLargeFontScale();
   const bankCount = new Set(accounts.map((a) => a.bank.id)).size;
+  const counts = [
+    `${accounts.length} account${accounts.length === 1 ? '' : 's'}`,
+    `${bankCount} bank${bankCount === 1 ? '' : 's'}`,
+  ];
   const shown = accounts.slice(0, MAX_AVATARS);
   const overflow = accounts.length - shown.length;
 
   return (
-    <DashboardCard style={styles.card}>
+    <DashboardCard>
       <View style={styles.top}>
         {/* Grouped into one accessible node: swiping "Total Balance", "₹12,48,320", "As of today"
             as three separate items loses the connection between them. Same label format
-            ("Total Balance: <value>, <caption>") the KPI card this figure moved out of used. */}
-        <View style={styles.balance} accessible accessibilityLabel={`Total Balance: ${fmtCurrency(totalBalance)}, ${caption}`}>
+            ("Total Balance: <value>, <caption>") the KPI card this figure moved out of used, with
+            the counts after it now that they sit inside this node. */}
+        <View
+          style={styles.balance}
+          accessible
+          accessibilityLabel={[`Total Balance: ${fmtCurrency(totalBalance)}`, caption, ...counts].filter(Boolean).join(', ')}
+        >
           <Text style={[typography.eyebrow, { color: c.mutedInk }]}>Total Balance</Text>
           <Text style={[typography.numberL, { color: c.ink }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
             {fmtCurrency(totalBalance)}
           </Text>
-          <Text style={[typography.caption, { color: c.mutedInk }]}>{caption}</Text>
+          {/* One paragraph, so it wraps as one. The date keeps a Text of its own: it is the
+              staleness caption, and what says so elsewhere looks it up by its exact words. */}
+          <Text style={[typography.caption, { color: c.mutedInk }]}>
+            {caption ? <Text>{caption}</Text> : null}
+            {/* A no-break space keeps a count with its noun: the line otherwise broke as
+                "... 3" / "banks" on a simulator. */}
+            <Text>{`${caption ? ' · ' : ''}${counts.map((count) => count.replace(' ', ' ')).join(' · ')}`}</Text>
+          </Text>
         </View>
         <View style={styles.avatarRow}>
           {shown.map((a) => (
@@ -53,14 +70,8 @@ export function AccountsCard({
             </View>
           ) : null}
         </View>
-      </View>
-      <View testID="accounts-card-footer" style={[styles.footer, largeText && styles.footerStacked, { borderTopColor: c.border }]}>
-        <Text style={[typography.bodyS, styles.counts, { color: c.mutedInk }]}>
-          {accounts.length} Account{accounts.length === 1 ? '' : 's'} · {bankCount} Bank{bankCount === 1 ? '' : 's'}
-        </Text>
         <Pressable onPress={onViewAll} style={styles.cta} accessibilityRole="button" accessibilityLabel="View Accounts">
-          <Text style={[typography.labelS, { color: c.primary }]}>View Accounts</Text>
-          <Ionicons name="chevron-forward" size={14} color={c.primary} />
+          <Ionicons name="chevron-forward" size={18} color={c.mutedInk} />
         </Pressable>
       </View>
     </DashboardCard>
@@ -68,7 +79,6 @@ export function AccountsCard({
 }
 
 const styles = StyleSheet.create({
-  card: { gap: spacing.ms },
   top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.ms },
   balance: { flex: 1, gap: spacing.xs },
   // paddingRight cancels the last avatar's negative margin, so the stack ends at the card's edge.
@@ -84,11 +94,7 @@ const styles = StyleSheet.create({
   // (maxFontSizeMultiplier at the call sites): scaled, the initials ran out of the circle and
   // into the next one.
   avatarText: { fontFamily: fonts.bodyBold, fontSize: 10, color: '#FFFFFF' },
-  footer: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    borderTopWidth: StyleSheet.hairlineWidth, gap: spacing.sm,
-  },
-  footerStacked: { flexDirection: 'column', alignItems: 'flex-start', gap: 0, paddingTop: spacing.sm },
-  counts: { flexShrink: 1 },
-  cta: { flexDirection: 'row', alignItems: 'center', gap: 2, minHeight: 44 },
+  // The arrow alone is 18 points; the button around it is the 44 point target. The arrow sits at
+  // the button's right edge, which is the card's content edge.
+  cta: { minWidth: 44, minHeight: 44, alignItems: 'flex-end', justifyContent: 'center' },
 });

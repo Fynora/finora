@@ -69,10 +69,6 @@ public class CreditCardFlowReconciliationValidator {
      */
     public enum CreditCardFlowEvidenceLevel {
         FULL_SUMMARY_RECONCILIATION,
-        /** Payments and credits matched the panel; the charges exceeded it by more than the
-         *  recognised instalment rows explain, so that side was left unchecked. Only ever reported
-         *  for a panel that totals to the outstanding balance -- see {@link #check}. */
-        PAYMENTS_SIDE_ONLY,
         PARTIAL_SUMMARY_ONLY,
         NO_CLASSIFIED_TRANSACTIONS,
         NO_SUMMARY
@@ -160,7 +156,7 @@ public class CreditCardFlowReconciliationValidator {
         // figure: the principal was already part of the outstanding balance, and billing it moves
         // nothing. Measured on that statement: payments match to the paisa, and the charges exceed
         // purchases plus fees by exactly the instalment rows. So on this kind of panel, and with
-        // the payments side proven, a surplus of charges is not evidence of a misread.
+        // the payments side proven, a surplus made up of instalment rows is not a misread.
         if (summary.hasOutstandingEquation() && paymentsMatch && chargesSurplus.signum() > 0) {
             List<StagedRow> instalments = rows.stream().filter(CreditCardFlowReconciliationValidator::isInstalment).toList();
             BigDecimal instalmentAmount = sumOf(instalments, "EXPENSE");
@@ -169,17 +165,13 @@ public class CreditCardFlowReconciliationValidator {
                 details.put("instalmentRowsSetAside", instalments.size());
                 return new ImportDto.VerificationFinding(RULE, "VERIFIED", details);
             }
-            // Extra charges the recognised instalments do not account for exactly: an instalment
-            // worded some other way, most likely. Which rows those are is not knowable from here,
-            // so the charges side is left unchecked rather than called wrong -- a correctly read
-            // statement must not be held for carrying a kind of instalment nothing here has seen.
-            // Charges SHORT of the panel never reach this branch, and still warn below.
-            details.put("evidenceLevel", CreditCardFlowEvidenceLevel.PAYMENTS_SIDE_ONLY.name());
-            details.put("reason", "The payments and credits match this statement's summary. Its "
-                    + "charges add up to more than the summary counts, by an amount the recognised "
-                    + "instalment rows do not account for, so the purchases side could not be fully "
-                    + "checked.");
-            return new ImportDto.VerificationFinding(RULE, "NOT_APPLICABLE", details);
+            // A surplus the recognised instalments do not account for exactly is not explained by
+            // anything here -- an instalment worded some other way, or a row read twice -- so it
+            // falls through to the warning below like any other disagreement, and the import is
+            // held for review. Sid's decision (2026-10-11): an import goes ahead only once its
+            // amounts are confirmed, by a check or by a person. How many rows were recognised is
+            // kept, so the reviewer can see how much of the surplus was understood.
+            details.put("instalmentRowsRecognised", instalments.size());
         }
 
         details.put("explanation", "The extracted transactions, summed by direction, do not match "

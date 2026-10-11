@@ -1101,12 +1101,12 @@ actually works — no test, no claim.
        payments side matches to the paisa; the charges exceed purchases plus fees by exactly the
        instalment rows. `CreditCardFlowReconciliationValidator` sets those rows aside (recognised by
        the instalment's own "n/m" counter in the narration) on this kind of panel only.
-    3. **A surplus the recognised instalments do not explain is left unchecked, not warned.** With
-       the payments side proven, extra charges most likely mean an instalment worded another way,
-       and a `WARNING` here holds the import for review. The finding is `NOT_APPLICABLE` with
-       `evidenceLevel = PAYMENTS_SIDE_ONLY`. Charges short of the panel, or payments that disagree,
-       still warn. This is a decision (2026-10-11), made on one SBI statement: tighten it once more
-       of that bank's statements show which instalment wordings occur.
+    3. **A surplus the recognised instalments do not explain exactly still warns, and so holds the
+       import.** It may be an instalment worded another way, or a row read twice, and nothing here
+       can tell which. The owner's decision (2026-10-11): an import goes ahead only once its amounts
+       are confirmed, by a check or by a person. The finding carries `instalmentRowsRecognised` so
+       the reviewer sees how much of the surplus was understood. Built on one SBI statement: each
+       new instalment wording seen in a held review is a candidate for the recogniser.
 - **Supported layouts:** GRID's row-merge recovery (found and fixed against a real Axis statement:
   a date-range row and its amount row sit only ~1.0pt apart in y, close enough for shared
   row-grouping logic to merge them, which then fails the "value row must be numeric" safety check

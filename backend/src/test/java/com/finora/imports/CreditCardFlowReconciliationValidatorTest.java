@@ -290,9 +290,9 @@ class CreditCardFlowReconciliationValidatorTest {
     }
 
     @Test
-    void anUnexplainedSurplusOnAnOutstandingPanelIsNotCheckedRatherThanWarned() {
-        // An instalment worded in a way nothing here recognises. The payments side is proven; the
-        // charges side cannot be, and a correctly read statement must not be held for that.
+    void anUnexplainedSurplusOnAnOutstandingPanelWarnsSoTheImportIsHeld() {
+        // An instalment worded in a way nothing here recognises -- or a row read twice. The two
+        // cannot be told apart, so the amounts are not confirmed and the import waits for a person.
         var rows = List.of(
                 row("SAMPLE STORE", "20000", "EXPENSE"),
                 row("LATE FEE", "500.50", "EXPENSE"),
@@ -301,13 +301,13 @@ class CreditCardFlowReconciliationValidatorTest {
 
         var finding = validator.check(rows, outstandingSummary("20000", "500.50", "30000"));
 
-        assertThat(finding.outcome()).isEqualTo("NOT_APPLICABLE");
-        assertThat(finding.details().get("evidenceLevel")).isEqualTo("PAYMENTS_SIDE_ONLY");
-        assertThat((String) finding.details().get("reason")).contains("could not be fully checked");
+        assertThat(finding.outcome()).isEqualTo("WARNING");
+        assertThat(finding.details().get("instalmentRowsRecognised")).isEqualTo(0);
+        assertThat(finding.details()).doesNotContainKey("instalmentRowsSetAside");
     }
 
     @Test
-    void aSurplusOnlyPartlyMadeOfInstalmentsIsNotCheckedRatherThanGuessed() {
+    void aSurplusOnlyPartlyMadeOfInstalmentsWarnsRatherThanGuessing() {
         // Recognised instalments come to 3000 but the surplus is 2000: setting them aside would
         // leave the charges short, and which reading is right is not knowable from here.
         var rows = List.of(
@@ -318,8 +318,8 @@ class CreditCardFlowReconciliationValidatorTest {
 
         var finding = validator.check(rows, outstandingSummary("20000", "500.50", "30000"));
 
-        assertThat(finding.outcome()).isEqualTo("NOT_APPLICABLE");
-        assertThat(finding.details().get("evidenceLevel")).isEqualTo("PAYMENTS_SIDE_ONLY");
+        assertThat(finding.outcome()).isEqualTo("WARNING");
+        assertThat(finding.details().get("instalmentRowsRecognised")).isEqualTo(1);
     }
 
     @Test

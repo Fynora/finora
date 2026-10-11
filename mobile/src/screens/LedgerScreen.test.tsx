@@ -1620,3 +1620,80 @@ describe('merchant logo on each row', () => {
     expect(await screen.findByLabelText('Swiggy')).toBeTruthy();
   });
 });
+
+/**
+ * The transfer modal and the bank-correction modal are siblings, and each is keyed by the
+ * transaction it is showing so that it remounts with fresh state when that transaction changes.
+ * Both used the same fallback key while closed, so the screen rendered two siblings with one key
+ * and React logged "Encountered two children with the same key" on every render of this tab.
+ */
+describe('sibling modal keys', () => {
+  function duplicateKeyErrors(spy: jest.SpyInstance): string[] {
+    return spy.mock.calls
+      .map((args) => args.map(String).join(' '))
+      .filter((message) => message.includes('two children with the same key'));
+  }
+
+  let consoleError: jest.SpyInstance;
+  beforeEach(() => {
+    consoleError = jest.spyOn(console, 'error');
+  });
+  afterEach(() => {
+    consoleError.mockRestore();
+  });
+
+  it('logs no duplicate-key error with both modals closed', async () => {
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+
+    renderScreen();
+    await screen.findByText('Grocery run');
+
+    expect(duplicateKeyErrors(consoleError)).toEqual([]);
+  });
+
+  it('logs no duplicate-key error with both modals open on the same transaction', async () => {
+    // A phone cannot reach this: the first modal covers the row. The test renderer can, and it is
+    // the other way the two keys could meet -- the same transaction id in both.
+    transactions.search.mockResolvedValue(
+      page([txn({ reconciliationStatus: 'OK', pendingBankCorrection: true })]) as never,
+    );
+    transactions.correctionHistory.mockResolvedValue([] as never);
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(await screen.findByTestId('mark-transfer-button-t-1'));
+    await screen.findByLabelText('Search transactions to pair with');
+    fireEvent.press(screen.getAllByText('Grocery run')[0]);
+    fireEvent.press(await screen.findByTestId('bank-correction-button-t-1'));
+    await screen.findByText('Bank correction');
+
+    // Both are open at once, or this test is not exercising the case it names.
+    expect(screen.getByLabelText('Search transactions to pair with')).toBeTruthy();
+    expect(duplicateKeyErrors(consoleError)).toEqual([]);
+  });
+
+  it('still opens the transfer modal with fresh state for the next transaction', async () => {
+    // What the key is for. A key that no longer varied with the transaction would silence the
+    // error above just as well, and carry one transaction's search text into the next.
+    transactions.search.mockImplementation(async (filters: any) =>
+      (filters?.keyword
+        ? page([])
+        : page([
+          txn({ id: 't-1', reconciliationStatus: 'OK' }),
+          txn({ id: 't-2', description: 'Rent', merchant: 'Landlord', reconciliationStatus: 'OK' }),
+        ])) as never);
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(await screen.findByTestId('mark-transfer-button-t-1'));
+    fireEvent.changeText(await screen.findByLabelText('Search transactions to pair with'), 'Savings');
+    expect(screen.getByLabelText('Search transactions to pair with').props.value).toBe('Savings');
+    fireEvent.press(screen.getByText('Cancel'));
+    await waitFor(() => expect(screen.queryByLabelText('Search transactions to pair with')).toBeNull());
+
+    fireEvent.press(screen.getByText('Rent'));
+    fireEvent.press(await screen.findByTestId('mark-transfer-button-t-2'));
+
+    expect((await screen.findByLabelText('Search transactions to pair with')).props.value).toBe('');
+  });
+});

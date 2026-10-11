@@ -918,9 +918,11 @@ export function LedgerScreen() {
 
       {/* Bug found in review: without a `key` this is a single persistent instance reused across
           every transaction, so its local marking/error state would survive from one viewed
-          transaction into the next. Keying by transaction forces a clean remount on every open. */}
+          transaction into the next. Keying by transaction forces a clean remount on every open.
+          Prefixed, not the bare transaction id: BankCorrectionModal below is a sibling keyed the
+          same way, and two bare keys were equal whenever both modals were closed. */}
       <MarkTransferModal
-        key={markingTransfer?.id ?? 'none'}
+        key={`mark-transfer-${markingTransfer?.id ?? 'none'}`}
         transaction={markingTransfer}
         onClose={() => setMarkingTransfer(null)}
         onMarked={() => { setMarkingTransfer(null); invalidateFinancialData(queryClient); }}
@@ -940,7 +942,7 @@ export function LedgerScreen() {
           transaction is being viewed forces a clean remount (fresh state) on every open, the
           same fix React's own docs recommend over resetting state manually inside an effect. */}
       <BankCorrectionModal
-        key={viewingCorrection?.id ?? 'none'}
+        key={`bank-correction-${viewingCorrection?.id ?? 'none'}`}
         transaction={viewingCorrection}
         onClose={() => setViewingCorrection(null)}
         onAcknowledged={() => { setViewingCorrection(null); invalidateFinancialData(queryClient); }}

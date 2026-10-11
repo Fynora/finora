@@ -1,7 +1,7 @@
 # Mobile Transactions screen redesign
 
 **Date:** 2026-10-11
-**Status:** design, waiting for the owner's review. No code is written.
+**Status:** design, waiting for the owner's approval. No code is written.
 **Screen:** `mobile/src/screens/LedgerScreen.tsx` (the Transactions tab).
 
 ## Goal
@@ -16,7 +16,7 @@ Success, in things that can be checked:
 1. The first transaction row starts in the top half of the screen on an iPhone 17 Pro at the
    default text size. Today it starts at 58% of the screen height; the approved drawing measures
    46%.
-2. Nothing scrolls visibly underneath the title.
+2. Scrolled content never touches the title's text: it ends under a solid bar.
 3. Every behaviour listed under "What does not change" still works, proven by the existing tests
    (changed only where a control moved) and by a walk on the simulator.
 4. The screen holds up at the `accessibility-large` text size, in the dark theme, and with Reduce
@@ -41,9 +41,9 @@ On an iPhone 17 Pro simulator (iOS 26.5), default text size, the owner's own acc
 
 - The first transaction row starts at 58% of the screen height. Above it: the title, the month
   card, the search box, one row of filter chips and two date boxes.
-- After one scroll, the month card's text is visible under the title. **Cause not established.**
-  The title is laid out above the list, not over it, so the list drawing above its own top edge is
-  unexpected. The plan's first task traces it; nothing is "fixed" before that.
+- The list is cut off exactly at the bottom of the line under the title, with no gap and no
+  edge, so a card sliding up meets that line's letters. (An earlier reading, that content showed
+  through under the title, was wrong; see "Follow-up measurements".)
 - In the first 200 rows of the list:
   - 196 titles are the bank's own narration (a payment rail, a reference number, a cut-off name).
     Median length 50 characters, longest 154; the row shows about 23.
@@ -54,6 +54,8 @@ On an iPhone 17 Pro simulator (iOS 26.5), default text size, the owner's own acc
     the normal state; on 74 it is "Needs Review"; 3 are also "Recurring". 44 rows carry a match
     tag as well (transfer, investment, refund).
   - Days hold a median of 2 rows, 7 at the 90th percentile, 12 at most.
+- The 200 loaded rows held 6 repeats (see the paging defect under "Follow-up measurements"), so
+  they are 194 different transactions. The counts above include the repeats.
 - This is one account. How other accounts are distributed is not known.
 
 ## Scope
@@ -270,11 +272,13 @@ state, queries and handlers where they are:
 | `mobile/src/components/ledger/LedgerDayCard.tsx` | A day's heading, card and rows |
 
 **The list.** One list item per day: its heading and its card. A card is then one view with one
-shadow and clean corners, instead of rows pretending to be a card. The cost is coarser
-virtualisation: a day with very many rows is one tall item. Measured days hold at most 12 rows; an
-account with far busier days was not measured. The plan includes a scroll measurement with a
-synthetic day of 100 rows, and a card is split into continuation cards only if that measurement
-shows a problem.
+shadow and clean corners, instead of rows pretending to be a card. Measured (see "Follow-up
+measurements"): scrolling day cards costs no more than scrolling today's rows, and scrolling
+inside one very long card is cheap too. What is expensive is drawing a very long card in one go.
+So a day is cut into pieces of at most 25 rows. The first piece carries the heading and the
+rounded top, the last the rounded bottom, and pieces in between are square, so a long day still
+reads as one card while the list only ever draws 25 rows at a time. A row is a memoised component,
+so a new page arriving does not redraw the rows already on screen.
 
 **Glass in the list.** Day cards use the list-row glass style the rows use today (tinted fill and
 edge, no native blur per card), because a native glass view per card in a long list is the
@@ -299,11 +303,89 @@ expensive kind. The month card, the pinned bar and the sheet are single surfaces
 
 ## Risks and things not yet known
 
-- Why the list draws above its top edge today (to be traced first).
-- Scroll cost of a shadow per day card in a long list (to be measured; the dashboard's shadows
-  measured at no cost on this simulator).
-- A day with very many rows as one list item (to be measured).
-- Merchant names cut to eight characters by the bank will read as clipped titles. Making those
-  names whole is a server question and is not part of this work.
+- The scroll measurement counted the app's own threads only. Shadow drawing done by the system's
+  render process was not counted this time, and hangs were not recorded. The dashboard's shadows
+  measured at no cost there on this simulator; this screen's were not re-measured.
+- The 25-row piece size comes from the page size (20), not from a measurement of its own. The plan
+  measures a 100-row day built from pieces before the work is called done.
+- Merchant names cut to eight characters by the bank will read as clipped titles. What can and
+  cannot be recovered is under "Follow-up measurements"; it is server work with its own review.
+- The paging defect below repeats rows in today's list and will do the same in the new one until
+  the server is fixed. The new list must not crash or mis-key on a repeated row meanwhile.
 - Not verifiable here: iOS below 26, a physical phone, Android on a device.
 - This ships in the next store build with the rest of the redesign, never over the air to 1.0.0.
+
+## Follow-up measurements (2026-10-11)
+
+The owner asked for the open points to be settled rather than carried. Same simulator and account.
+
+### The title and the list
+
+- The list's scroll view starts at 114 points from the top of the screen and clips to its bounds
+  (read from the native view tree). The line under the title ends at 114.5 points. A full-size
+  screenshot taken mid-scroll shows nothing drawn above 114 points.
+- So nothing shows through. The fault is the join: no gap, no edge, and a card's border meeting the
+  letters of that line. The earlier reading came from the accessibility tree, which also lists
+  elements that are scrolled out of view.
+- The design already removes that line and puts a solid bar over scrolled content, which settles
+  it. Nothing else needs fixing.
+
+### Scroll cost
+
+Twelve identical swipes down from the top of the list, recorded with the Time Profiler attached to
+the app only. One sample is one millisecond of work on that thread, in a 22 second recording.
+
+| Version | JavaScript thread | Main thread |
+|---|---|---|
+| Today's list, three runs | 2,632 / 2,454 / 2,539 | 1,861 / 1,367 / 1,631 |
+| One card per day, with the card shadow, two runs | 1,649 / 1,676 | 1,275 / 1,393 |
+| Every loaded row (200) forced into one card, scrolling | 1,464 | 1,241 |
+| The same, at the moment that one card is first drawn | 3,610 | 792 |
+
+- Day cards with shadows are not slower to scroll than today's list on either thread; the
+  JavaScript thread does about a third less work. One difference between the runs is not design:
+  today's list was showing a development-only warning (the repeated row below) that the prototype
+  did not, which may account for part of the gap.
+- A 200-row card scrolls cheaply once drawn. Drawing it took about 3.6 seconds of JavaScript work.
+  That figure includes a development reload and is an upper bound, not a clean cost; it is still
+  the reason for the 25-row pieces.
+- The prototype was throwaway code and is not in the repository.
+
+### Names cut to eight characters
+
+Among the 194 different transactions, 88 have a name of exactly eight characters taken from the
+narration (51 different names). For those 88:
+
+| What the narration offers | Rows |
+|---|---|
+| The payment handle continues the same letters (a median of 6 more) | 22 |
+| The handle is a phone number | 34 |
+| The handle has letters, but not this name's | 30 |
+| No handle field | 2 |
+
+Separately, for 9 of the 88 a longer form of the same name appears on another row of the account.
+
+- For at least 34 rows the statement simply does not contain the rest of the name. No change to
+  the server can produce it.
+- For 22 rows the handle could complete the name, but a handle is itself cut and often runs words
+  together, so the result would need checking row by row.
+- The name is produced by `CategoryRules.extractMerchantLabel` on the server, and the same value
+  is what merchants are grouped by, what learned categories attach to and what recurring payments
+  are identified by. Changing it is a parser change with consequences for all three, and by this
+  repository's rules needs a before-and-after measurement on the real statement corpus.
+- That makes it its own piece of server work, not a step of this screen. This screen shows whatever
+  name the server gives.
+
+### A paging defect found on the way
+
+- 6 of the 200 loaded rows are a transaction that is already in the list. Each repeat sits exactly
+  where one page of 20 ends and the next begins, inside a day that has several rows.
+- Cause, read in the code: `TransactionService.search` sorts by one field only (the date, or the
+  amount), with nothing to order rows that share it. The database may then return such rows in a
+  different order for each page request, so a row can appear on two pages while another appears
+  on none.
+- Effect for a person: a transaction listed twice, its amount counted twice in that day's total,
+  and possibly another transaction missing from the list (a missing one was not looked for).
+  The web Ledger pages through the same endpoint, so the same can happen there; it was not
+  observed there.
+- It is a server fix (a second sort key) and is tracked separately from this redesign.

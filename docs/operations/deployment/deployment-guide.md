@@ -373,11 +373,11 @@ measured in the local Pages emulator only:
   `/terms//` and `/terms%2F` are `308` to `/terms` instead). React Router does not collapse them:
   it found no route for `//terms`, so the visitor was sent the terms page and the bundle then
   replaced it with "Page not found". `src/lib/normalizeLocation.ts`, the first import in
-  `main.tsx`, now rewrites the address to `/terms` before the router reads it. There is still no
-  redirect: a crawler that does not run JavaScript gets a `200` at `//terms`, and the file's
-  canonical is what tells it where the page lives. A real `301` would be a Cloudflare rule on the
-  zone, like the two host redirects below, not something this repository can do without a
-  Function on every request.
+  `main.tsx`, now rewrites the address to `/terms` before the router reads it. On
+  `app.fynora.net` a doubled slash no longer reaches Pages at all: a Redirect Rule on the zone
+  answers it with a `301` to the collapsed path (see "A doubled slash redirects" below). The
+  rewrite in the app is for every host that rule does not cover (PR previews on `pages.dev`,
+  `dev-app`, the local servers) and for the day the rule is removed.
 - **Matching is case-sensitive.** `/Privacy` and `/Auth` return `404` with the not-found page, and
   the browser then shows the real page, as above. Before `404.html` they returned `index.html`
   with a `200`. The paths the backend's emails and the referral page build are lower-case.
@@ -709,6 +709,45 @@ curl -sI https://fynora.net/terms           # 301, location: https://app.fynora.
 curl -sI https://app.fynora.net/            # 200
 curl -sI https://dev-app.fynora.net/        # 200
 ```
+
+**A doubled slash redirects to the clean address, also at the edge.** One **Redirect Rule** on the
+`fynora.net` zone (Rules → Overview → Redirect Rules, 1 of 10 free-plan Single Redirects used),
+added 2026-10-11:
+
+| Setting | Value |
+|---|---|
+| Name | `app: collapse doubled slashes (301)` |
+| When (custom filter expression) | `(http.host eq "app.fynora.net" and raw.http.request.uri.path contains "//")` |
+| Then | URL redirect, type **Dynamic**, expression `concat("https://app.fynora.net", http.request.uri.path)`, status `301`, **Preserve query string** on |
+
+How it works: Cloudflare normalises an incoming URL before rules run, and that merges successive
+slashes, so `http.request.uri.path` is already `/terms` for a request to `//terms`.
+`raw.http.request.uri.path` is the path as it was sent, which is the only place the doubled slash
+can still be seen. The rule matches on the raw path and redirects to the normalised one, so it
+cannot loop: its own target never matches. No regular expression is involved (those need a paid
+plan). It was first deployed matching a single made-up path, checked, and only then widened.
+
+Without it `//terms` answered `200` with the terms page, a duplicate address whose only pointer to
+the real one was the file's canonical. Only `app.fynora.net` is matched. `www` and the apex are
+already redirected by the Page Rules above, `dev-app` sits behind Access, and `api` is a different
+service.
+
+Verify after any change to the rule. The first four are `301` with the location shown, the next two
+must be untouched, and the last shows a redirect is one hop to the same answer the clean address
+gives:
+
+```bash
+curl -s --path-as-is -o /dev/null -w '%{http_code} %{redirect_url}\n' https://app.fynora.net//terms             # 301 https://app.fynora.net/terms
+curl -s --path-as-is -o /dev/null -w '%{http_code} %{redirect_url}\n' https://app.fynora.net//                  # 301 https://app.fynora.net/
+curl -s --path-as-is -o /dev/null -w '%{http_code} %{redirect_url}\n' "https://app.fynora.net//terms?a=1&b=//c" # 301 https://app.fynora.net/terms?a=1&b=//c
+curl -s --path-as-is -o /dev/null -w '%{http_code} %{redirect_url}\n' https://app.fynora.net/app//transactions  # 301 https://app.fynora.net/app/transactions
+curl -s -o /dev/null -w '%{http_code}\n' https://app.fynora.net/terms                                           # 200
+curl -s -o /dev/null -w '%{http_code}\n' https://app.fynora.net/no-such-page                                    # 404
+curl -s --path-as-is -L -o /dev/null -w '%{http_code} hops=%{num_redirects}\n' https://app.fynora.net//no-such-page  # 404 hops=1
+```
+
+curl sends a doubled slash as typed with or without `--path-as-is` (checked); the flag is there so
+that nothing in the path is rewritten on the way out.
 
 After each deploy that changes the SEO files, check `https://app.fynora.net/robots.txt` returns plain
 text (not the app's HTML). The sitemap `https://app.fynora.net/sitemap.xml` was submitted in Search

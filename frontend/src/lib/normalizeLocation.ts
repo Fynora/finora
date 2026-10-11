@@ -8,6 +8,11 @@
  * browser agree with the server: same page, and the address the page is actually known by. Nothing
  * is fetched and no history entry is added.
  *
+ * On app.fynora.net a Redirect Rule on the Cloudflare zone now answers a doubled slash with a 301
+ * before it reaches Pages (deployment guide, "A doubled slash redirects"), so there this never
+ * fires. It is for the hosts that rule does not cover (PR previews, dev-app, the local servers)
+ * and for the day the rule is gone.
+ *
  * Imported FIRST in main.tsx, for its side effect. Modules evaluate in import order, and some read
  * the path as they load (pages/landing/hero/firstFrame.ts asks whether it is "/"), so this has to
  * have run before App is imported, not merely before it renders.

@@ -101,6 +101,51 @@ public class ImportVerificationRecorder {
      */
     private static final Set<String> HISTOGRAM_KEYS = Set.of("droppedTransactionCandidateReasons");
 
+    /**
+     * BALANCE_CHAIN's description of <em>how</em> its rows disagreed -- the one list whose entries
+     * are rebuilt rather than counted.
+     *
+     * <p>{@link #COUNTED_KEYS} reduces {@code discrepancies} to a number because every element of it
+     * is balances. That left a persisted WARNING saying "two rows disagreed" and nothing else, and
+     * telling a slipped balance column from a flipped direction meant querying a customer's staged
+     * rows by hand before they were deleted. {@code BalanceChainValidator} now publishes a second
+     * list beside the first, holding only positions and yes/no relations, and this is what keeps it.
+     *
+     * <p><b>The reasoning that excludes amounts is unchanged, and this does not relax it.</b> Each
+     * entry is rebuilt from the keys named below and nothing is copied across: {@link
+     * #SHAPE_ROW_INDEX_KEY} must be a whole number, each of {@link #SHAPE_FLAG_KEYS} must be a
+     * boolean, {@link #SHAPE_MATCHING_ROWS_KEY} must be a list of whole numbers. A value of any
+     * other type under one of those names is dropped, not converted: a decimal (which is what every
+     * amount and balance in this codebase is), a date or a string cannot pass as a position or a
+     * yes/no. A key not named here does not survive.
+     *
+     * <p><b>What a position can and cannot tell someone.</b> A row index says which row of our own
+     * staged list disagreed; the same-day flags say its neighbours share its date, not what the
+     * date is; the matching rows say those rows' amounts equal the gap, not what the gap is. None
+     * of that describes a transaction to anyone who does not already hold the statement, and anyone
+     * who holds the statement learns nothing from it they could not read off the page. That is the
+     * line: a fact about our reading may be kept, a value read off the document may not.
+     */
+    private static final String DISCREPANCY_SHAPES_KEY = "discrepancyShapes";
+    private static final String SHAPE_ROW_INDEX_KEY = "rowIndex";
+    /** A list, not a set like its siblings: its order is the order the keys are written in, and
+     *  that is what makes the same finding serialise identically twice. */
+    private static final List<String> SHAPE_FLAG_KEYS = List.of(
+            "sameDayAsPrevious", "sameDayAsNext", "directionLooksFlipped", "balanceDidNotMove");
+    private static final String SHAPE_MATCHING_ROWS_KEY = "gapMatchesAmountOfRows";
+
+    /** Bounded here as well as where the list is built: this is the boundary, and a bound that
+     *  lives only in the producer is a bound this table does not have. */
+    private static final int MAX_DISCREPANCY_SHAPES = 20;
+    private static final int MAX_MATCHING_ROWS = 5;
+
+    /**
+     * Yes/no facts about a finding as a whole, kept only when the value really is a boolean.
+     * {@code gapsCancel} says BALANCE_CHAIN's gaps sum to nothing -- a relation between the gaps,
+     * which says nothing about the size of any of them.
+     */
+    private static final Set<String> FLAG_KEYS = Set.of("gapsCancel");
+
     /** {@code reason} explains why a rule could not run. Our own prose, but bounded on principle. */
     private static final int MAX_REASON_LENGTH = 200;
 
@@ -327,8 +372,8 @@ public class ImportVerificationRecorder {
      * Rebuilds a rule's details from structural facts only.
      *
      * <p>Pure, static and independently testable on purpose — see the class comment. Anything not
-     * named in one of the four allowlists above is absent from the result by construction, so a
-     * detail key added by a future rule does not reach the database until someone decides it should.
+     * named in one of the allowlists above is absent from the result by construction, so a detail
+     * key added by a future rule does not reach the database until someone decides it should.
      */
     public static Map<String, Object> structuralDetailsOf(Map<String, Object> details) {
         if (details == null || details.isEmpty()) return Map.of();
@@ -353,6 +398,11 @@ public class ImportVerificationRecorder {
                 Map<String, Object> copy = new LinkedHashMap<>();
                 for (Map.Entry<?, ?> e : counts.entrySet()) copy.put(String.valueOf(e.getKey()), e.getValue());
                 safe.put(key, copy);
+            } else if (DISCREPANCY_SHAPES_KEY.equals(key) && value instanceof Collection<?> shapes) {
+                List<Map<String, Object>> rebuilt = discrepancyShapesOf(shapes);
+                if (!rebuilt.isEmpty()) safe.put(key, rebuilt);
+            } else if (FLAG_KEYS.contains(key) && value instanceof Boolean) {
+                safe.put(key, value);
             } else if ("reason".equals(key) && value instanceof String reason) {
                 safe.put(key, reason.length() <= MAX_REASON_LENGTH
                         ? reason : reason.substring(0, MAX_REASON_LENGTH) + "…");
@@ -361,5 +411,53 @@ public class ImportVerificationRecorder {
         // unmodifiableMap rather than Map.copyOf: the insertion order is the order the rule
         // reported its facts in, and it is what makes the same finding serialise identically twice.
         return java.util.Collections.unmodifiableMap(safe);
+    }
+
+    /**
+     * Rebuilds the discrepancy shapes one named key at a time -- see {@link #DISCREPANCY_SHAPES_KEY}
+     * for what may survive and why.
+     *
+     * <p>An entry with no usable row position is dropped whole: flags that point at no row are not
+     * a diagnostic. An entry that is not a map is dropped too, rather than read reflectively -- a
+     * shape nobody anticipated is exactly the one that could carry content.
+     */
+    private static List<Map<String, Object>> discrepancyShapesOf(Collection<?> shapes) {
+        List<Map<String, Object>> rebuilt = new ArrayList<>();
+        for (Object element : shapes) {
+            if (rebuilt.size() >= MAX_DISCREPANCY_SHAPES) break;
+            if (!(element instanceof Map<?, ?> shape)) continue;
+            Integer rowIndex = rowPositionOf(shape.get(SHAPE_ROW_INDEX_KEY));
+            if (rowIndex == null) continue;
+
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put(SHAPE_ROW_INDEX_KEY, rowIndex);
+            for (String flag : SHAPE_FLAG_KEYS) {
+                if (shape.get(flag) instanceof Boolean set) entry.put(flag, set);
+            }
+            if (shape.get(SHAPE_MATCHING_ROWS_KEY) instanceof Collection<?> matches) {
+                List<Integer> rows = new ArrayList<>();
+                for (Object match : matches) {
+                    if (rows.size() >= MAX_MATCHING_ROWS) break;
+                    Integer position = rowPositionOf(match);
+                    if (position != null) rows.add(position);
+                }
+                entry.put(SHAPE_MATCHING_ROWS_KEY, List.copyOf(rows));
+            }
+            rebuilt.add(java.util.Collections.unmodifiableMap(entry));
+        }
+        return List.copyOf(rebuilt);
+    }
+
+    /**
+     * A row position, or null for anything that is not one.
+     *
+     * <p>Whole-number types only. A {@code BigDecimal} or a {@code Double} is refused even when its
+     * value happens to be whole, because those are the types an amount or a balance arrives as, and
+     * a position is never produced as one.
+     */
+    private static Integer rowPositionOf(Object value) {
+        if (!(value instanceof Integer || value instanceof Long || value instanceof Short)) return null;
+        long position = ((Number) value).longValue();
+        return position < 0 || position > Integer.MAX_VALUE ? null : (int) position;
     }
 }

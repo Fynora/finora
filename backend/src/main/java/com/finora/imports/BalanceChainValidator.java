@@ -122,6 +122,19 @@ public class BalanceChainValidator {
     public static final String RULE = "BALANCE_CHAIN";
 
     /**
+     * How many discrepancies get a shape. A whole column misread breaks hundreds of rows that all
+     * look alike, and the twentieth identical line tells an operator nothing the first did not --
+     * while a quirk of one document, the case shapes exist for, is a handful of rows by definition.
+     * The full count is still reported, so a truncated list says that it is one.
+     */
+    static final int MAX_DISCREPANCY_SHAPES = 20;
+
+    /** How many other rows a single gap is matched against by name. The nearest ones are the
+     *  evidence (a slipped column, a dropped or repeated neighbour); a match forty rows away is
+     *  two transactions that happen to share an amount. */
+    static final int MAX_GAP_MATCH_ROWS = 5;
+
+    /**
      * Runs the check and returns it in the shape the API exposes.
      *
      * <p>Kept here rather than in each producer so the two staging paths (CSV and PDF) cannot
@@ -131,9 +144,30 @@ public class BalanceChainValidator {
      * <p>Returns a report holding exactly one finding, deliberately rather than the finding itself:
      * a second validator appends to the list and nothing about the shape changes, whereas returning
      * a bare finding would have to be reshaped the first time there were two.
+     *
+     * <h2>The shape of a discrepancy, as well as its numbers</h2>
+     *
+     * <p>{@code discrepancies} says how far each row is out, in the customer's own money. That is
+     * what the person reviewing their import needs and exactly what must not outlive the request:
+     * {@code ImportVerificationRecorder} reduces the list to a count before anything is persisted.
+     * A count alone turned out not to be enough to act on. Telling a slipped balance column from a
+     * flipped direction on a customer's statement meant querying the staged rows by hand, inside
+     * the 48 hours before they are deleted.
+     *
+     * <p>{@code discrepancyShapes} carries the part of that diagnosis that is not statement
+     * content. Every field is a position or a yes/no about how two of the statement's numbers
+     * relate, never one of the numbers: where the row sits, whether its neighbours share its day,
+     * whether the gap is twice its own amount, whether the printed balance repeats the one before
+     * it, which nearby rows carry an amount equal to the gap. {@code gapsCancel} says whether the
+     * gaps sum to nothing. No amount, balance, narration or date is in any of it, which is what
+     * lets the recorder keep it.
+     *
+     * <p>Both are present only when something disagreed, so a statement that verifies reports
+     * exactly what it did before these existed.
      */
     public ImportDto.VerificationReport report(List<StagedRow> rows, BigDecimal openingBalance) {
-        Result result = validate(rows, openingBalance);
+        Walk walk = walk(rows, openingBalance);
+        Result result = walk.result();
 
         // Typed while it is being built, then handed over as the finding's per-rule payload. The
         // wire format does not name this shape, because the next checks planned (statement totals,
@@ -148,6 +182,10 @@ public class BalanceChainValidator {
         details.put("rowsWithBalance", result.rowsWithBalance());
         details.put("anchoredOnOpeningBalance", openingBalance != null);
         details.put("discrepancies", discrepancies);
+        if (!discrepancies.isEmpty()) {
+            details.put("discrepancyShapes", walk.shapes());
+            details.put("gapsCancel", walk.gapsCancel());
+        }
 
         // The rule's verdict about its own domain, keeping the WARNING/FAILED distinction rather
         // than flattening to a boolean -- "a few rows disagree" and "this column is being misread"
@@ -183,8 +221,21 @@ public class BalanceChainValidator {
      * make people stop believing this check.
      */
     public Result validate(List<StagedRow> rows, BigDecimal openingBalance) {
+        return walk(rows, openingBalance).result();
+    }
+
+    /** The verdict together with the content-free description of what disagreed -- see
+     *  {@link #report}. Private because only the report publishes the description; everything else
+     *  that consults this validator wants the verdict and reads {@link Result}. */
+    private record Walk(Result result, List<Map<String, Object>> shapes, boolean gapsCancel) {
+        static Walk of(Result result) {
+            return new Walk(result, List.of(), false);
+        }
+    }
+
+    private Walk walk(List<StagedRow> rows, BigDecimal openingBalance) {
         if (rows == null || rows.isEmpty()) {
-            return new Result(Outcome.NOT_APPLICABLE, List.of(), 0, 0);
+            return Walk.of(new Result(Outcome.NOT_APPLICABLE, List.of(), 0, 0));
         }
 
         rows = chronological(rows);
@@ -192,6 +243,10 @@ public class BalanceChainValidator {
         int rowsWithBalance = (int) rows.stream().filter(r -> r.balanceAfter() != null).count();
 
         List<Discrepancy> discrepancies = new ArrayList<>();
+        // The balance last PRINTED before each discrepant row, index-aligned with discrepancies.
+        // Not the running balance: that one has the amounts of any balance-less rows folded in, and
+        // "the balance column repeated itself" is a statement about what the document printed.
+        List<BigDecimal> printedBefore = new ArrayList<>();
         int pairsChecked = 0;
 
         // One running balance, rather than a "previous row" plus a separate opening anchor.
@@ -215,12 +270,14 @@ public class BalanceChainValidator {
         // null means "unknown from here", so the next row is skipped rather than checked against a
         // guess -- NOT_APPLICABLE and rowsChecked already exist as the vocabulary for that.
         BigDecimal runningBalance = openingBalance;
+        BigDecimal lastPrinted = openingBalance;
 
         for (int i = 0; i < rows.size(); i++) {
             StagedRow row = rows.get(i);
 
             if (row.amount() == null) {
                 runningBalance = null;
+                lastPrinted = null;
                 continue;
             }
 
@@ -236,25 +293,106 @@ public class BalanceChainValidator {
                             i, row.date(), row.description(),
                             expected, row.balanceAfter(),
                             row.balanceAfter().subtract(expected)));
+                    printedBefore.add(lastPrinted);
                 }
                 pairsChecked++;
             }
             // The statement's own printed balance wins over the computed one from here: a single
             // misread row should cost one discrepancy, not cascade into every row after it.
             runningBalance = row.balanceAfter();
+            lastPrinted = row.balanceAfter();
         }
 
         if (pairsChecked < MIN_PAIRS_FOR_A_VERDICT) {
-            return new Result(Outcome.NOT_APPLICABLE, List.of(), pairsChecked, rowsWithBalance);
+            return Walk.of(new Result(Outcome.NOT_APPLICABLE, List.of(), pairsChecked, rowsWithBalance));
         }
         if (discrepancies.isEmpty()) {
-            return new Result(Outcome.VERIFIED, List.of(), pairsChecked, rowsWithBalance);
+            return Walk.of(new Result(Outcome.VERIFIED, List.of(), pairsChecked, rowsWithBalance));
         }
 
         boolean systematic = discrepancies.size() >= MIN_DISCREPANCIES_FOR_FAILED
                 && (double) discrepancies.size() / pairsChecked >= FAILED_THRESHOLD;
         Outcome status = systematic ? Outcome.FAILED : Outcome.WARNING;
-        return new Result(status, List.copyOf(discrepancies), pairsChecked, rowsWithBalance);
+        return new Walk(new Result(status, List.copyOf(discrepancies), pairsChecked, rowsWithBalance),
+                shapesOf(rows, discrepancies, printedBefore), gapsCancel(discrepancies));
+    }
+
+    /**
+     * Describes each discrepancy by how its numbers relate, without any of the numbers.
+     *
+     * <p>Built key by key into plain maps, not by projecting {@link Discrepancy}: that record holds
+     * a date, a narration and three balances, and a description produced by leaving fields out of
+     * it would be one added field away from leaking. {@code rowIndex} is the same position the
+     * discrepancy reports, so "row 13" here is the row 13 the customer was shown.
+     *
+     * <p>What each yes/no is evidence of, kept here because the names are read on their own:
+     * <ul>
+     *   <li>{@code directionLooksFlipped} -- the gap is exactly twice the row's own amount, the
+     *       wrong way round. A credit read as a debit, or the reverse.</li>
+     *   <li>{@code balanceDidNotMove} -- the printed balance is the one printed before it. A
+     *       balance column that slipped a row, or the same row extracted twice.</li>
+     *   <li>{@code gapMatchesAmountOfRows} -- the gap is exactly another row's amount. A slipped
+     *       column catching up, or a neighbour's amount landing on the wrong row.</li>
+     *   <li>None of them -- the gap is no number the staged rows contain: an amount misread, or a
+     *       row that never arrived.</li>
+     * </ul>
+     * These are the patterns the facts are consistent with, not a diagnosis. Nothing here decides
+     * which one happened; the operator reading it does.
+     */
+    private static List<Map<String, Object>> shapesOf(List<StagedRow> rows, List<Discrepancy> discrepancies,
+                                                       List<BigDecimal> printedBefore) {
+        List<Map<String, Object>> shapes = new ArrayList<>();
+        int described = Math.min(discrepancies.size(), MAX_DISCREPANCY_SHAPES);
+        for (int n = 0; n < described; n++) {
+            Discrepancy discrepancy = discrepancies.get(n);
+            int index = discrepancy.rowIndex();
+            StagedRow row = rows.get(index);
+            BigDecimal signed = signedAmount(row);
+            BigDecimal before = printedBefore.get(n);
+
+            Map<String, Object> shape = new LinkedHashMap<>();
+            shape.put("rowIndex", index);
+            shape.put("sameDayAsPrevious", index > 0 && sameDay(rows.get(index - 1), row));
+            shape.put("sameDayAsNext", index < rows.size() - 1 && sameDay(row, rows.get(index + 1)));
+            shape.put("directionLooksFlipped", signed.signum() != 0
+                    && discrepancy.difference().compareTo(signed.multiply(BigDecimal.valueOf(-2))) == 0);
+            shape.put("balanceDidNotMove", before != null && row.balanceAfter().compareTo(before) == 0);
+            shape.put("gapMatchesAmountOfRows", rowsWhoseAmountIs(discrepancy.difference().abs(), rows, index));
+            shapes.add(java.util.Collections.unmodifiableMap(shape));
+        }
+        return List.copyOf(shapes);
+    }
+
+    /** The rows other than {@code index} whose amount equals {@code gap}, nearest first, bounded. */
+    private static List<Integer> rowsWhoseAmountIs(BigDecimal gap, List<StagedRow> rows, int index) {
+        List<Integer> matches = new ArrayList<>();
+        for (int offset = 1; offset < rows.size() && matches.size() < MAX_GAP_MATCH_ROWS; offset++) {
+            for (int candidate : new int[] {index - offset, index + offset}) {
+                if (candidate < 0 || candidate >= rows.size() || matches.size() >= MAX_GAP_MATCH_ROWS) continue;
+                BigDecimal amount = rows.get(candidate).amount();
+                if (amount != null && amount.abs().compareTo(gap) == 0) matches.add(candidate);
+            }
+        }
+        return List.copyOf(matches);
+    }
+
+    /**
+     * Whether the gaps sum to nothing, over every discrepancy rather than only the described ones.
+     *
+     * <p>True means the rows disagree with the balance column and the statement as a whole does
+     * not: whatever one row is short, another is over. That is the signature of a balance printed
+     * against the wrong row, as opposed to money that was never read. One discrepancy cannot cancel
+     * with anything, so it is never true for one.
+     */
+    private static boolean gapsCancel(List<Discrepancy> discrepancies) {
+        if (discrepancies.size() < 2) return false;
+        BigDecimal sum = BigDecimal.ZERO;
+        for (Discrepancy discrepancy : discrepancies) sum = sum.add(discrepancy.difference());
+        return sum.signum() == 0;
+    }
+
+    private static boolean sameDay(StagedRow a, StagedRow b) {
+        return a.date() != null && a.date().equals(b.date());
     }
 
     /**

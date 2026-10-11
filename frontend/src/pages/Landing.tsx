@@ -20,6 +20,10 @@ import { FinalCta } from './landing/FinalCta';
 import { SiteFooter } from './landing/SiteFooter';
 import { Transition } from './landing/primitives';
 import { useCanonical } from '../hooks/useCanonical';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import { usePageDescription } from '../hooks/usePageDescription';
+import { useRobotsNoindex } from '../hooks/useRobotsNoindex';
+import { HOME_TITLE, SITE_DESCRIPTION } from '../lib/siteUrl';
 
 /**
  * The landing page, as composition only.
@@ -72,7 +76,14 @@ const DEEP = '#15171C'; // --color-deep-surface -- see index.css's comment on th
 const NAV_HEIGHT_PX = 64;
 
 export default function Landing() {
+  // The homepage says what it is in the head, like every other page, instead of relying on the
+  // document it happens to be shown in. That document is index.html only on a direct visit. Reached
+  // from inside the app it is whatever was opened first, and the tab went on reading "Terms &
+  // Conditions — Fynora" over the homepage (measured in Chrome on production, 2026-10-10).
   useCanonical('/');
+  useDocumentTitle(HOME_TITLE);
+  usePageDescription(HOME_TITLE, SITE_DESCRIPTION);
+  useRobotsNoindex(false);
   const heroRef = useRef<HTMLDivElement | null>(null);
   // Hero fills (or exceeds) the viewport at page load -- see the global chrome design spec's note
   // on why observing the Hero element itself (rather than a 1px sentinel at its trailing edge)

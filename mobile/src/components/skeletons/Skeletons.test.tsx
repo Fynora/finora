@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react-native';
 import {
-  SkeletonBudgetCard, SkeletonCard, SkeletonChart, SkeletonTransactionRow,
+  SkeletonBudgetCard, SkeletonCard, SkeletonChart, SkeletonKpiGrid, SkeletonTransactionRow,
 } from './Skeletons';
 import { ThemeProvider } from '../../theme';
 
@@ -49,5 +49,16 @@ describe('SkeletonChart', () => {
   it('renders a circular placeholder matching DonutChart when variant="donut"', () => {
     withTheme(<SkeletonChart variant="donut" />);
     expect(screen.getByTestId('skeleton-chart-donut', { hidden: true })).toBeTruthy();
+  });
+});
+
+describe('SkeletonKpiGrid', () => {
+  // Stands in for the month's four tiles, so the grid does not jump when the figures land.
+  it('stands in for four tiles, two to a row', () => {
+    withTheme(<SkeletonKpiGrid />);
+    const grid = screen.getByTestId('skeleton-kpi-grid', { hidden: true });
+    expect(grid.children).toHaveLength(4);
+    // label, number and chip placeholders per tile
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(12);
   });
 });

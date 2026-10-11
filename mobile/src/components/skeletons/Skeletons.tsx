@@ -2,6 +2,7 @@ import { StyleSheet, View, type ViewStyle } from 'react-native';
 import { radius, spacing, useTheme } from '../../theme';
 import { CASHFLOW_HEIGHT, DONUT_SIZE } from '../../lib/chartGeometry';
 import { Card } from '../Card';
+import { DashboardCard } from '../dashboard/DashboardCard';
 import { Shimmer } from './Shimmer';
 
 /**
@@ -43,6 +44,22 @@ export function SkeletonTransactionRow() {
   );
 }
 
+/** Stands in for LedgerSnapshotCard's four tiles (same two-up basis, same compact glass tile), so
+ *  the grid does not jump when the figures land: label, number and chip placeholders per tile. */
+export function SkeletonKpiGrid() {
+  return (
+    <View style={styles.kpiGrid} testID="skeleton-kpi-grid">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <DashboardCard key={i} padding="compact" style={styles.kpiTile}>
+          <Shimmer width="50%" height={11} style={styles.line} />
+          <Shimmer width="80%" height={22} style={styles.line} />
+          <Shimmer width="40%" height={18} borderRadius={9} />
+        </DashboardCard>
+      ))}
+    </View>
+  );
+}
+
 /** Mirrors BudgetsScreen's budget card: a header placeholder standing in for category name +
  *  amounts, a progress-bar-shaped placeholder, and a one-line footer. */
 export function SkeletonBudgetCard() {
@@ -77,4 +94,6 @@ const styles = StyleSheet.create({
   },
   txnMain: { flex: 1, marginRight: spacing.sm, gap: 6 },
   donutWrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: spacing.sm },
+  kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.ms },
+  kpiTile: { flexBasis: '47%', flexGrow: 1 },
 });

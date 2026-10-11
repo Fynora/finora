@@ -10,11 +10,19 @@ import { spacing, typography, useTheme } from '../../theme';
 const WIDTH = 320;
 const HEIGHT = 72;
 const PAD = 4; // keeps the 2 point stroke inside the viewBox at the extremes
-// A month label ("Sep 26") is about 38 points wide at default size. The slot is wider than that
-// so the capped Dynamic Type size still fits, and the label is centred in it over its point.
+// A centred month label sits in a slot wider than the text, so the capped Dynamic Type size
+// still fits, and is centred in it over its point.
 const AXIS_SLOT = 56;
 // The labels' spacing is fixed by the chart's width, so they cannot grow without colliding.
 const AXIS_MAX_FONT_SCALE = 1.3;
+
+/**
+ * "Sep 26" -> "Sep": the axis names the month alone, as the approved design does. The points'
+ * labels carry a two-digit year (format.ts monthLabel); six of those do not fit evenly under the
+ * chart, because the first and last sit flush with its edges while the rest are centred on their
+ * points. The year stays on the full Cash Flow card further down and on the month header above.
+ */
+const monthOnly = (label: string) => label.split(' ')[0];
 
 /**
  * Card redesign (2026-10-10): full width, the average as the headline and the net-savings trend
@@ -126,7 +134,7 @@ export function CashFlowMiniCard({
           return (
             <View key={`${s.label}-${i}`} testID={`cash-flow-trend-month-${s.label}`} style={[styles.axisSlot, position]}>
               <Text style={[typography.caption, { color: c.mutedInk }]} numberOfLines={1} maxFontSizeMultiplier={AXIS_MAX_FONT_SCALE}>
-                {s.label}
+                {monthOnly(s.label)}
               </Text>
             </View>
           );

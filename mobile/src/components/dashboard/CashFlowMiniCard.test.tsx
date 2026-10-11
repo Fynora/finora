@@ -70,10 +70,25 @@ describe('CashFlowMiniCard', () => {
     const axis = screen.getByTestId('cash-flow-trend-axis', hidden);
     expect(axis.props.accessibilityElementsHidden).toBe(true);
     expect(axis.props.importantForAccessibility).toBe('no-hide-descendants');
-    for (const label of ['May 26', 'Jun 26', 'Jul 26', 'Aug 26', 'Sep 26', 'Oct 26']) {
-      expect(screen.getByText(label, hidden)).toBeTruthy();
-      expect(screen.queryByText(label)).toBeNull();
+    for (const month of ['May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct']) {
+      expect(screen.getByText(month, hidden)).toBeTruthy();
+      expect(screen.queryByText(month)).toBeNull();
     }
+  });
+
+  // Measured on an iPhone 17 Pro screenshot: with the year ("Apr 26") the first two labels sat
+  // 8 points apart and the rest 23, and by arithmetic they overlap at the capped large text size
+  // on a 360 point wide phone. The approved design names the month alone, which leaves 17 points
+  // in that worst case. The year is on the full Cash Flow card and the month header.
+  it('names the month alone, without the year its label carries', () => {
+    render(<ThemeProvider><CashFlowMiniCard deltaPct={null} deltaLabel="vs last month" points={months(['Sep 26', 'Oct 26'])} /></ThemeProvider>);
+    expect(screen.getByText('Oct', hidden)).toBeTruthy();
+    expect(screen.queryByText('Oct 26', hidden)).toBeNull();
+  });
+
+  it('shows a label that has no year as it is', () => {
+    render(<ThemeProvider><CashFlowMiniCard deltaPct={null} deltaLabel="vs last month" points={months(['Sep', 'Oct'])} /></ThemeProvider>);
+    expect(screen.getByText('Oct', hidden)).toBeTruthy();
   });
 
   it('puts each month under its own point: first flush left, last flush right, the rest centred on the point', () => {
@@ -88,7 +103,7 @@ describe('CashFlowMiniCard', () => {
   it('names every other month once there are more than six, always keeping the latest', () => {
     const year = ['Nov 25', 'Dec 25', 'Jan 26', 'Feb 26', 'Mar 26', 'Apr 26', 'May 26', 'Jun 26', 'Jul 26', 'Aug 26', 'Sep 26', 'Oct 26'];
     render(<ThemeProvider><CashFlowMiniCard deltaPct={null} deltaLabel="vs last month" points={months(year)} /></ThemeProvider>);
-    const shown = year.filter((label) => screen.queryByText(label, hidden) !== null);
+    const shown = year.filter((label) => screen.queryByTestId(`cash-flow-trend-month-${label}`, hidden) !== null);
     expect(shown).toEqual(['Dec 25', 'Feb 26', 'Apr 26', 'Jun 26', 'Aug 26', 'Oct 26']);
   });
 
@@ -99,8 +114,8 @@ describe('CashFlowMiniCard', () => {
 
   it('caps how far the month labels grow with Dynamic Type, since their spacing is fixed by the chart', () => {
     render(<ThemeProvider><CashFlowMiniCard deltaPct={null} deltaLabel="vs last month" points={months(['Sep 26', 'Oct 26'])} /></ThemeProvider>);
-    expect(screen.getByText('Oct 26', hidden).props.maxFontSizeMultiplier).toBe(1.3);
-    expect(screen.getByText('Oct 26', hidden).props.numberOfLines).toBe(1);
+    expect(screen.getByText('Oct', hidden).props.maxFontSizeMultiplier).toBe(1.3);
+    expect(screen.getByText('Oct', hidden).props.numberOfLines).toBe(1);
   });
 
   // The line ends on the latest month; the marker says which end is "now".

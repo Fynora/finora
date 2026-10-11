@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useLargeFontScale } from '../../lib/useLargeFontScale';
 import { spacing, typography, useTheme } from '../../theme';
 
 /**
@@ -14,8 +15,12 @@ export function DashboardSectionHeader({
   title: string; caption?: string; actionLabel?: string; onAction?: () => void; showChevron?: boolean; accessory?: ReactNode;
 }) {
   const c = useTheme();
+  // Beside a caption the title is squeezed as the text grows ("Sep 26" took two lines on a
+  // simulator at an accessibility size), so at large text it has the row to itself and whatever
+  // sat on its right goes under it.
+  const largeText = useLargeFontScale();
   return (
-    <View style={styles.row}>
+    <View testID={`section-header-${title}`} style={[styles.row, largeText && styles.rowStacked]}>
       <Text accessibilityRole="header" style={[typography.cardTitle, styles.title, { color: c.ink }]}>{title}</Text>
       {accessory}
       {!accessory && actionLabel && onAction ? (
@@ -31,7 +36,7 @@ export function DashboardSectionHeader({
         </Pressable>
       ) : null}
       {!accessory && !onAction && caption ? (
-        <Text style={[typography.labelS, styles.caption, { color: c.mutedInk }]} numberOfLines={2}>{caption}</Text>
+        <Text style={[typography.labelS, styles.caption, largeText && styles.captionStacked, { color: c.mutedInk }]} numberOfLines={2}>{caption}</Text>
       ) : null}
     </View>
   );
@@ -39,7 +44,9 @@ export function DashboardSectionHeader({
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, minHeight: 24 },
+  rowStacked: { flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'flex-start', gap: 0 },
   title: { flexShrink: 1 },
   action: { flexDirection: 'row', alignItems: 'center', gap: 2, minHeight: 44 },
   caption: { flexShrink: 1, textAlign: 'right' },
+  captionStacked: { textAlign: 'left' },
 });

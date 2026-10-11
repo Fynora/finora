@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react-native';
-import { StyleSheet, Text } from 'react-native';
+import { Dimensions, StyleSheet, Text } from 'react-native';
 import { DashboardCard } from './DashboardCard';
 import { DashboardSectionHeader } from './DashboardSectionHeader';
 import { DeltaChip } from './DeltaChip';
@@ -97,6 +97,28 @@ describe('ProgressBar', () => {
 });
 
 describe('DashboardSectionHeader', () => {
+  // Found on an iPhone 17 Pro simulator at an accessibility text size: beside its caption the
+  // month title was squeezed until "Sep 26" took two lines. At large sizes the title has the row
+  // to itself and whatever sat on its right goes under it.
+  it('puts the title above its caption under large Dynamic Type, and beside it otherwise', () => {
+    const dimensionsGetSpy = jest.spyOn(Dimensions, 'get');
+    try {
+      dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1 });
+      render(<ThemeProvider><DashboardSectionHeader title="Sep 26" caption="vs the month before Sep 26" /></ThemeProvider>);
+      expect(StyleSheet.flatten(screen.getByTestId('section-header-Sep 26').props.style).flexDirection).toBe('row');
+      expect(StyleSheet.flatten(screen.getByText('vs the month before Sep 26').props.style).textAlign).toBe('right');
+
+      dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1.3 });
+      render(<ThemeProvider><DashboardSectionHeader title="Sep 26" caption="vs the month before Sep 26" /></ThemeProvider>);
+      const row = StyleSheet.flatten(screen.getByTestId('section-header-Sep 26').props.style);
+      expect(row.flexDirection).toBe('column');
+      expect(row.alignItems).toBe('flex-start');
+      expect(StyleSheet.flatten(screen.getByText('vs the month before Sep 26').props.style).textAlign).toBe('left');
+    } finally {
+      dimensionsGetSpy.mockRestore();
+    }
+  });
+
   it('shows the title as a heading', () => {
     render(<ThemeProvider><DashboardSectionHeader title="Goals" /></ThemeProvider>);
     expect(screen.getByRole('header', { name: 'Goals' })).toBeTruthy();

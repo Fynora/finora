@@ -1,8 +1,9 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { GlassSurface } from '../GlassSurface';
 import { IconWell } from './IconWell';
+import { useLargeFontScale } from '../../lib/useLargeFontScale';
 import { useReduceTransparency } from '../../lib/useReduceTransparency';
-import { radius, spacing, typography, useTheme } from '../../theme';
+import { radius, shadows, spacing, typography, useTheme } from '../../theme';
 import { withAlpha } from '../../theme/glass';
 
 /**
@@ -33,6 +34,10 @@ export function FinancialNoteCard({
   onCreateGoal: () => void;
 }) {
   const c = useTheme();
+  // One row leaves the sentence a column about 90 points wide once the icon and the button have
+  // taken theirs. At large text it ran one word per line with words broken in the middle, so the
+  // text then takes the card's width and the button goes under it.
+  const largeText = useLargeFontScale();
   // GlassSurface moves a caller's fill onto its tint layer and uses it as given, so the solid
   // fallback has to be chosen here: opaque brass under Reduce Transparency, or before the setting
   // is known.
@@ -41,9 +46,16 @@ export function FinancialNoteCard({
   if (!factor || potentialGain === null) return null;
 
   return (
-    <GlassSurface testID="financial-note" style={[styles.card, { backgroundColor: wash, borderColor: c.brass }]}>
+    <GlassSurface
+      testID="financial-note"
+      // The card shadow, iOS only like DashboardCard's (read at render so a test can drive both).
+      style={[
+        styles.card, largeText && styles.cardStacked, Platform.OS === 'ios' && styles.shadow,
+        { backgroundColor: wash, borderColor: c.brass },
+      ]}
+    >
       <IconWell name="sparkles-outline" tone="brass" round size={36} />
-      <View style={styles.textWrap}>
+      <View testID="financial-note-text" style={[styles.textWrap, largeText && styles.textWrapStacked]}>
         <Text style={[typography.labelM, { color: c.ink }]}>
           {factor} has the most room to improve right now.
         </Text>
@@ -70,6 +82,10 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.xxl, padding: spacing.md,
     flexDirection: 'row', alignItems: 'center', gap: spacing.ms, marginTop: spacing.md,
   },
+  cardStacked: { flexDirection: 'column', alignItems: 'flex-start' },
+  shadow: { boxShadow: shadows.card },
   textWrap: { flex: 1, gap: spacing.xs },
+  // In a column, `flex: 1` (a zero basis) would collapse the text's height; it sizes to its content.
+  textWrapStacked: { flexGrow: 0, flexShrink: 1, flexBasis: 'auto', alignSelf: 'stretch' },
   cta: { minHeight: 44, paddingHorizontal: spacing.md, borderRadius: 999, alignItems: 'center', justifyContent: 'center' },
 });

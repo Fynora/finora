@@ -32,10 +32,12 @@ export function FinancialHealthFactorCard({
   const largeText = useLargeFontScale();
   return (
     <DashboardCard style={styles.card} padding="compact">
-      <View style={styles.headerRow}>
-        {/* One line is a fair trade at ordinary sizes; at large ones it cut "Savings Rate" to
-            "Savings..." beside the link, which is the factor's whole identity. */}
-        <Text style={[typography.labelS, styles.name, { color: c.mutedInk }]} numberOfLines={largeText ? 2 : 1}>{name}</Text>
+      {/* One line beside the link is a fair trade at ordinary sizes. At large ones it cut "Savings
+          Rate" to "Savings...", and two lines beside the link then broke the word itself ("Saving"
+          / "s Rate"), because the column was narrower than the word. So at large sizes the name
+          takes the tile's full width, unlimited, with the link under it. */}
+      <View testID={`factor-header-${name}`} style={[styles.headerRow, largeText && styles.headerStacked]}>
+        <Text style={[typography.labelS, styles.name, { color: c.mutedInk }]} numberOfLines={largeText ? undefined : 1}>{name}</Text>
         {detail ? (
           <Pressable
             onPress={onToggle}
@@ -65,6 +67,7 @@ export function FinancialHealthFactorCard({
 const styles = StyleSheet.create({
   card: { width: 200, gap: spacing.sm },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs },
+  headerStacked: { flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'flex-start' },
   name: { flexShrink: 1 },
   why: { textDecorationLine: 'underline' },
 });

@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { StyleSheet } from 'react-native';
+import { Dimensions, StyleSheet } from 'react-native';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { AccountsCard } from './AccountsCard';
 import { ThemeProvider, useThemeSetting } from '../../theme';
@@ -26,7 +26,44 @@ function account(overrides: Partial<Account>): Account {
   } as Account;
 }
 
+const dimensionsGetSpy = jest.spyOn(Dimensions, 'get');
+beforeEach(() => {
+  dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1 });
+});
+
+const twoAccounts = [
+  account({ id: 'a1', bank: { ...account({}).bank, id: 'hdfc', shortName: 'HDFC', initials: 'HD' } }),
+  account({ id: 'a2', bank: { ...account({}).bank, id: 'sbi', shortName: 'SBI', initials: 'SB' } }),
+];
+
 describe('AccountsCard', () => {
+  // Found on an iPhone 17 Pro simulator at an accessibility text size: the counts and "View
+  // Accounts" shared one row, the link took most of it, and "3 Accounts · 3 Banks" was squeezed
+  // into a column so narrow that "Accounts" broke in the middle of the word.
+  it('stacks the counts above View Accounts under large Dynamic Type, and keeps them side by side otherwise', () => {
+    render(<ThemeProvider><AccountsCard accounts={twoAccounts} totalBalance={0} caption="As of today" onViewAll={jest.fn()} /></ThemeProvider>);
+    expect(StyleSheet.flatten(screen.getByTestId('accounts-card-footer').props.style).flexDirection).toBe('row');
+
+    dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1.3 });
+    render(<ThemeProvider><AccountsCard accounts={twoAccounts} totalBalance={0} caption="As of today" onViewAll={jest.fn()} /></ThemeProvider>);
+    const stacked = StyleSheet.flatten(screen.getByTestId('accounts-card-footer').props.style);
+    expect(stacked.flexDirection).toBe('column');
+    expect(stacked.alignItems).toBe('flex-start');
+  });
+
+  // Same simulator run: the initials grew with the text size and the circle did not, so "BB",
+  // "PNB" and "AXIS" ran out of their circles and into each other. The avatar is a fixed-size
+  // graphic, so its text does not scale.
+  it('keeps bank initials inside their fixed-size circles at any text size', () => {
+    render(
+      <ThemeProvider>
+        <AccountsCard accounts={Array.from({ length: 5 }, (_, i) => account({ id: `a${i}` }))} totalBalance={0} caption="As of today" onViewAll={jest.fn()} />
+      </ThemeProvider>
+    );
+    for (const initials of screen.getAllByText('HD')) expect(initials.props.maxFontSizeMultiplier).toBe(1);
+    expect(screen.getByText('+1').props.maxFontSizeMultiplier).toBe(1);
+  });
+
   it('shows account/bank counts, total balance and caption', () => {
     render(
       <ThemeProvider>

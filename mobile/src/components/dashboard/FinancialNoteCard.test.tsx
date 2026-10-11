@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { Dimensions, Platform, StyleSheet } from 'react-native';
 import { FinancialNoteCard } from './FinancialNoteCard';
-import { ThemeProvider } from '../../theme';
+import { shadows, ThemeProvider } from '../../theme';
 import { withAlpha } from '../../theme/glass';
 import { light } from '../../theme/palette';
 
@@ -13,6 +13,11 @@ afterEach(() => { mockReduce.value = null; });
 
 const renderNote = () =>
   render(<ThemeProvider><FinancialNoteCard factor="Emergency Fund" potentialGain={14} onCreateGoal={jest.fn()} /></ThemeProvider>);
+
+const dimensionsGetSpy = jest.spyOn(Dimensions, 'get');
+beforeEach(() => {
+  dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1 });
+});
 
 describe('FinancialNoteCard', () => {
   it('renders nothing without a real opportunity', () => {
@@ -45,6 +50,47 @@ describe('FinancialNoteCard', () => {
     expect(screen.getByTestId('glass-tint')).toHaveStyle({ backgroundColor: withAlpha(light.brassBg, light.glassAlpha) });
     // The brass edge is the note's signal; the glass edge must not paint over it.
     expect(StyleSheet.flatten(screen.getByTestId('financial-note').props.style).borderColor).toBe(light.brass);
+  });
+
+  // The approved design lifts the note off the page like every other card.
+  it('casts the card shadow on iOS and keeps its brass tint and edge while doing so', () => {
+    mockReduce.value = false;
+    renderNote();
+    const note = StyleSheet.flatten(screen.getByTestId('financial-note').props.style);
+    expect(note.boxShadow).toEqual(shadows.card);
+    expect(note.borderColor).toBe(light.brass);
+    // A surface with a shadow keeps its fill on the tint layer, not on the view that casts it.
+    expect(note.backgroundColor).toBeUndefined();
+    expect(screen.getByTestId('glass-tint')).toHaveStyle({ backgroundColor: withAlpha(light.brassBg, light.glassAlpha) });
+  });
+
+  it('declares no box shadow on Android', () => {
+    const originalOS = Platform.OS;
+    (Platform as { OS: string }).OS = 'android';
+    try {
+      renderNote();
+      expect(StyleSheet.flatten(screen.getByTestId('financial-note').props.style).boxShadow).toBeUndefined();
+    } finally {
+      (Platform as { OS: string }).OS = originalOS;
+    }
+  });
+
+  // Found on an iPhone 17 Pro simulator at an accessibility text size: icon, text and button
+  // shared one row, the text was left a column about 90 points wide, and the sentence ran one
+  // word per line with words broken in the middle ("Savin / gs", "impro / ve").
+  it('stacks the text above Create Goal under large Dynamic Type, and keeps one row otherwise', () => {
+    renderNote();
+    expect(StyleSheet.flatten(screen.getByTestId('financial-note').props.style).flexDirection).toBe('row');
+
+    dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1.3 });
+    renderNote();
+    const note = StyleSheet.flatten(screen.getByTestId('financial-note').props.style);
+    expect(note.flexDirection).toBe('column');
+    expect(note.alignItems).toBe('flex-start');
+    // In a column the text must size to its content: a zero flex basis would collapse it.
+    const text = StyleSheet.flatten(screen.getByTestId('financial-note-text').props.style);
+    expect(text.flexBasis).toBe('auto');
+    expect(text.alignSelf).toBe('stretch');
   });
 
   it('gives Create Goal a 44 point target', () => {

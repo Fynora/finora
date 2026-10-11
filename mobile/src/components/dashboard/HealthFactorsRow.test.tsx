@@ -26,12 +26,25 @@ beforeEach(() => {
 describe('HealthFactorsRow', () => {
   // Found on a simulator at an accessibility text size: "Savings Rate" was cut to "Savings..."
   // beside its "Why?" link. One line is a fair trade at ordinary sizes, not at large ones.
-  it('lets a factor name wrap to two lines under large Dynamic Type', () => {
+  it('lets a factor name wrap freely under large Dynamic Type', () => {
     renderRow();
     expect(screen.getByText('Savings Rate').props.numberOfLines).toBe(1);
     dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1.3 });
     renderRow();
-    expect(screen.getByText('Savings Rate').props.numberOfLines).toBe(2);
+    expect(screen.getByText('Savings Rate').props.numberOfLines).toBeUndefined();
+  });
+
+  // Found on the same simulator one accessibility step higher: two lines beside the link were not
+  // enough, the name's column was narrower than the word, and "Savings" broke as "Saving / s".
+  // At large sizes the name takes the tile's full width, with the link under it.
+  it('puts the factor name above its Why? link under large Dynamic Type, and beside it otherwise', () => {
+    renderRow();
+    expect(StyleSheet.flatten(screen.getByTestId('factor-header-Savings Rate').props.style).flexDirection).toBe('row');
+    dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1.3 });
+    renderRow();
+    const stacked = StyleSheet.flatten(screen.getByTestId('factor-header-Savings Rate').props.style);
+    expect(stacked.flexDirection).toBe('column');
+    expect(stacked.alignItems).toBe('flex-start');
   });
 
   // A scroll view clips to its bounds. Found on an iPhone 17 Pro simulator: with 4 points of

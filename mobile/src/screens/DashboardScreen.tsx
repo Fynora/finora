@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
-  Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View,
+  Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View,
 } from 'react-native';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
@@ -47,7 +47,7 @@ import { reviewNudgeLabel, reviewQueueCount } from '../lib/reviewQueue';
 import { useDashboardKpis } from '../lib/useDashboardKpis';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { visiblePlanCode } from '../lib/planDisplay';
-import { fonts, radius, spacing, typography, useTheme } from '../theme';
+import { fonts, radius, shadows, spacing, typography, useTheme } from '../theme';
 import { trackNavSearch, trackNavigation } from '../lib/trackNavigation';
 import type { AppTabParamList } from '../navigation/types';
 import { StatementRefreshBanner } from '../components/StatementRefreshBanner';
@@ -452,7 +452,8 @@ export function DashboardScreen() {
           accessibilityRole="button"
           accessibilityLabel="Search transactions"
         >
-          <GlassSurface testID="dashboard-search-button" style={styles.searchButton}>
+          {/* The card shadow, iOS only like DashboardCard's (read at render so a test can drive both). */}
+          <GlassSurface testID="dashboard-search-button" style={[styles.searchButton, Platform.OS === 'ios' && styles.searchShadow]}>
             <Ionicons name="search-outline" size={20} color={c.ink} />
           </GlassSurface>
         </Pressable>
@@ -698,16 +699,24 @@ export function DashboardScreen() {
                 testID={`txn-row-${t.id}`}
                 style={[styles.txnRow, i > 0 && { borderTopColor: c.border, borderTopWidth: StyleSheet.hairlineWidth }]}
               >
-                <IconWell
-                  testID={`txn-icon-${t.id}`}
-                  name={t.type === 'INCOME' ? 'arrow-down-outline' : 'arrow-up-outline'}
-                  tone={t.type === 'INCOME' ? 'success' : 'neutral'}
-                />
+                {/* Decoration: the amount's sign and colour already say which way the money went.
+                    At large text it steps aside, because its 52 points are what the category and
+                    date line needs to show the date at all (cut on a simulator, even on two lines). */}
+                {largeText ? null : (
+                  <IconWell
+                    testID={`txn-icon-${t.id}`}
+                    name={t.type === 'INCOME' ? 'arrow-down-outline' : 'arrow-up-outline'}
+                    tone={t.type === 'INCOME' ? 'success' : 'neutral'}
+                  />
+                )}
                 <View style={styles.txnMain}>
                   <Text style={[typography.labelM, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
                     {t.description || t.merchant || 'Transaction'}
                   </Text>
-                  <Text style={[typography.bodyS, { color: c.mutedInk }]} numberOfLines={1}>
+                  {/* Never cut at large text: one line cut "Credit Card bill · 2026-09-30" to
+                      "Credit C..." on a simulator, losing the date, and two lines still cut it. It
+                      is a short line (a category and a date), unlike the description above it. */}
+                  <Text style={[typography.bodyS, { color: c.mutedInk }]} numberOfLines={largeText ? undefined : 1}>
                     {t.categoryName} · {t.date}
                   </Text>
                 </View>
@@ -743,7 +752,9 @@ export function DashboardScreen() {
             <Pressable
               key={action.label}
               onPress={action.onPress}
-              style={styles.quickActionCell}
+              // Three to a row leaves a label about 80 points: at large text "Import Statement"
+              // was cut and "Investments" broke mid-word, so each action then takes a full row.
+              style={[styles.quickActionCell, largeText && styles.quickActionCellWide]}
               accessibilityRole="button"
               accessibilityLabel={action.label}
             >
@@ -751,7 +762,7 @@ export function DashboardScreen() {
                   an opaque cell inside one glass card. */}
               <DashboardCard padding="compact" style={styles.quickActionCard}>
                 <IconWell name={action.icon} round />
-                <Text style={[typography.labelS, styles.quickActionLabel, { color: c.ink }]} numberOfLines={2}>
+                <Text style={[typography.labelS, styles.quickActionLabel, { color: c.ink }]} numberOfLines={largeText ? undefined : 2}>
                   {action.label}
                 </Text>
               </DashboardCard>
@@ -1115,6 +1126,7 @@ const styles = StyleSheet.create({
   subGreeting: { marginTop: 2, marginBottom: spacing.md },
   // A 44 point glass circle: the visible shape is the whole touch target.
   searchButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  searchShadow: { boxShadow: shadows.card },
   section: { marginTop: spacing.md },
   // A section whose header sits on the backdrop above a row or grid of tiles, not inside a card.
   sectionStack: { gap: spacing.ms },
@@ -1156,6 +1168,7 @@ const styles = StyleSheet.create({
   quickActionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.ms },
   // Three per row at any phone width: 30% each plus flexGrow across two 12 point gaps.
   quickActionCell: { flexBasis: '30%', flexGrow: 1, minHeight: 104 },
+  quickActionCellWide: { flexBasis: '100%' },
   quickActionCard: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: spacing.sm },
   quickActionLabel: { textAlign: 'center' },
   insight: { fontSize: 13, lineHeight: 20, marginBottom: 4 },

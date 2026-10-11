@@ -9,6 +9,11 @@ import { useLargeFontScale } from '../../lib/useLargeFontScale';
 import { spacing, useTheme } from '../../theme';
 import { RevealArc } from './ChartReveal';
 
+// How far the centre text may grow with Dynamic Type. The hole is a fixed size (see
+// chartGeometry.ts); a seven-figure rupee total at this scale was checked on an iPhone 17 Pro
+// simulator and still sits inside it.
+const CENTER_MAX_FONT_SCALE = 1.3;
+
 export interface Slice {
   label: string;
   value: number;
@@ -89,8 +94,10 @@ export function DonutChart({
         </Svg>
         {centerLabel ? (
           <View style={styles.center} pointerEvents="none">
-            <Text style={[styles.centerLabel, { color: c.muted }]}>Total</Text>
-            <Text style={[styles.centerValue, { color: c.ink }]} numberOfLines={1}>
+            {/* The ring is a fixed-size graphic, so its centre text grows only as far as the hole
+                has room for: uncapped, the total ran across the ring at accessibility sizes. */}
+            <Text style={[styles.centerLabel, { color: c.muted }]} maxFontSizeMultiplier={CENTER_MAX_FONT_SCALE}>Total</Text>
+            <Text style={[styles.centerValue, { color: c.ink }]} numberOfLines={1} maxFontSizeMultiplier={CENTER_MAX_FONT_SCALE}>
               {centerLabel}
             </Text>
           </View>

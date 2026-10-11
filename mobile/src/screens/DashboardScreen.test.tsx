@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { Dimensions, RefreshControl, StyleSheet } from 'react-native';
+import { Dimensions, Platform, RefreshControl, StyleSheet } from 'react-native';
+import { shadows } from '../theme';
 import { withBypass } from '../lib/changeSync';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
@@ -810,6 +811,27 @@ describe('story-layer order (card redesign)', () => {
     expect(circle.width).toBe(44);
     expect(circle.height).toBe(44);
   });
+
+  // The approved design lifts the button off the page with the same shadow as the cards.
+  it('the search button casts the card shadow on iOS', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+    renderScreen();
+    await screen.findByLabelText('Search transactions');
+    expect(StyleSheet.flatten(screen.getByTestId('dashboard-search-button').props.style).boxShadow).toEqual(shadows.card);
+  });
+
+  it('the search button declares no box shadow on Android', async () => {
+    const originalOS = Platform.OS;
+    (Platform as { OS: string }).OS = 'android';
+    try {
+      dashboard.summary.mockResolvedValue(emptySummary());
+      renderScreen();
+      await screen.findByLabelText('Search transactions');
+      expect(StyleSheet.flatten(screen.getByTestId('dashboard-search-button').props.style).boxShadow).toBeUndefined();
+    } finally {
+      (Platform as { OS: string }).OS = originalOS;
+    }
+  });
 });
 
 describe('adjacent-screen prefetching', () => {
@@ -1541,6 +1563,29 @@ describe('Recent Transactions rows (card redesign)', () => {
     expect(row('txn-row-t2').borderTopWidth).toBe(StyleSheet.hairlineWidth);
     expect(row('txn-row-t2').borderBottomWidth).toBeUndefined();
   });
+
+  // Found on an iPhone 17 Pro simulator at an accessibility text size: the category and date line
+  // was cut to "Credit C...", which loses the date altogether, and two lines still cut it for a
+  // longer category ("Credit Card bill · 2026-0..."). It is a short line (a category and a date),
+  // so at large sizes it is never cut; one line at ordinary sizes.
+  it('never cuts the category and date line under large Dynamic Type', async () => {
+    renderScreen();
+    expect((await screen.findByText('Income · 2026-08-01')).props.numberOfLines).toBe(1);
+    dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1.3 });
+    renderScreen();
+    expect((await screen.findByText('Income · 2026-08-01')).props.numberOfLines).toBeUndefined();
+  });
+
+  // Same simulator run: even on two lines the date was cut, because the direction icon takes 52
+  // points the row did not give up before the redesign. The icon is decoration (the sign and the
+  // colour of the amount already say which way the money went), so at large sizes it steps aside.
+  it('drops the direction icon under large Dynamic Type so the text keeps the width it had', async () => {
+    dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1.3 });
+    renderScreen();
+    await screen.findByText('Salary credit');
+    expect(screen.queryByTestId('txn-icon-t1', { includeHiddenElements: true })).toBeNull();
+    expect(screen.getByText('+₹1,45,000')).toHaveStyle({ color: light.successInk });
+  });
 });
 
 /**
@@ -1560,6 +1605,20 @@ describe('Quick Actions grid (Phase 4)', () => {
     expect(tile.minHeight).toBeGreaterThanOrEqual(44);
     for (const label of ['Add Transaction', 'Create Budget', 'View Reports', 'Manage Goals', 'Investments']) {
       expect(StyleSheet.flatten(screen.getByLabelText(label).props.style).flexBasis).toBe('30%');
+    }
+    expect(screen.getByText('Import Statement').props.numberOfLines).toBe(2);
+  });
+
+  // Found on an iPhone 17 Pro simulator at an accessibility text size: three to a row left each
+  // label about 80 points, so "Import Statement" was cut to "Import State..." and "Investments"
+  // broke as "Invest / ments". At large sizes each action takes a full row and its label is whole.
+  it('gives each action its own row, with its whole label, under large Dynamic Type', async () => {
+    dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1.3 });
+    renderScreen();
+    await screen.findByLabelText('Import Statement');
+    for (const label of ['Import Statement', 'Add Transaction', 'Create Budget', 'View Reports', 'Manage Goals', 'Investments']) {
+      expect(StyleSheet.flatten(screen.getByLabelText(label).props.style).flexBasis).toBe('100%');
+      expect(screen.getByText(label).props.numberOfLines).toBeUndefined();
     }
   });
 

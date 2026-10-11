@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { DashboardCard } from './DashboardCard';
 import { fmtCurrency } from '../../lib/format';
+import { useLargeFontScale } from '../../lib/useLargeFontScale';
 import { fonts, spacing, typography, useTheme } from '../../theme';
 import type { Account } from '../../types';
 
@@ -20,6 +21,9 @@ export function AccountsCard({
   onViewAll: () => void;
 }) {
   const c = useTheme();
+  // Side by side, the link leaves the counts a column too narrow for large text ("Accounts" broke
+  // mid-word on a simulator at an accessibility size), so at large sizes they stack.
+  const largeText = useLargeFontScale();
   const bankCount = new Set(accounts.map((a) => a.bank.id)).size;
   const shown = accounts.slice(0, MAX_AVATARS);
   const overflow = accounts.length - shown.length;
@@ -40,17 +44,17 @@ export function AccountsCard({
         <View style={styles.avatarRow}>
           {shown.map((a) => (
             <View key={a.id} testID={`account-avatar-${a.id}`} style={[styles.avatar, { backgroundColor: a.bank.colorHex, borderColor: c.card }]}>
-              <Text style={styles.avatarText}>{a.bank.initials}</Text>
+              <Text style={styles.avatarText} maxFontSizeMultiplier={1}>{a.bank.initials}</Text>
             </View>
           ))}
           {overflow > 0 ? (
             <View testID="account-avatar-overflow" style={[styles.avatar, { backgroundColor: c.border, borderColor: c.card }]}>
-              <Text style={[styles.avatarText, { color: c.ink }]}>+{overflow}</Text>
+              <Text style={[styles.avatarText, { color: c.ink }]} maxFontSizeMultiplier={1}>+{overflow}</Text>
             </View>
           ) : null}
         </View>
       </View>
-      <View style={[styles.footer, { borderTopColor: c.border }]}>
+      <View testID="accounts-card-footer" style={[styles.footer, largeText && styles.footerStacked, { borderTopColor: c.border }]}>
         <Text style={[typography.bodyS, styles.counts, { color: c.mutedInk }]}>
           {accounts.length} Account{accounts.length === 1 ? '' : 's'} · {bankCount} Bank{bankCount === 1 ? '' : 's'}
         </Text>
@@ -76,11 +80,15 @@ const styles = StyleSheet.create({
     width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center',
     marginRight: -8, borderWidth: 2,
   },
+  // The avatar is a fixed-size graphic, so its text does not grow with Dynamic Type
+  // (maxFontSizeMultiplier at the call sites): scaled, the initials ran out of the circle and
+  // into the next one.
   avatarText: { fontFamily: fonts.bodyBold, fontSize: 10, color: '#FFFFFF' },
   footer: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     borderTopWidth: StyleSheet.hairlineWidth, gap: spacing.sm,
   },
+  footerStacked: { flexDirection: 'column', alignItems: 'flex-start', gap: 0, paddingTop: spacing.sm },
   counts: { flexShrink: 1 },
   cta: { flexDirection: 'row', alignItems: 'center', gap: 2, minHeight: 44 },
 });

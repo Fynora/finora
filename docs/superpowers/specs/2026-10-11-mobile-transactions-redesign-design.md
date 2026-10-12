@@ -487,9 +487,30 @@ name's letters, is not a number, and its own separators give the word breaks.
   brand's own capitals, on rows that link to a starter brand.
 - The transaction the phone receives does not carry the linked merchant's name, so using it would
   mean a new field from the server. That is outside this redesign.
-- Not yet counted: how many of the test account's rows link to a merchant whose name differs from
-  the row's own. That is a read of production data, which the owner runs; the query was handed
-  over on 2026-10-12 and its result is not in this document yet.
+
+Counted in production on 2026-10-12. The owner ran a read-only query that returns counts only, for
+the test account's 392 transactions (the same total the phone reports):
+
+| The linked merchant's name, against the row's own | All rows | Rows whose name is exactly eight characters |
+|---|---|---|
+| No linked merchant | 0 | 0 |
+| The same text | 42 | 1 |
+| Longer, and starting with the row's text | 0 | 0 |
+| Different text | 350 | 164 |
+| Total | 392 | 165 |
+
+Of the 350 with different text, 335 link to a merchant the engine made by itself and 15 to a
+confirmed one (10 of those 15 are eight-character rows).
+
+- No linked merchant's name is a longer form of the row's name. For the 165 eight-character rows
+  that means this route completes none of them as it stands.
+- Most rows link to a merchant whose name is some other text. What that text is was not read: a
+  count cannot say whether it is a better name, a worse one (a narration's leading words), or
+  another payee's. By today's code a newly made merchant is named from the same payee text as the
+  row, so 335 differing names were not expected; why they differ is not established. A second
+  count, of the shape of those names, was handed to the owner on 2026-10-12.
+- The 15 rows that link to a confirmed merchant are the only candidates for a starter brand's
+  name.
 
 ### A paging defect found on the way
 
@@ -507,7 +528,10 @@ name's letters, is not a number, and its own separators give the word breaks.
   observed there.
 - It is a server fix (a second sort key) and is tracked separately from this redesign: pull request
   #2125, which adds the creation time and then the id as tie-breakers. It was open, with its checks
-  passing, on 2026-10-12.
+  passing, on 2026-10-12. It has since grown to cover other lists and to let a list continue from
+  a row instead of a page number. For the phone it changes this screen's paging functions and its
+  query call, and nothing of its layout, so it and this redesign edit the same file in different
+  places. The redesign is built on a base that already has it.
 
 ## Review of this design (2026-10-11)
 

@@ -308,12 +308,13 @@ public final class PdfFixtureBuilder {
         PageBuilder page1 = new PageBuilder();
         page1.line("AXIS BANK")
                 .line("Neo Rupay Credit Card Statement")
-                // Verbatim the wording a real Axis credit-card statement prints. Kept exactly as
+                // Verbatim the wording a real Axis credit-card statement prints (the labels -- the
+                // total beside them is invented). The wording is kept exactly as
                 // captured: no "Credit Limit" clause has ever been committed on this line, and it
                 // stays that way on purpose. The phrase list now carries "minimum payment due",
                 // so this fixture proves the classifier works on Axis's ACTUAL vocabulary alone --
                 // which is the only version of this fixture that proves anything.
-                .line("Total Payment Due 27,665.16 Dr Minimum Payment Due 577.00 Dr")
+                .line("Total Payment Due 31,480.25 Dr Minimum Payment Due 577.00 Dr")
                 .blankLine()
                 .row(col, "DATE", "TRANSACTION DETAILS", "MERCHANT CATEGORY", "AMOUNT (Rs.)")
                 .row(col, "24/06/2026", "UPI/SAMPLE VENDOR PRIVATE LT/SAMPLEA.PAYU@AXISB", "MISC STORE", "37.94 Dr")
@@ -1893,15 +1894,15 @@ public final class PdfFixtureBuilder {
         PageBuilder page = new PageBuilder();
         // hasReconcilableFields() requires all four of these present, not just totalAmountDue on
         // its own -- CreditCardSummaryExtractor discards a partial reading entirely rather than
-        // carrying just the one field it happened to find (see its own doc comment). Numbers add
-        // up (20,000.00 + 8,665.16 - 1,000.00 = 27,665.16) but this test never checks reconciliation
-        // itself, only that the total survives into DetectedAccountInfo.
+        // carrying just the one field it happened to find (see its own doc comment). Numbers are
+        // invented and add up (20,000.00 + 12,480.25 - 1,000.00 = 31,480.25) but this test never
+        // checks reconciliation itself, only that the total survives into DetectedAccountInfo.
         page.line("SAMPLE BANK")
                 .line("Credit Card Statement")
                 .row(summaryCol, "Previous Balance", "20,000.00")
-                .row(summaryCol, "Purchases", "8,665.16")
+                .row(summaryCol, "Purchases", "12,480.25")
                 .row(summaryCol, "Payments / Credits", "1,000.00")
-                .row(summaryCol, "Total Amount Due", "27,665.16")
+                .row(summaryCol, "Total Amount Due", "31,480.25")
                 .line("Minimum Amount Due 577.00")
                 .blankLine()
                 .row(col, "DATE", "TRANSACTION DETAILS", "AMOUNT (Rs.)")
@@ -2080,7 +2081,7 @@ public final class PdfFixtureBuilder {
         PageBuilder page = new PageBuilder();
         page.line("Some Card Issuer")
                 .line("Credit Card Statement")
-                .line("Total Amount Due 27,665.16 Dr Minimum Payment Due 577.00 Dr")
+                .line("Total Amount Due 31,480.25 Dr Minimum Payment Due 577.00 Dr")
                 .blankLine()
                 .row(col, "DATE", "TRANSACTION DETAILS", "AMOUNT (Rs.)")
                 .row(col, "24/06/2026", "UPI/SAMPLE VENDOR PRIVATE LT", "37.94 Dr")

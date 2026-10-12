@@ -13,8 +13,9 @@ import java.util.UUID;
 
 public interface SupportTicketRepository extends JpaRepository<SupportTicket, UUID> {
 
-    /** The user's own list, newest first. */
-    Page<SupportTicket> findByUserIdOrderByCreatedAtDesc(UUID userId, Pageable pageable);
+    /** The user's own list, newest first. The id settles two tickets created in the same instant,
+     *  so paging through the list returns each ticket exactly once. */
+    Page<SupportTicket> findByUserIdOrderByCreatedAtDescIdDesc(UUID userId, Pageable pageable);
 
     /**
      * Ownership is a predicate on the fetch, not a check after it.
@@ -54,7 +55,7 @@ public interface SupportTicketRepository extends JpaRepository<SupportTicket, UU
                AND (:q IS NULL
                     OR LOWER(t.ticketNumber) LIKE LOWER(CONCAT('%', CAST(:q AS string), '%')) ESCAPE '\\'
                     OR LOWER(t.subject) LIKE LOWER(CONCAT('%', CAST(:q AS string), '%')) ESCAPE '\\')
-             ORDER BY t.createdAt ASC
+             ORDER BY t.createdAt ASC, t.id ASC
             """)
     Page<SupportTicket> findForAdmin(@Param("status") SupportTicket.Status status,
                                      @Param("category") SupportTicket.Category category,

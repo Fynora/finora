@@ -2565,3 +2565,38 @@ Read only. Production account. Each number goes in the ledger with the command t
 - The details sheet's title, which still shows the narration.
 - The web Ledger's lower-case titles.
 - Copying the design into the Figma file, when the connector unlocks.
+
+## Execution record (2026-10-12)
+
+Executed inline in one session, with no sub-agents, on a base that includes #2125. The measured
+results and what the build changed against the design are in the design document's "Build record".
+This section records how the plan itself went.
+
+| Task | Result |
+|---|---|
+| 0 Baseline | Done. The recording window became 26 seconds with ten swipes: the gesture call starts about ten seconds after the recorder, and a 16 second window missed the swipes. |
+| 1 Row logic | Done as written. |
+| 2 Contrast | Found a failing pair (dark `mutedInk` on `border`, 4.42:1). Neutral tags changed to `ink`. |
+| 3 Month card | Done. The guard was shown to read the new file by adding a forbidden phrase and seeing it fail. |
+| 4 Day card | Done; 15 tests, not 13 (the shadow test was split, an avatar check added). |
+| 5 Controls | Done. Later gained two large-text tests. |
+| 6 Filters sheet | Done. `toBeChecked` in place of `toHaveAccessibilityState`, which this test library does not have. |
+| 7 Title and pinned bar | Done, then changed twice in Task 10 (below). |
+| 8 Screen | Done. Test changes beyond the plan: React Native's test setup reports a text scale of 2, which this screen now treats as large text, so the screen's tests set the ordinary size and one test covers large text; a scroll event needs its content size and layout; two tests that looked for the category now find it on the row as well. A guard test caught the pinned bar's solid fill, which is now marked as a deliberate exception. |
+| 9 Self-review | Five comments still described the old layout; two content changes had no test. Fixed. |
+| 10 iPhone simulator | Done, with three fixes, each test-first: the list starts below the status bar; the pinned bar has one state; three large-text faults. A slow drag registered as a long press and opened the delete confirmation on the production account; Cancel was pressed and the count stayed at 392. |
+| 11 Android | Not done. See "Not verified" in the design document. |
+| 12 Finish | This record. |
+
+Rulings made during the build, each with what it costs if wrong:
+
+- Neutral tags use `ink` on `border`. If wrong: neutral tag text is darker than in the approved
+  picture in the light theme.
+- The pinned bar shows at 8 points with its contents, not surface at 24 and contents later. If
+  wrong: the small title appears earlier than the picture implies.
+- The list starts below the status bar. If wrong: nothing scrolls behind the clock, which the first
+  design allowed under a clear bar.
+- The large title is capped at 1.4 times and the switch labels at 1.5. If wrong: those two pieces
+  of text are smaller than the system setting asks for at the largest sizes.
+
+The final review was a self-review by the author. No second reviewer looked at this change.

@@ -1,8 +1,9 @@
 # Mobile Transactions screen redesign
 
 **Date:** 2026-10-11
-**Status:** design approved by the owner on 2026-10-12, with softened capitals for row titles. The
-build plan is `docs/superpowers/plans/2026-10-12-mobile-transactions-redesign.md`.
+**Status:** design approved by the owner on 2026-10-12, with softened capitals for row titles, and
+built the same day. The build plan is `docs/superpowers/plans/2026-10-12-mobile-transactions-redesign.md`;
+what the build changed against this design is under "Build record" at the end.
 **Screen:** `mobile/src/screens/LedgerScreen.tsx` (the Transactions tab).
 
 ## Goal
@@ -124,12 +125,16 @@ All values are existing tokens in `mobile/src/theme` unless marked new. Sizes ar
 - One round add button on the right (today's "Add transaction").
 - The line "All your financial activity in one place." is removed.
 - The title, the count and everything down to the list scroll away with the list.
-- **Pinned bar.** A glass surface runs from the very top of the screen, behind the status bar,
-  down to 54 points below it. It is clear while the list is at rest and becomes solid as soon as
-  the list has moved 24 points, so nothing slides behind the clock or is cut by a hard edge. Its
-  contents, "Transactions", a search button and the add button, appear once the large title has
-  gone under it. The search button scrolls the list to the top and puts the cursor in the search
-  box. Both changes take 150 ms; with Reduce Motion on they happen at once.
+- **Pinned bar.** The list starts below the status bar. A glass surface lies over the top of the
+  screen, from its very top down to 54 points below the status bar. It is hidden while the list is
+  at rest and appears as soon as the list has moved 8 points, which is the space above the large
+  title, so the title goes under the bar and is never cut by a hard edge under the clock. The bar's
+  own contents, "Transactions", a search button and the add button, appear with it, because the
+  bar hides the large title and its add button from that moment. The search button scrolls the
+  list to the top and puts the cursor in the search box. The change takes 150 ms; with Reduce
+  Motion on it happens at once. (As first written the list ran under the status bar, the surface
+  turned solid at 24 points and the contents came later; see "Build record" for why each
+  changed.)
 
 ### Month card
 
@@ -223,8 +228,9 @@ All values are existing tokens in `mobile/src/theme` unless marked new. Sizes ar
   "Reviewed" and "Categorized" are not shown on rows. They stay in the details sheet.
   Labels are written as they are today, without capital-letter styling.
   Colours: Needs Review and Reversed in the warning pair, Bank Correction and Duplicate in the
-  danger pair, Refund in the success pair, the rest in the neutral pair (`border` fill,
-  `mutedInk` text).
+  danger pair, Refund in the success pair, the rest in the neutral pair (`border` fill, `ink`
+  text; `mutedInk` was first written here, but on the dark theme's border it measures 4.42:1,
+  under the 4.5:1 line).
 - **Amount** on the right, signed and coloured as today. While a row is being deleted the amount
   is replaced by the spinner, as today.
 - No arrow at the end of the row. The whole row opens the details sheet; long-press asks to
@@ -268,6 +274,8 @@ At a text size of 1.3 times and above (`useLargeFontScale`), following the dashb
 - The month card's two columns stack.
 - The type switch and the Filters button stack, each full width.
 - The pinned bar's title is one line and stops growing at 1.3.
+- The large title stays on one line, grows to 1.4 times and shrinks to fit a narrow screen. The
+  three labels of the type switch stay on one line and grow to 1.5 times.
 - The sheet scrolls.
 
 Checked by walking the whole screen at `accessibility-large` on the simulator, not at one step
@@ -583,3 +591,90 @@ changes can be traced.
   on the other side match `counterpartyLabel`; the date picker works inside a sheet (it opens in
   place on iOS and as a system dialog on Android); the search box keeps its focus while results
   reload, because it is part of the list's header element as today.
+
+## Build record (2026-10-12)
+
+Built on `feature/mobile-transactions-redesign`, on a base that includes the paging fix (#2125).
+Checked on an iPhone 17 Pro simulator (iOS 26.5) signed in to the owner's account against
+production, read only. Nothing was deleted, edited or added there.
+
+### Against the success criteria
+
+1. **First row in the top half.** It starts at 44.6% of the screen height at rest (58% before; the
+   drawing measured 46%).
+2. **Scrolled content ends under a bar.** The bar is frosted glass, the same material as the tab
+   bar, not an opaque fill: blurred shapes of rows show faintly through it and no text is readable
+   through it. Under Reduce Transparency and on Android it is the solid card colour.
+3. **Behaviours unchanged.** The screen's own tests pass with only the changes this design calls
+   for (123 tests), the whole mobile suite passes (245 suites, 3,011 tests), and these were walked
+   on the simulator: search, the type switch, the Filters sheet (status, live count, date picker,
+   chip, badge, empty state), pull to refresh, opening and closing a transaction's details, long
+   press to the delete confirmation and Cancel, the pinned search button.
+4. **Large text, dark, Reduce Transparency.** Walked at `accessibility-large` and in the dark
+   theme. Reduce Transparency cannot be switched on this simulator and is covered by unit tests
+   only.
+
+### What the build changed against this design, and why
+
+Each was found on the simulator or by a test, and fixed test-first.
+
+- **The list starts below the status bar.** Run under it, the pull-to-refresh spinner sat centred
+  under the camera cut-out and could not be seen.
+- **The pinned bar and its contents appear together, at 8 points.** With two thresholds there was a
+  stretch where the bar was frosted and empty: it hid the large title and the add button and
+  offered nothing in their place.
+- **Neutral tags use `ink` on `border`.** The contrast test written for this screen measured
+  `mutedInk` on the dark theme's border at 4.42:1. The app's International badge has used that
+  pair in the dark theme until now.
+- **Three large-text faults.** At `accessibility-large` the title broke in the middle of the word,
+  the search text sat at the bottom of its field and was cut, and "Expense" broke in the middle in
+  the type switch. Fixed as listed under "Large text".
+- **On iOS 16.4 to 25 the pinned bar appears at once, without the 150 ms change.** A blur view does
+  not draw while it or a view above it is being faded (Expo documents this for its glass and blur
+  views), and there is no simulator below iOS 26 on this machine to check an animated blur on. On
+  iOS 26 the glass animates its own style.
+
+### Measured
+
+Counts of Time Profiler samples on the app's own threads. Before and after used the same steps;
+they are not comparable with the 2026-10-11 figures above, which used a longer recording.
+
+| | JavaScript thread | Main thread |
+|---|---|---|
+| First draw of the tab, before (three runs) | 543 / 703 / 387 | 621 / 640 / 671 |
+| First draw of the tab, after (three runs) | 655 / 532 / 452 | 576 / 737 / 342 |
+| Ten swipes down the list, before (three runs) | 903 / 872 / 812 | 711 / 537 / 529 |
+| Ten swipes down the list, after (three runs) | 805 / 754 / 845 | 577 / 580 / 559 |
+| Ten swipes, every loaded row forced into one day (one run) | 777 | 890 |
+
+- Neither first draw nor scrolling is worse than before; the runs overlap.
+- A day of 392 rows, which no real account is known to have, costs more on the main thread than an
+  ordinary list (890 against 559 to 580) and is above the old list's range. Its pieces draw as one
+  continuous card: with a piece size of three rows no gap or doubled edge shows at a seam.
+- The system's own render process was not counted, as before.
+
+### The real data
+
+- The server reports 392 transactions, the phone loaded 392 rows and they are 392 different
+  transactions. Nothing is repeated and nothing is missing: the paging fix is live in production.
+- Titles, over the 392: rule 2 gives 8, rule 3 gives 379, rule 4 gives 5, rule 1 none. Median
+  length 8 characters; 6 are longer than 24.
+
+### Not verified
+
+- **Android.** Not looked at on a device or emulator. The tab needs a signed-in session, and the
+  emulator's installed build is a signed release build that would have to be uninstalled first.
+  Open: the elevation under the see-through day card and month card, the ripple at the card's
+  corners, the date dialog from the sheet, the back button closing the sheet.
+- **iOS below 26** and a **physical phone.**
+- **The add button on the device.** The development build's floating tools button sits exactly
+  over it on this screen and takes the tap. It is covered by unit tests, from both the large title
+  and the pinned bar.
+- **Arriving from another screen**, on the device. Covered by the existing tests.
+
+### Found in passing, not changed
+
+- With the keyboard up, the first tap on any control of this screen only puts the keyboard away;
+  a second tap is needed. The list has always behaved so.
+- The details sheet still titles a transaction by its narration, and the delete confirmation
+  quotes the narration. Both as this design says.

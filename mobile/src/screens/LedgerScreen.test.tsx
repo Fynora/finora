@@ -1931,14 +1931,20 @@ describe('the redesigned list', () => {
     expect(screen.getByTestId('filters-done')).toHaveTextContent('Done');
   });
 
-  it('shows the pinned title and its buttons only after the large title has scrolled away', async () => {
+  it('shows the pinned title and its buttons as soon as the list has moved under the bar', async () => {
     transactions.search.mockResolvedValue(page([txn()]) as never);
     renderScreen();
     await screen.findByText('Grocery run');
     expect(screen.getAllByLabelText('Add transaction')).toHaveLength(1);
     expect(screen.queryByRole('button', { name: 'Search transactions' })).toBeNull();
 
-    scrollListTo(300);
+    // Still inside the space above the large title: nothing has reached the bar yet.
+    scrollListTo(8);
+    expect(screen.getAllByLabelText('Add transaction')).toHaveLength(1);
+
+    // The large title is still on its way out. The bar covers it from here on, so its own title
+    // and buttons have to be there already.
+    scrollListTo(20);
 
     expect(screen.getAllByLabelText('Add transaction')).toHaveLength(2);
     expect(screen.getByRole('button', { name: 'Search transactions' })).toBeTruthy();

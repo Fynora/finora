@@ -12,11 +12,11 @@ import { glassFill } from '../../theme/glass';
 
 export const PINNED_BAR_HEIGHT = 54;
 /**
- * How far the list moves before the bar turns solid: the space above the large title. The list is
- * cut off at the status bar, so from here on the title would meet that edge; the bar turns solid
- * at the same moment and the title goes under it instead.
+ * How far the list moves before the bar appears: the space above the large title. The list is cut
+ * off at the status bar, so from here on the title would meet that edge; the bar appears at the
+ * same moment and the title goes under it instead.
  */
-export const PINNED_BAR_SOLID_AFTER = spacing.sm;
+export const PINNED_BAR_SHOWN_AFTER = spacing.sm;
 const FADE_MS = 150;
 
 function RoundButton({ icon, label, onPress }: { icon: 'add' | 'search'; label: string; onPress: () => void }) {
@@ -30,12 +30,10 @@ function RoundButton({ icon, label, onPress }: { icon: 'add' | 'search'; label: 
 }
 
 /** The title, the count under it and the add button. Part of the list's header: it scrolls away. */
-export function LedgerTitleBlock({
-  countLabel, onAdd, onHeight,
-}: { countLabel: string; onAdd: () => void; onHeight: (height: number) => void }) {
+export function LedgerTitleBlock({ countLabel, onAdd }: { countLabel: string; onAdd: () => void }) {
   const c = useTheme();
   return (
-    <View testID="ledger-title-block" style={styles.block} onLayout={(e) => onHeight(e.nativeEvent.layout.height)}>
+    <View testID="ledger-title-block" style={styles.block}>
       <View style={styles.blockText}>
         <Text accessibilityRole="header" style={[typography.screenTitle, { color: c.ink }]}>Transactions</Text>
         {/* Always rendered, so the blocks under it do not jump when the count arrives. */}
@@ -107,31 +105,33 @@ function PinnedSurface({ solid }: { solid: boolean }) {
 }
 
 /**
- * Sits over the top of the list, from the very top of the screen to 54 points under the status
- * bar. `solid` is the surface; `compact` is the small title and the two buttons, which appear once
- * the large title has scrolled under the bar.
+ * Sits over the top of the screen, from its very top to 54 points under the status bar. Hidden
+ * while the list is at rest. Once the list has moved, the surface and the small title with its two
+ * buttons appear together: the surface hides the large title and its add button as they scroll
+ * under it, so their replacements have to be there from the same moment (seen on the simulator
+ * when the two appeared at different times: a frosted, empty bar).
  */
 export function LedgerPinnedBar({
-  solid, compact, topInset, onSearch, onAdd,
-}: { solid: boolean; compact: boolean; topInset: number; onSearch: () => void; onAdd: () => void }) {
+  shown, topInset, onSearch, onAdd,
+}: { shown: boolean; topInset: number; onSearch: () => void; onAdd: () => void }) {
   const c = useTheme();
-  const shown = useSharedValue(compact ? 1 : 0);
-  useEffect(() => { shown.set(withTiming(compact ? 1 : 0, { duration: FADE_MS })); }, [compact, shown]);
-  const fade = useAnimatedStyle(() => ({ opacity: shown.get() }));
+  const opacity = useSharedValue(shown ? 1 : 0);
+  useEffect(() => { opacity.set(withTiming(shown ? 1 : 0, { duration: FADE_MS })); }, [shown, opacity]);
+  const fade = useAnimatedStyle(() => ({ opacity: opacity.get() }));
 
   return (
     <View
       testID="ledger-pinned-bar"
       // Never catches a touch itself; its buttons do, and only while they are shown.
-      pointerEvents={compact ? 'box-none' : 'none'}
+      pointerEvents={shown ? 'box-none' : 'none'}
       style={[styles.bar, { height: topInset + PINNED_BAR_HEIGHT, paddingTop: topInset }]}
     >
-      <PinnedSurface solid={solid} />
+      <PinnedSurface solid={shown} />
       <Animated.View
         testID="ledger-pinned-contents"
-        pointerEvents={compact ? 'box-none' : 'none'}
-        accessibilityElementsHidden={!compact}
-        importantForAccessibility={compact ? 'auto' : 'no-hide-descendants'}
+        pointerEvents={shown ? 'box-none' : 'none'}
+        accessibilityElementsHidden={!shown}
+        importantForAccessibility={shown ? 'auto' : 'no-hide-descendants'}
         style={[styles.contents, fade]}
       >
         <Text style={[typography.cardTitle, styles.barTitle, { color: c.ink }]} numberOfLines={1} maxFontSizeMultiplier={1.3}>

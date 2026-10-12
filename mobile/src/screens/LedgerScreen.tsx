@@ -24,7 +24,7 @@ import { LedgerControls, type ActiveFilterChip, type TypeFilter } from '../compo
 import { LedgerDayCard } from '../components/ledger/LedgerDayCard';
 import { LedgerFiltersSheet, statusFilterLabel, type StatusFilter } from '../components/ledger/LedgerFiltersSheet';
 import { LedgerMonthCard } from '../components/ledger/LedgerMonthCard';
-import { LedgerPinnedBar, LedgerTitleBlock, PINNED_BAR_SOLID_AFTER } from '../components/ledger/LedgerTitleBar';
+import { LedgerPinnedBar, LedgerTitleBlock, PINNED_BAR_SHOWN_AFTER } from '../components/ledger/LedgerTitleBar';
 import { AddTransactionSheet } from './AddTransactionSheet';
 import { EditTransactionSheet } from './EditTransactionSheet';
 import { TransactionDetailSheet } from './TransactionDetailSheet';
@@ -182,12 +182,8 @@ export function LedgerScreen() {
   // nested inside the row's own already-accessible Pressable).
   const [viewingDetail, setViewingDetail] = useState<Transaction | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  // The pinned bar: solid once the list has moved, its small title once the large one has gone.
-  const [barSolid, setBarSolid] = useState(false);
-  const [barCompact, setBarCompact] = useState(false);
-  // The large title's measured height. Until it is measured, a height that is right at the
-  // default text size.
-  const titleHeight = useRef(60);
+  // The pinned bar is shown once the list has moved far enough for the large title to reach it.
+  const [barShown, setBarShown] = useState(false);
   const listRef = useRef<FlatList<DayPiece>>(null);
   const searchRef = useRef<TextInput>(null);
 
@@ -453,10 +449,8 @@ export function LedgerScreen() {
     : `${totalElements.toLocaleString('en-IN')} ${totalElements === 1 ? 'transaction' : 'transactions'}`;
 
   function onListScroll(e: NativeSyntheticEvent<NativeScrollEvent>) {
-    const y = e.nativeEvent.contentOffset.y;
     // Setting the same value again does not render, so this costs a render only on a change.
-    setBarSolid(y > PINNED_BAR_SOLID_AFTER);
-    setBarCompact(y > titleHeight.current);
+    setBarShown(e.nativeEvent.contentOffset.y > PINNED_BAR_SHOWN_AFTER);
   }
 
   function focusSearch() {
@@ -530,11 +524,7 @@ export function LedgerScreen() {
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={
           <View style={styles.header}>
-            <LedgerTitleBlock
-              countLabel={countLabel}
-              onAdd={() => setAddingTransaction(true)}
-              onHeight={(height) => { titleHeight.current = height; }}
-            />
+            <LedgerTitleBlock countLabel={countLabel} onAdd={() => setAddingTransaction(true)} />
             {summary ? (
               <LedgerMonthCard
                 kpis={snapshotKpis}
@@ -624,8 +614,7 @@ export function LedgerScreen() {
       />
 
       <LedgerPinnedBar
-        solid={barSolid}
-        compact={barCompact}
+        shown={barShown}
         topInset={insets.top}
         onSearch={focusSearch}
         onAdd={() => setAddingTransaction(true)}

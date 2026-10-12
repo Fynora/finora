@@ -115,7 +115,10 @@ COMPANION_FILES = {
         "mobile/src/components/dashboard/HealthHero.tsx",
     ],
     "mobile/src/screens/InsightsScreen.tsx": ["mobile/src/lib/useDashboardKpis.ts"],
-    "mobile/src/screens/LedgerScreen.tsx": ["mobile/src/lib/useDashboardKpis.ts"],
+    "mobile/src/screens/LedgerScreen.tsx": [
+        "mobile/src/lib/useDashboardKpis.ts",
+        "mobile/src/components/ledger/LedgerMonthCard.tsx",
+    ],
 }
 
 REQUIRED_FIELDS = ("reportingMonth", "reportingMonthIsCurrent")

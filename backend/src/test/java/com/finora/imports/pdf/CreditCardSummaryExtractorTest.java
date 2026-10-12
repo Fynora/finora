@@ -633,17 +633,17 @@ class CreditCardSummaryExtractorTest {
     @Test
     void totalAmountDueIsReadAsAMagnitude_evenWhenPrintedWithATrailingDrMarker() {
         // Confirmed on a real Axis statement: a credit card's own "Total Payment Due" is routinely
-        // printed with a trailing "Dr" marker (e.g. "27,665.16 Dr") -- Dr here means "you owe
+        // printed with a trailing "Dr" marker (e.g. "31,480.25 Dr") -- Dr here means "you owe
         // this," the ordinary case for a card, not the unusual overdrawn-savings-balance case
         // CsvParser's Dr=negative convention was written for. Left un-abs()'d, this class returned
         // a negative reading for a real, correctly GRID-matched total.
         List<PositionedText> runs = new ArrayList<>(List.of(
                 run("Total Amount Due", 50f, 100f, 200f),
-                run("27,665.16 Dr", 55f, 90f, 230f)));
+                run("31,480.25 Dr", 55f, 90f, 230f)));
 
         var summary = CreditCardSummaryExtractor.extract(runs);
 
-        assertThat(summary.totalAmountDue()).isEqualByComparingTo("27665.16");
+        assertThat(summary.totalAmountDue()).isEqualByComparingTo("31480.25");
     }
 
     @Test
@@ -1160,5 +1160,23 @@ class CreditCardSummaryExtractorTest {
 
         assertThat(summary.extractionMethod()).isEqualTo(ExtractionMethod.GRID);
         assertThat(summary.totalOutstanding()).isNull();
+    }
+
+    @Test
+    void aPanelTheStackedLabelStrategyReads_isStillReadByIt_evenBesideAnEquationLine() {
+        // The one-line equation (CardSummaryEquationReader) is tried last of all. A page carrying
+        // both shapes keeps the reading it had before that reader existed.
+        List<PositionedText> runs = stackedLabelSummaryBlock();
+        runs.add(run("Previous Balance - Payments - Credits + Purchase + Cash Advance"
+                + " + Other Debit&Charges =Total Payment Due", 68f, 360f, 500f));
+        String[] figures = {"4,000.00", "3,000.00", "250.00", "6,000.00", "0.00", "50.00", "6,800.00"};
+        float[] x = {48f, 116f, 171f, 209f, 273f, 335f, 404f};
+        for (int i = 0; i < figures.length; i++) runs.add(run(figures[i], x[i], 30f, 513f));
+
+        var summary = CreditCardSummaryExtractor.extract(runs);
+
+        assertThat(summary.extractionMethod()).isEqualTo(ExtractionMethod.STACKED_LABEL_COLUMNS);
+        assertThat(summary.previousBalance()).isEqualByComparingTo("40000.00");
+        assertThat(summary.totalOutstanding()).isEqualByComparingTo("30500.00");
     }
 }

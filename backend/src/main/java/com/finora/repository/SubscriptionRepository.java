@@ -36,7 +36,7 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, UUID
      *  display-layer safety net independent of any backfill that clears the underlying rows. */
     @Query("SELECT s FROM Subscription s WHERE s.userId IN " +
            "(SELECT u.id FROM User u WHERE u.accountScope = 'USER' AND u.status != 'DELETED') " +
-           "ORDER BY s.createdAt DESC")
+           "ORDER BY s.createdAt DESC, s.id DESC")
     Page<Subscription> findForCustomerAccountsOrderByCreatedAtDesc(Pageable pageable);
 
     default Optional<Subscription> findActiveOrTrial(UUID userId) {

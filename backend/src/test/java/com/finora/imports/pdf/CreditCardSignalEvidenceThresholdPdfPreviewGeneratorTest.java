@@ -209,7 +209,7 @@ class CreditCardSignalEvidenceThresholdPdfPreviewGeneratorTest {
     @Test
     void axisRealWording_totalPaymentDuePlusMinimumPaymentDue_isTwoDistinctSignals() {
         long signals = signalCount(
-                "Total Payment Due 27,665.16 Dr Minimum Payment Due 577.00 Dr");
+                "Total Payment Due 31,480.25 Dr Minimum Payment Due 577.00 Dr");
 
         assertThat(signals).isEqualTo(2);
     }

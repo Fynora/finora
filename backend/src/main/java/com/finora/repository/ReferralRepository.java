@@ -22,7 +22,7 @@ public interface ReferralRepository extends JpaRepository<Referral, UUID> {
     /** Admin Portal, Referral dashboard list -- grows with referral volume (roughly bounded by
      *  user count, same shape of risk as SubscriptionRepository.findAllByOrderByCreatedAtDesc's
      *  own doc comment), so this replaces an unconditional {@code findAll} the same way. */
-    Page<Referral> findAllByOrderByCreatedAtDesc(Pageable pageable);
+    Page<Referral> findAllByOrderByCreatedAtDescIdDesc(Pageable pageable);
 
     /** AccountPurgeSweepService -- referrals the purged user made as a referrer. Does not touch
      *  the OTHER user's own row-half; see {@link #deleteByReferredUserId} for that. */

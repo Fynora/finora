@@ -19,7 +19,7 @@ class PaymentDueDateGridExtractorTest {
     // inside the label's own x-span) directly below it. Other same-row values (the statement
     // period's two halves, the statement generation date, the two money figures) are present at
     // their own real x positions specifically to prove the column match picks the right one, not
-    // just the only one.
+    // just the only one. The total's digits are invented; its position and width are the real run's.
     @Test
     void extract_readsTheRealAxisPaymentSummaryGrid() {
         var runs = List.of(
@@ -30,7 +30,7 @@ class PaymentDueDateGridExtractorTest {
                 run("24/06/2026 - 22/07/2026", 259.50f, 341.51f, 236.50f),
                 run("11/08/2026", 393.00f, 431.01f, 236.50f),
                 run("22/07/2026", 510.00f, 548.01f, 236.50f),
-                run("27,665.16   Dr", 60.00f, 105.99f, 237.50f),
+                run("31,480.25   Dr", 60.00f, 105.99f, 237.50f),
                 run("577.00   Dr", 173.00f, 208.99f, 237.50f));
 
         assertThat(PaymentDueDateGridExtractor.extract(runs)).isEqualTo(LocalDate.of(2026, 8, 11));

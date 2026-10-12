@@ -308,12 +308,13 @@ public final class PdfFixtureBuilder {
         PageBuilder page1 = new PageBuilder();
         page1.line("AXIS BANK")
                 .line("Neo Rupay Credit Card Statement")
-                // Verbatim the wording a real Axis credit-card statement prints. Kept exactly as
+                // Verbatim the wording a real Axis credit-card statement prints (the labels -- the
+                // total beside them is invented). The wording is kept exactly as
                 // captured: no "Credit Limit" clause has ever been committed on this line, and it
                 // stays that way on purpose. The phrase list now carries "minimum payment due",
                 // so this fixture proves the classifier works on Axis's ACTUAL vocabulary alone --
                 // which is the only version of this fixture that proves anything.
-                .line("Total Payment Due 27,665.16 Dr Minimum Payment Due 577.00 Dr")
+                .line("Total Payment Due 31,480.25 Dr Minimum Payment Due 577.00 Dr")
                 .blankLine()
                 .row(col, "DATE", "TRANSACTION DETAILS", "MERCHANT CATEGORY", "AMOUNT (Rs.)")
                 .row(col, "24/06/2026", "UPI/SAMPLE VENDOR PRIVATE LT/SAMPLEA.PAYU@AXISB", "MISC STORE", "37.94 Dr")
@@ -1893,15 +1894,15 @@ public final class PdfFixtureBuilder {
         PageBuilder page = new PageBuilder();
         // hasReconcilableFields() requires all four of these present, not just totalAmountDue on
         // its own -- CreditCardSummaryExtractor discards a partial reading entirely rather than
-        // carrying just the one field it happened to find (see its own doc comment). Numbers add
-        // up (20,000.00 + 8,665.16 - 1,000.00 = 27,665.16) but this test never checks reconciliation
-        // itself, only that the total survives into DetectedAccountInfo.
+        // carrying just the one field it happened to find (see its own doc comment). Numbers are
+        // invented and add up (20,000.00 + 12,480.25 - 1,000.00 = 31,480.25) but this test never
+        // checks reconciliation itself, only that the total survives into DetectedAccountInfo.
         page.line("SAMPLE BANK")
                 .line("Credit Card Statement")
                 .row(summaryCol, "Previous Balance", "20,000.00")
-                .row(summaryCol, "Purchases", "8,665.16")
+                .row(summaryCol, "Purchases", "12,480.25")
                 .row(summaryCol, "Payments / Credits", "1,000.00")
-                .row(summaryCol, "Total Amount Due", "27,665.16")
+                .row(summaryCol, "Total Amount Due", "31,480.25")
                 .line("Minimum Amount Due 577.00")
                 .blankLine()
                 .row(col, "DATE", "TRANSACTION DETAILS", "AMOUNT (Rs.)")
@@ -1972,6 +1973,94 @@ public final class PdfFixtureBuilder {
                 .row(col, "DATE", "TRANSACTION DETAILS", "AMOUNT (Rs.)")
                 .row(col, "20/03/2026", "Sample Merchant Purchase", "1,000.00 Dr")
                 .row(col, "02/04/2026", "Sample Store Purchase", "150.00 Dr");
+        return render(List.of(page));
+    }
+
+    /** How the rows of {@link #buildCardWithSummaryEquationRowSample} relate to its summary. */
+    public enum EquationRowCase {
+        /** The summary adds up and the rows are the whole cycle. */
+        ADDS_UP,
+        /** A refund is a row, and is in the total due, but in neither the payments nor the credits
+         *  figure: the summary's own figures stop 150.00 above its total. */
+        SUMMARY_LEAVES_OUT_A_REFUND,
+        /** The summary adds up, and one purchase it counts is not among the rows. */
+        A_PURCHASE_ROW_IS_MISSING
+    }
+
+    /**
+     * An Axis-shaped card statement: the headline grid every older strategy reads the total due
+     * from, then the whole billing equation as ONE line of text over one row of figures
+     * (CardSummaryEquationReader). 4,000.00 - 3,000.00 - 250.00 + 6,000.00 + 0.00 + 50.00 =
+     * 6,800.00, with a purchase split over two rows. Invented figures.
+     */
+    public static byte[] buildCardWithSummaryEquationRowSample(EquationRowCase rowCase) throws IOException {
+        float[] headline = {LEFT_MARGIN, 200f};
+        float[] figure = {LEFT_MARGIN, 125f, 190f, 245f, 310f, 370f, 440f};
+        float[] col = {LEFT_MARGIN, 110f, 350f};
+        String totalDue = rowCase == EquationRowCase.SUMMARY_LEAVES_OUT_A_REFUND ? "6,650.00 Dr" : "6,800.00 Dr";
+
+        PageBuilder page = new PageBuilder();
+        page.line("SAMPLE BANK")
+                .line("Credit Card Statement")
+                .row(headline, "Total Payment Due", "Minimum Payment Due")
+                .row(headline, totalDue, "340.00 Dr")
+                .blankLine()
+                .line("Previous Balance - Payments - Credits + Purchase + Cash Advance"
+                        + " + Other Debit&Charges =Total Payment Due")
+                .row(figure, "4,000.00 Dr", "3,000.00", "250.00", "6,000.00", "0.00", "50.00", totalDue)
+                .blankLine()
+                .row(col, "DATE", "TRANSACTION DETAILS", "AMOUNT (Rs.)")
+                .row(col, "02/06/2026", "Sample Store Purchase", "4,500.00 Dr");
+        if (rowCase != EquationRowCase.A_PURCHASE_ROW_IS_MISSING) {
+            page.row(col, "04/06/2026", "Sample Market Purchase", "1,500.00 Dr");
+        }
+        page.row(col, "05/06/2026", "Sample Service Charge", "50.00 Dr")
+                .row(col, "10/06/2026", "Payment Received Thank You", "3,000.00 Cr")
+                .row(col, "14/06/2026", "Sample Store Reversal", "250.00 Cr");
+        if (rowCase == EquationRowCase.SUMMARY_LEAVES_OUT_A_REFUND) {
+            page.row(col, "20/06/2026", "Sample Refund Received", "150.00 Cr");
+        }
+        return render(List.of(page));
+    }
+
+    /**
+     * An HDFC-shaped card statement: a summary grid printed as its own equation (two label lines
+     * staggered a few points apart, a row of figures behind a rupee sign that extracts as "C", the
+     * minus drawn as an underscore above the row), and under it a rewards grid whose heading row
+     * says "Opening Balance" while the word "points" sits one line lower. The previous dues are
+     * forty paise in the customer's favour and the total due is printed in whole rupees:
+     * -0.40 - 0.00 + 6,200.30 + 0.00 = 6,199.90, printed as 6,200.00. {@code aPurchaseRowIsMissing}
+     * drops one of the purchases the summary counts from the transactions. Invented figures.
+     */
+    public static byte[] buildCardWithSummaryAboveARewardsGridSample(boolean aPurchaseRowIsMissing) throws IOException {
+        float[] col = {LEFT_MARGIN, 110f, 350f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("SAMPLE BANK")
+                .line("Credit Card Statement");
+        page.rowAt(700f, new float[]{180f, 290f}, "PAYMENTS/CREDITS", "PURCHASES/DEBIT")
+                .rowAt(696f, new float[]{40f, 395f, 495f}, "PREVIOUS STATEMENT DUES", "FINANCE CHARGES", "TOTAL AMOUNT DUE")
+                .rowAt(691.5f, new float[]{200f, 290f}, "RECEIVED", "(Current Billing Cycle)")
+                .rowAt(677f, new float[]{173f}, "_")
+                .rowAt(672.5f, new float[]{282f, 387f, 489f}, "+", "+", "=")
+                .rowAt(672f, new float[]{60f, 200f, 300f, 410f, 500f},
+                        "C-0.40", "C0.00", "C6,200.30", "C0.00", "C6,200.00")
+                // The second band of the same panel, as the real statement prints it.
+                .rowAt(645f, new float[]{410f, 495f}, "MINIMUM DUE", "DUE DATE")
+                .rowAt(627f, new float[]{410f, 495f}, "C310.00", "24 Jun, 2026");
+        // The rewards grid: its title and one heading's second line carry the word, a little lower.
+        page.rowAt(560f, new float[]{300f, 375f, 480f, 530f},
+                        "Opening Balance", "Feature + Bonus Reward", "Disbursed", "Adjusted/Lapsed")
+                .rowAt(557.5f, new float[]{198f}, "Reward Points")
+                .rowAt(552.6f, new float[]{375f}, "Points Earned")
+                .rowAt(544f, new float[]{300f, 375f, 480f, 530f}, "310", "62", "0", "0")
+                .rowAt(539.4f, new float[]{198f}, "372");
+        page.y = 500f;
+        page.row(col, "DATE", "TRANSACTION DETAILS", "AMOUNT (Rs.)")
+                .row(col, "02/06/2026", "Sample Store Purchase", "4,000.30 Dr");
+        if (!aPurchaseRowIsMissing) {
+            page.row(col, "04/06/2026", "Sample Market Purchase", "2,200.00 Dr");
+        }
         return render(List.of(page));
     }
 
@@ -2115,7 +2204,7 @@ public final class PdfFixtureBuilder {
         PageBuilder page = new PageBuilder();
         page.line("Some Card Issuer")
                 .line("Credit Card Statement")
-                .line("Total Amount Due 27,665.16 Dr Minimum Payment Due 577.00 Dr")
+                .line("Total Amount Due 31,480.25 Dr Minimum Payment Due 577.00 Dr")
                 .blankLine()
                 .row(col, "DATE", "TRANSACTION DETAILS", "AMOUNT (Rs.)")
                 .row(col, "24/06/2026", "UPI/SAMPLE VENDOR PRIVATE LT", "37.94 Dr")

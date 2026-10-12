@@ -634,7 +634,7 @@ public class DataExportService {
         // shapes the ticket-detail and feedback-list endpoints return, reused rather than
         // duplicated into export-only DTOs.
         List<SupportTicket> supportTickets = supportTicketRepository
-                .findByUserIdOrderByCreatedAtDesc(userId, Pageable.unpaged()).getContent();
+                .findByUserIdOrderByCreatedAtDescIdDesc(userId, Pageable.unpaged()).getContent();
         Map<UUID, List<SupportTicketDto.AttachmentSummary>> attachmentsByTicket = supportTicketAttachmentRepository
                 .findMetadataByTicketIdIn(supportTickets.stream().map(SupportTicket::getId).toList()).stream()
                 .collect(Collectors.groupingBy(AttachmentMetadata::getTicketId,

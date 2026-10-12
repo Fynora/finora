@@ -327,7 +327,7 @@ public class HeldStatementService {
         Page<ImportJob> jobs = importJobRepository.findByStatusAndHeldStatementIdIsNull(
                 ImportJob.Status.HELD_FOR_TRUST_REVIEW,
                 PageRequest.of(PageBounds.safePage(page), PageBounds.safeSize(size > 0 ? size : 25),
-                        Sort.by(Sort.Direction.ASC, "finishedAt")));
+                        Sort.by(Sort.Direction.ASC, "finishedAt", "id")));
         return PagedResponse.of(jobs.map(job -> HoldWithoutReviewRecordDto.from(job,
                 importSessionService.exists(job.getImportSessionId()),
                 openReviewCovering(job).map(HeldStatement::getHeldId).orElse(null))));
@@ -500,8 +500,9 @@ public class HeldStatementService {
                 ? null : Instant.now().minus(Duration.ofHours(filter.olderThanHours()));
         Page<HeldStatement> result = repository.findForAdmin(OPEN, filter.status(), filter.bankName(),
                 olderThan, filter.assignedEngineerId(),
-                PageRequest.of(PageBounds.safePage(page), PageBounds.safeSize(size > 0 ? size : 25),
-                        Sort.by(Sort.Direction.ASC, "createdAt")));
+                // No Sort here: the query orders by createdAt and then id by itself. A Sort passed in
+                // is appended after the query's own, which put createdAt last again.
+                PageRequest.of(PageBounds.safePage(page), PageBounds.safeSize(size > 0 ? size : 25)));
         return PagedResponse.of(result.map(HeldStatementDto::from));
     }
 

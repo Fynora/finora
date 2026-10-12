@@ -58,7 +58,7 @@ public class AdminNotificationService {
                 : EnumParsing.parse(NotificationStatus.class, status.trim().toUpperCase(), "status");
 
         PageRequest pageable = PageRequest.of(PageBounds.safePage(page),
-                PageBounds.safeSize(size > 0 ? size : 25), Sort.by(Sort.Direction.DESC, "createdAt"));
+                PageBounds.safeSize(size > 0 ? size : 25), Sort.by(Sort.Direction.DESC, "createdAt", "id"));
 
         Page<Notification> result = filter == null
                 ? notificationRepository.findAll(pageable)

@@ -973,12 +973,13 @@ public final class CreditCardSummaryExtractor {
      *
      * <p>{@link CsvParser#parseNumeric} applies a savings-statement convention to a trailing "Dr"
      * marker — negative, as in an overdrawn balance column — that does not hold here: a credit
-     * card's own "Total Payment Due" is routinely printed as e.g. "27,665.16 Dr", where Dr means
+     * card's own "Total Payment Due" is routinely printed as e.g. "31,480.25 Dr", where Dr means
      * "you owe this," the ordinary case for a card, not the unusual overdrawn-asset case that
      * convention was written for. Left un-{@code abs()}'d, a real Axis statement's own correctly
-     * GRID-matched total came back as {@code -27665.16} instead of {@code +27665.16} — confirmed
-     * directly against the real document, not inferred. No existing fixture or real document this
-     * class was evidenced against relies on a negative reading from here.
+     * GRID-matched total came back negative instead of positive — confirmed directly against the
+     * real document, not inferred (the figure quoted above is invented; only its shape is the
+     * statement's). No existing fixture or real document this class was evidenced against relies
+     * on a negative reading from here.
      */
     private static BigDecimal amount(PositionedText t) {
         if (t == null) return null;

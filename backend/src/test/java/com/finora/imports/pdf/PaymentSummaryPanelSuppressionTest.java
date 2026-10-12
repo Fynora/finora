@@ -52,7 +52,7 @@ class PaymentSummaryPanelSuppressionTest {
         positioned.add(run("Payment Due Date", 250f, 90f, 100f));
         positioned.add(run("Statement Generation Date", 400f, 110f, 100f));
         positioned.add(run("Credit Limit", 550f, 60f, 100f));
-        positioned.add(run("27,665.16", 70f, 60f, 115f));
+        positioned.add(run("31,480.25", 70f, 60f, 115f));
         positioned.add(run("11/08/2026", 250f, 60f, 115f));
         positioned.add(run("22/07/2026", 400f, 60f, 115f));
         positioned.add(run("2,19,000.00", 550f, 70f, 115f));
@@ -75,7 +75,7 @@ class PaymentSummaryPanelSuppressionTest {
         // content is what it accumulates BEFORE the real section closes and inherits it.
         assertThat(doc.sections().get(0).auxiliaryText())
                 .as("the panel's own row, demoted to text rather than silently dropped")
-                .anySatisfy(line -> assertThat(line).contains("27,665.16"));
+                .anySatisfy(line -> assertThat(line).contains("31,480.25"));
 
         assertThat(ctx.capabilities().stream().map(c -> c.capability()))
                 .contains("PAYMENT_SUMMARY_PANEL_SUPPRESSED");
@@ -96,7 +96,7 @@ class PaymentSummaryPanelSuppressionTest {
         positioned.add(run("Payment Due Date", 250f, 90f, 160f));
         positioned.add(run("Statement Generation Date", 400f, 110f, 160f));
         positioned.add(run("Credit Limit", 550f, 60f, 160f));
-        positioned.add(run("27,665.16", 70f, 60f, 175f));
+        positioned.add(run("31,480.25", 70f, 60f, 175f));
         positioned.add(run("11/08/2026", 250f, 60f, 175f));
         positioned.add(run("22/07/2026", 400f, 60f, 175f));
         positioned.add(run("2,19,000.00", 550f, 70f, 175f));
@@ -110,7 +110,7 @@ class PaymentSummaryPanelSuppressionTest {
         assertThat(doc.sections().get(1).rows()).as("the trailing section carries no rows of its own").isEmpty();
         assertThat(doc.sections().get(1).auxiliaryText())
                 .as("the panel's own row, preserved rather than lost at end of document")
-                .anySatisfy(line -> assertThat(line).contains("27,665.16"));
+                .anySatisfy(line -> assertThat(line).contains("31,480.25"));
         assertThat(ctx.capabilities().stream().map(c -> c.capability()))
                 .contains("PAYMENT_SUMMARY_PANEL_SUPPRESSED");
     }
@@ -124,7 +124,7 @@ class PaymentSummaryPanelSuppressionTest {
         positioned.add(run("Credit Limit", 550f, 60f, 100f));
         // Three data rows -- one past PAYMENT_SUMMARY_PANEL_MAX_ROWS (2) -- under a header that
         // would otherwise satisfy the phrase-vocabulary gate comfortably.
-        positioned.add(run("27,665.16", 70f, 60f, 115f));
+        positioned.add(run("31,480.25", 70f, 60f, 115f));
         positioned.add(run("11/08/2026", 250f, 60f, 115f));
         positioned.add(run("22/07/2026", 400f, 60f, 115f));
         positioned.add(run("2,19,000.00", 550f, 70f, 115f));
@@ -160,7 +160,7 @@ class PaymentSummaryPanelSuppressionTest {
         positioned.add(run("Payment Due Date", 250f, 90f, 100f));
         positioned.add(run("Statement Generation Date", 400f, 110f, 100f));
         positioned.add(run("Remarks", 560f, 60f, 100f));
-        positioned.add(run("27,665.16", 70f, 60f, 115f));
+        positioned.add(run("31,480.25", 70f, 60f, 115f));
         positioned.add(run("11/08/2026", 250f, 60f, 115f));
         positioned.add(run("22/07/2026", 400f, 60f, 115f));
         positioned.add(run("as of today", 560f, 60f, 115f));

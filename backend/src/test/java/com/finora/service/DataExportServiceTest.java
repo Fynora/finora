@@ -270,7 +270,7 @@ class DataExportServiceTest {
         when(subscriptionRepository.findByUserIdIncludingDeletedOrderByCreatedAtDesc(any())).thenReturn(List.of());
         when(planRepository.findAllById(any())).thenReturn(List.of());
         when(planChangeRepository.findBySubscriptionIdInOrderByCreatedAtDesc(any())).thenReturn(List.of());
-        when(supportTicketRepository.findByUserIdOrderByCreatedAtDesc(any(), any())).thenReturn(Page.empty());
+        when(supportTicketRepository.findByUserIdOrderByCreatedAtDescIdDesc(any(), any())).thenReturn(Page.empty());
         when(supportTicketAttachmentRepository.findMetadataByTicketIdIn(any())).thenReturn(List.of());
         when(feedbackEntryRepository.findByUserIdOrderByCreatedAtDesc(any())).thenReturn(List.of());
         when(chatConversationRepository.findByUserIdOrderByUpdatedAtDesc(any())).thenReturn(List.of());
@@ -1632,7 +1632,7 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
         ticket.setSource(ClientPlatform.WEB);
         ticket.setSubject("Import stuck");
         ticket.setDescription("Progress bar froze at 60%.");
-        when(supportTicketRepository.findByUserIdOrderByCreatedAtDesc(eq(userId), any()))
+        when(supportTicketRepository.findByUserIdOrderByCreatedAtDescIdDesc(eq(userId), any()))
                 .thenReturn(new PageImpl<>(List.of(ticket)));
 
         SupportTicketAttachment attachment = new SupportTicketAttachment();
@@ -1689,7 +1689,7 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
         ticket.setSource(ClientPlatform.WEB);
         ticket.setSubject("No attachment");
         ticket.setDescription("Text-only ticket.");
-        when(supportTicketRepository.findByUserIdOrderByCreatedAtDesc(eq(userId), any()))
+        when(supportTicketRepository.findByUserIdOrderByCreatedAtDescIdDesc(eq(userId), any()))
                 .thenReturn(new PageImpl<>(List.of(ticket)));
 
         DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);

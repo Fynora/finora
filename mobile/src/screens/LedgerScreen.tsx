@@ -66,11 +66,41 @@ export const DEFAULT_LEDGER_FILTERS: TransactionFilters = {
   sortDir: 'desc',
 };
 
+/**
+ * What one page request is identified by. The first page is the number 0. Every later page names
+ * the last row already held (`after`) and also carries its page number.
+ *
+ * A page number alone counts rows from the top of the list, so a transaction added or deleted on
+ * the server between two requests (an import finishing, an edit on another device) shifted every
+ * later page by one row: the next page repeated a row, or stepped over one. `after` asks for "the
+ * rows that follow this one", which does not count from the top. The number still goes along for a
+ * server that does not know `after` and pages by number.
+ *
+ * A bare number can also come back from a cache saved by an older build (queryPersistence).
+ */
+export type LedgerPageParam = number | { page: number; after: string };
+
+/** The request params for one page param -- shared with the Dashboard prefetch, like the two below. */
+export function ledgerPageRequest(pageParam: LedgerPageParam): { page: number; after?: string } {
+  return typeof pageParam === 'number' ? { page: pageParam } : { page: pageParam.page, after: pageParam.after };
+}
+
 /** Exported for the same reason as DEFAULT_LEDGER_FILTERS -- prefetchInfiniteQuery needs the
  *  identical pagination cursor logic this screen's own useInfiniteQuery uses below, so a
- *  prefetched page and a screen-fetched page agree on whether there's a next one. */
-export function getLedgerNextPageParam(lastPage: PagedResponse<Transaction>) {
-  return lastPage.page + 1 < lastPage.totalPages ? lastPage.page + 1 : undefined;
+ *  prefetched page and a screen-fetched page agree on whether there's a next one.
+ *
+ *  "Is there more" stays `page + 1 < totalPages` whichever way the server answered: paged by
+ *  number it reports this page's number against the whole list, and continued from a row it
+ *  reports page 0 of what is left. The next page's own number is therefore counted here, from the
+ *  pages already held, not read off the response. */
+export function getLedgerNextPageParam(
+  lastPage: PagedResponse<Transaction>,
+  allPages: PagedResponse<Transaction>[],
+): LedgerPageParam | undefined {
+  if (lastPage.page + 1 >= lastPage.totalPages) return undefined;
+  const lastRow = lastPage.content[lastPage.content.length - 1];
+  // No row to continue from (a page that came back empty while more is promised): by number.
+  return lastRow ? { page: allPages.length, after: lastRow.id } : allPages.length;
 }
 
 /**
@@ -127,11 +157,12 @@ const SUBTOTAL_EXCLUDED_STATUSES: ReadonlySet<ReconciliationStatus> = new Set(['
  * since by the time this runs both pages are already concatenated.
  *
  * Groups by date VALUE (a Map, not "does this row's date differ from the one right before it"),
- * deliberately not assuming same-date rows stay contiguous. The backend's own sort
- * (TransactionService.java's `Sort.by(direction, mapSortField(sortField))`) orders by txnDate
- * alone with no secondary tiebreaker, so two rows sharing a date have no guaranteed relative order
- * across separate page fetches -- a value-keyed group merges any such split back into one header
- * instead of silently rendering the same day twice with two different subtotals.
+ * deliberately not assuming same-date rows stay contiguous. This was written when the backend
+ * sorted by txnDate alone, so two rows sharing a date had no guaranteed relative order across
+ * separate page fetches. The backend now breaks ties on createdAt and then id
+ * (TransactionService.search), so a day's rows arrive together and in a fixed order; the
+ * value-keyed group is kept because it costs nothing and still merges a day into one header if
+ * this app is ever pointed at a server that predates that fix.
  *
  * `today` is a parameter, not read internally, so the caller controls how fresh "Today"/
  * "Yesterday" are; see this function's call site for why that matters (a memoized call needs the
@@ -363,8 +394,8 @@ export function LedgerScreen() {
     data, isLoading, isError, isFetching, isFetchingNextPage, hasNextPage, fetchNextPage, refetch,
   } = useInfiniteQuery({
     queryKey: ['transactions', filters],
-    queryFn: ({ pageParam }) => transactionsApi.search({ ...filters, page: pageParam }),
-    initialPageParam: 0,
+    queryFn: ({ pageParam }) => transactionsApi.search({ ...filters, ...ledgerPageRequest(pageParam) }),
+    initialPageParam: 0 as LedgerPageParam,
     // The backend's PagedResponse carries a real totalPages, so "is there more" is answered by
     // the server rather than inferred from whether a page came back full.
     getNextPageParam: getLedgerNextPageParam,

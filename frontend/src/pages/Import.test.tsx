@@ -639,7 +639,7 @@ describe('Import — total amount due on the review screen', () => {
       sessionId: 'session-1', multiAccount: false, sections: null,
       staging: {
         rows: [], totalParsed: 0, flaggedDuplicates: 0, unparseableRows: [],
-        detectedAccount: { ...detectedAccount, suggestedAccountType: 'CREDIT_CARD', totalAmountDue: 27665.16 },
+        detectedAccount: { ...detectedAccount, suggestedAccountType: 'CREDIT_CARD', totalAmountDue: 31480.25 },
       },
     });
     const user = userEvent.setup();
@@ -648,7 +648,7 @@ describe('Import — total amount due on the review screen', () => {
     await pickAndUploadPdf(user);
 
     expect(await screen.findByText(/total amount due \(detected\)/i)).toBeInTheDocument();
-    expect(screen.getByText('₹27,665')).toBeInTheDocument();
+    expect(screen.getByText('₹31,480')).toBeInTheDocument();
   });
 
   it("opens a new card account at the statement's printed previous balance when the server read one", async () => {

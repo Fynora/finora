@@ -64,7 +64,12 @@ function PinnedSurface({ solid }: { solid: boolean }) {
       <Animated.View
         testID="ledger-pinned-fill"
         pointerEvents="none"
-        style={[StyleSheet.absoluteFill, styles.edge, { backgroundColor: c.card, borderBottomColor: c.border }, fade]}
+        style={[
+          StyleSheet.absoluteFill,
+          styles.edge,
+          { backgroundColor: c.card, borderBottomColor: c.border }, /* glass-exempt: the solid bar for Reduce Transparency and Android, where content must not show through */
+          fade,
+        ]}
       />
     );
   }

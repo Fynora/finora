@@ -1,4 +1,4 @@
-import { FlatList, Platform } from 'react-native';
+import { FlatList, Platform, StyleSheet } from 'react-native';
 import { AppAlert } from '../lib/appAlert';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -1991,6 +1991,26 @@ describe('the redesigned list', () => {
     await screen.findByText('Swiggy');
     expect(screen.queryByLabelText('Swiggy')).toBeNull();
     expect(screen.getByTestId('ledger-controls-row')).toHaveStyle({ flexDirection: 'column' });
+  });
+
+  it('starts the list below the status bar, so the refresh spinner is not hidden under it', async () => {
+    // Found on an iPhone 17 Pro simulator: with the list running under the status bar, the
+    // pull-to-refresh spinner sat centred under the camera cut-out and could not be seen. The
+    // pinned bar is what covers the status bar area; the list itself begins under it.
+    const insets = require('react-native-safe-area-context').useSafeAreaInsets() as { top: number };
+    insets.top = 59;
+    try {
+      transactions.search.mockResolvedValue(page([txn()]) as never);
+      renderScreen();
+      await screen.findByText('Grocery run');
+
+      const list = screen.getByTestId('ledger-list');
+      expect(list).toHaveStyle({ marginTop: 59 });
+      expect(StyleSheet.flatten(list.props.contentContainerStyle).paddingTop).toBeUndefined();
+      expect(screen.getByTestId('ledger-pinned-bar')).toHaveStyle({ top: 0, height: 59 + 54 });
+    } finally {
+      insets.top = 0;
+    }
   });
 
   it('puts the loading, failed and empty states in a card', async () => {

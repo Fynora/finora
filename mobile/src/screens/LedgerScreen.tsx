@@ -502,12 +502,15 @@ export function LedgerScreen() {
     <GlassScreen style={styles.flex}>
       {/*
         One scrolling region: the title, the month card and the controls are the list's header, so
-        they scroll away and the transactions take the screen. The list runs under the status bar;
-        the pinned bar after it covers that area once the list has moved.
+        they scroll away and the transactions take the screen. The list starts below the status
+        bar: run under it, the pull-to-refresh spinner sat centred under the camera cut-out where
+        it could not be seen (iPhone 17 Pro simulator, 2026-10-12). The pinned bar after it is what
+        covers the status bar area.
       */}
       <FlatList
         ref={listRef}
         testID="ledger-list"
+        style={{ marginTop: insets.top }}
         data={isLoading || (isError && txns.length === 0) ? [] : pieces}
         keyExtractor={(piece) => piece.key}
         // An item is a piece of a day, up to 25 rows, not one row: four pieces fill the first
@@ -524,9 +527,7 @@ export function LedgerScreen() {
         onEndReachedThreshold={0.4}
         refreshing={isFetching && !isFetchingNextPage}
         onRefresh={() => void refetch()}
-        // The list runs under the status bar so the pinned bar can cover it; the spinner must not.
-        progressViewOffset={insets.top}
-        contentContainerStyle={[styles.listContent, { paddingTop: insets.top }]}
+        contentContainerStyle={styles.listContent}
         ListHeaderComponent={
           <View style={styles.header}>
             <LedgerTitleBlock

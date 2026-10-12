@@ -11,8 +11,12 @@ import { dark } from '../../theme/palette';
 import { glassFill } from '../../theme/glass';
 
 export const PINNED_BAR_HEIGHT = 54;
-/** How far the list moves before the bar turns solid. */
-export const PINNED_BAR_SOLID_AFTER = 24;
+/**
+ * How far the list moves before the bar turns solid: the space above the large title. The list is
+ * cut off at the status bar, so from here on the title would meet that edge; the bar turns solid
+ * at the same moment and the title goes under it instead.
+ */
+export const PINNED_BAR_SOLID_AFTER = spacing.sm;
 const FADE_MS = 150;
 
 function RoundButton({ icon, label, onPress }: { icon: 'add' | 'search'; label: string; onPress: () => void }) {
@@ -43,8 +47,8 @@ export function LedgerTitleBlock({
 }
 
 /**
- * The bar's surface. Clear while the list is at rest, solid once it has moved, so nothing slides
- * behind the clock or is cut by a hard edge. A glass or blur view does not draw when it, or a view
+ * The bar's surface. Clear while the list is at rest, solid once it has moved, so nothing is cut
+ * by a hard edge under the clock. A glass or blur view does not draw when it, or a view
  * above it, has an opacity below one (Expo's documented limit, from UIVisualEffectView), so glass
  * is never faded that way here: Liquid Glass animates its own style, and the tint over it is a
  * child, which may fade freely.

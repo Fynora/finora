@@ -512,6 +512,29 @@ confirmed one (10 of those 15 are eight-character rows).
 - The 15 rows that link to a confirmed merchant are the only candidates for a starter brand's
   name.
 
+The second count, the same day, looked at the 164 eight-character rows whose linked name differs:
+
+| Linked merchant | How its name relates to the row's | Rows | Merchants | Of those rows, linked name starts with a payment-rail word | Has a digit |
+|---|---|---|---|---|---|
+| Made by the engine | Contains the row's name | 147 | 72 | 145 | 4 |
+| Made by the engine | Neither contains the other | 7 | 5 | 4 | 3 |
+| Confirmed | Is contained in the row's name | 10 | 4 | 0 | 0 |
+
+- For 147 rows the linked name is the row's own cut name with more text around it, and on 145 of
+  them that text begins with a payment-rail word. That is the cut name again with a rail word in
+  front: a worse name for a row, not a better one. Which rule and which date produced those names
+  was not traced.
+- For 10 rows, across 4 confirmed merchants, the linked name is shorter than the row's and sits
+  inside it: the row's name is the merchant's name followed by leftover letters. These are the
+  only rows where the link gives a cleaner name.
+- 7 rows are something else and were not looked into.
+- So the linked-merchant route recovers no cut name. Its whole reach on this account is a cleaner
+  name on 10 of 392 rows, and it would need a new field from the server. One account; other
+  accounts were not counted.
+- Found in passing and not touched: the merchant names with a rail word in front are the names
+  the server's merchant reports use (`AnalyticsService.topMerchants` reads the same column).
+  Whether a customer sees them there was not looked at on a screen.
+
 ### A paging defect found on the way
 
 - 6 of the 200 loaded rows are a transaction that is already in the list. Each repeat sits exactly

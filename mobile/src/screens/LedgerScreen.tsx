@@ -33,7 +33,8 @@ import { hapticError, hapticImpact, hapticSuccess } from '../lib/haptics';
 import { useDashboardKpis } from '../lib/useDashboardKpis';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
-import { fmtCurrency, fromLocalDateString, toLocalDateString } from '../lib/format';
+import { groupTransactionsByDay } from '../lib/ledgerRows';
+import { fmtCurrency } from '../lib/format';
 import type { KpiItem } from '../components/dashboard/LedgerSnapshotCard';
 import { counterpartyLabel } from '../lib/counterpartyLabel';
 import { reconciliationBadge } from '../lib/reconciliationBadge';
@@ -130,91 +131,9 @@ export function statusBadges(t: Transaction): { label: string; tone: 'warning' |
   return badges;
 }
 
-type GroupedRow =
-  | { kind: 'header'; date: string; label: string; subtotal: number }
-  | { kind: 'row'; transaction: Transaction };
-
-// Bug fix. DUPLICATE and SUPERSEDED rows are still rendered inline (with their own badge --
-// LedgerScreen shows everything, unlike the Dashboard/Reports screens, which is exactly why the
-// default statusFilter is 'ALL' and these rows ordinarily sit in `txns` right alongside everything
-// else), but they are not a second real transaction: DUPLICATE means the app itself believes this
-// is the same purchase recorded twice, and SUPERSEDED means this row is history a later re-upload
-// of the exact same statement period replaced. Summing either into the day's subtotal double-counts
-// money that never actually moved twice -- the identical defect RefundNetting.reportable() exists
-// to keep out of every backend total (Dashboard, Reports), just recreated here in a client-side
-// aggregate the backend never computes. TRANSFER/REFUND/REVERSAL/INVESTMENT_TRANSFER stay included
-// on purpose -- unlike these two, they represent real money that genuinely moved on this account
-// today, the same convention Account.balance itself uses (see RefundNetting's own class doc).
-const SUBTOTAL_EXCLUDED_STATUSES: ReadonlySet<ReconciliationStatus> = new Set(['DUPLICATE', 'SUPERSEDED']);
-
-/**
- * Groups a merged list of transactions into day sections with a per-day net subtotal (income
- * minus expense for that day, signed the same way a single row's own amount is -- positive shows
- * in c.success, negative in c.danger, same convention as every other signed figure in this app).
- *
- * Runs on the FULLY MERGED txns array (every fetched page flattened), not per-page -- grouping
- * a day that happens to straddle two 20-row server pages still produces one header for that day,
- * since by the time this runs both pages are already concatenated.
- *
- * Groups by date VALUE (a Map, not "does this row's date differ from the one right before it"),
- * deliberately not assuming same-date rows stay contiguous. This was written when the backend
- * sorted by txnDate alone, so two rows sharing a date had no guaranteed relative order across
- * separate page fetches. The backend now breaks ties on createdAt and then id
- * (TransactionService.search), so a day's rows arrive together and in a fixed order; the
- * value-keyed group is kept because it costs nothing and still merges a day into one header if
- * this app is ever pointed at a server that predates that fix.
- *
- * `today` is a parameter, not read internally, so the caller controls how fresh "Today"/
- * "Yesterday" are; see this function's call site for why that matters (a memoized call needs the
- * current date as an explicit dependency, or it goes stale across a long-lived, otherwise-idle
- * mount -- the exact class of bug scripts/check-reporting-period-labels.py exists to catch
- * elsewhere in this app).
- */
-export function groupTransactionsByDay(txns: Transaction[], today: Date = new Date()): GroupedRow[] {
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-  // toLocalDateString, NOT `.toISOString().slice(0, 10)` -- toISOString converts to UTC, which
-  // silently shifts the key by the local UTC offset. In any timezone ahead of UTC (IST included --
-  // this app's default locale is en-IN) that made "today" compare as YESTERDAY's date and
-  // "yesterday" as TODAY's: a row actually dated today fell through to the full formatted-date
-  // branch, and yesterday's row was mislabeled "Today" instead. Caught by this function's own
-  // tests once they asserted on `label` against a fixed clock rather than only on date/subtotal.
-  const todayKey = toLocalDateString(today);
-  const yesterdayKey = toLocalDateString(yesterday);
-
-  function labelFor(dateStr: string): string {
-    if (dateStr === todayKey) return 'Today';
-    if (dateStr === yesterdayKey) return 'Yesterday';
-    const d = fromLocalDateString(dateStr);
-    return d.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
-  }
-
-  const order: string[] = [];
-  const byDate = new Map<string, Transaction[]>();
-  for (const t of txns) {
-    let bucket = byDate.get(t.date);
-    if (!bucket) {
-      bucket = [];
-      byDate.set(t.date, bucket);
-      order.push(t.date);
-    }
-    bucket.push(t);
-  }
-
-  const result: GroupedRow[] = [];
-  for (const date of order) {
-    const rows = byDate.get(date)!;
-    const subtotal = rows.reduce(
-      (sum, t) => SUBTOTAL_EXCLUDED_STATUSES.has(t.reconciliationStatus)
-        ? sum
-        : sum + (t.type === 'INCOME' ? t.amount : -Math.abs(t.amount)),
-      0
-    );
-    result.push({ kind: 'header', date, label: labelFor(date), subtotal });
-    for (const t of rows) result.push({ kind: 'row', transaction: t });
-  }
-  return result;
-}
+// Moved to lib/ledgerRows.ts with the rest of the row logic; re-exported so existing importers
+// and this screen's own tests keep their import.
+export { groupTransactionsByDay } from '../lib/ledgerRows';
 
 export function LedgerScreen() {
   // D3 (Track D security cleanup). Every row here is a real transaction description and amount --

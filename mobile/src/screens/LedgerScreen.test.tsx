@@ -1813,6 +1813,17 @@ describe('the redesigned list', () => {
     expect(screen.queryByText(/2026-07-14/)).toBeNull();
   });
 
+  it('drops the line under the title and the arrow at the end of a row', async () => {
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+
+    renderScreen();
+
+    await screen.findByText('Grocery run');
+    expect(screen.queryByText('All your financial activity in one place.')).toBeNull();
+    // The icon stand-in in these tests renders an icon as its name.
+    expect(screen.queryByText('chevron-forward')).toBeNull();
+  });
+
   it('lists and counts once a row the server returned on two pages', async () => {
     const repeated = txn({ id: 't-rep', description: 'Rent', amount: -100 });
     transactions.search

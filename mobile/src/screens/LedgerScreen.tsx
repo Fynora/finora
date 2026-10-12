@@ -143,14 +143,14 @@ export function LedgerScreen() {
   // unused by any client until now. 'ALL' means no filter, same convention as typeFilter above.
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
   // The statement's own domestic/international split (Transaction.international). A single
-  // on/off chip rather than web's three-way select: "only international" is the question a phone
+  // on/off switch (in the Filters sheet) rather than web's three-way select: "only international" is the question a phone
   // user asks; the web Ledger's select also offers domestic-only.
   const [internationalOnly, setInternationalOnly] = useState(false);
   // Phase 5 (Low-Priority Polish). A manual date-range pick, independent of the drill-through's
   // OWN dateFrom/dateTo below -- a drill-through arrives already scoped to a period (e.g. "August
   // 2026" from a chart), while this is the user picking their own range by hand. Wins over the
   // drill-through's dates when set, since it's the more RECENT, more deliberate choice; clearing
-  // it (DateField's own "Clear" link) falls back to whatever the drill-through, if any, still says.
+  // it (DateField's own "Clear" link, the date chip, or Clear all) falls back to whatever the drill-through, if any, still says.
   const [manualDateFrom, setManualDateFrom] = useState<string | null>(null);
   const [manualDateTo, setManualDateTo] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -225,7 +225,7 @@ export function LedgerScreen() {
   // synchronously) while the actual results stayed unfiltered for up to 300ms -- "the filter says
   // one thing, the results say another", the exact bug class the drill-through reset just below
   // already exists to prevent for manualDateFrom/manualDateTo. Wins over the debounced value only
-  // until the user edits the search box by hand (cleared in the TextInput's own onChangeText),
+  // until the user edits the search box by hand (cleared in LedgerControls' onKeywordChange below),
   // same "wins until superseded" shape as manualDateFrom/manualDateTo.
   const [drillThroughKeyword, setDrillThroughKeyword] = useState<string | null>(null);
   const incomingFilters = route.params?.filters;
@@ -239,10 +239,10 @@ export function LedgerScreen() {
     // Bug fix: a manual date-range pick from an EARLIER visit to this still-mounted tab used to
     // survive a brand new drill-through arriving later, since manualDateFrom/manualDateTo win over
     // activeDrillThrough's own dates unconditionally (see the filters useMemo below). Without this,
-    // the "Clear filter: <new drill-through's label>" banner would show the new period while the
+    // the "Clear filter: <new drill-through's label>" chip would show the new period while the
     // list itself stayed silently scoped to whatever date range was picked by hand before it --
     // exactly the kind of "the filter says one thing, the results say another" bug this screen's
-    // own drill-through banner exists to prevent. A fresh drill-through is a new, more recent,
+    // own drill-through chip exists to prevent. A fresh drill-through is a new, more recent,
     // equally deliberate choice than a stale manual pick from a previous, unrelated visit.
     setManualDateFrom(null);
     setManualDateTo(null);

@@ -198,7 +198,10 @@ public final class CreditCardSummaryExtractor {
             GRID, INLINE_LABEL_VALUE, STACKED_LABEL_COLUMNS,
             /** The billing equation printed on one line over one row of figures -- see
              *  {@link CardSummaryEquationReader}. */
-            EQUATION_ROW
+            EQUATION_ROW,
+            /** Figures joined by the signs of the billing equation, each under a label wrapped
+             *  over two lines -- see {@link CardSummarySignedFigureRowReader}. */
+            SIGNED_FIGURE_ROW
         }
 
         public static final CreditCardSummaryEvidence NONE =
@@ -334,6 +337,23 @@ public final class CreditCardSummaryExtractor {
         if (chosen.totalAmountDue() == null) {
             BigDecimal bestEffort = bestEffortTotalAmountDue(grid, sameRow);
             if (bestEffort != null) chosen = chosen.withTotalAmountDue(bestEffort);
+        }
+
+        // Last, and only where no strategy above formed its equation, so nothing read today can
+        // change: a real Kotak card prints its figures joined by the equation's own signs, under
+        // labels no strategy above can read whole -- see CardSummarySignedFigureRowReader. The
+        // same statement prints its total due a second time, as the headline read above; two
+        // readings of one figure that disagree mean one of them is wrong.
+        if (chosen.extractionMethod() == null) {
+            CreditCardSummaryEvidence signedRow = CardSummarySignedFigureRowReader.read(runs);
+            if (signedRow.hasReconcilableFields()) {
+                if (ctx != null) ctx.record("CREDIT_CARD_SUMMARY_SIGNED_FIGURE_ROW");
+                if (disagree(chosen.totalAmountDue(), signedRow.totalAmountDue())
+                        && !conflicts.contains("totalAmountDue")) {
+                    conflicts.add("totalAmountDue");
+                }
+                chosen = signedRow;
+            }
         }
 
         return conflicts.isEmpty() ? chosen : chosen.withConflictingFields(conflicts);

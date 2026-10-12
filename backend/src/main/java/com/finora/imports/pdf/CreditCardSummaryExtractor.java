@@ -190,7 +190,12 @@ public final class CreditCardSummaryExtractor {
         /** Named for what each strategy IS, not the shape it happens to exploit today —
          *  {@code INLINE_LABEL_VALUE} may gain other label/value-alignment layouts later without a
          *  rename, the way "SAME_ROW" would have implied only one geometry forever. */
-        public enum ExtractionMethod { GRID, INLINE_LABEL_VALUE, STACKED_LABEL_COLUMNS }
+        public enum ExtractionMethod {
+            GRID, INLINE_LABEL_VALUE, STACKED_LABEL_COLUMNS,
+            /** The billing equation printed on one line over one row of figures -- see
+             *  {@link CardSummaryEquationReader}. */
+            EQUATION_ROW
+        }
 
         public static final CreditCardSummaryEvidence NONE =
                 new CreditCardSummaryEvidence(null, null, null, null, null, null, null, List.of());
@@ -263,8 +268,10 @@ public final class CreditCardSummaryExtractor {
         // anything -- that is what makes conflictsBetween below possible. hasReconcilableFields(),
         // not "found anything at all", decides which one's numbers this evidence carries: a
         // document can print its headline Total Amount Due in a clean GRID shape while its
-        // component breakdown lives elsewhere in a shape only INLINE_LABEL_VALUE can read (a real
-        // Axis statement does exactly this). The two are never merged field-by-field even when
+        // component breakdown lives elsewhere in another shape. (This comment used to name a real
+        // Axis statement as one INLINE_LABEL_VALUE could read the breakdown of. It cannot: that
+        // breakdown is one line of equation over a row of figures, read by neither strategy --
+        // see CardSummaryEquationReader below.) The two are never merged field-by-field even when
         // picking a winner -- combining fields pulled by two different matching approaches risks
         // attributing one strategy's number to another's row.
         Reading gridReading = tryGrid(runs);
@@ -294,14 +301,29 @@ public final class CreditCardSummaryExtractor {
             chosen = sameRow;
             if (ctx != null) ctx.record("CREDIT_CARD_SUMMARY_INLINE_LABEL_VALUE");
         } else {
-            // Last, and only where neither older strategy could form its equation, so nothing they
-            // already read can change: a panel whose labels are each wrapped over several lines.
+            // Only where neither older strategy could form its equation, so nothing they already
+            // read can change: a panel whose labels are each wrapped over several lines.
             CreditCardSummaryEvidence stacked = tryStackedColumns(runs).evidence();
             if (stacked.hasOutstandingEquation()) {
                 chosen = stacked;
                 if (ctx != null) ctx.record("CREDIT_CARD_SUMMARY_STACKED_LABEL_COLUMNS");
             } else {
-                chosen = CreditCardSummaryEvidence.NONE;
+                // And last, where that found nothing either: a real Axis card prints its whole
+                // billing equation as one line of text over one row of figures -- see
+                // CardSummaryEquationReader.
+                chosen = CardSummaryEquationReader.read(runs);
+                if (chosen.hasReconcilableFields()) {
+                    if (ctx != null) ctx.record("CREDIT_CARD_SUMMARY_EQUATION_ROW");
+                    // The same statement prints its total due a second time, as the headline the
+                    // two oldest strategies read. Two readings of one figure that disagree mean
+                    // one of them is wrong, exactly as between those two strategies.
+                    if (disagree(bestEffortTotalAmountDue(grid, sameRow), chosen.totalAmountDue())
+                            && !conflicts.contains("totalAmountDue")) {
+                        conflicts.add("totalAmountDue");
+                    }
+                } else {
+                    chosen = CreditCardSummaryEvidence.NONE;
+                }
             }
         }
 
@@ -938,7 +960,7 @@ public final class CreditCardSummaryExtractor {
         return count;
     }
 
-    private static String keyFor(String normalized) {
+    static String keyFor(String normalized) {
         String stripped = stripDecoration(normalized);
         if (matches(stripped, PREVIOUS_BALANCE_LABELS)) return "previousBalance";
         if (matches(stripped, PURCHASES_LABELS)) return "purchases";

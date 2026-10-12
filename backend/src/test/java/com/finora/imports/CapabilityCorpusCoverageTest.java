@@ -256,6 +256,13 @@ class CapabilityCorpusCoverageTest {
                         + "CreditCardSummaryExtractorTest reproducing that shape, and measured against "
                         + "the unredacted document via scripts/corpus-run.py: it fires on that one "
                         + "statement of the 34 in the real corpus and changes no other.");
+        DECLARED_WITHOUT_A_TRACE.put("CREDIT_CARD_SUMMARY_EQUATION_ROW",
+                "no trace -- same situation as CREDIT_CARD_SUMMARY_TOTALS above: it fires in "
+                        + "CreditCardSummaryExtractor, called from PdfPreviewGenerator, never from "
+                        + "PdfTableLocator.locateAll. Motivated by a real Axis card whose billing equation "
+                        + "is one line of text over one row of figures; covered by synthetic fixtures in "
+                        + "CardSummaryEquationReaderTest and confirmed against both real statements of "
+                        + "that layout via scripts/corpus-run.py.");
         DECLARED_WITHOUT_A_TRACE.put("TRANSACTION_TABLE_TOTAL_CLOSED",
                 "no trace yet -- motivated by a real Kotak Mahindra Bank credit-card statement's "
                         + "own \"Total Purchase & Other Charges\" column-total row; real-corpus verified "

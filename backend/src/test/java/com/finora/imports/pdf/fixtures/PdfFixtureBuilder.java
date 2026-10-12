@@ -1976,6 +1976,53 @@ public final class PdfFixtureBuilder {
         return render(List.of(page));
     }
 
+    /** How the rows of {@link #buildCardWithSummaryEquationRowSample} relate to its summary. */
+    public enum EquationRowCase {
+        /** The summary adds up and the rows are the whole cycle. */
+        ADDS_UP,
+        /** A refund is a row, and is in the total due, but in neither the payments nor the credits
+         *  figure: the summary's own figures stop 150.00 above its total. */
+        SUMMARY_LEAVES_OUT_A_REFUND,
+        /** The summary adds up, and one purchase it counts is not among the rows. */
+        A_PURCHASE_ROW_IS_MISSING
+    }
+
+    /**
+     * An Axis-shaped card statement: the headline grid every older strategy reads the total due
+     * from, then the whole billing equation as ONE line of text over one row of figures
+     * (CardSummaryEquationReader). 4,000.00 - 3,000.00 - 250.00 + 6,000.00 + 0.00 + 50.00 =
+     * 6,800.00, with a purchase split over two rows. Invented figures.
+     */
+    public static byte[] buildCardWithSummaryEquationRowSample(EquationRowCase rowCase) throws IOException {
+        float[] headline = {LEFT_MARGIN, 200f};
+        float[] figure = {LEFT_MARGIN, 125f, 190f, 245f, 310f, 370f, 440f};
+        float[] col = {LEFT_MARGIN, 110f, 350f};
+        String totalDue = rowCase == EquationRowCase.SUMMARY_LEAVES_OUT_A_REFUND ? "6,650.00 Dr" : "6,800.00 Dr";
+
+        PageBuilder page = new PageBuilder();
+        page.line("SAMPLE BANK")
+                .line("Credit Card Statement")
+                .row(headline, "Total Payment Due", "Minimum Payment Due")
+                .row(headline, totalDue, "340.00 Dr")
+                .blankLine()
+                .line("Previous Balance - Payments - Credits + Purchase + Cash Advance"
+                        + " + Other Debit&Charges =Total Payment Due")
+                .row(figure, "4,000.00 Dr", "3,000.00", "250.00", "6,000.00", "0.00", "50.00", totalDue)
+                .blankLine()
+                .row(col, "DATE", "TRANSACTION DETAILS", "AMOUNT (Rs.)")
+                .row(col, "02/06/2026", "Sample Store Purchase", "4,500.00 Dr");
+        if (rowCase != EquationRowCase.A_PURCHASE_ROW_IS_MISSING) {
+            page.row(col, "04/06/2026", "Sample Market Purchase", "1,500.00 Dr");
+        }
+        page.row(col, "05/06/2026", "Sample Service Charge", "50.00 Dr")
+                .row(col, "10/06/2026", "Payment Received Thank You", "3,000.00 Cr")
+                .row(col, "14/06/2026", "Sample Store Reversal", "250.00 Cr");
+        if (rowCase == EquationRowCase.SUMMARY_LEAVES_OUT_A_REFUND) {
+            page.row(col, "20/06/2026", "Sample Refund Received", "150.00 Cr");
+        }
+        return render(List.of(page));
+    }
+
     /**
      * The lower half of the distinct-signal boundary: a ledger whose free text carries EXACTLY
      * ONE phrase from the credit-card signal list ("Total Payment Due", here a bill-payment

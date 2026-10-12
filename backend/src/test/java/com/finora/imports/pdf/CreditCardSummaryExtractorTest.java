@@ -1161,4 +1161,22 @@ class CreditCardSummaryExtractorTest {
         assertThat(summary.extractionMethod()).isEqualTo(ExtractionMethod.GRID);
         assertThat(summary.totalOutstanding()).isNull();
     }
+
+    @Test
+    void aPanelTheStackedLabelStrategyReads_isStillReadByIt_evenBesideAnEquationLine() {
+        // The one-line equation (CardSummaryEquationReader) is tried last of all. A page carrying
+        // both shapes keeps the reading it had before that reader existed.
+        List<PositionedText> runs = stackedLabelSummaryBlock();
+        runs.add(run("Previous Balance - Payments - Credits + Purchase + Cash Advance"
+                + " + Other Debit&Charges =Total Payment Due", 68f, 360f, 500f));
+        String[] figures = {"4,000.00", "3,000.00", "250.00", "6,000.00", "0.00", "50.00", "6,800.00"};
+        float[] x = {48f, 116f, 171f, 209f, 273f, 335f, 404f};
+        for (int i = 0; i < figures.length; i++) runs.add(run(figures[i], x[i], 30f, 513f));
+
+        var summary = CreditCardSummaryExtractor.extract(runs);
+
+        assertThat(summary.extractionMethod()).isEqualTo(ExtractionMethod.STACKED_LABEL_COLUMNS);
+        assertThat(summary.previousBalance()).isEqualByComparingTo("40000.00");
+        assertThat(summary.totalOutstanding()).isEqualByComparingTo("30500.00");
+    }
 }

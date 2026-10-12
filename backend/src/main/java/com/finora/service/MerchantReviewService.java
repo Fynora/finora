@@ -84,7 +84,7 @@ public class MerchantReviewService {
      */
     @Transactional(readOnly = true)
     public PagedResponse<MerchantReviewDto> queue(int page, int size) {
-        var result = merchantRepository.findByLifecycleStatusInOrderByCreatedAtAsc(
+        var result = merchantRepository.findByLifecycleStatusInOrderByCreatedAtAscIdAsc(
                 NEEDS_REVIEW, PageRequest.of(PageBounds.safePage(page), PageBounds.safeSize(size > 0 ? size : 25)));
         List<Merchant> merchants = result.getContent();
         if (merchants.isEmpty()) return PagedResponse.of(result.map(this::toDto));

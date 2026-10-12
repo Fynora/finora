@@ -132,7 +132,7 @@ class SupportRepositoryIT extends AbstractIntegrationTest {
         ticket(stranger.getId());
 
         List<SupportTicket> page = tickets
-                .findByUserIdOrderByCreatedAtDesc(owner.getId(), PageRequest.of(0, 10))
+                .findByUserIdOrderByCreatedAtDescIdDesc(owner.getId(), PageRequest.of(0, 10))
                 .getContent();
 
         assertThat(page).extracting(SupportTicket::getId)

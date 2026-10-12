@@ -22,6 +22,9 @@ import { MerchantLogo } from '../components/MerchantLogo';
 import { BankLogo } from '../components/BankLogo';
 import type { Transaction } from '../types';
 import { counterpartyLabel } from '../lib/counterpartyLabel';
+import {
+  NO_ANCHORS, asWholeListPage, pagingSignature, rememberAnchors, requestFor, type PageAnchors,
+} from '../lib/ledgerPaging';
 import { ConfirmDialog, Button, IconButton, Skeleton, FinoraCard, Badge, useDialogA11y } from '../design-system';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
 import { useMemoryReinforcement } from '../hooks/useMemoryReinforcement';
@@ -337,11 +340,24 @@ export default function Ledger() {
     || activeFilters.international !== undefined
     || activeFilters.dateFrom || activeFilters.dateTo || activeFilters.keyword);
 
-  const { data: page, isLoading, isFetching } = useQuery({
-    queryKey: ['transactions', activeFilters],
-    queryFn: () => transactionsApi.search(activeFilters),
+  // Moving to the next page continues from the last row on screen rather than counting rows from
+  // the top -- see lib/ledgerPaging for why and how. `filters.page` stays the page the user is on;
+  // only the request gains the row to continue from, and the answer is turned back into a page of
+  // the whole list, so everything below still reads page/totalPages/totalElements as before.
+  const [pageAnchors, setPageAnchors] = useState<PageAnchors>(NO_ANCHORS);
+  const listRequest = requestFor(activeFilters, pageAnchors);
+  const { data: page, isLoading, isFetching, isPlaceholderData } = useQuery({
+    queryKey: ['transactions', listRequest],
+    queryFn: () => transactionsApi.search(listRequest)
+      .then((response) => asWholeListPage(response, listRequest.page ?? 0, listRequest.after !== undefined)),
     placeholderData: keepPreviousData, // keep showing the old page while the new one loads, no flash-to-empty
   });
+  const listSignature = pagingSignature(activeFilters);
+  useEffect(() => {
+    // Not from placeholder data: that is the previous request's page, shown while this one loads,
+    // and may belong to a different search.
+    if (page && !isPlaceholderData) setPageAnchors((known) => rememberAnchors(known, listSignature, page));
+  }, [page, isPlaceholderData, listSignature]);
   const txns = page?.content ?? [];
   const showTableSkeleton = useDelayedLoading(isLoading);
 

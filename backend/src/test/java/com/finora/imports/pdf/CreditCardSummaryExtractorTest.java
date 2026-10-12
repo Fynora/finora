@@ -633,17 +633,17 @@ class CreditCardSummaryExtractorTest {
     @Test
     void totalAmountDueIsReadAsAMagnitude_evenWhenPrintedWithATrailingDrMarker() {
         // Confirmed on a real Axis statement: a credit card's own "Total Payment Due" is routinely
-        // printed with a trailing "Dr" marker (e.g. "27,665.16 Dr") -- Dr here means "you owe
+        // printed with a trailing "Dr" marker (e.g. "31,480.25 Dr") -- Dr here means "you owe
         // this," the ordinary case for a card, not the unusual overdrawn-savings-balance case
         // CsvParser's Dr=negative convention was written for. Left un-abs()'d, this class returned
         // a negative reading for a real, correctly GRID-matched total.
         List<PositionedText> runs = new ArrayList<>(List.of(
                 run("Total Amount Due", 50f, 100f, 200f),
-                run("27,665.16 Dr", 55f, 90f, 230f)));
+                run("31,480.25 Dr", 55f, 90f, 230f)));
 
         var summary = CreditCardSummaryExtractor.extract(runs);
 
-        assertThat(summary.totalAmountDue()).isEqualByComparingTo("27665.16");
+        assertThat(summary.totalAmountDue()).isEqualByComparingTo("31480.25");
     }
 
     @Test

@@ -28,7 +28,7 @@ public interface MerchantRepository extends JpaRepository<Merchant, UUID> {
      * <p>Oldest first: a merchant that has been sitting unreviewed for a week matters more than
      * one created a minute ago, and a newest-first queue buries the former forever.
      */
-    Page<Merchant> findByLifecycleStatusInOrderByCreatedAtAsc(
+    Page<Merchant> findByLifecycleStatusInOrderByCreatedAtAscIdAsc(
             java.util.Collection<Merchant.Lifecycle> statuses, Pageable pageable);
 
     /** One user's outstanding review work, for the per-user view and for bulk approve. */

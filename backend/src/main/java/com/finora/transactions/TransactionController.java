@@ -55,10 +55,13 @@ public class TransactionController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(defaultValue = "date") String sortField,
-            @RequestParam(defaultValue = "desc") String sortDir
+            @RequestParam(defaultValue = "desc") String sortDir,
+            // The last transaction a scrolling client already holds: continue the list from there
+            // rather than from a page number. See TransactionDto.FilterRequest.
+            @RequestParam(required = false) UUID after
     ) {
         var filter = new TransactionDto.FilterRequest(accountId, categoryId, type, status, dateFrom, dateTo,
-                amountMin, amountMax, keyword, page, size, sortField, sortDir, international);
+                amountMin, amountMax, keyword, page, size, sortField, sortDir, international, after);
         return ApiResponse.ok(transactionService.search(currentUser.id(), filter));
     }
 

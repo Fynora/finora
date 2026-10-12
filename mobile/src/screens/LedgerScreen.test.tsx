@@ -6,6 +6,7 @@ import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import {
   DEFAULT_LEDGER_FILTERS, LEDGER_PAGE_SIZE, LedgerScreen, getLedgerNextPageParam, groupTransactionsByDay,
+  ledgerPageRequest,
 } from './LedgerScreen';
 import { categoriesApi, dashboardApi, onboardingApi, transactionsApi } from '../api/endpoints';
 import { hapticImpact } from '../lib/haptics';
@@ -428,8 +429,77 @@ describe('DEFAULT_LEDGER_FILTERS export (for Dashboard prefetch)', () => {
   it('exposes the page size and pagination cursor logic LedgerScreen itself uses', () => {
     expect(LEDGER_PAGE_SIZE).toBe(20);
     expect(DEFAULT_LEDGER_FILTERS).toEqual({ size: 20, sortField: 'date', sortDir: 'desc' });
-    expect(getLedgerNextPageParam({ content: [], page: 0, size: 20, totalElements: 40, totalPages: 2 })).toBe(1);
-    expect(getLedgerNextPageParam({ content: [], page: 1, size: 20, totalElements: 40, totalPages: 2 })).toBeUndefined();
+    const first = { content: [], page: 0, size: 20, totalElements: 40, totalPages: 2 };
+    const last = { content: [], page: 1, size: 20, totalElements: 40, totalPages: 2 };
+    expect(getLedgerNextPageParam(first, [first])).toBe(1);
+    expect(getLedgerNextPageParam(last, [first, last])).toBeUndefined();
+  });
+});
+
+/**
+ * A page number counts rows from the top of the list. A transaction added or deleted on the server
+ * between two page requests (an import finishing, an edit on another device) shifts every later
+ * page by one row, so the next page repeated a row or stepped over one. The list now names the last
+ * row it holds and the server continues from there.
+ */
+describe('paging continues from the last row held', () => {
+  it('asks for the rows after the last one on screen when the list reaches its end', async () => {
+    transactions.search
+      .mockResolvedValueOnce(page(
+        [txn({ id: 't-1', description: 'First row' }), txn({ id: 't-2', description: 'Second row' })],
+        { totalPages: 2, totalElements: 3 },
+      ) as never)
+      .mockResolvedValueOnce(page([txn({ id: 't-3', description: 'Third row' })], { totalElements: 1 }) as never);
+
+    renderScreen();
+    await screen.findByText('Second row');
+    fireEvent(screen.getByTestId('ledger-list'), 'onEndReached');
+
+    expect(await screen.findByText('Third row')).toBeTruthy();
+    // The page number still goes along: a server that does not know `after` pages by it.
+    expect(transactions.search).toHaveBeenLastCalledWith({ ...DEFAULT_LEDGER_FILTERS, page: 1, after: 't-2' });
+  });
+
+  it('stops when the server says nothing is left after that row', async () => {
+    transactions.search
+      .mockResolvedValueOnce(page([txn({ id: 't-1' })], { totalPages: 2, totalElements: 2 }) as never)
+      // Continued from a row, the server describes what is left: always page 0 of the remainder.
+      .mockResolvedValueOnce(page([txn({ id: 't-2', description: 'Last row' })], { page: 0, totalPages: 1, totalElements: 1 }) as never);
+
+    renderScreen();
+    await screen.findByText('Grocery run');
+    fireEvent(screen.getByTestId('ledger-list'), 'onEndReached');
+    await screen.findByText('Last row');
+    fireEvent(screen.getByTestId('ledger-list'), 'onEndReached');
+
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledTimes(2));
+  });
+
+  it('names the last row of the last page, and counts pages itself', () => {
+    const p0 = { content: [txn({ id: 'a' }), txn({ id: 'b' })], page: 0, size: 2, totalElements: 6, totalPages: 3 };
+    // What a server that understands `after` sends back for the second request.
+    const rest = { content: [txn({ id: 'c' }), txn({ id: 'd' })], page: 0, size: 2, totalElements: 4, totalPages: 2 };
+    const end = { content: [txn({ id: 'e' }), txn({ id: 'f' })], page: 0, size: 2, totalElements: 2, totalPages: 1 };
+
+    expect(getLedgerNextPageParam(p0, [p0])).toEqual({ page: 1, after: 'b' });
+    expect(getLedgerNextPageParam(rest, [p0, rest])).toEqual({ page: 2, after: 'd' });
+    expect(getLedgerNextPageParam(end, [p0, rest, end])).toBeUndefined();
+  });
+
+  it('still works against a server that pages by number only', () => {
+    const p0 = { content: [txn({ id: 'a' })], page: 0, size: 1, totalElements: 3, totalPages: 3 };
+    const p1 = { content: [txn({ id: 'b' })], page: 1, size: 1, totalElements: 3, totalPages: 3 };
+    const p2 = { content: [txn({ id: 'c' })], page: 2, size: 1, totalElements: 3, totalPages: 3 };
+
+    expect(getLedgerNextPageParam(p0, [p0])).toEqual({ page: 1, after: 'a' });
+    expect(getLedgerNextPageParam(p1, [p0, p1])).toEqual({ page: 2, after: 'b' });
+    expect(getLedgerNextPageParam(p2, [p0, p1, p2])).toBeUndefined();
+  });
+
+  it('turns a page param into request params, including a bare number from an older saved cache', () => {
+    expect(ledgerPageRequest(0)).toEqual({ page: 0 });
+    expect(ledgerPageRequest(3)).toEqual({ page: 3 });
+    expect(ledgerPageRequest({ page: 2, after: 'd' })).toEqual({ page: 2, after: 'd' });
   });
 });
 

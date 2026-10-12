@@ -167,18 +167,36 @@ public record TransactionDto(
      */
     public record SimilarSummary(int similar, int keptByUser) {}
 
-    /** {@code international}: null for no filter, true for only international transactions,
-     *  false for only domestic ones. */
+    /**
+     * {@code international}: null for no filter, true for only international transactions,
+     * false for only domestic ones.
+     *
+     * <p>{@code after}: the id of the last transaction the caller already holds. When it is one of
+     * the caller's own transactions, the answer is the rows that follow it in the requested order,
+     * {@code page} is ignored, and the response counts only what is left: its {@code page} is 0 and
+     * its {@code totalElements} and {@code totalPages} cover that row's successors, so "more to
+     * fetch" is still {@code page + 1 < totalPages}. Null, or anything that is not the caller's own
+     * transaction: the list is paged by {@code page} as before.
+     */
     public record FilterRequest(UUID accountId, UUID categoryId, String type, String status, LocalDate dateFrom,
                                  LocalDate dateTo, BigDecimal amountMin, BigDecimal amountMax,
                                  String keyword, int page, int size, String sortField, String sortDir,
-                                 Boolean international) {
+                                 Boolean international, UUID after) {
+        /** The arity before a list could be continued from a row. */
+        public FilterRequest(UUID accountId, UUID categoryId, String type, String status, LocalDate dateFrom,
+                             LocalDate dateTo, BigDecimal amountMin, BigDecimal amountMax,
+                             String keyword, int page, int size, String sortField, String sortDir,
+                             Boolean international) {
+            this(accountId, categoryId, type, status, dateFrom, dateTo, amountMin, amountMax, keyword,
+                    page, size, sortField, sortDir, international, null);
+        }
+
         /** Pre-international arity. */
         public FilterRequest(UUID accountId, UUID categoryId, String type, String status, LocalDate dateFrom,
                              LocalDate dateTo, BigDecimal amountMin, BigDecimal amountMax,
                              String keyword, int page, int size, String sortField, String sortDir) {
             this(accountId, categoryId, type, status, dateFrom, dateTo, amountMin, amountMax, keyword,
-                    page, size, sortField, sortDir, null);
+                    page, size, sortField, sortDir, null, null);
         }
     }
 

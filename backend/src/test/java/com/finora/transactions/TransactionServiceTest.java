@@ -22,6 +22,8 @@ import com.finora.service.SmsResult;
 import com.finora.service.TransactionGroupingService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -2282,6 +2284,36 @@ class TransactionServiceTest {
         assertThat(order.getDirection())
                 .as("and the fallback must be the documented default, not an arbitrary one")
                 .isEqualTo(Sort.Direction.DESC);
+    }
+
+    /**
+     * The sort must be a total order, or paging repeats and skips rows that tie on the requested
+     * field (see TransactionSearchPagingStabilityIT, which proves it against real Postgres). This
+     * pins the shape on the paths that test does not drive over HTTP: no sort params at all, and
+     * an unrecognised sort field. The requested field stays first; createdAt and id follow it in
+     * the same direction.
+     */
+    @ParameterizedTest(name = "sortField={0} sortDir={1}")
+    @CsvSource(value = {
+            "NULL,   NULL, txnDate, DESC",
+            "bogus,  asc,  txnDate, ASC",
+            "amount, NULL, amount,  DESC",
+            "date,   ASC,  txnDate, ASC",
+    }, nullValues = "NULL")
+    void search_breaksTiesOnCreatedAtThenId_inTheRequestedDirection(
+            String sortField, String sortDir, String expectedProperty, Sort.Direction expectedDirection) {
+        when(transactionRepository.search(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        var filter = new TransactionDto.FilterRequest(null, null, null, null, null, null, null, null, null, 0, 20, sortField, sortDir);
+        transactionService.search(userId, filter);
+
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(transactionRepository).search(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), pageableCaptor.capture());
+        assertThat(pageableCaptor.getValue().getSort().toList()).containsExactly(
+                new Sort.Order(expectedDirection, expectedProperty),
+                new Sort.Order(expectedDirection, "createdAt"),
+                new Sort.Order(expectedDirection, "id"));
     }
 
     /**

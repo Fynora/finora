@@ -33,6 +33,7 @@ export function LedgerControls({
   const c = useTheme();
   // The Filters button is a Pressable, so it takes the glass fill and edge as a style.
   const glass = useGlassSurfaceStyle();
+  const bodyM = typography.bodyM;
 
   return (
     <View style={styles.wrap}>
@@ -47,7 +48,13 @@ export function LedgerControls({
           autoCapitalize="none"
           autoCorrect={false}
           accessibilityLabel="Search transactions"
-          style={[typography.bodyM, styles.searchInput, { color: c.ink }]}
+          // The type ramp's font and size without its line height: a fixed line height on an
+          // iOS text field pushes the text to the bottom of the field, and at large text sizes
+          // cut it off.
+          style={[
+            styles.searchInput,
+            { fontFamily: bodyM.fontFamily, fontWeight: bodyM.fontWeight, fontSize: bodyM.fontSize, color: c.ink },
+          ]}
         />
       </GlassSurface>
 
@@ -66,7 +73,14 @@ export function LedgerControls({
                 accessibilityLabel={`Filter: ${t.spoken}`}
                 style={[styles.segment, selected && { backgroundColor: c.primary }]}
               >
-                <Text style={[typography.labelS, { color: selected ? c.onPrimary : c.mutedInk }]}>{t.label}</Text>
+                {/* A third of the row each: past 1.5 times "Expense" broke in the middle. */}
+                <Text
+                  numberOfLines={1}
+                  maxFontSizeMultiplier={1.5}
+                  style={[typography.labelS, { color: selected ? c.onPrimary : c.mutedInk }]}
+                >
+                  {t.label}
+                </Text>
               </Pressable>
             );
           })}
@@ -117,7 +131,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
     minHeight: 48, borderRadius: 999, paddingHorizontal: spacing.md,
   },
-  searchInput: { flex: 1, paddingVertical: 0 },
+  searchInput: { flex: 1, paddingVertical: spacing.ms },
   controls: { flexDirection: 'row', alignItems: 'center', gap: spacing.ms },
   controlsStacked: { flexDirection: 'column', alignItems: 'stretch', gap: spacing.ms },
   grow: { flex: 1 },

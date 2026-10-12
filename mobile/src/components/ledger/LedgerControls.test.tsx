@@ -1,5 +1,5 @@
 import { createRef } from 'react';
-import type { TextInput } from 'react-native';
+import { StyleSheet, type TextInput } from 'react-native';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { LedgerControls, type ActiveFilterChip } from './LedgerControls';
 import { ThemeProvider } from '../../theme';
@@ -39,6 +39,25 @@ describe('LedgerControls', () => {
     expect(screen.getByLabelText('Filter: all')).not.toBeSelected();
     fireEvent.press(screen.getByLabelText('Filter: expense'));
     expect(handlers.onTypeFilter).toHaveBeenCalledWith('EXPENSE');
+  });
+
+  it('keeps each segment label on one line and stops it growing past what a third of the row holds', () => {
+    // Seen at accessibility-large on an iPhone 17 Pro simulator: "Expens" / "e".
+    show();
+    for (const label of ['All', 'Income', 'Expense']) {
+      const text = screen.getByText(label);
+      expect(text.props.numberOfLines).toBe(1);
+      expect(text.props.maxFontSizeMultiplier).toBe(1.5);
+    }
+  });
+
+  it('gives the search field no fixed line height, so its text stays centred at any text size', () => {
+    // Seen at accessibility-large: with the type ramp's line height the text sat at the bottom of
+    // the field, cut off.
+    show();
+    const style = StyleSheet.flatten(screen.getByLabelText('Search transactions').props.style);
+    expect(style.lineHeight).toBeUndefined();
+    expect(style.fontSize).toBe(14);
   });
 
   it('opens the filters from one button', () => {

@@ -37,6 +37,17 @@ describe('LedgerTitleBlock', () => {
   });
 });
 
+describe('LedgerTitleBlock at large text', () => {
+  it('keeps the title on one line and shrinks it to fit, never breaking the word', () => {
+    // Seen at accessibility-large on an iPhone 17 Pro simulator: "Transactio" / "ns".
+    render(<ThemeProvider><LedgerTitleBlock countLabel="392 transactions" onAdd={jest.fn()} /></ThemeProvider>);
+    const title = screen.getByRole('header', { name: 'Transactions' });
+    expect(title.props.numberOfLines).toBe(1);
+    expect(title.props.adjustsFontSizeToFit).toBe(true);
+    expect(title.props.maxFontSizeMultiplier).toBe(1.4);
+  });
+});
+
 describe('LedgerPinnedBar', () => {
   const handlers = { onSearch: jest.fn(), onAdd: jest.fn() };
   const bar = (shown: boolean) => (

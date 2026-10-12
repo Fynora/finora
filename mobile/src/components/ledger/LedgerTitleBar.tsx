@@ -35,7 +35,17 @@ export function LedgerTitleBlock({ countLabel, onAdd }: { countLabel: string; on
   return (
     <View testID="ledger-title-block" style={styles.block}>
       <View style={styles.blockText}>
-        <Text accessibilityRole="header" style={[typography.screenTitle, { color: c.ink }]}>Transactions</Text>
+        {/* One word beside a button: at the largest text sizes it broke in the middle
+            ("Transactio" / "ns"). It grows to 1.4 times and shrinks to fit a narrow screen. */}
+        <Text
+          accessibilityRole="header"
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          maxFontSizeMultiplier={1.4}
+          style={[typography.screenTitle, { color: c.ink }]}
+        >
+          Transactions
+        </Text>
         {/* Always rendered, so the blocks under it do not jump when the count arrives. */}
         <Text style={[typography.bodyS, { color: c.mutedInk }]}>{countLabel}</Text>
       </View>

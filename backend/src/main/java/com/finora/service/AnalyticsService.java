@@ -13,6 +13,7 @@ import com.finora.repository.StatementImportRepository;
 import com.finora.repository.StatementImportRepository.StatementMetadata;
 import com.finora.repository.TransactionRepository;
 import com.finora.repository.UserRepository;
+import com.finora.util.MerchantNames;
 import com.finora.util.ReportingPeriod;
 import com.finora.util.UserZone;
 import org.springframework.stereotype.Service;
@@ -112,7 +113,21 @@ public class AnalyticsService {
                         e.getValue().size()))
                 .sorted(Comparator.comparing(AnalyticsDto.TopMerchant::totalSpend).reversed())
                 .limit(TOP_MERCHANTS_LIMIT)
+                // After the limit: only the merchants returned have their narrations read.
+                .map(top -> new AnalyticsDto.TopMerchant(top.merchantId(),
+                        shownName(top.merchantName(), byMerchant.get(top.merchantId())),
+                        top.totalSpend(), top.transactionCount()))
                 .toList();
+    }
+
+    /**
+     * The name a customer reads for a merchant stored as {@code storedName}. A merchant created
+     * before 2026-10-03 is stored under its narration's first words, rail word first; it is shown
+     * as the payee its own transactions name (see {@link MerchantNames#forDisplay}). Nothing stored
+     * changes.
+     */
+    private static String shownName(String storedName, List<Transaction> transactions) {
+        return MerchantNames.forDisplay(storedName, transactions.stream().map(Transaction::getDescription).toList());
     }
 
     /** Total merchant-attributed EXPENSE spend per month, for the TREND_MONTHS trailing the given

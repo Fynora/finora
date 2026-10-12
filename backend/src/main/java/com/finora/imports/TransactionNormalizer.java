@@ -839,8 +839,15 @@ public class TransactionNormalizer {
         boolean international = (ctx != null && ctx.isInternationalRow(row)) || foreign != null;
         if (ctx != null && foreign != null) ctx.record("FOREIGN_CURRENCY_AMOUNT");
 
+        // The review screen prints this name under the row. A merchant created before 2026-10-03
+        // is stored under its narration's first words, rail word first, so the row shows the payee
+        // its own narration names instead. `merchant` itself stays the stored name: it is what the
+        // rule above was given, and what confirm gives the same rule.
+        String shownMerchant = merchant == null ? null
+                : com.finora.util.MerchantNames.forDisplay(merchant, java.util.Collections.singletonList(description));
+
         return new StagedRow(date, description, amount, type, suggestedCategory, source, ruleId,
-                likelyDuplicate, referenceNumber, balanceAfter, duplicateMatch, kind, null, merchant,
+                likelyDuplicate, referenceNumber, balanceAfter, duplicateMatch, kind, null, shownMerchant,
                 merchantConfidence, categoryConfidence)
                 .withForeignSpend(international,
                         foreign == null ? null : foreign.currency(),

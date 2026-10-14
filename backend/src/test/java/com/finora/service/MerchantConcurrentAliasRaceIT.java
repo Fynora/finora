@@ -144,7 +144,7 @@ class MerchantConcurrentAliasRaceIT extends AbstractIntegrationTest {
 
         Thread first = new Thread(() -> {
             try {
-                firstResult.set(engine.resolve(userId, DESCRIPTION));
+                firstResult.set(engine.resolve(userId, DESCRIPTION).orElseThrow());
             } catch (Throwable t) {
                 firstFailure.set(t);
             }
@@ -157,7 +157,7 @@ class MerchantConcurrentAliasRaceIT extends AbstractIntegrationTest {
 
         Thread second = new Thread(() -> {
             try {
-                secondResult.set(engine.resolve(userId, DESCRIPTION));
+                secondResult.set(engine.resolve(userId, DESCRIPTION).orElseThrow());
             } catch (Throwable t) {
                 secondFailure.set(t);
             }
@@ -197,7 +197,7 @@ class MerchantConcurrentAliasRaceIT extends AbstractIntegrationTest {
         // Both callers must be able to resolve the SAME description to the SAME merchant afterwards --
         // the alias row that survived is the source of truth, regardless of which caller's own
         // "candidate" merchant it ended up pointing at.
-        Merchant resolvedAfterwards = engine.resolve(userId, DESCRIPTION);
+        Merchant resolvedAfterwards = engine.resolve(userId, DESCRIPTION).orElseThrow();
         assertThat(resolvedAfterwards.getId()).isEqualTo(aliasRow.get().getMerchantId());
     }
 }

@@ -3,6 +3,7 @@ package com.finora.service;
 import com.finora.entity.Merchant;
 import com.finora.entity.MerchantAlias;
 import com.finora.repository.MerchantAliasRepository;
+import com.finora.util.CategoryRules;
 import com.finora.repository.MerchantRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -128,8 +129,8 @@ class MerchantNormalizationEngineTest {
     @Test
     @DisplayName("the same description resolves to the same merchant every time")
     void identicalDescriptionsShareAMerchant() {
-        Merchant first = engine.resolve(userId, "SWIGGY BANGALORE");
-        Merchant second = engine.resolve(userId, "SWIGGY BANGALORE");
+        Merchant first = engine.resolve(userId, "SWIGGY BANGALORE").orElseThrow();
+        Merchant second = engine.resolve(userId, "SWIGGY BANGALORE").orElseThrow();
 
         assertThat(second.getId()).isEqualTo(first.getId());
         assertThat(merchants).hasSize(1);
@@ -144,9 +145,9 @@ class MerchantNormalizationEngineTest {
     @Test
     @DisplayName("different spellings sharing the first two words collapse onto ONE new merchant")
     void differentSpellingsOfANewMerchantCollapseOntoOne() {
-        Merchant a = engine.resolve(userId, "SWIGGY BANGALORE");
-        Merchant b = engine.resolve(userId, "SWIGGY BANGALORE 4471");
-        Merchant c = engine.resolve(userId, "SWIGGY*BANGALORE KA");
+        Merchant a = engine.resolve(userId, "SWIGGY BANGALORE").orElseThrow();
+        Merchant b = engine.resolve(userId, "SWIGGY BANGALORE 4471").orElseThrow();
+        Merchant c = engine.resolve(userId, "SWIGGY*BANGALORE KA").orElseThrow();
 
         assertThat(merchants)
                 .as("all three descriptions are the same merchant; creating one row per spelling "
@@ -165,9 +166,9 @@ class MerchantNormalizationEngineTest {
     void spellingsOfASeededBrandCollapseOntoTheSeed() {
         Merchant seeded = approvedMerchant("Swiggy");
 
-        assertThat(engine.resolve(userId, "SWIGGY BANGALORE").getId()).isEqualTo(seeded.getId());
-        assertThat(engine.resolve(userId, "SWIGGY ORDER 4471").getId()).isEqualTo(seeded.getId());
-        assertThat(engine.resolve(userId, "UPI/9182736/SWIGGY INSTAMART").getId()).isEqualTo(seeded.getId());
+        assertThat(engine.resolve(userId, "SWIGGY BANGALORE").orElseThrow().getId()).isEqualTo(seeded.getId());
+        assertThat(engine.resolve(userId, "SWIGGY ORDER 4471").orElseThrow().getId()).isEqualTo(seeded.getId());
+        assertThat(engine.resolve(userId, "UPI/9182736/SWIGGY INSTAMART").orElseThrow().getId()).isEqualTo(seeded.getId());
         assertThat(merchants).hasSize(1);
     }
 
@@ -181,8 +182,8 @@ class MerchantNormalizationEngineTest {
     @Test
     @DisplayName("an unseeded brand's spellings that differ in the second word stay separate")
     void unseededSpellingsDifferingInTheSecondWordStaySeparate() {
-        engine.resolve(userId, "ACMEMART BANGALORE");
-        engine.resolve(userId, "ACMEMART INSTANT");
+        engine.resolve(userId, "ACMEMART BANGALORE").orElseThrow();
+        engine.resolve(userId, "ACMEMART INSTANT").orElseThrow();
 
         assertThat(merchants).hasSize(2);
     }
@@ -197,8 +198,8 @@ class MerchantNormalizationEngineTest {
     @Test
     @DisplayName("two shops sharing a first name are two merchants")
     void shopsSharingAFirstNameAreSeparate() {
-        Merchant medical = engine.resolve(userId, "UPI/9182736/RAMESH MEDICAL/q111@ybl");
-        Merchant traders = engine.resolve(userId, "UPI/5647382/RAMESH TRADERS/q222@ybl");
+        Merchant medical = engine.resolve(userId, "UPI/9182736/RAMESH MEDICAL/q111@ybl").orElseThrow();
+        Merchant traders = engine.resolve(userId, "UPI/5647382/RAMESH TRADERS/q222@ybl").orElseThrow();
 
         assertThat(traders.getId()).isNotEqualTo(medical.getId());
     }
@@ -212,9 +213,9 @@ class MerchantNormalizationEngineTest {
     @Test
     @DisplayName("payees behind a shared non-name opening word are separate merchants")
     void payeesBehindASharedOpeningWordAreSeparate() {
-        engine.resolve(userId, "UPI PAYMENT FROM ALICE");
-        engine.resolve(userId, "UPI PAYMENT FROM BOBTEL BROADBAND");
-        engine.resolve(userId, "UPI PAYMENT FROM CAROL");
+        engine.resolve(userId, "UPI PAYMENT FROM ALICE").orElseThrow();
+        engine.resolve(userId, "UPI PAYMENT FROM BOBTEL BROADBAND").orElseThrow();
+        engine.resolve(userId, "UPI PAYMENT FROM CAROL").orElseThrow();
 
         assertThat(merchants).hasSize(3);
     }
@@ -227,9 +228,9 @@ class MerchantNormalizationEngineTest {
     @Test
     @DisplayName("different payees behind one long structured prefix are different merchants")
     void payeesAfterALongStructuredPrefixAreSeparate() {
-        Merchant alice = engine.resolve(userId, "UPI/RRN 000000000001/Payment from PhonePe_ALICE");
-        Merchant bob = engine.resolve(userId, "UPI/RRN 000000000002/Payment from PhonePe_BOBBY");
-        Merchant aliceAgain = engine.resolve(userId, "UPI/RRN 000000000003/Payment from PhonePe_ALICE");
+        Merchant alice = engine.resolve(userId, "UPI/RRN 000000000001/Payment from PhonePe_ALICE").orElseThrow();
+        Merchant bob = engine.resolve(userId, "UPI/RRN 000000000002/Payment from PhonePe_BOBBY").orElseThrow();
+        Merchant aliceAgain = engine.resolve(userId, "UPI/RRN 000000000003/Payment from PhonePe_ALICE").orElseThrow();
 
         assertThat(bob.getId()).isNotEqualTo(alice.getId());
         assertThat(aliceAgain.getId())
@@ -245,14 +246,14 @@ class MerchantNormalizationEngineTest {
     void seededBrandInAStructuredPayeeField() {
         Merchant seeded = approvedMerchant("Swiggy");
 
-        assertThat(engine.resolve(userId, "UPI/RRN 000000000001/Payment from PhonePe_SWIGGY INSTAMART").getId())
+        assertThat(engine.resolve(userId, "UPI/RRN 000000000001/Payment from PhonePe_SWIGGY INSTAMART").orElseThrow().getId())
                 .isEqualTo(seeded.getId());
     }
 
     @Test
     @DisplayName("indexed and live resolution read the same payee field")
     void indexedAndLiveResolutionReadTheSamePayeeField() {
-        Merchant alice = engine.resolve(userId, "UPI/RRN 000000000001/Payment from PhonePe_ALICE");
+        Merchant alice = engine.resolve(userId, "UPI/RRN 000000000001/Payment from PhonePe_ALICE").orElseThrow();
         com.finora.imports.MerchantIndex index = engine.indexFor(userId);
 
         assertThat(engine.resolveReadOnly(userId, "UPI/RRN 000000000009/Payment from PhonePe_ALICE", index)).contains(alice);
@@ -263,15 +264,15 @@ class MerchantNormalizationEngineTest {
 
     /**
      * A narration that names only a merchant QR handle reduces, digits stripped, to the payment
-     * app's own suffix. Keyed on that, every QR payee on a statement was one merchant.
+     * app's own suffix. Keyed on that, every QR payee on a statement was one merchant. Such a
+     * narration names nobody, so it now gets no merchant at all -- and still never a shared one.
      */
     @Test
     @DisplayName("payees known only by a payment app's QR handle are not grouped by the app's name")
     void qrHandleOnlyPayeesAreNotGroupedByTheAppName() {
-        Merchant a = engine.resolve(userId, "UPI/000000000001/00:41:30/UPI/q000000001@ybl/UPI");
-        Merchant b = engine.resolve(userId, "UPI/000000000002/16:52:50/UPI/q000000002@ybl/UPI");
-
-        assertThat(b.getId()).isNotEqualTo(a.getId());
+        assertThat(engine.resolve(userId, "UPI/000000000001/00:41:30/UPI/q000000001@ybl/UPI")).isEmpty();
+        assertThat(engine.resolve(userId, "UPI/000000000002/16:52:50/UPI/q000000002@ybl/UPI")).isEmpty();
+        assertThat(merchants).isEmpty();
     }
 
     /** The cross-statement case measured on the corpus: refunds from different shops paid back
@@ -281,9 +282,9 @@ class MerchantNormalizationEngineTest {
     @DisplayName("a gateway-only narration does not join another gateway-only narration's merchant")
     void gatewayOnlyNarrationsAreNotGrouped() {
         Merchant first = engine.resolve(userId,
-                "UPI-RAZORPAY-GATEWAY.RAZORPAY@EXAMPLEBANK-EXMP0000000-000000000001-SHOPAREFUNDXXXX");
+                "UPI-RAZORPAY-GATEWAY.RAZORPAY@EXAMPLEBANK-EXMP0000000-000000000001-SHOPAREFUNDXXXX").orElseThrow();
         Merchant second = engine.resolve(userId,
-                "UPI-RAZORPAY-GATEWAY.RAZORPAY@EXAMPLEBANK-EXMP0000000-000000000002-SHOPBREFUNDXXXX");
+                "UPI-RAZORPAY-GATEWAY.RAZORPAY@EXAMPLEBANK-EXMP0000000-000000000002-SHOPBREFUNDXXXX").orElseThrow();
 
         assertThat(second.getId()).isNotEqualTo(first.getId());
         assertThat(engine.resolveReadOnly(userId,
@@ -293,21 +294,20 @@ class MerchantNormalizationEngineTest {
     @Test
     @DisplayName("a key that pairs a payment app's name with a real word still groups")
     void appWordBesideARealWordStillGroups() {
-        Merchant a = engine.resolve(userId, "PAYTM MALL ORDER 4471");
-        Merchant b = engine.resolve(userId, "PAYTM MALL ORDER 5512");
+        Merchant a = engine.resolve(userId, "PAYTM MALL ORDER 4471").orElseThrow();
+        Merchant b = engine.resolve(userId, "PAYTM MALL ORDER 5512").orElseThrow();
 
         assertThat(b.getId()).isEqualTo(a.getId());
     }
 
-    /** A structured narration whose payee field names nobody keeps the pre-existing behaviour:
-     *  nothing but rails and a reference, so no key and no grouping. */
+    /** A structured narration whose payee field names nobody: nothing but rails and a reference,
+     *  so no key, no grouping -- and, since it names nobody, no merchant. */
     @Test
-    @DisplayName("a structured narration naming no payee groups exactly as before")
+    @DisplayName("a structured narration naming no payee gets no merchant and joins none")
     void structuredNarrationWithoutAPayeeFallsBack() {
-        Merchant a = engine.resolve(userId, "UPI/RRN 000000000001/UPI");
-        Merchant b = engine.resolve(userId, "UPI/RRN 000000000002/UPI");
-
-        assertThat(b.getId()).isNotEqualTo(a.getId());
+        assertThat(engine.resolve(userId, "UPI/RRN 000000000001/UPI")).isEmpty();
+        assertThat(engine.resolve(userId, "UPI/RRN 000000000002/UPI")).isEmpty();
+        assertThat(merchants).isEmpty();
     }
 
     /**
@@ -318,9 +318,9 @@ class MerchantNormalizationEngineTest {
     @Test
     @DisplayName("a one-word TEMPORARY merchant does not absorb other payees starting with that word")
     void oneWordTemporaryMerchantDoesNotActAsABrand() {
-        Merchant bare = engine.resolve(userId, "UPI/9182736/NATIONAL");
-        Merchant clearing = engine.resolve(userId, "ACH/5647382/NATIONAL CLEARING CORP");
-        Merchant railways = engine.resolve(userId, "UPI/1122334/NATIONAL RAILWAYS");
+        Merchant bare = engine.resolve(userId, "UPI/9182736/NATIONAL").orElseThrow();
+        Merchant clearing = engine.resolve(userId, "ACH/5647382/NATIONAL CLEARING CORP").orElseThrow();
+        Merchant railways = engine.resolve(userId, "UPI/1122334/NATIONAL RAILWAYS").orElseThrow();
 
         assertThat(bare.getLifecycleStatus()).isEqualTo(Merchant.Lifecycle.TEMPORARY);
         assertThat(merchants).hasSize(3);
@@ -333,8 +333,8 @@ class MerchantNormalizationEngineTest {
     void multiWordApprovedMerchantIsNotABrand() {
         Merchant approved = approvedMerchant("National Clearing");
 
-        assertThat(engine.resolve(userId, "ACH/5647382/NATIONAL CLEARING CORP").getId()).isEqualTo(approved.getId());
-        assertThat(engine.resolve(userId, "UPI/1122334/NATIONAL RAILWAYS").getId()).isNotEqualTo(approved.getId());
+        assertThat(engine.resolve(userId, "ACH/5647382/NATIONAL CLEARING CORP").orElseThrow().getId()).isEqualTo(approved.getId());
+        assertThat(engine.resolve(userId, "UPI/1122334/NATIONAL RAILWAYS").orElseThrow().getId()).isNotEqualTo(approved.getId());
     }
 
     @Test
@@ -343,8 +343,8 @@ class MerchantNormalizationEngineTest {
         Merchant brand = approvedMerchant("Acmemart");
         Merchant specific = merchantNamed("Acmemart Instant");
 
-        assertThat(engine.resolve(userId, "ACMEMART INSTANT 4471").getId()).isEqualTo(specific.getId());
-        assertThat(engine.resolve(userId, "ACMEMART BANGALORE").getId()).isEqualTo(brand.getId());
+        assertThat(engine.resolve(userId, "ACMEMART INSTANT 4471").orElseThrow().getId()).isEqualTo(specific.getId());
+        assertThat(engine.resolve(userId, "ACMEMART BANGALORE").orElseThrow().getId()).isEqualTo(brand.getId());
     }
 
     /**
@@ -354,8 +354,8 @@ class MerchantNormalizationEngineTest {
     @Test
     @DisplayName("a short numeric reference is not part of the key")
     void shortNumericReferenceIsNotPartOfTheKey() {
-        Merchant a = engine.resolve(userId, "SWIGGY REF 447");
-        Merchant b = engine.resolve(userId, "SWIGGY REF 512");
+        Merchant a = engine.resolve(userId, "SWIGGY REF 447").orElseThrow();
+        Merchant b = engine.resolve(userId, "SWIGGY REF 512").orElseThrow();
 
         assertThat(b.getId()).isEqualTo(a.getId());
         assertThat(merchants).hasSize(1);
@@ -370,7 +370,7 @@ class MerchantNormalizationEngineTest {
     @Test
     @DisplayName("a narration with no payee field names its merchant without the rail word")
     void unstructuredNarrationIsNamedWithoutItsRailWord() {
-        Merchant created = engine.resolve(userId, "ACH D- SAMPLE FINANCE LTD-0000000001");
+        Merchant created = engine.resolve(userId, "ACH D- SAMPLE FINANCE LTD-0000000001").orElseThrow();
 
         assertThat(created.getCanonicalName()).isEqualTo("Sample Finance");
         assertThat(created.getLifecycleStatus()).isEqualTo(Merchant.Lifecycle.TEMPORARY);
@@ -380,8 +380,8 @@ class MerchantNormalizationEngineTest {
     @Test
     @DisplayName("a merchant named without its rail word still collects the payee's later rows")
     void railFreeNameStillCollectsLaterRows() {
-        Merchant first = engine.resolve(userId, "ACH D- SAMPLE FINANCE LTD-0000000001");
-        Merchant later = engine.resolve(userId, "ACH D- SAMPLE FINANCE LTD-0099999999");
+        Merchant first = engine.resolve(userId, "ACH D- SAMPLE FINANCE LTD-0000000001").orElseThrow();
+        Merchant later = engine.resolve(userId, "ACH D- SAMPLE FINANCE LTD-0099999999").orElseThrow();
 
         assertThat(later.getId()).isEqualTo(first.getId());
         assertThat(merchants).hasSize(1);
@@ -392,7 +392,7 @@ class MerchantNormalizationEngineTest {
     void oldRuleNameStillCollectsLaterRows() {
         Merchant old = merchantNamed("Ach Sample Finance");
 
-        Merchant later = engine.resolve(userId, "ACH D- SAMPLE FINANCE LTD-0099999999");
+        Merchant later = engine.resolve(userId, "ACH D- SAMPLE FINANCE LTD-0099999999").orElseThrow();
 
         assertThat(later.getId()).isEqualTo(old.getId());
         assertThat(merchants).hasSize(1);
@@ -405,9 +405,9 @@ class MerchantNormalizationEngineTest {
     @Test
     @DisplayName("a card purchase keeps its stored name and still collects the shop's later rows")
     void cardPurchaseKeepsItsStoredNameAndStillCollects() {
-        Merchant first = engine.resolve(userId, "POS 512345XXXXXX1234 SAMPLE MART");
+        Merchant first = engine.resolve(userId, "POS 512345XXXXXX1234 SAMPLE MART").orElseThrow();
         // A different narration, so the exact-alias lookup cannot be what joins them.
-        Merchant later = engine.resolve(userId, "POS 512345XXXXXX1234 SAMPLE MART BENGALURU");
+        Merchant later = engine.resolve(userId, "POS 512345XXXXXX1234 SAMPLE MART BENGALURU").orElseThrow();
 
         assertThat(first.getCanonicalName()).isEqualTo("Pos 512345xxxxxx1234 Sample Mart");
         assertThat(later.getId()).isEqualTo(first.getId());
@@ -415,21 +415,42 @@ class MerchantNormalizationEngineTest {
     }
 
     /**
-     * A narration that names nobody is named after its rail. Every such merchant then carries the
-     * same name, and that name must never become a key: it would pool every payment that names no
-     * payee into one merchant, and one correction on it would recategorise them all.
+     * A narration that names nobody gets no merchant and leaves no alias: each one used to make a
+     * merchant of its own, holding one row and named after its rail.
      */
     @Test
-    @DisplayName("payments that name no payee share a name and stay separate merchants")
-    void paymentsNamingNobodyShareANameButNotAMerchant() {
-        Merchant a = engine.resolve(userId, "UPI/RRN 000000000001/UPI");
-        Merchant b = engine.resolve(userId, "UPI/RRN 000000000002/UPI");
-        Merchant c = engine.resolve(userId, "NACH CHQ 004471");
-        Merchant d = engine.resolve(userId, "NACH CHQ 004472");
+    @DisplayName("a payment that names nobody, or a cash withdrawal, gets no merchant")
+    void aNarrationThatNamesNobodyGetsNoMerchant() {
+        assertThat(engine.resolve(userId, "UPI/RRN 000000000001/UPI")).isEmpty();
+        assertThat(engine.resolve(userId, "NACH CHQ 004471")).isEmpty();
+        assertThat(engine.resolve(userId, "ATW-512345XXXXXX1234-S1ANBG12-SAMPLETOWN")).isEmpty();
+        assertThat(engine.resolveReadOnly(userId, "UPI/RRN 000000000002/UPI")).isEmpty();
+        assertThat(merchants).isEmpty();
+        assertThat(aliases).isEmpty();
+    }
 
-        assertThat(List.of(a, b).stream().map(Merchant::getCanonicalName)).containsOnly("UPI payment");
-        assertThat(List.of(c, d).stream().map(Merchant::getCanonicalName)).containsOnly("NACH payment");
-        assertThat(merchants).hasSize(4);
+    /** The rule runs before the exact-alias lookup: an alias written before it existed is not used. */
+    @Test
+    @DisplayName("an alias written before for a narration that names nobody is not used")
+    void anOldAliasForANarrationThatNamesNobodyIsNotUsed() {
+        String narration = "UPI/RRN 000000000001/UPI";
+        Merchant old = merchantNamed("Upi Upi");
+        MerchantAlias alias = new MerchantAlias();
+        alias.setMerchantId(old.getId());
+        alias.setUserId(userId);
+        alias.setNormalizedAlias(CategoryRules.normalize(narration));
+        aliases.add(alias);
+
+        assertThat(engine.resolve(userId, narration)).isEmpty();
+        assertThat(engine.resolveReadOnly(userId, narration)).isEmpty();
+        assertThat(engine.resolveReadOnly(userId, narration, engine.indexFor(userId))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a rail narration that names its payee still gets a merchant")
+    void aRailNarrationThatNamesItsPayeeStillGetsAMerchant() {
+        assertThat(engine.resolve(userId, "UPI/DR/100000000001/SAMPLEPA/HDFC/samplepayee21@okhdfc"))
+                .get().extracting(Merchant::getCanonicalName).isEqualTo("Samplepa");
     }
 
     /**
@@ -441,7 +462,7 @@ class MerchantNormalizationEngineTest {
     @DisplayName("the grouping key of a stored name is the one resolve() matches it by")
     void groupingKeyOfNameIsTheKeyResolveMatchesBy() {
         Merchant stored = merchantNamed("Sample Kirana");
-        Merchant matched = engine.resolve(userId, "UPI-SAMPLE KIRANA-samplekirana@okaxis-UTIB0XXXXXX-100000000004-groceries");
+        Merchant matched = engine.resolve(userId, "UPI-SAMPLE KIRANA-samplekirana@okaxis-UTIB0XXXXXX-100000000004-groceries").orElseThrow();
 
         assertThat(matched.getId()).isEqualTo(stored.getId());
         assertThat(MerchantNormalizationEngine.groupingKeyOfName("Sample Kirana"))
@@ -470,9 +491,9 @@ class MerchantNormalizationEngineTest {
     @Test
     @DisplayName("genuinely different merchants stay separate")
     void distinctMerchantsAreNotCollapsed() {
-        engine.resolve(userId, "SWIGGY BANGALORE");
-        engine.resolve(userId, "UBER TRIP 8891");
-        engine.resolve(userId, "AMAZON RETAIL");
+        engine.resolve(userId, "SWIGGY BANGALORE").orElseThrow();
+        engine.resolve(userId, "UBER TRIP 8891").orElseThrow();
+        engine.resolve(userId, "AMAZON RETAIL").orElseThrow();
 
         assertThat(merchants).hasSize(3);
     }
@@ -492,10 +513,10 @@ class MerchantNormalizationEngineTest {
     @Test
     @DisplayName("BUG 03: UPI payees are four merchants, not one")
     void upiPayeesDoNotCollapseOntoOneMerchant() {
-        engine.resolve(userId, "UPI/9182736/SWIGGY");
-        engine.resolve(userId, "UPI/5647382/ZOMATO");
-        engine.resolve(userId, "UPI/1122334/AMAZON");
-        engine.resolve(userId, "UPI/9988776/UBER");
+        engine.resolve(userId, "UPI/9182736/SWIGGY").orElseThrow();
+        engine.resolve(userId, "UPI/5647382/ZOMATO").orElseThrow();
+        engine.resolve(userId, "UPI/1122334/AMAZON").orElseThrow();
+        engine.resolve(userId, "UPI/9988776/UBER").orElseThrow();
 
         assertThat(merchants)
                 .as("the rail names how the money moved, not who it moved to -- keying on it "
@@ -508,10 +529,12 @@ class MerchantNormalizationEngineTest {
     void otherRailsDoNotCollapseEither() {
         // Bank prefix kept, branch code masked -- the Synthetic Fixture Policy's own placeholder
         // shape. The prefix is the part that carries meaning for a layout; the branch code is not.
-        engine.resolve(userId, "NEFT-HDFC0XXXXXX-ACME LTD");
-        engine.resolve(userId, "IMPS/P2A/512345/BIGBASKET");
-        engine.resolve(userId, "POS 4471 DECATHLON");
-        engine.resolve(userId, "ATM WDL 8891 AXIS");
+        engine.resolve(userId, "NEFT-HDFC0XXXXXX-ACME LTD").orElseThrow();
+        engine.resolve(userId, "IMPS/P2A/512345/BIGBASKET").orElseThrow();
+        engine.resolve(userId, "POS 4471 DECATHLON").orElseThrow();
+        engine.resolve(userId, "ACH D- SAMPLE INSURANCE LTD-0000000001").orElseThrow();
+        // A cash withdrawal names nobody and gets no merchant (aNarrationThatNamesNobodyGetsNoMerchant).
+        assertThat(engine.resolve(userId, "ATM WDL 8891 AXIS")).isEmpty();
 
         assertThat(merchants).hasSize(4);
     }
@@ -526,9 +549,9 @@ class MerchantNormalizationEngineTest {
     @Test
     @DisplayName("one payee across differing references is still ONE merchant")
     void sameUpiPayeeAcrossDifferentReferencesStillCollapses() {
-        Merchant a = engine.resolve(userId, "UPI/9182736/SWIGGY");
-        Merchant b = engine.resolve(userId, "UPI/5647382/SWIGGY");
-        Merchant c = engine.resolve(userId, "SWIGGY 4471");
+        Merchant a = engine.resolve(userId, "UPI/9182736/SWIGGY").orElseThrow();
+        Merchant b = engine.resolve(userId, "UPI/5647382/SWIGGY").orElseThrow();
+        Merchant c = engine.resolve(userId, "SWIGGY 4471").orElseThrow();
 
         assertThat(merchants)
                 .as("stripping the rail must not promote the per-transaction reference into the key")
@@ -538,21 +561,21 @@ class MerchantNormalizationEngineTest {
     }
 
     @Test
-    @DisplayName("a description that is only rail and reference gets its own merchant, never a match")
+    @DisplayName("a description that is only rail and reference gets no merchant, never a match")
     void railOnlyDescriptionDoesNotMatchAnything() {
-        engine.resolve(userId, "SWIGGY BANGALORE");
-        engine.resolve(userId, "UPI 12345");
+        engine.resolve(userId, "SWIGGY BANGALORE").orElseThrow();
+        assertThat(engine.resolve(userId, "UPI 12345")).isEmpty();
 
         assertThat(merchants)
-                .as("with no counterparty to group by, creating a separate merchant is the "
-                        + "recoverable failure; matching an unrelated one is not")
-                .hasSize(2);
+                .as("with no counterparty to group by, a row with no merchant is the recoverable "
+                        + "failure; matching an unrelated one is not")
+                .hasSize(1);
     }
 
     @Test
     @DisplayName("staging previews the same merchant the confirm would create")
     void readOnlyResolutionAgreesWithResolve() {
-        Merchant confirmed = engine.resolve(userId, "UPI/9182736/SWIGGY");
+        Merchant confirmed = engine.resolve(userId, "UPI/9182736/SWIGGY").orElseThrow();
 
         // A different reference for the same payee, as a later row would carry.
         assertThat(engine.resolveReadOnly(userId, "UPI/5647382/SWIGGY"))
@@ -565,10 +588,10 @@ class MerchantNormalizationEngineTest {
     @Test
     @DisplayName("an alias recorded earlier short-circuits to its merchant")
     void knownAliasSkipsTheScan() {
-        Merchant created = engine.resolve(userId, "SWIGGY BANGALORE");
+        Merchant created = engine.resolve(userId, "SWIGGY BANGALORE").orElseThrow();
         int afterFirst = merchantScanCalls;
 
-        Merchant again = engine.resolve(userId, "SWIGGY BANGALORE");
+        Merchant again = engine.resolve(userId, "SWIGGY BANGALORE").orElseThrow();
 
         assertThat(again.getId()).isEqualTo(created.getId());
         assertThat(merchantScanCalls)
@@ -589,15 +612,15 @@ class MerchantNormalizationEngineTest {
     @Test
     @DisplayName("Bug 56: a dangling alias is repointed, not left to spawn a new merchant every call")
     void danglingAliasIsRepointedRatherThanSpawningANewMerchantForever() {
-        Merchant original = engine.resolve(userId, "SWIGGY BANGALORE");
+        Merchant original = engine.resolve(userId, "SWIGGY BANGALORE").orElseThrow();
         assertThat(aliases).hasSize(1);
 
         // Simulate the merchant having been deleted (e.g. discard()) without touching its alias --
         // the alias is now dangling, pointing at an id no longer in `merchants`.
         merchants.removeIf(m -> m.getId().equals(original.getId()));
 
-        Merchant repaired = engine.resolve(userId, "SWIGGY BANGALORE");
-        Merchant repairedAgain = engine.resolve(userId, "SWIGGY BANGALORE");
+        Merchant repaired = engine.resolve(userId, "SWIGGY BANGALORE").orElseThrow();
+        Merchant repairedAgain = engine.resolve(userId, "SWIGGY BANGALORE").orElseThrow();
 
         assertThat(repaired.getId())
                 .as("a replacement merchant is created for the now-missing one")
@@ -627,7 +650,7 @@ class MerchantNormalizationEngineTest {
     void everyUnseenDescriptionCostsAFullLoad() {
         int distinctMerchants = 40;
         for (int i = 0; i < distinctMerchants; i++) {
-            engine.resolve(userId, "MERCHANT" + i + " STORE " + i);
+            engine.resolve(userId, "MERCHANT" + i + " STORE " + i).orElseThrow();
         }
 
         assertThat(merchants).hasSize(distinctMerchants);
@@ -653,7 +676,7 @@ class MerchantNormalizationEngineTest {
         int distinctMerchants = 50;
         for (int i = 0; i < rows; i++) {
             // Same 50 merchants, but each row's reference number makes it a new alias.
-            engine.resolve(userId, "MERCHANT" + (i % distinctMerchants) + " REF " + i);
+            engine.resolve(userId, "MERCHANT" + (i % distinctMerchants) + " REF " + i).orElseThrow();
         }
 
         assertThat(merchants)
@@ -685,7 +708,7 @@ class MerchantNormalizationEngineTest {
             int rows = 500;
             int distinctMerchants = 50;
             for (int i = 0; i < rows; i++) {
-                engine.resolve(userId, "MERCHANT" + (i % distinctMerchants) + " REF " + i);
+                engine.resolve(userId, "MERCHANT" + (i % distinctMerchants) + " REF " + i).orElseThrow();
             }
 
             assertThat(merchants)
@@ -713,9 +736,9 @@ class MerchantNormalizationEngineTest {
     void aMerchantCreatedMidTransactionIsSeenByLaterRows() {
         TransactionSynchronizationManager.initSynchronization();
         try {
-            engine.resolve(userId, "SWIGGY BANGALORE");
-            engine.resolve(userId, "SWIGGY BANGALORE 4471");
-            engine.resolve(userId, "SWIGGY*BANGALORE 9982");
+            engine.resolve(userId, "SWIGGY BANGALORE").orElseThrow();
+            engine.resolve(userId, "SWIGGY BANGALORE 4471").orElseThrow();
+            engine.resolve(userId, "SWIGGY*BANGALORE 9982").orElseThrow();
 
             assertThat(merchants)
                     .as("all three collapse onto the merchant the first row created")
@@ -730,10 +753,10 @@ class MerchantNormalizationEngineTest {
     @DisplayName("cost: a re-import of the same descriptions triggers no further loads")
     void reimportCostsNoFurtherLoads() {
         List<String> statement = List.of("SWIGGY BANGALORE", "UBER TRIP 8891", "AMAZON RETAIL");
-        statement.forEach(d -> engine.resolve(userId, d));
+        statement.forEach(d -> engine.resolve(userId, d).orElseThrow());
         int afterFirstImport = merchantScanCalls;
 
-        statement.forEach(d -> engine.resolve(userId, d));
+        statement.forEach(d -> engine.resolve(userId, d).orElseThrow());
 
         assertThat(merchantScanCalls).isEqualTo(afterFirstImport);
     }
@@ -750,8 +773,8 @@ class MerchantNormalizationEngineTest {
     @Test
     @DisplayName("cost: indexFor loads the merchant and alias tables once, regardless of statement size")
     void indexForLoadsOnceRegardlessOfStatementSize() {
-        engine.resolve(userId, "SWIGGY BANGALORE");
-        engine.resolve(userId, "UBER TRIP 8891");
+        engine.resolve(userId, "SWIGGY BANGALORE").orElseThrow();
+        engine.resolve(userId, "UBER TRIP 8891").orElseThrow();
         int scansBeforeIndex = merchantScanCalls;
         int aliasScansBeforeIndex = aliasScanCalls;
 
@@ -775,7 +798,7 @@ class MerchantNormalizationEngineTest {
     @Test
     @DisplayName("indexed resolution agrees with the live per-row resolution")
     void indexedResolutionAgreesWithLiveResolution() {
-        Merchant confirmed = engine.resolve(userId, "UPI/9182736/SWIGGY");
+        Merchant confirmed = engine.resolve(userId, "UPI/9182736/SWIGGY").orElseThrow();
         com.finora.imports.MerchantIndex index = engine.indexFor(userId);
 
         assertThat(engine.resolveReadOnly(userId, "UPI/5647382/SWIGGY", index))
@@ -793,7 +816,7 @@ class MerchantNormalizationEngineTest {
     @DisplayName("indexed and live resolution agree on the brand step and on its limits")
     void indexedResolutionAgreesOnTheBrandStep() {
         Merchant seeded = approvedMerchant("Swiggy");
-        engine.resolve(userId, "UPI/9182736/NATIONAL");
+        engine.resolve(userId, "UPI/9182736/NATIONAL").orElseThrow();
         com.finora.imports.MerchantIndex index = engine.indexFor(userId);
 
         assertThat(engine.resolveReadOnly(userId, "SWIGGY INSTAMART 4471", index)).contains(seeded);
@@ -806,7 +829,7 @@ class MerchantNormalizationEngineTest {
     @DisplayName("an index built before a merchant existed does not see it")
     void indexDoesNotSeeMerchantsCreatedAfterItWasBuilt() {
         com.finora.imports.MerchantIndex index = engine.indexFor(userId);
-        engine.resolve(userId, "SWIGGY BANGALORE");
+        engine.resolve(userId, "SWIGGY BANGALORE").orElseThrow();
 
         assertThat(engine.resolveReadOnly(userId, "SWIGGY BANGALORE", index))
                 .as("an index is a snapshot -- it is built once, before the loop that hoists it "

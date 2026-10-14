@@ -118,7 +118,11 @@ public class MerchantNormalizationEngine {
     private static final String MEMO_KEY = MerchantNormalizationEngine.class.getName() + ".merchantMemo";
 
     @Transactional
-    public Merchant resolve(UUID userId, String description) {
+    public java.util.Optional<Merchant> resolve(UUID userId, String description) {
+        // A narration that names nobody -- a bare UPI/NACH reference, a cash withdrawal -- gets no
+        // merchant. Asked before the alias lookup, so an alias written before this rule existed
+        // cannot hand back the merchant it made. See MerchantNames.narrationNamesNobody.
+        if (MerchantNames.narrationNamesNobody(description)) return java.util.Optional.empty();
         String rawAlias = CategoryRules.normalize(description);
 
         // Cut it to size before the database refuses it. A real credit-card statement produced a
@@ -131,8 +135,9 @@ public class MerchantNormalizationEngine {
         // the transaction is already poisoned, and no handling un-poisons it. The write simply
         // must not be attempted.
         //
-        // Truncating rather than skipping, because every caller dereferences this result -- a null
-        // would trade a rollback for an NPE, the same 500 by another route. And truncation loses
+        // Truncating rather than skipping, because a narration that names a payee must get a merchant
+        // -- returning none here would quietly drop its merchant, and before resolve() returned an
+        // Optional a null traded a rollback for an NPE, the same 500 by another route. Truncation loses
         // less than it looks: the boilerplate is APPENDED, so the first 255 characters still carry
         // the real narration. It also stays deterministic, so the same misparsed description maps
         // to the same merchant on re-import instead of multiplying rows.
@@ -153,7 +158,7 @@ public class MerchantNormalizationEngine {
             // states the rule as "never a bare findById", and a rule with one silent exception is
             // a rule the next reader cannot trust. Same query cost, no exception to explain.
             var byAlias = merchantRepository.findByIdAndUserId(existingAlias.get().getMerchantId(), userId);
-            if (byAlias.isPresent()) return byAlias.get();
+            if (byAlias.isPresent()) return byAlias;
             // Bug 56: a dangling alias -- its target merchant is gone (e.g.
             // MerchantReviewService.discard() removes a merchant with no attached transactions but,
             // unlike MerchantService.merge(), never touches its alias rows). createMerchantAndAlias
@@ -164,7 +169,7 @@ public class MerchantNormalizationEngine {
             // spawn a fresh, never-linked duplicate merchant, forever. Repointing the EXISTING row
             // at a fresh merchant instead is the same repair MerchantService.merge() already does
             // when it repoints an absorbed merchant's aliases onto the surviving one.
-            return repointDanglingAlias(userId, description, existingAlias.get());
+            return java.util.Optional.of(repointDanglingAlias(userId, description, existingAlias.get()));
         }
 
         // payeeText, not the raw normalised alias -- see groupingKey for why the two sides of this
@@ -172,7 +177,7 @@ public class MerchantNormalizationEngine {
         var candidate = merchantsByGroupingKey(userId).match(payeeText(description));
         if (candidate != null) {
             addAlias(candidate.getId(), userId, normalizedAlias);
-            return candidate;
+            return java.util.Optional.of(candidate);
         }
 
         Merchant created = createMerchantAndAlias(userId, description, normalizedAlias);
@@ -181,7 +186,7 @@ public class MerchantNormalizationEngine {
         // create a merchant, and the second would collide on the alias index -- turning the fix
         // into a new source of the exact failure addAlias() exists to survive.
         rememberInMemo(userId, created);
-        return created;
+        return java.util.Optional.of(created);
     }
 
     /**
@@ -343,6 +348,7 @@ public class MerchantNormalizationEngine {
      */
     @Transactional(readOnly = true)
     public java.util.Optional<Merchant> resolveReadOnly(UUID userId, String description) {
+        if (MerchantNames.narrationNamesNobody(description)) return java.util.Optional.empty();
         String normalizedAlias = fitToColumn(CategoryRules.normalize(description));
 
         var existingAlias = merchantAliasRepository.findByUserIdAndNormalizedAlias(userId, normalizedAlias);
@@ -390,6 +396,7 @@ public class MerchantNormalizationEngine {
      */
     public java.util.Optional<Merchant> resolveReadOnly(UUID userId, String description,
                                                           com.finora.imports.MerchantIndex index) {
+        if (MerchantNames.narrationNamesNobody(description)) return java.util.Optional.empty();
         String normalizedAlias = fitToColumn(CategoryRules.normalize(description));
         Merchant aliased = index.byNormalizedAlias(normalizedAlias);
         if (aliased != null) return java.util.Optional.of(aliased);

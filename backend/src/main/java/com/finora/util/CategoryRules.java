@@ -398,6 +398,11 @@ public final class CategoryRules {
     private static final Set<String> FILLER_TOKENS = Set.of(
             "upi", "imps", "neft", "rtgs", "mob", "mmt", "ib", "ach", "nach", "dr", "cr", "p2a", "p2m",
             "na", "null", "rrn", "from", "upiintent");
+
+    /** Whether {@code word} (already lower-case) is one of {@link #FILLER_TOKENS}. */
+    static boolean isFillerToken(String word) {
+        return FILLER_TOKENS.contains(word);
+    }
     /** An IFSC, matched from the start of a field with its spaces removed: a line wrap can split it
      *  ("U TIB0...", "IOB A0001 ...") and an account number can follow it. */
     private static final Pattern IFSC_FIELD = Pattern.compile("(?i)^[a-z]{4}0[a-z0-9]{6}");

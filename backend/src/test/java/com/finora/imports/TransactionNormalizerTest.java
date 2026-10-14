@@ -14,6 +14,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -1100,6 +1101,39 @@ class TransactionNormalizerTest {
         assertThat(row.merchantConfidence()).isEqualTo(1.0);
         // The whole point of passing an index: never call the un-indexed, per-row-costly overload.
         verify(merchantNormalizationEngine, never()).resolveReadOnly(any(), any());
+    }
+
+    /**
+     * The review screen prints the matched merchant under the row ("Detected: ..."). A merchant
+     * created before 2026-10-03 is stored under its narration's first words, rail word first; the
+     * row shows the payee its own narration names. The investment rule still reads the stored name,
+     * as confirm does, so staging and confirm cannot disagree about which rule applies.
+     */
+    @Test
+    void normalize_showsARailFirstMerchantAsThePayee_andStillGivesRulesTheStoredName() {
+        com.finora.entity.Merchant old = new com.finora.entity.Merchant();
+        old.setCanonicalName("Upi Dr Samplepa Hdfc");
+        com.finora.service.MerchantNormalizationEngine merchantNormalizationEngine =
+                mock(com.finora.service.MerchantNormalizationEngine.class);
+        when(merchantNormalizationEngine.resolveReadOnly(any(), any())).thenReturn(java.util.Optional.of(old));
+        CategorizationService categorizationService = mock(CategorizationService.class);
+        when(categorizationService.suggestReadOnly(any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(new CategorizationService.Suggestion("Food", "learned", null, null, null));
+        TransactionRepository transactionRepository = mock(TransactionRepository.class);
+        when(transactionRepository.findPotentialDuplicatesByUserAndAccountIdIn(any(), any(), any(), any(), any()))
+                .thenReturn(List.of());
+        TransactionNormalizer withMerchantResolution = new TransactionNormalizer(categorizationService,
+                new DuplicateDetector(transactionRepository, TestAccountRepositories.anyLive()),
+                TestRuleEngines.empty(), merchantNormalizationEngine);
+        String narration = "UPI/DR/100000000001/SAMPLEPA/HDFC/samplepayee21@okhdfc";
+
+        StagedRow row = withMerchantResolution.normalize(userId,
+                rowOf("Date", "01-01-2026", "Description", narration, "Amount", "350", "Type", "Dr"),
+                null, List.of());
+
+        assertThat(row.merchant()).isEqualTo("Samplepa");
+        assertThat(row.merchantConfidence()).isEqualTo(1.0);
+        verify(categorizationService).investmentRuleFor(any(), any(), eq(narration), any(), eq("Upi Dr Samplepa Hdfc"));
     }
 
     @Test

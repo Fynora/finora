@@ -32,4 +32,4 @@
 0	56.6929	314.6457	45.0360	31/07/2026
 0	127.5591	314.6457	85.0230	CLOSING BALANCE
 0	481.8898	314.6457	42.5340	117209.50
-0	56.6929	360.0000	253.9040	Xxxx is a xxxxxxxx xxxxxxxxx statement and xxxx not xxxxxxx xxxxxxxxx.
+0	56.6929	360.0000	253.9040	This is a xxxxxxxx xxxxxxxxx statement and xxxx not xxxxxxx xxxxxxxxx.

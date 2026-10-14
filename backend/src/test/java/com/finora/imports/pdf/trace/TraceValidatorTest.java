@@ -45,6 +45,31 @@ class TraceValidatorTest {
                 List.of(), List.of(), "validator self-test", requiredHeaders);
     }
 
+    /**
+     * The metadata block is written by people (a capture's motivation, the document it came from)
+     * and is committed with the runs, so it gets the same privacy checks. Each case puts one kind
+     * of customer data in one metadata line and nothing in the runs.
+     */
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource(delimiter = '|', value = {
+            "priya.nair@gmail.com      | email",     // synthetic-ok: invented, PII-shaped on purpose
+            "call 9812345678 for help  | phone",     // synthetic-ok: invented number
+            "branch HDFC0004521        | IFSC",      // synthetic-ok: invented branch code
+            "\u0905\u092E\u093F\u0924     | another script",   // synthetic-ok: an invented Devanagari name
+    })
+    void blocksCustomerDataInAMetadataCommentLine(String text, String kind) {
+        TraceMetadata metadata = new TraceMetadata(TraceMetadata.CURRENT_TRACE_VERSION,
+                PdfTraceRedactor.REDACTOR_VERSION, PdfTraceRedactor.allowlistFingerprint(), "2026-10-14",
+                "synthetic", List.of(), List.of(), "captured from " + text.trim(), List.of());
+        String trace = traceWith(metadata);
+        assertThat(TraceValidator.validate("probe", traceWith(metadata(List.of()))).blockers()).isEmpty();
+
+        var result = TraceValidator.validate("probe", trace);
+
+        assertThat(result.isCommittable()).isFalse();
+        assertThat(result.blockers()).anyMatch(f -> f.detail().contains(kind.trim()));
+    }
+
     @Test
     void blocksAnUnmaskedEmailAddress() {
         String trace = traceWith(metadata(List.of()), "priya.nair@gmail.com"); // synthetic-ok: invented, and PII-shaped ON PURPOSE -- the assertion is that this is caught
@@ -182,7 +207,9 @@ class TraceValidatorTest {
                 new PositionedText("9876543210", 0f, 10f, 0), // synthetic-ok
                 new PositionedText("HDFC0001234", 0f, 20f, 0)); // synthetic-ok
         List<String> kinds = TraceValidator.privacyKinds(runs);
-        assertThat(kinds).containsExactlyInAnyOrder("email address", "phone number", "IFSC branch code");
+        // A ten-digit number in clear is also a long number to the backstop behind the number rules.
+        assertThat(kinds).containsExactlyInAnyOrder("email address", "phone number", "IFSC branch code",
+                "number split into groups");
         assertThat(String.join(" ", kinds)).doesNotContain("someone", "98765", "0001234");
     }
 
@@ -200,8 +227,12 @@ class TraceValidatorTest {
                 "\u00C0\u00C9\u00CE",   // synthetic-ok: accented Latin
                 "Xxxx \u093F")) {   // a mark left behind by itself
             List<String> kinds = TraceValidator.privacyKinds(List.of(new PositionedText(text, 0f, 0f, 0)));
+            // Ten digits in any script are also a long number to the number check.
+            List<String> expected = text.codePoints().filter(Character::isDigit).count() >= 6
+                    ? List.of("unmasked text in another script", "number split into groups")
+                    : List.of("unmasked text in another script");
             assertThat(kinds).as("code points %s", text.codePoints().boxed().toList())
-                    .containsExactly("unmasked text in another script");
+                    .containsExactlyElementsOf(expected);
         }
     }
 
@@ -284,8 +315,8 @@ class TraceValidatorTest {
                 new Case("IFSC HDFC0XXXXXX", List.of()),   // a masked branch code
                 new Case("+91 9999999999", List.of()),   // a masked phone number
                 new Case("someone@mail.org", List.of("email address")), // synthetic-ok: real-shaped on purpose
-                new Case("Contact 9812345678", List.of("phone number")), // synthetic-ok: real-shaped on purpose
-                new Case("IFSC HDFC0004521", List.of("IFSC branch code")), // synthetic-ok: real-shaped on purpose
+                new Case("Contact 9812345678", List.of("phone number", "number split into groups")), // synthetic-ok: real-shaped on purpose
+                new Case("IFSC HDFC0004521", List.of("IFSC branch code", "number split into groups")), // synthetic-ok: real-shaped on purpose
                 new Case("अमित", List.of("unmasked text in another script")))) {   // synthetic-ok
             List<String> kinds = TraceValidator.privacyKinds(List.of(new PositionedText(c.text(), 0f, 0f, 0)));
             List<String> blocked = TraceValidator.validate("probe", traceWith(metadata(List.of()), c.text()))
@@ -293,7 +324,9 @@ class TraceValidatorTest {
                     .flatMap(f -> allKinds.stream().filter(k -> f.detail().contains(k)))
                     .distinct().toList();
             assertThat(kinds).as("privacyKinds: %s", c.text()).containsExactlyElementsOf(c.kinds());
-            assertThat(blocked).as("validate: %s", c.text()).containsExactlyInAnyOrderElementsOf(kinds);
+            // validate() has no number-groups check: committed traces predate it (see TraceCorpusHealthTest).
+            assertThat(blocked).as("validate: %s", c.text()).containsExactlyInAnyOrderElementsOf(
+                    kinds.stream().filter(k -> !k.equals("number split into groups")).toList());
         }
     }
 

@@ -370,6 +370,23 @@ public final class PdfFixtureBuilder {
         return render(List.of(page));
     }
 
+    /** The same layout with the direction printed as a word, "Expense" or "Income", in its Type
+     *  column: TransactionNormalizer reads a Type holding "income" as money in. */
+    public static byte[] buildDirectionOnlyAsAWordSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 115f, 380f, 460f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("CANARA BANK")
+                .blankLine()
+                .row(col, "Date", "Particulars", "Amount", "Type")
+                .row(col, "01/07/2026", "UPI/GENERIC MERCHANT", "1000.00", "Expense")
+                .row(col, "02/07/2026", "NEFT/SAMPLE EMPLOYER", "5000.00", "Income")
+                .row(col, "03/07/2026", "UPI/GENERIC PAYEE", "150.00", "Expense")
+                .row(col, "04/07/2026", "IMPS/SAMPLE SENDER", "250.00", "Income");
+
+        return render(List.of(page));
+    }
+
     // ==================== DR_CR_SUFFIX (bare and parenthesized) / REPEATED_HEADER ====================
 
     /**

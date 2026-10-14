@@ -5,6 +5,8 @@ import com.finora.imports.pdf.PositionedText;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * The text format a statement's extracted text layer -- every {@link PositionedText} run with its
@@ -46,6 +48,20 @@ public final class TraceFormat {
      *  a version bump rather than an extra column under v2. */
     private static final String MAGIC_V3 = "# finora-pdf-trace v3";
 
+    /** v4 encodes a carriage return or line feed inside a run's text as {@link #CR_SYMBOL} and
+     *  {@link #LF_SYMBOL}. Up to v3 both were written raw: a line feed split a run across two file
+     *  lines, and the parser stripped a trailing carriage return as a Windows line ending, so a
+     *  statement whose runs end in one read differently once written. */
+    private static final String MAGIC_V4 = "# finora-pdf-trace v4";
+    private static final Pattern MAGIC_VERSION = Pattern.compile("^# finora-pdf-trace v(\\d+)");
+
+    /** U+240D SYMBOL FOR CARRIAGE RETURN and U+2424 SYMBOL FOR NEWLINE: none of the committed
+     *  traces holds either, and they are decoded only in a v4 file, so an older file that did hold
+     *  one would still read it as the symbol it is. A v4 run whose real text holds the symbol
+     *  itself reads back as a line break; that collision is accepted as rare. */
+    static final char CR_SYMBOL = '\u240D';
+    static final char LF_SYMBOL = '\u2424';
+
     /** Backward-compatible: writes a v1 trace with no provenance. Retained only so existing
      *  round-trip tests keep exercising the parser; {@link #format(List, TraceMetadata)} is what
      *  the capture path uses. */
@@ -64,10 +80,11 @@ public final class TraceFormat {
         return sb.toString();
     }
 
-    /** A v2 trace: the same run data, preceded by the provenance block that says which redactor and
-     *  allowlist produced it and which capability it exists to protect. */
+    /** A trace at the current version: the run data with widths, preceded by the provenance block
+     *  that says which redactor and allowlist produced it and which capability it exists to
+     *  protect. */
     public static String format(List<PositionedText> runs, TraceMetadata metadata) {
-        return MAGIC_V3 + '\n'
+        return MAGIC_V4 + '\n'
                 + metadata.toHeaderLines()
                 + "# page\tx\ty\twidth\ttext\n"
                 + formatRuns(runs);
@@ -76,7 +93,7 @@ public final class TraceFormat {
     private static String formatRuns(List<PositionedText> runs) {
         StringBuilder sb = new StringBuilder();
         for (PositionedText run : runs) {
-            String text = run.text().replace('\t', ' ');
+            String text = run.text().replace('\t', ' ').replace('\r', CR_SYMBOL).replace('\n', LF_SYMBOL);
             sb.append(run.pageIndex()).append('\t')
                     .append(String.format(Locale.ROOT, "%.2f", run.x())).append('\t')
                     .append(String.format(Locale.ROOT, "%.2f", run.y())).append('\t')
@@ -100,6 +117,7 @@ public final class TraceFormat {
      * since a file's version stamp and its actual width data are written independently.
      */
     public static List<PositionedText> parse(String content) {
+        boolean encoded = encodesLineBreaks(content);
         List<PositionedText> runs = new ArrayList<>();
         for (String line : content.split("\n", -1)) {
             if (line.isBlank() || line.startsWith("#")) continue;
@@ -108,7 +126,7 @@ public final class TraceFormat {
             String[] wide = line.split("\t", 5);
             boolean hasWidth = wide.length == 5 && isNumeric(wide[3]);
             if (hasWidth) {
-                runs.add(new PositionedText(stripTrailingCarriageReturn(wide[4]),
+                runs.add(new PositionedText(text(wide[4], encoded),
                         Float.parseFloat(wide[1]), Float.parseFloat(wide[2]),
                         Integer.parseInt(wide[0]), Float.parseFloat(wide[3])));
                 continue;
@@ -119,10 +137,22 @@ public final class TraceFormat {
                 throw new IllegalArgumentException("Malformed trace line, expected page/x/y/text or "
                         + "page/x/y/width/text but got " + parts.length + " field(s): " + line);
             }
-            runs.add(new PositionedText(stripTrailingCarriageReturn(parts[3]),
+            runs.add(new PositionedText(text(parts[3], encoded),
                     Float.parseFloat(parts[1]), Float.parseFloat(parts[2]), Integer.parseInt(parts[0])));
         }
         return runs;
+    }
+
+    /** Whether the file's magic line says v4 or later, the first version that encodes line breaks
+     *  inside a run. Older files are read exactly as they always were. */
+    private static boolean encodesLineBreaks(String content) {
+        Matcher magic = MAGIC_VERSION.matcher(content);
+        return magic.find() && Integer.parseInt(magic.group(1)) >= 4;
+    }
+
+    private static String text(String field, boolean encoded) {
+        String text = stripTrailingCarriageReturn(field);
+        return encoded ? text.replace(CR_SYMBOL, '\r').replace(LF_SYMBOL, '\n') : text;
     }
 
     /** Whether a field is a bare number, which is what separates a v3 width column from the first

@@ -279,4 +279,44 @@ class MerchantNamesTest {
         assertThat(MerchantNames.forDisplay(null, List.of("UPI/DR/100000000001/SAMPLEPA/HDFC/samplepayee21@okhdfc")))
                 .isNull();
     }
+
+    // ---- whether a narration names anybody a merchant could stand for ----
+
+    @Test
+    void aNarrationOfNothingButARailAndAReferenceNamesNobody() {
+        assertThat(MerchantNames.narrationNamesNobody("UPI/RRN 100000000001/UPI")).isTrue();
+        assertThat(MerchantNames.narrationNamesNobody("UPI 100000000001")).isTrue();
+        assertThat(MerchantNames.narrationNamesNobody("NACH CHQ 004471")).isTrue();
+        assertThat(MerchantNames.narrationNamesNobody("UPI/100000000001/12:30:11/UPI/q12345678@ybl/UPI")).isTrue();
+        // Left with a direction word: stored whole as "Upi Dr", shown as the rail's payment.
+        assertThat(MerchantNames.narrationNamesNobody("UPI/DR/100000000001")).isTrue();
+    }
+
+    @Test
+    void aCashWithdrawalNamesNobodyInEveryFormatSeen() {
+        assertThat(MerchantNames.narrationNamesNobody("ATM WDL 100000000001 SAMPLETOWN")).isTrue();
+        assertThat(MerchantNames.narrationNamesNobody("ATM/CASH WDL/141023/SAMPLETOWN")).isTrue();
+        assertThat(MerchantNames.narrationNamesNobody("ATW-512345XXXXXX1234-S1ANBG12-SAMPLETOWN")).isTrue();
+        assertThat(MerchantNames.narrationNamesNobody("NWD-512345XXXXXX1234-SAMPLETOWN")).isTrue();
+    }
+
+    @Test
+    void aNarrationThatNamesAPayeeNamesSomebody() {
+        assertThat(MerchantNames.narrationNamesNobody("UPI/DR/100000000001/SAMPLEPA/HDFC/samplepayee21@okhdfc")).isFalse();
+        assertThat(MerchantNames.narrationNamesNobody("UPI SAMPLE STORE 100000000001")).isFalse();
+        assertThat(MerchantNames.narrationNamesNobody("NEFT TRANSFER SAMPLE TRADERS")).isFalse();
+        assertThat(MerchantNames.narrationNamesNobody("ACH D- SAMPLE FINANCE LTD-0000000001")).isFalse();
+        assertThat(MerchantNames.narrationNamesNobody("POS 512345XXXXXX1234 SAMPLE MART")).isFalse();
+        assertThat(MerchantNames.narrationNamesNobody("SAMPLE CAFE 4471")).isFalse();
+        // A payment app's own name can be the payee (a wallet top-up).
+        assertThat(MerchantNames.narrationNamesNobody("UPI PAYTM 100000000001")).isFalse();
+        // "ATM" further along is not a withdrawal.
+        assertThat(MerchantNames.narrationNamesNobody("SAMPLE ATM SERVICES LTD")).isFalse();
+    }
+
+    @Test
+    void anEmptyNarrationIsLeftToTheEngine() {
+        assertThat(MerchantNames.narrationNamesNobody(null)).isFalse();
+        assertThat(MerchantNames.narrationNamesNobody("   ")).isFalse();
+    }
 }

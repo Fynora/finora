@@ -142,6 +142,26 @@ public final class MerchantNames {
         return narrations == null ? null : mostCommonName(narrations, name -> true);
     }
 
+    /** The first words of a cash withdrawal: "ATM ..." and HDFC's own-ATM "ATW-" and other-bank "NWD-". */
+    private static final Set<String> CASH_WITHDRAWAL_WORDS = Set.of("atm", "atw", "nwd");
+
+    /**
+     * Whether a narration names nobody a merchant could stand for: a payment that carries only its
+     * rail and a reference ("UPI/RRN &lt;n&gt;/UPI"), or a cash withdrawal. Such a row gets no
+     * merchant -- MerchantNormalizationEngine.resolve asks this first.
+     *
+     * <p>True when the narration opens with a cash-withdrawal word, or when it has no structured
+     * payee field and the name {@link #forNarration} gives it is shown as a rail's payment ("UPI
+     * payment", "NACH payment", ...). A narration with a payee field always names somebody.
+     */
+    public static boolean narrationNamesNobody(String description) {
+        if (description == null || description.isBlank()) return false;
+        String first = CategoryRules.normalize(description).split(" ")[0];
+        if (CASH_WITHDRAWAL_WORDS.contains(first)) return true;
+        if (CategoryRules.structuredPayee(description) != null) return false;
+        return RAIL_PAYMENTS.containsValue(forDisplay(forNarration(description)));
+    }
+
     private static String mostCommonName(Collection<String> narrations, java.util.function.Predicate<String> counts) {
         // Sorted, so an even split is settled by the name and not by the order the rows came in.
         Map<String, Integer> votes = new TreeMap<>();

@@ -1647,6 +1647,63 @@ class ReconciliationServiceTest {
         assertThat(reversal.getRefundOfTransactionId()).isEqualTo(purchase.getId());
     }
 
+    /**
+     * A card that converts a purchase to instalments credits the purchase back ("EMI CONVERSION OF
+     * PURCHASE ON ..." in a card issuer's own worked example, for the purchase's amount). Linked to
+     * the purchase, it nets it to zero in the purchase's own month and category. Unlinked, it only
+     * offset spend in its own month and category, which the shop's purchase rarely shares.
+     */
+    @Test
+    void reconcileForUser_linksACardsEmiConversionCredit_toThePurchaseItConverts() {
+        UUID card = UUID.randomUUID();
+        Transaction purchase = txn(UUID.randomUUID(), card, LocalDate.of(2026, 7, 3), new BigDecimal("12000.00"),
+                Transaction.Type.EXPENSE, "SAMPLE SUPERMARKET MUMBAI", Instant.now());
+        Transaction other = txn(UUID.randomUUID(), card, LocalDate.of(2026, 7, 4), new BigDecimal("15000.00"),
+                Transaction.Type.EXPENSE, "SAMPLE ELECTRONICS MUMBAI", Instant.now());
+        // In the next statement: a conversion often lands a cycle after the purchase.
+        Transaction conversion = txn(UUID.randomUUID(), card, LocalDate.of(2026, 8, 2), new BigDecimal("12000.00"),
+                Transaction.Type.INCOME, "EMI CONVERSION OF PURCHASE", Instant.now());
+        typed(card, Account.Type.CREDIT_CARD);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(purchase, other, conversion));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(conversion.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.REVERSAL);
+        assertThat(conversion.getRefundOfTransactionId()).isEqualTo(purchase.getId());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> reason = (Map<String, Object>) conversion.getReconciliationExplanation().get("reason");
+        assertThat(reason).containsEntry("emiConversion", true).containsEntry("reversalKeyword", false);
+    }
+
+    /** Only the whole purchase, on the same card, before the credit, worded as a conversion. */
+    @Test
+    void reconcileForUser_doesNotLinkAnEmiConversionCredit_withoutAWholeEarlierPurchaseOnTheSameCard() {
+        UUID card = UUID.randomUUID();
+        UUID savings = UUID.randomUUID();
+        Transaction purchase = txn(UUID.randomUUID(), card, LocalDate.of(2026, 7, 3), new BigDecimal("12000.00"),
+                Transaction.Type.EXPENSE, "SAMPLE SUPERMARKET MUMBAI", Instant.now());
+        Transaction partial = txn(UUID.randomUUID(), card, LocalDate.of(2026, 8, 2), new BigDecimal("11999.00"),
+                Transaction.Type.INCOME, "EMI CONVERSION OF PURCHASE", Instant.now());
+        Transaction before = txn(UUID.randomUUID(), card, LocalDate.of(2026, 7, 2), new BigDecimal("12000.00"),
+                Transaction.Type.INCOME, "EMI CONVERSION OF PURCHASE", Instant.now());
+        Transaction unworded = txn(UUID.randomUUID(), card, LocalDate.of(2026, 8, 2), new BigDecimal("12000.00"),
+                Transaction.Type.INCOME, "SAMPLE CREDIT 0001", Instant.now());
+        Transaction savingsPurchase = txn(UUID.randomUUID(), savings, LocalDate.of(2026, 7, 3), new BigDecimal("9000.00"),
+                Transaction.Type.EXPENSE, "SAMPLE STORE PUNE", Instant.now());
+        Transaction savingsConversion = txn(UUID.randomUUID(), savings, LocalDate.of(2026, 8, 2), new BigDecimal("9000.00"),
+                Transaction.Type.INCOME, "EMI CONVERSION OF PURCHASE", Instant.now());
+        typed(card, Account.Type.CREDIT_CARD);
+        typed(savings, Account.Type.SAVINGS);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                .thenReturn(List.of(purchase, partial, before, unworded, savingsPurchase, savingsConversion));
+
+        reconciliationService.reconcileForUser(userId);
+
+        for (Transaction credit : List.of(partial, before, unworded, savingsConversion)) {
+            assertThat(credit.getRefundOfTransactionId()).as(credit.getDescription() + " " + credit.getAmount()).isNull();
+        }
+    }
+
     @Test
     void reconcileForUser_stillClassifiesAPlainRefundKeywordAsRefund_notReversal() {
         UUID accountId = UUID.randomUUID();

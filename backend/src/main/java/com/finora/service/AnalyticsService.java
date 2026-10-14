@@ -103,6 +103,9 @@ public class AnalyticsService {
         RefundNetting refunds = refundsFor(userId);
         Map<UUID, List<Transaction>> byMerchant = activeExpenseTransactions(userId, month).stream()
                 .filter(t -> t.getMerchantId() != null)
+                // The bank's own line (an instalment, a charge, GST) is not a merchant -- see
+                // InsightsService's merchant totals.
+                .filter(t -> !com.finora.util.BankActivityCategory.namesBanksOwnCharge(t.getDescription()))
                 .collect(Collectors.groupingBy(Transaction::getMerchantId));
 
         return byMerchant.entrySet().stream()

@@ -3,6 +3,8 @@ package com.finora.util;
 import com.finora.entity.Transaction;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static com.finora.entity.Transaction.Type.EXPENSE;
 import static com.finora.entity.Transaction.Type.INCOME;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -210,6 +212,19 @@ class BankActivityCategoryTest {
         // The same words as a credit stay unplaced: the statement prints the line back the same day,
         // and reconciliation already pairs it with the debit by their shared merchant.
         assertThat(of("SAMPLE STORE 05 MAR 2ND OF 3 INSTALLMENTS PRINCIPAL", INCOME)).isNull();
+    }
+
+    @Test
+    void namesBanksOwnCharge_isAnInstalmentLine_aCharge_orGst_neverAShop() {
+        for (String line : List.of("FP EMI 06/12(EXCL TAX   49.40)", "INTEREST ON EMI", "IGST DB @ 18.00%",
+                "GST ON FUEL SURCHARGE", "SMS CHARGES 0001", "SAMPLE MARKUP FEE")) {
+            assertThat(BankActivityCategory.namesBanksOwnCharge(line)).as(line).isTrue();
+        }
+        for (String line : List.of("SAMPLE STORE MUMBAI", "ECS EMI AUTO DEBIT LOAN 0000000001", "UPI-SAMPLESHOP-shop@okbank-1",
+                "")) {
+            assertThat(BankActivityCategory.namesBanksOwnCharge(line)).as(line).isFalse();
+        }
+        assertThat(BankActivityCategory.namesBanksOwnCharge(null)).isFalse();
     }
 
     /** Not merchant vocabulary: a card's instalment line must not make the card a business. */

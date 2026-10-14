@@ -107,11 +107,19 @@ public class PreviewGenerator {
         // own doc comment.
         ResolutionIndex resolutionIndex = transactionNormalizer.resolutionIndexFor(userId);
 
+        // The file's data rows as the column-ambiguity check reads them, and which staged row each
+        // became -- see ImportVerifier.verifyCsv. A CSV is shown in file order, so a staged row's
+        // place in `staged` is its place on screen.
+        List<Map<String, String>> located = new ArrayList<>();
+        List<Integer> stagedIndexOfLocatedRow = new ArrayList<>();
+
         for (int i = headerIdx + 1; i < allRows.size(); i++) {
             String[] cells = allRows.get(i);
             if (csvParser.isBlankRow(cells)) continue;
 
             Map<String, String> row = csvParser.zipRow(headerRow, cells);
+            located.add(row);
+            stagedIndexOfLocatedRow.add(ColumnAmbiguityValidator.NOT_SHOWN);
 
             StagedRow parsed = transactionNormalizer.normalize(userId, row, ctx, rules, duplicateIndex, merchantIndex,
                     resolutionIndex);
@@ -130,6 +138,7 @@ public class PreviewGenerator {
                 // staged as a transaction.
                 if (parsed.kind() == RowKind.TRANSACTION) {
                     staged.add(parsed);
+                    stagedIndexOfLocatedRow.set(located.size() - 1, staged.size() - 1);
                 } else if (transactionNormalizer.hasUnrecognizedNonBlankColumn(row)) {
                     // Not a CONFIDENT balance-marker classification -- see
                     // TransactionNormalizer.hasUnrecognizedNonBlankColumn's own doc comment and
@@ -172,9 +181,10 @@ public class PreviewGenerator {
         ctx.recordUnparseable(unparseable);
         // Cross-checks the parsed rows against the statement's own running balance. Reported, never
         // enforced -- see BalanceChainValidator for why refusing an import would be the wrong trade.
-        var verification = importVerifier.verify(staged,
+        var verification = importVerifier.verifyCsv(staged,
                 detected == null ? null : detected.openingBalance(),
-                detected == null ? null : detected.closingBalance());
+                detected == null ? null : detected.closingBalance(),
+                located, unparseable, stagedIndexOfLocatedRow.stream().mapToInt(Integer::intValue).toArray());
         return new CsvGenerationResult(
                 new StagingResponse(staged, staged.size(), dupCount, detected, unparseable, verification), ctx);
     }

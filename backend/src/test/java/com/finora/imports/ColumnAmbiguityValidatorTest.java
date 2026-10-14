@@ -235,7 +235,11 @@ class ColumnAmbiguityValidatorTest {
                 List.of(), new int[] {ColumnAmbiguityValidator.NOT_SHOWN});
 
         assertThat(finding.outcome()).isEqualTo("VERIFIED");
-        assertThat(validator.check(List.of(), List.of(), new int[0]).outcome()).isEqualTo("NOT_APPLICABLE");
+        var noRows = validator.check(List.of(), List.of(), new int[0]);
+        assertThat(noRows.outcome()).isEqualTo("NOT_APPLICABLE");
+        // The rows were handed over; there were none. "Not available" would be untrue.
+        assertThat(noRows.details().get("reason")).isEqualTo("The statement had no rows to check for ambiguity.");
+        assertThat(validator.check(List.of()).details().get("reason").toString()).contains("not available");
     }
 
     @Test

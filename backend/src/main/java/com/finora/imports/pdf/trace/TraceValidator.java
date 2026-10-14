@@ -148,7 +148,9 @@ public final class TraceValidator {
     /**
      * Which kinds of customer data survived redaction, by name only. The server's refusal check:
      * unlike {@link #validate}, a layout with no table is not a reason to refuse, and the matched
-     * text is never returned, so a refusal can be shown to staff without showing the data.
+     * text is never returned, so a refusal can be shown to staff without showing the data. It also
+     * refuses any unmasked text outside ASCII, which {@link #validate} does not check: see
+     * {@link #hasUnmaskedTextInAnotherScript}.
      */
     public static List<String> privacyKinds(List<PositionedText> runs) {
         LinkedHashSet<String> kinds = new LinkedHashSet<>();
@@ -158,8 +160,20 @@ public final class TraceValidator {
             if (matchesUnplaceholdered(EMAIL, text)) kinds.add("email address");
             if (matchesUnplaceholdered(INDIAN_MOBILE, text)) kinds.add("phone number");
             if (hasUnmaskedIfsc(text)) kinds.add("IFSC branch code");
+            if (hasUnmaskedTextInAnotherScript(text)) kinds.add("unmasked text in another script");
         }
         return List.copyOf(kinds);
+    }
+
+    /**
+     * The fail-closed backstop behind the redactor. Every rule that keeps text unmasked keeps plain
+     * ASCII only (the vocabulary is built from ASCII words, and the date, amount, IFSC and currency
+     * rules match ASCII), so a non-ASCII letter, number or mark still in a redacted run was not
+     * masked, whatever it says. The redactor masks these too; this catches the next way one gets
+     * past it.
+     */
+    private static boolean hasUnmaskedTextInAnotherScript(String text) {
+        return text.codePoints().anyMatch(cp -> cp > 127 && PdfTraceRedactor.isTextCodePoint(cp));
     }
 
     /**

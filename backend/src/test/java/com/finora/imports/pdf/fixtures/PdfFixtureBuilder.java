@@ -302,10 +302,15 @@ public final class PdfFixtureBuilder {
     /** The long digit runs planted as reference numbers: a 14-digit and a 12-digit one. */
     public static final String PLANTED_LONG_REFERENCE = "10203040506070"; // synthetic-ok: 10-20-30-40-50-60-70, invented
     public static final String PLANTED_REFERENCE = "234567890123"; // synthetic-ok: invented ascending digits
+    /** A name made only of letters outside ASCII, in a script the fixture's font can draw (accented
+     *  Latin; Helvetica's WinAnsi encoding has no Devanagari or Tamil). A token with no ASCII letter
+     *  in it is the shape the redactor once returned verbatim. */
+    public static final String PLANTED_OTHER_SCRIPT_NAME = "\u00C0\u00C9\u00CE \u00D4\u00DB"; // synthetic-ok: invented
 
     /**
      * {@link #buildReferenceNumberAndBalanceSample}'s layout with an account holder's name, phone,
-     * email, account number and IFSC planted in the header, the name, phone and email in two
+     * email, account number and IFSC planted in the header, a nominee's name written only in
+     * letters outside ASCII below them, the name, phone and email in two
      * narrations, and long digit runs as reference numbers -- the values a blanked copy must never
      * carry. Every value is invented; see the PLANTED_* constants.
      */
@@ -329,7 +334,8 @@ public final class PdfFixtureBuilder {
         PageBuilder page = new PageBuilder();
         page.line("CANARA BANK")
                 .line("Customer Name: " + PLANTED_NAME + "  Phone: " + PLANTED_PHONE + "  Email: " + PLANTED_EMAIL)
-                .line("Account Number: " + PLANTED_ACCOUNT_NUMBER + "  IFSC: " + PLANTED_IFSC);
+                .line("Account Number: " + PLANTED_ACCOUNT_NUMBER + "  IFSC: " + PLANTED_IFSC)
+                .line("Nominee: " + PLANTED_OTHER_SCRIPT_NAME);
         if (extraHeaderLine != null) page.line(extraHeaderLine);
         page.blankLine()
                 .row(col, "Date", "Particulars", "Reference No", "Amount", "Balance")

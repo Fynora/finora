@@ -221,6 +221,58 @@ class PdfTraceRedactorTest {
         assertThat(PdfTraceRedactor.redactLine(line)).contains("1,234.56", "12/07/2026", "Balance");
     }
 
+    /**
+     * Text in another script is masked like Latin text. Before this, a token made only of
+     * non-ASCII letters or digits was returned verbatim, and combining marks were copied out as
+     * if they were punctuation. Every value is invented; written as escapes so the expected masks
+     * can be counted by code point.
+     */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            // A two-word Devanagari name: letters, a vowel sign (a spacing mark), a virama (a
+            // non-spacing mark). One x per code point, marks included.
+            "\u0905\u092E\u093F\u0924 \u0936\u0930\u094D\u092E\u093E | xxxx xxxxx",   // synthetic-ok
+            // A Tamil word, with two viramas.
+            "\u0BB5\u0BA3\u0B95\u0BCD\u0B95\u0BAE\u0BCD | xxxxxxx",   // synthetic-ok
+            // A ten-digit number in Devanagari digits.
+            "\u0969\u0968\u096D\u096E\u096F\u0966\u0967\u0968\u0969\u096A | 9999999999",   // synthetic-ok
+            // Full-width Latin letters.
+            "\uFF21\uFF33\uFF28\uFF21 | XXXX",   // synthetic-ok
+            // Accented Latin letters with no plain ASCII letter beside them.
+            "\u00C0\u00C9\u00CE \u00D4\u00DB | XXX XX",   // synthetic-ok
+            // Letters outside the Basic Multilingual Plane (mathematical bold): one X per code
+            // point, not one per UTF-16 unit.
+            "\uD835\uDC00\uD835\uDC12\uD835\uDC07\uD835\uDC00 | XXXX",   // synthetic-ok
+            // A Devanagari word inside an otherwise kept line: only the word changes.
+            "UPI \u0905\u092E\u093F\u0924 1,234.00 Cr | UPI xxxx 1,234.00 Cr",   // synthetic-ok
+    })
+    void textInAnotherScriptIsMaskedCodePointForCodePoint(String input, String expected) {
+        String redacted = redact(input);
+        assertThat(redacted).isEqualTo(expected.trim());
+        assertThat(redacted.codePointCount(0, redacted.length()))
+                .isEqualTo(input.trim().codePointCount(0, input.trim().length()));
+        assertThat(redacted.codePoints().filter(cp -> cp > 127)).isEmpty();
+    }
+
+    /** A combining mark with no letter before it is still text: it is masked, not copied out. */
+    @Test
+    void aLoneCombiningMarkIsMasked() {
+        assertThat(redact("Ref \u0301\u093F")).isEqualTo("Ref xx");
+    }
+
+    /** A vocabulary word spelled with a character that lower-cases to ASCII (the Kelvin sign) is
+     *  not the vocabulary word: only plain ASCII is ever kept. */
+    @Test
+    void aVocabularyLookalikeOutsideAsciiIsMasked() {
+        assertThat(redact("\u212Aotak")).isEqualTo("Xxxxx");
+    }
+
+    /** Non-ASCII punctuation and symbols are layout, not identity, and stay as they were. */
+    @Test
+    void nonAsciiPunctuationAndSymbolsAreKept() {
+        assertThat(redact("\u20B9 1,234.00 \u2013 Balance")).isEqualTo("\u20B9 1,234.00 \u2013 Balance");
+    }
+
     private String redact(String text) {
         return PdfTraceRedactor.redact(List.of(new PositionedText(text.trim(), 0f, 0f, 0)))
                 .get(0).text();

@@ -46,7 +46,8 @@ class BlankedCopyServiceTest {
     /** Every value {@link PdfFixtureBuilder#buildSampleWithPlantedCustomerData} plants. */
     private static final String[] PLANTED = {PdfFixtureBuilder.PLANTED_NAME, PdfFixtureBuilder.PLANTED_PHONE,
             PdfFixtureBuilder.PLANTED_EMAIL, PdfFixtureBuilder.PLANTED_ACCOUNT_NUMBER, PdfFixtureBuilder.PLANTED_IFSC,
-            PdfFixtureBuilder.PLANTED_LONG_REFERENCE, PdfFixtureBuilder.PLANTED_REFERENCE};
+            PdfFixtureBuilder.PLANTED_LONG_REFERENCE, PdfFixtureBuilder.PLANTED_REFERENCE,
+            PdfFixtureBuilder.PLANTED_OTHER_SCRIPT_NAME};
 
     private final Clock clock = Clock.fixed(Instant.parse("2026-10-14T10:00:00Z"), ZoneOffset.UTC);
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
@@ -176,6 +177,27 @@ class BlankedCopyServiceTest {
                         e -> assertThat(e.kinds()).containsExactly("email address"))
                 .hasMessageNotContaining("statement@");
         assertThat(registry.find("finora.blanked_copy.produced").counters()).isEmpty();
+    }
+
+    /**
+     * Devanagari and Tamil through the real redactor and scan. The fixture PDFs are drawn in
+     * Helvetica, whose WinAnsi encoding has no Indic glyphs, so these scripts cannot be planted in
+     * a PDF; the acquired runs are stubbed instead. {@code theCopyCarriesNoCustomerTextAndNoFileName}
+     * covers an accented-Latin name from a real PDF.
+     */
+    @Test
+    void textInAnotherScriptDoesNotReachTheCopy() throws Exception {
+        String name = "\u0905\u092E\u093F\u0924 \u0936\u0930\u094D\u092E\u093E"; // synthetic-ok: invented Devanagari name
+        String tamil = "\u0BB5\u0BA3\u0B95\u0BCD\u0B95\u0BAE\u0BCD"; // synthetic-ok: invented Tamil word
+        String digits = "\u0969\u0968\u096D\u096E\u096F\u0966\u0967\u0968\u0969\u096A"; // synthetic-ok: invented
+        PdfPreviewGenerator generator = spy(PdfGeneratorTestSupport.generator());
+        doReturn(AcquiredDocument.of(List.of(
+                new PositionedText("Nominee " + name, 10f, 700f, 0, 80f),
+                new PositionedText(tamil + " " + digits, 10f, 690f, 0, 80f))))
+                .when(generator).acquire(any(), any());
+        BlankedCopy copy = service(generator).make(new StaffStatementContent("j-8", "PDF", new byte[]{1}));
+        assertThat(copy.trace()).doesNotContain(name, tamil, digits);
+        assertThat(copy.trace().codePoints().filter(cp -> cp > 127)).isEmpty();
     }
 
     @Test

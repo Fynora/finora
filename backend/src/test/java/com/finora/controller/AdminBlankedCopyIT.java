@@ -70,7 +70,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
             PdfFixtureBuilder.PLANTED_PHONE, PdfFixtureBuilder.PLANTED_EMAIL,
             PdfFixtureBuilder.PLANTED_ACCOUNT_NUMBER, PdfFixtureBuilder.PLANTED_IFSC,
             PdfFixtureBuilder.PLANTED_LONG_REFERENCE, PdfFixtureBuilder.PLANTED_REFERENCE,
-            "statement@a.in", PASSWORD, WRONG_PASSWORD, "Asha Verma statement"); // synthetic-ok: invented values
+            PdfFixtureBuilder.PLANTED_OTHER_SCRIPT_NAME, "statement@a.in", PASSWORD, WRONG_PASSWORD, "Asha Verma statement"); // synthetic-ok: invented values
 
     @Autowired private TestRestTemplate restTemplate;
     @Autowired private ImportJobRepository importJobRepository;

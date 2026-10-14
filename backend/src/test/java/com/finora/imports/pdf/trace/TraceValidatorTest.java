@@ -186,6 +186,34 @@ class TraceValidatorTest {
         assertThat(String.join(" ", kinds)).doesNotContain("someone", "98765", "0001234");
     }
 
+    /**
+     * The fail-closed backstop: every word the redactor keeps is plain ASCII, so a letter, digit or
+     * mark outside ASCII that is still in a run was not masked, whatever script it is in.
+     */
+    @Test
+    void privacyKindsRefusesUnmaskedTextInAnotherScript() {
+        for (String text : List.of(
+                "\u0905\u092E\u093F\u0924 \u0936\u0930\u094D\u092E\u093E",   // synthetic-ok: Devanagari name
+                "\u0BB5\u0BA3\u0B95\u0BCD\u0B95\u0BAE\u0BCD",   // synthetic-ok: Tamil word
+                "\u0969\u0968\u096D\u096E\u096F\u0966\u0967\u0968\u0969\u096A",   // synthetic-ok: Devanagari digits
+                "\uFF21\uFF33\uFF28\uFF21",   // synthetic-ok: full-width Latin
+                "\u00C0\u00C9\u00CE",   // synthetic-ok: accented Latin
+                "Xxxx \u093F")) {   // a mark left behind by itself
+            List<String> kinds = TraceValidator.privacyKinds(List.of(new PositionedText(text, 0f, 0f, 0)));
+            assertThat(kinds).as("code points %s", text.codePoints().boxed().toList())
+                    .containsExactly("unmasked text in another script");
+        }
+    }
+
+    @Test
+    void privacyKindsAllowsTheRedactorsOwnOutputForAnotherScript() {
+        String masked = PdfTraceRedactor.redactLine("UPI \u0905\u092E\u093F\u0924 \uFF21\uFF33 \u0969\u0968 \u20B9 1,234.00");   // synthetic-ok
+        assertThat(TraceValidator.privacyKinds(List.of(new PositionedText(masked, 0f, 0f, 0)))).isEmpty();
+        // Symbols and punctuation outside ASCII are not text.
+        assertThat(TraceValidator.privacyKinds(List.of(new PositionedText("\u20B9 \u2013 \u2019 \u00A0", 0f, 0f, 0))))
+                .isEmpty();
+    }
+
     @Test
     void privacyKindsIsEmptyForATraceWithNoTable() {
         List<PositionedText> runs = List.of(new PositionedText("Xxxxx xxxx", 0f, 0f, 0));

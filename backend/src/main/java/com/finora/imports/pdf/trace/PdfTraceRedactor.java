@@ -24,7 +24,9 @@ import java.util.regex.Pattern;
  *
  * Redaction preserves LENGTH and CHARACTER CLASS (letter -&gt; X, digit -&gt; 9, punctuation kept),
  * because length is structure here: it is what makes a narration wrap onto a second line, what
- * decides where a run's x-extent ends, and therefore what reproduces the bug.
+ * decides where a run's x-extent ends, and therefore what reproduces the bug. Length is counted in
+ * code points, in every script: a letter outside the Basic Multilingual Plane (two UTF-16 units)
+ * masks to one X, and a mark masks to its own x.
  *
  * Dates and amounts are deliberately preserved. Once names, account numbers, addresses, emails and
  * narration text are gone, a bare "24,462.00" or "10/07/2026" identifies nobody -- and keeping them
@@ -45,7 +47,11 @@ public final class PdfTraceRedactor {
      * "was this trace captured before or after we fixed X" is answerable only by reading commit
      * dates.
      */
-    public static final int REDACTOR_VERSION = 3;
+    // Version 4: letters, numbers and marks in every script are masked, one character per code
+    // point. Up to version 3 a token made only of non-ASCII letters or digits (a Devanagari or
+    // Tamil word, full-width or accented Latin, Devanagari digits) was kept verbatim, and combining
+    // marks were copied out as if they were punctuation.
+    public static final int REDACTOR_VERSION = 4;
 
     /**
      * A short hash of the effective allowlist, recomputed from the live vocabulary every call.
@@ -107,8 +113,8 @@ public final class PdfTraceRedactor {
             "(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?"
                     + "|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)";
     private static final Pattern SPACED_NAMED_MONTH_DATE_LIKE = Pattern.compile(
-            "(?<![\\p{Alnum}])(?:\\d{1,2}\\s+" + MONTH_NAME + "(?:,?\\s+\\d{2,4})?"
-                    + "|" + MONTH_NAME + "\\s+\\d{1,2}(?:,?\\s+\\d{2,4})?)(?![\\p{Alnum}])",
+            "(?<![\\p{L}\\p{N}\\p{M}])(?:\\d{1,2}\\s+" + MONTH_NAME + "(?:,?\\s+\\d{2,4})?"
+                    + "|" + MONTH_NAME + "\\s+\\d{1,2}(?:,?\\s+\\d{2,4})?)(?![\\p{L}\\p{N}\\p{M}])",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern AMOUNT_LIKE = Pattern.compile(
             "\\(?-?[\\d,]+\\.\\d{1,2}\\)?");
@@ -318,33 +324,82 @@ public final class PdfTraceRedactor {
         StringBuilder out = new StringBuilder(text.length());
         // Split keeping the separators, so every space and its exact position survives -- the
         // whitespace between two runs is part of the layout being reproduced.
+        // Walked by code point, so a character outside the Basic Multilingual Plane is one
+        // character here rather than two surrogate halves that no rule recognises.
         int i = 0;
         while (i < text.length()) {
-            char c = text.charAt(i);
-            if (Character.isLetterOrDigit(c)) {
+            int cp = text.codePointAt(i);
+            if (isTextCodePoint(cp)) {
                 int start = i;
-                while (i < text.length() && isTokenChar(text.charAt(i))) i++;
+                while (i < text.length() && isTokenChar(text.codePointAt(i))) {
+                    i += Character.charCount(text.codePointAt(i));
+                }
                 String token = text.substring(start, i);
                 // See TRAILING_CURRENCY_MARKER_LETTER's own doc comment -- checked ahead of the
                 // ordinary vocabulary/date/amount rules below, against what THIS SAME redaction
                 // pass has already appended for this run, not a separate lookup.
                 out.append(isTrailingCurrencyMarkerLetter(token, out) ? token : redactToken(token, vocabulary));
             } else {
-                out.append(c);
-                i++;
+                out.appendCodePoint(cp);
+                i += Character.charCount(cp);
             }
         }
         return out.toString();
     }
 
+    /**
+     * Whether a code point can carry what a document says, in any script: a letter, a number or a
+     * mark (a Devanagari vowel sign, a Tamil virama, an accent written as its own character), plus
+     * a private-use glyph (a font with no Unicode mapping can extract a name as private-use code
+     * points) and an unpaired surrogate (a broken character whose meaning is unknown). Everything
+     * of these kinds is masked unless a rule below keeps it, and every rule that keeps text keeps
+     * plain ASCII only. {@link TraceValidator#privacyKinds} uses the same test as its backstop: a
+     * non-ASCII code point of these kinds still in a redacted run was not masked.
+     *
+     * <p>Up to redactor version 3 the test was ASCII letters and digits only: a token made only of
+     * non-ASCII letters or digits was returned verbatim, and marks were copied out as punctuation.
+     */
+    static boolean isTextCodePoint(int cp) {
+        int type = Character.getType(cp);
+        return type == Character.UPPERCASE_LETTER || type == Character.LOWERCASE_LETTER
+                || type == Character.TITLECASE_LETTER || type == Character.MODIFIER_LETTER
+                || type == Character.OTHER_LETTER
+                || isNumber(type)
+                || type == Character.NON_SPACING_MARK || type == Character.COMBINING_SPACING_MARK
+                || type == Character.ENCLOSING_MARK
+                || type == Character.PRIVATE_USE || type == Character.SURROGATE;
+    }
+
+    private static boolean isNumber(int type) {
+        return type == Character.DECIMAL_DIGIT_NUMBER || type == Character.LETTER_NUMBER
+                || type == Character.OTHER_NUMBER;
+    }
+
     /** A token runs across '.' and ',' so that "24,462.00" and "10/07/2026" are judged whole rather
      *  than as the fragments "24", "462" and "00". */
-    private static boolean isTokenChar(char c) {
-        return Character.isLetterOrDigit(c) || c == '.' || c == ',' || c == '/' || c == '-';
+    private static boolean isTokenChar(int cp) {
+        return isTextCodePoint(cp) || cp == '.' || cp == ',' || cp == '/' || cp == '-';
+    }
+
+    /** The token without the punctuation at either end. */
+    private static String stripPunctuation(String token) {
+        int start = 0;
+        int end = token.length();
+        while (start < end && !isTextCodePoint(token.codePointAt(start))) {
+            start += Character.charCount(token.codePointAt(start));
+        }
+        while (end > start && !isTextCodePoint(token.codePointBefore(end))) {
+            end -= Character.charCount(token.codePointBefore(end));
+        }
+        return token.substring(start, end);
+    }
+
+    private static boolean isAscii(String text) {
+        return text.chars().allMatch(c -> c < 128);
     }
 
     private static String redactToken(String token, Set<String> vocabulary) {
-        String bare = token.replaceAll("^[^\\p{Alnum}]+|[^\\p{Alnum}]+$", "");
+        String bare = stripPunctuation(token);
         if (bare.isEmpty()) return token;
 
         var ifsc = IFSC.matcher(bare);
@@ -355,7 +410,9 @@ public final class PdfTraceRedactor {
         if (LONG_DIGIT_RUN.matcher(bare).find()) return mask(token);
         if (DATE_LIKE.matcher(bare).matches() || AMOUNT_LIKE.matcher(bare).matches()
                 || NAMED_MONTH_DATE_LIKE.matcher(bare).matches()) return token;
-        if (vocabulary.contains(bare.toLowerCase(Locale.ROOT))) return token;
+        // ASCII only: some characters lower-case into ASCII (the Kelvin sign becomes "k"), and a
+        // word spelled with one is not the vocabulary word.
+        if (isAscii(bare) && vocabulary.contains(bare.toLowerCase(Locale.ROOT))) return token;
 
         // '/' and '-' are part of a token so that dates and amounts are judged whole, which also
         // glues compound labels together: "RTGS/NEFT" and "UPI-SOMEONE" arrive as single tokens and
@@ -377,13 +434,16 @@ public final class PdfTraceRedactor {
         return mask(token);
     }
 
+    /** One character out per code point in: a number becomes 9, an upper-case letter X, any other
+     *  text code point (a lower-case or uncased letter, a mark, a private-use glyph) x, and
+     *  punctuation is kept. */
     private static String mask(String token) {
         StringBuilder masked = new StringBuilder(token.length());
-        for (char c : token.toCharArray()) {
-            if (Character.isDigit(c)) masked.append('9');
-            else if (Character.isLetter(c)) masked.append(Character.isUpperCase(c) ? 'X' : 'x');
-            else masked.append(c);
-        }
+        token.codePoints().forEach(cp -> {
+            if (isNumber(Character.getType(cp))) masked.append('9');
+            else if (isTextCodePoint(cp)) masked.append(Character.isUpperCase(cp) ? 'X' : 'x');
+            else masked.appendCodePoint(cp);
+        });
         return masked.toString();
     }
 }

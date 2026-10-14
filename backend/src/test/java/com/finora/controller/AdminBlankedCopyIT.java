@@ -266,6 +266,106 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
                 });
     }
 
+    /** The second audit entry, written once the copy is made or refused: the check's result. */
+    private static void assertResultEntry(List<com.finora.entity.AuditLog> entries, String action, String entityType,
+                                          User actor, String check, int differenceCount, List<String> refusedKinds,
+                                          String... extraIdKeys) {
+        assertThat(entries).extracting(com.finora.entity.AuditLog::getAction)
+                .as("the result is written after the access entry")
+                .containsSubsequence(action.replace("_RESULT", ""), action);
+        assertThat(entries).filteredOn(e -> e.getAction().equals(action))
+                .singleElement()
+                .satisfies(e -> {
+                    assertThat(e.getUserId()).isEqualTo(actor.getId());
+                    assertThat(e.getEntityType()).isEqualTo(entityType);
+                    List<String> keys = new java.util.ArrayList<>(List.of(
+                            "actorId", "subjectUserId", "check", "differenceCount", "refusedKinds"));
+                    keys.addAll(List.of(extraIdKeys));
+                    assertThat(e.getMetadata()).containsOnlyKeys(keys.toArray(String[]::new));
+                    assertThat(e.getMetadata()).containsEntry("check", check);
+                    assertThat(((Number) e.getMetadata().get("differenceCount")).intValue()).isEqualTo(differenceCount);
+                    assertThat(e.getMetadata().get("refusedKinds")).isEqualTo(refusedKinds);
+                });
+    }
+
+    @Test
+    void theCheckResultIsAuditedWhenTheCopyMatches(CapturedOutput output) {
+        ImportJob job = heldJob();
+        User support = createSupportUser("IMPORT_TRIAGE_MANAGE");
+
+        ResponseEntity<String> copy = get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", support);
+
+        assertThat(copy.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertResultEntry(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(job.getId()),
+                "HELD_IMPORT_BLANKED_COPY_RESULT", "ImportJob", support, "MATCHES", 0, List.of());
+        assertNothingLeft(copy.getBody(), auditOf(job.getId()), output);
+    }
+
+    @Test
+    void theCheckResultIsAuditedWhenTheCopyDiffers(CapturedOutput output) throws Exception {
+        ImportJob job = heldJob(PdfFixtureBuilder.buildDirectionOnlyAsABareLetterSample(), CUSTOMER_FILE_NAME, "PDF");
+        User support = createSupportUser("IMPORT_TRIAGE_MANAGE");
+
+        ResponseEntity<String> copy = get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", support);
+
+        assertThat(copy.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertResultEntry(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(job.getId()),
+                "HELD_IMPORT_BLANKED_COPY_RESULT", "ImportJob", support, "DIFFERS", 2, List.of());
+        assertThat(auditOf(job.getId())).doesNotContain("EMPLOYER", "SENDER", "MERCHANT", "PAYEE");
+        assertNothingLeft(copy.getBody(), auditOf(job.getId()), output);
+    }
+
+    @Test
+    void theCheckResultIsAuditedWhenThePrivacyScanRefuses(CapturedOutput output) {
+        ImportJob job = heldJob(pdfWithAnEmailTheRedactorCannotBlank(), CUSTOMER_FILE_NAME, "PDF");
+        User admin = createUser("ADMIN");
+
+        ResponseEntity<String> response = get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", admin);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertResultEntry(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(job.getId()),
+                "HELD_IMPORT_BLANKED_COPY_RESULT", "ImportJob", admin, "REFUSED", 0, List.of("email address"));
+        assertNothingLeft(response.getBody(), auditOf(job.getId()), output);
+    }
+
+    @Test
+    void theTrustQueueAuditsTheCheckResult(CapturedOutput output) {
+        HeldStatement held = seedHold("HLD-2026-610010");
+        User support = createSupportUser("TRUST_REVIEW_MANAGE");
+
+        ResponseEntity<String> copy = get("/api/v1/admin/held-statements/HLD-2026-610010/blanked-copy", support);
+
+        assertThat(copy.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertResultEntry(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(held.getId()),
+                "HELD_STATEMENT_BLANKED_COPY_RESULT", "HeldStatement", support, "MATCHES", 0, List.of(), "heldId");
+        assertNothingLeft(copy.getBody(), auditOf(held.getId()), output);
+    }
+
+    @Test
+    void theTrustQueueAuditsARefusedCheck(CapturedOutput output) {
+        HeldStatement held = seedHold("HLD-2026-610011", pdfWithAnEmailTheRedactorCannotBlank());
+        User admin = createUser("ADMIN");
+
+        ResponseEntity<String> response = get("/api/v1/admin/held-statements/HLD-2026-610011/blanked-copy", admin);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertResultEntry(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(held.getId()),
+                "HELD_STATEMENT_BLANKED_COPY_RESULT", "HeldStatement", admin, "REFUSED", 0,
+                List.of("email address"), "heldId");
+        assertNothingLeft(response.getBody(), auditOf(held.getId()), output);
+    }
+
+    /** A refusal before the check (here a stored file that is gone) writes no result entry: no copy
+     *  was made or refused. */
+    @Test
+    void aFailedReadWritesNoResultEntry() {
+        ImportJob job = heldJobWithMissingObject();
+        get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", createUser("ADMIN"));
+        assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(job.getId()))
+                .extracting(com.finora.entity.AuditLog::getAction)
+                .contains("HELD_IMPORT_BLANKED_COPY").doesNotContain("HELD_IMPORT_BLANKED_COPY_RESULT");
+    }
+
     @Test
     void aSuccessfulCopyIsAudited() throws Exception {
         ImportJob job = heldJob();

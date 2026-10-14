@@ -17,6 +17,7 @@ import com.finora.imports.ImportSessionService;
 import com.finora.imports.StatementUpload;
 import com.finora.imports.analysis.ImportVerificationFinding;
 import com.finora.imports.analysis.ImportVerificationFindingRepository;
+import com.finora.imports.blanked.BlankedCopyOutcome;
 import com.finora.imports.blanked.StaffStatementContent;
 import com.finora.imports.jobs.ParserVersionProvider;
 import com.finora.imports.jobs.StagedForJob;
@@ -46,6 +47,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -1147,6 +1149,23 @@ public class HeldStatementService {
             }
         }
         return new StaffStatementContent(held.getHeldId(), job.getSourceFormat(), content);
+    }
+
+    /**
+     * The second audit entry for a blanked copy, as {@code AdminHeldImportService
+     * .recordBlankedCopyResult}: written once the copy is made or the privacy scan refused it, with
+     * the ids and the check's result, never statement text.
+     */
+    @Transactional
+    public void recordBlankedCopyResult(UUID actingAdminId, String heldId, BlankedCopyOutcome outcome) {
+        HeldStatement held = require(heldId);
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("actorId", actingAdminId.toString());
+        details.put("subjectUserId", held.getUserId().toString());
+        details.put("heldId", held.getHeldId());
+        details.putAll(outcome.auditDetails());
+        auditService.record(actingAdminId, "HELD_STATEMENT_BLANKED_COPY_RESULT", "HeldStatement",
+                held.getId(), details);
     }
 
     /** Same switch {@code StatementImportService.contentTypeFor} makes, over the formats this

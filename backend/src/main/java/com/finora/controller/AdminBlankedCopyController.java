@@ -4,7 +4,11 @@ import com.finora.dto.ApiResponse;
 import com.finora.dto.BlankedCopyDto;
 import com.finora.exception.ApiException;
 import com.finora.imports.ImportConcurrencyLimiter;
+import com.finora.imports.blanked.BlankedCopy;
+import com.finora.imports.blanked.BlankedCopyOutcome;
+import com.finora.imports.blanked.BlankedCopyRefusedException;
 import com.finora.imports.blanked.BlankedCopyService;
+import com.finora.imports.blanked.StaffStatementContent;
 import com.finora.security.CurrentUser;
 import com.finora.service.AdminHeldImportService;
 import com.finora.service.HeldStatementService;
@@ -17,6 +21,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
+import java.util.function.Consumer;
 
 /**
  * Blanked copies of held statements: the one way statement-derived data leaves the server in
@@ -33,6 +38,9 @@ import java.util.UUID;
  * request thread, so it takes an import slot from {@link ImportConcurrencyLimiter} like every other
  * parse. A busy server refuses at once with the import queue's own 503, before the audit row is
  * written and before any bytes are read.
+ *
+ * <p>Two audit entries per copy: the access, written by the queue's service before the read, and
+ * the result (see {@link BlankedCopyOutcome}), written once the copy is made or refused.
  */
 @RestController
 @RequestMapping("/api/v1/admin")
@@ -70,7 +78,8 @@ public class AdminBlankedCopyController {
         requireEnabled();
         UUID actor = currentUser.id();
         return ApiResponse.ok(BlankedCopyDto.Response.of(concurrencyLimiter.runGated(
-                () -> blankedCopies.make(heldImports.contentForBlankedCopy(actor, jobId)))));
+                () -> makeAndRecord(heldImports.contentForBlankedCopy(actor, jobId),
+                        outcome -> heldImports.recordBlankedCopyResult(actor, jobId, outcome)))));
     }
 
     @PreAuthorize("hasAuthority('TRUST_REVIEW_MANAGE')")
@@ -79,7 +88,26 @@ public class AdminBlankedCopyController {
         requireEnabled();
         UUID actor = currentUser.id();
         return ApiResponse.ok(BlankedCopyDto.Response.of(concurrencyLimiter.runGated(
-                () -> blankedCopies.make(heldStatements.contentForBlankedCopy(actor, heldId)))));
+                () -> makeAndRecord(heldStatements.contentForBlankedCopy(actor, heldId),
+                        outcome -> heldStatements.recordBlankedCopyResult(actor, heldId, outcome)))));
+    }
+
+    /**
+     * Makes the copy and records what came of it: the check's result for a copy made, the kinds
+     * named for one the privacy scan refused. A refusal before the check (a CSV, a locked file, text
+     * that cannot be read) records nothing more: no copy was made or refused, and the access entry
+     * written before the read stands on its own.
+     */
+    private BlankedCopy makeAndRecord(StaffStatementContent content, Consumer<BlankedCopyOutcome> record) {
+        BlankedCopy copy;
+        try {
+            copy = blankedCopies.make(content);
+        } catch (BlankedCopyRefusedException refused) {
+            record.accept(BlankedCopyOutcome.refused(refused.kinds()));
+            throw refused;
+        }
+        record.accept(BlankedCopyOutcome.of(copy));
+        return copy;
     }
 
     private void requireEnabled() {

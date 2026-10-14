@@ -4,6 +4,7 @@ import com.finora.dto.HeldImportDto;
 import com.finora.dto.PagedResponse;
 import com.finora.entity.ImportJob;
 import com.finora.exception.ApiException;
+import com.finora.imports.blanked.BlankedCopyOutcome;
 import com.finora.imports.blanked.StaffStatementContent;
 import com.finora.imports.jobs.ImportJobWorker;
 import com.finora.imports.storage.StatementContentService;
@@ -21,6 +22,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.time.Instant;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -211,6 +213,23 @@ public class AdminHeldImportService {
             }
         }
         return new StaffStatementContent(job.getId().toString(), job.getSourceFormat(), content);
+    }
+
+    /**
+     * The second audit entry for a blanked copy, written once the copy is made or the privacy scan
+     * refused it: the ids and the check's result, never statement text. The first entry, written
+     * before the read by {@link #contentForBlankedCopy}, records the access; this one what came of
+     * it. Nothing here rolls back on a refusal: the caller is not in a transaction, and this
+     * method's own commits before the refusal is thrown.
+     */
+    @Transactional
+    public void recordBlankedCopyResult(UUID actingAdminId, UUID jobId, BlankedCopyOutcome outcome) {
+        ImportJob job = require(jobId);
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("actorId", actingAdminId.toString());
+        details.put("subjectUserId", job.getUserId().toString());
+        details.putAll(outcome.auditDetails());
+        auditService.record(actingAdminId, "HELD_IMPORT_BLANKED_COPY_RESULT", "ImportJob", jobId, details);
     }
 
     /** Same switch {@code HeldStatementService.contentTypeFor} makes, over the formats this system

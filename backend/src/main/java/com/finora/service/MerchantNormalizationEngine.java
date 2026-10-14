@@ -521,6 +521,15 @@ public class MerchantNormalizationEngine {
     }
 
     /**
+     * The key {@link #resolve} matches a merchant stored as {@code canonicalName} by -- the same
+     * reduction {@link Grouping#add} applies -- or null when the name gives none. Two merchants of one
+     * user with the same key compete for the same narrations, and the first one loaded wins.
+     */
+    public static String groupingKeyOfName(String canonicalName) {
+        return groupingKey(CategoryRules.normalize(canonicalName));
+    }
+
+    /**
      * The token this description or canonical name is grouped by — the first word that names a
      * COUNTERPARTY rather than a payment rail or a reference number.
      *

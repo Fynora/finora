@@ -111,19 +111,38 @@ public final class MerchantNames {
                 || !opensWithRail(storedName.trim().split("\\s+"))) {
             return forDisplay(storedName);
         }
+        // A narration that names nobody, or whose name still opens with a rail the stored name
+        // cannot drop, says nothing the stored name does not.
+        String payee = mostCommonName(narrations, name -> !RAIL_PAYMENTS.containsValue(name) && !opensWithRail(name.split(" ")));
+        return payee != null ? payee : forDisplay(storedName);
+    }
+
+    /**
+     * The name a merchant would be stored under if {@code narrations} were imported today: the
+     * {@link #forNarration} name most of them give, a rail's payment included. Null when there is no
+     * narration to read.
+     */
+    public static String importedNameFor(Collection<String> narrations) {
+        return narrations == null ? null : mostCommonName(narrations, name -> true);
+    }
+
+    private static String mostCommonName(Collection<String> narrations, java.util.function.Predicate<String> counts) {
         // Sorted, so an even split is settled by the name and not by the order the rows came in.
         Map<String, Integer> votes = new TreeMap<>();
         for (String narration : narrations) {
             if (narration == null || narration.isBlank()) continue;
             String name = forNarration(narration);
-            // A narration that names nobody, or whose name still opens with a rail the stored name
-            // cannot drop, says nothing the stored name does not.
-            if (!RAIL_PAYMENTS.containsValue(name) && !opensWithRail(name.split(" "))) votes.merge(name, 1, Integer::sum);
+            if (counts.test(name)) votes.merge(name, 1, Integer::sum);
         }
         return votes.entrySet().stream()
                 .max(Map.Entry.<String, Integer>comparingByValue().thenComparing(Map.Entry.comparingByKey(Comparator.reverseOrder())))
                 .map(Map.Entry::getKey)
-                .orElseGet(() -> forDisplay(storedName));
+                .orElse(null);
+    }
+
+    /** Whether a stored name opens with a payment rail, as {@link #forDisplay(String)} reads it. */
+    public static boolean opensWithRail(String name) {
+        return name != null && !name.isBlank() && opensWithRail(name.trim().split("\\s+"));
     }
 
     /**

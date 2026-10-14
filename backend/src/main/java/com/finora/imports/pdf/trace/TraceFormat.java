@@ -80,8 +80,9 @@ public final class TraceFormat {
         return sb.toString();
     }
 
-    /** A v2 trace: the same run data, preceded by the provenance block that says which redactor and
-     *  allowlist produced it and which capability it exists to protect. */
+    /** A trace at the current version: the run data with widths, preceded by the provenance block
+     *  that says which redactor and allowlist produced it and which capability it exists to
+     *  protect. */
     public static String format(List<PositionedText> runs, TraceMetadata metadata) {
         return MAGIC_V4 + '\n'
                 + metadata.toHeaderLines()

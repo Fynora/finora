@@ -134,4 +134,23 @@ class BlankedCopyComparisonTest {
         assertThat(result.differences()).filteredOn(d -> d.field() == Field.DESCRIPTION)
                 .allSatisfy(d -> assertThat(d.maskedTokens()).allMatch(t -> !t.contains("98765")));
     }
+
+    @Test
+    void maskedTokensAreExactlyTheCopysOwnMaskedTokensWhenDescriptionsDiffer() {
+        // The copy grouped an extra line into the row, so the descriptions really differ.
+        var real = List.of(section(List.of(row("2026-07-01", "CALL 9876543210", "5.00", "DEBIT", "1.00")))); // synthetic-ok
+        var copy = List.of(section(List.of(row("2026-07-01", "XXXX 9999999999 PAYMENT Xxxx", "5.00", "DEBIT", "1.00"))));
+        var result = BlankedCopyComparison.compare(real, copy);
+
+        var description = result.differences().stream()
+                .filter(d -> d.field() == Field.DESCRIPTION).toList();
+        assertThat(description).hasSize(1);
+        assertThat(description.get(0).section()).isZero();
+        assertThat(description.get(0).row()).isZero();
+        // Exactly the copy's masked tokens: the unmasked word "PAYMENT" is left out.
+        assertThat(description.get(0).maskedTokens()).containsExactly("XXXX", "9999999999", "Xxxx");
+        // No token of the real description, and nothing else, leaves the comparison.
+        assertThat(description.get(0).maskedTokens()).doesNotContain("CALL", "9876543210"); // synthetic-ok
+        assertThat(result.toString()).doesNotContain("9876543210", "CALL"); // synthetic-ok
+    }
 }

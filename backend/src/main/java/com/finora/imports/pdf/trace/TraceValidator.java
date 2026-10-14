@@ -166,7 +166,39 @@ public final class TraceValidator {
             if (hasUnmaskedIfsc(text)) kinds.add("IFSC branch code");
             if (hasUnmaskedTextInAnotherScript(text)) kinds.add("unmasked text in another script");
         }
+        if (hasNumberSplitIntoGroups(runs)) kinds.add(NUMBER_SPLIT_INTO_GROUPS);
         return List.copyOf(kinds);
+    }
+
+    static final String NUMBER_SPLIT_INTO_GROUPS = "number split into groups";
+
+    /**
+     * The fail-closed backstop behind the redactor's number rules. Printed lines are rebuilt from
+     * the runs and read with the redactor's own model ({@link NumberGroups}), treating a group made
+     * only of '9' as the redactor's mask. Refused: a number of six or more digits in clear made of
+     * groups joined by short separators (a mobile, card, account or Aadhaar number printed in
+     * pieces, in one run or across runs), and a short group in clear glued to a slash, an at sign, a
+     * colon, an underscore or a format character (an identifier's digits, as in a UPI id wrapped
+     * onto the next line). The redactor never keeps either, so a refusal means it regressed. One
+     * kind covers all three, including a long number printed in one piece. Not part of
+     * {@link #validate}: committed traces were captured by earlier redactors.
+     */
+    static boolean hasNumberSplitIntoGroups(List<PositionedText> runs) {
+        for (NumberGroups.Line line : NumberGroups.lines(runs)) {
+            String text = line.text();
+            NumberGroups.Kind[] kinds = NumberGroups.scan(text, true);
+            for (int p = 0; p < kinds.length; p++) {
+                if (kinds[p] == NumberGroups.Kind.LONG) return true;
+                if (kinds[p] == NumberGroups.Kind.SHORT
+                        && ((p > 0 && isIdentifierGlue(text.charAt(p - 1)))
+                        || (p + 1 < text.length() && isIdentifierGlue(text.charAt(p + 1))))) return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isIdentifierGlue(char c) {
+        return c == '/' || c == '@' || c == ':' || c == '_' || Character.getType(c) == Character.FORMAT;
     }
 
     /**

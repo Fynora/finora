@@ -20,8 +20,8 @@ class PdfTraceRedactorTest {
     @ParameterizedTest
     @CsvSource(delimiter = '|', value = {
             "JANE EXAMPLE                          | XXXX XXXXXXX",
-            // An integer of up to five digits is kept (redactor version 5); the words are not.
-            "Flat No 404, Sample Gardens           | Xxxx No 404, Xxxxxx Xxxxxxx",
+            // An integer glued to a comma is not a value on its own, so it is masked with the words.
+            "Flat No 404, Sample Gardens           | Xxxx No 999, Xxxxxx Xxxxxxx",
             "Account No : 50100999999999           | Account No : 99999999999999",
             "jane.example@sample.test              | xxxx.xxxxxxx@xxxxxx.xxxx",
             "Cust ID : 288080705                   | Cust ID : 999999999",
@@ -87,7 +87,7 @@ class PdfTraceRedactorTest {
             "12Jul", "12Jul2026", "12jul26", "05Sept2026",
             "Jul '26", "12 Jul'26", "12 Jul '26", "12 Jul\u201926",
             "1,00,000", "12,345", "1,234,567", "12345", "7", "(500)", "-42",
-            "C", "d", "A/C", "1,234.00 C", "500 D",
+            "C", "d",
     })
     void aValueShapeReadingNeedsIsKept(String line) {
         assertThat(redact(line)).isEqualTo(line.trim());
@@ -116,7 +116,7 @@ class PdfTraceRedactorTest {
     /** Short integers that do not join into six digits keep behaving as before. */
     @ParameterizedTest
     @CsvSource(delimiter = '|', value = {
-            "Rs 500", "Page 2 of 5", "10:45", "12 345", "No 404", "1234  5678", "10:45 12:30",
+            "Rs 500", "Page 2 of 5", "10:45", "12 345", "No 404", "10:45 12:30",
     })
     void shortIntegersThatDoNotJoinAreStillKept(String line) {
         assertThat(redact(line)).isEqualTo(line.trim());
@@ -216,17 +216,21 @@ class PdfTraceRedactorTest {
         assertThat(redact("Zorbulax Quingle")).isEqualTo("Xxxxxxxx Xxxxxxx");
     }
 
+    /** An unchanged run keeps its coordinates exactly. A changed run keeps y and page, and its x is
+     *  rounded to a whole point like its width: an exact x beside a rounded width would let the
+     *  masked run's width be recovered from the gap to its neighbour. */
     @Test
-    void coordinatesAreNeverAltered() {
-        List<PositionedText> redacted = PdfTraceRedactor.redact(
-                List.of(new PositionedText("JANE EXAMPLE", 35.5f, 720.25f, 3)));
+    void coordinatesAreKeptAndAChangedRunsXIsRounded() {
+        List<PositionedText> redacted = PdfTraceRedactor.redact(List.of(
+                new PositionedText("JANE EXAMPLE", 35.4f, 720.25f, 3),
+                new PositionedText("Balance", 135.4f, 720.25f, 3)));
 
-        assertThat(redacted).singleElement().satisfies(run -> {
-            assertThat(run.text()).isEqualTo("XXXX XXXXXXX");
-            assertThat(run.x()).isEqualTo(35.5f);
-            assertThat(run.y()).isEqualTo(720.25f);
-            assertThat(run.pageIndex()).isEqualTo(3);
-        });
+        assertThat(redacted.get(0).text()).isEqualTo("XXXX XXXXXXX");
+        assertThat(redacted.get(0).x()).isEqualTo(35f);
+        assertThat(redacted.get(0).y()).isEqualTo(720.25f);
+        assertThat(redacted.get(0).pageIndex()).isEqualTo(3);
+        assertThat(redacted.get(1).x()).isEqualTo(135.4f);
+        assertThat(redacted.get(1).y()).isEqualTo(720.25f);
     }
 
     /**
@@ -402,10 +406,13 @@ class PdfTraceRedactorTest {
         assertThat(redacted.codePoints().filter(cp -> Character.getType(cp) == Character.FORMAT)).isEmpty();
     }
 
+    /** Since redactor version 5 a format character outside a token is masked too (it can carry a
+     *  hidden message anywhere). An amount glued to one is not standing apart, so it is masked as a
+     *  number rather than kept. */
     @Test
-    void aFormatCharacterOutsideAnyTokenIsKept() {
-        assertThat(redact("\u200DBalance 1,234.00\u200B")).isEqualTo("\u200DBalance 1,234.00\u200B");
-        assertThat(redact("1,234.00\u200B Cr")).isEqualTo("1,234.00\u200B Cr");
+    void aFormatCharacterOutsideAnyTokenIsMasked() {
+        assertThat(redact("\u200DBalance 1,234.00 \u200B Cr")).isEqualTo("xBalance 1,234.00 x Cr");
+        assertThat(redact("1,234.00\u200B")).isEqualTo("9,999.99x");
         assertThat(PdfTraceRedactor.maskOf(0x200D)).isEqualTo('x');
     }
 

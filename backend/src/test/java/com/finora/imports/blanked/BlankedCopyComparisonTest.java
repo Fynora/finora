@@ -276,17 +276,16 @@ class BlankedCopyComparisonTest {
     }
 
     /**
-     * Known limit, from redactor version 5: a run piece of at most five digits is kept, so a long
-     * number split across runs with a short piece on one side holds that piece in clear in the
-     * copy while the real text, read as one number, masks all of it. The copy was read the same
-     * way, but it is not one masking of the real token, so it differs. Telling these apart needs
-     * the run boundaries the reading does not carry.
+     * A long number split across runs into short pieces glued to a slash is no longer kept piece by
+     * piece: an integer glued to '/' is an identifier's digits and is masked, so the copy holds the
+     * redactor's own piece-by-piece masking of the real token and matches. (Up to the previous
+     * round each short piece was kept, which both showed the number and read as a difference.)
      */
     @Test
-    void aLongNumberSplitIntoAShortKeptPieceDiffers() {
+    void aLongNumberSplitIntoShortPiecesIsMaskedAndMatches() {
         String copy = PdfTraceRedactor.redactLine("UPI/1234") + PdfTraceRedactor.redactLine("5678/ASHA");
-        assertThat(copy).isEqualTo("UPI/12345678/XXXX");
-        assertThat(descriptionOutcome("UPI/12345678/ASHA", copy)).isEqualTo(Field.DESCRIPTION);
+        assertThat(copy).isEqualTo("UPI/99999999/XXXX");
+        assertThat(descriptionOutcome("UPI/12345678/ASHA", copy)).isNull();
     }
 
     /** Rule (d) is one exact masking, not a tolerance: any other shape or a kept name differs. */

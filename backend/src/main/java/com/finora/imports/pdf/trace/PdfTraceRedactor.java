@@ -59,8 +59,12 @@ public final class PdfTraceRedactor {
     // amount-shaped integers (comma-grouped, or at most five digits) and lone C/D markers. (The
     // reader's own label words were added to the allowlist at the same time; the allowlist
     // fingerprint tracks that on its own.) A changed run keeps its width rounded to a whole point
-    // instead of losing it. Digit groups that join into six or more digits (within a run, or across
-    // adjacent runs on a line) are one number and never kept as integers.
+    // instead of losing it. Digits are read per printed line (NumberGroups): groups joined by up to
+    // three non-word characters of any kind are one number, and six or more digits together are
+    // masked; a short integer is kept only when it stands on its own; comma-grouped amounts keep at
+    // most eight integer digits; a numeric date must have real day/month parts. Every format
+    // character is masked, a lone C/D is kept only as a whole run, and a changed run's x is rounded
+    // like its width. TraceValidator.privacyKinds refuses what these rules never keep.
     public static final int REDACTOR_VERSION = 5;
 
     /**
@@ -95,8 +99,10 @@ public final class PdfTraceRedactor {
         }
     }
 
-    private static final Pattern DATE_LIKE = Pattern.compile(
-            "\\d{1,4}[-/.]\\d{1,2}[-/.]\\d{1,4}");
+    // DATE_LIKE, the all-numeric date: since redactor version 5 only a real date shape is kept
+    // (NumberGroups.isRealNumericDate: a day, a month and a year, or a year, a month and a day).
+    // Up to version 4 any "\\d{1,4}[-/.]\\d{1,2}[-/.]\\d{1,4}" was kept whole, so a ten-digit
+    // number printed as 1234-56-7890 passed as a date.
     // A real Kotak Mahindra Bank credit-card statement states every pre-table metadata date
     // ("16-Feb-2026", "02-Apr-2026") in this named-month shape rather than DATE_LIKE's all-numeric
     // one. Without this, the day and year survive as bare digit tokens (neither DATE_LIKE nor
@@ -105,7 +111,7 @@ public final class PdfTraceRedactor {
     // and a trace meant to regression-test parsing this exact format carries no real date to parse.
     // Matched and preserved WHOLE, the same "dates are structure, not identity" reasoning DATE_LIKE
     // above already applies.
-    private static final Pattern NAMED_MONTH_DATE_LIKE = Pattern.compile(
+    static final Pattern NAMED_MONTH_DATE_LIKE = Pattern.compile(
             "\\d{1,2}-(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\\d{2,4}",
             Pattern.CASE_INSENSITIVE);
     // A named-month date printed with SPACES rather than hyphens: "06 Jul 26" on a real SBI Card
@@ -126,14 +132,14 @@ public final class PdfTraceRedactor {
     // CsvParser reads (APOSTROPHE_TWO_DIGIT_YEAR). Before, the month and day were kept and the year
     // fell outside the span, so the copy's dates lost their year.
     private static final String APOSTROPHE_YEAR = "\\s*['\u2018\u2019]\\d{2}";
-    private static final Pattern SPACED_NAMED_MONTH_DATE_LIKE = Pattern.compile(
+    static final Pattern SPACED_NAMED_MONTH_DATE_LIKE = Pattern.compile(
             "(?<![\\p{L}\\p{N}\\p{M}])(?:\\d{1,2}\\s+" + MONTH_NAME + "(?:,?\\s+\\d{2,4}|" + APOSTROPHE_YEAR + ")?"
                     + "|" + MONTH_NAME + "\\s+\\d{1,2}(?:,?\\s+\\d{2,4})?"
                     + "|" + MONTH_NAME + APOSTROPHE_YEAR + ")(?![\\p{L}\\p{N}\\p{M}])",
             Pattern.CASE_INSENSITIVE);
     /** Version 5: a day glued to its month, with or without a glued year ("12Jul", "12Jul2026"),
      *  which CsvParser reads by splitting at the letter-digit boundaries (MISSING_SEPARATOR). */
-    private static final Pattern GLUED_DAY_MONTH_DATE_LIKE = Pattern.compile(
+    static final Pattern GLUED_DAY_MONTH_DATE_LIKE = Pattern.compile(
             "\\d{1,2}" + MONTH_NAME + "(?:\\d{2}|\\d{4})?", Pattern.CASE_INSENSITIVE);
     /**
      * Version 5: an integer printed the way an amount is -- comma-grouped in the Indian or the
@@ -318,20 +324,24 @@ public final class PdfTraceRedactor {
      *
      * <p><b>Why runs are not redacted one by one alone.</b> A short integer is kept, but a card,
      * account or mobile number printed in groups is several short integers, in one run or split
-     * across neighbouring runs. Digit groups are therefore joined per printed line first (see
-     * {@link #digitGroupChainsByLine}), and an integer that is one group of six or more digits
-     * together is masked.
+     * across neighbouring runs. Digits are therefore read per printed line first (see
+     * {@link NumberGroups}): a group that chains into six or more digits is masked, and a short
+     * integer is kept only when it stands on its own. A changed run's x and width are rounded to a
+     * whole point.
      */
     public static List<PositionedText> redact(List<PositionedText> runs) {
         Set<String> vocabulary = vocabulary();
-        boolean[][] chained = digitGroupChainsByLine(runs);
+        NumberGroups.Scan scan = NumberGroups.scanByLine(runs);
         List<PositionedText> out = new ArrayList<>(runs.size());
         for (int r = 0; r < runs.size(); r++) {
             PositionedText run = runs.get(r);
-            String redacted = redactText(run.text(), vocabulary, chained[r]);
+            String redacted = redactText(run.text(), vocabulary,
+                    new Context(run.text(), scan.kinds()[r], scan.before()[r], scan.after()[r]));
             boolean unmasked = java.util.Objects.equals(redacted, run.text());
-            out.add(new PositionedText(redacted, run.x(), run.y(), run.pageIndex(),
-                    unmasked ? run.width() : Math.round(run.width())));
+            // A changed run's x is rounded like its width: an exact x beside a rounded width would
+            // let the width be recovered from the gap to the next run.
+            out.add(new PositionedText(redacted, unmasked ? run.x() : Math.round(run.x()), run.y(),
+                    run.pageIndex(), unmasked ? run.width() : Math.round(run.width())));
         }
         return out;
     }
@@ -362,14 +372,18 @@ public final class PdfTraceRedactor {
     }
 
     static String redactText(String text, Set<String> vocabulary) {
-        return redactText(text, vocabulary, text == null ? null : digitGroupChains(text));
+        return redactText(text, vocabulary,
+                text == null ? null : new Context(text, NumberGroups.scan(text), '\0', '\0'));
     }
 
-    /** {@code chained} marks, per char of {@code text}, the digits that belong to a number of six
-     *  or more digits printed in groups (see {@link #digitGroupChains}); an integer holding one is
-     *  never kept. */
-    static String redactText(String text, Set<String> vocabulary, boolean[] chained) {
+    /** {@code ctx} says, per char of {@code text}, how each digit groups into a number on its
+     *  printed line, and which line chars stand just before and after the run (see
+     *  {@link NumberGroups}). */
+    static String redactText(String text, Set<String> vocabulary, Context ctx) {
         if (text == null || text.isBlank()) return text;
+        // A lone C or D is a direction marker only as a whole run (a Type column cell); anywhere
+        // else a single letter may be an initial.
+        if (DIRECTION_LETTER.matcher(text.strip()).matches()) return text;
         // Spaced named-month dates first: they span several tokens, so the per-token loop below
         // cannot see them whole. Each span is copied verbatim and the text between spans is
         // redacted as before.
@@ -377,19 +391,34 @@ public final class PdfTraceRedactor {
         StringBuilder joined = null;
         int last = 0;
         while (spaced.find()) {
+            // Copied whole only when its digits stand apart as a date; a date glued into a longer
+            // number is redacted token by token instead.
+            if (!allUnit(ctx, spaced.start(), spaced.end())) continue;
             if (joined == null) joined = new StringBuilder(text.length());
-            joined.append(redactTokens(text.substring(last, spaced.start()), vocabulary, chained, last));
+            joined.append(redactTokens(text.substring(last, spaced.start()), vocabulary, ctx, last));
             joined.append(spaced.group());
             last = spaced.end();
         }
         if (joined != null) {
-            joined.append(redactTokens(text.substring(last), vocabulary, chained, last));
+            joined.append(redactTokens(text.substring(last), vocabulary, ctx, last));
             return joined.toString();
         }
-        return redactTokens(text, vocabulary, chained, 0);
+        return redactTokens(text, vocabulary, ctx, 0);
     }
 
-    private static String redactTokens(String text, Set<String> vocabulary, boolean[] chained, int offset) {
+    /** The whole run being redacted, how its digits group, and the line chars just before and
+     *  after it ('\0' at a line edge), for judging one token in context. */
+    record Context(String text, NumberGroups.Kind[] kinds, char before, char after) {}
+
+    private static boolean allUnit(Context ctx, int from, int to) {
+        for (int k = from; k < to; k++) {
+            char c = ctx.text().charAt(k);
+            if (c >= '0' && c <= '9' && (ctx.kinds() == null || ctx.kinds()[k] != NumberGroups.Kind.UNIT)) return false;
+        }
+        return true;
+    }
+
+    private static String redactTokens(String text, Set<String> vocabulary, Context ctx, int offset) {
         if (text.isEmpty()) return text;
         StringBuilder out = new StringBuilder(text.length());
         // Split keeping the separators, so every space and its exact position survives -- the
@@ -409,9 +438,11 @@ public final class PdfTraceRedactor {
                 // ordinary vocabulary/date/amount rules below, against what THIS SAME redaction
                 // pass has already appended for this run, not a separate lookup.
                 out.append(isTrailingCurrencyMarkerLetter(token, out) ? token
-                        : redactToken(token, vocabulary, chained, offset + start));
+                        : redactToken(token, vocabulary, ctx, offset + start));
             } else {
-                out.appendCodePoint(cp);
+                // An invisible format character (a zero-width space, a tag character) can carry a
+                // hidden message anywhere, so it is masked wherever it stands.
+                out.appendCodePoint(Character.getType(cp) == Character.FORMAT ? 'x' : cp);
                 i += Character.charCount(cp);
             }
         }
@@ -484,7 +515,7 @@ public final class PdfTraceRedactor {
         return text.chars().allMatch(c -> c < 128);
     }
 
-    private static String redactToken(String token, Set<String> vocabulary, boolean[] chained, int offset) {
+    private static String redactToken(String token, Set<String> vocabulary, Context ctx, int offset) {
         String bare = stripPunctuation(token);
         if (bare.isEmpty()) return token;
         int bareStart = offset + token.indexOf(bare);
@@ -500,18 +531,16 @@ public final class PdfTraceRedactor {
         // Order matters: a long digit run is an account or reference number even when it would
         // otherwise pass as an amount, so it is checked first and always redacted.
         if (LONG_DIGIT_RUN.matcher(bare).find()) return mask(token);
-        if (DATE_LIKE.matcher(bare).matches() || AMOUNT_LIKE.matcher(bare).matches()
+        boolean integerShaped = AMOUNT_SHAPED_INTEGER_LIKE.matcher(bare).matches()
+                || ((AMOUNT_WITH_DIRECTION_LIKE.matcher(bare).matches() || CURRENCY_AMOUNT_LIKE.matcher(bare).matches())
+                        && !DECIMAL_END.matcher(bare).find());
+        if (integerShaped || NumberGroups.isRealNumericDate(bare) || AMOUNT_LIKE.matcher(bare).matches()
                 || NAMED_MONTH_DATE_LIKE.matcher(bare).matches()
-                || GLUED_DAY_MONTH_DATE_LIKE.matcher(bare).matches()) return token;
-        if (AMOUNT_SHAPED_INTEGER_LIKE.matcher(bare).matches()
+                || GLUED_DAY_MONTH_DATE_LIKE.matcher(bare).matches()
                 || AMOUNT_WITH_DIRECTION_LIKE.matcher(bare).matches()
                 || CURRENCY_AMOUNT_LIKE.matcher(bare).matches()) {
-            // An amount with decimals is an amount. An integer is kept only when it is not one
-            // group of a longer number printed in groups: a card, account or mobile number.
-            boolean decimal = DECIMAL_END.matcher(bare).find();
-            return decimal || !anyMarked(chained, bareStart, bareStart + bare.length()) ? token : mask(token);
+            return keepsNumber(ctx, bareStart, bareStart + bare.length(), integerShaped) ? token : mask(token);
         }
-        if (token.equals(bare) && DIRECTION_LETTER.matcher(bare).matches()) return token;
         // ASCII only: some characters lower-case into ASCII (the Kelvin sign becomes "k"), and a
         // word spelled with one is not the vocabulary word.
         if (isAscii(bare) && vocabulary.contains(bare.toLowerCase(Locale.ROOT))) return token;
@@ -526,7 +555,7 @@ public final class PdfTraceRedactor {
             int start = 0;
             for (int i = 0; i <= token.length(); i++) {
                 if (i == token.length() || token.charAt(i) == '/' || token.charAt(i) == '-') {
-                    rejoined.append(redactToken(token.substring(start, i), vocabulary, chained, offset + start));
+                    rejoined.append(redactToken(token.substring(start, i), vocabulary, ctx, offset + start));
                     if (i < token.length()) rejoined.append(token.charAt(i));
                     start = i + 1;
                 }
@@ -536,118 +565,54 @@ public final class PdfTraceRedactor {
         return mask(token);
     }
 
+    /**
+     * Whether a token a number rule matched may be kept, judged by how its digits group on the
+     * printed line ({@link NumberGroups}): never when a digit is part of a six-or-more-digit chain;
+     * always when every digit is part of a value (a date, a time, an amount); otherwise, for an
+     * integer, only when it stands on its own -- bounded by whitespace, the run's edge, a bracket,
+     * a currency symbol or a leading sign, never glued to a slash, an at sign, a colon, an
+     * underscore, a letter or a comma, as an identifier's digits are.
+     */
+    private static boolean keepsNumber(Context ctx, int from, int to, boolean integerShaped) {
+        NumberGroups.Kind[] kinds = ctx.kinds();
+        boolean allUnit = true;
+        for (int k = Math.max(0, from); k < Math.min(to, kinds == null ? 0 : kinds.length); k++) {
+            if (kinds[k] == NumberGroups.Kind.LONG) return false;
+            if (kinds[k] == NumberGroups.Kind.SHORT) allUnit = false;
+        }
+        if (kinds == null) allUnit = false;
+        if (allUnit || !integerShaped) return true;
+        return standsAlone(ctx, from, to);
+    }
+
+    /** Judged in the printed line: at the run's edge, the neighbouring run's char counts. */
+    private static boolean standsAlone(Context ctx, int from, int to) {
+        String text = ctx.text();
+        char before = from > 0 ? text.charAt(from - 1) : ctx.before();
+        char beforeSign = from > 1 ? text.charAt(from - 2) : from == 1 ? ctx.before() : '\0';
+        char after = to < text.length() ? text.charAt(to) : ctx.after();
+        boolean left = before == '\0' || isOpening(before)
+                || (isSign(before) && (beforeSign == '\0' || isOpening(beforeSign)));
+        boolean right = after == '\0' || isClosing(after);
+        return left && right;
+    }
+
+    private static boolean isOpening(char c) {
+        return Character.isWhitespace(c) || Character.isSpaceChar(c) || c == '(' || c == '[' || c == '{'
+                || Character.getType(c) == Character.CURRENCY_SYMBOL;
+    }
+
+    private static boolean isClosing(char c) {
+        return Character.isWhitespace(c) || Character.isSpaceChar(c) || c == ')' || c == ']' || c == '}'
+                || Character.getType(c) == Character.CURRENCY_SYMBOL;
+    }
+
+    private static boolean isSign(char c) {
+        return c == '+' || c == '-' || c == '\u2212';
+    }
+
     /** An amount whose number ends in one or two decimals, before an optional glued Cr/Dr. */
     private static final Pattern DECIMAL_END = Pattern.compile("\\d\\.\\d{1,2}(?i:cr|dr)?$");
-
-    /** The separators that join digit groups into one printed number: one space, hyphen or dot. */
-    private static boolean isDigitGroupSeparator(char c) {
-        return c == ' ' || c == '-' || c == '.';
-    }
-
-    private static boolean anyMarked(boolean[] marks, int from, int to) {
-        if (marks == null) return false;
-        for (int k = Math.max(0, from); k < Math.min(to, marks.length); k++) if (marks[k]) return true;
-        return false;
-    }
-
-    /**
-     * Marks every digit of each number printed as digit groups joined by a single space, hyphen or
-     * dot ("4111 1111 1111 1111", "1234-5678-9012", "98765 43210") whose groups hold six or more
-     * digits between them. Each group alone is a short integer the keep rules would keep; together
-     * they are a card, account or mobile number, so an integer holding a marked digit is masked.
-     * Decimal amounts and dates are judged by their own rules and are not affected.
-     */
-    static boolean[] digitGroupChains(String text) {
-        boolean[] marks = new boolean[text.length()];
-        int chainStart = -1;
-        int chainDigits = 0;
-        int previousEnd = -2;
-        int i = 0;
-        while (i < text.length()) {
-            if (!Character.isDigit(text.charAt(i))) { i++; continue; }
-            int start = i;
-            while (i < text.length() && Character.isDigit(text.charAt(i))) i++;
-            boolean joins = previousEnd == start - 1 && isDigitGroupSeparator(text.charAt(start - 1));
-            if (!joins) {
-                markIfLong(text, marks, chainStart, previousEnd, chainDigits);
-                chainStart = start;
-                chainDigits = 0;
-            }
-            chainDigits += i - start;
-            previousEnd = i;
-        }
-        markIfLong(text, marks, chainStart, previousEnd, chainDigits);
-        return marks;
-    }
-
-    private static void markIfLong(String text, boolean[] marks, int from, int to, int digits) {
-        if (from < 0 || digits < 6) return;
-        for (int k = from; k < to; k++) if (Character.isDigit(text.charAt(k))) marks[k] = true;
-    }
-
-    /**
-     * {@link #digitGroupChains} over each printed line rather than each run, so a number split
-     * across runs is still one number. Runs on one page whose y differ by at most half a point are
-     * a line, read left to right. Two neighbours on a line are joined when the gap between them is
-     * at most one character of the left run (width over its length) -- a space, not a column gap --
-     * or when the left run's width was never measured, since masking more is the safe side. A join
-     * adds one space unless either side already ends or starts with a separator.
-     */
-    static boolean[][] digitGroupChainsByLine(List<PositionedText> runs) {
-        boolean[][] marks = new boolean[runs.size()][];
-        List<Integer> order = new ArrayList<>();
-        for (int r = 0; r < runs.size(); r++) {
-            String text = runs.get(r).text();
-            marks[r] = new boolean[text == null ? 0 : text.length()];
-            if (text != null && !text.isEmpty()) order.add(r);
-        }
-        order.sort(java.util.Comparator.<Integer>comparingInt(r -> runs.get(r).pageIndex())
-                .thenComparingDouble(r -> runs.get(r).y()));
-        int k = 0;
-        while (k < order.size()) {
-            PositionedText first = runs.get(order.get(k));
-            int end = k;
-            while (end < order.size() && runs.get(order.get(end)).pageIndex() == first.pageIndex()
-                    && Math.abs(runs.get(order.get(end)).y() - first.y()) <= 0.5f) end++;
-            List<Integer> line = new ArrayList<>(order.subList(k, end));
-            line.sort(java.util.Comparator.comparingDouble(r -> runs.get(r).x()));
-            markLine(runs, line, marks);
-            k = end;
-        }
-        return marks;
-    }
-
-    private static void markLine(List<PositionedText> runs, List<Integer> line, boolean[][] marks) {
-        StringBuilder joined = new StringBuilder();
-        List<int[]> origin = new ArrayList<>();
-        for (int n = 0; n < line.size(); n++) {
-            PositionedText run = runs.get(line.get(n));
-            if (n > 0) {
-                PositionedText left = runs.get(line.get(n - 1));
-                String joiner;
-                if (!adjacent(left, run)) joiner = "|";
-                else if (endsOrStartsWithSeparator(left.text(), run.text())) joiner = "";
-                else joiner = " ";
-                for (int c = 0; c < joiner.length(); c++) { joined.append(joiner.charAt(c)); origin.add(null); }
-            }
-            String text = run.text();
-            for (int c = 0; c < text.length(); c++) { joined.append(text.charAt(c)); origin.add(new int[] {line.get(n), c}); }
-        }
-        boolean[] chains = digitGroupChains(joined.toString());
-        for (int p = 0; p < chains.length; p++) {
-            if (chains[p] && origin.get(p) != null) marks[origin.get(p)[0]][origin.get(p)[1]] = true;
-        }
-    }
-
-    private static boolean adjacent(PositionedText left, PositionedText right) {
-        if (left.width() <= 0f) return true;
-        int length = Math.max(1, left.text().codePointCount(0, left.text().length()));
-        return right.x() - left.endX() <= left.width() / length;
-    }
-
-    private static boolean endsOrStartsWithSeparator(String left, String right) {
-        return isDigitGroupSeparator(left.charAt(left.length() - 1)) || isDigitGroupSeparator(right.charAt(0));
-    }
 
     /** One character out per code point in: a number becomes 9, an upper-case letter X, any other
      *  text code point (a lower-case or uncased letter, a mark, a private-use glyph) x, and

@@ -207,7 +207,9 @@ class TraceValidatorTest {
                 new PositionedText("9876543210", 0f, 10f, 0), // synthetic-ok
                 new PositionedText("HDFC0001234", 0f, 20f, 0)); // synthetic-ok
         List<String> kinds = TraceValidator.privacyKinds(runs);
-        assertThat(kinds).containsExactlyInAnyOrder("email address", "phone number", "IFSC branch code");
+        // A ten-digit number in clear is also a long number to the backstop behind the number rules.
+        assertThat(kinds).containsExactlyInAnyOrder("email address", "phone number", "IFSC branch code",
+                "number split into groups");
         assertThat(String.join(" ", kinds)).doesNotContain("someone", "98765", "0001234");
     }
 
@@ -309,8 +311,8 @@ class TraceValidatorTest {
                 new Case("IFSC HDFC0XXXXXX", List.of()),   // a masked branch code
                 new Case("+91 9999999999", List.of()),   // a masked phone number
                 new Case("someone@mail.org", List.of("email address")), // synthetic-ok: real-shaped on purpose
-                new Case("Contact 9812345678", List.of("phone number")), // synthetic-ok: real-shaped on purpose
-                new Case("IFSC HDFC0004521", List.of("IFSC branch code")), // synthetic-ok: real-shaped on purpose
+                new Case("Contact 9812345678", List.of("phone number", "number split into groups")), // synthetic-ok: real-shaped on purpose
+                new Case("IFSC HDFC0004521", List.of("IFSC branch code", "number split into groups")), // synthetic-ok: real-shaped on purpose
                 new Case("अमित", List.of("unmasked text in another script")))) {   // synthetic-ok
             List<String> kinds = TraceValidator.privacyKinds(List.of(new PositionedText(c.text(), 0f, 0f, 0)));
             List<String> blocked = TraceValidator.validate("probe", traceWith(metadata(List.of()), c.text()))
@@ -318,7 +320,9 @@ class TraceValidatorTest {
                     .flatMap(f -> allKinds.stream().filter(k -> f.detail().contains(k)))
                     .distinct().toList();
             assertThat(kinds).as("privacyKinds: %s", c.text()).containsExactlyElementsOf(c.kinds());
-            assertThat(blocked).as("validate: %s", c.text()).containsExactlyInAnyOrderElementsOf(kinds);
+            // validate() has no number-groups check: committed traces predate it (see TraceCorpusHealthTest).
+            assertThat(blocked).as("validate: %s", c.text()).containsExactlyInAnyOrderElementsOf(
+                    kinds.stream().filter(k -> !k.equals("number split into groups")).toList());
         }
     }
 

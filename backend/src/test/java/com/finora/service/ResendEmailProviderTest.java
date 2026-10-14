@@ -176,6 +176,27 @@ class ResendEmailProviderTest {
         assertThat(message.sender()).isEqualTo(EmailMessage.Sender.SUPPORT);
     }
 
+    @Test
+    void confirmReminder_saysADayIsLeftAndLinksToTheUnfinishedImportsList() {
+        EmailMessage message = provider.buildStatementConfirmReminderMessage("user@example.test", 1);
+
+        assertThat(message.subject()).isEqualTo("Your statement is waiting to be confirmed");
+        assertThat(message.html()).contains("Your statement is ready and waiting for you.")
+                .contains("less than a day left").contains("upload it again later")
+                .contains("https://app.fynora.net/app/import\"").contains("Review and confirm")
+                .contains("https://app.fynora.net/app/settings?tab=notifications");
+        assertThat(message.sender()).isEqualTo(EmailMessage.Sender.SUPPORT);
+    }
+
+    @Test
+    void confirmReminder_countsSeveralStatements() {
+        EmailMessage message = provider.buildStatementConfirmReminderMessage("user@example.test", 3);
+
+        assertThat(message.subject()).isEqualTo("Your statements are waiting to be confirmed");
+        assertThat(message.html()).contains("3 of your statements are ready and waiting for you.")
+                .contains("upload them again later").contains("Review statements");
+    }
+
     /** Both statement emails are FINANCIAL notifications a user can switch off, so both say where. */
     @Test
     void statementEmails_linkToTheNotificationSettingsWhereTheyCanBeTurnedOff() {

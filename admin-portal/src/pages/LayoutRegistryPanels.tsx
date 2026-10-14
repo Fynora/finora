@@ -81,12 +81,19 @@ function useRegistryMutations(onError: (message: string | null) => void) {
   };
 }
 
-function ReasonChips({ reasons }: { reasons: LayoutReviewReason[] }) {
+/** Each reason with the upload that first raised it in this flag (V270), when that is known.
+ *  A layout flagged before sources were recorded shows its reasons without one. */
+function ReasonChips({ reasons, sources }: { reasons: LayoutReviewReason[]; sources: Record<string, string> }) {
   return (
     <div className="flex flex-wrap gap-1">
       {reasons.map((r) => (
-        <span key={r} className="text-[11px] px-1.5 py-0.5 rounded bg-warning-bg text-warning">
-          {describeReason(r)}
+        <span key={r} className="inline-flex flex-col text-[11px] px-1.5 py-0.5 rounded bg-warning-bg text-warning">
+          <span>{describeReason(r)}</span>
+          {sources[r] && (
+            <span className="font-mono text-[10px] opacity-80" aria-label={`raised by upload ${sources[r]}`}>
+              from {sources[r]}
+            </span>
+          )}
         </span>
       ))}
     </div>
@@ -200,7 +207,7 @@ export function ReviewQueuePanel() {
                 <th className="p-3">Fingerprint</th>
                 <th className="p-3">Why</th>
                 <th className="p-3">Flagged</th>
-                <th className="p-3">Analysis</th>
+                <th className="p-3">Latest upload</th>
                 <th className="p-3">Staged / confirmed</th>
                 <th className="p-3">Name</th>
                 <th className="p-3">Status</th>
@@ -212,7 +219,7 @@ export function ReviewQueuePanel() {
               {queue.map((entry) => (
                 <tr key={entry.fingerprint} className="border-b border-border last:border-0 align-top">
                   <td className="p-3 font-mono text-xs text-ink whitespace-nowrap">{entry.fingerprint}</td>
-                  <td className="p-3"><ReasonChips reasons={entry.reviewReasons} /></td>
+                  <td className="p-3"><ReasonChips reasons={entry.reviewReasons} sources={entry.reviewReasonSources ?? {}} /></td>
                   <td className="p-3 text-xs text-muted">{formatWhen(entry.reviewFlaggedAt)}</td>
                   <td className="p-3 font-mono text-xs text-muted">{entry.reviewAnalysisReference ?? '—'}</td>
                   <td className="p-3 text-xs text-ink">{entry.stagingCount} / {entry.observationCount}</td>

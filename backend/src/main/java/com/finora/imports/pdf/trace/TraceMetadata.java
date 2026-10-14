@@ -64,8 +64,17 @@ public record TraceMetadata(int traceVersion, int redactorVersion, String allowl
      * existing traces keep working and keep behaving exactly as before. What they cannot do is
      * cover a width-dependent capability, and that stays true until they are recaptured from their
      * source documents.
+     *
+     * <p><b>v4 — line breaks inside a run.</b> Rows are unchanged, but a carriage return or line
+     * feed inside a run's text is written as a visible symbol (see {@link TraceFormat}) and decoded
+     * on parse. Up to v3 a line feed split a run across two file lines and a trailing carriage
+     * return was stripped as a line ending, so a statement whose runs end in one read differently
+     * once written. Only a v4 file is decoded, so older files keep reading exactly as before.
      */
-    public static final int CURRENT_TRACE_VERSION = 3;
+    public static final int CURRENT_TRACE_VERSION = 4;
+
+    /** The first trace version whose rows carry a width column. */
+    public static final int FIRST_VERSION_WITH_WIDTHS = 3;
 
     /**
      * What a v1 trace reports.

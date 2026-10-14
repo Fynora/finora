@@ -129,7 +129,7 @@ public final class TraceValidator {
             // capture stamps v3 unconditionally -- so a v3 trace can carry no widths at all, and
             // telling that reader to "recapture at v3" would be advice they have already followed.
             // The two states need different remedies, so they get different messages.
-            String remedy = metadata.traceVersion() < TraceMetadata.CURRENT_TRACE_VERSION
+            String remedy = metadata.traceVersion() < TraceMetadata.FIRST_VERSION_WITH_WIDTHS
                     ? "The format itself has no width column at trace v" + metadata.traceVersion()
                             + ". Recapture at trace v" + TraceMetadata.CURRENT_TRACE_VERSION + " to fix."
                     : "The format carries a width column and every value in it is 0.00, so the widths "

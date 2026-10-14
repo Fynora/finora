@@ -408,8 +408,33 @@ public class ResendEmailProvider implements EmailProvider {
         return EmailMessage.html(toEmail, "Your statement wasn't imported", html, EmailMessage.Sender.SUPPORT);
     }
 
-    /** Both statement emails are FINANCIAL notifications (StatementStatusNotifier), which the user
-     *  can switch off, so both carry the opt-out line. */
+    @Override
+    public EmailResult sendStatementConfirmReminderEmail(String toEmail, int waitingCount) {
+        return send(buildStatementConfirmReminderMessage(toEmail, waitingCount));
+    }
+
+    EmailMessage buildStatementConfirmReminderMessage(String toEmail, int waitingCount) {
+        boolean one = waitingCount <= 1;
+        String waiting = one ? "Your statement is" : waitingCount + " of your statements are";
+        // "48 hours" is ImportSessionService.SESSION_TTL, as in V269's template rows.
+        String bodyHtml = """
+                <p>%s ready and waiting for you.</p>
+                <p>Transactions are added to your accounts only when you review and confirm them, and
+                statements that aren't confirmed are removed 48 hours after they're ready.</p>
+                <p>There's less than a day left. Confirm in Fynora, or upload %s again later.</p>
+                """.formatted(waiting, one ? "it" : "them");
+        String importUrl = emailProperties.resolveBaseUrl(null) + "/app/import";
+        String heading = one ? "Your statement is waiting to be confirmed"
+                : "Your statements are waiting to be confirmed";
+        String html = EmailLayout.wrap(heading, bodyHtml,
+                new EmailLayout.CtaButton(one ? "Review and confirm" : "Review statements", importUrl),
+                EmailLayout.Footer.SUPPORT_REPLY, emailProperties.getSupportFromAddress(),
+                notificationSettingsUrl());
+        return EmailMessage.html(toEmail, heading, html, EmailMessage.Sender.SUPPORT);
+    }
+
+    /** Every statement email is a FINANCIAL notification (StatementStatusNotifier), which the user
+     *  can switch off, so each carries the opt-out line. */
     private String notificationSettingsUrl() {
         return emailProperties.resolveBaseUrl(null) + EmailLayout.NOTIFICATION_SETTINGS_PATH;
     }

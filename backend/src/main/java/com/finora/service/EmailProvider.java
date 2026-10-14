@@ -94,4 +94,11 @@ public interface EmailProvider {
      *  the statement. Same layout and sender as the held email, and no CTA button either: there is
      *  nothing for the user to review or do. */
     EmailResult sendStatementRejectedEmail(String toEmail);
+
+    /** A reminder that statements the user can confirm will be removed in less than a day
+     *  (UnconfirmedImportReminder). Same layout and sender as the ready email, with a button to the
+     *  Import page, which lists every unfinished import -- one reminder can cover several.
+     *
+     *  @param waitingCount how many statements it covers, at least 1 */
+    EmailResult sendStatementConfirmReminderEmail(String toEmail, int waitingCount);
 }

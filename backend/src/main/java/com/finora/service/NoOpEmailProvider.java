@@ -122,5 +122,11 @@ public class NoOpEmailProvider implements EmailProvider, SilentProductionFallbac
     }
 
     @Override
+    public EmailResult sendStatementConfirmReminderEmail(String toEmail, int waitingCount) {
+        log.info("No email provider configured — would have sent a confirm-reminder email to {}", LogSanitizer.sanitize(toEmail));
+        return EmailResult.failure(ProviderType.RESEND, "No email provider configured");
+    }
+
+    @Override
     public String requiredConfigHint() { return "RESEND_API_KEY"; }
 }

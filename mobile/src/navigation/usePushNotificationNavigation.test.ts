@@ -89,6 +89,18 @@ describe('usePushNotificationNavigation', () => {
     expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Statements' });
   });
 
+  it('navigates to the Import tab for IMPORT_STATEMENT_CONFIRM_REMINDER, where unfinished imports are confirmed', async () => {
+    const navigationRef = fakeNavigationRef();
+    const messaging = fakeMessaging();
+    renderHook(() => usePushNotificationNavigation(navigationRef, true, true, { messaging }));
+    await Promise.resolve();
+
+    messaging.__emitOpened(readyMessage('IMPORT_STATEMENT_CONFIRM_REMINDER'));
+
+    expect(navigationRef.navigate).toHaveBeenCalledWith('Import');
+    expect(navigationRef.navigate).not.toHaveBeenCalledWith('More', expect.anything());
+  });
+
   it('navigates to Statements for STATEMENT_REFRESH_AVAILABLE, where the update banner is', async () => {
     const navigationRef = fakeNavigationRef();
     const messaging = fakeMessaging();

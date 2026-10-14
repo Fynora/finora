@@ -98,6 +98,40 @@ class StatementStatusNotifierTest {
     /** The "no" answer to the held email's promise, keyed on the job so a rejection after a reopen
      *  does not tell the user twice. */
     @Test
+    void notifyConfirmReminder_requestsBothChannelsKeyedOnTheUserAndTheExpiry() {
+        java.util.UUID userId = java.util.UUID.randomUUID();
+        java.time.Instant expiry = java.time.Instant.parse("2026-10-15T13:28:50Z");
+
+        notifier.notifyConfirmReminder(userId, 1, expiry);
+
+        NotificationRequest sent = captureRequest();
+        assertThat(sent.type()).isEqualTo(NotificationType.IMPORT_STATEMENT_CONFIRM_REMINDER);
+        assertThat(sent.category()).isEqualTo(NotificationCategory.FINANCIAL);
+        assertThat(sent.userId()).isEqualTo(userId);
+        assertThat(sent.channels())
+                .containsExactlyInAnyOrder(NotificationChannel.PUSH, NotificationChannel.EMAIL);
+        assertThat(sent.notificationKey())
+                .isEqualTo("IMPORT_CONFIRM_REMINDER_" + userId + "_" + expiry.getEpochSecond());
+        assertThat(sent.params()).containsEntry("count", "1").containsEntry("waiting", "Your statement is");
+    }
+
+    @Test
+    void notifyConfirmReminder_countsSeveralStatementsInItsWording() {
+        notifier.notifyConfirmReminder(java.util.UUID.randomUUID(), 3, java.time.Instant.now());
+
+        assertThat(captureRequest().params())
+                .containsEntry("count", "3").containsEntry("waiting", "3 of your statements are");
+    }
+
+    @Test
+    void notifyConfirmReminder_refusesToRemindAboutNothing() {
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> notifier.notifyConfirmReminder(java.util.UUID.randomUUID(), 0, java.time.Instant.now()))
+                .isInstanceOf(IllegalArgumentException.class);
+        org.mockito.Mockito.verifyNoInteractions(notificationService);
+    }
+
+    @Test
     void notifyRejected_requestsBothPushAndEmailKeyedOnTheJob() {
         ImportJob job = job();
 

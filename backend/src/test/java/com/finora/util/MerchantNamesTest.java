@@ -148,6 +148,51 @@ class MerchantNamesTest {
         assertThat(MerchantNames.forDisplay("  ")).isEqualTo("  ");
     }
 
+    @Test
+    void whetherAStoredNameOpensWithARail() {
+        assertThat(MerchantNames.opensWithRail("Upi Dr Samplepa Hdfc")).isTrue();
+        assertThat(MerchantNames.opensWithRail("ib sample billpay")).isTrue();
+        assertThat(MerchantNames.opensWithRail("Mmt Imps Monthly Samplepa")).isTrue();
+        assertThat(MerchantNames.opensWithRail("Mmt Hotel Booking")).isFalse();
+        assertThat(MerchantNames.opensWithRail("Sample Store")).isFalse();
+        assertThat(MerchantNames.opensWithRail(null)).isFalse();
+        assertThat(MerchantNames.opensWithRail(" ")).isFalse();
+    }
+
+    // ---- the name a merchant would be stored under if its narrations were imported today ----
+
+    @Test
+    void theImportedNameIsWhatMostNarrationsWouldNameANewMerchant() {
+        assertThat(MerchantNames.importedNameFor(List.of(
+                "UPI/DR/100000000001/SAMPLE STORE ONE/YESB/samplestore1@ybl",
+                "UPI/DR/100000000002/SAMPLE STORE TWO/YESB/samplestore2@ybl",
+                "UPI/DR/100000000003/SAMPLE STORE TWO/YESB/samplestore2@ybl"))).isEqualTo("Sample Store Two");
+    }
+
+    @Test
+    void theImportedNameOfAnEvenSplitDoesNotDependOnTheOrder() {
+        String one = "UPI/DR/100000000001/SAMPLE STORE ONE/YESB/samplestore1@ybl";
+        String two = "UPI/DR/100000000002/SAMPLE STORE TWO/YESB/samplestore2@ybl";
+        assertThat(MerchantNames.importedNameFor(List.of(one, two)))
+                .isEqualTo(MerchantNames.importedNameFor(List.of(two, one)))
+                .isEqualTo("Sample Store One");
+    }
+
+    /** Unlike {@link MerchantNames#forDisplay(String, java.util.Collection)}, a rail's payment counts:
+     *  it is what an import today would store. */
+    @Test
+    void narrationsThatNameNobodyGiveTheRailsPayment() {
+        assertThat(MerchantNames.importedNameFor(List.of("UPI/RRN 100000000001/UPI", "UPI/RRN 100000000002/UPI")))
+                .isEqualTo("UPI payment");
+    }
+
+    @Test
+    void noNarrationGivesNoImportedName() {
+        assertThat(MerchantNames.importedNameFor(List.of())).isNull();
+        assertThat(MerchantNames.importedNameFor(null)).isNull();
+        assertThat(MerchantNames.importedNameFor(Arrays.asList(null, "  "))).isNull();
+    }
+
     // ---- the name a customer is shown, when the merchant's own narrations are at hand ----
 
     @Test

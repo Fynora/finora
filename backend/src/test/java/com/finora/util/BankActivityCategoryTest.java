@@ -202,6 +202,16 @@ class BankActivityCategoryTest {
         assertThat(of("EMI INTEREST - 1/6, REF# 00000001", EXPENSE)).isEqualTo("Fees/Interest");
     }
 
+    /** The third wording measured: the shop, the purchase date, then which instalment of how many. */
+    @Test
+    void aCardsOwnInstalment_inTheNthOfMWording_isLoanEmi_andItsInterestAFee() {
+        assertThat(of("SAMPLE STORE 05 MAR 2ND OF 3 INSTALLMENTS PRINCIPAL", EXPENSE)).isEqualTo("Loan EMI");
+        assertThat(of("SAMPLE STORE 05 MAR 2ND OF 3 INSTALLMENTS INTEREST", EXPENSE)).isEqualTo("Fees/Interest");
+        // The same words as a credit stay unplaced: the statement prints the line back the same day,
+        // and reconciliation already pairs it with the debit by their shared merchant.
+        assertThat(of("SAMPLE STORE 05 MAR 2ND OF 3 INSTALLMENTS PRINCIPAL", INCOME)).isNull();
+    }
+
     /** Not merchant vocabulary: a card's instalment line must not make the card a business. */
     @Test
     void aCardsOwnInstalmentLine_isNotAKnownMerchant() {

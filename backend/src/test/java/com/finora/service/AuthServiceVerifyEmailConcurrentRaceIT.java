@@ -242,6 +242,23 @@ class AuthServiceVerifyEmailConcurrentRaceIT extends AbstractIntegrationTest {
         assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(userId)).isEmpty();
     }
 
+    /** An email change verifies the account without burning verification links sent before it.
+     *  Such a link, opened after it expired, reports the account verified -- not "Verification
+     *  failed" -- and records nothing. */
+    @Test
+    void anExpiredUnusedLinkOnAnAccountVerifiedAnotherWayReportsVerified() {
+        UUID userId = saveUser("verify-email-other-way-it-", true).getId();
+        String rawToken = "verify-email-other-way-token-" + UUID.randomUUID();
+        saveToken(userId, rawToken, Instant.now().minusSeconds(60));
+
+        assertThat(authService.verifyEmail(rawToken).message()).isNotBlank();
+
+        assertThat(userRepository.findById(userId).orElseThrow().isEmailVerified()).isTrue();
+        assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(userId))
+                .as("nothing was verified by this request, so nothing is recorded")
+                .isEmpty();
+    }
+
     private User saveUser(String emailPrefix, boolean emailVerified) {
         User user = new User();
         user.setEmail(emailPrefix + UUID.randomUUID() + "@example.com");

@@ -1200,8 +1200,9 @@ public class AuthService {
 
     /**
      * D-23. Confirms an email-verification link clicked from an email — see
-     * {@link #mintEmailVerificationToken}'s callers (register(), and loginWithGoogle() when it
-     * finds a matching but not-yet-verified existing account) for where the link comes from.
+     * {@link #mintEmailVerificationToken}'s callers (register(), and Google or Apple sign-in --
+     * loginWithOAuthIdentity -- when it finds a matching but not-yet-verified existing account)
+     * for where the link comes from.
      * Deliberately does not re-authenticate the caller the way {@link #reactivate} does: proving
      * email ownership is a weaker action than proving a password, and every other login path
      * (password or Google) still runs its own independent check afterward.
@@ -1218,26 +1219,42 @@ public class AuthService {
         // committed. claimIfUnused() is an atomic UPDATE ... WHERE used_at IS NULL -- the
         // mutation itself is the check -- so exactly one racing request can ever win it. See that
         // method's own doc comment.
-        if (emailVerificationTokenRepository.claimIfUnused(evt.getId(), Instant.now()) == 0) {
-            // A spent link whose account is already verified -- a double tap, the browser and the
-            // app both opening it, or an email scanner fetching it first -- reports the truth
-            // instead of "Verification failed". Nothing is written: the claim above still lets
-            // exactly one request verify, and a spent link on an unverified account (e.g. one
-            // superseded by a newer link) is still rejected.
-            boolean alreadyVerified = userRepository.findById(evt.getUserId())
-                    .map(User::isEmailVerified)
-                    .orElse(false);
-            if (alreadyVerified) {
-                return new VerifyEmailResponse("Your email is already verified.");
+        boolean claimed = emailVerificationTokenRepository.claimIfUnused(evt.getId(), Instant.now()) == 1;
+
+        // Read after the claim: a losing claim has waited for the winner to commit, so this sees the
+        // winner's verification. An account that is already verified has nothing left for this link
+        // to do, whatever state the link is in -- spent by a double tap, the browser and the app
+        // both opening it, or an email scanner fetching it first; expired; or still unused because
+        // an email change verified the account without burning links sent before it. Report that
+        // instead of "Verification failed", and write nothing: no second save, no second audit row.
+        User user = userRepository.findById(evt.getUserId()).orElse(null);
+        if (user != null && user.isEmailVerified()) {
+            return new VerifyEmailResponse("Your email is already verified.");
+        }
+
+        if (!claimed) {
+            // Every new link burns the unused older ones (mintEmailVerificationToken), and each
+            // Google or Apple sign-in attempt on an unverified account sends a new one -- so an
+            // older email's link fails here without ever having been opened. Point at the newer
+            // email instead of claiming the link was used.
+            if (emailVerificationTokenRepository.existsByUserIdAndCreatedAtAfter(evt.getUserId(), evt.getCreatedAt())) {
+                throw new ApiException(HttpStatus.BAD_REQUEST,
+                        "This link was replaced by a newer one. Open the most recent verification email "
+                                + "from Fynora and use that link.");
             }
             throw new ApiException(HttpStatus.BAD_REQUEST, "This verification link has already been used.");
         }
         if (evt.getExpiresAt().isBefore(Instant.now())) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "This verification link has expired.");
+            // There is no resend endpoint: loginWithOAuthIdentity is what mints a fresh link for an
+            // existing unverified account, so that is the way forward to name.
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "This verification link has expired. Sign in with Google or Apple again and we'll "
+                            + "email you a new one.");
+        }
+        if (user == null) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "User not found");
         }
 
-        User user = userRepository.findById(evt.getUserId())
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found"));
         user.setEmailVerified(true);
         user.setUpdatedAt(Instant.now());
         userRepository.save(user);

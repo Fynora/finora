@@ -114,6 +114,43 @@ class AuthServiceVerifyEmailTest {
     }
 
     @Test
+    void verifyEmail_withAnUnusedToken_forAnAccountVerifiedAnotherWay_succeedsWithoutASecondAuditRow() {
+        // An email change verifies the account without burning links sent before it, so an
+        // unused link can outlive the account becoming verified. Opening it has nothing to do.
+        EmailVerificationToken t = token(Instant.now().plusSeconds(600), null);
+        when(emailVerificationTokenRepository.findByTokenHash(TokenHasher.sha256("raw-token")))
+                .thenReturn(Optional.of(t));
+        when(emailVerificationTokenRepository.claimIfUnused(eq(t.getId()), any())).thenReturn(1);
+        User u = unverifiedUser();
+        u.setEmailVerified(true);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(u));
+
+        var response = authService.verifyEmail("raw-token");
+
+        assertThat(response.message()).isNotBlank();
+        verify(emailVerificationTokenRepository).claimIfUnused(eq(t.getId()), any());
+        verify(userRepository, never()).save(any());
+        verify(auditService, never()).record(any(), any(), any(), any());
+    }
+
+    @Test
+    void verifyEmail_withAnExpiredUnusedToken_forAnAccountVerifiedAnotherWay_succeeds() {
+        EmailVerificationToken t = token(Instant.now().minusSeconds(60), null);
+        when(emailVerificationTokenRepository.findByTokenHash(TokenHasher.sha256("raw-token")))
+                .thenReturn(Optional.of(t));
+        when(emailVerificationTokenRepository.claimIfUnused(eq(t.getId()), any())).thenReturn(1);
+        User u = unverifiedUser();
+        u.setEmailVerified(true);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(u));
+
+        var response = authService.verifyEmail("raw-token");
+
+        assertThat(response.message()).isNotBlank();
+        verify(userRepository, never()).save(any());
+        verify(auditService, never()).record(any(), any(), any(), any());
+    }
+
+    @Test
     void verifyEmail_withAnExpiredToken_isRejectedAndDoesNotVerify() {
         EmailVerificationToken t = token(Instant.now().minusSeconds(60), null);
         when(emailVerificationTokenRepository.findByTokenHash(TokenHasher.sha256("raw-token")))
@@ -126,6 +163,8 @@ class AuthServiceVerifyEmailTest {
             authService.verifyEmail("raw-token");
         } catch (ApiException e) {
             assertThat(e.getMessage()).contains("expired");
+            // There is no resend endpoint; the message names the one way a new link is sent.
+            assertThat(e.getMessage()).contains("Sign in with Google or Apple again");
             assertThat(u.isEmailVerified()).isFalse();
             verify(userRepository, never()).save(any());
             return;
@@ -135,12 +174,13 @@ class AuthServiceVerifyEmailTest {
 
     @Test
     void verifyEmail_withAnAlreadyUsedToken_forAnUnverifiedAccount_isRejected() {
-        // e.g. a link superseded by a newer one (mintEmailVerificationToken burns every unused
-        // link) while the account is still unverified -- spending it must not verify anything.
+        // Used, no newer link for the account, account still unverified -- spending it must not
+        // verify anything.
         EmailVerificationToken t = token(Instant.now().plusSeconds(600), Instant.now().minusSeconds(60));
         when(emailVerificationTokenRepository.findByTokenHash(TokenHasher.sha256("raw-token")))
                 .thenReturn(Optional.of(t));
         when(emailVerificationTokenRepository.claimIfUnused(eq(t.getId()), any())).thenReturn(0);
+        when(emailVerificationTokenRepository.existsByUserIdAndCreatedAtAfter(userId, t.getCreatedAt())).thenReturn(false);
         User u = unverifiedUser();
         when(userRepository.findById(userId)).thenReturn(Optional.of(u));
 
@@ -154,6 +194,50 @@ class AuthServiceVerifyEmailTest {
             return;
         }
         throw new AssertionError("Expected verifyEmail() to throw for an already-used token on an unverified account");
+    }
+
+    @Test
+    void verifyEmail_withALinkSupersededByANewerOne_forAnUnverifiedAccount_pointsAtTheNewerEmail() {
+        // register() sent link A; a Google sign-in attempt then sent link B, and minting B burned A
+        // without verifying anything. Opening A must say it was replaced, not that it was used.
+        EmailVerificationToken t = token(Instant.now().plusSeconds(600), Instant.now().minusSeconds(60));
+        when(emailVerificationTokenRepository.findByTokenHash(TokenHasher.sha256("raw-token")))
+                .thenReturn(Optional.of(t));
+        when(emailVerificationTokenRepository.claimIfUnused(eq(t.getId()), any())).thenReturn(0);
+        when(emailVerificationTokenRepository.existsByUserIdAndCreatedAtAfter(userId, t.getCreatedAt())).thenReturn(true);
+        User u = unverifiedUser();
+        when(userRepository.findById(userId)).thenReturn(Optional.of(u));
+
+        try {
+            authService.verifyEmail("raw-token");
+        } catch (ApiException e) {
+            assertThat(e.getMessage()).contains("replaced by a newer one");
+            assertThat(e.getMessage()).doesNotContain("already been used");
+            assertThat(u.isEmailVerified()).isFalse();
+            verify(userRepository, never()).save(any());
+            verify(auditService, never()).record(any(), any(), any(), any());
+            return;
+        }
+        throw new AssertionError("Expected verifyEmail() to throw for a superseded link on an unverified account");
+    }
+
+    @Test
+    void verifyEmail_withALinkSupersededByANewerOne_forAVerifiedAccount_succeeds() {
+        // The newer link already verified the account; the older email's link reports that.
+        EmailVerificationToken t = token(Instant.now().plusSeconds(600), Instant.now().minusSeconds(60));
+        when(emailVerificationTokenRepository.findByTokenHash(TokenHasher.sha256("raw-token")))
+                .thenReturn(Optional.of(t));
+        when(emailVerificationTokenRepository.claimIfUnused(eq(t.getId()), any())).thenReturn(0);
+        when(emailVerificationTokenRepository.existsByUserIdAndCreatedAtAfter(userId, t.getCreatedAt())).thenReturn(true);
+        User u = unverifiedUser();
+        u.setEmailVerified(true);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(u));
+
+        var response = authService.verifyEmail("raw-token");
+
+        assertThat(response.message()).isNotBlank();
+        verify(userRepository, never()).save(any());
+        verify(auditService, never()).record(any(), any(), any(), any());
     }
 
     @Test

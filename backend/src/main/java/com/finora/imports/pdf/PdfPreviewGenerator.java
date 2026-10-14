@@ -187,11 +187,25 @@ public class PdfPreviewGenerator {
      *   why supplying one for an unencrypted document is safe.
      */
     public PdfGenerationResult generateSectionsWithContext(UUID userId, String filename, byte[] fileBytes, String password) throws IOException {
-        DocumentContext ctx = new DocumentContext("PDF", "PdfPreviewGenerator");
+        return generateSectionsFromAcquired(userId, filename, acquire(fileBytes, password));
+    }
+
+    /** Text acquisition alone, with the same acquirer an import uses. */
+    public com.finora.imports.pdf.acquisition.AcquiredDocument acquire(byte[] fileBytes, String password) throws IOException {
         // Acquisition, not extraction: this may be the PDF's own text layer or characters
         // recognised from its pixels, and nothing below this line is allowed to care which. See
         // RoutingTextAcquirer for which one runs and why.
-        com.finora.imports.pdf.acquisition.AcquiredDocument acquired = textAcquirer.acquire(fileBytes, password);
+        return textAcquirer.acquire(fileBytes, password);
+    }
+
+    /**
+     * Everything after acquisition: the whole reading, staging and verification, from text already
+     * acquired. The blanked-copy check reads the real runs and a blanked copy's runs through exactly
+     * this, so the two readings differ only in their text.
+     */
+    public PdfGenerationResult generateSectionsFromAcquired(UUID userId, String filename,
+            com.finora.imports.pdf.acquisition.AcquiredDocument acquired) {
+        DocumentContext ctx = new DocumentContext("PDF", "PdfPreviewGenerator");
         List<PositionedText> positioned = acquired.runs();
         // A count, never the text. Lets ExtractionCheck tell "the pages carry no text" from
         // "we read plenty and could not make a table of it" -- see DocumentContext.

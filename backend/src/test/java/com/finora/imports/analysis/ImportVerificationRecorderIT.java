@@ -3,6 +3,7 @@ package com.finora.imports.analysis;
 import com.finora.AbstractIntegrationTest;
 import com.finora.dto.ImportDto;
 import com.finora.entity.User;
+import com.finora.imports.BalanceChainValidator;
 import com.finora.imports.StatementUpload;
 import com.finora.imports.jobs.ImportJobStore;
 import com.finora.repository.UserRepository;
@@ -11,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -112,6 +114,55 @@ class ImportVerificationRecorderIT extends AbstractIntegrationTest {
                 .as("the count is the diagnostic; the balances are the customer's statement")
                 .contains("discrepanciesCount").contains("rowsChecked")
                 .doesNotContain("48221.50").doesNotContain("expectedBalance");
+    }
+
+    private static ImportDto.StagedRow stagedRow(String date, String description, String amount,
+                                                  String type, String balanceAfter) {
+        return new ImportDto.StagedRow(LocalDate.parse(date), description, new BigDecimal(amount), type,
+                "Other", "default", null, false, null, new BigDecimal(balanceAfter));
+    }
+
+    @Test
+    void aBalanceMismatchIsDiagnosableFromTheColumnAndTheColumnHoldsNoneOfTheStatement() {
+        // The whole reason the shapes exist: a WARNING a customer saw twice and never confirmed
+        // could only be explained from the staged rows, which are deleted after 48 hours. What is
+        // written here is all that will be left, so it has to be enough -- and it is written to a
+        // table that is never deleted, so it has to be nothing a statement printed.
+        //
+        // The validator's own output, not a hand-built map: the balance column slips a row through
+        // identical same-day debits and catches up, with a narration and a date on every row.
+        var report = new BalanceChainValidator().report(List.of(
+                stagedRow("2026-07-10", "ZQXV SALARY CREDIT", "10417.63", "INCOME", "10417.63"),
+                stagedRow("2026-07-16", "KJWP TRANSFER", "517.37", "EXPENSE", "9900.26"),
+                stagedRow("2026-07-16", "KJWP TRANSFER", "517.37", "EXPENSE", "9900.26"),
+                stagedRow("2026-07-16", "KJWP TRANSFER", "517.37", "EXPENSE", "9382.89"),
+                stagedRow("2026-07-16", "ZQXV ATM FEE", "203.11", "EXPENSE", "8662.41"),
+                stagedRow("2026-07-18", "KJWP INSTALMENT", "82.19", "EXPENSE", "8580.22")), null);
+        assertThat(report.findings().get(0).outcome()).isEqualTo("WARNING");
+
+        User user = user();
+        String reference = analysis(user.getId());
+        recorder.recordForAnalysis(reference, List.of(report));
+
+        UUID sessionId = analysisRepository.findByReference(reference).orElseThrow().getId();
+        String stored = findingRepository.findByAnalysisSessionIdOrderBySectionIndexAscRuleAsc(sessionId)
+                .get(0).getDetailsJson();
+
+        assertThat(stored)
+                .as("where each mismatch is, and what kind it looks like")
+                .contains("\"discrepanciesCount\":2")
+                .contains("\"gapsCancel\":true")
+                .contains("{\"rowIndex\":2,\"sameDayAsPrevious\":true,\"sameDayAsNext\":true,"
+                        + "\"directionLooksFlipped\":false,\"balanceDidNotMove\":true,"
+                        + "\"gapMatchesAmountOfRows\":[1,3]}")
+                .contains("{\"rowIndex\":4,\"sameDayAsPrevious\":true,\"sameDayAsNext\":false,"
+                        + "\"directionLooksFlipped\":false,\"balanceDidNotMove\":false,"
+                        + "\"gapMatchesAmountOfRows\":[3,2,1]}");
+        assertThat(stored)
+                .as("no amount, no balance, no date, no narration -- under any key")
+                .doesNotContain("10417.63", "517.37", "9900.26", "9382.89", "203.11", "8662.41",
+                        "82.19", "8580.22", "2026", "07-16", "ZQXV", "KJWP", "TRANSFER", "FEE",
+                        "expectedBalance", "actualBalance", "difference");
     }
 
     /** The real shape a ROW_ACCOUNTING WARNING carries -- see {@code RowAccountingValidator}. */

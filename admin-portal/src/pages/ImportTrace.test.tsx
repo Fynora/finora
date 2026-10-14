@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -199,6 +199,154 @@ describe('Import Trace — reports, does not judge', () => {
     // weighting policy nothing here can calibrate, and a number that quietly becomes a verdict is
     // the failure mode those were written to avoid.
     expect(screen.queryByText(/healthy|unhealthy|overall (status|score)|looks fine/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('Import Trace — a balance mismatch is readable without a database query', () => {
+  const MISMATCH_LIST = 'Rows that disagreed with the running balance';
+
+  /** What the backend keeps for a balance column that slipped a row through identical same-day
+   *  debits and then caught up: two rows out, by gaps that cancel. Positions and yes/no only. */
+  function slippedColumn(over: Record<string, unknown> = {}) {
+    return trace({
+      verification: [{
+        sectionIndex: 0,
+        rule: 'BALANCE_CHAIN',
+        outcome: 'WARNING',
+        recordedAt: '2026-08-06T09:00:03Z',
+        details: {
+          rowsChecked: 51,
+          rowsWithBalance: 52,
+          anchoredOnOpeningBalance: true,
+          discrepanciesCount: 2,
+          discrepancyShapes: [
+            {
+              rowIndex: 12, sameDayAsPrevious: true, sameDayAsNext: true,
+              directionLooksFlipped: false, balanceDidNotMove: true, gapMatchesAmountOfRows: [11, 13, 10],
+            },
+            {
+              rowIndex: 16, sameDayAsPrevious: true, sameDayAsNext: false,
+              directionLooksFlipped: false, balanceDidNotMove: false, gapMatchesAmountOfRows: [15],
+            },
+          ],
+          gapsCancel: true,
+          ...over,
+        },
+      }],
+    });
+  }
+
+  it('says where each row is and what kind of mismatch it looks like', async () => {
+    vi.mocked(adminImportTraceApi.byAnalysis).mockResolvedValue(slippedColumn());
+    await traceFor();
+
+    // Counted from one, and the matching rows in reading order whatever order they arrived in.
+    expect(await screen.findByText(
+      'Row 13: balance did not move; gap equals the amount on rows 11, 12, 14; same day as the rows before and after',
+    )).toBeInTheDocument();
+    expect(screen.getByText(
+      'Row 17: gap equals the amount on row 16; same day as the row before',
+    )).toBeInTheDocument();
+    expect(screen.getByText(/The gaps cancel each other out\./)).toBeInTheDocument();
+    // What the numbers count, said in words: this page has no rows on it to count them against.
+    expect(screen.getByText(/Row numbers count down the rows as the customer’s review screen lists them/))
+      .toBeInTheDocument();
+  });
+
+  it('keeps the counts on the flat line and never prints a list of objects there', async () => {
+    vi.mocked(adminImportTraceApi.byAnalysis).mockResolvedValue(slippedColumn());
+    await traceFor();
+    await screen.findByText(/Row 13:/);
+
+    // Testing Library collapses runs of whitespace in the text it reads, so one space, not two.
+    expect(screen.getByText(
+      'rowsChecked=51 rowsWithBalance=52 anchoredOnOpeningBalance=true discrepanciesCount=2',
+    )).toBeInTheDocument();
+    expect(screen.queryByText(/\[object Object\]/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/discrepancyShapes=/)).not.toBeInTheDocument();
+  });
+
+  it('names a flipped direction by what was measured', async () => {
+    vi.mocked(adminImportTraceApi.byAnalysis).mockResolvedValue(slippedColumn({
+      discrepanciesCount: 1,
+      discrepancyShapes: [{
+        rowIndex: 1, sameDayAsPrevious: false, sameDayAsNext: false,
+        directionLooksFlipped: true, balanceDidNotMove: false, gapMatchesAmountOfRows: [],
+      }],
+      gapsCancel: false,
+    }));
+    await traceFor();
+
+    expect(await screen.findByText('Row 2: gap is twice this row’s own amount')).toBeInTheDocument();
+    // One gap has nothing to cancel against, so saying it "does not cancel" would be noise.
+    expect(screen.queryByText(/cancel/)).not.toBeInTheDocument();
+  });
+
+  it('says so when a mismatch fits none of the patterns, rather than leaving the row blank', async () => {
+    vi.mocked(adminImportTraceApi.byAnalysis).mockResolvedValue(slippedColumn({
+      discrepanciesCount: 1,
+      discrepancyShapes: [{
+        rowIndex: 2, sameDayAsPrevious: false, sameDayAsNext: false,
+        directionLooksFlipped: false, balanceDidNotMove: false, gapMatchesAmountOfRows: [],
+      }],
+      gapsCancel: false,
+    }));
+    await traceFor();
+
+    expect(await screen.findByText('Row 3: gap matches no amount in the rows')).toBeInTheDocument();
+  });
+
+  it('says when it is showing only the first rows of many, and that their gaps do not cancel', async () => {
+    vi.mocked(adminImportTraceApi.byAnalysis).mockResolvedValue(slippedColumn({
+      discrepanciesCount: 87, gapsCancel: false,
+    }));
+    await traceFor();
+
+    expect(await screen.findByText(/Showing the first 2 of 87 rows that disagreed\./)).toBeInTheDocument();
+    expect(screen.getByText(/The gaps do not cancel each other out\./)).toBeInTheDocument();
+  });
+
+  it('survives a finding whose shapes are not what this version expects', async () => {
+    // Written by a later version, or damaged: one line of the trace degrades, not the page.
+    vi.mocked(adminImportTraceApi.byAnalysis).mockResolvedValue(slippedColumn({
+      discrepancyShapes: [
+        null, 'row 13', { balanceDidNotMove: true }, { rowIndex: '12' },
+        { rowIndex: 4, gapMatchesAmountOfRows: 'rows 3 and 5' },
+      ],
+    }));
+    await traceFor();
+
+    expect(await screen.findByText('Row 5: gap matches no amount in the rows')).toBeInTheDocument();
+    expect(within(screen.getByRole('list', { name: MISMATCH_LIST })).getAllByRole('listitem')).toHaveLength(1);
+  });
+
+  it('renders a verified balance chain exactly as before', async () => {
+    await traceFor();
+    await screen.findByText('BALANCE_CHAIN');
+
+    expect(screen.getByText('checked=128')).toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: MISMATCH_LIST })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Row numbers/)).not.toBeInTheDocument();
+  });
+
+  it('prints a reason histogram as its contents, not as [object Object]', async () => {
+    vi.mocked(adminImportTraceApi.byAnalysis).mockResolvedValue(trace({
+      verification: [{
+        sectionIndex: 0, rule: 'ROW_ACCOUNTING', outcome: 'WARNING', recordedAt: '2026-08-06T09:00:03Z',
+        details: {
+          droppedTransactionCandidateCount: 3,
+          droppedTransactionCandidateReasons: { PAGE_FOOTER_OR_CLOSING_MARKER: 2, BUCKET_EMPTY: 1 },
+          mismatches: ['debitTotal', 'debitCount'],
+        },
+      }],
+    }));
+    await traceFor();
+
+    expect(await screen.findByText(
+      'droppedTransactionCandidateCount=3 '
+      + 'droppedTransactionCandidateReasons={"PAGE_FOOTER_OR_CLOSING_MARKER":2,"BUCKET_EMPTY":1} '
+      + 'mismatches=debitTotal,debitCount',
+    )).toBeInTheDocument();
   });
 });
 

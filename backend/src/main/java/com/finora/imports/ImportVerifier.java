@@ -135,8 +135,31 @@ public class ImportVerifier {
                                                 List<HeaderReconstructionFinding> headerReconstructionFindings,
                                                 TextSource textSource,
                                                 com.finora.imports.pdf.ContentDamage contentDamage) {
+        return verify(rows, openingBalance, closingBalance, printedSummary, rawRows, unparseableRows,
+                droppedTransactionCandidates, printedCreditCardSummary, headerReconstructionFindings, textSource,
+                contentDamage, null);
+    }
+
+    /**
+     * @param displayedPositionOf where each of {@code rows} ends up in the list the client is shown,
+     *                            for a producer that checks the rows in one order and displays them
+     *                            in another (the PDF path: document sequence checked, date-sorted
+     *                            copy shown). Null when the two are the same list. Only the balance
+     *                            chain names rows by position, so only it reads this -- see {@link
+     *                            BalanceChainValidator#report(List, BigDecimal, int[])}.
+     */
+    public ImportDto.VerificationReport verify(List<StagedRow> rows, BigDecimal openingBalance,
+                                                BigDecimal closingBalance, PrintedSummary printedSummary,
+                                                List<java.util.Map<String, String>> rawRows,
+                                                List<UnparseableRow> unparseableRows,
+                                                List<DroppedCandidateRow> droppedTransactionCandidates,
+                                                CreditCardSummaryEvidence printedCreditCardSummary,
+                                                List<HeaderReconstructionFinding> headerReconstructionFindings,
+                                                TextSource textSource,
+                                                com.finora.imports.pdf.ContentDamage contentDamage,
+                                                int[] displayedPositionOf) {
         List<ImportDto.VerificationFinding> findings = new ArrayList<>();
-        findings.addAll(balanceChainValidator.report(rows, openingBalance).findings());
+        findings.addAll(balanceChainValidator.report(rows, openingBalance, displayedPositionOf).findings());
         findings.add(statementTotalsValidator.check(rows, openingBalance, closingBalance));
         // rawRows is what the locator found before normalisation. The summary rule needs its SIZE
         // to tell "the table was read and every row rejected" from "no table was found at all" --

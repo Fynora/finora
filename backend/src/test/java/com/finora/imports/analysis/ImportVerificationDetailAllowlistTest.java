@@ -1,8 +1,12 @@
 package com.finora.imports.analysis;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.finora.dto.ImportDto;
+import com.finora.imports.BalanceChainValidator;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -187,6 +191,198 @@ class ImportVerificationDetailAllowlistTest {
         assertThat(safe.get("rowsChecked")).isEqualTo(124);
         assertThat(safe.get("discrepanciesCount")).isEqualTo(2);
         assertThat(safe.get("anchoredOnOpeningBalance")).isEqualTo(true);
+    }
+
+    // --- BALANCE_CHAIN's discrepancy shapes: the one list kept as more than a count ---
+
+    /** Every amount, balance, date and narration in {@link #slippedBalanceColumn()}, as it would
+     *  appear if it leaked. Distinctive on purpose: a row position is a small whole number, so none
+     *  of these can be matched by accident. */
+    private static final List<String> STATEMENT_CONTENT = List.of(
+            "10417.63", "517.37", "9900.26", "9382.89", "203.11", "8662.41", "82.19", "8580.22",
+            "2026", "07-16", "ZQXV", "KJWP", "TRANSFER", "FEE");
+
+    /**
+     * A balance column that slips one row through identical same-day debits and then catches up --
+     * the pattern this description was built to make visible -- with a narration and a date on
+     * every row, because those are what must not follow the description into the table.
+     */
+    private static List<ImportDto.StagedRow> slippedBalanceColumn() {
+        return List.of(
+                stagedRow("2026-07-10", "ZQXV SALARY CREDIT", "10417.63", "INCOME", "10417.63"),
+                stagedRow("2026-07-16", "KJWP TRANSFER", "517.37", "EXPENSE", "9900.26"),
+                stagedRow("2026-07-16", "KJWP TRANSFER", "517.37", "EXPENSE", "9900.26"),
+                stagedRow("2026-07-16", "KJWP TRANSFER", "517.37", "EXPENSE", "9382.89"),
+                stagedRow("2026-07-16", "ZQXV ATM FEE", "203.11", "EXPENSE", "8662.41"),
+                stagedRow("2026-07-18", "KJWP INSTALMENT", "82.19", "EXPENSE", "8580.22"));
+    }
+
+    private static ImportDto.StagedRow stagedRow(String date, String description, String amount,
+                                                  String type, String balanceAfter) {
+        return new ImportDto.StagedRow(LocalDate.parse(date), description, new BigDecimal(amount), type,
+                "Other", "default", null, false, null, new BigDecimal(balanceAfter));
+    }
+
+    /** What the validator really emits for those rows -- not a hand-built imitation of it. */
+    private static Map<String, Object> realBalanceChainWarning() {
+        var finding = new BalanceChainValidator().report(slippedBalanceColumn(), null).findings().get(0);
+        assertThat(finding.outcome()).as("the fixture has to actually disagree").isEqualTo("WARNING");
+        return finding.details();
+    }
+
+    @Test
+    void aBalanceMismatchKeepsItsShapeAndNoneOfTheStatement() throws Exception {
+        Map<String, Object> safe =
+                ImportVerificationRecorder.structuralDetailsOf(realBalanceChainWarning());
+
+        assertThat(safe).containsOnlyKeys("rowsChecked", "rowsWithBalance", "anchoredOnOpeningBalance",
+                "discrepanciesCount", "discrepancyShapes", "gapsCancel");
+        assertThat(safe.get("discrepanciesCount")).isEqualTo(2);
+        assertThat(safe.get("gapsCancel")).isEqualTo(true);
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> shapes = (List<Map<String, Object>>) safe.get("discrepancyShapes");
+        assertThat(shapes).hasSize(2);
+        assertThat(shapes.get(0))
+                .containsEntry("rowIndex", 2)
+                .containsEntry("balanceDidNotMove", true)
+                .containsEntry("directionLooksFlipped", false)
+                .containsEntry("sameDayAsPrevious", true)
+                .containsEntry("sameDayAsNext", true)
+                .containsEntry("gapMatchesAmountOfRows", List.of(1, 3));
+        assertThat(shapes.get(1))
+                .containsEntry("rowIndex", 4)
+                .containsEntry("balanceDidNotMove", false)
+                .containsEntry("gapMatchesAmountOfRows", List.of(3, 2, 1));
+
+        // Asserted on the JSON that would be written, over every piece of statement content at
+        // once: a value relocated into a key this test did not think to name still shows up here.
+        String written = new ObjectMapper().writeValueAsString(safe);
+        assertThat(written).doesNotContain(STATEMENT_CONTENT);
+        assertThat(written)
+                .as("nor any of the discrepancy's own fields, under any name")
+                .doesNotContain("expectedBalance").doesNotContain("actualBalance")
+                .doesNotContain("difference").doesNotContain("description").doesNotContain("date");
+    }
+
+    @Test
+    void aShapeIsRebuiltFromNamedKeysAndNeverCopied() throws Exception {
+        // The discrepancy and its shape sit side by side in the same details map. This is the test
+        // that fails if the recorder ever starts copying entries across instead of rebuilding them:
+        // every entry below carries, next to its legitimate keys, the fields of the discrepancy it
+        // describes.
+        Map<String, Object> smuggling = new LinkedHashMap<>();
+        smuggling.put("rowIndex", 17);
+        smuggling.put("balanceDidNotMove", true);
+        smuggling.put("expectedBalance", new BigDecimal("48221.50"));
+        smuggling.put("difference", new BigDecimal("436.00"));
+        smuggling.put("description", "UPI/ACME STORES/paid");
+        smuggling.put("date", LocalDate.of(2026, 7, 16));
+
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("discrepancyShapes", List.of(smuggling));
+
+        Map<String, Object> safe = ImportVerificationRecorder.structuralDetailsOf(details);
+
+        assertThat(safe.get("discrepancyShapes"))
+                .isEqualTo(List.of(Map.of("rowIndex", 17, "balanceDidNotMove", true)));
+        assertThat(new ObjectMapper().findAndRegisterModules().writeValueAsString(safe))
+                .doesNotContain("48221.50").doesNotContain("436.00").doesNotContain("ACME")
+                .doesNotContain("2026");
+    }
+
+    @Test
+    void aNamedShapeKeyCannotCarryContentThroughAnUnexpectedType() throws Exception {
+        // An allowlisted KEY is not a licence for whatever sits under it. Each value here is under a
+        // legitimate name and is the wrong type for it -- the shape an amount, a narration or a date
+        // would have to take to get through.
+        Map<String, Object> wrongTypes = new LinkedHashMap<>();
+        wrongTypes.put("rowIndex", 3);
+        wrongTypes.put("sameDayAsPrevious", "2026-07-16");
+        wrongTypes.put("sameDayAsNext", LocalDate.of(2026, 7, 16));
+        wrongTypes.put("directionLooksFlipped", new BigDecimal("872.00"));
+        wrongTypes.put("balanceDidNotMove", Map.of("balance", new BigDecimal("47785.50")));
+        wrongTypes.put("gapMatchesAmountOfRows",
+                java.util.Arrays.asList(4, new BigDecimal("436.00"), "UPI/ACME STORES/paid", 436.0d, null, 5L));
+
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("discrepancyShapes", List.of(wrongTypes));
+        details.put("gapsCancel", "436.00 against 436.00");
+
+        Map<String, Object> safe = ImportVerificationRecorder.structuralDetailsOf(details);
+
+        assertThat(safe).containsOnlyKeys("discrepancyShapes");
+        assertThat(safe.get("discrepancyShapes")).isEqualTo(List.of(
+                Map.of("rowIndex", 3, "gapMatchesAmountOfRows", List.of(4, 5))));
+        assertThat(new ObjectMapper().writeValueAsString(safe))
+                .doesNotContain("436").doesNotContain("872").doesNotContain("47785")
+                .doesNotContain("ACME").doesNotContain("2026");
+    }
+
+    @Test
+    void anEntryThatPointsAtNoRowIsDroppedWhole() {
+        // The row position is what makes the rest of an entry mean anything. A decimal is refused
+        // there even when its value is whole: that is the type a balance arrives as, and a position
+        // is never produced as one.
+        List<Object> shapes = new java.util.ArrayList<>();
+        shapes.add(Map.of("balanceDidNotMove", true));
+        shapes.add(Map.of("rowIndex", new BigDecimal("47785"), "balanceDidNotMove", true));
+        shapes.add(Map.of("rowIndex", 47785.50d, "balanceDidNotMove", true));
+        shapes.add(Map.of("rowIndex", "17", "balanceDidNotMove", true));
+        shapes.add(Map.of("rowIndex", -1, "balanceDidNotMove", true));
+        shapes.add("UPI/ACME STORES/paid");
+        shapes.add(null);
+        shapes.add(new ImportDto.RowDiscrepancy(17, new BigDecimal("48221.50"),
+                new BigDecimal("47785.50"), new BigDecimal("436.00")));
+
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("discrepancyShapes", shapes);
+
+        assertThat(ImportVerificationRecorder.structuralDetailsOf(details))
+                .as("nothing usable survived, so the key itself is absent rather than an empty list")
+                .isEmpty();
+    }
+
+    @Test
+    void theShapeListAndEachGapMatchListAreBounded() {
+        // Bounded at the boundary, whatever the producer did: a whole column misread disagrees on
+        // every row of the statement, and this table must not grow with a customer's statement.
+        List<Map<String, Object>> shapes = new java.util.ArrayList<>();
+        for (int i = 0; i < 500; i++) {
+            shapes.add(Map.of("rowIndex", i, "balanceDidNotMove", false,
+                    "gapMatchesAmountOfRows", List.of(1, 2, 3, 4, 5, 6, 7, 8, 9)));
+        }
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("discrepancies", shapes);
+        details.put("discrepancyShapes", shapes);
+
+        Map<String, Object> safe = ImportVerificationRecorder.structuralDetailsOf(details);
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> kept = (List<Map<String, Object>>) safe.get("discrepancyShapes");
+        assertThat(kept).hasSize(20);
+        assertThat(kept).allSatisfy(shape ->
+                assertThat((List<?>) shape.get("gapMatchesAmountOfRows")).hasSize(5));
+        assertThat(safe.get("discrepanciesCount"))
+                .as("the count is still the whole truth, so a truncated list can say that it is one")
+                .isEqualTo(500);
+    }
+
+    @Test
+    void theSameMismatchSerialisesIdenticallyTwice() throws Exception {
+        // Every other allowlist here is a Set, which has no order of its own. An entry whose fields
+        // came out in whatever order a set iterates would make the same finding look like two
+        // different ones in a diff of the column.
+        ObjectMapper mapper = new ObjectMapper();
+        String first = mapper.writeValueAsString(
+                ImportVerificationRecorder.structuralDetailsOf(realBalanceChainWarning()));
+        String second = mapper.writeValueAsString(
+                ImportVerificationRecorder.structuralDetailsOf(realBalanceChainWarning()));
+
+        assertThat(first).isEqualTo(second);
+        assertThat(first).contains("\"rowIndex\":2,\"sameDayAsPrevious\":true,\"sameDayAsNext\":true,"
+                + "\"directionLooksFlipped\":false,\"balanceDidNotMove\":true,"
+                + "\"gapMatchesAmountOfRows\":[1,3]");
     }
 
     @Test

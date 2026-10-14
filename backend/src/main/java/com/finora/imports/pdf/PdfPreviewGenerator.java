@@ -668,7 +668,23 @@ public class PdfPreviewGenerator {
         // Some real exports (PNB ONE) list transactions newest-first, which reads oddly in the
         // review table. Purely presentational, and now provably so: everything order-sensitive
         // reads documentOrder above.
-        staged.sort(Comparator.comparing(StagedRow::date));
+        //
+        // Sorted as positions rather than in place, so that where each row LANDS is known and not
+        // just the result. The balance check names a row by number ("Row 13"), and that number is
+        // counted down this sorted list by the person reading it, while the check itself runs along
+        // documentOrder. Without the mapping the number was a position in a list the customer never
+        // sees: wrong inside a same-day group of a newest-first statement, and wrong for any row
+        // whose date is out of sequence. Same comparator and the same stable sort as before, so the
+        // displayed order is unchanged.
+        Integer[] displayOrder = new Integer[documentOrder.size()];
+        for (int i = 0; i < displayOrder.length; i++) displayOrder[i] = i;
+        java.util.Arrays.sort(displayOrder, Comparator.comparing(i -> documentOrder.get(i).date()));
+        int[] displayedPositionOf = new int[displayOrder.length];
+        staged.clear();
+        for (int position = 0; position < displayOrder.length; position++) {
+            displayedPositionOf[displayOrder[position]] = position;
+            staged.add(documentOrder.get(displayOrder[position]));
+        }
 
         int dupCount = (int) staged.stream().filter(StagedRow::likelyDuplicate).count();
         // The card's billing summary is read once for the whole document, so it belongs only to a
@@ -694,7 +710,8 @@ public class PdfPreviewGenerator {
                 detected == null ? null : detected.closingBalance(),
                 printedSummary, section.rows(), unparseable, section.evidence().droppedTransactionCandidates(),
                 sectionCardSummary,
-                section.evidence().headerReconstructionFindings(), ctx.textSource(), ctx.contentDamage());
+                section.evidence().headerReconstructionFindings(), ctx.textSource(), ctx.contentDamage(),
+                displayedPositionOf);
         return new StagedAccountSection(detected, staged, staged.size(), dupCount, unparseable, verification);
     }
 

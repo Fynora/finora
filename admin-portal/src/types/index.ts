@@ -1100,10 +1100,33 @@ export interface ImportTraceFinding {
   sectionIndex: number;
   rule: string;
   outcome: string;
-  /** Structural facts only — counts, booleans and bounded enum constants. Balances and raw cell
-   *  values are absent by construction. */
+  /** Structural facts only — counts, booleans, bounded enum constants and, for a balance-chain
+   *  mismatch, the positions of the rows that disagreed. Balances and raw cell values are absent by
+   *  construction. */
   details: Record<string, unknown>;
   recordedAt: string;
+}
+
+/**
+ * How one row disagreed with the statement's running balance, without any of the statement's
+ * numbers: a position, and yes/no answers about how the numbers relate. Written by
+ * `BalanceChainValidator`, kept by `ImportVerificationRecorder`'s allowlist.
+ *
+ * Every field but the position is optional because the recorder keeps a field only when it is the
+ * type it should be, and a row written by a later version may carry fewer.
+ */
+export interface BalanceDiscrepancyShape {
+  /** Zero-based position in the staged rows — the same row the customer's review screen numbers
+   *  from one. */
+  rowIndex: number;
+  sameDayAsPrevious?: boolean;
+  sameDayAsNext?: boolean;
+  /** The gap is exactly twice the row's own amount: a credit read as a debit, or the reverse. */
+  directionLooksFlipped?: boolean;
+  /** The printed balance repeats the one printed before it. */
+  balanceDidNotMove?: boolean;
+  /** Nearby rows whose amount equals the gap, nearest first, at most five. */
+  gapMatchesAmountOfRows?: number[];
 }
 
 interface ImportTraceLearningEvent {

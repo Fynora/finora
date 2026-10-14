@@ -324,10 +324,15 @@ const RULE_RENDERERS: Record<string, {
     render: (finding) => {
       const d = finding.details as {
         reason?: string; explanation?: string; rowsChecked?: number; ambiguousRows?: number;
-        ambiguities?: { rowIndex: number; kind: string; column: string; value: string }[];
+        // ROWS_SHOWN says each rowIndex is the row's place in the review list. Without it the
+        // numbers count the rows as located on the page, before any was dropped or sorted, and
+        // would name another row in the list's # column -- so they are not printed.
+        rowIndexBasis?: string;
+        ambiguities?: { rowIndex?: number; kind: string; column: string; value: string }[];
       };
       if (d?.reason) return <p className="text-xs text-muted">{d.reason}</p>;
       const rows = d?.ambiguities ?? [];
+      const numbered = d?.rowIndexBasis === 'ROWS_SHOWN';
       if (rows.length === 0) {
         return (
           <p className="text-xs text-muted">
@@ -342,16 +347,19 @@ const RULE_RENDERERS: Record<string, {
             <table className="text-xs w-full">
               <thead>
                 <tr className="text-muted text-left">
-                  <th className="pr-3 font-medium py-1">Row</th>
+                  {numbered && <th className="pr-3 font-medium py-1">Row</th>}
                   <th className="pr-3 font-medium py-1">Column</th>
                   <th className="font-medium py-1">What the document had</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((a) => (
-                  <tr key={`${a.rowIndex}-${a.column}`} className="text-ink border-t border-border">
-                    {/* +1 so it matches the row number a person counts on screen. */}
-                    <td className="pr-3 py-1">{a.rowIndex + 1}</td>
+                {rows.map((a, i) => (
+                  <tr key={`${i}-${a.column}`} className="text-ink border-t border-border">
+                    {/* The list's own # for that transaction, counted from 1. A row that is not in
+                        the list has no number to give. */}
+                    {numbered && (
+                      <td className="pr-3 py-1">{typeof a.rowIndex === 'number' ? a.rowIndex + 1 : 'Not in the list'}</td>
+                    )}
                     <td className="pr-3 py-1 text-muted">{a.column}</td>
                     <td className="py-1 text-warning">{a.value}</td>
                   </tr>

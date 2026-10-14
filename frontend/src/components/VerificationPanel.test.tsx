@@ -146,6 +146,53 @@ describe('VerificationPanel', () => {
     });
   });
 
+  // The review list numbers its rows (#), so a row number here is checked against that column. One
+  // that counts another list -- the rows as located on the page, before any was dropped or sorted --
+  // would send the reader to a different transaction, so it is printed only when the finding says
+  // its numbers count the rows shown.
+  describe('which row the two-ways check points at', () => {
+    const ambiguity = (details: Record<string, unknown>): VerificationReport => report([{
+      rule: 'COLUMN_AMBIGUITY',
+      outcome: 'WARNING',
+      details: { rowsChecked: 40, ambiguousRows: 1, explanation: 'One amount could be read two ways.', ...details },
+    }]);
+    const entry = { kind: 'BOTH_COLUMNS_FILLED', column: 'Debit / Credit', value: '0.00 / 450.00' };
+
+    const expand = async (verification: VerificationReport) => {
+      const user = userEvent.setup();
+      const view = render(<VerificationPanel verification={verification} />);
+      await user.click(screen.getByRole('button', { name: /Statement verification/ }));
+      return view;
+    };
+
+    it('prints no row number when the finding does not say which list it counts', async () => {
+      const { container } = await expand(ambiguity({ ambiguities: [{ rowIndex: 6, ...entry }] }));
+
+      expect(screen.getByText('0.00 / 450.00')).toBeInTheDocument();
+      expect(screen.queryByRole('columnheader', { name: 'Row' })).not.toBeInTheDocument();
+      expect(container.querySelector('tbody')?.textContent).not.toMatch(/\b[67]\b/);
+    });
+
+    it('prints the row number the list shows when the finding counts the rows shown', async () => {
+      await expand(ambiguity({ rowIndexBasis: 'ROWS_SHOWN', ambiguities: [{ rowIndex: 6, ...entry }] }));
+
+      expect(screen.getByRole('columnheader', { name: 'Row' })).toBeInTheDocument();
+      expect(screen.getByRole('cell', { name: '7' })).toBeInTheDocument();
+    });
+
+    it('says a row is not in the list rather than giving it a number', async () => {
+      await expand(ambiguity({ rowIndexBasis: 'ROWS_SHOWN', ambiguities: [entry] }));
+
+      expect(screen.getByRole('cell', { name: 'Not in the list' })).toBeInTheDocument();
+    });
+
+    it('prints no row number for any other marker', async () => {
+      await expand(ambiguity({ rowIndexBasis: 'ROWS_LOCATED', ambiguities: [{ rowIndex: 6, ...entry }] }));
+
+      expect(screen.queryByRole('columnheader', { name: 'Row' })).not.toBeInTheDocument();
+    });
+  });
+
   it('collapses again on a second click', async () => {
     const user = userEvent.setup();
     render(<VerificationPanel verification={withFindings} />);

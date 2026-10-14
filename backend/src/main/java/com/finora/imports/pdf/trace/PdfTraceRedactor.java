@@ -32,7 +32,9 @@ import java.util.regex.Pattern;
  * narration text are gone, a bare "24,462.00" or "10/07/2026" identifies nobody -- and keeping them
  * is what allows a trace to regression-test date parsing, running balances and (once it exists)
  * reconciliation against the statement's own arithmetic. Redacting them would leave a fixture that
- * can only ever test header detection.
+ * can only ever test header detection. From version 5 the same holds for the value shapes reading
+ * takes amounts and directions from: an amount with a rupee prefix or a glued Cr/Dr, an integer of
+ * at most five digits or grouped with commas, a glued or apostrophe-year date, and a lone C or D.
  */
 public final class PdfTraceRedactor {
 
@@ -52,7 +54,9 @@ public final class PdfTraceRedactor {
     // Tamil word, full-width or accented Latin, Devanagari digits) was kept verbatim, and combining
     // marks were copied out as if they were punctuation.
     // Version 5: an IFSC keeps the punctuation at its edges, so its masked token is as long as the
-    // real one. An invisible format character inside a token is masked to x.
+    // real one. An invisible format character inside a token is masked to x. Kept now: amounts with
+    // a currency prefix or a glued Cr/Dr, glued day-month dates, apostrophe-year dates,
+    // amount-shaped integers (comma-grouped, or at most five digits) and lone C/D markers.
     public static final int REDACTOR_VERSION = 5;
 
     /**
@@ -114,10 +118,42 @@ public final class PdfTraceRedactor {
     private static final String MONTH_NAME =
             "(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?"
                     + "|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)";
+    // Version 5: a two-digit year after an apostrophe ("12 Jul '26", "12 Jul'26", "Jul '26"), which
+    // CsvParser reads (APOSTROPHE_TWO_DIGIT_YEAR). Before, the month and day were kept and the year
+    // fell outside the span, so the copy's dates lost their year.
+    private static final String APOSTROPHE_YEAR = "\\s*['\u2018\u2019]\\d{2}";
     private static final Pattern SPACED_NAMED_MONTH_DATE_LIKE = Pattern.compile(
-            "(?<![\\p{L}\\p{N}\\p{M}])(?:\\d{1,2}\\s+" + MONTH_NAME + "(?:,?\\s+\\d{2,4})?"
-                    + "|" + MONTH_NAME + "\\s+\\d{1,2}(?:,?\\s+\\d{2,4})?)(?![\\p{L}\\p{N}\\p{M}])",
+            "(?<![\\p{L}\\p{N}\\p{M}])(?:\\d{1,2}\\s+" + MONTH_NAME + "(?:,?\\s+\\d{2,4}|" + APOSTROPHE_YEAR + ")?"
+                    + "|" + MONTH_NAME + "\\s+\\d{1,2}(?:,?\\s+\\d{2,4})?"
+                    + "|" + MONTH_NAME + APOSTROPHE_YEAR + ")(?![\\p{L}\\p{N}\\p{M}])",
             Pattern.CASE_INSENSITIVE);
+    /** Version 5: a day glued to its month, with or without a glued year ("12Jul", "12Jul2026"),
+     *  which CsvParser reads by splitting at the letter-digit boundaries (MISSING_SEPARATOR). */
+    private static final Pattern GLUED_DAY_MONTH_DATE_LIKE = Pattern.compile(
+            "\\d{1,2}" + MONTH_NAME + "(?:\\d{2}|\\d{4})?", Pattern.CASE_INSENSITIVE);
+    /**
+     * Version 5: an integer printed the way an amount is -- comma-grouped in the Indian or the
+     * western way ("1,00,000", "12,345"), or plain with at most five digits. Reading takes amounts
+     * printed without decimals from these. A plain integer of six or seven digits stays masked: six
+     * digits can be a PIN code, and eight or more are a reference (LONG_DIGIT_RUN, checked first).
+     */
+    private static final String AMOUNT_SHAPED_INTEGER =
+            "(?:\\d{1,3}(?:,\\d{2})*,\\d{3}|\\d{1,3}(?:,\\d{3})+|\\d{1,5})";
+    private static final Pattern AMOUNT_SHAPED_INTEGER_LIKE = Pattern.compile(AMOUNT_SHAPED_INTEGER);
+    /** Any amount this class keeps on its own: with decimals, or an amount-shaped integer. */
+    private static final String AMOUNT_VALUE = "(?:[\\d,]+\\.\\d{1,2}|" + AMOUNT_SHAPED_INTEGER + ")";
+    /** Version 5: an amount with a glued Cr or Dr ("1,234.00Cr", "500.00DR") -- that suffix only,
+     *  in any case. CsvParser.parseNumeric reads the direction from it. */
+    private static final Pattern AMOUNT_WITH_DIRECTION_LIKE = Pattern.compile(
+            AMOUNT_VALUE + "(?i:cr|dr)");
+    /** Version 5: an amount with a glued rupee prefix ("Rs.1,234.00", "INR1,234.00"), optionally
+     *  with a glued Cr or Dr. The prefix is the only text kept; a prefix on a six-digit integer is
+     *  not an amount shape this class keeps, so that stays masked. */
+    private static final Pattern CURRENCY_AMOUNT_LIKE = Pattern.compile(
+            "(?i:rs\\.?|inr\\.?)" + AMOUNT_VALUE + "(?i:cr|dr)?");
+    /** Version 5: the one-letter direction markers TransactionNormalizer reads ("C", "D", any case),
+     *  only as a token of their own with no punctuation attached. */
+    private static final Pattern DIRECTION_LETTER = Pattern.compile("[CcDd]");
     private static final Pattern AMOUNT_LIKE = Pattern.compile(
             "\\(?-?[\\d,]+\\.\\d{1,2}\\)?");
     /** Account numbers, card numbers and payment references. Never preserved, whatever else the
@@ -438,7 +474,12 @@ public final class PdfTraceRedactor {
         // otherwise pass as an amount, so it is checked first and always redacted.
         if (LONG_DIGIT_RUN.matcher(bare).find()) return mask(token);
         if (DATE_LIKE.matcher(bare).matches() || AMOUNT_LIKE.matcher(bare).matches()
-                || NAMED_MONTH_DATE_LIKE.matcher(bare).matches()) return token;
+                || NAMED_MONTH_DATE_LIKE.matcher(bare).matches()
+                || GLUED_DAY_MONTH_DATE_LIKE.matcher(bare).matches()
+                || AMOUNT_SHAPED_INTEGER_LIKE.matcher(bare).matches()
+                || AMOUNT_WITH_DIRECTION_LIKE.matcher(bare).matches()
+                || CURRENCY_AMOUNT_LIKE.matcher(bare).matches()) return token;
+        if (token.equals(bare) && DIRECTION_LETTER.matcher(bare).matches()) return token;
         // ASCII only: some characters lower-case into ASCII (the Kelvin sign becomes "k"), and a
         // word spelled with one is not the vocabulary word.
         if (isAscii(bare) && vocabulary.contains(bare.toLowerCase(Locale.ROOT))) return token;

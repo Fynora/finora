@@ -11,6 +11,7 @@ import com.finora.imports.pdf.PositionedText;
 import com.finora.imports.pdf.TextSource;
 import com.finora.imports.pdf.acquisition.AcquiredDocument;
 import com.finora.imports.pdf.fixtures.PdfFixtureBuilder;
+import com.finora.imports.pdf.trace.PdfTraceRedactor;
 import com.finora.imports.pdf.trace.TraceFormat;
 import com.finora.observability.BlankedCopyMetrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -106,14 +107,15 @@ class BlankedCopyServiceTest {
 
     /**
      * End to end, a statement whose reading depends on a word the copy masks: the direction is
-     * printed only as a bare "C" or "D", the redactor masks a lone letter to "X", and the copy's
-     * reading has no type to read, so its credit rows come back as money out. The check must say
+     * printed only as a Type word, "Income" or "Expense", and neither word is kept, so the copy's
+     * reading has no type to read and its income rows come back as money out. The check must say
      * so, name exactly those rows and that field, and carry nothing from the statement.
      */
     @Test
-    void aStatementWhoseDirectionIsAMaskedLetterDoesNotMatch() throws Exception {
-        byte[] pdf = PdfFixtureBuilder.buildDirectionOnlyAsABareLetterSample();
-        // The real reading takes the direction from the letter, so the mismatch below is the copy's.
+    void aStatementWhoseDirectionIsAMaskedWordDoesNotMatch() throws Exception {
+        assertThat(PdfTraceRedactor.redactLine("Income")).isEqualTo("Xxxxxx");
+        byte[] pdf = PdfFixtureBuilder.buildDirectionOnlyAsAWordSample();
+        // The real reading takes the direction from the word, so the mismatch below is the copy's.
         var real = PdfGeneratorTestSupport.generator()
                 .generateSectionsWithContext(UUID.randomUUID(), "statement.pdf", pdf).sections();
         assertThat(real).hasSize(1);
@@ -133,10 +135,27 @@ class BlankedCopyServiceTest {
         assertThat(copy.differences()).flatExtracting(BlankedCopyComparison.Difference::maskedTokens)
                 .allMatch(t -> t.matches("[Xx9\\p{Punct}]+"));
         assertThat(copy.differences().toString()).doesNotContain("EMPLOYER", "SENDER", "MERCHANT", "PAYEE");
-        // Where the statement printed C and D, the copy holds the masked letter.
+        // Where the statement printed the words, the copy holds them masked.
         assertThat(TraceFormat.parse(copy.trace())).extracting(PositionedText::text)
-                .doesNotContain("C", "D").contains("X");
+                .doesNotContain("Income", "Expense").contains("Xxxxxx", "Xxxxxxx");
         assertThat(produced(BlankedCopy.Check.DIFFERS)).isEqualTo(1);
+    }
+
+    /**
+     * A direction printed only as a bare "C" or "D" is kept from redactor version 5 (the one-letter
+     * markers TransactionNormalizer reads), so the copy reads the same directions and matches. Up to
+     * version 4 the letter was masked and this statement was the end-to-end DIFFERS example.
+     */
+    @Test
+    void aStatementWhoseDirectionIsABareLetterMatches() throws Exception {
+        byte[] pdf = PdfFixtureBuilder.buildDirectionOnlyAsABareLetterSample();
+
+        BlankedCopy copy = service(PdfGeneratorTestSupport.generator())
+                .make(new StaffStatementContent("HLD-2026-000007", "PDF", pdf));
+
+        assertThat(copy.differences()).isEmpty();
+        assertThat(copy.check()).isEqualTo(BlankedCopy.Check.MATCHES);
+        assertThat(TraceFormat.parse(copy.trace())).extracting(PositionedText::text).contains("C", "D");
     }
 
     /**
@@ -146,7 +165,7 @@ class BlankedCopyServiceTest {
      * into the last row's description. The check must name that row's DESCRIPTION, and its tokens
      * must be the copy's own masked forms only -- never a word of the statement.
      *
-     * <p>The same statement also differs in its dates (a year printed "'26" is masked), which is
+     * <p>Only the DESCRIPTION difference is asserted; any other field this statement differs in is
      * not what this test is about.
      */
     @Test

@@ -258,7 +258,7 @@ class BlankedCopyComparisonTest {
     }
 
     /**
-     * Rule (d). A digit run split across two runs ("UPI/1234" then "5678/ASHA", glued) reaches 8
+     * Rule (d). A digit run split across two runs ("UPI/100000" then "000001/ASHA", glued) reaches 8
      * digits only when joined, so the joined line masks the whole compound, the kept "UPI"
      * included; the copy masked each run and kept "UPI". The copy token is the real token masked
      * piece by piece between '/' and '-', which is still the redactor's own masking of the real
@@ -266,13 +266,27 @@ class BlankedCopyComparisonTest {
      */
     @Test
     void aCompoundMaskedPieceByPieceMatches() {
-        String copy = PdfTraceRedactor.redactLine("UPI/1234") + PdfTraceRedactor.redactLine("5678/ASHA");
-        assertThat(copy).isEqualTo("UPI/99999999/XXXX");
-        assertThat(PdfTraceRedactor.redactLine("UPI/12345678/ASHA")).isEqualTo("XXX/99999999/XXXX");
-        assertThat(descriptionOutcome("UPI/12345678/ASHA", copy)).isNull();
+        String copy = PdfTraceRedactor.redactLine("UPI/100000") + PdfTraceRedactor.redactLine("000001/ASHA");
+        assertThat(copy).isEqualTo("UPI/999999999999/XXXX");
+        assertThat(PdfTraceRedactor.redactLine("UPI/100000000001/ASHA")).isEqualTo("XXX/999999999999/XXXX");
+        assertThat(descriptionOutcome("UPI/100000000001/ASHA", copy)).isNull();
         assertThat(descriptionOutcome("NEFT-12345678-ASHA", "NEFT-99999999-XXXX")).isNull();
         // With no 8-digit run when joined, the joined line already masks piece by piece.
         assertThat(descriptionOutcome("UPI/123456/789012/ASHA", "UPI/999999/999999/XXXX")).isNull();
+    }
+
+    /**
+     * Known limit, from redactor version 5: a run piece of at most five digits is kept, so a long
+     * number split across runs with a short piece on one side holds that piece in clear in the
+     * copy while the real text, read as one number, masks all of it. The copy was read the same
+     * way, but it is not one masking of the real token, so it differs. Telling these apart needs
+     * the run boundaries the reading does not carry.
+     */
+    @Test
+    void aLongNumberSplitIntoAShortKeptPieceDiffers() {
+        String copy = PdfTraceRedactor.redactLine("UPI/1234") + PdfTraceRedactor.redactLine("5678/ASHA");
+        assertThat(copy).isEqualTo("UPI/12345678/XXXX");
+        assertThat(descriptionOutcome("UPI/12345678/ASHA", copy)).isEqualTo(Field.DESCRIPTION);
     }
 
     /** Rule (d) is one exact masking, not a tolerance: any other shape or a kept name differs. */

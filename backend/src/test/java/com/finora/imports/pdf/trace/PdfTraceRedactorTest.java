@@ -20,7 +20,8 @@ class PdfTraceRedactorTest {
     @ParameterizedTest
     @CsvSource(delimiter = '|', value = {
             "JANE EXAMPLE                          | XXXX XXXXXXX",
-            "Flat No 404, Sample Gardens           | Xxxx No 999, Xxxxxx Xxxxxxx",
+            // An integer of up to five digits is kept (redactor version 5); the words are not.
+            "Flat No 404, Sample Gardens           | Xxxx No 404, Xxxxxx Xxxxxxx",
             "Account No : 50100999999999           | Account No : 99999999999999",
             "jane.example@sample.test              | xxxx.xxxxxxx@xxxxxx.xxxx",
             "Cust ID : 288080705                   | Cust ID : 999999999",
@@ -62,16 +63,57 @@ class PdfTraceRedactorTest {
         assertThat(redact("Mayfair Stores")).isEqualTo("Xxxxxxx Xxxxxx");
         assertThat(redact("May Flowers")).isEqualTo("Xxx Xxxxxxx");
         // A word that merely begins with a month abbreviation is not a month.
-        assertThat(redact("Martin 12 Marketing")).isEqualTo("Xxxxxx 99 Xxxxxxxxx");
-        assertThat(redact("12 Marketing")).isEqualTo("99 Xxxxxxxxx");
+        assertThat(redact("Martin 12 Marketing")).isEqualTo("Xxxxxx 12 Xxxxxxxxx");
+        assertThat(redact("12 Marketing")).isEqualTo("12 Xxxxxxxxx");
     }
 
+    /** Up to version 4 every standalone number was masked, page numbers included. From version 5
+     *  an integer of up to five digits is kept: reading takes amounts printed without decimals from
+     *  them, and a six-digit integer (a PIN code) or longer still is masked. */
     @Test
-    void aPageFooterKeepsItsShapeThoughNotItsNumbers() {
-        // Deliberate: PdfTableLocator's PAGE_FOOTER matches on the words "page ... of" and never
-        // reads the digits, so preserving them would buy no fidelity while widening what a trace
-        // is allowed to carry. Masking every standalone number keeps one simple rule.
-        assertThat(redact("Page 1 of 2")).isEqualTo("Page 9 of 9");
+    void aPageFooterKeepsItsNumbers() {
+        assertThat(redact("Page 1 of 2")).isEqualTo("Page 1 of 2");
+    }
+
+    /**
+     * Value shapes reading relies on, kept from redactor version 5: amounts with a currency prefix
+     * or a glued Cr/Dr, glued and apostrophe-year dates, amount-shaped integers, and a lone C or D
+     * direction marker. Every value is invented.
+     */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "Rs.1,234.00", "Rs 500", "INR 1,234.00", "\u20B9500.00", "Rs1,234.00", "INR1,234.00", "Rs.500",
+            "1,234.00Cr", "500.00DR", "1,234.00cr", "Rs.1,234.00Dr",
+            "12Jul", "12Jul2026", "12jul26", "05Sept2026",
+            "Jul '26", "12 Jul'26", "12 Jul '26", "12 Jul\u201926",
+            "1,00,000", "12,345", "1,234,567", "12345", "7", "(500)", "-42",
+            "C", "d", "A/C", "1,234.00 C", "500 D",
+    })
+    void aValueShapeReadingNeedsIsKept(String line) {
+        assertThat(redact(line)).isEqualTo(line.trim());
+    }
+
+    /** What the version 5 keep rules still mask: six or more digits without grouping, a currency
+     *  prefix on such a number, any glued suffix other than Cr/Dr, any other lone letter, a month
+     *  name glued into a longer word, and a letter with punctuation that is not a lone token. */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "123456         | 999999",
+            "Asha 560034    | Xxxx 999999",       // synthetic-ok: a PIN code
+            "1234567        | 9999999",
+            "Rs.123456      | Xx.999999",
+            "1,234.00Xy     | 9,999.99Xx",
+            "1,234.00Crx    | 9,999.99Xxx",
+            "E              | X",
+            "CD             | XX",
+            "C.             | X.",
+            "12Junk         | 99Xxxx",
+            "12,34          | 99,99",
+            "1,2345         | 9,9999",
+            "Jul 2026x      | Xxx 9999x",
+    })
+    void aShapeOutsideTheKeepRulesIsStillMasked(String input, String expected) {
+        assertThat(redact(input)).isEqualTo(expected.trim());
     }
 
     @Test

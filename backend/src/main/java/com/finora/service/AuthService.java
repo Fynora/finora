@@ -1131,7 +1131,7 @@ public class AuthService {
     @Transactional
     public AuthResponse reactivate(ReactivateRequest request) {
         AccountReactivationToken art = reactivationTokenRepository.findByTokenHash(TokenHasher.sha256(request.token()))
-                .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "This reactivation link is invalid or has already been used."));
+                .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "This reactivation link is invalid."));
         if (art.getUsedAt() != null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "This reactivation link has already been used.");
         }
@@ -1209,7 +1209,7 @@ public class AuthService {
     @Transactional
     public VerifyEmailResponse verifyEmail(String rawToken) {
         EmailVerificationToken evt = emailVerificationTokenRepository.findByTokenHash(TokenHasher.sha256(rawToken))
-                .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "This verification link is invalid or has already been used."));
+                .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "This verification link is invalid."));
 
         // Bug fix: this used to read evt.getUsedAt(), check it was null in Java, and only write
         // it back at the very end -- classic check-then-act. Two concurrent requests for the same
@@ -1739,7 +1739,7 @@ public class AuthService {
      *  logic is exactly how one of them ends up silently more/less strict than the other. */
     private PasswordResetToken validateResetToken(String rawToken) {
         PasswordResetToken prt = resetTokenRepository.findByTokenHash(TokenHasher.sha256(rawToken))
-                .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "This reset link is invalid or has already been used."));
+                .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "This reset link is invalid."));
 
         if (prt.getUsedAt() != null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "This reset link has already been used.");

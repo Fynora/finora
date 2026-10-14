@@ -219,6 +219,9 @@ class AuthServiceVerifyEmailTest {
             authService.verifyEmail("bogus-token");
         } catch (ApiException e) {
             assertThat(e.getMessage()).contains("invalid");
+            // Used links are found and answered by their own branch; a link that isn't found was
+            // never used, so the message must not say it was.
+            assertThat(e.getMessage()).doesNotContain("used");
             return;
         }
         throw new AssertionError("Expected verifyEmail() to throw for an unknown token");

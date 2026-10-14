@@ -30,6 +30,11 @@ public enum NotificationType {
     // HeldStatementService.reject. The trust-review counterpart of IMPORT_STATEMENT_RESOLVED, with
     // fixed copy (V257): the reviewer's reason is internal. Keyed "IMPORT_REJECTED_" + job id.
     IMPORT_STATEMENT_REJECTED,
+    // Sent when a statement the user can confirm has less than a day before the session sweep
+    // removes it -- see UnconfirmedImportReminder. One per user per check, however many of their
+    // statements are waiting ({{waiting}} carries the count). Template rows in V269. Keyed
+    // "IMPORT_CONFIRM_REMINDER_" + user id + the earliest reminded expiry.
+    IMPORT_STATEMENT_CONFIRM_REMINDER,
     // Referral milestone rewards (design spec at docs/superpowers/specs/
     // 2026-09-14-referral-milestone-rewards-design.md). Template rows for all three, per channel,
     // were seeded in V207 alongside this addition -- see this enum's own class comment on why

@@ -206,6 +206,30 @@ class EmailNotificationProviderTest {
     }
 
     @Test
+    void send_delegatesTheConfirmReminderWithItsCount() {
+        when(userRepository.findById(any())).thenReturn(Optional.of(activeUser()));
+        when(emailProvider.sendStatementConfirmReminderEmail(any(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(EmailResult.success(ProviderType.RESEND, "id-1"));
+
+        provider.send(notification(NotificationType.IMPORT_STATEMENT_CONFIRM_REMINDER, Map.of("count", "3")));
+
+        verify(emailProvider).sendStatementConfirmReminderEmail("user@example.com", 3);
+        verify(emailProvider, never()).send(any());
+    }
+
+    /** A missing, unreadable or impossible count still sends the reminder, in its singular wording,
+     *  which is true of at least one statement. */
+    @Test
+    void waitingCount_fallsBackToOneStatement() {
+        assertThat(EmailNotificationProvider.waitingCount(null)).isEqualTo(1);
+        assertThat(EmailNotificationProvider.waitingCount(Map.of())).isEqualTo(1);
+        assertThat(EmailNotificationProvider.waitingCount(Map.of("count", "x"))).isEqualTo(1);
+        assertThat(EmailNotificationProvider.waitingCount(Map.of("count", "0"))).isEqualTo(1);
+        assertThat(EmailNotificationProvider.waitingCount(Map.of("count", "-2"))).isEqualTo(1);
+        assertThat(EmailNotificationProvider.waitingCount(Map.of("count", "2"))).isEqualTo(2);
+    }
+
+    @Test
     void send_delegatesToTheStatementRejectedBuilder() {
         when(userRepository.findById(any())).thenReturn(Optional.of(activeUser()));
         when(emailProvider.sendStatementRejectedEmail(any()))

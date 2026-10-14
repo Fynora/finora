@@ -40,7 +40,8 @@ public class EmailNotificationProvider implements NotificationChannelProvider {
      */
     private static final Set<NotificationType> SUPPORT_SENDER_TYPES =
             EnumSet.of(NotificationType.IMPORT_STATEMENT_HELD, NotificationType.IMPORT_STATEMENT_READY,
-                    NotificationType.IMPORT_STATEMENT_RESOLVED, NotificationType.IMPORT_STATEMENT_REJECTED);
+                    NotificationType.IMPORT_STATEMENT_RESOLVED, NotificationType.IMPORT_STATEMENT_REJECTED,
+                    NotificationType.IMPORT_STATEMENT_CONFIRM_REMINDER);
 
     private final EmailProvider emailProvider;
     private final UserRepository userRepository;
@@ -100,7 +101,7 @@ public class EmailNotificationProvider implements NotificationChannelProvider {
 
     /**
      * Dispatches to {@link EmailProvider}'s own rich-HTML builders for the types that have one
-     * (statement held, ready and rejected), instead of this class's generic DB-template path -- see
+     * (statement held, ready, rejected and the confirm reminder), instead of this class's generic DB-template path -- see
      * {@code EmailProvider.sendStatementReadyEmail}'s own doc for why these carry a branded email that
      * a plain {{placeholder}} template row cannot express. {@code notification.getParams()} is the
      * {@code NotificationRequest.params()} map {@code StatementStatusNotifier} built, persisted
@@ -115,9 +116,22 @@ public class EmailNotificationProvider implements NotificationChannelProvider {
                     to, params.get("bank"), params.get("jobId"));
             case IMPORT_STATEMENT_HELD -> emailProvider.sendStatementHeldEmail(to);
             case IMPORT_STATEMENT_REJECTED -> emailProvider.sendStatementRejectedEmail(to);
+            case IMPORT_STATEMENT_CONFIRM_REMINDER -> emailProvider.sendStatementConfirmReminderEmail(
+                    to, waitingCount(params));
             default -> emailProvider.send(buildMessage(to, notification.getType(),
                     notification.getCategory(), notification.getTitle(), notification.getMessage()));
         };
+    }
+
+    /** The reminder's statement count, read back from its params. A missing or unreadable value
+     *  falls back to one statement: the singular wording is still true of at least one. */
+    static int waitingCount(Map<String, String> params) {
+        if (params == null || params.get("count") == null) return 1;
+        try {
+            return Math.max(1, Integer.parseInt(params.get("count")));
+        } catch (NumberFormatException e) {
+            return 1;
+        }
     }
 
     // Every DB-template email now goes out as branded HTML (EmailLayout), not the bare plain-text

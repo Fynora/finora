@@ -561,7 +561,7 @@ public class ImportSessionService {
      * #findByImportSessionIdInAndHeldStatementIdIsNotNull}'s own doc comment for the real bug this
      * replaced.
      */
-    private java.util.Set<UUID> sessionsBlockedByTrustReview(java.util.Collection<UUID> sessionIds) {
+    java.util.Set<UUID> sessionsBlockedByTrustReview(java.util.Collection<UUID> sessionIds) {
         if (sessionIds.isEmpty()) return java.util.Set.of();
         // A job still held blocks on its own status, record or not. The worker holds the import
         // even when it cannot write the held_statements row (fail closed), and the record-keyed
@@ -597,12 +597,18 @@ public class ImportSessionService {
      *  {@link #readStagedRows}/{@link #readDetectedAccount} -- which the resume flow reads through
      *  {@code ImportController.toSummary} -- both {@link #requireKind}. */
     private boolean supportsResume(ImportSession session) {
-        return switch (session.getSessionKind()) {
+        return supportsResume(session.getId(), session.getSessionKind());
+    }
+
+    /** The same answer from a session's id and kind alone, for a caller that read those columns
+     *  without loading the session (UnconfirmedImportReminder: a loaded session carries the file). */
+    static boolean supportsResume(UUID sessionId, String sessionKind) {
+        return switch (sessionKind) {
             case ImportSession.KIND_SINGLE_ACCOUNT -> true;
             case ImportSession.KIND_MULTI_ACCOUNT -> false;
-            default -> {
+            case null, default -> {
                 log.warn("Import session {} has unrecognized kind '{}' -- excluding it from the resumable list.",
-                        session.getId(), session.getSessionKind());
+                        sessionId, sessionKind);
                 yield false;
             }
         };

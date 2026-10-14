@@ -8,8 +8,10 @@ import com.finora.notification.domain.NotificationCategory;
 import com.finora.notification.domain.NotificationChannel;
 import com.finora.notification.domain.NotificationPriority;
 import com.finora.notification.domain.NotificationType;
+import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import org.springframework.stereotype.Service;
 
 /**
@@ -58,6 +60,32 @@ public class StatementStatusNotifier {
                 // (/app/imports/{jobId}) -- never part of the rendered {{bank}} template copy
                 // itself, only of the rich HTML built around it.
                 Map.of("bank", bankName, "jobId", job.getId().toString())));
+    }
+
+    /**
+     * Tells the user that statements they can confirm will be removed in less than a day -- see
+     * {@code UnconfirmedImportReminder}. Keyed on the user and the earliest expiry being reminded
+     * about, so a repeat of the same check sends nothing and a later window (a session whose clock
+     * was restarted) gets its own reminder.
+     *
+     * @param waitingCount how many of the user's statements this reminder covers, at least 1
+     */
+    public void notifyConfirmReminder(UUID userId, int waitingCount, Instant earliestExpiry) {
+        if (waitingCount < 1) throw new IllegalArgumentException("A reminder covers at least one statement");
+        notificationService.request(NotificationRequest.of(
+                userId,
+                NotificationType.IMPORT_STATEMENT_CONFIRM_REMINDER,
+                NotificationCategory.FINANCIAL,
+                NotificationPriority.NORMAL,
+                "IMPORT_CONFIRM_REMINDER_" + userId + "_" + earliestExpiry.getEpochSecond(),
+                Set.of(NotificationChannel.PUSH, NotificationChannel.EMAIL),
+                // "count" backs the email's own wording (EmailNotificationProvider); "waiting" is
+                // the template rows' {{waiting}} (V269).
+                Map.of("count", String.valueOf(waitingCount), "waiting", waitingPhrase(waitingCount))));
+    }
+
+    static String waitingPhrase(int waitingCount) {
+        return waitingCount == 1 ? "Your statement is" : waitingCount + " of your statements are";
     }
 
     public void notifyHeld(ImportJob job) {

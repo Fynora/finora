@@ -88,7 +88,7 @@ export function GlobalSearch() {
   const showDropdown = open && debouncedQuery.length >= 2;
 
   return (
-    <div ref={containerRef} className="relative w-80">
+    <div ref={containerRef} className="relative w-full sm:w-80 sm:flex-shrink-0">
       <div className="relative">
         <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
         <input
@@ -112,7 +112,7 @@ export function GlobalSearch() {
       </div>
 
       {showDropdown && (
-        <div className="absolute right-0 mt-2 w-96 bg-card border border-border rounded-xl2 shadow-card max-h-96 overflow-y-auto z-50">
+        <div className="absolute right-0 mt-2 w-full sm:w-96 bg-card border border-border rounded-xl2 shadow-card max-h-96 overflow-y-auto z-50">
           {isFetching && <p className="text-sm text-muted px-4 py-3">Searching…</p>}
           {!isFetching && results.length === 0 && (
             <p className="text-sm text-muted px-4 py-3">No matches for "{debouncedQuery}".</p>

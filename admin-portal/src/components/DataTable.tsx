@@ -32,7 +32,7 @@ export function DataTable<T>({
   emptyMessage: string;
 }) {
   return (
-    <div className="bg-card border border-border rounded-xl2 shadow-card overflow-hidden">
+    <div className="bg-card border border-border rounded-xl2 shadow-card overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border text-left text-xs text-muted uppercase tracking-wide">

@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import HeldImports from './HeldImports';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { mockAdminAuthState } from '../test/mockAdminAuth';
-import { adminHeldImportApi } from '../api/endpoints';
+import { adminBlankedCopyApi, adminHeldImportApi } from '../api/endpoints';
 import type { HeldImportRow, HeldImportDetail } from '../types';
 
 // Same reason Notifications.test.tsx mocks these two: AdminLayout renders ThemeToggle (calls
@@ -27,7 +27,14 @@ vi.mock('../api/endpoints', () => ({
     resolve: vi.fn(),
     download: vi.fn(),
   },
+  adminBlankedCopyApi: {
+    status: vi.fn(),
+    heldImport: vi.fn(),
+    heldStatement: vi.fn(),
+  },
 }));
+// jsdom has no URL.createObjectURL; the panel's own test covers what is handed to the download.
+vi.mock('../lib/download', () => ({ downloadBlob: vi.fn() }));
 
 const heldRow: HeldImportRow = {
   id: '11111111-1111-1111-1111-111111111111',
@@ -76,6 +83,7 @@ describe('HeldImports', () => {
       content: [heldRow], page: 0, size: 25, totalElements: 1, totalPages: 1,
     });
     vi.mocked(adminHeldImportApi.get).mockResolvedValue(heldDetail);
+    vi.mocked(adminBlankedCopyApi.status).mockResolvedValue({ enabled: false });
     vi.mocked(adminHeldImportApi.reprocess).mockResolvedValue(heldRow);
     vi.mocked(adminHeldImportApi.reprocessAll).mockResolvedValue({ reprocessed: 3 });
     vi.mocked(adminHeldImportApi.resolve).mockResolvedValue(heldRow);
@@ -322,6 +330,89 @@ describe('HeldImports', () => {
     await waitFor(() => expect(screen.getAllByText('sbi-july.pdf')).toHaveLength(2));
 
     expect(screen.queryByText(/could not download this statement/i)).not.toBeInTheDocument();
+  });
+
+  describe('blanked copy', () => {
+    async function openDetails() {
+      renderPage();
+      await screen.findByText('hdfc-june.pdf');
+      await userEvent.click(screen.getByRole('button', { name: /details/i }));
+      await screen.findByText(/no header row found/);
+    }
+
+    /** Unlike the real document, the copy is not pinned to the admin roles: it is blanked. */
+    it('is offered to a non-admin role when the switch is on, and fetches this job\'s copy', async () => {
+      vi.mocked(adminBlankedCopyApi.status).mockResolvedValue({ enabled: true });
+      vi.mocked(adminBlankedCopyApi.heldImport).mockResolvedValue({
+        fileName: 'blanked-JOB-1.trace', trace: '# finora-pdf-trace v3\n', check: 'MATCHES',
+        notCheckedReason: null, differences: [],
+      });
+      mockAuth(['IMPORT_TRIAGE_MANAGE'], ['SUPPORT']);
+      await openDetails();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Download blanked copy' }));
+
+      expect(adminBlankedCopyApi.heldImport).toHaveBeenCalledWith(heldRow.id);
+      expect(await screen.findByText('Matches the real statement')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /download statement/i })).not.toBeInTheDocument();
+    });
+
+    it('is not offered when the switch is off', async () => {
+      mockAuth(['IMPORT_TRIAGE_MANAGE'], ['SUPPORT']);
+      await openDetails();
+      await waitFor(() => expect(adminBlankedCopyApi.status).toHaveBeenCalled());
+
+      expect(screen.queryByRole('button', { name: 'Download blanked copy' })).not.toBeInTheDocument();
+    });
+
+    function mockCsvJob(sourceFormat: string | null = 'CSV') {
+      const csvRow: HeldImportRow = { ...heldRow, fileName: 'hdfc-june.csv', sourceFormat };
+      vi.mocked(adminHeldImportApi.list).mockResolvedValue({
+        content: [csvRow], page: 0, size: 25, totalElements: 1, totalPages: 1,
+      });
+      vi.mocked(adminHeldImportApi.get).mockResolvedValue({ ...heldDetail, job: csvRow });
+    }
+
+    async function openCsvDetails() {
+      renderPage();
+      await screen.findByText('hdfc-june.csv');
+      await userEvent.click(screen.getByRole('button', { name: /details/i }));
+      await screen.findByRole('button', { name: /download statement/i });
+    }
+
+    /** The server cannot copy a CSV yet; the operator is told so in place of a button that would
+     *  only ever answer 409. */
+    it('says a CSV import cannot be copied yet, in place of the button', async () => {
+      mockCsvJob();
+      vi.mocked(adminBlankedCopyApi.status).mockResolvedValue({ enabled: true });
+      mockAuth(['IMPORT_TRIAGE_MANAGE'], ['ADMIN']);
+      await openCsvDetails();
+
+      expect(await screen.findByText('Blanked copy not available for CSV yet.')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Download blanked copy' })).not.toBeInTheDocument();
+    });
+
+    /** Only a CSV is told it cannot be copied. A format the page does not know gets neither the
+     *  CSV text nor the button: what it is, and whether it can be copied, is the server's call. */
+    it.each([null, 'XLSX'])('shows neither the CSV text nor the button for format %s', async (format) => {
+      mockCsvJob(format);
+      vi.mocked(adminBlankedCopyApi.status).mockResolvedValue({ enabled: true });
+      mockAuth(['IMPORT_TRIAGE_MANAGE'], ['ADMIN']);
+      await openCsvDetails();
+      await waitFor(() => expect(adminBlankedCopyApi.status).toHaveBeenCalled());
+
+      expect(screen.queryByText('Blanked copy not available for CSV yet.')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Download blanked copy' })).not.toBeInTheDocument();
+    });
+
+    it('says nothing about CSV when the switch is off', async () => {
+      mockCsvJob();
+      mockAuth(['IMPORT_TRIAGE_MANAGE'], ['ADMIN']);
+      await openCsvDetails();
+      await waitFor(() => expect(adminBlankedCopyApi.status).toHaveBeenCalled());
+
+      expect(screen.queryByText('Blanked copy not available for CSV yet.')).not.toBeInTheDocument();
+    });
   });
 
   it('shows the waiting and reprocessing counts separately', async () => {

@@ -4,6 +4,8 @@ import com.finora.imports.DocumentContext;
 import com.finora.imports.pdf.PdfTableLocator;
 import com.finora.imports.pdf.PositionedText;
 import com.finora.dto.ImportDto;
+import com.finora.imports.pdf.trace.PdfTraceRedactor;
+import com.finora.imports.pdf.trace.TraceMetadata;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

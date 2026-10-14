@@ -17,6 +17,8 @@ import com.finora.imports.ImportSessionService;
 import com.finora.imports.StatementUpload;
 import com.finora.imports.analysis.ImportVerificationFinding;
 import com.finora.imports.analysis.ImportVerificationFindingRepository;
+import com.finora.imports.blanked.BlankedCopyOutcome;
+import com.finora.imports.blanked.StaffStatementContent;
 import com.finora.imports.jobs.ParserVersionProvider;
 import com.finora.imports.jobs.StagedForJob;
 import com.finora.imports.jobs.VerificationTelemetry;
@@ -45,6 +47,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -1102,6 +1105,59 @@ public class HeldStatementService {
             content = statementPasswordService.reviewCopy(job, content).content();
         }
         return new DownloadedStatement(job.getFileName(), content, contentTypeFor(job.getSourceFormat()));
+    }
+
+    /**
+     * As {@link #download}, for a blanked copy: same gates and audit-before-read, under its own
+     * action, and without the role pin -- the copy that leaves the server is blanked. The bytes go
+     * to {@code BlankedCopyService} and nowhere else; the reference is the Held ID, never the file
+     * name.
+     *
+     * <p>One gate {@code download} does not have: only an open hold is copied. {@link #require}
+     * finds a decided hold too, and a blanked copy is for working the queue, which a decided hold
+     * has left.
+     */
+    @Transactional
+    public StaffStatementContent contentForBlankedCopy(UUID actingAdminId, String heldId) {
+        HeldStatement held = require(heldId);
+        if (held.getStatus().isResolved()) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "Only an open hold can be copied; " + held.getHeldId() + " is " + held.getStatus() + ".");
+        }
+        refuseIfLockedWithoutPassword(held, "copied");
+        ImportJob job = requireJob(held);
+        boolean savedPassword = "PDF".equalsIgnoreCase(job.getSourceFormat())
+                && statementPasswordService.hasJobPassword(job.getId());
+        // Its own transaction, as download's: a failed read rolls this one back, and the attempt is
+        // the event being recorded.
+        auditService.recordEvenOnRollback(actingAdminId, "HELD_STATEMENT_BLANKED_COPY", "HeldStatement",
+                held.getId(), Map.of("actorId", actingAdminId.toString(),
+                        "subjectUserId", held.getUserId().toString(),
+                        "heldId", held.getHeldId(),
+                        "savedPasswordOnFile", savedPassword));
+        byte[] content = readStatement(held, job);
+        if (savedPassword) {
+            // Unlike download, a file the saved password did not open is refused, not handed over.
+            content = statementPasswordService.unlockedForBlankedCopy(job, content, held.getHeldId());
+        }
+        return new StaffStatementContent(held.getHeldId(), job.getSourceFormat(), content);
+    }
+
+    /**
+     * The second audit entry for a blanked copy, as {@code AdminHeldImportService
+     * .recordBlankedCopyResult}: written once the copy is made or the privacy scan refused it, with
+     * the ids and the check's result, never statement text.
+     */
+    @Transactional
+    public void recordBlankedCopyResult(UUID actingAdminId, String heldId, BlankedCopyOutcome outcome) {
+        HeldStatement held = require(heldId);
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("actorId", actingAdminId.toString());
+        details.put("subjectUserId", held.getUserId().toString());
+        details.put("heldId", held.getHeldId());
+        details.putAll(outcome.auditDetails());
+        auditService.record(actingAdminId, "HELD_STATEMENT_BLANKED_COPY_RESULT", "HeldStatement",
+                held.getId(), details);
     }
 
     /** Same switch {@code StatementImportService.contentTypeFor} makes, over the formats this

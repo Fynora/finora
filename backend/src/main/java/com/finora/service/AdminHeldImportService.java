@@ -4,10 +4,15 @@ import com.finora.dto.HeldImportDto;
 import com.finora.dto.PagedResponse;
 import com.finora.entity.ImportJob;
 import com.finora.exception.ApiException;
+import com.finora.imports.blanked.BlankedCopyOutcome;
+import com.finora.imports.blanked.StaffStatementContent;
 import com.finora.imports.jobs.ImportJobWorker;
 import com.finora.imports.storage.StatementContentService;
+import com.finora.imports.storage.StatementStorageException;
 import com.finora.repository.ImportJobRepository;
 import com.finora.util.PageBounds;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
@@ -18,6 +23,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.time.Instant;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -42,6 +48,8 @@ import java.util.UUID;
  */
 @Service
 public class AdminHeldImportService {
+
+    private static final Logger log = LoggerFactory.getLogger(AdminHeldImportService.class);
 
     /**
      * How many held jobs one Reprocess All may requeue.
@@ -161,6 +169,60 @@ public class AdminHeldImportService {
             content = statementPasswordService.reviewCopy(job, content).content();
         }
         return new DownloadedStatement(job.getFileName(), content, contentTypeFor(job.getSourceFormat()));
+    }
+
+    /**
+     * The held job's bytes for a blanked copy, unlocked in memory when a password is saved. Same
+     * gates as {@link #download}, under its own action, and without the role pin: the copy that
+     * leaves the server is blanked, which is what a support role may receive. The bytes go to
+     * {@code BlankedCopyService} and nowhere else; the reference is the job id, never its file name.
+     *
+     * <p>Audited in its own transaction, before the bytes are read: a failed read rolls this
+     * transaction back, and the attempt is the event being recorded. A stored file that cannot be
+     * read is a 409 naming the job, the same answer the trust queue gives.
+     */
+    @Transactional
+    public StaffStatementContent contentForBlankedCopy(UUID actingAdminId, UUID jobId) {
+        ImportJob job = require(jobId);
+        requireHeld(job, "copied");
+        boolean savedPassword = "PDF".equalsIgnoreCase(job.getSourceFormat())
+                && statementPasswordService.hasJobPassword(job.getId());
+        auditService.recordEvenOnRollback(actingAdminId, "HELD_IMPORT_BLANKED_COPY", "ImportJob", jobId,
+                Map.of("actorId", actingAdminId.toString(),
+                        "subjectUserId", job.getUserId().toString(),
+                        "savedPasswordOnFile", savedPassword));
+        byte[] content;
+        try {
+            content = statementContentService.read(job);
+        } catch (StatementStorageException e) {
+            // A 409 naming the job, as HeldStatementService.readStatement does on the trust queue,
+            // rather than the catch-all 500: nothing about the request was wrong, the file is gone.
+            log.warn("Stored statement behind held import {} could not be read for a blanked copy", jobId, e);
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "The stored statement file behind held import " + jobId + " could not be read.");
+        }
+        if (savedPassword) {
+            // Unlike download, a file the saved password did not open is refused, not handed over.
+            content = statementPasswordService.unlockedForBlankedCopy(job, content, "held import " + jobId);
+        }
+        return new StaffStatementContent(job.getId().toString(), job.getSourceFormat(), content);
+    }
+
+    /**
+     * The second audit entry for a blanked copy, written once the copy is made or the privacy scan
+     * refused it: the ids and the check's result, never statement text. The first entry, written
+     * before the read by {@link #contentForBlankedCopy}, records the access; this one what came of
+     * it. Nothing here rolls back on a refusal: the caller is not in a transaction, and this
+     * method's own commits before the refusal is thrown.
+     */
+    @Transactional
+    public void recordBlankedCopyResult(UUID actingAdminId, UUID jobId, BlankedCopyOutcome outcome) {
+        ImportJob job = require(jobId);
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("actorId", actingAdminId.toString());
+        details.put("subjectUserId", job.getUserId().toString());
+        details.putAll(outcome.auditDetails());
+        auditService.record(actingAdminId, "HELD_IMPORT_BLANKED_COPY_RESULT", "ImportJob", jobId, details);
     }
 
     /** Same switch {@code HeldStatementService.contentTypeFor} makes, over the formats this system

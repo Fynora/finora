@@ -5,7 +5,8 @@ import { Download } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { RequirePermission } from '../components/ProtectedRoute';
 import { useAdminAuth } from '../context/AdminAuthContext';
-import { adminHeldStatementApi } from '../api/endpoints';
+import { adminBlankedCopyApi, adminHeldStatementApi } from '../api/endpoints';
+import BlankedCopyPanel from '../components/BlankedCopyPanel';
 import { BALANCE_MISMATCH_KEYS, BalanceMismatchList, balanceMismatchShapes } from '../components/BalanceMismatchList';
 import { formatWhen } from '../lib/formatWhen';
 import type { HeldStatementFinding, HeldStatementRerunResult, HeldStatementStagedRows } from '../types';
@@ -44,7 +45,9 @@ function FindingCard({ finding }: { finding: HeldStatementFinding }) {
         <span className="text-xs text-warning">{finding.outcome}</span>
       </div>
       {entries.length > 0 && (
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-xs">
+        // One pair per row below sm: two columns at phone width left each value about 60px, so a
+        // four-digit amount broke across two lines.
+        <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 mt-2 text-xs">
           {entries.map(([key, value]) => (
             <div key={key} className="flex justify-between gap-2">
               <dt className="text-muted">{key}</dt>
@@ -133,6 +136,9 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
     queryKey: ['held-statement-detail', heldId],
     queryFn: () => adminHeldStatementApi.get(heldId),
   });
+  // Whether the server's blanked-copy switch is on. The copy is offered to anyone working this
+  // queue, not only the admin roles the real document is pinned to: it is blanked.
+  const blankedStatus = useQuery({ queryKey: ['blanked-copy-status'], queryFn: adminBlankedCopyApi.status });
 
   // Pre-fills the notes/findings editors with what is already on the row, once, when the row
   // first loads -- not on every refetch, or an operator's in-progress edit would be clobbered the
@@ -280,17 +286,25 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
           <h2 className="text-lg font-semibold text-ink font-mono">{summary.heldId}</h2>
           <p className="text-muted text-xs mt-1">{summary.status.replace(/_/g, ' ')}</p>
         </div>
-        {canDownload && !locked && (
-          <button
-            type="button"
-            onClick={() => download.mutate()}
-            disabled={download.isPending}
-            className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-xs text-ink hover:bg-card disabled:opacity-50"
-          >
-            <Download className="h-3.5 w-3.5" />
-            {download.isPending ? 'Downloading…' : 'Download statement'}
-          </button>
-        )}
+        <div className="flex items-start gap-3">
+          {/* The held-statement detail carries no format, so a CSV hold is offered the copy too and
+              the server answers it with its own 409. A decided or locked hold is not offered it:
+              the server refuses both, and the reason is already on the page. */}
+          {blankedStatus.data?.enabled && !resolved && !locked && (
+            <BlankedCopyPanel key={heldId} fetchCopy={() => adminBlankedCopyApi.heldStatement(heldId)} />
+          )}
+          {canDownload && !locked && (
+            <button
+              type="button"
+              onClick={() => download.mutate()}
+              disabled={download.isPending}
+              className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-xs text-ink hover:bg-card disabled:opacity-50"
+            >
+              <Download className="h-3.5 w-3.5" />
+              {download.isPending ? 'Downloading…' : 'Download statement'}
+            </button>
+          )}
+        </div>
       </div>
       {canDownload && !locked && (
         <p className="text-xs text-muted">

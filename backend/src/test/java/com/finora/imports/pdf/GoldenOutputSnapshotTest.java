@@ -31,7 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * regenerated without reading is worse than no snapshot, because it converts a signal into a
  * rubber stamp.
  *
- * Safe to commit: traces are redacted at capture (see {@link com.finora.imports.pdf.fixtures.PdfTraceRedactor}),
+ * Safe to commit: traces are redacted at capture (see {@link com.finora.imports.pdf.trace.PdfTraceRedactor}),
  * so a snapshot derived from one contains no customer data either.
  */
 class GoldenOutputSnapshotTest {

@@ -45,7 +45,9 @@ export function ThemeToggle() {
         <ThemeIcon size={16} />
       </button>
       {open && (
-        <div className="absolute right-0 mt-2 w-52 bg-card border border-border rounded-xl2 shadow-card py-1.5 z-50">
+        // Pinned to both screen edges below sm, same as NotificationBell's menu and for the same
+        // reason: on a wrapped phone header, right-aligned under the button ran off the left edge.
+        <div className="absolute right-0 mt-2 w-52 max-sm:fixed max-sm:inset-x-4 max-sm:w-auto bg-card border border-border rounded-xl2 shadow-card py-1.5 z-50">
           <p className="px-3.5 py-2 text-[11px] uppercase tracking-wide text-muted">Theme</p>
           {THEME_OPTIONS.map(({ value, label, icon: Icon }) => (
             <button

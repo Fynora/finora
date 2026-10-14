@@ -430,7 +430,10 @@ public final class TesseractEngine implements OcrEngine {
                         page,
                         conf < 0 ? null : conf / 100f));
             } catch (NumberFormatException e) {
-                log.warn("Skipping unparseable Tesseract TSV row on page {}: {}", page, lines[i]);
+                // The page and the row's column count only, never the row: its last column is the
+                // recognised word, which is statement text, and no statement text may reach a log
+                // line (the blanked-copy path acquires through here too).
+                log.warn("Skipping unparseable Tesseract TSV row on page {} ({} columns)", page, c.length);
             }
         }
         return runs;

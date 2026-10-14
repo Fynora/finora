@@ -45,6 +45,31 @@ class TraceValidatorTest {
                 List.of(), List.of(), "validator self-test", requiredHeaders);
     }
 
+    /**
+     * The metadata block is written by people (a capture's motivation, the document it came from)
+     * and is committed with the runs, so it gets the same privacy checks. Each case puts one kind
+     * of customer data in one metadata line and nothing in the runs.
+     */
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource(delimiter = '|', value = {
+            "priya.nair@gmail.com      | email",     // synthetic-ok: invented, PII-shaped on purpose
+            "call 9812345678 for help  | phone",     // synthetic-ok: invented number
+            "branch HDFC0004521        | IFSC",      // synthetic-ok: invented branch code
+            "\u0905\u092E\u093F\u0924     | another script",   // synthetic-ok: an invented Devanagari name
+    })
+    void blocksCustomerDataInAMetadataCommentLine(String text, String kind) {
+        TraceMetadata metadata = new TraceMetadata(TraceMetadata.CURRENT_TRACE_VERSION,
+                PdfTraceRedactor.REDACTOR_VERSION, PdfTraceRedactor.allowlistFingerprint(), "2026-10-14",
+                "synthetic", List.of(), List.of(), "captured from " + text.trim(), List.of());
+        String trace = traceWith(metadata);
+        assertThat(TraceValidator.validate("probe", traceWith(metadata(List.of()))).blockers()).isEmpty();
+
+        var result = TraceValidator.validate("probe", trace);
+
+        assertThat(result.isCommittable()).isFalse();
+        assertThat(result.blockers()).anyMatch(f -> f.detail().contains(kind.trim()));
+    }
+
     @Test
     void blocksAnUnmaskedEmailAddress() {
         String trace = traceWith(metadata(List.of()), "priya.nair@gmail.com"); // synthetic-ok: invented, and PII-shaped ON PURPOSE -- the assertion is that this is caught

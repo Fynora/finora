@@ -20,7 +20,8 @@ import java.util.regex.Pattern;
  *
  * <ol>
  *   <li><b>No unmasked PII.</b> The same patterns {@code scripts/check-fixture-hygiene.sh} blocks
- *       commits on, applied to the trace's own text, plus any letter, number or mark outside ASCII (every rule
+ *       commits on, applied to the trace's own text and its metadata comment lines, plus any
+ *       letter, number or mark outside ASCII (every rule
  *       that keeps text unmasked keeps ASCII only). A trace that trips this must never be
  *       committed, regardless of how useful its structure is.</li>
  *   <li><b>Required structural evidence preserved.</b> Declared per trace in its own metadata. This
@@ -78,6 +79,7 @@ public final class TraceValidator {
         List<Finding> findings = new ArrayList<>();
 
         findings.addAll(scanForPii(runs));
+        findings.addAll(scanTexts(commentLines(content)));
 
         String allText = runs.stream().map(PositionedText::text)
                 .reduce(new StringBuilder(), (sb, t) -> sb.append(t).append('\n'), StringBuilder::append)
@@ -190,9 +192,12 @@ public final class TraceValidator {
      * redacted trace unpublishable.
      */
     private static List<Finding> scanForPii(List<PositionedText> runs) {
+        return scanTexts(runs.stream().map(PositionedText::text).toList());
+    }
+
+    private static List<Finding> scanTexts(List<String> texts) {
         List<Finding> findings = new ArrayList<>();
-        for (PositionedText run : runs) {
-            String text = run.text();
+        for (String text : texts) {
             if (text == null || text.isBlank()) continue;
             checkPattern(findings, EMAIL, text, "email address");
             checkPattern(findings, INDIAN_MOBILE, text, "phone number");
@@ -200,6 +205,16 @@ public final class TraceValidator {
             checkOtherScripts(findings, text);
         }
         return findings;
+    }
+
+    /**
+     * The file's comment lines: the format header and the metadata block. They are written by
+     * people (where a trace came from, why it was captured) and committed with the runs, so the
+     * same privacy checks run over them. The run parser skips them, so without this a phone number
+     * in a motivation line was never seen.
+     */
+    private static List<String> commentLines(String content) {
+        return content.lines().filter(line -> line.startsWith("#")).toList();
     }
 
     /** The same backstop {@link #privacyKinds} applies, on a trace about to be (or already)

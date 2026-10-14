@@ -145,12 +145,18 @@ class PdfTraceRedactorTest {
                 new PositionedText("98765", 100f, 50f, 0),
                 new PositionedText("43210", 140f, 50f, 0)))))
                 .containsExactly("99999", "99999");
-        // Separate columns, or separate lines: each stays a short kept integer.
+        // Separate columns on one line: each stays a short kept integer.
+        assertThat(texts(PdfTraceRedactor.redact(List.of(
+                new PositionedText("98765", 100f, 50f, 0, 25f),
+                new PositionedText("43210", 300f, 50f, 0, 25f)))))
+                .containsExactly("98765", "43210");
+        // A line that ends in a plain group followed by a line that starts with one is read as a
+        // number wrapped at the line break, so both halves are masked (fail closed).
         assertThat(texts(PdfTraceRedactor.redact(List.of(
                 new PositionedText("98765", 100f, 50f, 0, 25f),
                 new PositionedText("43210", 300f, 50f, 0, 25f),
                 new PositionedText("12345", 100f, 70f, 0, 25f)))))
-                .containsExactly("98765", "43210", "12345");
+                .containsExactly("98765", "99999", "99999");
     }
 
     private static List<String> texts(List<PositionedText> runs) {

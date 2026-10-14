@@ -104,11 +104,26 @@ final class NumberGroups {
      *                    takes no part in a chain (the backstop reads redacted text).
      */
     static Kind[] scan(String text, boolean maskedAware) {
+        List<Chain> chains = chains(text, maskedAware);
+        return kinds(text, chains);
+    }
+
+    /** Values and groups linked by short separators. {@code elements} are [start, end, isUnit]. */
+    static final class Chain {
+        final List<int[]> elements = new ArrayList<>();
+        int digits;
+        boolean hasGroup;
+        /** Set when a link across a line break makes this chain part of a long number. */
+        boolean longAcrossLines;
+
+        boolean isLong() {
+            return longAcrossLines || (hasGroup && digits >= LONG_DIGITS);
+        }
+    }
+
+    static List<Chain> chains(String text, boolean maskedAware) {
         int n = text.length();
-        Kind[] kinds = new Kind[n];
-        java.util.Arrays.fill(kinds, Kind.NONE);
         boolean[] unit = units(text);
-        // Elements in order: units and free groups, as [start, end, isUnit].
         List<int[]> elements = new ArrayList<>();
         int i = 0;
         while (i < n) {
@@ -126,27 +141,100 @@ final class NumberGroups {
                 i++;
             }
         }
+        List<Chain> chains = new ArrayList<>();
         int e = 0;
         while (e < elements.size()) {
             int end = e + 1;
             while (end < elements.size() && links(text, elements.get(end - 1)[1], elements.get(end)[0])) end++;
-            int digits = 0;
-            boolean hasGroup = false;
+            Chain chain = new Chain();
             for (int k = e; k < end; k++) {
                 int[] el = elements.get(k);
-                for (int c = el[0]; c < el[1]; c++) if (isDigit(text.charAt(c))) digits++;
-                if (el[2] == 0) hasGroup = true;
+                chain.elements.add(el);
+                for (int c = el[0]; c < el[1]; c++) if (isDigit(text.charAt(c))) chain.digits++;
+                if (el[2] == 0) chain.hasGroup = true;
             }
-            Kind groupKind = hasGroup && digits >= LONG_DIGITS ? Kind.LONG : Kind.SHORT;
-            for (int k = e; k < end; k++) {
-                int[] el = elements.get(k);
+            chains.add(chain);
+            e = end;
+        }
+        return chains;
+    }
+
+    private static Kind[] kinds(String text, List<Chain> chains) {
+        Kind[] kinds = new Kind[text.length()];
+        java.util.Arrays.fill(kinds, Kind.NONE);
+        for (Chain chain : chains) {
+            Kind groupKind = chain.isLong() ? Kind.LONG : Kind.SHORT;
+            for (int[] el : chain.elements) {
                 for (int c = el[0]; c < el[1]; c++) {
                     if (isDigit(text.charAt(c))) kinds[c] = el[2] == 1 ? Kind.UNIT : groupKind;
                 }
             }
-            e = end;
         }
         return kinds;
+    }
+
+    /**
+     * {@link #scan} over printed lines, with one more link: a number wrapped onto the next printed
+     * line. When a line's last chain ends in a plain digit group (not a value) with only whitespace
+     * after it, the next line on the same page starts with a plain digit group with only whitespace
+     * before it, and at most {@value #MAX_SEPARATOR} other non-word characters sit at the break
+     * (a wrap hyphen), the two chains are one number; a run of such links over several lines is
+     * one number too. Six or more digits in all mask every plain group in it. Over-masking a table
+     * whose rows end and start in plain integers is accepted: an amount with decimals is a value
+     * and never links this way.
+     */
+    static List<Kind[]> scanLines(List<Line> lines, boolean maskedAware) {
+        List<List<Chain>> perLine = new ArrayList<>();
+        for (Line line : lines) perLine.add(chains(line.text(), maskedAware));
+        // Wrapped numbers: a line's last chain, then each following line's first chain while the
+        // break wraps; the run goes on past a line only when that line is a single chain.
+        int k = 0;
+        while (k < lines.size()) {
+            int j = k;
+            List<Chain> run = new ArrayList<>();
+            if (!perLine.get(k).isEmpty()) {
+                Chain current = perLine.get(k).get(perLine.get(k).size() - 1);
+                run.add(current);
+                while (j + 1 < lines.size() && lines.get(j + 1).page() == lines.get(j).page()
+                        && !perLine.get(j + 1).isEmpty()
+                        && wraps(lines.get(j).text(), current, lines.get(j + 1).text(), perLine.get(j + 1).get(0))) {
+                    current = perLine.get(j + 1).get(0);
+                    run.add(current);
+                    j++;
+                    if (perLine.get(j).size() != 1) break;
+                }
+            }
+            if (run.size() > 1) {
+                int digits = run.stream().mapToInt(c -> c.digits).sum();
+                boolean hasGroup = run.stream().anyMatch(c -> c.hasGroup);
+                if (hasGroup && digits >= LONG_DIGITS) run.forEach(c -> c.longAcrossLines = true);
+            }
+            k = j > k ? j : k + 1;
+        }
+        List<Kind[]> out = new ArrayList<>();
+        for (int n = 0; n < lines.size(); n++) out.add(kinds(lines.get(n).text(), perLine.get(n)));
+        return out;
+    }
+
+    /** Whether {@code last} ends its line in a plain group and {@code first} starts the next line
+     *  in one, with only whitespace and at most {@value #MAX_SEPARATOR} other non-word characters
+     *  between them. */
+    private static boolean wraps(String above, Chain last, String below, Chain first) {
+        int[] end = last.elements.get(last.elements.size() - 1);
+        int[] start = first.elements.get(0);
+        if (end[2] != 0 || start[2] != 0) return false;
+        int others = 0;
+        for (int c = end[1]; c < above.length(); c++) {
+            char ch = above.charAt(c);
+            if (isWordChar(ch)) return false;
+            if (!isSpace(ch)) others++;
+        }
+        for (int c = 0; c < start[0]; c++) {
+            char ch = below.charAt(c);
+            if (isWordChar(ch)) return false;
+            if (!isSpace(ch)) others++;
+        }
+        return others <= MAX_SEPARATOR;
     }
 
     /** One to {@value #MAX_SEPARATOR} characters, none of them a word character. */
@@ -222,7 +310,7 @@ final class NumberGroups {
 
     /** One printed line: its runs left to right, joined into one string, and where each char came
      *  from ({run index, char index}, or null for a joiner). */
-    record Line(String text, List<int[]> origin) {}
+    record Line(String text, List<int[]> origin, int page) {}
 
     /** How each run's digits group on its line, and the line chars just before and after the run
      *  ('\0' at the line's edge), so a token at a run's edge is judged in its line. */
@@ -281,7 +369,7 @@ final class NumberGroups {
             String t = run.text();
             for (int c = 0; c < t.length(); c++) { text.append(t.charAt(c)); origin.add(new int[] {line.get(n), c}); }
         }
-        return new Line(text.toString(), origin);
+        return new Line(text.toString(), origin, runs.get(line.get(0)).pageIndex());
     }
 
     private static boolean adjacent(PositionedText left, PositionedText right, float gapMargin) {
@@ -308,8 +396,11 @@ final class NumberGroups {
             kinds[r] = new Kind[text == null ? 0 : text.length()];
             java.util.Arrays.fill(kinds[r], Kind.NONE);
         }
-        for (Line line : lines(runs, REDACTOR_GAP_MARGIN)) {
-            Kind[] lineKinds = scan(line.text());
+        List<Line> lines = lines(runs, REDACTOR_GAP_MARGIN);
+        List<Kind[]> scanned = scanLines(lines, false);
+        for (int l = 0; l < lines.size(); l++) {
+            Line line = lines.get(l);
+            Kind[] lineKinds = scanned.get(l);
             for (int p = 0; p < lineKinds.length; p++) {
                 int[] o = line.origin().get(p);
                 if (o == null) continue;

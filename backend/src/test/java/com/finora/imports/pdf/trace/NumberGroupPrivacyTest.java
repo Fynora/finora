@@ -61,7 +61,15 @@ class NumberGroupPrivacyTest {
                 // synthetic-ok: a mobile in two runs whose y differs by 0.6pt
                 List.of(run("98765", 100f, 50f, 25f), run("43210", 127.5f, 50.6f, 25f)),
                 // synthetic-ok: a UPI id wrapped onto the next printed line
-                List.of(run("UPI/98765", 100f, 50f, 45f), run("43210@ybl", 100f, 62f, 45f)));
+                List.of(run("UPI/98765", 100f, 50f, 45f), run("43210@ybl", 100f, 62f, 45f)),
+                // synthetic-ok: a mobile wrapped at a space onto the next printed line
+                List.of(run("Mobile 98765", 100f, 50f, 60f), run("43210", 100f, 62f, 25f)),
+                // synthetic-ok: a card wrapped between its groups
+                List.of(run("Card 4111 1111", 100f, 50f, 70f), run("1111 1111", 100f, 62f, 45f)),
+                // synthetic-ok: a mobile wrapped at a hyphen
+                List.of(run("Call 98765-", 100f, 50f, 55f), run("43210 today", 100f, 62f, 55f)),
+                // synthetic-ok: three short pieces over three lines
+                List.of(run("Ref 12", 100f, 50f, 30f), run("34", 100f, 62f, 10f), run("56", 100f, 74f, 10f)));
     }
 
     @ParameterizedTest
@@ -107,6 +115,28 @@ class NumberGroupPrivacyTest {
     void valuesReadingNeedsAreKeptAndNotRefused(String text) {
         assertThat(PdfTraceRedactor.redactLine(text)).isEqualTo(text);
         assertThat(TraceValidator.privacyKinds(List.of(run(text, 100f, 50f, 0f)))).as(text).isEmpty();
+    }
+
+    /** Lines that only look wrapped stay as they are: fewer than six digits across the break, a
+     *  value at the break, a word at the break, or another page. */
+    @Test
+    void shortOrValueEndingLinesAreNotJoined() {
+        List<List<PositionedText>> cases = List.of(
+                List.of(run("Total 12", 100f, 50f, 40f), run("345 items", 100f, 62f, 45f)),        // 5 digits
+                List.of(run("Page 2 of 5", 100f, 50f, 55f), run("1,234.00 Cr", 100f, 62f, 55f)),  // a value starts the next line
+                List.of(run("Balance 1,234.00", 100f, 50f, 80f), run("98765 Xxxx", 100f, 62f, 50f)), // a value ends the line
+                List.of(run("No 98765 here", 100f, 50f, 65f), run("43210", 100f, 62f, 25f)),     // a word at the break
+                List.of(new PositionedText("Page 98765", 100f, 50f, 0, 50f),
+                        new PositionedText("43210", 100f, 62f, 1, 25f)));                        // another page
+        for (List<PositionedText> runs : cases) {
+            List<PositionedText> redacted = PdfTraceRedactor.redact(runs);
+            for (int i = 0; i < runs.size(); i++) {
+                String original = runs.get(i).text();
+                String digitsKept = original.replaceAll("[^0-9]", "");
+                assertThat(redacted.get(i).text().replaceAll("[^0-9]", "")).as(original).isEqualTo(digitsKept);
+            }
+            assertThat(TraceValidator.privacyKinds(runs)).as(runs.toString()).isEmpty();
+        }
     }
 
     /** A date shape is a date only when its parts can be a day, a month and a year. */

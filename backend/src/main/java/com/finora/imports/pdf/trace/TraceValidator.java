@@ -177,16 +177,18 @@ public final class TraceValidator {
      * the runs and read with the redactor's own model ({@link NumberGroups}), treating a group made
      * only of '9' as the redactor's mask. Refused: a number of six or more digits in clear made of
      * groups joined by short separators (a mobile, card, account or Aadhaar number printed in
-     * pieces, in one run or across runs), and a short group in clear glued to a slash, an at sign, a
+     * pieces, in one run, across runs or wrapped onto the next line), and a short group in clear glued to a slash, an at sign, a
      * colon, an underscore or a format character (an identifier's digits, as in a UPI id wrapped
      * onto the next line). The redactor never keeps either, so a refusal means it regressed. One
      * kind covers all three, including a long number printed in one piece. Not part of
      * {@link #validate}: committed traces were captured by earlier redactors.
      */
     static boolean hasNumberSplitIntoGroups(List<PositionedText> runs) {
-        for (NumberGroups.Line line : NumberGroups.lines(runs)) {
-            String text = line.text();
-            NumberGroups.Kind[] kinds = NumberGroups.scan(text, true);
+        List<NumberGroups.Line> lines = NumberGroups.lines(runs);
+        List<NumberGroups.Kind[]> scanned = NumberGroups.scanLines(lines, true);
+        for (int l = 0; l < lines.size(); l++) {
+            String text = lines.get(l).text();
+            NumberGroups.Kind[] kinds = scanned.get(l);
             for (int p = 0; p < kinds.length; p++) {
                 if (kinds[p] == NumberGroups.Kind.LONG) return true;
                 if (kinds[p] == NumberGroups.Kind.SHORT

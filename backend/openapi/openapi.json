@@ -11917,6 +11917,36 @@
                 }
             }
         },
+        "/api/v1/admin/held-statements/{heldId}/blanked-copy": {
+            "get": {
+                "tags": [
+                    "admin-blanked-copy-controller"
+                ],
+                "operationId": "heldStatement",
+                "parameters": [
+                    {
+                        "name": "heldId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/held-statements/without-review-record": {
             "get": {
                 "tags": [
@@ -12077,6 +12107,37 @@
                                 "schema": {
                                     "type": "string",
                                     "format": "byte"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/held-imports/{jobId}/blanked-copy": {
+            "get": {
+                "tags": [
+                    "admin-blanked-copy-controller"
+                ],
+                "operationId": "heldImport",
+                "parameters": [
+                    {
+                        "name": "jobId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseResponse"
                                 }
                             }
                         }
@@ -12300,6 +12361,26 @@
                 }
             }
         },
+        "/api/v1/admin/blanked-copy/status": {
+            "get": {
+                "tags": [
+                    "admin-blanked-copy-controller"
+                ],
+                "operationId": "status_3",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseSwitchStatus"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/banks/{id}/audit": {
             "get": {
                 "tags": [
@@ -12483,7 +12564,7 @@
                 "tags": [
                     "admin-mfa-controller"
                 ],
-                "operationId": "status_3",
+                "operationId": "status_4",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -27017,6 +27098,79 @@
                     }
                 }
             },
+            "ApiResponseResponse": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/Response"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "Difference": {
+                "type": "object",
+                "properties": {
+                    "section": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "row": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "field": {
+                        "type": "string"
+                    },
+                    "maskedTokens": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "Response": {
+                "type": "object",
+                "properties": {
+                    "fileName": {
+                        "type": "string"
+                    },
+                    "trace": {
+                        "type": "string"
+                    },
+                    "check": {
+                        "type": "string"
+                    },
+                    "notCheckedReason": {
+                        "type": "string"
+                    },
+                    "differences": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Difference"
+                        }
+                    }
+                }
+            },
             "ApiResponsePagedResponseHoldWithoutReviewRecordDto": {
                 "type": "object",
                 "properties": {
@@ -27695,6 +27849,42 @@
                     "details": {
                         "type": "object",
                         "additionalProperties": {}
+                    }
+                }
+            },
+            "ApiResponseSwitchStatus": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/SwitchStatus"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "SwitchStatus": {
+                "type": "object",
+                "properties": {
+                    "enabled": {
+                        "type": "boolean"
                     }
                 }
             },

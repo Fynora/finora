@@ -5236,6 +5236,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/held-statements/{heldId}/blanked-copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["heldStatement"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/held-statements/without-review-record": {
         parameters: {
             query?: never;
@@ -5308,6 +5324,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["document_1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/held-imports/{jobId}/blanked-copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["heldImport"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5444,6 +5476,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/blanked-copy/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["status_3"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/banks/{id}/audit": {
         parameters: {
             query?: never;
@@ -5531,7 +5579,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["status_3"];
+        get: operations["status_4"];
         put?: never;
         post?: never;
         delete?: never;
@@ -11166,6 +11214,33 @@ export interface components {
             heldId?: string;
             sections?: components["schemas"]["HeldSection"][];
         };
+        ApiResponseResponse: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["Response"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        Difference: {
+            /** Format: int32 */
+            section?: number;
+            /** Format: int32 */
+            row?: number;
+            field?: string;
+            maskedTokens?: string[];
+        };
+        Response: {
+            fileName?: string;
+            trace?: string;
+            check?: string;
+            notCheckedReason?: string;
+            differences?: components["schemas"]["Difference"][];
+        };
         ApiResponsePagedResponseHoldWithoutReviewRecordDto: {
             success?: boolean;
             message?: string;
@@ -11442,6 +11517,21 @@ export interface components {
             details?: {
                 [key: string]: unknown;
             };
+        };
+        ApiResponseSwitchStatus: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["SwitchStatus"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        SwitchStatus: {
+            enabled?: boolean;
         };
         ApiResponsePagedResponseBankDto: {
             success?: boolean;
@@ -20275,6 +20365,28 @@ export interface operations {
             };
         };
     };
+    heldStatement: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                heldId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseResponse"];
+                };
+            };
+        };
+    };
     listWithoutReviewRecord: {
         parameters: {
             query?: {
@@ -20381,6 +20493,28 @@ export interface operations {
                 };
                 content: {
                     "*/*": string;
+                };
+            };
+        };
+    };
+    heldImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseResponse"];
                 };
             };
         };
@@ -20550,6 +20684,26 @@ export interface operations {
             };
         };
     };
+    status_3: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseSwitchStatus"];
+                };
+            };
+        };
+    };
     audit_1: {
         parameters: {
             query?: never;
@@ -20661,7 +20815,7 @@ export interface operations {
             };
         };
     };
-    status_3: {
+    status_4: {
         parameters: {
             query?: never;
             header?: never;

@@ -7,7 +7,7 @@ import type {
   HeldImportRow, HeldImportDetail, HeldImportSummary,
   HeldStatementRow, HeldStatementQuery, HeldStatementDetail, HeldStatementRerunResult,
   HeldStatementTelemetrySummary, HeldStatementStagedRows,
-  HoldWithoutReviewRecordRow,
+  HoldWithoutReviewRecordRow, BlankedCopy,
   SupportTicketRow, SupportTicketQuery, SupportTicketDetail, SupportTicketNote,
   FeedbackRow, FeedbackQuery, FeedbackBreakdown,
   CreateAccountRequest, CreateBankRequest, CreateMerchantTemplateRequest, CreateRelationshipRequest,
@@ -512,6 +512,15 @@ export const adminHeldStatementApi = {
       throw await withBlobErrorMessage(err);
     }
   },
+};
+
+/** Blanked copies of held statements. Every fetch is audited server-side, like a download. */
+export const adminBlankedCopyApi = {
+  status: () => api.get<{ enabled: boolean }>('/admin/blanked-copy/status').then((r) => r.data),
+  heldImport: (jobId: string) =>
+    api.get<BlankedCopy>(`/admin/held-imports/${jobId}/blanked-copy`).then((r) => r.data),
+  heldStatement: (heldId: string) =>
+    api.get<BlankedCopy>(`/admin/held-statements/${heldId}/blanked-copy`).then((r) => r.data),
 };
 
 /** The Merchant Review Center (WI4). Listing crosses users; every action is scoped to the owner,

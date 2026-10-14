@@ -6,7 +6,8 @@ import { RequirePermission } from '../components/ProtectedRoute';
 import { DataTable, type DataTableColumn } from '../components/DataTable';
 import { Pagination } from '../components/Pagination';
 import { useAdminAuth } from '../context/AdminAuthContext';
-import { adminHeldImportApi } from '../api/endpoints';
+import { adminBlankedCopyApi, adminHeldImportApi } from '../api/endpoints';
+import BlankedCopyPanel from '../components/BlankedCopyPanel';
 import { formatWhen } from '../lib/formatWhen';
 import type { HeldImportRow, HeldImportDetail } from '../types';
 
@@ -250,6 +251,9 @@ function HeldImportDetailPanel({
   const canDownload = roles.includes('ADMIN') || roles.includes('SUPER_ADMIN');
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  // Whether the server's blanked-copy switch is on. The copy is offered to anyone working this
+  // queue, not only the admin roles the real document is pinned to: it is blanked.
+  const blankedStatus = useQuery({ queryKey: ['blanked-copy-status'], queryFn: adminBlankedCopyApi.status });
 
   async function handleDownload() {
     if (!detail) return;
@@ -274,7 +278,12 @@ function HeldImportDetailPanel({
     <div className="bg-card border border-border rounded-xl2 p-6 space-y-5">
       <div className="flex items-start justify-between">
         <h2 className="text-lg font-semibold text-ink">Held import</h2>
-        <div className="flex items-center gap-3">
+        <div className="flex items-start gap-3">
+          {/* PDF only, matching the server, which answers a CSV with 409. Same case-insensitive
+              comparison the server makes. */}
+          {detail && blankedStatus.data?.enabled && detail.job.sourceFormat?.toUpperCase() === 'PDF' && (
+            <BlankedCopyPanel fetchCopy={() => adminBlankedCopyApi.heldImport(detail.job.id)} />
+          )}
           {detail && canDownload && (
             <button
               type="button"

@@ -58,6 +58,9 @@ class AuthServiceVerifyEmailConcurrentRaceIT extends AbstractIntegrationTest {
     private static final String FIRST_THREAD = "verify-email-race-first";
     private static final String RAW_TOKEN = "verify-email-race-token";
 
+    /** The loser of the claim still gets a success response once the winner has verified the
+     *  account (see verifyEmail's spent-link branch) -- the guarantee under test is that only one
+     *  request ever writes: one verification, one audit row. */
     @Test
     void twoConcurrentVerifyRequestsForTheSameTokenLeaveExactlyOneAuditRow() throws Exception {
         User user = new User();
@@ -124,9 +127,9 @@ class AuthServiceVerifyEmailConcurrentRaceIT extends AbstractIntegrationTest {
 
         assertThat(secondFailure.get()).as("the winner (whichever actually completed first) must not throw").isNull();
         assertThat(firstFailure.get())
-                .as("the loser must get a clean rejection for an already-used token, not silently succeed a second time")
-                .isInstanceOf(ApiException.class);
-        assertThat(((ApiException) firstFailure.get()).getMessage()).contains("already been used");
+                .as("the loser loses the claim, but the account it asked about is now verified, so it "
+                        + "reports success rather than \"Verification failed\" -- it just writes nothing")
+                .isNull();
 
         assertThat(userRepository.findById(userId).orElseThrow().isEmailVerified()).isTrue();
         assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(userId))
@@ -189,5 +192,88 @@ class AuthServiceVerifyEmailConcurrentRaceIT extends AbstractIntegrationTest {
         }
 
         assertThat(userRepository.findById(userId).orElseThrow().isEmailVerified()).isFalse();
+    }
+
+    /** Real-database double use, in sequence: the second open of the same link (browser and app,
+     *  or a double tap) reports success and records nothing further. */
+    @Test
+    void openingTheSameLinkTwiceSucceedsBothTimesAndVerifiesOnce() {
+        UUID userId = saveUser("verify-email-twice-it-", false).getId();
+        String rawToken = "verify-email-twice-token-" + UUID.randomUUID();
+        UUID tokenId = saveToken(userId, rawToken, Instant.now().plusSeconds(600)).getId();
+
+        assertThat(authService.verifyEmail(rawToken).message()).isNotBlank();
+        Instant claimedAt = emailVerificationTokenRepository.findById(tokenId).orElseThrow().getUsedAt();
+        assertThat(claimedAt).isNotNull();
+
+        assertThat(authService.verifyEmail(rawToken).message()).isNotBlank();
+
+        assertThat(userRepository.findById(userId).orElseThrow().isEmailVerified()).isTrue();
+        assertThat(emailVerificationTokenRepository.findById(tokenId).orElseThrow().getUsedAt())
+                .as("the second open must not re-claim the token")
+                .isEqualTo(claimedAt);
+        assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(userId))
+                .as("one EMAIL_VERIFIED audit row, not one per open")
+                .hasSize(1);
+    }
+
+    /** A spent link on an account that is still unverified, with no newer link to explain it -- a
+     *  state no flow produces today (see verifyEmail's last branch) -- is still rejected, verifies
+     *  nothing, and names a way forward rather than claiming the link was used. The superseded
+     *  case is EmailVerificationSupersededLinkIT's. */
+    @Test
+    void aSpentLinkForAnUnverifiedAccountIsStillRejected() {
+        UUID userId = saveUser("verify-email-spent-it-", false).getId();
+        String rawToken = "verify-email-spent-token-" + UUID.randomUUID();
+        EmailVerificationToken spent = new EmailVerificationToken();
+        spent.setUserId(userId);
+        spent.setTokenHash(TokenHasher.sha256(rawToken));
+        spent.setExpiresAt(Instant.now().plusSeconds(600));
+        spent.setUsedAt(Instant.now()); // what markAllUnusedAsUsed leaves behind
+        emailVerificationTokenRepository.save(spent);
+
+        try {
+            authService.verifyEmail(rawToken);
+            throw new AssertionError("Expected a spent link on an unverified account to throw");
+        } catch (ApiException e) {
+            assertThat(e.getMessage()).contains("can no longer be used").doesNotContain("already been used");
+        }
+
+        assertThat(userRepository.findById(userId).orElseThrow().isEmailVerified()).isFalse();
+        assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(userId)).isEmpty();
+    }
+
+    /** An email change verifies the account without burning verification links sent before it.
+     *  Such a link, opened after it expired, reports the account verified -- not "Verification
+     *  failed" -- and records nothing. */
+    @Test
+    void anExpiredUnusedLinkOnAnAccountVerifiedAnotherWayReportsVerified() {
+        UUID userId = saveUser("verify-email-other-way-it-", true).getId();
+        String rawToken = "verify-email-other-way-token-" + UUID.randomUUID();
+        saveToken(userId, rawToken, Instant.now().minusSeconds(60));
+
+        assertThat(authService.verifyEmail(rawToken).message()).isNotBlank();
+
+        assertThat(userRepository.findById(userId).orElseThrow().isEmailVerified()).isTrue();
+        assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(userId))
+                .as("nothing was verified by this request, so nothing is recorded")
+                .isEmpty();
+    }
+
+    private User saveUser(String emailPrefix, boolean emailVerified) {
+        User user = new User();
+        user.setEmail(emailPrefix + UUID.randomUUID() + "@example.com");
+        user.setPasswordHash("irrelevant-for-this-test");
+        user.setFullName("Verify Email IT User");
+        user.setEmailVerified(emailVerified);
+        return userRepository.save(user);
+    }
+
+    private EmailVerificationToken saveToken(UUID userId, String rawToken, Instant expiresAt) {
+        EmailVerificationToken evt = new EmailVerificationToken();
+        evt.setUserId(userId);
+        evt.setTokenHash(TokenHasher.sha256(rawToken));
+        evt.setExpiresAt(expiresAt);
+        return emailVerificationTokenRepository.save(evt);
     }
 }

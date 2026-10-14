@@ -8,6 +8,7 @@ import com.finora.imports.blanked.BlankedCopyOutcome;
 import com.finora.imports.blanked.StaffStatementContent;
 import com.finora.imports.jobs.ImportJobWorker;
 import com.finora.imports.storage.StatementContentService;
+import com.finora.imports.storage.StatementStorageException;
 import com.finora.repository.ImportJobRepository;
 import com.finora.util.PageBounds;
 import org.slf4j.Logger;
@@ -193,7 +194,7 @@ public class AdminHeldImportService {
         byte[] content;
         try {
             content = statementContentService.read(job);
-        } catch (com.finora.imports.storage.StatementStorageException e) {
+        } catch (StatementStorageException e) {
             // A 409 naming the job, as HeldStatementService.readStatement does on the trust queue,
             // rather than the catch-all 500: nothing about the request was wrong, the file is gone.
             log.warn("Stored statement behind held import {} could not be read for a blanked copy", jobId, e);
@@ -201,16 +202,8 @@ public class AdminHeldImportService {
                     "The stored statement file behind held import " + jobId + " could not be read.");
         }
         if (savedPassword) {
-            var review = statementPasswordService.reviewCopy(job, content);
-            content = review.content();
-            // download hands a file the saved password did not open over as it is, for the reviewer
-            // to try; a copy cannot be made from it, and BlankedCopyService would otherwise say no
-            // password is saved, which is untrue.
-            if (!review.unlocked()
-                    && com.finora.imports.pdf.PdfTextExtractor.needsPassword(new java.io.ByteArrayInputStream(content))) {
-                throw new ApiException(HttpStatus.CONFLICT, "The saved password did not open the statement behind "
-                        + "held import " + jobId + ", so no blanked copy can be made.");
-            }
+            // Unlike download, a file the saved password did not open is refused, not handed over.
+            content = statementPasswordService.unlockedForBlankedCopy(job, content, "held import " + jobId);
         }
         return new StaffStatementContent(job.getId().toString(), job.getSourceFormat(), content);
     }

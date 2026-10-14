@@ -35,16 +35,16 @@ public final class TraceFormat {
 
     private TraceFormat() {}
 
-    static final String MAGIC = "# finora-pdf-trace v1";
+    private static final String MAGIC = "# finora-pdf-trace v1";
 
     /** v1 traces carry no metadata; v2 adds a provenance block (see {@link TraceMetadata}) so a
      *  trace states which redactor and allowlist produced it. Both parse identically -- every
      *  metadata line is a comment, which the v1 parser already skipped. */
-    static final String MAGIC_V2 = "# finora-pdf-trace v2";
+    private static final String MAGIC_V2 = "# finora-pdf-trace v2";
 
     /** v3 adds a width column to every run. See {@link TraceMetadata#CURRENT_TRACE_VERSION} for why
      *  a version bump rather than an extra column under v2. */
-    static final String MAGIC_V3 = "# finora-pdf-trace v3";
+    private static final String MAGIC_V3 = "# finora-pdf-trace v3";
 
     /** Backward-compatible: writes a v1 trace with no provenance. Retained only so existing
      *  round-trip tests keep exercising the parser; {@link #format(List, TraceMetadata)} is what

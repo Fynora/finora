@@ -94,7 +94,7 @@ public class BlankedCopyService {
         String fileName = "blanked-" + content.reference() + ".trace";
 
         BlankedCopy copy = check(content.reference(), fileName, trace, real);
-        metrics.produced(copy.check());
+        metrics.produced(copy.check().name());
         return copy;
     }
 

@@ -1,6 +1,5 @@
 package com.finora.observability;
 
-import com.finora.imports.blanked.BlankedCopy;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.stereotype.Component;
@@ -15,10 +14,12 @@ public class BlankedCopyMetrics {
         this.registry = registry;
     }
 
-    public void produced(BlankedCopy.Check check) {
+    /** @param check the check's result by name (MATCHES, DIFFERS or NOT_CHECKED). A name rather
+     *  than the blanked-copy package's own type, so this package does not depend on that one. */
+    public void produced(String check) {
         Counter.builder("finora.blanked_copy.produced")
                 .description("A blanked copy of a held statement was produced")
-                .tag("check", check.name())
+                .tag("check", check)
                 .register(registry)
                 .increment();
     }

@@ -3,6 +3,7 @@ package com.finora.imports.passwords;
 import com.finora.entity.ImportJob;
 import com.finora.entity.StatementPassword;
 import com.finora.exception.ApiException;
+import com.finora.imports.pdf.PdfTextExtractor;
 import com.finora.repository.StatementPasswordRepository;
 import com.finora.security.crypto.EncryptionException;
 import com.finora.security.crypto.EncryptionService;
@@ -15,6 +16,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.ByteArrayInputStream;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
@@ -130,6 +132,26 @@ public class StatementPasswordService {
                     job.getId(), e.getClass().getSimpleName());
             return new ReviewCopy(content, false);
         }
+    }
+
+    /**
+     * A held upload's file for a blanked copy, unlocked in memory with the saved password as
+     * {@link #reviewCopy} does. Unlike {@link #reviewCopy}, a file the saved password did not open
+     * is refused rather than handed over: a copy cannot be made from it, and the copy would
+     * otherwise be refused as having no password saved, which is untrue. Both held queues call
+     * this, so the two cannot drift apart.
+     *
+     * @param itemName how the refusal names the held item, such as "held import &lt;id&gt;" or a
+     *                 Held ID -- never the file's own name
+     */
+    @Transactional(readOnly = true)
+    public byte[] unlockedForBlankedCopy(ImportJob job, byte[] content, String itemName) {
+        ReviewCopy review = reviewCopy(job, content);
+        if (!review.unlocked() && PdfTextExtractor.needsPassword(new ByteArrayInputStream(review.content()))) {
+            throw new ApiException(HttpStatus.CONFLICT, "The saved password did not open the statement behind "
+                    + itemName + ", so no blanked copy can be made.");
+        }
+        return review.content();
     }
 
     /** Whether a queued upload has a saved password -- known before its file is read. */

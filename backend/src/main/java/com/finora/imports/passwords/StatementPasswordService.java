@@ -126,7 +126,7 @@ public class StatementPasswordService {
         Optional<String> password = forJob(job.getId());
         if (password.isEmpty()) return new ReviewCopy(content, false);
         try {
-            return new ReviewCopy(com.finora.imports.pdf.PdfTextExtractor.unlockedCopy(content, password.get()), true);
+            return new ReviewCopy(PdfTextExtractor.unlockedCopy(content, password.get()), true);
         } catch (java.io.IOException | RuntimeException e) {
             log.warn("Held upload {} could not be unlocked for review; handing over the stored file: {}",
                     job.getId(), e.getClass().getSimpleName());

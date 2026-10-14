@@ -377,6 +377,15 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
         verify(limiter).runGated(any());
     }
 
+    /** The import queue's code and status, with a message about the copy rather than about the
+     *  customer's own imports. */
+    private static void assertBusyMessageIsTheCopysOwn(ResponseEntity<String> response) {
+        assertThat(response.getBody())
+                .contains("\"" + ErrorCode.IMPORT_SYSTEM_BUSY.code() + "\"")
+                .contains("The server is busy reading statements right now. Try the blanked copy again in a moment.")
+                .doesNotContain(ErrorCode.IMPORT_SYSTEM_BUSY.defaultMessage());
+    }
+
     /** Every import slot taken: refused at once with the import queue's own 503, before the audit
      *  row and before the statement is read. */
     @Test
@@ -388,6 +397,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
                 createSupportUser("IMPORT_TRIAGE_MANAGE"));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertBusyMessageIsTheCopysOwn(response);
         assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(job.getId()))
                 .noneSatisfy(e -> assertThat(e.getAction()).isEqualTo("HELD_IMPORT_BLANKED_COPY"));
         assertNothingLeft(response.getBody(), auditOf(job.getId()), output);
@@ -568,6 +578,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
                 createSupportUser("TRUST_REVIEW_MANAGE"));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertBusyMessageIsTheCopysOwn(response);
         assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(held.getId()))
                 .noneSatisfy(e -> assertThat(e.getAction()).isEqualTo("HELD_STATEMENT_BLANKED_COPY"));
         assertNothingLeft(response.getBody(), auditOf(held.getId()), output);

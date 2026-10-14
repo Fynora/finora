@@ -3,6 +3,7 @@ package com.finora.controller;
 import com.finora.dto.ApiResponse;
 import com.finora.dto.BlankedCopyDto;
 import com.finora.exception.ApiException;
+import com.finora.exception.ErrorCode;
 import com.finora.imports.ImportConcurrencyLimiter;
 import com.finora.imports.blanked.BlankedCopy;
 import com.finora.imports.blanked.BlankedCopyOutcome;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.function.Consumer;
 
 /**
@@ -36,8 +38,8 @@ import java.util.function.Consumer;
  *
  * <p>Making a copy reads the statement (OCR for a scanned one) and reads it twice more, on the
  * request thread, so it takes an import slot from {@link ImportConcurrencyLimiter} like every other
- * parse. A busy server refuses at once with the import queue's own 503, before the audit row is
- * written and before any bytes are read.
+ * parse. A busy server refuses at once with the import queue's own 503 (with a message of its own),
+ * before the audit row is written and before any bytes are read.
  *
  * <p>Two audit entries per copy: the access, written by the queue's service before the read, and
  * the result (see {@link BlankedCopyOutcome}), written once the copy is made or refused.
@@ -45,6 +47,10 @@ import java.util.function.Consumer;
 @RestController
 @RequestMapping("/api/v1/admin")
 public class AdminBlankedCopyController {
+
+    /** What a busy server says on the copy endpoints; see {@link #gated}. */
+    static final String BUSY_MESSAGE =
+            "The server is busy reading statements right now. Try the blanked copy again in a moment.";
 
     private final AdminHeldImportService heldImports;
     private final HeldStatementService heldStatements;
@@ -77,7 +83,7 @@ public class AdminBlankedCopyController {
     public ApiResponse<BlankedCopyDto.Response> heldImport(@PathVariable UUID jobId) throws Exception {
         requireEnabled();
         UUID actor = currentUser.id();
-        return ApiResponse.ok(BlankedCopyDto.Response.of(concurrencyLimiter.runGated(
+        return ApiResponse.ok(BlankedCopyDto.Response.of(gated(
                 () -> makeAndRecord(heldImports.contentForBlankedCopy(actor, jobId),
                         outcome -> heldImports.recordBlankedCopyResult(actor, jobId, outcome)))));
     }
@@ -87,9 +93,23 @@ public class AdminBlankedCopyController {
     public ApiResponse<BlankedCopyDto.Response> heldStatement(@PathVariable String heldId) throws Exception {
         requireEnabled();
         UUID actor = currentUser.id();
-        return ApiResponse.ok(BlankedCopyDto.Response.of(concurrencyLimiter.runGated(
+        return ApiResponse.ok(BlankedCopyDto.Response.of(gated(
                 () -> makeAndRecord(heldStatements.contentForBlankedCopy(actor, heldId),
                         outcome -> heldStatements.recordBlankedCopyResult(actor, heldId, outcome)))));
+    }
+
+    /**
+     * Runs the work under an import slot. A busy server keeps the import queue's code and status,
+     * with a message about the copy: the queue's own speaks of the reader's statement imports, and
+     * the person asking here is staff, not the customer.
+     */
+    private <T> T gated(Callable<T> work) throws Exception {
+        try {
+            return concurrencyLimiter.runGated(work);
+        } catch (ApiException e) {
+            if (e.getCode() != ErrorCode.IMPORT_SYSTEM_BUSY) throw e;
+            throw new ApiException(ErrorCode.IMPORT_SYSTEM_BUSY, BUSY_MESSAGE);
+        }
     }
 
     /**

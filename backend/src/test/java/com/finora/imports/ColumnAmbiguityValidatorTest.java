@@ -171,6 +171,55 @@ class ColumnAmbiguityValidatorTest {
     }
 
     @Test
+    void saysWhichListItsNumbersCountAlong() {
+        var finding = validator.check(List.of(
+                row("Txn Date", "01/07/2026", "Withdrawals", "20.00", "Deposits", "5.00")));
+
+        assertThat(finding.details())
+                .containsEntry(ColumnAmbiguityValidator.ROW_INDEX_BASIS, ColumnAmbiguityValidator.ROWS_SHOWN);
+        // And the marker stays out of the evidence table: it is a fact about our numbering, not
+        // a count, and the recorder keeps only the keys it names.
+        assertThat(com.finora.imports.analysis.ImportVerificationRecorder.structuralDetailsOf(finding.details()))
+                .doesNotContainKey(ColumnAmbiguityValidator.ROW_INDEX_BASIS)
+                .containsEntry("ambiguitiesCount", 1);
+    }
+
+    @Test
+    void leavesEverythingButAnOldAmbiguityListAsItCame() {
+        var balance = new ImportDto.VerificationFinding("BALANCE_CHAIN", "WARNING", Map.of("rowsChecked", 3));
+        var clean = validator.check(List.of(
+                row("Txn Date", "01/07/2026", "Withdrawals", "20.00", "Deposits", "0.00")));
+        var fresh = validator.check(List.of(
+                row("Txn Date", "01/07/2026", "Withdrawals", "20.00", "Deposits", "5.00")));
+        List<ImportDto.StagedRow> shown = List.of();
+
+        assertThat(ColumnAmbiguityValidator.renumberStored(balance, shown)).isSameAs(balance);
+        assertThat(ColumnAmbiguityValidator.renumberStored(clean, shown)).isSameAs(clean);
+        assertThat(ColumnAmbiguityValidator.renumberStored(fresh, shown)).isSameAs(fresh);
+        assertThat(ColumnAmbiguityValidator.renumberStored(null, shown)).isNull();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void anOldNumberWhoseRowCarriesNoPositionLosesItsNumberRatherThanKeepingAWrongOne() {
+        Map<String, Object> old = new LinkedHashMap<>();
+        old.put("rowIndex", 0);
+        old.put("kind", "BOTH_DIRECTIONS_HAVE_A_VALUE");
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("ambiguities", List.of(old));
+        var stored = new ImportDto.VerificationFinding(ColumnAmbiguityValidator.RULE, "WARNING", details);
+        var unnumbered = new ImportDto.StagedRow(java.time.LocalDate.of(2026, 7, 1), "A",
+                new java.math.BigDecimal("1.00"), "EXPENSE", "Other", "rule", null, false, null, null);
+
+        var served = ColumnAmbiguityValidator.renumberStored(stored, List.of(unnumbered));
+
+        var ambiguities = (List<Map<String, Object>>) served.details().get("ambiguities");
+        assertThat(ambiguities.get(0)).doesNotContainKey("rowIndex").containsEntry("kind", "BOTH_DIRECTIONS_HAVE_A_VALUE");
+        assertThat(served.outcome()).isEqualTo("WARNING");
+        assertThat(old).as("the stored map itself is not changed").containsEntry("rowIndex", 0);
+    }
+
+    @Test
     void acceptsAMappingInWhichNoLocatedRowIsShown() {
         var finding = validator.check(List.of(
                 row("Txn Date", "01/07/2026", "Withdrawals", "20.00", "Deposits", "0.00")),

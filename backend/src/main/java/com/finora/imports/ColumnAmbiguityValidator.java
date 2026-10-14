@@ -57,6 +57,11 @@ public class ColumnAmbiguityValidator {
     /** A located row that did not become one of the rows the client is shown. */
     public static final int NOT_SHOWN = -1;
 
+    /** Detail key naming the list each {@code rowIndex} counts along; {@link #ROWS_SHOWN} is the
+     *  only value. Absent from a finding stored before the numbers meant the rows shown. */
+    public static final String ROW_INDEX_BASIS = "rowIndexBasis";
+    public static final String ROWS_SHOWN = "ROWS_SHOWN";
+
     /**
      * One row that could be read more than one way, and how.
      *
@@ -199,12 +204,65 @@ public class ColumnAmbiguityValidator {
         }
 
         details.put("ambiguities", found.stream().map(Ambiguity::toDetails).toList());
+        // Says which list the numbers count along. A review session keeps its report for days, and
+        // one stored before this marker existed numbers along the located rows -- see
+        // renumberStored, which tells the two apart by this key alone.
+        details.put(ROW_INDEX_BASIS, ROWS_SHOWN);
         details.put("explanation", found.size() == 1
                 ? "One row could be read more than one way. The import used its best reading, but the "
                   + "statement did not settle it — worth checking that row."
                 : found.size() + " rows could be read more than one way. The import used its best "
                   + "reading of each, but the statement did not settle them — worth checking them.");
         return new ImportDto.VerificationFinding(RULE, "WARNING", details);
+    }
+
+    /**
+     * Brings a finding stored by an earlier build onto the numbering the client now prints.
+     *
+     * <p>A review session stores its verification report when the statement is staged and serves it
+     * again when the customer comes back to the review, for up to two days and longer while the
+     * import is held. A report stored before {@link #ROW_INDEX_BASIS} existed numbers each ambiguous
+     * row by its place among the located rows, and printing that number now would name another row
+     * in exactly the cases the fix was for.
+     *
+     * <p>That old number converts exactly. The PDF generator stamps every staged row with {@code
+     * rowPosition}, its 1-based place among the same located rows, so the row an old {@code
+     * rowIndex} meant is the shown row whose {@code rowPosition} is one more. A number with no such
+     * row -- the row did not stage, or the stored rows carry no positions -- is left out rather
+     * than guessed, the same as a fresh finding does for a row that is not shown. Anything that is
+     * not an old ambiguity list is returned as it came.
+     *
+     * @param shown the session's stored rows, in the order the client shows them
+     */
+    public static ImportDto.VerificationFinding renumberStored(ImportDto.VerificationFinding finding,
+                                                               List<ImportDto.StagedRow> shown) {
+        if (finding == null || !RULE.equals(finding.rule()) || finding.details() == null) return finding;
+        if (finding.details().containsKey(ROW_INDEX_BASIS)) return finding;
+        if (!(finding.details().get("ambiguities") instanceof List<?> stored)) return finding;
+
+        Map<Integer, Integer> shownAtByPosition = new java.util.HashMap<>();
+        for (int k = 0; shown != null && k < shown.size(); k++) {
+            Integer rowPosition = shown.get(k) == null ? null : shown.get(k).rowPosition();
+            if (rowPosition != null) shownAtByPosition.putIfAbsent(rowPosition, k);
+        }
+
+        List<Map<String, Object>> renumbered = new ArrayList<>();
+        for (Object entry : stored) {
+            if (!(entry instanceof Map<?, ?> old)) continue;
+            Map<String, Object> copy = new LinkedHashMap<>();
+            old.forEach((key, value) -> copy.put(String.valueOf(key), value));
+            Integer shownAt = copy.remove("rowIndex") instanceof Number located
+                    ? shownAtByPosition.get(located.intValue() + 1) : null;
+            if (shownAt != null) copy.put("rowIndex", shownAt);
+            renumbered.add(copy);
+        }
+        renumbered.sort(Comparator.comparing(m -> (Integer) m.get("rowIndex"),
+                Comparator.nullsLast(Comparator.naturalOrder())));
+
+        Map<String, Object> details = new LinkedHashMap<>();
+        finding.details().forEach((key, value) -> details.put(key, "ambiguities".equals(key) ? renumbered : value));
+        details.put(ROW_INDEX_BASIS, ROWS_SHOWN);
+        return new ImportDto.VerificationFinding(finding.rule(), finding.outcome(), details);
     }
 
     /**

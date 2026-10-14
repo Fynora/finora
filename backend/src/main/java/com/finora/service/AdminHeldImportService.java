@@ -9,6 +9,8 @@ import com.finora.imports.jobs.ImportJobWorker;
 import com.finora.imports.storage.StatementContentService;
 import com.finora.repository.ImportJobRepository;
 import com.finora.util.PageBounds;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
@@ -43,6 +45,8 @@ import java.util.UUID;
  */
 @Service
 public class AdminHeldImportService {
+
+    private static final Logger log = LoggerFactory.getLogger(AdminHeldImportService.class);
 
     /**
      * How many held jobs one Reprocess All may requeue.
@@ -171,7 +175,8 @@ public class AdminHeldImportService {
      * {@code BlankedCopyService} and nowhere else; the reference is the job id, never its file name.
      *
      * <p>Audited in its own transaction, before the bytes are read: a failed read rolls this
-     * transaction back, and the attempt is the event being recorded.
+     * transaction back, and the attempt is the event being recorded. A stored file that cannot be
+     * read is a 409 naming the job, the same answer the trust queue gives.
      */
     @Transactional
     public StaffStatementContent contentForBlankedCopy(UUID actingAdminId, UUID jobId) {
@@ -183,7 +188,16 @@ public class AdminHeldImportService {
                 Map.of("actorId", actingAdminId.toString(),
                         "subjectUserId", job.getUserId().toString(),
                         "savedPasswordOnFile", savedPassword));
-        byte[] content = statementContentService.read(job);
+        byte[] content;
+        try {
+            content = statementContentService.read(job);
+        } catch (com.finora.imports.storage.StatementStorageException e) {
+            // A 409 naming the job, as HeldStatementService.readStatement does on the trust queue,
+            // rather than the catch-all 500: nothing about the request was wrong, the file is gone.
+            log.warn("Stored statement behind held import {} could not be read for a blanked copy", jobId, e);
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "The stored statement file behind held import " + jobId + " could not be read.");
+        }
         if (savedPassword) {
             content = statementPasswordService.reviewCopy(job, content).content();
         }

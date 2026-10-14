@@ -149,7 +149,8 @@ test.describe('Phase 1 — statement upload', () => {
       // compound name to TransactionNormalizer's DESCRIPTION_HINTS (verified against a real ICICI
       // savings e-statement), so `CsvParser.firstNonBlank`'s whole-cell match now hits it directly
       // and the description resolves instead of silently going blank.
-      const firstDescription = review.getByRole('row').nth(1).getByRole('cell').nth(2);
+      // Cells: include checkbox, row number, date, description.
+      const firstDescription = review.getByRole('row').nth(1).getByRole('cell').nth(3);
       await expect(firstDescription).toHaveText(/^UPI PAYMENT GROCER\s*(low confidence)?\s*$/i);
     });
 });

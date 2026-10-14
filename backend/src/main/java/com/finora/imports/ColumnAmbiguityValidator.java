@@ -58,7 +58,8 @@ public class ColumnAmbiguityValidator {
     public static final int NOT_SHOWN = -1;
 
     /** Detail key naming the list each {@code rowIndex} counts along; {@link #ROWS_SHOWN} is the
-     *  only value. Absent from a finding stored before the numbers meant the rows shown. */
+     *  only value. Absent from a finding stored before the numbers meant the rows shown, and from
+     *  one whose caller passed no display mapping, whose numbers count the located rows. */
     public static final String ROW_INDEX_BASIS = "rowIndexBasis";
     public static final String ROWS_SHOWN = "ROWS_SHOWN";
 
@@ -206,8 +207,11 @@ public class ColumnAmbiguityValidator {
         details.put("ambiguities", found.stream().map(Ambiguity::toDetails).toList());
         // Says which list the numbers count along. A review session keeps its report for days, and
         // one stored before this marker existed numbers along the located rows -- see
-        // renumberStored, which tells the two apart by this key alone.
-        details.put(ROW_INDEX_BASIS, ROWS_SHOWN);
+        // renumberStored, which tells the two apart by this key alone. Only claimed when the caller
+        // said where each row is shown: without that the numbers are places among the located
+        // rows, which is exactly what renumberStored converts, so leaving the marker off keeps a
+        // report from a caller that passed no mapping correct once it is stored and read back.
+        if (displayedPositionOf != null) details.put(ROW_INDEX_BASIS, ROWS_SHOWN);
         details.put("explanation", found.size() == 1
                 ? "One row could be read more than one way. The import used its best reading, but the "
                   + "statement did not settle it — worth checking that row."

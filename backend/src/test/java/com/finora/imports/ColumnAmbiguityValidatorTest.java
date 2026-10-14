@@ -172,11 +172,20 @@ class ColumnAmbiguityValidatorTest {
 
     @Test
     void saysWhichListItsNumbersCountAlong() {
-        var finding = validator.check(List.of(
-                row("Txn Date", "01/07/2026", "Withdrawals", "20.00", "Deposits", "5.00")));
+        List<Map<String, String>> located = List.of(
+                row("Txn Date", "01/07/2026", "Withdrawals", "20.00", "Deposits", "5.00"));
+        var finding = validator.check(located, List.of(), new int[] {0});
 
         assertThat(finding.details())
                 .containsEntry(ColumnAmbiguityValidator.ROW_INDEX_BASIS, ColumnAmbiguityValidator.ROWS_SHOWN);
+        // Without a mapping the numbers count the located rows, so the marker is not claimed -- and
+        // such a report, once stored, is converted on read like any other located-row report.
+        var unmapped = validator.check(located);
+        assertThat(unmapped.details()).doesNotContainKey(ColumnAmbiguityValidator.ROW_INDEX_BASIS);
+        assertThat(ColumnAmbiguityValidator.renumberStored(unmapped, List.of(
+                new ImportDto.StagedRow(java.time.LocalDate.of(2026, 7, 1), "A", new java.math.BigDecimal("1.00"),
+                        "EXPENSE", "Other", "rule", null, false, null, null).withRowPosition(1)))
+                .details()).containsEntry(ColumnAmbiguityValidator.ROW_INDEX_BASIS, ColumnAmbiguityValidator.ROWS_SHOWN);
         // And the marker stays out of the evidence table: it is a fact about our numbering, not
         // a count, and the recorder keeps only the keys it names.
         assertThat(com.finora.imports.analysis.ImportVerificationRecorder.structuralDetailsOf(finding.details()))
@@ -190,7 +199,7 @@ class ColumnAmbiguityValidatorTest {
         var clean = validator.check(List.of(
                 row("Txn Date", "01/07/2026", "Withdrawals", "20.00", "Deposits", "0.00")));
         var fresh = validator.check(List.of(
-                row("Txn Date", "01/07/2026", "Withdrawals", "20.00", "Deposits", "5.00")));
+                row("Txn Date", "01/07/2026", "Withdrawals", "20.00", "Deposits", "5.00")), List.of(), new int[] {0});
         List<ImportDto.StagedRow> shown = List.of();
 
         assertThat(ColumnAmbiguityValidator.renumberStored(balance, shown)).isSameAs(balance);

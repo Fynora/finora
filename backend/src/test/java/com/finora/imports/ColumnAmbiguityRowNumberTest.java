@@ -9,6 +9,7 @@ import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -184,6 +185,11 @@ class ColumnAmbiguityRowNumberTest {
                 .filter(f -> ColumnAmbiguityValidator.RULE.equals(f.rule()))
                 .findFirst().orElseThrow();
         assertThat(finding.outcome()).isEqualTo("WARNING");
+        // The generator always says where rows are shown, so its findings say so too, and a saved
+        // review of this statement is served back with these same numbers, not converted again.
+        assertThat(finding.details())
+                .containsEntry(ColumnAmbiguityValidator.ROW_INDEX_BASIS, ColumnAmbiguityValidator.ROWS_SHOWN);
+        assertThat(ColumnAmbiguityValidator.renumberStored(finding, shown)).isSameAs(finding);
 
         List<Map<String, Object>> ambiguities = (List<Map<String, Object>>) finding.details().get("ambiguities");
         assertThat(ambiguities).hasSameSizeAs(ambiguousLabels);
@@ -204,7 +210,79 @@ class ColumnAmbiguityRowNumberTest {
         }
     }
 
+    /**
+     * A composite statement numbers each account's rows on its own, because each section is its own
+     * review list. The second account is printed newest first behind its opening-balance line, so
+     * its located rows and its shown rows disagree twice over -- and the first account's rows must
+     * not shift its numbers.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void eachAccountOfACompositeStatementIsNumberedAlongItsOwnRows() throws Exception {
+        List<String[]> lines = new ArrayList<>();
+        lines.add(new String[] {"Composite Statement"});
+        lines.add(new String[] {"SAVINGS ACCOUNT  100-111111-002"});
+        lines.add(new String[] {"Date", "Narration", "Withdrawal", "Deposit", "Balance"});
+        lines.add(new String[] {"01/07/2026", "UPI/DR/ROW A", "100.00", "", "9900.00"});
+        lines.add(new String[] {"02/07/2026", "UPI/DR/ROW B", "200.00", "50.00", "9700.00"});
+        lines.add(new String[] {"03/07/2026", "UPI/DR/ROW C", "300.00", "", "9400.00"});
+        lines.add(new String[] {""});
+        lines.add(new String[] {"CURRENT ACCOUNT  100-111111-003"});
+        lines.add(new String[] {"Date", "Narration", "Withdrawal", "Deposit", "Balance"});
+        lines.add(new String[] {"01/07/2026", "OPENING BALANCE", "", "", "5000.00"});
+        lines.add(new String[] {"06/07/2026", "UPI/DR/ROW F", "60.00", "", "4790.00"});
+        lines.add(new String[] {"05/07/2026", "UPI/DR/ROW E", "50.00", "", "4850.00"});
+        lines.add(new String[] {"04/07/2026", "UPI/DR/ROW D", "100.00", "25.00", "4900.00"});
+
+        List<ImportDto.StagedAccountSection> sections = PdfGeneratorTestSupport.generator()
+                .generateSections(UUID.randomUUID(), "synthetic.pdf", render(lines));
+
+        assertThat(sections).as("two accounts, so two review lists").hasSize(2);
+        Map<String, String> ambiguousRowOf = Map.of("SAVINGS", "ROW B", "CURRENT", "ROW D");
+        for (ImportDto.StagedAccountSection section : sections) {
+            String label = section.rows().stream().anyMatch(r -> r.description().endsWith("ROW A"))
+                    ? ambiguousRowOf.get("SAVINGS") : ambiguousRowOf.get("CURRENT");
+            int ambiguousRow = -1;
+            for (int i = 0; i < section.rows().size(); i++) {
+                if (section.rows().get(i).description().endsWith(label)) ambiguousRow = i;
+            }
+            ImportDto.VerificationFinding finding = section.verification().findings().stream()
+                    .filter(f -> ColumnAmbiguityValidator.RULE.equals(f.rule())).findFirst().orElseThrow();
+            List<Map<String, Object>> ambiguities = (List<Map<String, Object>>) finding.details().get("ambiguities");
+            assertThat(ambiguities).as("one ambiguous row in the section holding %s", label).hasSize(1);
+            assertThat(ambiguousRow).isNotNegative();
+            assertThat(ambiguities.get(0).get("rowIndex"))
+                    .as("%s's place among its own section's rows", label).isEqualTo(ambiguousRow);
+        }
+    }
+
     // ---------------------------------------------------------------- the real PDF staging path
+
+    /** Draws free lines and table rows; a one-cell entry is a plain line at the left margin. */
+    private static byte[] render(List<String[]> lines) throws Exception {
+        float[] column = {50f, 120f, 300f, 380f, 470f};
+        try (PDDocument document = new PDDocument()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            document.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(document, page)) {
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 9f);
+                float y = 770f;
+                for (String[] cells : lines) {
+                    for (int i = 0; i < cells.length; i++) {
+                        if (cells[i].isEmpty()) continue;
+                        content.beginText();
+                        content.newLineAtOffset(column[i], y);
+                        content.showText(cells[i]);
+                        content.endText();
+                    }
+                    y -= 10f;
+                }
+            }
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            document.save(out);
+            return out.toByteArray();
+        }
+    }
 
     private static StagingResponse viaPdf(List<Line> printed) throws Exception {
         float[] column = {50f, 120f, 300f, 380f, 470f};

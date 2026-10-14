@@ -190,8 +190,10 @@ public final class TraceValidator {
      *   <li>"copy does not line up with the statement": a different number of runs or of code
      *       points in a run, which a redactor that only substitutes characters never produces.</li>
      * </ul>
-     * A '9' is never counted (it reads the same masked or not), and neither is the fixed fifth
-     * character '0' of an IFSC whose copy is the IFSC rule's own output: it is the format, not data.
+     * Every number the copy shows (any Unicode number category) is judged, so digits moved to
+     * another place are caught too. A '9' is never counted (it reads the same masked or not), and
+     * neither is the fixed fifth character '0' of an IFSC whose copy is the IFSC rule's own output:
+     * it is the format, not data.
      */
     public static List<String> copyLeaks(List<PositionedText> original, List<PositionedText> copy) {
         if (original.size() != copy.size()) return List.of(COPY_DOES_NOT_LINE_UP);
@@ -217,13 +219,18 @@ public final class TraceValidator {
                 String copied = new String(copyCps, cpStart, Math.min(11, copyCps.length - cpStart));
                 if (copied.equals(ifsc.group(1) + "0XXXXXX")) ifscZero[zero] = true;
             }
+            // Every number the COPY shows is judged, wherever it came from: it passes only where the
+            // statement has the same code point at the same place and it is part of a value there.
             int cpIndex = 0;
             for (int i = 0; i < o.length(); ) {
                 int cp = o.codePointAt(i);
-                if (Character.isDigit(cp) && cp != '9' && copyCps[cpIndex] == cp && !ifscZero[i]) {
+                int shown = copyCps[cpIndex];
+                if (PdfTraceRedactor.isNumber(Character.getType(shown)) && shown != '9' && !ifscZero[i]) {
                     NumberGroups.Kind kind = kinds[r][i];
-                    if (kind == NumberGroups.Kind.LONG) found.add(NUMBER_SPLIT_INTO_GROUPS);
-                    else if (kind != NumberGroups.Kind.UNIT) found.add(UNMASKED_NUMBER);
+                    boolean sameValueDigit = shown == cp && kind == NumberGroups.Kind.UNIT;
+                    if (!sameValueDigit) {
+                        found.add(shown == cp && kind == NumberGroups.Kind.LONG ? NUMBER_SPLIT_INTO_GROUPS : UNMASKED_NUMBER);
+                    }
                 }
                 i += Character.charCount(cp);
                 cpIndex++;

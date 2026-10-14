@@ -482,7 +482,7 @@ public final class PdfTraceRedactor {
                 || type == Character.PRIVATE_USE || type == Character.SURROGATE;
     }
 
-    private static boolean isNumber(int type) {
+    static boolean isNumber(int type) {
         return type == Character.DECIMAL_DIGIT_NUMBER || type == Character.LETTER_NUMBER
                 || type == Character.OTHER_NUMBER;
     }

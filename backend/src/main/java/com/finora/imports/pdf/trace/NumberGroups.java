@@ -26,6 +26,10 @@ import java.util.regex.Pattern;
  * character). A chain holding a group and {@value #LONG_DIGITS} or more digits in all is one number
  * -- a mobile, card, account or Aadhaar number printed in pieces -- and every digit in it is
  * {@link Kind#LONG}. Digits are any script's.
+ *
+ * <p>Known limit, accepted under the amounts policy: a chain made only of values has no digit cap,
+ * so amounts printed side by side ("98,765 43,210") are kept whatever they add up to. Each value is
+ * still capped on its own.
  */
 final class NumberGroups {
 
@@ -313,11 +317,13 @@ final class NumberGroups {
         return in;
     }
 
+    /** Glued through one punctuation character to a digit outside any value -- or, through a
+     *  colon, to any digit: "12:34:56.78" is one longer number, not a time and an amount. */
     private static boolean gluedToFreeDigit(String text, boolean[] in, int p, int step) {
         int q = p + step;
         if (p < 0 || p >= text.length() || q < 0 || q >= text.length()) return false;
         char c = text.charAt(p);
-        return !isSpace(c) && !isWordChar(c) && isDigit(text.codePointAt(q)) && !in[q];
+        return !isSpace(c) && !isWordChar(c) && isDigit(text.codePointAt(q)) && (!in[q] || c == ':');
     }
 
     private static void addMatches(List<int[]> out, Matcher m, String text, java.util.function.Predicate<String> valid) {
@@ -332,9 +338,13 @@ final class NumberGroups {
         }
     }
 
+    /** At most {@value #MAX_AMOUNT_INTEGER_DIGITS} integer digits, and never eight or more in a
+     *  row: the redactor masks any token with eight digits in a row as a reference, so such an
+     *  amount is never a value. */
     private static boolean withinIntegerCap(String amount) {
         String integer = amount.replaceAll("(?i)^(?:rs\\.?|inr\\.?)", "").replaceAll("\\.\\d{1,2}\\)?(?i:cr|dr)?$", "");
-        return integer.chars().filter(c -> c >= '0' && c <= '9').count() <= MAX_AMOUNT_INTEGER_DIGITS;
+        return integer.chars().filter(c -> c >= '0' && c <= '9').count() <= MAX_AMOUNT_INTEGER_DIGITS
+                && !integer.matches(".*\\d{8,}.*");
     }
 
     // ---------------------------------------------------------------- printed lines

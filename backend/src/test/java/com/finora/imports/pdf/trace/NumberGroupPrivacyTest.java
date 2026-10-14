@@ -198,6 +198,59 @@ class NumberGroupPrivacyTest {
         assertThat(TraceValidator.copyLeaks(runs, runs)).isNotEmpty();
     }
 
+    /** M1: the exact check judges every number the copy shows, not only the statement's digits
+     *  where they stand: digits moved to another run are still refused. */
+    @Test
+    void digitsMovedToAnotherPlaceInTheCopyAreRefused() {
+        List<PositionedText> original = List.of(run("98765", 10f, 50f, 25f), run("43210", 300f, 50f, 25f));   // synthetic-ok
+        List<PositionedText> copy = List.of(run("43210", 10f, 50f, 25f), run("98765", 300f, 50f, 25f));       // synthetic-ok
+        assertThat(TraceValidator.copyLeaks(original, copy)).isNotEmpty();
+    }
+
+    /** M2: an amount whose integer part has eight or more digits in a row is a reference, as the
+     *  redactor's long-digit rule says, not a value: masked, and refused when shown. */
+    @Test
+    void anAmountWithEightIntegerDigitsInARowIsNotAValue() {
+        String text = "98765432.10";   // synthetic-ok
+        assertThat(PdfTraceRedactor.redactLine(text)).isEqualTo("99999999.99");
+        List<PositionedText> raw = List.of(run(text, 100f, 50f, 0f));
+        assertThat(TraceValidator.privacyKinds(raw)).contains(NUMBER_SPLIT);
+        assertThat(TraceValidator.copyLeaks(raw, raw)).isNotEmpty();
+    }
+
+    /** M3: numbers outside the decimal-digit category (superscript, circled) are numbers to the
+     *  exact check too. */
+    @ParameterizedTest
+    @ValueSource(strings = {"Ref \u2460\u2461\u2462\u2463\u2464\u2465", "Ref \u00B9\u00B2\u00B3\u2074\u2075\u2076", "\u2160\u2161"})
+    void numbersInAnyNumberCategoryAreRefusedWhenShown(String text) {
+        List<PositionedText> raw = List.of(run(text, 100f, 50f, 0f));
+        assertThat(TraceValidator.copyLeaks(raw, raw)).as(text).isNotEmpty();
+        assertThat(TraceValidator.copyLeaks(raw, PdfTraceRedactor.redact(raw))).as(text).isEmpty();
+    }
+
+    /** M4: values glued together by a colon are one longer number, not two values. */
+    @ParameterizedTest
+    @ValueSource(strings = {"12:34:56.78", "10:45:30.5", "12:34:56", "01/07/2026:12345"})
+    void valuesGluedByAColonAreMasked(String text) {
+        String redacted = PdfTraceRedactor.redactLine(text);
+        assertThat(clearDigits(text, redacted)).as(text + " -> " + redacted).isZero();
+        List<PositionedText> raw = List.of(run(text, 100f, 50f, 0f));
+        assertThat(TraceValidator.copyLeaks(raw, raw)).as(text).isNotEmpty();
+    }
+
+    /** M6: an amount-shaped piece next to a short plain group is part of one long number. */
+    @Test
+    void anAmountShapedPieceBesideAShortGroupIsMasked() {
+        assertThat(PdfTraceRedactor.redactLine("9876.54 3210")).isEqualTo("9999.99 9999");   // synthetic-ok
+    }
+
+    /** Known limit (accepted under the amounts policy): a chain made only of amount-shaped values has
+     *  no digit cap, so amounts printed side by side are kept whatever they add up to. */
+    @Test
+    void aChainOfAmountsOnlyIsKept() {
+        assertThat(PdfTraceRedactor.redactLine("98,765 43,210")).isEqualTo("98,765 43,210");   // synthetic-ok
+    }
+
     /** A copy that does not line up with the statement (a different number of runs or code points)
      *  cannot be checked digit by digit, so it is refused. */
     @Test

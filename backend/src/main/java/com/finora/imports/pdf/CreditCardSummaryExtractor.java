@@ -62,10 +62,14 @@ import java.util.regex.Pattern;
  *
  * <p><b>Evidence, not invention.</b> Every label below was drawn from reading real documents in the
  * Credit Card Direction Evidence Study or this follow-up pass — never invented in advance. A
- * document whose layout matches neither strategy (HDFC, whose summary text is corrupted by an
- * unmapped-glyph font issue; ICICI/SBI, degraded by their own already-documented table-formation
- * bugs) returns {@link CreditCardSummaryEvidence#NONE} — the same "refuse rather than guess"
- * discipline {@link StatementSummaryExtractor} already follows, not a defect in this extractor.
+ * document whose layout matches neither strategy (ICICI/SBI, degraded by their own
+ * already-documented table-formation bugs) returns {@link CreditCardSummaryEvidence#NONE} — the
+ * same "refuse rather than guess" discipline {@link StatementSummaryExtractor} already follows, not
+ * a defect in this extractor. (That list used to open with HDFC, "whose summary text is corrupted
+ * by an unmapped-glyph font issue". Of the two real HDFC cards measured since, one has its summary
+ * read and checked; on the other every label of the summary extracts whole, only the rupee sign
+ * arrives as a letter, which the number parser already allows for, and what kept it unread was
+ * its rewards grid -- see {@link #namesPointsJustBelow}.)
  *
  * <p>Reuses {@link StatementSummaryExtractor}'s row-grouping and value-matching position logic
  * (widened to package-private for exactly this reuse) rather than re-implementing it, since that
@@ -130,15 +134,27 @@ public final class CreditCardSummaryExtractor {
             "purchases made in this cycle",
             // A real IndusInd card's summary panel prints "Purchases & Other Charges" and
             // "Payments & Other Credits", each label stacked over its value in a side column.
-            "purchases & other charges");
+            "purchases & other charges",
+            // A real SBI card's "Account Summary" wraps each label over two or three lines in its own
+            // column -- "Payments," / "Reversals & other" / "Credits" -- so these are only ever read
+            // whole by tryStackedColumns, which joins a column's lines before matching.
+            "purchases & other debits");
     private static final List<String> CASH_ADVANCE_LABELS = List.of(
             "cash advances", "cash advance");
     private static final List<String> FEES_LABELS = List.of(
             "other debit&charges", "other debit & charges", "finance charges", "fees",
-            "other fees & charges");
+            "other fees & charges", "fee, taxes & interest charges");
     private static final List<String> PAYMENTS_LABELS = List.of(
             "payments / credits", "payments/credits", "payments and credits", "payments & refunds",
-            "payments and other credits", "payments & other credits");
+            "payments and other credits", "payments & other credits",
+            "payments, reversals & other credits");
+    /**
+     * The outstanding balance a panel totals to, where that is not the amount due. On the real SBI
+     * card the two are printed in different boxes and differ by the instalment principal not yet
+     * billed, so this is its own field and never a {@link #TOTAL_DUE_LABELS} entry: the amount due
+     * is what an account's balance is taken from. Matched only by {@link #tryStackedColumns}.
+     */
+    private static final List<String> TOTAL_OUTSTANDING_LABELS = List.of("total outstanding");
     // "total amount due (payable)" is deliberately not listed here: stripDecoration() strips any
     // trailing parenthetical before this list is consulted, so it would always collapse to the
     // plain "total amount due" entry below anyway -- listing both invited exactly the kind of
@@ -173,15 +189,59 @@ public final class CreditCardSummaryExtractor {
     public record CreditCardSummaryEvidence(BigDecimal previousBalance, BigDecimal purchases,
             BigDecimal cashAdvances, BigDecimal fees, BigDecimal paymentsAndCredits,
             BigDecimal totalAmountDue, ExtractionMethod extractionMethod,
-            List<String> conflictingFields) {
+            List<String> conflictingFields, BigDecimal totalOutstanding) {
 
         /** Named for what each strategy IS, not the shape it happens to exploit today —
          *  {@code INLINE_LABEL_VALUE} may gain other label/value-alignment layouts later without a
          *  rename, the way "SAME_ROW" would have implied only one geometry forever. */
-        public enum ExtractionMethod { GRID, INLINE_LABEL_VALUE }
+        public enum ExtractionMethod {
+            GRID, INLINE_LABEL_VALUE, STACKED_LABEL_COLUMNS,
+            /** The billing equation printed on one line over one row of figures -- see
+             *  {@link CardSummaryEquationReader}. */
+            EQUATION_ROW,
+            /** Figures joined by the signs of the billing equation, each under a label wrapped
+             *  over two lines -- see {@link CardSummarySignedFigureRowReader}. */
+            SIGNED_FIGURE_ROW
+        }
 
         public static final CreditCardSummaryEvidence NONE =
                 new CreditCardSummaryEvidence(null, null, null, null, null, null, null, List.of());
+
+        /** Evidence from a panel that prints no outstanding balance of its own -- every reading
+         *  before {@link ExtractionMethod#STACKED_LABEL_COLUMNS} existed, and a stored session
+         *  written before {@code totalOutstanding} did. */
+        public CreditCardSummaryEvidence(BigDecimal previousBalance, BigDecimal purchases,
+                BigDecimal cashAdvances, BigDecimal fees, BigDecimal paymentsAndCredits,
+                BigDecimal totalAmountDue, ExtractionMethod extractionMethod,
+                List<String> conflictingFields) {
+            this(previousBalance, purchases, cashAdvances, fees, paymentsAndCredits, totalAmountDue,
+                    extractionMethod, conflictingFields, null);
+        }
+
+        /** This evidence with a different total amount due and every other field as it was. */
+        public CreditCardSummaryEvidence withTotalAmountDue(BigDecimal newTotalAmountDue) {
+            return new CreditCardSummaryEvidence(previousBalance, purchases, cashAdvances, fees,
+                    paymentsAndCredits, newTotalAmountDue, extractionMethod, conflictingFields,
+                    totalOutstanding);
+        }
+
+        /** This evidence naming the fields two readings disagreed on, every other field as it was. */
+        public CreditCardSummaryEvidence withConflictingFields(List<String> conflicts) {
+            return new CreditCardSummaryEvidence(previousBalance, purchases, cashAdvances, fees,
+                    paymentsAndCredits, totalAmountDue, extractionMethod, conflicts, totalOutstanding);
+        }
+
+        /**
+         * True when the panel printed the whole of an equation that ends on its outstanding
+         * balance: previous balance, purchases and payments/credits, and the outstanding total
+         * itself. Separate from {@link #hasReconcilableFields()} because the two equations end on
+         * different figures, and a panel of this kind beside a separately printed amount due
+         * satisfies both sets of fields while only this equation is the panel's own.
+         */
+        public boolean hasOutstandingEquation() {
+            return previousBalance != null && purchases != null
+                    && paymentsAndCredits != null && totalOutstanding != null;
+        }
 
         /** True when the fields this validator needs to reconcile are all present. Fees and
          *  cashAdvances are deliberately not required — many real statements have neither and print
@@ -215,8 +275,10 @@ public final class CreditCardSummaryExtractor {
         // anything -- that is what makes conflictsBetween below possible. hasReconcilableFields(),
         // not "found anything at all", decides which one's numbers this evidence carries: a
         // document can print its headline Total Amount Due in a clean GRID shape while its
-        // component breakdown lives elsewhere in a shape only INLINE_LABEL_VALUE can read (a real
-        // Axis statement does exactly this). The two are never merged field-by-field even when
+        // component breakdown lives elsewhere in another shape. (This comment used to name a real
+        // Axis statement as one INLINE_LABEL_VALUE could read the breakdown of. It cannot: that
+        // breakdown is one line of equation over a row of figures, read by neither strategy --
+        // see CardSummaryEquationReader below.) The two are never merged field-by-field even when
         // picking a winner -- combining fields pulled by two different matching approaches risks
         // attributing one strategy's number to another's row.
         Reading gridReading = tryGrid(runs);
@@ -246,22 +308,55 @@ public final class CreditCardSummaryExtractor {
             chosen = sameRow;
             if (ctx != null) ctx.record("CREDIT_CARD_SUMMARY_INLINE_LABEL_VALUE");
         } else {
-            chosen = CreditCardSummaryEvidence.NONE;
+            // Only where neither older strategy could form its equation, so nothing they already
+            // read can change: a panel whose labels are each wrapped over several lines.
+            CreditCardSummaryEvidence stacked = tryStackedColumns(runs).evidence();
+            if (stacked.hasOutstandingEquation()) {
+                chosen = stacked;
+                if (ctx != null) ctx.record("CREDIT_CARD_SUMMARY_STACKED_LABEL_COLUMNS");
+            } else {
+                // And last, where that found nothing either: a real Axis card prints its whole
+                // billing equation as one line of text over one row of figures -- see
+                // CardSummaryEquationReader.
+                chosen = CardSummaryEquationReader.read(runs);
+                if (chosen.hasReconcilableFields()) {
+                    if (ctx != null) ctx.record("CREDIT_CARD_SUMMARY_EQUATION_ROW");
+                    // The same statement prints its total due a second time, as the headline the
+                    // two oldest strategies read. Two readings of one figure that disagree mean
+                    // one of them is wrong, exactly as between those two strategies.
+                    if (disagree(bestEffortTotalAmountDue(grid, sameRow), chosen.totalAmountDue())
+                            && !conflicts.contains("totalAmountDue")) {
+                        conflicts.add("totalAmountDue");
+                    }
+                } else {
+                    chosen = CreditCardSummaryEvidence.NONE;
+                }
+            }
         }
 
         if (chosen.totalAmountDue() == null) {
             BigDecimal bestEffort = bestEffortTotalAmountDue(grid, sameRow);
-            if (bestEffort != null) {
-                chosen = new CreditCardSummaryEvidence(chosen.previousBalance(), chosen.purchases(),
-                        chosen.cashAdvances(), chosen.fees(), chosen.paymentsAndCredits(),
-                        bestEffort, chosen.extractionMethod(), chosen.conflictingFields());
+            if (bestEffort != null) chosen = chosen.withTotalAmountDue(bestEffort);
+        }
+
+        // Last, and only where no strategy above formed its equation, so nothing read today can
+        // change: a real Kotak card prints its figures joined by the equation's own signs, under
+        // labels no strategy above can read whole -- see CardSummarySignedFigureRowReader. The
+        // same statement prints its total due a second time, as the headline read above; two
+        // readings of one figure that disagree mean one of them is wrong.
+        if (chosen.extractionMethod() == null) {
+            CreditCardSummaryEvidence signedRow = CardSummarySignedFigureRowReader.read(runs);
+            if (signedRow.hasReconcilableFields()) {
+                if (ctx != null) ctx.record("CREDIT_CARD_SUMMARY_SIGNED_FIGURE_ROW");
+                if (disagree(chosen.totalAmountDue(), signedRow.totalAmountDue())
+                        && !conflicts.contains("totalAmountDue")) {
+                    conflicts.add("totalAmountDue");
+                }
+                chosen = signedRow;
             }
         }
 
-        if (conflicts.isEmpty()) return chosen;
-        return new CreditCardSummaryEvidence(chosen.previousBalance(), chosen.purchases(),
-                chosen.cashAdvances(), chosen.fees(), chosen.paymentsAndCredits(),
-                chosen.totalAmountDue(), chosen.extractionMethod(), conflicts);
+        return conflicts.isEmpty() ? chosen : chosen.withConflictingFields(conflicts);
     }
 
     /**
@@ -360,6 +455,16 @@ public final class CreditCardSummaryExtractor {
             if (labelRow.stream().anyMatch(t -> StatementSummaryExtractor.normalize(t.text()).matches(".*\\bpoints\\b.*"))) {
                 continue;
             }
+            // The same grid with its "points" one line down. A real HDFC card heads its rewards
+            // grid "Opening Balance | Feature + Bonus Reward | Disbursed | Adjusted/Lapsed" and
+            // prints "Reward Points" and "Points Earned" a few points lower, as the grid's own
+            // title and a heading's second line, over a row of point counts. Nothing on the
+            // heading row itself said points, so its "Opening Balance" was read as a second
+            // previous balance; that disagreed with the real "Previous Statement Dues", the field
+            // was refused as ambiguous, and with it the whole summary: no amount check ran.
+            if (namesPointsJustBelow(rows, i)) {
+                continue;
+            }
 
             List<PositionedText> valueRow = valueRowWithinGap(rows, i, MAX_VALUE_ROW_GAP);
             List<PositionedText> effectiveRow = valueRow;
@@ -403,6 +508,23 @@ public final class CreditCardSummaryExtractor {
         }
 
         return bestPageEvidence(resolvedByPageAndKey, CreditCardSummaryEvidence.ExtractionMethod.GRID);
+    }
+
+    /** Whether a line within a label's own second-line distance under row {@code i}, on its page,
+     *  carries the word "points" -- the rest of a rewards grid's heading. */
+    private static boolean namesPointsJustBelow(List<List<PositionedText>> rows, int i) {
+        PositionedText label = rows.get(i).get(0);
+        for (int j = i + 1; j < rows.size(); j++) {
+            List<PositionedText> row = rows.get(j);
+            if (row.get(0).pageIndex() != label.pageIndex()
+                    || row.get(0).y() - label.y() > LABEL_CONTINUATION_GAP) {
+                return false;
+            }
+            if (row.stream().anyMatch(t -> StatementSummaryExtractor.normalize(t.text()).matches(".*\\bpoints\\b.*"))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -592,6 +714,172 @@ public final class CreditCardSummaryExtractor {
         return bestPageEvidence(resolvedByPageAndKey, CreditCardSummaryEvidence.ExtractionMethod.INLINE_LABEL_VALUE);
     }
 
+    /**
+     * Strategy 3 -- columns whose labels are each wrapped over several lines, above one row of
+     * figures. A real SBI card's "Account Summary": "Payments," / "Reversals & other" / "Credits"
+     * stacked in one column, "Purchases & Other" / "Debits" in the next, a currency placeholder
+     * under or beside each, and five figures on a single row beneath.
+     *
+     * <p>Neither older strategy can read it, for the same reason: both need a label to be whole on
+     * one line. {@link #tryGrid} matches a label one run at a time, {@link #trySameRow} joins runs
+     * only along a row, and here no line of any wrapped label is a label by itself.
+     *
+     * <p><b>A column's lines are joined before matching</b> -- see {@link #labelStacks}. The joined
+     * text still has to equal one of this class's fixed labels exactly, so this recognises nothing
+     * the lists do not already name.
+     *
+     * <p><b>One value row, or nothing.</b> A field counts only when the first thing printed under
+     * its column is a figure, on a row holding figures and nothing else; and only the fields whose
+     * figures share one row are read together. The same real page prints a rewards-points grid
+     * headed "Previous Balance" lower down: its figures are on another row, beside text, so it can
+     * neither join this panel nor be mistaken for it.
+     *
+     * <p><b>All of the equation, or nothing.</b> Returned only when that one row carries previous
+     * balance, purchases, payments/credits and the outstanding total -- see
+     * {@link CreditCardSummaryEvidence#hasOutstandingEquation()}. A partial reading claims no field.
+     */
+    private static Reading tryStackedColumns(List<PositionedText> runs) {
+        // Resolutions grouped by the row their figure sits on: page, then that row's y.
+        List<ValueRowGroup> groups = new ArrayList<>();
+        for (LabelStack stack : labelStacks(runs)) {
+            String key = stackedKeyFor(StatementSummaryExtractor.normalize(stack.text()));
+            if (key == null) continue;
+            PositionedText value = figureUnder(stack, runs);
+            if (value == null) continue;
+            ValueRowGroup home = null;
+            for (ValueRowGroup g : groups) {
+                if (g.page() == value.pageIndex() && Math.abs(g.y() - value.y()) <= SAME_ROW_Y_TOLERANCE) {
+                    home = g;
+                    break;
+                }
+            }
+            if (home == null) {
+                home = new ValueRowGroup(value.pageIndex(), value.y(), new LinkedHashMap<>());
+                groups.add(home);
+            }
+            home.resolvedByKey().computeIfAbsent(key, k -> new ArrayList<>()).add(value);
+        }
+
+        for (ValueRowGroup g : groups) {
+            Map<String, PositionedText> labelled = onlyUnambiguous(g.resolvedByKey());
+            CreditCardSummaryEvidence evidence = new CreditCardSummaryEvidence(
+                    amount(labelled.get("previousBalance")), amount(labelled.get("purchases")),
+                    amount(labelled.get("cashAdvances")), amount(labelled.get("fees")),
+                    amount(labelled.get("paymentsAndCredits")), amount(labelled.get("totalAmountDue")),
+                    CreditCardSummaryEvidence.ExtractionMethod.STACKED_LABEL_COLUMNS, List.of(),
+                    amount(labelled.get("totalOutstanding")));
+            if (evidence.hasOutstandingEquation()) return new Reading(evidence, g.page());
+        }
+        return Reading.NONE;
+    }
+
+    private record ValueRowGroup(int page, float y, Map<String, List<PositionedText>> resolvedByKey) {}
+
+    /** {@link #keyFor}, plus the outstanding total only this strategy reads. Kept out of
+     *  {@code keyFor} so the two older strategies keep treating "Total Outstanding" exactly as they
+     *  always have: as text that is not one of their labels. */
+    private static String stackedKeyFor(String normalized) {
+        String key = keyFor(normalized);
+        if (key != null) return key;
+        return matches(stripDecoration(normalized), TOTAL_OUTSTANDING_LABELS) ? "totalOutstanding" : null;
+    }
+
+    /** One column's label: its lines joined top to bottom, and the box they cover. */
+    private static final class LabelStack {
+        private final int page;
+        private float x;
+        private float endX;
+        private float lastY;
+        private final StringBuilder text = new StringBuilder();
+
+        LabelStack(PositionedText first) {
+            this.page = first.pageIndex();
+            this.x = first.x();
+            this.endX = first.endX();
+            this.lastY = first.y();
+            this.text.append(first.text().trim());
+        }
+
+        void append(PositionedText line) {
+            x = Math.min(x, line.x());
+            endX = Math.max(endX, line.endX());
+            lastY = Math.max(lastY, line.y());
+            text.append(' ').append(line.text().trim());
+        }
+
+        String text() { return text.toString(); }
+    }
+
+    /** How much of the narrower of two spans must lie inside the other for them to be one column.
+     *  The real panel prints "Additions" across the gap between two columns, overlapping each by a
+     *  point or two of its thirty; a label's own lines are centred over one another and overlap
+     *  almost entirely. Half separates the two with room on both sides. */
+    private static final float SAME_COLUMN_MIN_OVERLAP = 0.5f;
+
+    /**
+     * Every run that carries no digit, gathered into columns: a run continues the label above it
+     * when it sits within {@link #LABEL_CONTINUATION_GAP} below that label's last line and mostly
+     * inside its width, and does not name a field of its own ({@link #FIELD_WORD}) -- the two rules
+     * {@link #firstInColumnBelow} already applies to a label's second line, here applied to every
+     * line. A run with a digit is a figure or a date, never part of a label.
+     */
+    private static List<LabelStack> labelStacks(List<PositionedText> runs) {
+        List<PositionedText> sorted = runs.stream()
+                .sorted(Comparator.comparingInt(PositionedText::pageIndex)
+                        .thenComparingDouble(PositionedText::y)
+                        .thenComparingDouble(PositionedText::x))
+                .toList();
+        List<LabelStack> stacks = new ArrayList<>();
+        for (PositionedText t : sorted) {
+            String text = t.text().trim();
+            if (text.isEmpty() || text.chars().anyMatch(Character::isDigit)) continue;
+            LabelStack home = null;
+            for (int i = stacks.size() - 1; i >= 0 && home == null; i--) {
+                LabelStack s = stacks.get(i);
+                if (s.page != t.pageIndex()) break;
+                float below = t.y() - s.lastY;
+                if (below < -SAME_ROW_Y_TOLERANCE || below > LABEL_CONTINUATION_GAP) continue;
+                if (!sameColumn(s.x, s.endX, t.x(), t.endX())) continue;
+                if (below > SAME_ROW_Y_TOLERANCE && FIELD_WORD.matcher(text).find()) continue;
+                home = s;
+            }
+            if (home == null) stacks.add(new LabelStack(t));
+            else home.append(t);
+        }
+        return stacks;
+    }
+
+    private static boolean sameColumn(float aX, float aEndX, float bX, float bEndX) {
+        float overlap = Math.min(aEndX, bEndX) - Math.max(aX, bX);
+        float narrower = Math.min(aEndX - aX, bEndX - bX);
+        if (narrower <= 0f) return overlap >= 0f;
+        return overlap >= narrower * SAME_COLUMN_MIN_OVERLAP;
+    }
+
+    /**
+     * The figure a label stack heads: the first run printed below it in its own column, when that
+     * run is an amount and everything else on its row is an amount too. Null otherwise -- a label
+     * with text first beneath it, or with a figure on a row that also carries words, heads a note
+     * or a ledger line, not a value.
+     */
+    private static PositionedText figureUnder(LabelStack stack, List<PositionedText> runs) {
+        PositionedText first = null;
+        for (PositionedText t : runs) {
+            if (t.pageIndex() != stack.page) continue;
+            float below = t.y() - stack.lastY;
+            if (below <= SAME_ROW_Y_TOLERANCE || below > MAX_VALUE_ROW_GAP) continue;
+            if (Math.min(stack.endX, t.endX()) - Math.max(stack.x, t.x()) <= 0f) continue;
+            if (first == null || t.y() < first.y()) first = t;
+        }
+        if (first == null || CsvParser.parseNumeric(first.text().trim()) == null) return null;
+        PositionedText value = first;
+        boolean rowIsAllFigures = runs.stream()
+                .filter(t -> t.pageIndex() == value.pageIndex()
+                        && Math.abs(t.y() - value.y()) <= SAME_ROW_Y_TOLERANCE)
+                .allMatch(t -> CsvParser.parseNumeric(t.text().trim()) != null);
+        return rowIsAllFigures ? value : null;
+    }
+
     /** How far apart two adjacent runs may sit horizontally and still be considered one continued
      *  label — tight enough to never span two genuinely different columns (real word-to-word gaps
      *  observed: roughly 2-20pt), unlike {@link #SAME_ROW_MAX_X_DISTANCE}, which bounds a LABEL to
@@ -702,7 +990,7 @@ public final class CreditCardSummaryExtractor {
 
         if (best.isEmpty()) return Reading.NONE;
         return new Reading(new CreditCardSummaryEvidence(
-                amount(best.get("previousBalance")), amount(best.get("purchases")),
+                previousBalanceOf(best.get("previousBalance")), amount(best.get("purchases")),
                 amount(best.get("cashAdvances")), amount(best.get("fees")),
                 amount(best.get("paymentsAndCredits")), amount(best.get("totalAmountDue")),
                 method, List.of()), bestPage);
@@ -723,7 +1011,7 @@ public final class CreditCardSummaryExtractor {
         return count;
     }
 
-    private static String keyFor(String normalized) {
+    static String keyFor(String normalized) {
         String stripped = stripDecoration(normalized);
         if (matches(stripped, PREVIOUS_BALANCE_LABELS)) return "previousBalance";
         if (matches(stripped, PURCHASES_LABELS)) return "purchases";
@@ -758,16 +1046,42 @@ public final class CreditCardSummaryExtractor {
      *
      * <p>{@link CsvParser#parseNumeric} applies a savings-statement convention to a trailing "Dr"
      * marker — negative, as in an overdrawn balance column — that does not hold here: a credit
-     * card's own "Total Payment Due" is routinely printed as e.g. "27,665.16 Dr", where Dr means
+     * card's own "Total Payment Due" is routinely printed as e.g. "31,480.25 Dr", where Dr means
      * "you owe this," the ordinary case for a card, not the unusual overdrawn-asset case that
      * convention was written for. Left un-{@code abs()}'d, a real Axis statement's own correctly
-     * GRID-matched total came back as {@code -27665.16} instead of {@code +27665.16} — confirmed
-     * directly against the real document, not inferred. No existing fixture or real document this
-     * class was evidenced against relies on a negative reading from here.
+     * GRID-matched total came back negative instead of positive — confirmed directly against the
+     * real document, not inferred (the figure quoted above is invented; only its shape is the
+     * statement's). No existing fixture or real document this class was evidenced against relies
+     * on a negative reading from here.
      */
     private static BigDecimal amount(PositionedText t) {
         if (t == null) return null;
         BigDecimal parsed = CsvParser.parseNumeric(t.text().trim());
         return parsed == null ? null : parsed.abs();
+    }
+
+    /** A minus sign printed before a figure's first digit, after any currency mark. */
+    private static final Pattern PRINTED_MINUS = Pattern.compile("^[^0-9]*-\\s*\\d");
+
+    /**
+     * The previous balance, the balance a statement starts from: printed with its own minus sign,
+     * it is money the bank owes the customer, and it is returned negative. Every other field
+     * stays a magnitude, on the side its label names.
+     *
+     * <p>Real case, the HDFC card above: previous dues printed a few paise below zero. Read as a
+     * magnitude it put the statement's own equation off by twice the amount, and would have
+     * opened a new account that much on the wrong side (see
+     * {@code CardStatementBalances.openingBalance}, which hands this figure on once the rows carry
+     * it to the total due).
+     *
+     * <p>Only an explicit minus, and only this field. A trailing "Dr" stays what {@link #amount}
+     * makes of it, money owed. A balance marked "Cr", a minus printed after the figure, and a
+     * total due below zero have not been seen in a summary this class reads, and are still read
+     * as magnitudes.
+     */
+    private static BigDecimal previousBalanceOf(PositionedText t) {
+        BigDecimal magnitude = amount(t);
+        if (magnitude == null) return null;
+        return PRINTED_MINUS.matcher(t.text().trim()).find() ? magnitude.negate() : magnitude;
     }
 }

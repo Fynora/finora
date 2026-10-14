@@ -264,6 +264,11 @@ public class CapabilityCoverageService {
             // unrelated layouts, each producing a one-row phantom section immediately superseded by
             // the real ledger's header. See PdfTableLocator.looksLikePaymentSummaryPanel.
             "PAYMENT_SUMMARY_PANEL_SUPPRESSED",
+            // A card summary whose figures are joined by the signs of its own billing equation,
+            // each under a label wrapped over two lines (real evidence: a Kotak card's "My
+            // Summary" box). Tried only where no other reading of the summary forms the equation.
+            // See CardSummarySignedFigureRowReader.
+            "CREDIT_CARD_SUMMARY_SIGNED_FIGURE_ROW",
             // A credit-card statement's own billing-summary panel read via one of two independent
             // strategies -- see CreditCardSummaryExtractor's own class doc comment for why they are
             // kept separate rather than merged into one extractor. CREDIT_CARD_SUMMARY_TOTALS is the
@@ -274,6 +279,15 @@ public class CapabilityCoverageService {
             // doc's Credit Card Direction Evidence Study addendum for the measured fire rate against
             // the real 6-document corpus.
             "CREDIT_CARD_SUMMARY_TOTALS", "CREDIT_CARD_SUMMARY_INLINE_LABEL_VALUE",
+            // The third strategy: a panel whose labels are each wrapped over several lines above
+            // one row of figures, tried only where neither strategy above could form its equation
+            // (real evidence: a real SBI card's "Account Summary"). Fires only when the whole of
+            // the panel's own equation was read -- see CreditCardSummaryExtractor.tryStackedColumns.
+            "CREDIT_CARD_SUMMARY_STACKED_LABEL_COLUMNS",
+            // The same panel read a third way, tried only where neither strategy above can form
+            // the equation: the whole billing equation printed as one line of text over one row of
+            // figures (real evidence: an Axis card). See CardSummaryEquationReader.
+            "CREDIT_CARD_SUMMARY_EQUATION_ROW",
             // Fires only when the headerless-inference path actually removes a repeated physical
             // row (see PdfTableLocator.bucketHeaderlessRowsWithContinuation's own doc comment for
             // the real page-boundary-reprint artifact this protects against), never merely when

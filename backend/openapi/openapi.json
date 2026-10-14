@@ -2100,6 +2100,15 @@
                             "type": "string",
                             "default": "desc"
                         }
+                    },
+                    {
+                        "name": "after",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
                     }
                 ],
                 "responses": {

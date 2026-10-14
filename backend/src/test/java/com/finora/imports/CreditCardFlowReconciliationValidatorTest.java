@@ -230,6 +230,143 @@ class CreditCardFlowReconciliationValidatorTest {
         assertThat(finding.outcome()).isEqualTo("WARNING");
     }
 
+    /** A summary printed as its own equation: 4000 + 6000 purchases + 50 other charges, less 3250
+     *  payments and credits. Its figures reach 6800; {@code totalDue} is what it prints as the total. */
+    private static CreditCardSummaryEvidence equationSummary(
+            CreditCardSummaryEvidence.ExtractionMethod method, String totalDue) {
+        return new CreditCardSummaryEvidence(
+                new BigDecimal("4000"), new BigDecimal("6000"), BigDecimal.ZERO, new BigDecimal("50"),
+                new BigDecimal("3250"), new BigDecimal(totalDue), method, List.of());
+    }
+
+    private static final CreditCardSummaryEvidence.ExtractionMethod EQUATION_ROW =
+            CreditCardSummaryEvidence.ExtractionMethod.EQUATION_ROW;
+
+    /** The shape of a real Axis statement: a refund the summary counted in neither its payments nor
+     *  its credits figure, while its total due (150 under what its figures reach) reflects it. */
+    @Test
+    void verifiesAnEquationSummary_whoseCreditsLeaveOutARefundItsTotalIncludes() {
+        var rows = List.of(
+                row("SAMPLE STORE", "6000", "EXPENSE"),
+                row("SAMPLE FEE", "50", "EXPENSE"),
+                row("PAYMENT RECEIVED", "3000", "INCOME"),
+                row("SAMPLE STORE REVERSAL", "250", "INCOME"),
+                row("SAMPLE REFUND RECEIVED", "150", "INCOME"));
+
+        var finding = validator.check(rows, equationSummary(EQUATION_ROW, "6650"));
+
+        assertThat(finding.outcome()).isEqualTo("VERIFIED");
+        assertThat(finding.details().get("creditsNotCountedInSummary")).isEqualTo(new BigDecimal("150"));
+        assertThat(finding.details().get("rowsCarryPreviousBalanceToTotalDue")).isEqualTo(true);
+    }
+
+    @Test
+    void theSameRowsAgainstAnyOtherKindOfSummary_stillWarn() {
+        var rows = List.of(
+                row("SAMPLE STORE", "6000", "EXPENSE"),
+                row("SAMPLE FEE", "50", "EXPENSE"),
+                row("PAYMENT RECEIVED", "3000", "INCOME"),
+                row("SAMPLE STORE REVERSAL", "250", "INCOME"),
+                row("SAMPLE REFUND RECEIVED", "150", "INCOME"));
+
+        var finding = validator.check(rows,
+                equationSummary(CreditCardSummaryEvidence.ExtractionMethod.GRID, "6650"));
+
+        assertThat(finding.outcome()).isEqualTo("WARNING");
+    }
+
+    @Test
+    void warnsOnAnEquationSummary_whenTheExtraCreditIsNotInItsTotalEither() {
+        // The summary adds up to its own total (6800), so the extra 150 of credits is in no figure
+        // the statement prints: a row read twice looks exactly like this.
+        var rows = List.of(
+                row("SAMPLE STORE", "6000", "EXPENSE"),
+                row("SAMPLE FEE", "50", "EXPENSE"),
+                row("PAYMENT RECEIVED", "3000", "INCOME"),
+                row("SAMPLE STORE REVERSAL", "250", "INCOME"),
+                row("SAMPLE REFUND RECEIVED", "150", "INCOME"));
+
+        var finding = validator.check(rows, equationSummary(EQUATION_ROW, "6800"));
+
+        assertThat(finding.outcome()).isEqualTo("WARNING");
+        assertThat(finding.details()).doesNotContainKey("creditsNotCountedInSummary");
+    }
+
+    @Test
+    void warnsOnAnEquationSummary_whenTheChargesDisagreeToo() {
+        // The rows still carry 4000 to 6650 (6100 charged, 3450 credited), but 50 of the charges
+        // is in no figure of the summary. Only the credits side is allowed to run over.
+        var rows = List.of(
+                row("SAMPLE STORE", "6000", "EXPENSE"),
+                row("SAMPLE FEE", "50", "EXPENSE"),
+                row("SAMPLE STORE", "50", "EXPENSE"),
+                row("PAYMENT RECEIVED", "3000", "INCOME"),
+                row("SAMPLE STORE REVERSAL", "250", "INCOME"),
+                row("SAMPLE REFUND RECEIVED", "200", "INCOME"));
+
+        var finding = validator.check(rows, equationSummary(EQUATION_ROW, "6650"));
+
+        assertThat(finding.outcome()).isEqualTo("WARNING");
+    }
+
+    @Test
+    void warnsOnAnEquationSummary_whenTheCreditsFallShortOfIt() {
+        // 3100 credited against 3250 printed, and a total (6950) the rows do carry the previous
+        // balance to. Credits the rows lack are a missed row until shown otherwise.
+        var rows = List.of(
+                row("SAMPLE STORE", "6000", "EXPENSE"),
+                row("SAMPLE FEE", "50", "EXPENSE"),
+                row("PAYMENT RECEIVED", "3000", "INCOME"),
+                row("SAMPLE STORE REVERSAL", "100", "INCOME"));
+
+        var finding = validator.check(rows, equationSummary(EQUATION_ROW, "6950"));
+
+        assertThat(finding.outcome()).isEqualTo("WARNING");
+    }
+
+    @Test
+    void warnsOnAnEquationSummary_whenItsTotalDueIsContestedBetweenTwoReadings() {
+        // The same rows and figures that verify above, but the statement's headline total and its
+        // equation's total were read as different amounts. Neither is a balance to check against.
+        var rows = List.of(
+                row("SAMPLE STORE", "6000", "EXPENSE"),
+                row("SAMPLE FEE", "50", "EXPENSE"),
+                row("PAYMENT RECEIVED", "3000", "INCOME"),
+                row("SAMPLE STORE REVERSAL", "250", "INCOME"),
+                row("SAMPLE REFUND RECEIVED", "150", "INCOME"));
+        var contested = new CreditCardSummaryEvidence(
+                new BigDecimal("4000"), new BigDecimal("6000"), BigDecimal.ZERO, new BigDecimal("50"),
+                new BigDecimal("3250"), new BigDecimal("6650"), EQUATION_ROW, List.of("totalAmountDue"));
+
+        assertThat(validator.check(rows, contested).outcome()).isEqualTo("WARNING");
+    }
+
+    @Test
+    void warnsRatherThanThrows_whenAnEquationSummaryCarriesNoBalanceToCheckTheRowsAgainst() {
+        var rows = List.of(
+                row("SAMPLE STORE", "6000", "EXPENSE"),
+                row("PAYMENT RECEIVED", "3000", "INCOME"),
+                row("SAMPLE REFUND RECEIVED", "150", "INCOME"));
+        var noBalances = new CreditCardSummaryEvidence(null, new BigDecimal("6000"), null, null,
+                new BigDecimal("3000"), null, EQUATION_ROW, List.of());
+
+        assertThat(validator.check(rows, noBalances).outcome()).isEqualTo("WARNING");
+    }
+
+    @Test
+    void anEquationSummaryThatAddsUp_verifiesTheOrdinaryWay() {
+        var rows = List.of(
+                row("SAMPLE STORE", "6000", "EXPENSE"),
+                row("SAMPLE FEE", "50", "EXPENSE"),
+                row("PAYMENT RECEIVED", "3000", "INCOME"),
+                row("SAMPLE STORE REVERSAL", "250", "INCOME"));
+
+        var finding = validator.check(rows, equationSummary(EQUATION_ROW, "6800"));
+
+        assertThat(finding.outcome()).isEqualTo("VERIFIED");
+        assertThat(finding.details()).doesNotContainKey("creditsNotCountedInSummary");
+    }
+
     @Test
     void warnsWhenTheTwoSurplusesDiffer() {
         var rows = List.of(
@@ -241,5 +378,140 @@ class CreditCardFlowReconciliationValidatorTest {
         var finding = validator.check(rows, summaryWithFees("500", "18", "1000"));
 
         assertThat(finding.outcome()).isEqualTo("WARNING");
+    }
+
+    // ---- A panel that totals to the outstanding balance, with instalment rows in the ledger ----
+
+    /**
+     * The summary a real SBI card prints: purchases, fees and payments, totalling to "Total
+     * Outstanding" rather than to the amount due. An instalment on an earlier purchase is listed
+     * among the transactions but is in neither the purchases nor the fees figure, because its
+     * principal was already part of the outstanding balance.
+     */
+    private static CreditCardSummaryEvidence outstandingSummary(String purchases, String fees, String payments) {
+        return new CreditCardSummaryEvidence(
+                new BigDecimal("40000"), new BigDecimal(purchases), null, new BigDecimal(fees),
+                new BigDecimal(payments), new BigDecimal("25000"),
+                CreditCardSummaryEvidence.ExtractionMethod.STACKED_LABEL_COLUMNS, List.of(),
+                new BigDecimal("30500"));
+    }
+
+    @Test
+    void verifiesWhenInstalmentRowsAccountForTheWholeSurplusOnAnOutstandingPanel() {
+        var rows = List.of(
+                row("SAMPLE STORE", "12000", "EXPENSE"),
+                row("SAMPLE PHARMACY", "8000", "EXPENSE"),
+                row("INTEREST ON EMI", "424.15", "EXPENSE"),
+                row("IGST DB @ 18.00%", "76.35", "EXPENSE"),
+                row("FP EMI 03/06(EXCL TAX   76.35)", "3000", "EXPENSE"),
+                row("PAYMENT RECEIVED", "30000", "INCOME"));
+
+        var finding = validator.check(rows, outstandingSummary("20000", "500.50", "30000"));
+
+        assertThat(finding.outcome()).isEqualTo("VERIFIED");
+        assertThat(finding.details().get("evidenceLevel")).isEqualTo("FULL_SUMMARY_RECONCILIATION");
+        assertThat(finding.details().get("instalmentRowsSetAside")).isEqualTo(1);
+    }
+
+    @Test
+    void anOutstandingPanelWithNoInstalmentsVerifiesOnTheChargesAlone() {
+        var rows = List.of(
+                row("SAMPLE STORE", "20000", "EXPENSE"),
+                row("LATE FEE", "500.50", "EXPENSE"),
+                row("PAYMENT RECEIVED", "30000", "INCOME"));
+
+        var finding = validator.check(rows, outstandingSummary("20000", "500.50", "30000"));
+
+        assertThat(finding.outcome()).isEqualTo("VERIFIED");
+        assertThat(finding.details()).doesNotContainKey("instalmentRowsSetAside");
+    }
+
+    @Test
+    void anUnexplainedSurplusOnAnOutstandingPanelWarnsSoTheImportIsHeld() {
+        // An instalment worded in a way nothing here recognises -- or a row read twice. The two
+        // cannot be told apart, so the amounts are not confirmed and the import waits for a person.
+        var rows = List.of(
+                row("SAMPLE STORE", "20000", "EXPENSE"),
+                row("LATE FEE", "500.50", "EXPENSE"),
+                row("LOAN INSTALMENT", "3000", "EXPENSE"),
+                row("PAYMENT RECEIVED", "30000", "INCOME"));
+
+        var finding = validator.check(rows, outstandingSummary("20000", "500.50", "30000"));
+
+        assertThat(finding.outcome()).isEqualTo("WARNING");
+        assertThat(finding.details().get("instalmentRowsRecognised")).isEqualTo(0);
+        assertThat(finding.details()).doesNotContainKey("instalmentRowsSetAside");
+    }
+
+    @Test
+    void aSurplusOnlyPartlyMadeOfInstalmentsWarnsRatherThanGuessing() {
+        // Recognised instalments come to 3000 but the surplus is 2000: setting them aside would
+        // leave the charges short, and which reading is right is not knowable from here.
+        var rows = List.of(
+                row("SAMPLE STORE", "19000", "EXPENSE"),
+                row("LATE FEE", "500.50", "EXPENSE"),
+                row("FP EMI 03/06(EXCL TAX   76.35)", "3000", "EXPENSE"),
+                row("PAYMENT RECEIVED", "30000", "INCOME"));
+
+        var finding = validator.check(rows, outstandingSummary("20000", "500.50", "30000"));
+
+        assertThat(finding.outcome()).isEqualTo("WARNING");
+        assertThat(finding.details().get("instalmentRowsRecognised")).isEqualTo(1);
+    }
+
+    @Test
+    void chargesShortOfAnOutstandingPanelStillWarn() {
+        // Fewer charges than the summary counts is a row that was not read, whatever the panel.
+        var rows = List.of(
+                row("SAMPLE STORE", "12000", "EXPENSE"),
+                row("LATE FEE", "500.50", "EXPENSE"),
+                row("PAYMENT RECEIVED", "30000", "INCOME"));
+
+        var finding = validator.check(rows, outstandingSummary("20000", "500.50", "30000"));
+
+        assertThat(finding.outcome()).isEqualTo("WARNING");
+    }
+
+    @Test
+    void paymentsDisagreeingWithAnOutstandingPanelStillWarnEvenWithASurplus() {
+        var rows = List.of(
+                row("SAMPLE STORE", "20000", "EXPENSE"),
+                row("LATE FEE", "500.50", "EXPENSE"),
+                row("FP EMI 03/06(EXCL TAX   76.35)", "3000", "EXPENSE"),
+                row("PAYMENT RECEIVED", "29000", "INCOME"));
+
+        var finding = validator.check(rows, outstandingSummary("20000", "500.50", "30000"));
+
+        assertThat(finding.outcome()).isEqualTo("WARNING");
+    }
+
+    @Test
+    void instalmentRowsAreNotSetAsideOnAPanelThatTotalsToTheAmountDue() {
+        // No statement of that kind has shown instalments left out of its purchases figure, so the
+        // old rule stands there: an unexplained surplus is a disagreement.
+        var rows = List.of(
+                row("SAMPLE STORE", "500", "EXPENSE"),
+                row("GST", "18", "EXPENSE"),
+                row("FP EMI 03/06(EXCL TAX   76.35)", "3000", "EXPENSE"),
+                row("PAYMENT RECEIVED", "1000", "INCOME"));
+
+        var finding = validator.check(rows, summaryWithFees("500", "18", "1000"));
+
+        assertThat(finding.outcome()).isEqualTo("WARNING");
+    }
+
+    @Test
+    void aRowMentioningInstalmentsWithoutACounterIsNotAnInstalment() {
+        // "INTEREST ON EMI" is a charge the fees figure counts. Only a row carrying its own
+        // "n of m" counter is an instalment.
+        var rows = List.of(
+                row("SAMPLE STORE", "20000", "EXPENSE"),
+                row("INTEREST ON EMI", "500.50", "EXPENSE"),
+                row("PAYMENT RECEIVED", "30000", "INCOME"));
+
+        var finding = validator.check(rows, outstandingSummary("20000", "500.50", "30000"));
+
+        assertThat(finding.outcome()).isEqualTo("VERIFIED");
+        assertThat(finding.details()).doesNotContainKey("instalmentRowsSetAside");
     }
 }

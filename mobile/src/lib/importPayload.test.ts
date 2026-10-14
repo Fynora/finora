@@ -364,14 +364,14 @@ describe('initial review state', () => {
     // Real bug: a real Axis Bank customer's first credit-card import landed on a balance roughly
     // 40% of the statement's own printed total, because nothing pre-filled Opening balance with
     // the statement's previous balance and ADDITIVE mode has no other way to include it.
-    const rows = [row({ type: 'EXPENSE', amount: 12000 }), row({ type: 'EXPENSE', amount: 5583.17 })];
+    const rows = [row({ type: 'EXPENSE', amount: 12000 }), row({ type: 'EXPENSE', amount: 4384.17 })];
     const out = initialAccountForm(
-      detected({ suggestedAccountType: 'CREDIT_CARD', openingBalance: null, totalAmountDue: 27665.16 }),
+      detected({ suggestedAccountType: 'CREDIT_CARD', openingBalance: null, totalAmountDue: 31480.25 }),
       rows,
     );
 
-    // Rounded to paise -- the raw difference is 10081.990000000002.
-    expect(out.openingBalance).toBe('10081.99');
+    // Rounded to paise -- the raw difference is 15096.080000000002.
+    expect(out.openingBalance).toBe('15096.08');
   });
 
   it('leaves opening balance blank for a credit card with neither a detected opening balance nor '
@@ -386,7 +386,7 @@ describe('initial review state', () => {
 
   it('prefers a genuinely detected opening balance over the estimate', () => {
     const out = initialAccountForm(
-      detected({ suggestedAccountType: 'CREDIT_CARD', openingBalance: 500, totalAmountDue: 27665.16 }),
+      detected({ suggestedAccountType: 'CREDIT_CARD', openingBalance: 500, totalAmountDue: 31480.25 }),
       [row({ type: 'EXPENSE', amount: 12000 })],
     );
 
@@ -398,12 +398,12 @@ describe('estimateOpeningBalanceFromTotalDue', () => {
   it('works the statement total backwards through net(rows) to an opening balance', () => {
     const rows = [
       row({ type: 'EXPENSE', amount: 12000 }),
-      row({ type: 'EXPENSE', amount: 5583.17 }),
+      row({ type: 'EXPENSE', amount: 4384.17 }),
       row({ type: 'INCOME', amount: 0 }),
     ];
 
-    expect(estimateOpeningBalanceFromTotalDue(rows, 'CREDIT_CARD', 27665.16))
-      .toBeCloseTo(27665.16 - 17583.17, 5);
+    expect(estimateOpeningBalanceFromTotalDue(rows, 'CREDIT_CARD', 31480.25))
+      .toBeCloseTo(31480.25 - 16384.17, 5);
   });
 
   it('nets EXPENSE and INCOME rows using the credit-card convention', () => {

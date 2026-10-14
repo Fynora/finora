@@ -27,19 +27,20 @@ const row = (over: Partial<StagedRow> = {}): StagedRow => ({
 
 describe('estimateOpeningBalanceFromTotalDue', () => {
   it('works the statement total backwards through net(rows) to an opening balance', () => {
-    // A real customer's Axis Bank import: total amount due 27665.16, and the imported rows net
-    // to 17583.17 (EXPENSE minus INCOME, the credit-card convention). Nothing detected a previous
-    // balance, so the account started at 0 and landed on 17546.37 -- roughly 40% of the real
-    // total. openingBalance = totalAmountDue - net(rows) closes that gap.
+    // The shape of a real card import, with invented figures: the statement prints a total amount
+    // due (31480.25 here) and the imported rows net to much less (16384.17 here -- EXPENSE minus
+    // INCOME, the credit-card convention). Nothing detected a previous balance, so the account
+    // started at 0 and landed well short of the statement's own total.
+    // openingBalance = totalAmountDue - net(rows) closes that gap.
     const rows = [
       row({ type: 'EXPENSE', amount: 12000 }),
-      row({ type: 'EXPENSE', amount: 5583.17 }),
+      row({ type: 'EXPENSE', amount: 4384.17 }),
       row({ type: 'INCOME', amount: 0 }),
     ];
 
-    const estimated = estimateOpeningBalanceFromTotalDue(rows, 'CREDIT_CARD', 27665.16);
+    const estimated = estimateOpeningBalanceFromTotalDue(rows, 'CREDIT_CARD', 31480.25);
 
-    expect(estimated).toBeCloseTo(27665.16 - 17583.17, 5);
+    expect(estimated).toBeCloseTo(31480.25 - 16384.17, 5);
   });
 
   it('nets EXPENSE and INCOME rows using the credit-card convention', () => {

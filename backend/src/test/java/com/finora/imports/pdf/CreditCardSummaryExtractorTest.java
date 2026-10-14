@@ -633,17 +633,17 @@ class CreditCardSummaryExtractorTest {
     @Test
     void totalAmountDueIsReadAsAMagnitude_evenWhenPrintedWithATrailingDrMarker() {
         // Confirmed on a real Axis statement: a credit card's own "Total Payment Due" is routinely
-        // printed with a trailing "Dr" marker (e.g. "27,665.16 Dr") -- Dr here means "you owe
+        // printed with a trailing "Dr" marker (e.g. "31,480.25 Dr") -- Dr here means "you owe
         // this," the ordinary case for a card, not the unusual overdrawn-savings-balance case
         // CsvParser's Dr=negative convention was written for. Left un-abs()'d, this class returned
         // a negative reading for a real, correctly GRID-matched total.
         List<PositionedText> runs = new ArrayList<>(List.of(
                 run("Total Amount Due", 50f, 100f, 200f),
-                run("27,665.16 Dr", 55f, 90f, 230f)));
+                run("31,480.25 Dr", 55f, 90f, 230f)));
 
         var summary = CreditCardSummaryExtractor.extract(runs);
 
-        assertThat(summary.totalAmountDue()).isEqualByComparingTo("27665.16");
+        assertThat(summary.totalAmountDue()).isEqualByComparingTo("31480.25");
     }
 
     @Test
@@ -996,5 +996,187 @@ class CreditCardSummaryExtractorTest {
         assertThat(summary.fees()).isEqualByComparingTo("118.00");
         assertThat(summary.paymentsAndCredits()).isEqualByComparingTo("10000.00");
         assertThat(summary.totalAmountDue()).isEqualByComparingTo("9618.00");
+    }
+
+    // ---- STACKED_LABEL_COLUMNS: each label wrapped over several lines above one value row ----
+
+    /**
+     * The shape of a real SBI card's "Account Summary": five columns, each label wrapped over two or
+     * three short lines ("Payments," / "Reversals & other" / "Credits"), a currency placeholder under
+     * or beside the last line, and one row of five figures below. Its total is "Total Outstanding",
+     * printed in whole rupees, and is not the card's "Total Amount Due", which sits in a separate box
+     * higher on the same page. Geometry and figures invented; only the shape is the real one.
+     */
+    private static List<PositionedText> stackedLabelSummaryBlock() {
+        return new ArrayList<>(List.of(
+                run("Total Amount Due", 30f, 80f, 100f),
+                run("25,000.00", 40f, 40f, 120f),
+                run("ACCOUNT SUMMARY", 185f, 95f, 278f),
+                run("Additions", 250f, 30f, 301f),
+                run("Payments, ", 124f, 34f, 305.5f),
+                run("Previous Balance", 30f, 53f, 311f),
+                run("Total Outstanding", 357f, 55f, 311f),
+                run("Reversals & other ", 112f, 58f, 313.5f),
+                run("Fee, Taxes & ", 279f, 41f, 314f),
+                run("Purchases & Other ", 192f, 60f, 315f),
+                run("( ` )", 51f, 11f, 321f),
+                run("( ` )", 380f, 11f, 321f),
+                run("Credits", 130f, 22f, 321.5f),
+                run("Interest Charges", 274f, 51f, 322f),
+                run("( ` )", 156f, 11f, 323f),
+                run("Debits", 212f, 20f, 323f),
+                run("( ` )", 328f, 11f, 323.5f),
+                run("( ` )", 235.5f, 11f, 324f),
+                run("30,500.00", 368f, 35f, 340.9f),
+                run("40,000.00", 36f, 35f, 341.7f),
+                run("30,000.00", 119f, 35f, 341.7f),
+                run("20,000.00", 203f, 35f, 341.7f),
+                run("500.50", 284.5f, 24f, 341.7f)));
+    }
+
+    @Test
+    void readsLabelsWrappedOverSeveralLinesAboveOneValueRow() {
+        var summary = CreditCardSummaryExtractor.extract(stackedLabelSummaryBlock());
+
+        assertThat(summary.previousBalance()).isEqualByComparingTo("40000.00");
+        assertThat(summary.paymentsAndCredits()).isEqualByComparingTo("30000.00");
+        assertThat(summary.purchases()).isEqualByComparingTo("20000.00");
+        assertThat(summary.fees()).isEqualByComparingTo("500.50");
+        assertThat(summary.totalOutstanding()).isEqualByComparingTo("30500.00");
+        assertThat(summary.extractionMethod()).isEqualTo(ExtractionMethod.STACKED_LABEL_COLUMNS);
+    }
+
+    @Test
+    void totalOutstandingNeverReplacesTheTotalAmountDue() {
+        // The two are different figures on this layout: the outstanding balance also counts
+        // instalment principal not yet billed. The amount due is what the account's balance is
+        // taken from, so it must stay the box's own figure.
+        var summary = CreditCardSummaryExtractor.extract(stackedLabelSummaryBlock());
+
+        assertThat(summary.totalAmountDue()).isEqualByComparingTo("25000.00");
+        assertThat(summary.hasOutstandingEquation()).isTrue();
+    }
+
+    @Test
+    void aRewardsPointsGridSharingALabelDoesNotSpoilTheStackedReading() {
+        // The same real page prints a rewards summary under the billing one, whose first column is
+        // also headed "Previous Balance" -- over a points count, on a row that is not all figures.
+        List<PositionedText> runs = stackedLabelSummaryBlock();
+        runs.addAll(List.of(
+                run("SHOP & SMILE SUMMARY", 176f, 115f, 372f),
+                run("Redeemed/Expired", 160f, 50f, 393f),
+                run("Previous Balance", 27f, 45f, 397.5f),
+                run("Earned", 108f, 18f, 397.5f),
+                run("Closing Balance", 229f, 42f, 397.5f),
+                run("Points Expiry Details", 326f, 54f, 397.5f),
+                run("12345", 30f, 25f, 420f),
+                run("1200", 108f, 20f, 420f),
+                run("13545", 232f, 25f, 420f),
+                run("NONE", 340f, 22f, 420f)));
+
+        var summary = CreditCardSummaryExtractor.extract(runs);
+
+        assertThat(summary.previousBalance()).isEqualByComparingTo("40000.00");
+        assertThat(summary.hasOutstandingEquation()).isTrue();
+    }
+
+    @Test
+    void aSuperHeaderBarelyTouchingAColumnIsNotPartOfItsLabel() {
+        // "Additions" spans the gap between two columns and overlaps each by a sliver. Joined into
+        // either, the label would read "additions purchases & other debits" and match nothing.
+        // Moved down here to within a label's own line spacing of both, so that how little of it
+        // lies over either column is the only thing keeping it out.
+        List<PositionedText> runs = stackedLabelSummaryBlock();
+        runs.removeIf(t -> t.text().equals("Additions"));
+        runs.add(run("Additions", 250f, 30f, 305f));
+
+        var summary = CreditCardSummaryExtractor.extract(runs);
+
+        assertThat(summary.purchases()).isEqualByComparingTo("20000.00");
+        assertThat(summary.fees()).isEqualByComparingTo("500.50");
+    }
+
+    @Test
+    void aStackedPanelMissingARequiredColumnIsNotRead() {
+        // Without the payments column the equation cannot be formed, so nothing is claimed.
+        List<PositionedText> runs = stackedLabelSummaryBlock();
+        runs.removeIf(t -> t.x() >= 110f && t.x() <= 170f && t.y() > 300f && t.y() < 345f);
+
+        var summary = CreditCardSummaryExtractor.extract(runs);
+
+        assertThat(summary.hasOutstandingEquation()).isFalse();
+        assertThat(summary.purchases()).isNull();
+        assertThat(summary.totalAmountDue()).isEqualByComparingTo("25000.00");
+    }
+
+    @Test
+    void aStackedLabelOverAProseOrLedgerRowIsRefused() {
+        // The first thing under the columns is a row carrying text beside its figures: that is a
+        // ledger line or a note, never the panel's value row.
+        List<PositionedText> runs = stackedLabelSummaryBlock();
+        runs.add(run("See overleaf", 440f, 60f, 341.7f));
+
+        var summary = CreditCardSummaryExtractor.extract(runs);
+
+        assertThat(summary.hasOutstandingEquation()).isFalse();
+    }
+
+    @Test
+    void evidenceStoredBeforeTheOutstandingTotalExistedStillReads() throws Exception {
+        // A staged session keeps this evidence as JSON for up to 48 hours, so a session written by
+        // the previous build is read by this one. The exact shape that build wrote.
+        String stored = "{\"previousBalance\":10000.00,\"purchases\":5000.00,\"cashAdvances\":null,"
+                + "\"fees\":100.00,\"paymentsAndCredits\":2000.00,\"totalAmountDue\":13100.00,"
+                + "\"extractionMethod\":\"GRID\",\"conflictingFields\":[]}";
+
+        var read = new com.fasterxml.jackson.databind.ObjectMapper().readValue(
+                stored, CreditCardSummaryExtractor.CreditCardSummaryEvidence.class);
+
+        assertThat(read.totalAmountDue()).isEqualByComparingTo("13100.00");
+        assertThat(read.totalOutstanding()).isNull();
+        assertThat(read.hasReconcilableFields()).isTrue();
+        assertThat(read.hasOutstandingEquation()).isFalse();
+    }
+
+    @Test
+    void theOutstandingTotalSurvivesBeingStoredAndReadBack() throws Exception {
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var summary = CreditCardSummaryExtractor.extract(stackedLabelSummaryBlock());
+
+        var read = mapper.readValue(mapper.writeValueAsString(summary),
+                CreditCardSummaryExtractor.CreditCardSummaryEvidence.class);
+
+        assertThat(read.totalOutstanding()).isEqualByComparingTo("30500.00");
+        assertThat(read.totalAmountDue()).isEqualByComparingTo("25000.00");
+        assertThat(read.extractionMethod()).isEqualTo(ExtractionMethod.STACKED_LABEL_COLUMNS);
+        assertThat(read.hasOutstandingEquation()).isTrue();
+    }
+
+    @Test
+    void aCleanGridStillWinsOverTheStackedReading() {
+        // A single-line label is a one-line stack, so the new strategy can read a plain grid too.
+        // The grid strategy keeps precedence, and its evidence is unchanged.
+        var summary = CreditCardSummaryExtractor.extract(cleanSummaryBlock());
+
+        assertThat(summary.extractionMethod()).isEqualTo(ExtractionMethod.GRID);
+        assertThat(summary.totalOutstanding()).isNull();
+    }
+
+    @Test
+    void aPanelTheStackedLabelStrategyReads_isStillReadByIt_evenBesideAnEquationLine() {
+        // The one-line equation (CardSummaryEquationReader) is tried last of all. A page carrying
+        // both shapes keeps the reading it had before that reader existed.
+        List<PositionedText> runs = stackedLabelSummaryBlock();
+        runs.add(run("Previous Balance - Payments - Credits + Purchase + Cash Advance"
+                + " + Other Debit&Charges =Total Payment Due", 68f, 360f, 500f));
+        String[] figures = {"4,000.00", "3,000.00", "250.00", "6,000.00", "0.00", "50.00", "6,800.00"};
+        float[] x = {48f, 116f, 171f, 209f, 273f, 335f, 404f};
+        for (int i = 0; i < figures.length; i++) runs.add(run(figures[i], x[i], 30f, 513f));
+
+        var summary = CreditCardSummaryExtractor.extract(runs);
+
+        assertThat(summary.extractionMethod()).isEqualTo(ExtractionMethod.STACKED_LABEL_COLUMNS);
+        assertThat(summary.previousBalance()).isEqualByComparingTo("40000.00");
+        assertThat(summary.totalOutstanding()).isEqualByComparingTo("30500.00");
     }
 }

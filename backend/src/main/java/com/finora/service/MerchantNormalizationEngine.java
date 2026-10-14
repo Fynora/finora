@@ -6,6 +6,7 @@ import com.finora.repository.MerchantAliasRepository;
 import com.finora.repository.MerchantCategoryLearningRepository;
 import com.finora.repository.MerchantRepository;
 import com.finora.util.CategoryRules;
+import com.finora.util.MerchantNames;
 import com.finora.util.PaymentRailTokens;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -420,7 +421,11 @@ public class MerchantNormalizationEngine {
         // merchants.canonical_name is VARCHAR(255) too, and is derived from the same description,
         // so it carries the identical hazard. Guarding only the alias would have moved the
         // rollback one insert further down rather than removing it.
-        merchant.setCanonicalName(fitToColumn(toDisplayName(payeeText(description))));
+        //
+        // The name is payeeText without the rail words it opens with (MerchantNames.forNarration).
+        // groupingKey skips those words, so the key read back from this name is still the key
+        // payeeText gives the next row of the same payee.
+        merchant.setCanonicalName(fitToColumn(MerchantNames.forNarration(description)));
         // TEMPORARY, because this is a GUESS. Everything reaching this line is a description the
         // engine has never seen, resolved by a grouping-key heuristic its own class doc
         // describes as "deliberately simple ... not fuzzy matching or NLP". Marking it says so, and
@@ -541,7 +546,10 @@ public class MerchantNormalizationEngine {
      * tokens, and it is also what {@code createMerchantAndAlias} builds the canonical name from —
      * so the incoming description and the stored merchant are reduced by the identical rule before
      * they are compared, which is what makes the match symmetric by construction rather than by
-     * two lists that have to be kept in step.
+     * two lists that have to be kept in step. The stored name drops the rail words that text opens
+     * with ({@code MerchantNames.forNarration}); every word it drops is one this key skips, so the
+     * key is the same either way. A name made of nothing but rail words ("UPI payment") has no
+     * key, like the narration it came from.
      *
      * <p>Returning null when nothing survives is deliberate: a description that is nothing but
      * rail and reference ("UPI 12345") has no counterparty to group by, and inventing one would be
@@ -618,8 +626,9 @@ public class MerchantNormalizationEngine {
     }
 
     /**
-     * The text a description is grouped by and a new merchant is named after: the payee field of
-     * a structured narration when it names someone, else {@code CategoryRules.extractMerchant}.
+     * The text a description is grouped by, and the text {@code MerchantNames.forNarration} names a
+     * new merchant from: the payee field of a structured narration when it names someone, else
+     * {@code CategoryRules.extractMerchant}.
      *
      * <p>extractMerchant keeps only the first four words. A narration that prints its payee after
      * a long prefix -- "UPI/RRN &lt;n&gt;/Payment from PhonePe_&lt;NAME&gt;" -- loses the name
@@ -635,17 +644,5 @@ public class MerchantNormalizationEngine {
     private static String payeeText(String description) {
         String payee = CategoryRules.structuredPayee(description);
         return payee != null ? payee : CategoryRules.extractMerchant(description);
-    }
-
-    private String toDisplayName(String extractedMerchant) {
-        if (extractedMerchant == null || extractedMerchant.isBlank()) return "Unknown Merchant";
-        String[] words = extractedMerchant.split(" ");
-        StringBuilder sb = new StringBuilder();
-        for (String w : words) {
-            if (w.isEmpty()) continue;
-            if (sb.length() > 0) sb.append(' ');
-            sb.append(Character.toUpperCase(w.charAt(0))).append(w.substring(1));
-        }
-        return sb.toString();
     }
 }

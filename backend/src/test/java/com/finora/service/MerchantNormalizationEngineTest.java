@@ -361,6 +361,61 @@ class MerchantNormalizationEngineTest {
         assertThat(merchants).hasSize(1);
     }
 
+    // ---- the name a new merchant is stored under (MerchantNames.forNarration) ----
+
+    /**
+     * A narration with no payee field of its own used to keep its rail word in the merchant's name
+     * ("Ach Sample Finance"), and that name is what Top Merchants and the review card print.
+     */
+    @Test
+    @DisplayName("a narration with no payee field names its merchant without the rail word")
+    void unstructuredNarrationIsNamedWithoutItsRailWord() {
+        Merchant created = engine.resolve(userId, "ACH D- SAMPLE FINANCE LTD-0000000001");
+
+        assertThat(created.getCanonicalName()).isEqualTo("Sample Finance");
+        assertThat(created.getLifecycleStatus()).isEqualTo(Merchant.Lifecycle.TEMPORARY);
+    }
+
+    /** The key is read back from the stored name, so the shorter name has to give the same key. */
+    @Test
+    @DisplayName("a merchant named without its rail word still collects the payee's later rows")
+    void railFreeNameStillCollectsLaterRows() {
+        Merchant first = engine.resolve(userId, "ACH D- SAMPLE FINANCE LTD-0000000001");
+        Merchant later = engine.resolve(userId, "ACH D- SAMPLE FINANCE LTD-0099999999");
+
+        assertThat(later.getId()).isEqualTo(first.getId());
+        assertThat(merchants).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("a merchant named by the old rule still collects the payee's later rows")
+    void oldRuleNameStillCollectsLaterRows() {
+        Merchant old = merchantNamed("Ach Sample Finance");
+
+        Merchant later = engine.resolve(userId, "ACH D- SAMPLE FINANCE LTD-0099999999");
+
+        assertThat(later.getId()).isEqualTo(old.getId());
+        assertThat(merchants).hasSize(1);
+    }
+
+    /**
+     * A narration that names nobody is named after its rail. Every such merchant then carries the
+     * same name, and that name must never become a key: it would pool every payment that names no
+     * payee into one merchant, and one correction on it would recategorise them all.
+     */
+    @Test
+    @DisplayName("payments that name no payee share a name and stay separate merchants")
+    void paymentsNamingNobodyShareANameButNotAMerchant() {
+        Merchant a = engine.resolve(userId, "UPI/RRN 000000000001/UPI");
+        Merchant b = engine.resolve(userId, "UPI/RRN 000000000002/UPI");
+        Merchant c = engine.resolve(userId, "NACH CHQ 004471");
+        Merchant d = engine.resolve(userId, "NACH CHQ 004472");
+
+        assertThat(List.of(a, b).stream().map(Merchant::getCanonicalName)).containsOnly("UPI payment");
+        assertThat(List.of(c, d).stream().map(Merchant::getCanonicalName)).containsOnly("NACH payment");
+        assertThat(merchants).hasSize(4);
+    }
+
     private Merchant approvedMerchant(String canonicalName) {
         Merchant m = merchantNamed(canonicalName);
         m.setLifecycleStatus(Merchant.Lifecycle.APPROVED);

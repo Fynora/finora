@@ -555,7 +555,7 @@ public class ReferralService {
      *  to just this page's referrer/referred ids, not the whole table. */
     @Transactional(readOnly = true)
     public PagedResponse<AdminReferralSummaryDto> listAll(int page, int size) {
-        Page<Referral> referrals = referralRepository.findAllByOrderByCreatedAtDesc(
+        Page<Referral> referrals = referralRepository.findAllByOrderByCreatedAtDescIdDesc(
                 PageRequest.of(PageBounds.safePage(page), PageBounds.safeSize(size)));
         Set<UUID> userIds = new HashSet<>();
         referrals.forEach(r -> { userIds.add(r.getReferrerUserId()); userIds.add(r.getReferredUserId()); });

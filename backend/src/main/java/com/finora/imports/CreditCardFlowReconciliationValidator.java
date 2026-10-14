@@ -9,6 +9,7 @@ import java.math.BigDecimal;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * Checks that a credit-card statement's own EXTRACTED transactions, aggregated by direction,
@@ -57,10 +58,13 @@ public class CreditCardFlowReconciliationValidator {
      * How much of the billing-summary panel and the extracted rows this check actually had to work
      * with — recorded even though {@link #NO_SUMMARY}, {@link #PARTIAL_SUMMARY_ONLY}, and
      * {@link #NO_CLASSIFIED_TRANSACTIONS} currently all produce the same {@code NOT_APPLICABLE}
-     * outcome, because they are three different claims, not one: Axis (PARTIAL) has a readable panel
-     * that simply doesn't print a purchases/payments split; HDFC (NO_SUMMARY) has no readable panel
+     * outcome, because they are three different claims, not one: a panel read only in part (PARTIAL:
+     * a total due with no purchases/payments split beside it); HDFC (NO_SUMMARY) has no readable panel
      * at all; a statement with a full panel but zero EXPENSE/INCOME rows (NO_CLASSIFIED_TRANSACTIONS)
      * has neither of those problems — its transaction table failed to extract or classify anything.
+     * (Axis was long this file's example of PARTIAL, as a panel that "doesn't print" the split. It
+     * does print it, as one line of equation over a row of figures that no strategy could name --
+     * a reading gap, not a format gap. See {@code CardSummaryEquationReader}.)
      * Collapsing these into one {@code NOT_APPLICABLE} count would hide that the first two are a
      * statement-format gap and the third is an extraction failure — a future failure-rate breakdown
      * needs this distinction to tell "the bank doesn't print this" from "our own extraction broke"
@@ -151,10 +155,71 @@ public class CreditCardFlowReconciliationValidator {
             return new ImportDto.VerificationFinding(RULE, "VERIFIED", details);
         }
 
+        // A third reading, for a panel that totals to the outstanding balance rather than to the
+        // amount due (a real SBI card). Such a statement lists each instalment on an earlier
+        // purchase among its transactions, but counts it in neither its purchases nor its fees
+        // figure: the principal was already part of the outstanding balance, and billing it moves
+        // nothing. Measured on that statement: payments match to the paisa, and the charges exceed
+        // purchases plus fees by exactly the instalment rows. So on this kind of panel, and with
+        // the payments side proven, a surplus made up of instalment rows is not a misread.
+        if (summary.hasOutstandingEquation() && paymentsMatch && chargesSurplus.signum() > 0) {
+            List<StagedRow> instalments = rows.stream().filter(CreditCardFlowReconciliationValidator::isInstalment).toList();
+            BigDecimal instalmentAmount = sumOf(instalments, "EXPENSE");
+            details.put("expectedChargesAmount", expectedCharges);
+            if (instalmentAmount.compareTo(chargesSurplus) == 0) {
+                details.put("instalmentRowsSetAside", instalments.size());
+                return new ImportDto.VerificationFinding(RULE, "VERIFIED", details);
+            }
+            // A surplus the recognised instalments do not account for exactly is not explained by
+            // anything here -- an instalment worded some other way, or a row read twice -- so it
+            // falls through to the warning below like any other disagreement, and the import is
+            // held for review. Sid's decision (2026-10-11): an import goes ahead only once its
+            // amounts are confirmed, by a check or by a person. How many rows were recognised is
+            // kept, so the reviewer can see how much of the surplus was understood.
+            details.put("instalmentRowsRecognised", instalments.size());
+        }
+
+        // A further reading, for a summary printed as its own equation only (a real Axis card),
+        // and again only once everything above has failed. Measured on a real statement: the
+        // charges matched to the paisa, the credits ran over by exactly one refund row, and the
+        // printed equation was short of its own total by that same row -- the summary counted the
+        // refund in neither "Payments" nor "Credits", yet its total due reflects it. The rows are then
+        // checked against the two balances instead of the payments figure: charges must match
+        // exactly, and the rows must carry the previous balance to the total due exactly. That
+        // pins both sides, since the credits are whatever the balances and the charges leave.
+        // Only credits the summary left out qualify: credits short of it, or any gap in the
+        // charges, still warns. So does a total due the statement's two printings of it disagree
+        // on: a balance two readings contest is not one to check rows against.
+        if (summary.extractionMethod() == CreditCardSummaryEvidence.ExtractionMethod.EQUATION_ROW
+                && chargesSurplus.signum() == 0 && creditsSurplus.signum() > 0
+                && summary.conflictingFields().isEmpty()
+                && summary.previousBalance() != null && summary.totalAmountDue() != null
+                && summary.previousBalance().add(observedExpenseAmount).subtract(observedIncomeAmount)
+                        .compareTo(summary.totalAmountDue()) == 0) {
+            details.put("expectedChargesAmount", expectedCharges);
+            details.put("creditsNotCountedInSummary", creditsSurplus);
+            details.put("rowsCarryPreviousBalanceToTotalDue", true);
+            return new ImportDto.VerificationFinding(RULE, "VERIFIED", details);
+        }
+
         details.put("explanation", "The extracted transactions, summed by direction, do not match "
                 + "this statement's own printed purchases and/or payments/credits totals. This does "
                 + "not identify which side is wrong -- only that they disagree.");
         return new ImportDto.VerificationFinding(RULE, "WARNING", details);
+    }
+
+    /**
+     * An instalment's own counter in a row's narration -- "EMI 03/06", the third of six. The real
+     * statement words its instalment rows "FP EMI 03/06(EXCL TAX ...)" and the interest on them
+     * "INTEREST ON EMI"; only the first is principal the summary leaves out, and the counter is
+     * what tells them apart. Narrower than the word alone on purpose: a row merely mentioning
+     * instalments is a charge like any other.
+     */
+    private static final Pattern INSTALMENT_COUNTER = Pattern.compile("(?i)\\bEMI\\s+\\d{1,2}\\s*/\\s*\\d{1,2}\\b");
+
+    private static boolean isInstalment(StagedRow row) {
+        return "EXPENSE".equals(row.type()) && row.description() != null
+                && INSTALMENT_COUNTER.matcher(row.description()).find();
     }
 
     /** {@code StagedRow.amount()} is documented as absolute by the time it reaches here; {@code abs()}

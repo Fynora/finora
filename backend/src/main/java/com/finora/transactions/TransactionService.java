@@ -25,6 +25,7 @@ import com.finora.service.SmsResult;
 import com.finora.service.TransactionGroupingService;
 import com.finora.util.CategoryRules;
 import com.finora.util.CounterpartyType;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
@@ -37,6 +38,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -133,10 +135,21 @@ public class TransactionService {
         // arm quietly yields txnDate) -- a sort direction is a presentation preference, and
         // refusing to return a user's transactions over one would be a worse answer than sorting
         // them the usual way.
-        Sort sort = Sort.by(
-                Sort.Direction.fromOptionalString(f.sortDir() == null ? "" : f.sortDir())
-                        .orElse(Sort.Direction.DESC),
-                f.sortField() == null ? "txnDate" : mapSortField(f.sortField()));
+        //
+        // Paging fix: the sort used to stop at that one field. Rows sharing a date (or an amount)
+        // then had no defined order, Postgres was free to arrange them differently for each page
+        // request, and a row could come back on two pages while another came back on none -- the
+        // mobile list showed a repeated row at a page boundary, counted twice in its day's total.
+        // createdAt and then id settle every tie, in the same direction as the field the caller
+        // asked for, so the ascending list is exactly the descending one reversed. createdAt first
+        // because it keeps a day's rows in the order they were added, which an id (a random UUID)
+        // would not; id last because rows written by one SQL statement can share a createdAt, and
+        // only a unique column makes the order total. Neither ever changes after insert, so
+        // editing a row between two page requests cannot move it.
+        Sort.Direction direction = Sort.Direction.fromOptionalString(f.sortDir() == null ? "" : f.sortDir())
+                .orElse(Sort.Direction.DESC);
+        String sortProperty = f.sortField() == null ? "txnDate" : mapSortField(f.sortField());
+        Sort sort = Sort.by(direction, sortProperty, "createdAt", "id");
         // Bank-aware search (PRD's "Improve Search"): a keyword like "Punjab National" should
         // also match transactions on accounts held with that bank, not just description/merchant
         // text. bankManagementService.search() covers both the built-in registry and admin-added
@@ -177,19 +190,43 @@ public class TransactionService {
         // null (an explicit accountId is trusted as-is, unchanged from before).
         List<UUID> liveAccountIds = accountRepository.findByUserId(userId).stream()
                 .map(Account::getId).toList();
-        var page = transactionRepository.search(
-                userId, f.accountId(), f.categoryId(),
-                com.finora.util.EnumParsing.parseIfPresent(Transaction.Type.class, f.type(), "type"),
-                com.finora.util.EnumParsing.parseIfPresent(Transaction.ReconciliationStatus.class, f.status(), "status"),
-                f.dateFrom(), f.dateTo(), f.amountMin(), f.amountMax(),
-                // Escaped for LIKE (see LikePatterns) -- transaction descriptions are full of
-                // literal percent signs ("2.5% CASHBACK"), and an unescaped one turned an exact
-                // search into a prefix search silently. Only the repository term is escaped:
-                // bankManagementService.search() above matches in memory with contains().
-                com.finora.util.LikePatterns.escape(f.keyword()), bankIdsParam, categoryIdsParam, liveAccountIds,
-                f.international(),
-                PageRequest.of(safePage, safeSize, sort)
-        );
+        Transaction.Type type = com.finora.util.EnumParsing.parseIfPresent(Transaction.Type.class, f.type(), "type");
+        Transaction.ReconciliationStatus status =
+                com.finora.util.EnumParsing.parseIfPresent(Transaction.ReconciliationStatus.class, f.status(), "status");
+        // Escaped for LIKE (see LikePatterns) -- transaction descriptions are full of literal
+        // percent signs ("2.5% CASHBACK"), and an unescaped one turned an exact search into a
+        // prefix search silently. Only the repository term is escaped:
+        // bankManagementService.search() above matches in memory with contains().
+        String keyword = com.finora.util.LikePatterns.escape(f.keyword());
+        // A scrolling client names the last row it holds (f.after()) so the list continues from
+        // that row, not from a page number: a row added or deleted above the reader between two
+        // requests then shifts nothing. Looked up among deleted rows too, because the named row may
+        // be the one that was deleted, and scoped to this user, so another customer's id is simply
+        // not a place in this list. With no such row the request is paged by number as before.
+        Optional<Transaction> lastRowHeld = f.after() == null
+                ? Optional.empty()
+                : transactionRepository.findByIdAndUserIdIncludingDeleted(f.after(), userId);
+        Page<Transaction> page;
+        if (lastRowHeld.isPresent()) {
+            Transaction last = lastRowHeld.get();
+            boolean descending = direction == Sort.Direction.DESC;
+            int place = "amount".equals(sortProperty)
+                    ? (descending ? TransactionRepository.AFTER_IN_AMOUNT_DESC : TransactionRepository.AFTER_IN_AMOUNT_ASC)
+                    : (descending ? TransactionRepository.AFTER_IN_DATE_DESC : TransactionRepository.AFTER_IN_DATE_ASC);
+            page = transactionRepository.searchFromPlace(
+                    userId, f.accountId(), f.categoryId(), type, status,
+                    f.dateFrom(), f.dateTo(), f.amountMin(), f.amountMax(),
+                    keyword, bankIdsParam, categoryIdsParam, liveAccountIds, f.international(),
+                    place, last.getTxnDate(), last.getAmount(), last.getCreatedAt(), last.getId(),
+                    // Always the first page of what is left: the place does the skipping.
+                    PageRequest.of(0, safeSize, sort));
+        } else {
+            page = transactionRepository.search(
+                    userId, f.accountId(), f.categoryId(), type, status,
+                    f.dateFrom(), f.dateTo(), f.amountMin(), f.amountMax(),
+                    keyword, bankIdsParam, categoryIdsParam, liveAccountIds, f.international(),
+                    PageRequest.of(safePage, safeSize, sort));
+        }
         Map<UUID, String> namesById = categoryNamesById(userId);
         return PagedResponse.of(page.map(t -> TransactionDto.from(t, namesById.getOrDefault(t.getCategoryId(), "Uncategorized"))));
     }

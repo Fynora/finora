@@ -882,13 +882,17 @@ public class ImportSessionService {
     /**
      * A stored report is served again whenever the customer reopens the review, so a report staged
      * by an earlier build must be read with today's numbering -- see {@link
-     * ColumnAmbiguityValidator#renumberStored}. Only that one finding can change; the rest of the
-     * report, its order and its status are carried through untouched.
+     * ColumnAmbiguityValidator#renumberStored} for the two-ways check, and {@link
+     * StoredRowPositions} for the balance and description checks. Only those three findings can
+     * change; the rest of the report, its order and its status are carried through untouched.
      */
     private static VerificationReport renumberStoredAmbiguities(VerificationReport report, List<StagedRow> shown) {
         if (report == null || report.findings() == null) return report;
         return new VerificationReport(
-                report.findings().stream().map(f -> ColumnAmbiguityValidator.renumberStored(f, shown)).toList(),
+                report.findings().stream()
+                        .map(f -> ColumnAmbiguityValidator.renumberStored(f, shown))
+                        .map(f -> StoredRowPositions.withDisplayPositions(f, shown))
+                        .toList(),
                 report.headerReconstructionUncertain(), report.textSource(), report.reliabilityStatus());
     }
 

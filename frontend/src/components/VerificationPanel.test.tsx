@@ -220,12 +220,13 @@ describe('VerificationPanel', () => {
   it('numbers an ambiguous row by its place in the list, and gives no number to a row that is not in it', async () => {
     // The server sends rowIndex as the row's place among the rows listed for review, and leaves it
     // out for a row that never made the list. Printing a number for that one would name some other
-    // row -- which is the mistake the number exists to prevent.
+    // row -- which is the mistake the number exists to prevent. rowIndexBasis is how the server says
+    // so; a finding without it is covered in "which row the two-ways check points at".
     const user = userEvent.setup();
     render(<VerificationPanel verification={report([{
       rule: 'COLUMN_AMBIGUITY', outcome: 'WARNING',
       details: {
-        rowsChecked: 40, ambiguousRows: 2,
+        rowsChecked: 40, ambiguousRows: 2, rowIndexBasis: 'ROWS_SHOWN',
         ambiguities: [
           { rowIndex: 11, kind: 'BOTH_DIRECTIONS_HAVE_A_VALUE', column: 'Deposit / Withdrawal', value: '50.00 / 300.00' },
           { kind: 'MULTIPLE_AMOUNTS_IN_ONE_COLUMN', column: 'Deposit', value: '0.00 25.00' },

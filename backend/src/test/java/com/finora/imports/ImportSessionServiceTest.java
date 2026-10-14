@@ -878,4 +878,65 @@ class ImportSessionServiceTest {
         assertThat(ambiguitiesOf(served.get(1).verification())).extracting(a -> a.get("rowIndex")).containsExactly(0);
         assertThat(served.get(2).verification()).isNull();
     }
+
+    // ---------------------------------------------- balance and description rows in a stored report
+
+    /** A row printed at {@code rowPosition} and dated {@code day} July -- see StoredRowPositions. */
+    private static StagedRow printedRow(String description, int day, int rowPosition) {
+        return new StagedRow(LocalDate.of(2026, 7, day), description, new BigDecimal("100.00"),
+                "EXPENSE", "Other", "rule", null, false, null, null).withRowPosition(rowPosition);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Object> displayIndexesOf(VerificationReport report, String rule, String key) {
+        return ((List<java.util.Map<String, Object>>) report.findings().stream()
+                .filter(f -> rule.equals(f.rule())).findFirst().orElseThrow().details().get(key))
+                .stream().map(m -> m.get("displayIndex")).toList();
+    }
+
+    private static VerificationReport storedWithoutDisplayPositions(int balanceRowIndex, int outlierRowIndex) {
+        java.util.Map<String, Object> balance = new java.util.LinkedHashMap<>();
+        balance.put("discrepancies", List.of(new java.util.LinkedHashMap<>(java.util.Map.of("rowIndex", balanceRowIndex))));
+        java.util.Map<String, Object> descriptions = new java.util.LinkedHashMap<>();
+        descriptions.put("outliers", List.of(new java.util.LinkedHashMap<>(java.util.Map.of("rowIndex", outlierRowIndex))));
+        return new VerificationReport(List.of(
+                new VerificationFinding("BALANCE_CHAIN", "WARNING", balance),
+                new VerificationFinding("DESCRIPTION_CORRUPTION", "WARNING", descriptions)));
+    }
+
+    @Test
+    void aStoredReportsBalanceAndDescriptionRowsAreServedWithTheirPlaceInTheList() {
+        // Printed newest first: D(1) C(2) B(3) A(4). Shown by date: A B C D. The old balance number
+        // 1 is a walk step (the walk ran A B C D, so B); the old outlier number 1 is a printed place
+        // (C). Each comes back with where that row is shown.
+        List<StagedRow> shown = List.of(printedRow("A", 1, 4), printedRow("B", 2, 3),
+                printedRow("C", 3, 2), printedRow("D", 4, 1));
+        ImportSession session = service.createSession(userId, "statement.pdf", new byte[] {1}, shown,
+                null, null, null, null, null, storedWithoutDisplayPositions(1, 1));
+
+        VerificationReport served = service.readVerification(session);
+
+        assertThat(displayIndexesOf(served, "BALANCE_CHAIN", "discrepancies")).containsExactly(1);
+        assertThat(displayIndexesOf(served, "DESCRIPTION_CORRUPTION", "outliers")).containsExactly(2);
+    }
+
+    @Test
+    void eachSectionOfAStoredCompositeStatementGetsItsRowsPlacedAgainstItsOwnList() {
+        List<StagedRow> first = List.of(printedRow("A", 1, 2), printedRow("B", 2, 1));
+        List<StagedRow> second = List.of(printedRow("C", 1, 1), printedRow("D", 2, 2));
+        ImportSession session = service.createMultiSection(userId, "statement.pdf", new byte[] {1}, List.of(
+                new com.finora.dto.ImportDto.StagedAccountSection(null, first, 2, 0, List.of(),
+                        storedWithoutDisplayPositions(0, 0)),
+                new com.finora.dto.ImportDto.StagedAccountSection(null, second, 2, 0, List.of(),
+                        storedWithoutDisplayPositions(0, 0))));
+
+        List<com.finora.dto.ImportDto.StagedAccountSection> served = service.readSections(session);
+
+        // First section printed newest first (B, A): the walk ran A then B, so step 0 is A, shown
+        // first; printed place 0 is B, shown second. Second section printed oldest first: both are C.
+        assertThat(displayIndexesOf(served.get(0).verification(), "BALANCE_CHAIN", "discrepancies")).containsExactly(0);
+        assertThat(displayIndexesOf(served.get(0).verification(), "DESCRIPTION_CORRUPTION", "outliers")).containsExactly(1);
+        assertThat(displayIndexesOf(served.get(1).verification(), "BALANCE_CHAIN", "discrepancies")).containsExactly(0);
+        assertThat(displayIndexesOf(served.get(1).verification(), "DESCRIPTION_CORRUPTION", "outliers")).containsExactly(0);
+    }
 }

@@ -169,6 +169,57 @@ class FlaggedRowDisplayPositionTest {
                 .satisfies(o -> assertThat(o.get("displayIndex")).isEqualTo(shownAt(response, "ROW B")));
     }
 
+    /**
+     * A review staged before this change is reopened after it. Its stored report has no {@code
+     * displayIndex}; the old numbers are converted from the stored rows. The old numbers below are
+     * the ones main stored for this exact statement at {@code aa94d63}, measured before any of this
+     * was written: balance rowIndex 2 (a walk position), outlier rowIndex 5 (a printed position).
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void aReviewStoredByAnEarlierBuildMarksTheRowsItMeant() throws Exception {
+        StagingResponse response = viaPdf(newestFirst(sameDayStatement()));
+        ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        // The rows exactly as a session stores and serves them.
+        List<StagedRow> storedRows = objectMapper.readValue(objectMapper.writeValueAsString(response.rows()),
+                new com.fasterxml.jackson.core.type.TypeReference<List<StagedRow>>() {});
+
+        Map<String, Object> oldBalance = new java.util.LinkedHashMap<>();
+        oldBalance.put("rowsChecked", 7);
+        oldBalance.put("discrepancies", List.of(new java.util.LinkedHashMap<>(Map.of("rowIndex", 2))));
+        Map<String, Object> oldDescriptions = new java.util.LinkedHashMap<>();
+        oldDescriptions.put("outliers", List.of(new java.util.LinkedHashMap<>(Map.of("rowIndex", 5, "length", 162))));
+
+        ImportDto.VerificationFinding balance = StoredRowPositions.withDisplayPositions(
+                new ImportDto.VerificationFinding(BalanceChainValidator.RULE, "WARNING", oldBalance), storedRows);
+        ImportDto.VerificationFinding descriptions = StoredRowPositions.withDisplayPositions(
+                new ImportDto.VerificationFinding(DescriptionCorruptionValidator.RULE, "WARNING", oldDescriptions),
+                storedRows);
+
+        assertThat((List<Map<String, Object>>) balance.details().get("discrepancies")).singleElement()
+                .satisfies(d -> assertThat(d.get("displayIndex")).isEqualTo(shownAt(response, "ROW C")));
+        assertThat((List<Map<String, Object>>) descriptions.details().get("outliers")).singleElement()
+                .satisfies(o -> assertThat(o.get("displayIndex")).isEqualTo(shownAt(response, "ROW B")));
+    }
+
+    /** A review stored by the build in between (#2118: shown-row numbers, no displayIndex yet). */
+    @Test
+    @SuppressWarnings("unchecked")
+    void aReviewStoredBetweenTheTwoChangesKeepsItsNumbers() throws Exception {
+        StagingResponse response = viaPdf(newestFirst(sameDayStatement()));
+        ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        ImportDto.VerificationReport stored = objectMapper.readValue(
+                objectMapper.writeValueAsString(response.verification()), ImportDto.VerificationReport.class);
+        ImportDto.VerificationFinding chain = finding(stored, BalanceChainValidator.RULE);
+        // What that build wrote: the same finding without the new field.
+        ((List<Map<String, Object>>) chain.details().get("discrepancies")).forEach(d -> d.remove("displayIndex"));
+
+        ImportDto.VerificationFinding converted = StoredRowPositions.withDisplayPositions(chain, response.rows());
+
+        assertThat((List<Map<String, Object>>) converted.details().get("discrepancies")).singleElement()
+                .satisfies(d -> assertThat(d.get("displayIndex")).isEqualTo(shownAt(response, "ROW C")));
+    }
+
     // ------------------------------------------------------------------------------ reading a report
 
     private static List<String> labels(List<StagedRow> shown) {

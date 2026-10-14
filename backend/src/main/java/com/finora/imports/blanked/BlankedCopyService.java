@@ -76,7 +76,7 @@ public class BlankedCopyService {
         try {
             real = generator.acquire(content.content(), null);
         } catch (Exception e) {
-            log.warn("Blanked copy for {}: text acquisition failed ({})", content.reference(), e.getClass().getSimpleName());
+            log.warn("Blanked copy for {}: text acquisition failed ({})", content.reference(), typeName(e));
             throw new ApiException(HttpStatus.CONFLICT, "The statement's text could not be read.");
         }
 
@@ -130,8 +130,15 @@ public class BlankedCopyService {
 
     private static BlankedCopy notChecked(String reference, String fileName, String trace, String logWhat,
                                           String reason, Exception e) {
-        String type = e.getClass().getSimpleName();
+        String type = typeName(e);
         log.warn("Blanked copy for {}: the check could not run, {} ({})", reference, logWhat, type);
         return new BlankedCopy(fileName, trace, BlankedCopy.Check.NOT_CHECKED, reason + " (" + type + ").", List.of());
+    }
+
+    /** The exception's class name, never its message. An anonymous class has an empty simple name,
+     *  so its full name is used instead. */
+    private static String typeName(Exception e) {
+        String simple = e.getClass().getSimpleName();
+        return simple.isEmpty() ? e.getClass().getName() : simple;
     }
 }

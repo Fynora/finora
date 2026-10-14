@@ -267,6 +267,22 @@ class BlankedCopyServiceTest {
         assertThat(produced(BlankedCopy.Check.NOT_CHECKED)).isEqualTo(1);
     }
 
+    /** An anonymous exception class has an empty simple name: the reason names its full name
+     *  rather than "()". */
+    @Test
+    void aFailureFromAnAnonymousExceptionClassStillNamesIt() throws Exception {
+        RuntimeException anonymous = new RuntimeException("boom: Asha") {};
+        assertThat(anonymous.getClass().getSimpleName()).isEmpty();
+        PdfPreviewGenerator generator = spy(PdfGeneratorTestSupport.generator());
+        doThrow(anonymous).when(generator).generateSectionsFromAcquired(any(), any(), any());
+        BlankedCopy copy = service(generator).make(new StaffStatementContent("j-11", "PDF",
+                PdfFixtureBuilder.buildReferenceNumberAndBalanceSample()));
+        assertThat(copy.check()).isEqualTo(BlankedCopy.Check.NOT_CHECKED);
+        assertThat(copy.notCheckedReason()).isEqualTo(
+                "The statement itself could not be read (" + anonymous.getClass().getName() + ").");
+        assertThat(copy.toString()).doesNotContain("Asha");
+    }
+
     /** Both readings ran but could not be compared (here: a reading came back with no section
      *  list at all). The reason names the comparison, not either reading. */
     @Test

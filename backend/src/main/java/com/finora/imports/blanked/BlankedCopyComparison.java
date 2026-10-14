@@ -100,10 +100,11 @@ public final class BlankedCopyComparison {
      * <ul>
      *   <li>the whitespace between tokens must be identical, and the token counts equal;</li>
      *   <li>each copy token must be ONE of: (a) the joined line's masking of that token; (b) the
-     *       real token itself, only where the joined line masked it AND the token holds a digit --
-     *       the copy kept the run's text verbatim (two kept amounts printed with no space between
-     *       form a long digit run only when joined; that digit-run artifact is the one measured, so a
-     *       letters-only word held in clear does not count); (c) the whole token masked character by
+     *       real token itself, only where the joined line masked it AND the token is digits and
+     *       punctuation with no letter or mark -- the copy kept the run's text verbatim (two kept
+     *       amounts printed with no space between form a long digit run only when joined; that
+     *       digit-run artifact is the one measured, so a token holding letters in clear does not
+     *       count); (c) the whole token masked character by
      *       character ({@link PdfTraceRedactor#maskOf}), only where the real token is digits and
      *       punctuation with no letter or mark, or is exactly a month name -- a date split across a
      *       line break is kept joined and masked in pieces. A token mixing letters and digits (such
@@ -119,10 +120,8 @@ public final class BlankedCopyComparison {
      * token or a space and differs; a word the joined line keeps can never be masked in the copy
      * unless it holds a digit, names a month, or is one piece of a compound the redactor masks
      * piece by piece under (d); no piece between separators may be partly kept and partly masked,
-     * and no letters-only word the joined line masks may appear in clear.
-     *
-     * <p>Not guaranteed: under (b), a token holding a digit that the joined line masked passes when
-     * the copy holds it entirely in clear, letters included.
+     * and a letter appears in clear only where the redactor keeps it, in the joined line or, under
+     * (d), in its own piece.
      *
      * <p>Not guaranteed (known limits, pinned by tests): under (c), a token of digits and
      * punctuation that the copy masked whole matches any same-shape real token at that position, so
@@ -152,7 +151,8 @@ public final class BlankedCopyComparison {
             }
             String joinedToken = j.get(i);
             if (copyPart.equals(joinedToken)) continue;                                 // (a)
-            if (!joinedToken.equals(realPart) && hasDigit(realPart) && copyPart.equals(realPart)) continue; // (b)
+            if (!joinedToken.equals(realPart) && isDigitsAndPunctuation(realPart)
+                    && copyPart.equals(realPart)) continue;                             // (b)
             if ((isDigitsAndPunctuation(realPart) || isMonthName(realPart))
                     && copyPart.equals(maskWhole(realPart))) continue;                  // (c)
             if (copyPart.equals(maskPieceByPiece(realPart))) continue;                  // (d)

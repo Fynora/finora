@@ -285,6 +285,14 @@ class BlankedCopyComparisonTest {
         assertThat(descriptionOutcome("UPI/12345678/ASHA", "XXX/99999999")).isEqualTo(Field.DESCRIPTION);
     }
 
+    /** The real text in clear counts only for a token of digits and punctuation: a compound
+     *  holding letters, held verbatim in the copy, is not the redactor's masking of it. */
+    @Test
+    void aCompoundWithLettersHeldInClearDiffers() {
+        assertThat(PdfTraceRedactor.redactLine("UPI/12345678/ASHA")).isNotEqualTo("UPI/12345678/ASHA");
+        assertThat(descriptionOutcome("UPI/12345678/ASHA", "UPI/12345678/ASHA")).isEqualTo(Field.DESCRIPTION);
+    }
+
     /**
      * KNOWN LIMIT, pinned so it cannot change unnoticed: a token of digits and punctuation only that
      * the copy masked whole matches whatever same-shape token the real description has there. Here

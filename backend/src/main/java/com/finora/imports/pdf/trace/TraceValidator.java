@@ -1,9 +1,10 @@
-package com.finora.imports.pdf.fixtures;
+package com.finora.imports.pdf.trace;
 
 import com.finora.imports.pdf.PdfTableLocator;
 import com.finora.imports.pdf.PositionedText;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -19,7 +20,8 @@ import java.util.regex.Pattern;
  *
  * <ol>
  *   <li><b>No unmasked PII.</b> The same patterns {@code scripts/check-fixture-hygiene.sh} blocks
- *       commits on, applied to the trace's own text. A trace that trips this must never be
+ *       commits on, applied to the trace's own text, plus any letter, number or mark outside ASCII (every rule
+ *       that keeps text unmasked keeps ASCII only). A trace that trips this must never be
  *       committed, regardless of how useful its structure is.</li>
  *   <li><b>Required structural evidence preserved.</b> Declared per trace in its own metadata. This
  *       is the check that would have caught the incident that motivated all of this: the deposit
@@ -72,7 +74,7 @@ public final class TraceValidator {
      *  this before writing, so a failing trace is never written to disk in the first place. */
     public static Result validate(String traceName, String content) {
         TraceMetadata metadata = TraceMetadata.parse(content);
-        List<PositionedText> runs = PdfTrace.parse(content);
+        List<PositionedText> runs = TraceFormat.parse(content);
         List<Finding> findings = new ArrayList<>();
 
         findings.addAll(scanForPii(runs));
@@ -145,6 +147,41 @@ public final class TraceValidator {
     }
 
     /**
+     * Which kinds of customer data survived redaction, by name only. The server's refusal check:
+     * unlike {@link #validate}, a layout with no table is not a reason to refuse, and the matched
+     * text is never returned, so a refusal can be shown to staff without showing the data. It also
+     * refuses any unmasked text outside ASCII, as {@link #validate} blocks it: see
+     * {@link #hasUnmaskedTextInAnotherScript}.
+     */
+    public static List<String> privacyKinds(List<PositionedText> runs) {
+        LinkedHashSet<String> kinds = new LinkedHashSet<>();
+        for (PositionedText run : runs) {
+            String text = run.text();
+            if (text == null || text.isBlank()) continue;
+            if (matchesUnplaceholdered(EMAIL, text)) kinds.add("email address");
+            if (matchesUnplaceholdered(INDIAN_MOBILE, text)) kinds.add("phone number");
+            if (hasUnmaskedIfsc(text)) kinds.add("IFSC branch code");
+            if (hasUnmaskedTextInAnotherScript(text)) kinds.add("unmasked text in another script");
+        }
+        return List.copyOf(kinds);
+    }
+
+    /**
+     * The fail-closed backstop behind the redactor. Every rule that keeps text unmasked keeps plain
+     * ASCII only (the vocabulary is built from ASCII words, and the date, amount, IFSC and currency
+     * rules match ASCII), so a non-ASCII letter, number or mark still in a redacted run was not
+     * masked, whatever it says. The redactor masks these too; this catches the next way one gets
+     * past it.
+     */
+    private static boolean hasUnmaskedTextInAnotherScript(String text) {
+        return text.codePoints().anyMatch(TraceValidator::isUnmaskedTextInAnotherScript);
+    }
+
+    private static boolean isUnmaskedTextInAnotherScript(int cp) {
+        return cp > 127 && PdfTraceRedactor.isTextCodePoint(cp);
+    }
+
+    /**
      * PII scan over the trace's own text.
      *
      * Placeholder-shaped values are allowed by the same {@code is_placeholder} rule the commit hook
@@ -159,15 +196,26 @@ public final class TraceValidator {
             checkPattern(findings, EMAIL, text, "email address");
             checkPattern(findings, INDIAN_MOBILE, text, "phone number");
             checkIfsc(findings, text);
+            checkOtherScripts(findings, text);
         }
         return findings;
     }
 
+    /** The same backstop {@link #privacyKinds} applies, on a trace about to be (or already)
+     *  committed: up to redactor version 3 a non-ASCII word was kept verbatim. Unlike the other
+     *  findings this one never repeats what it found -- a count is enough to act on, and the text
+     *  could be a customer's name in a script the reader cannot check by eye. */
+    private static void checkOtherScripts(List<Finding> findings, String text) {
+        long unmasked = text.codePoints().filter(TraceValidator::isUnmaskedTextInAnotherScript).count();
+        if (unmasked > 0) {
+            findings.add(new Finding(Finding.Severity.BLOCKER, "pii",
+                    "unmasked text in another script survived redaction: " + unmasked
+                            + " letter, number or mark code point(s), not shown"));
+        }
+    }
+
     private static void checkPattern(List<Finding> findings, Pattern pattern, String text, String what) {
-        var matcher = pattern.matcher(text);
-        while (matcher.find()) {
-            String hit = matcher.group();
-            if (PLACEHOLDER.matcher(hit).find()) continue;
+        for (String hit : unplaceholderedHits(pattern, text)) {
             findings.add(new Finding(Finding.Severity.BLOCKER, "pii",
                     "unmasked " + what + " survived redaction: " + hit));
         }
@@ -176,12 +224,57 @@ public final class TraceValidator {
     /** An IFSC's 4-letter bank prefix is deliberately preserved (it is what lets a trace test bank
      *  detection); only a real-looking BRANCH code is a finding. */
     private static void checkIfsc(List<Finding> findings, String text) {
+        for (String ifsc : unmaskedIfscs(text)) {
+            findings.add(new Finding(Finding.Severity.BLOCKER, "pii",
+                    "unmasked IFSC branch code survived redaction: " + ifsc));
+        }
+    }
+
+    /** Every match of {@code pattern} in {@code text} that neither the placeholder rule nor the
+     *  already-masked rule exempts. The one place that decides what counts as a surviving email
+     *  address or phone number, shared by {@link #validate} and {@link #privacyKinds} so the two
+     *  cannot disagree. */
+    private static List<String> unplaceholderedHits(Pattern pattern, String text) {
+        List<String> hits = new ArrayList<>();
+        var matcher = pattern.matcher(text);
+        while (matcher.find()) {
+            String hit = matcher.group();
+            if (PLACEHOLDER.matcher(hit).find()) continue;
+            if (isAlreadyMasked(hit)) continue;
+            hits.add(hit);
+        }
+        return hits;
+    }
+
+    /**
+     * Whether every letter and digit in a hit is the redactor's own mask character. A short email
+     * (three letters before the at sign, three in the domain) masks to runs of x too short for the
+     * placeholder rule's run of four: still email-shaped, so it was refused although nothing in it
+     * is real. One unmasked letter or digit, such as a kept
+     * vocabulary word as the local part, and it is still a hit.
+     */
+    private static boolean isAlreadyMasked(String hit) {
+        return hit.chars().filter(Character::isLetterOrDigit).allMatch(c -> c == 'X' || c == 'x' || c == '9');
+    }
+
+    private static boolean matchesUnplaceholdered(Pattern pattern, String text) {
+        return !unplaceholderedHits(pattern, text).isEmpty();
+    }
+
+    /** Every IFSC in {@code text} whose 6-character branch part is not a masked run of one
+     *  character. Shared by {@link #validate} and {@link #privacyKinds}. */
+    private static List<String> unmaskedIfscs(String text) {
+        List<String> found = new ArrayList<>();
         var matcher = IFSC.matcher(text);
         while (matcher.find()) {
             String branch = matcher.group().substring(5, 11);
             if (branch.matches("^(.)\\1{5}$")) continue;
-            findings.add(new Finding(Finding.Severity.BLOCKER, "pii",
-                    "unmasked IFSC branch code survived redaction: " + matcher.group()));
+            found.add(matcher.group());
         }
+        return found;
+    }
+
+    private static boolean hasUnmaskedIfsc(String text) {
+        return !unmaskedIfscs(text).isEmpty();
     }
 }

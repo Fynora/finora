@@ -1290,6 +1290,25 @@ export interface HeldImportDetail {
   objectKey: string | null;
 }
 
+/** One place a held statement's blanked copy reads differently from the real one -- mirrors the
+ *  backend's `BlankedCopyDto.Difference`. Names a field and a row, and only words already masked in
+ *  the copy; never a value from the real statement. `row` is null for a whole-statement field. */
+export interface BlankedCopyDifference {
+  section: number;
+  row: number | null;
+  field: string;
+  maskedTokens: string[];
+}
+
+/** A held statement's blanked copy and the check's verdict -- mirrors `BlankedCopyDto.Response`. */
+export interface BlankedCopy {
+  fileName: string;
+  trace: string;
+  check: 'MATCHES' | 'DIFFERS' | 'NOT_CHECKED';
+  notCheckedReason: string | null;
+  differences: BlankedCopyDifference[];
+}
+
 /** `reprocessing` counts jobs already sent back to the queue, not every queued import. */
 export interface HeldImportSummary {
   held: number;

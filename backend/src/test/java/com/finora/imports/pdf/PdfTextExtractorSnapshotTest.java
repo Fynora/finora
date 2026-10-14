@@ -1,6 +1,6 @@
 package com.finora.imports.pdf;
 
-import com.finora.imports.pdf.fixtures.PdfTraceRedactor;
+import com.finora.imports.pdf.trace.PdfTraceRedactor;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;

@@ -1,4 +1,4 @@
-package com.finora.imports.pdf.fixtures;
+package com.finora.imports.pdf.trace;
 
 import java.util.List;
 import java.util.Map;
@@ -60,7 +60,7 @@ public record TraceMetadata(int traceVersion, int redactorVersion, String allowl
      * {@code LAYOUT_FINGERPRINT_VERSION}: never silently change what a version number means. A
      * reader can tell from the magic line alone whether a trace carries widths.
      *
-     * <p>Reading stays backward compatible — {@link PdfTrace#parse} accepts 4- or 5-field rows — so
+     * <p>Reading stays backward compatible — {@link TraceFormat#parse} accepts 4- or 5-field rows — so
      * existing traces keep working and keep behaving exactly as before. What they cannot do is
      * cover a width-dependent capability, and that stays true until they are recaptured from their
      * source documents.

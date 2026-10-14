@@ -290,6 +290,86 @@ public final class PdfFixtureBuilder {
         return render(List.of(page));
     }
 
+    /** Invented customer-shaped values planted by {@link #buildSampleWithPlantedCustomerData}, so a
+     *  test can assert none of them reaches a blanked copy. None belongs to anybody. */
+    public static final String PLANTED_NAME = "Asha Verma";
+    public static final String PLANTED_PHONE = "9876543210"; // synthetic-ok: invented, the textbook 9876543210 sequence
+    public static final String PLANTED_EMAIL = "asha.verma@example.org"; // synthetic-ok: example.org is reserved
+    public static final String PLANTED_ACCOUNT_NUMBER = "100000000001"; // synthetic-ok: the repo's account-number placeholder
+    /** A full IFSC shape whose branch part is not a masked run, so the privacy scan catches it if it
+     *  survives. "ZZZZ" is no bank's prefix. */
+    public static final String PLANTED_IFSC = "ZZZZ0A1B2C3"; // synthetic-ok: invented, ZZZZ is no bank's prefix
+    /** The long digit runs planted as reference numbers: a 14-digit and a 12-digit one. */
+    public static final String PLANTED_LONG_REFERENCE = "10203040506070"; // synthetic-ok: 10-20-30-40-50-60-70, invented
+    public static final String PLANTED_REFERENCE = "234567890123"; // synthetic-ok: invented ascending digits
+    /** A name made only of letters outside ASCII, in a script the fixture's font can draw (accented
+     *  Latin; Helvetica's WinAnsi encoding has no Devanagari or Tamil). A token with no ASCII letter
+     *  in it is the shape the redactor once returned verbatim. */
+    public static final String PLANTED_OTHER_SCRIPT_NAME = "\u00C0\u00C9\u00CE \u00D4\u00DB"; // synthetic-ok: invented
+
+    /**
+     * {@link #buildReferenceNumberAndBalanceSample}'s layout with an account holder's name, phone,
+     * email, account number and IFSC planted in the header, a nominee's name written only in
+     * letters outside ASCII below them, the name, phone and email in two
+     * narrations, and long digit runs as reference numbers -- the values a blanked copy must never
+     * carry. Every value is invented; see the PLANTED_* constants.
+     */
+    public static byte[] buildSampleWithPlantedCustomerData() throws IOException {
+        return buildPlanted(null);
+    }
+
+    /**
+     * {@link #buildSampleWithPlantedCustomerData} plus one header line holding the one email shape
+     * the redactor cannot blank (see {@code BlankedCopyServiceTest}'s class comment): a kept
+     * vocabulary word as the local part and a domain too short to mask into a run of four. A blanked
+     * copy of this statement is refused by the privacy scan.
+     */
+    public static byte[] buildSampleWithAnEmailTheRedactorCannotBlank() throws IOException {
+        return buildPlanted("Contact: statement@a.in"); // synthetic-ok: invented, two-letter domain
+    }
+
+    private static byte[] buildPlanted(String extraHeaderLine) throws IOException {
+        float[] col = {LEFT_MARGIN, 115f, 320f, 460f, 530f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("CANARA BANK")
+                .line("Customer Name: " + PLANTED_NAME + "  Phone: " + PLANTED_PHONE + "  Email: " + PLANTED_EMAIL)
+                .line("Account Number: " + PLANTED_ACCOUNT_NUMBER + "  IFSC: " + PLANTED_IFSC)
+                .line("Nominee: " + PLANTED_OTHER_SCRIPT_NAME);
+        if (extraHeaderLine != null) page.line(extraHeaderLine);
+        page.blankLine()
+                .row(col, "Date", "Particulars", "Reference No", "Amount", "Balance")
+                .row(col, "01/07/2026", "UPI/" + PLANTED_NAME + "/" + PLANTED_PHONE, PLANTED_REFERENCE, "-1000.00", "49000.00")
+                .row(col, "01/07/2026", "IMPS/" + PLANTED_EMAIL, PLANTED_LONG_REFERENCE, "1000.00", "50000.00")
+                .row(col, "02/07/2026", "UPI/DR/345678901234/GENERIC PAYEE", "345678901234", "-150.00", "49850.00");   // synthetic-ok: invented ascending digits
+
+        return render(List.of(page));
+    }
+
+    /**
+     * A statement whose money-in-or-out is printed only as a bare letter in a "Type" column: "C"
+     * for a credit and "D" for a debit, with no Dr/Cr word, no sign, no credit column and no
+     * running balance to infer it from. The reading takes the direction from that letter
+     * ({@code TransactionNormalizer} reads a bare "c"/"d" as the type). A blanked copy masks a lone
+     * letter like any other word, so its reading has no type to read and every row comes back as
+     * money out: the credit rows read differently. Built to give a blanked copy a known mismatch,
+     * on rows 1 and 3 (0-based), and only in the direction.
+     */
+    public static byte[] buildDirectionOnlyAsABareLetterSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 115f, 380f, 460f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("CANARA BANK")
+                .blankLine()
+                .row(col, "Date", "Particulars", "Amount", "Type")
+                .row(col, "01/07/2026", "UPI/GENERIC MERCHANT", "1000.00", "D")
+                .row(col, "02/07/2026", "NEFT/SAMPLE EMPLOYER", "5000.00", "C")
+                .row(col, "03/07/2026", "UPI/GENERIC PAYEE", "150.00", "D")
+                .row(col, "04/07/2026", "IMPS/SAMPLE SENDER", "250.00", "C");
+
+        return render(List.of(page));
+    }
+
     // ==================== DR_CR_SUFFIX (bare and parenthesized) / REPEATED_HEADER ====================
 
     /**

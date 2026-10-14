@@ -1,5 +1,8 @@
 package com.finora.imports.pdf.fixtures;
 
+import com.finora.imports.pdf.trace.TraceMetadata;
+import com.finora.imports.pdf.trace.TraceValidator;
+
 import java.util.List;
 
 /**

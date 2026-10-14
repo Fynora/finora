@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import HeldStatementDetail from './HeldStatementDetail';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { mockAdminAuthState } from '../test/mockAdminAuth';
-import { adminHeldStatementApi } from '../api/endpoints';
+import { adminBlankedCopyApi, adminHeldStatementApi } from '../api/endpoints';
 import type { HeldStatementDetail as HeldStatementDetailDto, HeldStatementRow } from '../types';
 
 vi.mock('../context/ThemeContext', () => ({
@@ -29,7 +29,14 @@ vi.mock('../api/endpoints', () => ({
     download: vi.fn(),
     stagedRows: vi.fn(),
   },
+  adminBlankedCopyApi: {
+    status: vi.fn(),
+    heldImport: vi.fn(),
+    heldStatement: vi.fn(),
+  },
 }));
+// jsdom has no URL.createObjectURL; the panel's own test covers what is handed to the download.
+vi.mock('../lib/download', () => ({ downloadBlob: vi.fn() }));
 
 const summary: HeldStatementRow = {
   id: '11111111-1111-1111-1111-111111111111',
@@ -125,6 +132,7 @@ describe('HeldStatementDetail', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(adminHeldStatementApi.get).mockResolvedValue(detail);
+    vi.mocked(adminBlankedCopyApi.status).mockResolvedValue({ enabled: false });
   });
 
   it('is gated on TRUST_REVIEW_MANAGE', () => {
@@ -641,6 +649,73 @@ describe('HeldStatementDetail', () => {
       await screen.findByText(/count disagree/i);
 
       expect(screen.queryByRole('button', { name: 'Show staged rows' })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('blanked copy', () => {
+    /** Unlike the real document, the copy is not pinned to the admin roles: it is blanked. */
+    it('is offered to a non-admin role when the switch is on, and fetches this hold\'s copy', async () => {
+      vi.mocked(adminBlankedCopyApi.status).mockResolvedValue({ enabled: true });
+      vi.mocked(adminBlankedCopyApi.heldStatement).mockResolvedValue({
+        fileName: 'blanked-HLD-2026-100001.trace', trace: '# finora-pdf-trace v3\n', check: 'MATCHES',
+        notCheckedReason: null, differences: [],
+      });
+      mockAuth(['TRUST_REVIEW_MANAGE'], ['SUPPORT']);
+      renderPage();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Download blanked copy' }));
+
+      await waitFor(() => expect(adminBlankedCopyApi.heldStatement).toHaveBeenCalledWith('HLD-2026-100001'));
+      expect(await screen.findByText('Matches the real statement')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /download statement/i })).not.toBeInTheDocument();
+    });
+
+    /** The page stays mounted across a move to another hold; one hold's verdict must not be read
+     *  as the next one's. */
+    it('clears the verdict once navigation moves to a different held statement', async () => {
+      vi.mocked(adminHeldStatementApi.get).mockImplementation((heldId: string) =>
+        Promise.resolve(heldId === 'HLD-2026-100002'
+          ? { ...detail, summary: { ...summary, heldId: 'HLD-2026-100002', triggerSummary: 'A different trigger' } }
+          : detail));
+      vi.mocked(adminBlankedCopyApi.status).mockResolvedValue({ enabled: true });
+      vi.mocked(adminBlankedCopyApi.heldStatement).mockResolvedValue({
+        fileName: 'blanked-HLD-2026-100001.trace', trace: '# finora-pdf-trace v3\n', check: 'MATCHES',
+        notCheckedReason: null, differences: [],
+      });
+      mockAuth(['TRUST_REVIEW_MANAGE'], ['SUPPORT']);
+      renderPageWithNav();
+      fireEvent.click(await screen.findByRole('button', { name: 'Download blanked copy' }));
+      await screen.findByText('Matches the real statement');
+
+      fireEvent.click(screen.getByRole('link', { name: /go to other hold/i }));
+
+      await screen.findByText(/a different trigger/i);
+      expect(screen.getByRole('button', { name: 'Download blanked copy' })).toBeInTheDocument();
+      expect(screen.queryByText('Matches the real statement')).not.toBeInTheDocument();
+    });
+
+    it('is not offered when the switch is off', async () => {
+      mockAuth(['TRUST_REVIEW_MANAGE'], ['SUPPORT']);
+      renderPage();
+      await screen.findByText(/count disagree/i);
+      await waitFor(() => expect(adminBlankedCopyApi.status).toHaveBeenCalled());
+
+      expect(screen.queryByRole('button', { name: 'Download blanked copy' })).not.toBeInTheDocument();
+    });
+
+    /** The server refuses both with a 409; the page already says why. */
+    it.each([
+      ['a decided hold', { ...detail, summary: { ...summary, status: 'IMPORTED' as const } }],
+      ['a locked hold whose password was not kept', { ...detail, summary: { ...summary, lockedWithoutPassword: true } }],
+    ])('is not offered on %s', async (_label, held) => {
+      vi.mocked(adminHeldStatementApi.get).mockResolvedValue(held);
+      vi.mocked(adminBlankedCopyApi.status).mockResolvedValue({ enabled: true });
+      mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
+      renderPage();
+      await screen.findByText(/count disagree/i);
+      await waitFor(() => expect(adminBlankedCopyApi.status).toHaveBeenCalled());
+
+      expect(screen.queryByRole('button', { name: 'Download blanked copy' })).not.toBeInTheDocument();
     });
   });
 });

@@ -141,15 +141,20 @@ applies, so the permission cannot pull any customer's statement by job id.
    password, stop with a clear message; nothing is produced.
 3. Acquire positioned text once, with the same acquirer the import used (text layer or OCR), so the
    copy is made from exactly what Fynora read, and both sides of the check start from the same runs.
-4. **Privacy check.** Redact with `PdfTraceRedactor` and validate with `TraceValidator`. A copy the
-   validator refuses is never returned, whatever the matching check would say; the person is told
-   why. Metadata in the copy is written by the server (redactor version, allowlist fingerprint,
-   date, the held item's reference) and never includes the file name or any customer text.
+4. **Privacy check.** Redact with `PdfTraceRedactor`, then run `TraceValidator`'s privacy scan
+   alone (email, Indian mobile number, full IFSC). A copy it refuses is never returned, whatever
+   the matching check would say; the person is told which kinds were found, never the text. The
+   validator's other blockers are not used here: its "no table found" blocker would refuse exactly
+   the never-seen layouts this exists for. Metadata in the copy is written by the server (redactor
+   version, allowlist fingerprint, date, the held item's reference) and never includes the file
+   name or any customer text.
 5. **Matching check.** Separate from the privacy check: passing it says the copy reads the same,
-   not that it is safe. Run the reading pipeline from positioned text twice, on the real runs and
-   on the redacted runs, both with **empty** per-customer rules, merchant, duplicate and resolution
-   indexes, so that no customer ledger data is read and the result does not depend on it. Compare
-   only what reading produces:
+   not that it is safe. Run the reading pipeline from positioned text twice: on the real runs, and
+   on the trace file's own round trip (format, then parse), because the file is what Claude gets.
+   The file carries no run's source, height or confidence, so a scanned statement can honestly come
+   back "does not match". Both readings use one fresh random user id, so no customer's rules,
+   merchants, duplicates or resolutions are read and the result cannot depend on them (global rules
+   still apply to both). Compare only what reading produces:
    - number of sections and rows;
    - each row's date, amount, direction and balance;
    - which page lines were grouped into each row's description (by position, not text);
@@ -158,9 +163,10 @@ applies, so the permission cannot pull any customer's statement by job id.
 
    Not compared: account holder name and account number (they are masked on one side by design),
    categories, merchants and duplicate flags (they come from description words and customer data).
-6. **What a mismatch shows.** The differing rows and fields, and the hidden words on those rows **in
-   their masked form and position only**. The real word is never shown, because showing it would
-   hand support staff the customer's text. Deciding whether a hidden word belongs on the allowlist
+6. **What a mismatch shows.** The differing rows and the names of the differing fields, and the
+   hidden words on those rows **in their masked form only**. Never a value: the real word would
+   hand support staff the customer's text, and a real "amount" can be a phone number the copy
+   masked. Deciding whether a hidden word belongs on the allowlist
    needs the real statement, which is the Admin-only path (project 2).
 7. Store nothing. The copy and the comparison exist only for the response.
 
@@ -169,9 +175,10 @@ exception message, an error report or an audit entry from this code path.
 
 ### Code changes
 
-- Move `PdfTraceRedactor`, `PdfTrace`, `TraceMetadata`, `TraceValidator` and `TraceQualityReport`
-  from `backend/src/test/.../pdf/fixtures` into main code (a new `com.finora.imports.pdf.trace`
-  package), with unchanged behaviour. They depend only on main-code classes (`PdfTableLocator`,
+- Move `PdfTraceRedactor`, `TraceMetadata`, `TraceValidator` and the format/parse half of
+  `PdfTrace` (as `TraceFormat`) from `backend/src/test/.../pdf/fixtures` into main code (a new
+  `com.finora.imports.pdf.trace` package), with unchanged behaviour. `PdfTrace`'s
+  resource-loading half and `TraceQualityReport` stay in test code; production needs neither. They depend only on main-code classes (`PdfTableLocator`,
   `PositionedText`, `BankRegistry`) and the JDK, so the move needs no test library in production.
   `trace-capture.sh` and every existing test keep working against the moved classes.
 - Add a reading entry point that starts from positioned text instead of bytes, sharing everything
@@ -180,8 +187,8 @@ exception message, an error report or an audit entry from this code path.
   before staging and verification; the matching check needs the whole pipeline.
 - `BlankedCopyService` (steps 1-7) and `BlankedCopyComparison` (the comparison and its result).
 - Two endpoints, one per queue, beside the existing `/document` ones.
-- A switch, `app.blanked-copy.enabled`, off by default in production until the owner has run it on
-  a real held statement; the button is hidden when it is off.
+- A switch, `app.blanked-copy.enabled`, off by default until the owner has run it on a real held
+  statement. A status endpoint tells the admin portal whether to show the button.
 - Counts, never content, for monitoring: copies produced, refused by the privacy check, and each
   matching result.
 - Admin portal: the button and the result, on the held-import view and on Held Statement Detail.

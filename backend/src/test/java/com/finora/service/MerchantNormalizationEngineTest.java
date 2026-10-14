@@ -416,6 +416,25 @@ class MerchantNormalizationEngineTest {
         assertThat(merchants).hasSize(4);
     }
 
+    /**
+     * groupingKeyOfName is the key resolve() matches a stored name by. Two names with the same key
+     * would compete for the same narrations, which is what the merchant-name recheck has to avoid
+     * creating when it renames a merchant.
+     */
+    @Test
+    @DisplayName("the grouping key of a stored name is the one resolve() matches it by")
+    void groupingKeyOfNameIsTheKeyResolveMatchesBy() {
+        Merchant stored = merchantNamed("Sample Kirana");
+        Merchant matched = engine.resolve(userId, "UPI-SAMPLE KIRANA-samplekirana@okaxis-UTIB0XXXXXX-100000000004-groceries");
+
+        assertThat(matched.getId()).isEqualTo(stored.getId());
+        assertThat(MerchantNormalizationEngine.groupingKeyOfName("Sample Kirana"))
+                .isEqualTo(MerchantNormalizationEngine.groupingKeyOfName("Upi Sample Kirana Samplekirana"))
+                .isNotNull();
+        assertThat(MerchantNormalizationEngine.groupingKeyOfName("UPI payment")).isNull();
+        assertThat(MerchantNormalizationEngine.groupingKeyOfName(null)).isNull();
+    }
+
     private Merchant approvedMerchant(String canonicalName) {
         Merchant m = merchantNamed(canonicalName);
         m.setLifecycleStatus(Merchant.Lifecycle.APPROVED);

@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import type { BalanceChainDetails, VerificationFinding, VerificationReport } from '../types';
 import { Card } from './Card';
+import { cardFlowCopy, cardSummaryCopy, descriptionCopy, rowAccountingCopy, type CheckCopy } from './verificationCopy';
 import { spacing, useTheme, type Palette } from '../theme';
 
 /**
@@ -206,7 +207,41 @@ const RULE_RENDERERS: Record<string, { label: string; summary: (f: VerificationF
       );
     },
   },
+  // The rest word themselves through verificationCopy -- see that file for why they cannot show
+  // the server's own sentences. Web adds figures beneath the two card checks; this shows the sentences.
+  ROW_ACCOUNTING: {
+    label: 'Rows accounted for',
+    summary: (finding, c) => copySummary(rowAccountingCopy(finding), finding, c),
+  },
+  DESCRIPTION_CORRUPTION: {
+    label: 'Transaction descriptions',
+    summary: (finding, c) => copySummary(descriptionCopy(finding), finding, c),
+  },
+  CREDIT_CARD_STATEMENT_TOTALS: {
+    label: 'Card statement summary',
+    summary: (finding, c) => copySummary(cardSummaryCopy(finding), finding, c),
+  },
+  CREDIT_CARD_FLOW_RECONCILIATION: {
+    label: 'Card purchases and payments',
+    summary: (finding, c) => copySummary(cardFlowCopy(finding), finding, c),
+  },
 };
+
+/** The note is what the finding means for the person importing, so when the check found something
+ *  to look at it takes the warning ink rather than the muted ink of the sentence it follows. */
+function copySummary(copy: CheckCopy, finding: VerificationFinding, c: Palette): ReactNode {
+  const disagrees = finding.outcome === 'WARNING' || finding.outcome === 'FAILED';
+  return (
+    <>
+      <Text style={[styles.findingBody, { color: c.muted }]}>{copy.body}</Text>
+      {copy.note ? (
+        <Text style={[styles.findingBody, { color: disagrees ? c.warningInk : c.muted }]}>
+          {copy.note}
+        </Text>
+      ) : null}
+    </>
+  );
+}
 
 const styles = StyleSheet.create({
   card: { gap: spacing.xs },

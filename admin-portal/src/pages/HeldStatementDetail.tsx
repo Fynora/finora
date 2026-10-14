@@ -44,7 +44,9 @@ function FindingCard({ finding }: { finding: HeldStatementFinding }) {
         <span className="text-xs text-warning">{finding.outcome}</span>
       </div>
       {entries.length > 0 && (
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-xs">
+        // One pair per row below sm: two columns at phone width left each value about 60px, so a
+        // four-digit amount broke across two lines.
+        <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 mt-2 text-xs">
           {entries.map(([key, value]) => (
             <div key={key} className="flex justify-between gap-2">
               <dt className="text-muted">{key}</dt>

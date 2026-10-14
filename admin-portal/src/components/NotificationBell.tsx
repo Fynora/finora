@@ -68,7 +68,10 @@ export function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-2 w-80 bg-card border border-border rounded-xl2 shadow-card max-h-96 overflow-y-auto z-50 divide-y divide-border">
+        // Below sm the menu is pinned 16px from both screen edges: right-aligned under its button
+        // it ran off the left of a phone screen, where the header wraps and the bell is no longer
+        // at the far right.
+        <div className="absolute right-0 mt-2 w-80 max-sm:fixed max-sm:inset-x-4 max-sm:w-auto bg-card border border-border rounded-xl2 shadow-card max-h-96 overflow-y-auto z-50 divide-y divide-border">
           {count === 0 ? (
             <div className="flex items-center gap-2 text-sm text-success px-4 py-4">
               <CheckCircle2 size={15} />

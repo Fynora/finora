@@ -44,7 +44,7 @@ Measured from `PdfTraceRedactor` and `TraceValidator` as they are today:
 
 | Kept | Hidden |
 |---|---|
-| Every text run's page, position and (for unmasked runs) width | Names, narration words, anything not on the allowlist: each letter becomes `X`/`x`, each digit `9` |
+| Every text run's page, position and width (exact for unmasked runs, rounded to a whole point for masked ones, from redactor version 5) | Names, narration words, anything not on the allowlist: each letter becomes `X`/`x`, each digit `9` |
 | Amounts (`1,234.56`) and dates, whole | Any run of 8 or more digits (account, card and reference numbers), even if amount-shaped |
 | Allowlisted statement words and bank names | An IFSC's branch code (its 4-letter bank prefix is kept) |
 | Punctuation and symbols | |

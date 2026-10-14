@@ -20,6 +20,7 @@ class PdfTraceRedactorTest {
     @ParameterizedTest
     @CsvSource(delimiter = '|', value = {
             "JANE EXAMPLE                          | XXXX XXXXXXX",
+            // An integer glued to a comma is not a value on its own, so it is masked with the words.
             "Flat No 404, Sample Gardens           | Xxxx No 999, Xxxxxx Xxxxxxx",
             "Account No : 50100999999999           | Account No : 99999999999999",
             "jane.example@sample.test              | xxxx.xxxxxxx@xxxxxx.xxxx",
@@ -66,12 +67,115 @@ class PdfTraceRedactorTest {
         assertThat(redact("12 Marketing")).isEqualTo("99 Xxxxxxxxx");
     }
 
+    /** A plain integer is masked, page numbers included: keeping integers of up to five digits was
+     *  tried in redactor version 5 and measured to win no matches while letting numbers printed in
+     *  pieces through, so every standalone integer is masked as in version 4. */
     @Test
     void aPageFooterKeepsItsShapeThoughNotItsNumbers() {
-        // Deliberate: PdfTableLocator's PAGE_FOOTER matches on the words "page ... of" and never
-        // reads the digits, so preserving them would buy no fidelity while widening what a trace
-        // is allowed to carry. Masking every standalone number keeps one simple rule.
         assertThat(redact("Page 1 of 2")).isEqualTo("Page 9 of 9");
+    }
+
+    /**
+     * Value shapes reading relies on, kept from redactor version 5: amounts with a currency prefix
+     * or a glued Cr/Dr, glued and apostrophe-year dates, amount-shaped integers, and a lone C or D
+     * direction marker. Every value is invented.
+     */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "Rs.1,234.00", "INR 1,234.00", "\u20B9500.00", "Rs1,234.00", "INR1,234.00",
+            "1,234.00Cr", "500.00DR", "1,234.00cr", "Rs.1,234.00Dr",
+            "12Jul", "12Jul2026", "12jul26", "05Sept2026",
+            "Jul '26", "12 Jul'26", "12 Jul '26", "12 Jul\u201926",
+            "1,00,000", "12,345", "1,234,567",
+            "C", "d",
+    })
+    void aValueShapeReadingNeedsIsKept(String line) {
+        assertThat(redact(line)).isEqualTo(line.trim());
+    }
+
+    /**
+     * Digit groups joined by single spaces, hyphens or dots are one number. A card, account or
+     * mobile number printed in groups is six or more digits however short each group is, so every
+     * group is masked; a short integer on its own is still kept. Every value is invented.
+     */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "4111 1111 1111 1111         | 9999 9999 9999 9999",       // synthetic-ok: a card number in groups
+            "1234 5678 9012              | 9999 9999 9999",            // synthetic-ok: an account number in groups
+            "98765 43210                 | 99999 99999",               // synthetic-ok: a mobile number with a space
+            "Call 98765-43210 now        | Xxxx 99999-99999 xxx",      // synthetic-ok: hyphenated
+            "123 456                     | 999 999",                   // six digits: the boundary
+            "Rs.1234 5678                | Xx.9999 9999",              // synthetic-ok: a prefix does not rescue a group
+            "12345 1234.56               | 99999 9999.99",             // a value in a long chain is masked with it
+    })
+    void digitGroupsThatFormSixOrMoreDigitsAreMaskedTogether(String input, String expected) {
+        assertThat(redact(input)).isEqualTo(expected.trim());
+        assertThat(PdfTraceRedactor.redactLine(input.trim())).isEqualTo(expected.trim());
+    }
+
+
+    /**
+     * A number split across runs on the same line is one number too: runs whose gap is at most one
+     * character's width (or whose width is unknown) join their edge digit groups. Runs in separate
+     * columns, or on another line, do not.
+     */
+    @Test
+    void digitGroupsSplitAcrossAdjacentRunsAreMaskedTogether() {
+        // synthetic-ok: an invented mobile number in two runs a space apart (5 chars over 25pt).
+        assertThat(texts(PdfTraceRedactor.redact(List.of(
+                new PositionedText("98765", 100f, 50f, 0, 25f),
+                new PositionedText("43210", 127.5f, 50f, 0, 25f)))))
+                .containsExactly("99999", "99999");
+        // Three touching two-digit runs: 6 digits only together.
+        assertThat(texts(PdfTraceRedactor.redact(List.of(
+                new PositionedText("12", 100f, 50f, 0, 10f),
+                new PositionedText("34", 110f, 50f, 0, 10f),
+                new PositionedText("56", 120f, 50f, 0, 10f)))))
+                .containsExactly("99", "99", "99");
+        // A width that was never measured is treated as adjacent: masking more is the safe side.
+        assertThat(texts(PdfTraceRedactor.redact(List.of(
+                new PositionedText("98765", 100f, 50f, 0),
+                new PositionedText("43210", 140f, 50f, 0)))))
+                .containsExactly("99999", "99999");
+        // Separate columns on one line: plain integers are masked anyway.
+        assertThat(texts(PdfTraceRedactor.redact(List.of(
+                new PositionedText("98765", 100f, 50f, 0, 25f),
+                new PositionedText("43210", 300f, 50f, 0, 25f)))))
+                .containsExactly("99999", "99999");
+        // A line that ends in a plain group followed by a line that starts with one is read as a
+        // number wrapped at the line break, so both halves are masked (fail closed).
+        assertThat(texts(PdfTraceRedactor.redact(List.of(
+                new PositionedText("98765", 100f, 50f, 0, 25f),
+                new PositionedText("43210", 300f, 50f, 0, 25f),
+                new PositionedText("12345", 100f, 70f, 0, 25f)))))
+                .containsExactly("99999", "99999", "99999");
+    }
+
+    private static List<String> texts(List<PositionedText> runs) {
+        return runs.stream().map(PositionedText::text).toList();
+    }
+
+    /** What the version 5 keep rules still mask: six or more digits without grouping, a currency
+     *  prefix on such a number, any glued suffix other than Cr/Dr, any other lone letter, a month
+     *  name glued into a longer word, and a letter with punctuation that is not a lone token. */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "123456         | 999999",
+            "Asha 560034    | Xxxx 999999",       // synthetic-ok: a PIN code
+            "1234567        | 9999999",
+            "Rs.123456      | Xx.999999",
+            "1,234.00Xy     | 9,999.99Xx",
+            "1,234.00Crx    | 9,999.99Xxx",
+            "E              | X",
+            "CD             | XX",
+            "C.             | X.",
+            "12Junk         | 99Xxxx",
+            "12,34          | 99,99",
+            "1,2345         | 9,9999",
+            "Jul 2026x      | Xxx 9999x",
+    })
+    void aShapeOutsideTheKeepRulesIsStillMasked(String input, String expected) {
+        assertThat(redact(input)).isEqualTo(expected.trim());
     }
 
     @Test
@@ -81,6 +185,19 @@ class PdfTraceRedactorTest {
         // useless for regression-testing detection.
         assertThat(redact("RTGS/NEFT IFSC: HDFC0001234 MICR: 500240002")) // synthetic-ok invented IFSC
                 .isEqualTo("RTGS/NEFT IFSC: HDFC0XXXXXX MICR: 999999999");
+    }
+
+    /** The punctuation at an IFSC's edges is kept, so the masked token is exactly as long as the
+     *  real one: every other rule keeps length, and the copy's text lines up with the real text. */
+    @Test
+    void anIfscNextToPunctuationKeepsThePunctuationAndTheLength() {
+        for (String[] c : new String[][] {
+                {"NEFT HDFC0001234, Asha", "NEFT HDFC0XXXXXX, Xxxx"},   // synthetic-ok invented IFSC
+                {"IFSC:HDFC0001234.", "IFSC:HDFC0XXXXXX."},            // synthetic-ok invented IFSC
+                {"(HDFC0001234)", "(HDFC0XXXXXX)"},                     // synthetic-ok invented IFSC
+        }) {
+            assertThat(redact(c[0])).as(c[0]).isEqualTo(c[1]).hasSameSizeAs(c[0]);
+        }
     }
 
     @Test
@@ -97,17 +214,21 @@ class PdfTraceRedactorTest {
         assertThat(redact("Zorbulax Quingle")).isEqualTo("Xxxxxxxx Xxxxxxx");
     }
 
+    /** An unchanged run keeps its coordinates exactly. A changed run keeps y and page, and its x is
+     *  rounded to a whole point like its width: an exact x beside a rounded width would let the
+     *  masked run's width be recovered from the gap to its neighbour. */
     @Test
-    void coordinatesAreNeverAltered() {
-        List<PositionedText> redacted = PdfTraceRedactor.redact(
-                List.of(new PositionedText("JANE EXAMPLE", 35.5f, 720.25f, 3)));
+    void coordinatesAreKeptAndAChangedRunsXIsRounded() {
+        List<PositionedText> redacted = PdfTraceRedactor.redact(List.of(
+                new PositionedText("JANE EXAMPLE", 35.4f, 720.25f, 3),
+                new PositionedText("Balance", 135.4f, 720.25f, 3)));
 
-        assertThat(redacted).singleElement().satisfies(run -> {
-            assertThat(run.text()).isEqualTo("XXXX XXXXXXX");
-            assertThat(run.x()).isEqualTo(35.5f);
-            assertThat(run.y()).isEqualTo(720.25f);
-            assertThat(run.pageIndex()).isEqualTo(3);
-        });
+        assertThat(redacted.get(0).text()).isEqualTo("XXXX XXXXXXX");
+        assertThat(redacted.get(0).x()).isEqualTo(35f);
+        assertThat(redacted.get(0).y()).isEqualTo(720.25f);
+        assertThat(redacted.get(0).pageIndex()).isEqualTo(3);
+        assertThat(redacted.get(1).x()).isEqualTo(135.4f);
+        assertThat(redacted.get(1).y()).isEqualTo(720.25f);
     }
 
     /**
@@ -140,43 +261,45 @@ class PdfTraceRedactorTest {
     }
 
     /**
-     * A run redaction changed loses its width, whatever it was measured at.
+     * A run redaction changed keeps its width rounded to a whole point (redactor version 5).
      *
-     * <p>For digits this leaks nothing anyway (digit glyphs are uniform-width in every text font), but
-     * for letters a width constrains the multiset of masked characters. The pipeline does read
-     * these widths (see {@code PdfTraceRedactor#redact}: dropping them changes some readings); the
-     * disclosure is declined anyway.
+     * <p>Reading uses these widths: zeroing them changed the reading of 14 real statements (a card's
+     * summary labels, the page-shows-a-space evidence, right-aligned amounts). Rounded, the width
+     * still places the run's right edge to within half a point, while it says much less about which
+     * letters were masked than the measured value would (letters differ in width by fractions of a
+     * point).
      */
     @ParameterizedTest
     @CsvSource(delimiter = '|', value = {
-            "JANE EXAMPLE     | 61.34",   // a name
-            "50100999999999   | 77.84",   // an account number
-            "HDFC0001234      | 58.71",   // synthetic-ok invented IFSC -- prefix kept, branch code masked, so it CHANGED
-            "Zorbulax         | 44.02",   // an unrecognised word
-            "Flat No 404, Sample Gardens | 118.90",
+            "JANE EXAMPLE     | 61.34 | 61",   // a name
+            "50100999999999   | 77.84 | 78",   // an account number
+            "HDFC0001234      | 58.71 | 59",   // synthetic-ok invented IFSC -- prefix kept, branch code masked, so it CHANGED
+            "Zorbulax         | 44.50 | 45",   // an unrecognised word; half a point rounds up
+            "Flat No 404, Sample Gardens | 118.49 | 118",
+            "Zorbulax         | 0     | 0",    // a run measured with no width keeps none
     })
-    void aMaskedRunLosesItsWidth(String text, float width) {
+    void aMaskedRunKeepsItsWidthRoundedToAWholePoint(String text, float width, float rounded) {
         List<PositionedText> redacted = PdfTraceRedactor.redact(
                 List.of(new PositionedText(text.trim(), 300f, 100f, 0, width)));
 
         assertThat(redacted).singleElement().satisfies(run -> {
             assertThat(run.text()).as("this input must have been changed by redaction")
                     .isNotEqualTo(text.trim());
-            assertThat(run.width()).isZero();
-            assertThat(run.endX()).isEqualTo(run.x());
+            assertThat(run.width()).isEqualTo(rounded);
+            assertThat(run.endX()).isEqualTo(300f + rounded);
         });
     }
 
-    /** A partially masked run is a masked run: one hidden character is enough to drop the width,
-     *  because the width describes the original glyphs and would no longer match the text beside it. */
+    /** A partially masked run is a masked run: one hidden character is enough for its width to be
+     *  rounded, because the width describes the original glyphs, not the text beside it. */
     @Test
-    void aRunWithOneMaskedTokenAmongStructuralOnesLosesItsWidth() {
+    void aRunWithOneMaskedTokenAmongStructuralOnesHasItsWidthRounded() {
         List<PositionedText> redacted = PdfTraceRedactor.redact(List.of(
-                new PositionedText("UPI-JANE EXAMPLE-PAYMENT FROM PHONE", 50f, 100f, 0, 180.5f)));
+                new PositionedText("UPI-JANE EXAMPLE-PAYMENT FROM PHONE", 50f, 100f, 0, 180.3f)));
 
         assertThat(redacted).singleElement().satisfies(run -> {
             assertThat(run.text()).isEqualTo("UPI-XXXX XXXXXXX-PAYMENT FROM PHONE");
-            assertThat(run.width()).isZero();
+            assertThat(run.width()).isEqualTo(180f);
         });
     }
 
@@ -208,7 +331,7 @@ class PdfTraceRedactorTest {
 
         assertThat(redacted).singleElement().satisfies(run -> {
             assertThat(run.text()).isEqualTo("XXXX X XXXXX");
-            assertThat(run.width()).isZero();
+            assertThat(run.width()).isEqualTo(90f);
         });
     }
 
@@ -259,6 +382,36 @@ class PdfTraceRedactorTest {
     @Test
     void aLoneCombiningMarkIsMasked() {
         assertThat(redact("Ref \u0301\u093F")).isEqualTo("Ref xx");
+    }
+
+    /**
+     * An invisible format character (a zero-width joiner or non-joiner) inside a word is masked to x
+     * like a mark, so a masked word no longer shows where its conjuncts or joins were. One outside
+     * any token (before a word, after an amount, between spaces) carries nothing and is kept, so a
+     * kept amount stays kept. Every value is invented.
+     */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "\u0915\u094D\u200D\u0937 | xxxx",                     // synthetic-ok: a conjunct with ZWJ
+            "Asha\u200CVerma | XxxxxXxxxx",                        // synthetic-ok: ZWNJ inside a word
+            "UPI Asha\u200D\u200DVerma 1,234.00 | UPI XxxxxxXxxxx 1,234.00", // synthetic-ok
+    })
+    void aFormatCharacterInsideATokenIsMasked(String input, String expected) {
+        String redacted = redact(input);
+        assertThat(redacted).isEqualTo(expected.trim());
+        assertThat(redacted.codePointCount(0, redacted.length()))
+                .isEqualTo(input.trim().codePointCount(0, input.trim().length()));
+        assertThat(redacted.codePoints().filter(cp -> Character.getType(cp) == Character.FORMAT)).isEmpty();
+    }
+
+    /** Since redactor version 5 a format character outside a token is masked too (it can carry a
+     *  hidden message anywhere). An amount glued to one is not standing apart, so it is masked as a
+     *  number rather than kept. */
+    @Test
+    void aFormatCharacterOutsideAnyTokenIsMasked() {
+        assertThat(redact("\u200DBalance 1,234.00 \u200B Cr")).isEqualTo("xBalance 1,234.00 x Cr");
+        assertThat(redact("1,234.00\u200B")).isEqualTo("9,999.99x");
+        assertThat(PdfTraceRedactor.maskOf(0x200D)).isEqualTo('x');
     }
 
     /** A vocabulary word spelled with a character that lower-cases to ASCII (the Kelvin sign) is

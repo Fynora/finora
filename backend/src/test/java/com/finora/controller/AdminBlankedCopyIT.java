@@ -303,7 +303,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
 
     @Test
     void theCheckResultIsAuditedWhenTheCopyDiffers(CapturedOutput output) throws Exception {
-        ImportJob job = heldJob(PdfFixtureBuilder.buildDirectionOnlyAsABareLetterSample(), CUSTOMER_FILE_NAME, "PDF");
+        ImportJob job = heldJob(PdfFixtureBuilder.buildDirectionOnlyAsAWordSample(), CUSTOMER_FILE_NAME, "PDF");
         User support = createSupportUser("IMPORT_TRIAGE_MANAGE");
 
         ResponseEntity<String> copy = get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", support);
@@ -418,13 +418,14 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
     }
 
     /**
-     * A statement whose reading depends on a masked word (its direction is only a bare C or D):
+     * A statement whose reading depends on a masked word (its direction is only the Type word
+     * "Income" or "Expense", neither of which the redactor keeps):
      * the endpoint says it does not match and lists each difference as section, row, field and the
      * copy's masked tokens, and nothing else.
      */
     @Test
     void aCopyThatReadsDifferentlyListsTheDifferences(CapturedOutput output) throws Exception {
-        ImportJob job = heldJob(PdfFixtureBuilder.buildDirectionOnlyAsABareLetterSample(), CUSTOMER_FILE_NAME, "PDF");
+        ImportJob job = heldJob(PdfFixtureBuilder.buildDirectionOnlyAsAWordSample(), CUSTOMER_FILE_NAME, "PDF");
 
         ResponseEntity<String> response = get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy",
                 createSupportUser("IMPORT_TRIAGE_MANAGE"));

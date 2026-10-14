@@ -95,9 +95,10 @@ class PdfTextExtractorSnapshotTest {
      * One line per run: every field PositionedText carries, since each one feeds the locator.
      *
      * <p>Coordinates come from the RAW runs and only the text is taken from the redacted ones.
-     * {@link PdfTraceRedactor#redact} builds its output through PositionedText's 4-arg constructor,
-     * which defaults width to 0 -- so redacting first and rendering second would silently zero the
-     * one field that exists to separate two adjacent right-aligned amount columns, and this
+     * {@link PdfTraceRedactor#redact} used to build a masked run through PositionedText's 4-arg
+     * constructor, which defaults width to 0, and now rounds a masked run's width to a whole point
+     * -- so redacting first and rendering second would blur the one field that exists to separate
+     * two adjacent right-aligned amount columns, and this
      * snapshot would go blind to exactly the regression it is most worth catching (PDFBOX-5920,
      * fixed in 3.0.4, was a wrong space width in PDType0Font). A width is a measurement in points;
      * it identifies nobody, so keeping it costs no privacy. The two lists are the same size and

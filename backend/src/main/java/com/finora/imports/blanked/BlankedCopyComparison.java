@@ -107,12 +107,22 @@ public final class BlankedCopyComparison {
      *       character ({@link PdfTraceRedactor#maskOf}), only where the real token is digits and
      *       punctuation with no letter or mark, or is exactly a month name -- a date split across a
      *       line break is kept joined and masked in pieces. A token mixing letters and digits (such
-     *       as "UPI/1234/PAID" or "PAID-1,234.00") is never masked whole.</li>
+     *       as "UPI/1234/PAID" or "PAID-1,234.00") is never masked whole; (d) the real token cut
+     *       at every '/' and '-', each piece masked by {@link PdfTraceRedactor#redactLine} on its
+     *       own, separators kept -- a digit run split across runs reaches eight digits only when
+     *       joined, so the joined line masks the whole compound, kept words included, while the
+     *       copy masked each run and kept them. This is one exact masking of the real text, not a
+     *       tolerance: a different word, a different length or a word in clear differs.</li>
      * </ul>
      *
      * <p>Guaranteed: a missing, extra or reordered line, or a word grouped into another row, moves a
      * token or a space and differs; a word the joined line keeps can never be masked in the copy
-     * unless it holds a digit or names a month; no token may be partly kept and partly masked.
+     * unless it holds a digit, names a month, or is one piece of a compound the redactor masks
+     * piece by piece under (d); no piece between separators may be partly kept and partly masked,
+     * and no letters-only word the joined line masks may appear in clear.
+     *
+     * <p>Not guaranteed: under (b), a token holding a digit that the joined line masked passes when
+     * the copy holds it entirely in clear, letters included.
      *
      * <p>Not guaranteed (known limits, pinned by tests): under (c), a token of digits and
      * punctuation that the copy masked whole matches any same-shape real token at that position, so
@@ -145,6 +155,7 @@ public final class BlankedCopyComparison {
             if (!joinedToken.equals(realPart) && hasDigit(realPart) && copyPart.equals(realPart)) continue; // (b)
             if ((isDigitsAndPunctuation(realPart) || isMonthName(realPart))
                     && copyPart.equals(maskWhole(realPart))) continue;                  // (c)
+            if (copyPart.equals(maskPieceByPiece(realPart))) continue;                  // (d)
             return false;
         }
         return true;
@@ -181,6 +192,21 @@ public final class BlankedCopyComparison {
 
     private static boolean isMonthName(String token) {
         return MONTH_NAME.matcher(token).matches();
+    }
+
+    /** The token cut at every '/' and '-', each piece masked by {@link PdfTraceRedactor#redactLine}
+     *  on its own, and joined again with the same separators. */
+    private static String maskPieceByPiece(String token) {
+        StringBuilder out = new StringBuilder(token.length());
+        int start = 0;
+        for (int i = 0; i <= token.length(); i++) {
+            if (i == token.length() || token.charAt(i) == '/' || token.charAt(i) == '-') {
+                out.append(PdfTraceRedactor.redactLine(token.substring(start, i)));
+                if (i < token.length()) out.append(token.charAt(i));
+                start = i + 1;
+            }
+        }
+        return out.toString();
     }
 
     /** Every letter, number and mark of the token masked as the redactor masks it; punctuation kept. */

@@ -258,6 +258,34 @@ class BlankedCopyComparisonTest {
     }
 
     /**
+     * Rule (d). A digit run split across two runs ("UPI/1234" then "5678/ASHA", glued) reaches 8
+     * digits only when joined, so the joined line masks the whole compound, the kept "UPI"
+     * included; the copy masked each run and kept "UPI". The copy token is the real token masked
+     * piece by piece between '/' and '-', which is still the redactor's own masking of the real
+     * text, so it matches.
+     */
+    @Test
+    void aCompoundMaskedPieceByPieceMatches() {
+        String copy = PdfTraceRedactor.redactLine("UPI/1234") + PdfTraceRedactor.redactLine("5678/ASHA");
+        assertThat(copy).isEqualTo("UPI/99999999/XXXX");
+        assertThat(PdfTraceRedactor.redactLine("UPI/12345678/ASHA")).isEqualTo("XXX/99999999/XXXX");
+        assertThat(descriptionOutcome("UPI/12345678/ASHA", copy)).isNull();
+        assertThat(descriptionOutcome("NEFT-12345678-ASHA", "NEFT-99999999-XXXX")).isNull();
+        // With no 8-digit run when joined, the joined line already masks piece by piece.
+        assertThat(descriptionOutcome("UPI/123456/789012/ASHA", "UPI/999999/999999/XXXX")).isNull();
+    }
+
+    /** Rule (d) is one exact masking, not a tolerance: any other shape or a kept name differs. */
+    @Test
+    void aCompoundThatIsNotThePieceByPieceMaskingDiffers() {
+        assertThat(descriptionOutcome("UPI/12345678/ASHA", "UPI/99999999/XXXXX")).isEqualTo(Field.DESCRIPTION);
+        assertThat(descriptionOutcome("UPI/12345678/ASHA", "UPI/99999999/Xxxx")).isEqualTo(Field.DESCRIPTION);
+        assertThat(descriptionOutcome("UPI/12345678/ASHA", "UPI/99999999/ASHA")).isEqualTo(Field.DESCRIPTION);
+        assertThat(descriptionOutcome("UPI/12345678/ASHA", "UPI-99999999/XXXX")).isEqualTo(Field.DESCRIPTION);
+        assertThat(descriptionOutcome("UPI/12345678/ASHA", "XXX/99999999")).isEqualTo(Field.DESCRIPTION);
+    }
+
+    /**
      * KNOWN LIMIT, pinned so it cannot change unnoticed: a token of digits and punctuation only that
      * the copy masked whole matches whatever same-shape token the real description has there. Here
      * the copy hides an amount the real description shows; the check cannot tell whether the copy

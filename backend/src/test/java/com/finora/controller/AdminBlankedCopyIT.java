@@ -7,6 +7,7 @@ import com.finora.entity.Permission;
 import com.finora.entity.Role;
 import com.finora.entity.User;
 import com.finora.exception.ErrorCode;
+import com.finora.imports.passwords.StatementPasswordService;
 import com.finora.imports.pdf.fixtures.PdfFixtureBuilder;
 import com.finora.imports.storage.ContentAddress;
 import com.finora.imports.storage.StatementStorage;
@@ -52,7 +53,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @TestPropertySource(properties = {
         "app.blanked-copy.enabled=true",
         "app.statement-storage.provider=filesystem",
-        "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-blanked-copy-it"
+        "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-blanked-copy-it",
+        "app.statement-passwords.save.enabled=true"
 })
 @ExtendWith(OutputCaptureExtension.class)
 class AdminBlankedCopyIT extends AbstractIntegrationTest {
@@ -60,9 +62,15 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
     /** The customer's own file name. It must never reach a response, an audit row or a log line. */
     private static final String CUSTOMER_FILE_NAME = "Asha Verma statement.pdf";
 
+    /** A saved statement password. It must not leave either. */
+    private static final String PASSWORD = "open-sesame-blanked";
+    private static final String WRONG_PASSWORD = "not-the-password";
+
     private static final List<String> MUST_NOT_LEAVE = List.of(PdfFixtureBuilder.PLANTED_NAME,
             PdfFixtureBuilder.PLANTED_PHONE, PdfFixtureBuilder.PLANTED_EMAIL,
-            PdfFixtureBuilder.PLANTED_ACCOUNT_NUMBER, "Asha Verma statement");
+            PdfFixtureBuilder.PLANTED_ACCOUNT_NUMBER, PdfFixtureBuilder.PLANTED_IFSC,
+            PdfFixtureBuilder.PLANTED_LONG_REFERENCE, PdfFixtureBuilder.PLANTED_REFERENCE,
+            "statement@a.in", PASSWORD, WRONG_PASSWORD, "Asha Verma statement"); // synthetic-ok: invented values
 
     @Autowired private TestRestTemplate restTemplate;
     @Autowired private ImportJobRepository importJobRepository;
@@ -74,10 +82,27 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
     @Autowired private StatementStorage storage;
+    @Autowired private StatementPasswordService statementPasswordService;
 
     private static byte[] plantedPdf() {
         try {
             return PdfFixtureBuilder.buildSampleWithPlantedCustomerData();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private static byte[] lockedPlantedPdf() {
+        try {
+            return PdfFixtureBuilder.encrypt(plantedPdf(), PASSWORD);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private static byte[] pdfWithAnEmailTheRedactorCannotBlank() {
+        try {
+            return PdfFixtureBuilder.buildSampleWithAnEmailTheRedactorCannotBlank();
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -148,8 +173,12 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
 
     /** A job in the state the trust gate leaves one in, as {@code AdminHeldStatementDownloadIT} builds it. */
     private HeldStatement seedHold(String heldId) {
+        return seedHold(heldId, plantedPdf());
+    }
+
+    private HeldStatement seedHold(String heldId, byte[] content) {
         User owner = createUser("USER");
-        ContentAddress address = storage.store(plantedPdf());
+        ContentAddress address = storage.store(content);
         ImportJob job = new ImportJob(owner.getId(), CUSTOMER_FILE_NAME, address.hash(), address.key(), "PDF");
         job.markClaimed("worker", Instant.now());
         UUID sessionId = UUID.randomUUID();
@@ -193,6 +222,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
         assertThat(real.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         assertThat(copy.getBody()).contains("blanked-" + job.getId() + ".trace");
         assertThat(copy.getBody()).contains("\"check\":\"MATCHES\"");
+        assertNothingLeft(copy.getBody(), auditOf(job.getId()), output);
     }
 
     @Test
@@ -227,7 +257,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void everyCopyIsAuditedBeforeTheRead() {
+    void aSuccessfulCopyIsAudited() {
         ImportJob job = heldJob();
         User admin = createUser("ADMIN");
         get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", admin);
@@ -295,6 +325,61 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
         ImportJob job = heldJob();
         assertThat(get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", createUser("USER")).getStatusCode())
                 .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    /** The privacy scan's refusal, end to end from a real PDF: 422 naming the kind, never the value. */
+    @Test
+    void aCopyThePrivacyScanRefusesIsA422NamingKindsOnly(CapturedOutput output) {
+        ImportJob job = heldJob(pdfWithAnEmailTheRedactorCannotBlank(), CUSTOMER_FILE_NAME, "PDF");
+        ResponseEntity<String> response = get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", createUser("ADMIN"));
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(response.getBody()).contains("The blanked copy was refused: it still contained email address.");
+        assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(job.getId()))
+                .anySatisfy(e -> assertThat(e.getAction()).isEqualTo("HELD_IMPORT_BLANKED_COPY"));
+        assertNothingLeft(response.getBody(), auditOf(job.getId()), output);
+    }
+
+    @Test
+    void aLockedPdfWithNoSavedPasswordIsRefused(CapturedOutput output) {
+        ImportJob job = heldJob(lockedPlantedPdf(), CUSTOMER_FILE_NAME, "PDF");
+        ResponseEntity<String> response = get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", createUser("ADMIN"));
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody()).contains("This statement is password-protected and no password is saved.");
+        assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(job.getId()))
+                .anySatisfy(e -> assertThat(e.getAction()).isEqualTo("HELD_IMPORT_BLANKED_COPY"));
+        assertNothingLeft(response.getBody(), auditOf(job.getId()), output);
+    }
+
+    /** Unlocked in memory with the saved password, then blanked like any other statement. */
+    @Test
+    void aLockedPdfWithASavedPasswordIsCopied(CapturedOutput output) {
+        ImportJob job = heldJob(lockedPlantedPdf(), CUSTOMER_FILE_NAME, "PDF");
+        statementPasswordService.saveForJob(job.getUserId(), job.getId(), PASSWORD);
+
+        ResponseEntity<String> copy = get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy",
+                createSupportUser("IMPORT_TRIAGE_MANAGE"));
+
+        assertThat(copy.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(copy.getBody()).contains("blanked-" + job.getId() + ".trace").contains("\"check\":\"MATCHES\"");
+        assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(job.getId()))
+                .filteredOn(e -> e.getAction().equals("HELD_IMPORT_BLANKED_COPY"))
+                .singleElement()
+                .satisfies(e -> assertThat(e.getMetadata()).containsEntry("savedPasswordOnFile", true));
+        assertNothingLeft(copy.getBody(), auditOf(job.getId()), output);
+    }
+
+    /** A saved password that does not open the file: refused naming that, not "no password is saved". */
+    @Test
+    void aSavedPasswordThatDoesNotOpenTheStatementIsRefused(CapturedOutput output) {
+        ImportJob job = heldJob(lockedPlantedPdf(), CUSTOMER_FILE_NAME, "PDF");
+        statementPasswordService.saveForJob(job.getUserId(), job.getId(), WRONG_PASSWORD);
+
+        ResponseEntity<String> response = get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", createUser("ADMIN"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody()).contains("The saved password did not open the statement behind held import "
+                + job.getId()).doesNotContain("no password is saved");
+        assertNothingLeft(response.getBody(), auditOf(job.getId()), output);
     }
 
     // ------------------------------------------------------------------------- held statements
@@ -365,6 +450,39 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
         assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(held.getId()))
                 .anySatisfy(e -> assertThat(e.getAction()).isEqualTo("HELD_STATEMENT_BLANKED_COPY"));
         assertThat(output.getAll()).contains("Stored statement behind HLD-2026-610005 could not be read");
+        assertNothingLeft(response.getBody(), auditOf(held.getId()), output);
+    }
+
+    @Test
+    void theTrustQueueRefusesALockedPdfWithNoSavedPassword(CapturedOutput output) {
+        HeldStatement held = seedHold("HLD-2026-610006", lockedPlantedPdf());
+        ResponseEntity<String> response = get("/api/v1/admin/held-statements/HLD-2026-610006/blanked-copy", createUser("ADMIN"));
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody()).contains("This statement is password-protected and no password is saved.");
+        assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(held.getId()))
+                .anySatisfy(e -> assertThat(e.getAction()).isEqualTo("HELD_STATEMENT_BLANKED_COPY"));
+        assertNothingLeft(response.getBody(), auditOf(held.getId()), output);
+    }
+
+    @Test
+    void theTrustQueueCopiesALockedPdfWithItsSavedPassword(CapturedOutput output) {
+        HeldStatement held = seedHold("HLD-2026-610007", lockedPlantedPdf());
+        statementPasswordService.saveForJob(held.getUserId(), held.getImportJobId(), PASSWORD);
+        ResponseEntity<String> copy = get("/api/v1/admin/held-statements/HLD-2026-610007/blanked-copy",
+                createSupportUser("TRUST_REVIEW_MANAGE"));
+        assertThat(copy.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(copy.getBody()).contains("blanked-HLD-2026-610007.trace").contains("\"check\":\"MATCHES\"");
+        assertNothingLeft(copy.getBody(), auditOf(held.getId()), output);
+    }
+
+    @Test
+    void theTrustQueueRefusesASavedPasswordThatDoesNotOpenTheStatement(CapturedOutput output) {
+        HeldStatement held = seedHold("HLD-2026-610008", lockedPlantedPdf());
+        statementPasswordService.saveForJob(held.getUserId(), held.getImportJobId(), WRONG_PASSWORD);
+        ResponseEntity<String> response = get("/api/v1/admin/held-statements/HLD-2026-610008/blanked-copy", createUser("ADMIN"));
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody()).contains("The saved password did not open the statement behind HLD-2026-610008")
+                .doesNotContain("no password is saved");
         assertNothingLeft(response.getBody(), auditOf(held.getId()), output);
     }
 

@@ -43,6 +43,11 @@ import static org.mockito.Mockito.verify;
  */
 class BlankedCopyServiceTest {
 
+    /** Every value {@link PdfFixtureBuilder#buildSampleWithPlantedCustomerData} plants. */
+    private static final String[] PLANTED = {PdfFixtureBuilder.PLANTED_NAME, PdfFixtureBuilder.PLANTED_PHONE,
+            PdfFixtureBuilder.PLANTED_EMAIL, PdfFixtureBuilder.PLANTED_ACCOUNT_NUMBER, PdfFixtureBuilder.PLANTED_IFSC,
+            PdfFixtureBuilder.PLANTED_LONG_REFERENCE, PdfFixtureBuilder.PLANTED_REFERENCE};
+
     private final Clock clock = Clock.fixed(Instant.parse("2026-10-14T10:00:00Z"), ZoneOffset.UTC);
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
 
@@ -84,17 +89,12 @@ class BlankedCopyServiceTest {
         // The planted values really are in the statement's text, so their absence below is earned.
         String realText = String.join("\n", PdfGeneratorTestSupport.generator().acquire(pdf, null).runs()
                 .stream().map(PositionedText::text).toList());
-        assertThat(realText).contains(PdfFixtureBuilder.PLANTED_NAME, PdfFixtureBuilder.PLANTED_PHONE,
-                PdfFixtureBuilder.PLANTED_EMAIL, PdfFixtureBuilder.PLANTED_ACCOUNT_NUMBER);
+        assertThat(realText).contains(PLANTED);
         BlankedCopy copy = service(PdfGeneratorTestSupport.generator())
                 .make(new StaffStatementContent("HLD-2026-000002", "PDF", pdf));
-        assertThat(copy.trace()).doesNotContain(PdfFixtureBuilder.PLANTED_NAME,
-                PdfFixtureBuilder.PLANTED_PHONE, PdfFixtureBuilder.PLANTED_EMAIL,
-                PdfFixtureBuilder.PLANTED_ACCOUNT_NUMBER, ".pdf");
+        assertThat(copy.trace()).doesNotContain(PLANTED).doesNotContain(".pdf");
         assertThat(copy.trace()).contains("held item HLD-2026-000002");
-        assertThat(copy.toString()).doesNotContain(PdfFixtureBuilder.PLANTED_NAME,
-                PdfFixtureBuilder.PLANTED_PHONE, PdfFixtureBuilder.PLANTED_EMAIL,
-                PdfFixtureBuilder.PLANTED_ACCOUNT_NUMBER);
+        assertThat(copy.toString()).doesNotContain(PLANTED);
         assertThat(copy.differences()).isEmpty();
         assertThat(copy.check()).isEqualTo(BlankedCopy.Check.MATCHES);
     }
@@ -163,6 +163,18 @@ class BlankedCopyServiceTest {
                 .hasMessage("The blanked copy was refused: it still contained email address.")
                 .hasMessageNotContaining("statement@");
         assertThat(registry.find("finora.blanked_copy.refused").counter().count()).isEqualTo(1);
+        assertThat(registry.find("finora.blanked_copy.produced").counters()).isEmpty();
+    }
+
+    /** The refusal reached from a real PDF through the real redactor and scan, not a spy. */
+    @Test
+    void aStatementWhoseEmailSurvivesIsRefused() throws Exception {
+        byte[] pdf = PdfFixtureBuilder.buildSampleWithAnEmailTheRedactorCannotBlank();
+        assertThatThrownBy(() -> service(PdfGeneratorTestSupport.generator())
+                .make(new StaffStatementContent("j-7", "PDF", pdf)))
+                .isInstanceOfSatisfying(BlankedCopyRefusedException.class,
+                        e -> assertThat(e.kinds()).containsExactly("email address"))
+                .hasMessageNotContaining("statement@");
         assertThat(registry.find("finora.blanked_copy.produced").counters()).isEmpty();
     }
 

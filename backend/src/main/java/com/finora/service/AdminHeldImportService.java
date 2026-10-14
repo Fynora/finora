@@ -199,7 +199,16 @@ public class AdminHeldImportService {
                     "The stored statement file behind held import " + jobId + " could not be read.");
         }
         if (savedPassword) {
-            content = statementPasswordService.reviewCopy(job, content).content();
+            var review = statementPasswordService.reviewCopy(job, content);
+            content = review.content();
+            // download hands a file the saved password did not open over as it is, for the reviewer
+            // to try; a copy cannot be made from it, and BlankedCopyService would otherwise say no
+            // password is saved, which is untrue.
+            if (!review.unlocked()
+                    && com.finora.imports.pdf.PdfTextExtractor.needsPassword(new java.io.ByteArrayInputStream(content))) {
+                throw new ApiException(HttpStatus.CONFLICT, "The saved password did not open the statement behind "
+                        + "held import " + jobId + ", so no blanked copy can be made.");
+            }
         }
         return new StaffStatementContent(job.getId().toString(), job.getSourceFormat(), content);
     }

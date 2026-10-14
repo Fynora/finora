@@ -1135,7 +1135,16 @@ public class HeldStatementService {
                         "savedPasswordOnFile", savedPassword));
         byte[] content = readStatement(held, job);
         if (savedPassword) {
-            content = statementPasswordService.reviewCopy(job, content).content();
+            var review = statementPasswordService.reviewCopy(job, content);
+            content = review.content();
+            // download hands a file the saved password did not open over as it is, for the reviewer
+            // to try; a copy cannot be made from it, and BlankedCopyService would otherwise say no
+            // password is saved, which is untrue.
+            if (!review.unlocked()
+                    && PdfTextExtractor.needsPassword(new java.io.ByteArrayInputStream(content))) {
+                throw new ApiException(HttpStatus.CONFLICT, "The saved password did not open the statement behind "
+                        + held.getHeldId() + ", so no blanked copy can be made.");
+            }
         }
         return new StaffStatementContent(held.getHeldId(), job.getSourceFormat(), content);
     }

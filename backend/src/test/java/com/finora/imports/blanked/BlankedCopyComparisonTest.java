@@ -220,13 +220,13 @@ class BlankedCopyComparisonTest {
         assertThat(descriptionOutcome(real, PdfTraceRedactor.redactLine(real))).isNull();
     }
 
-    /** The redactor's IFSC rule drops the punctuation at the token's edges, so the masked token is
-     *  shorter than the real one. The copy's run is masked the same way, and still matches. */
+    /** The redactor keeps the punctuation at an IFSC's edges, so the copy's run holds it, and a
+     *  copy that lost it is not what the redactor writes: no special case for an IFSC is needed. */
     @Test
     void anIfscNextToPunctuationMatches() {
         for (String real : List.of("NEFT HDFC0001234, Asha", "NEFT HDFC0001234. Asha")) { // synthetic-ok: invented branch code
             assertThat(descriptionOutcome(real, PdfTraceRedactor.redactLine(real))).as(real).isNull();
-            assertThat(descriptionOutcome(real, "NEFT HDFC0XXXXXX Xxxx")).as(real).isNull();
+            assertThat(descriptionOutcome(real, "NEFT HDFC0XXXXXX Xxxx")).as(real).isEqualTo(Field.DESCRIPTION);
         }
     }
 

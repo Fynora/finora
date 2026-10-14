@@ -51,7 +51,9 @@ public final class PdfTraceRedactor {
     // point. Up to version 3 a token made only of non-ASCII letters or digits (a Devanagari or
     // Tamil word, full-width or accented Latin, Devanagari digits) was kept verbatim, and combining
     // marks were copied out as if they were punctuation.
-    public static final int REDACTOR_VERSION = 4;
+    // Version 5: an IFSC keeps the punctuation at its edges, so its masked token is as long as the
+    // real one.
+    public static final int REDACTOR_VERSION = 5;
 
     /**
      * A short hash of the effective allowlist, recomputed from the live vocabulary every call.
@@ -410,7 +412,12 @@ public final class PdfTraceRedactor {
         if (bare.isEmpty()) return token;
 
         var ifsc = IFSC.matcher(bare);
-        if (ifsc.matches()) return ifsc.group(1) + "0XXXXXX";
+        if (ifsc.matches()) {
+            // The punctuation at the token's edges is kept, as every other rule keeps it, so the
+            // masked token is as long as the real one.
+            int start = token.indexOf(bare);
+            return token.substring(0, start) + ifsc.group(1) + "0XXXXXX" + token.substring(start + bare.length());
+        }
 
         // Order matters: a long digit run is an account or reference number even when it would
         // otherwise pass as an amount, so it is checked first and always redacted.

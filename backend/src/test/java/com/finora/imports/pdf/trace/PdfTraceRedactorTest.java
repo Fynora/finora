@@ -83,6 +83,19 @@ class PdfTraceRedactorTest {
                 .isEqualTo("RTGS/NEFT IFSC: HDFC0XXXXXX MICR: 999999999");
     }
 
+    /** The punctuation at an IFSC's edges is kept, so the masked token is exactly as long as the
+     *  real one: every other rule keeps length, and the copy's text lines up with the real text. */
+    @Test
+    void anIfscNextToPunctuationKeepsThePunctuationAndTheLength() {
+        for (String[] c : new String[][] {
+                {"NEFT HDFC0001234, Asha", "NEFT HDFC0XXXXXX, Xxxx"},   // synthetic-ok invented IFSC
+                {"IFSC:HDFC0001234.", "IFSC:HDFC0XXXXXX."},            // synthetic-ok invented IFSC
+                {"(HDFC0001234)", "(HDFC0XXXXXX)"},                     // synthetic-ok invented IFSC
+        }) {
+            assertThat(redact(c[0])).as(c[0]).isEqualTo(c[1]).hasSameSizeAs(c[0]);
+        }
+    }
+
     @Test
     void datesAndAmountsAreKept_soATraceCanStillTestArithmetic() {
         assertThat(redact("10/07/2026 25,000.00 (Cr) 24,462.00"))

@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * The line these tests defend is the one between "genuinely longer narration" and "absorbed text
@@ -103,5 +104,89 @@ class DescriptionCorruptionValidatorTest {
         var finding = validator.check(rows);
 
         assertThat(finding.outcome()).isEqualTo("VERIFIED");
+    }
+
+    // ------------------------------------------------------------- where a flagged row is shown
+
+    private static final String FOOTER = " Please pay your card bill from any account by registering for "
+            + "auto-debit at any branch. Visit bank.example.in to download the form. Registered office "
+            + "reference number: EXAMPLE0000EXAMPLE.";
+
+    @SuppressWarnings("unchecked")
+    private static List<java.util.Map<String, Object>> outliersOf(com.finora.dto.ImportDto.VerificationFinding finding) {
+        return (List<java.util.Map<String, Object>>) finding.details().get("outliers");
+    }
+
+    @Test
+    void anOutlierIsShownWhereItWasCheckedWhenTheCallerShowsTheRowsAsGiven() {
+        List<StagedRow> rows = new ArrayList<>(ordinaryStatement());
+        rows.add(2, row("UPI-CORNER SHOP TEN REF6" + FOOTER));
+
+        assertThat(outliersOf(validator.check(rows))).singleElement().satisfies(outlier -> {
+            assertThat(outlier.get("rowIndex")).isEqualTo(2);
+            assertThat(outlier.get("displayIndex")).isEqualTo(2);
+        });
+    }
+
+    @Test
+    void anOutlierSaysWhereItsRowIsShownWhenTheCallerShowsADifferentOrder() {
+        // Six rows checked in one order and shown reversed, the way a newest-first statement is.
+        List<StagedRow> rows = new ArrayList<>(ordinaryStatement());
+        rows.add(1, row("UPI-CORNER SHOP TEN REF6" + FOOTER));
+        int[] shownReversed = {5, 4, 3, 2, 1, 0};
+
+        assertThat(outliersOf(validator.check(rows, shownReversed))).singleElement().satisfies(outlier -> {
+            assertThat(outlier.get("rowIndex")).as("its place in the list that was checked, unchanged").isEqualTo(1);
+            assertThat(outlier.get("displayIndex")).as("its place in the list that is shown").isEqualTo(4);
+        });
+    }
+
+    @Test
+    void severalOutliersAreListedDownTheListThatIsShown() {
+        List<StagedRow> rows = new ArrayList<>(ordinaryStatement());
+        rows.add(0, row("UPI-CORNER SHOP TEN REF6" + FOOTER));
+        rows.add(row("UPI-CORNER SHOP ELEVEN R7" + FOOTER));
+        int[] shownReversed = {6, 5, 4, 3, 2, 1, 0};
+
+        assertThat(outliersOf(validator.check(rows, shownReversed)))
+                .extracting(outlier -> outlier.get("displayIndex"))
+                .containsExactly(0, 6);
+    }
+
+    @Test
+    void rowsThatAreEqualAsValuesAreStillToldApartByPosition() {
+        // Two rows with the same date, amount and footer-carrying description are equal records. The
+        // mapping is by position, so each still gets its own place.
+        List<StagedRow> rows = new ArrayList<>(ordinaryStatement());
+        StagedRow twin = row("UPI-CORNER SHOP TEN REF6" + FOOTER);
+        rows.add(1, twin);
+        rows.add(4, twin);
+        int[] shown = {0, 5, 2, 3, 1, 4, 6};
+
+        assertThat(outliersOf(validator.check(rows, shown)))
+                .extracting(outlier -> outlier.get("rowIndex"), outlier -> outlier.get("displayIndex"))
+                .containsExactly(org.assertj.core.groups.Tuple.tuple(4, 1), org.assertj.core.groups.Tuple.tuple(1, 5));
+    }
+
+    @Test
+    void aMappingThatIsNotARearrangementOfTheRowsIsRefusedEvenWhenNothingIsFlagged() {
+        List<StagedRow> rows = ordinaryStatement();
+
+        assertThatThrownBy(() -> validator.check(rows, new int[] {0, 1, 2, 3}))
+                .as("one position short").isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> validator.check(rows, new int[] {0, 1, 2, 3, 3}))
+                .as("two rows sent to one position").isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> validator.check(rows, new int[] {0, 1, 2, 3, 5}))
+                .as("a position past the end").isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> validator.check(rows, new int[] {0, 1, 2, 3, -1}))
+                .as("a negative position").isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> validator.check(null, new int[] {0}))
+                .as("positions for rows that were not given").isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void noRowsAndNoMappingIsStillNotApplicable() {
+        assertThat(validator.check(null, null).outcome()).isEqualTo("NOT_APPLICABLE");
+        assertThat(validator.check(List.of(), new int[0]).outcome()).isEqualTo("NOT_APPLICABLE");
     }
 }

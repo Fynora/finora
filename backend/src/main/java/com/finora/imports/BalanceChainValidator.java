@@ -218,8 +218,11 @@ public class BalanceChainValidator {
         // wire format does not name this shape, because the next checks planned (statement totals,
         // structural) have no row to point at -- see VerificationFinding.details.
         List<ImportDto.RowDiscrepancy> discrepancies = located.stream()
-                .map(l -> new ImportDto.RowDiscrepancy(l.displayedIndex(), l.discrepancy().expectedBalance(),
-                        l.discrepancy().actualBalance(), l.discrepancy().difference()))
+                // The displayed position twice: once under the name every reader so far uses, once
+                // under the name only a report numbered this way carries -- see RowDiscrepancy.
+                .map(l -> new ImportDto.RowDiscrepancy(l.displayedIndex(), l.displayedIndex(),
+                        l.discrepancy().expectedBalance(), l.discrepancy().actualBalance(),
+                        l.discrepancy().difference()))
                 .toList();
 
         Map<String, Object> details = new LinkedHashMap<>();

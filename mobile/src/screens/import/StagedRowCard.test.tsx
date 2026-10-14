@@ -183,6 +183,49 @@ describe('StagedRowCard — confident-source provenance (Track C/C3)', () => {
   );
 });
 
+/**
+ * The verification panel says "that row is marked in the list below". These are the marks, and the
+ * one behaviour that goes with them: a description flagged as too long is the thing to read, so it
+ * is not cut to two lines.
+ */
+describe('StagedRowCard — rows the verification panel points at', () => {
+  const plain = { row: row(), decision: 'import' as const, included: true };
+
+  it('carries no mark when the panel points at no row', () => {
+    renderCard(plain);
+
+    expect(screen.queryByText("Balance didn't match")).toBeNull();
+    expect(screen.queryByText('Check description')).toBeNull();
+    expect(screen.getByText('METRO FARE').props.numberOfLines).toBe(2);
+  });
+
+  it('marks a row whose balance did not match', () => {
+    renderCard({ ...plain, balanceFlagged: true });
+
+    expect(screen.getByText("Balance didn't match")).toBeTruthy();
+    expect(screen.queryByText('Check description')).toBeNull();
+    // Only a flagged description is shown in full.
+    expect(screen.getByText('METRO FARE').props.numberOfLines).toBe(2);
+  });
+
+  it('marks a row whose description needs reading, and shows all of it', () => {
+    const long = 'METRO FARE This sentence was never part of the narration. It stands in for a page footer.';
+    renderCard({ ...plain, row: row({ description: long }), descriptionFlagged: true });
+
+    expect(screen.getByText('Check description')).toBeTruthy();
+    expect(screen.queryByText("Balance didn't match")).toBeNull();
+    expect(screen.getByText(long).props.numberOfLines).toBeUndefined();
+  });
+
+  it('carries both marks, beside a duplicate question', () => {
+    renderCard({ balanceFlagged: true, descriptionFlagged: true });
+
+    expect(screen.getByText("Balance didn't match")).toBeTruthy();
+    expect(screen.getByText('Check description')).toBeTruthy();
+    expect(screen.getByText('Possible duplicate')).toBeTruthy();
+  });
+});
+
 describe('StagedRowCard — international rows', () => {
   it('marks an international row and shows the foreign amount under the rupee amount', () => {
     renderCard({

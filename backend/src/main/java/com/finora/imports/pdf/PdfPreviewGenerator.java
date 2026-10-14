@@ -10,6 +10,7 @@ import com.finora.dto.ImportDto.StagedRow;
 import com.finora.dto.ImportDto.StagingResponse;
 import com.finora.dto.ImportDto.UnparseableRow;
 import com.finora.entity.CategoryRule;
+import com.finora.imports.ColumnAmbiguityValidator;
 import com.finora.imports.CsvParser;
 import com.finora.imports.pdf.StatementSummaryExtractor.PrintedSummary;
 import com.finora.imports.pdf.CreditCardSummaryExtractor.CreditCardSummaryEvidence;
@@ -563,6 +564,14 @@ public class PdfPreviewGenerator {
                 && ExplicitZeroActivityDetector.anyRowDeclaresZeroTransactionCount(sectionRows)) {
             ctx.recordExplicitZeroActivityDeclared();
         }
+        // Which staged row each located row became, or NOT_SHOWN for one that did not stage (it
+        // failed to normalise, or it is the statement's own balance line). The column-ambiguity
+        // check reads the located rows and has to name a row by where the customer sees it, and
+        // only this loop knows which located rows those are. sectionRows and section.rows() are the
+        // same rows in the same order -- SignedAmountColumn.markCredits returns one row per row --
+        // so one index serves both.
+        int[] stagedIndexOfLocatedRow = new int[sectionRows.size()];
+        java.util.Arrays.fill(stagedIndexOfLocatedRow, ColumnAmbiguityValidator.NOT_SHOWN);
         for (int i = 0; i < sectionRows.size(); i++) {
             Map<String, String> row = sectionRows.get(i);
             // 1-based, within this section -- same convention as PreviewGenerator's CSV path.
@@ -585,6 +594,7 @@ public class PdfPreviewGenerator {
             // `staged`.
             if (parsed.kind() == RowKind.TRANSACTION) {
                 staged.add(parsed);
+                stagedIndexOfLocatedRow[i] = staged.size() - 1;
             } else if (transactionNormalizer.hasUnrecognizedNonBlankColumn(row)) {
                 // Not a CONFIDENT balance-marker classification: this row also has a non-blank
                 // value under a column name TransactionNormalizer doesn't recognize at all, so
@@ -685,6 +695,14 @@ public class PdfPreviewGenerator {
             displayedPositionOf[displayOrder[position]] = position;
             staged.add(documentOrder.get(displayOrder[position]));
         }
+        // The same question for the located rows, which the column-ambiguity check names: a located
+        // row is shown where the staged row it became is shown, and nowhere if it did not stage.
+        int[] displayedPositionOfLocatedRow = new int[stagedIndexOfLocatedRow.length];
+        for (int i = 0; i < stagedIndexOfLocatedRow.length; i++) {
+            int stagedIndex = stagedIndexOfLocatedRow[i];
+            displayedPositionOfLocatedRow[i] = stagedIndex == ColumnAmbiguityValidator.NOT_SHOWN
+                    ? ColumnAmbiguityValidator.NOT_SHOWN : displayedPositionOf[stagedIndex];
+        }
 
         int dupCount = (int) staged.stream().filter(StagedRow::likelyDuplicate).count();
         // The card's billing summary is read once for the whole document, so it belongs only to a
@@ -711,7 +729,7 @@ public class PdfPreviewGenerator {
                 printedSummary, section.rows(), unparseable, section.evidence().droppedTransactionCandidates(),
                 sectionCardSummary,
                 section.evidence().headerReconstructionFindings(), ctx.textSource(), ctx.contentDamage(),
-                displayedPositionOf);
+                displayedPositionOf, displayedPositionOfLocatedRow);
         return new StagedAccountSection(detected, staged, staged.size(), dupCount, unparseable, verification);
     }
 

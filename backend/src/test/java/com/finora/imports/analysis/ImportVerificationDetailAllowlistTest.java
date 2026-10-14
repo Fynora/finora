@@ -332,7 +332,7 @@ class ImportVerificationDetailAllowlistTest {
         shapes.add(Map.of("rowIndex", -1, "balanceDidNotMove", true));
         shapes.add("UPI/ACME STORES/paid");
         shapes.add(null);
-        shapes.add(new ImportDto.RowDiscrepancy(17, new BigDecimal("48221.50"),
+        shapes.add(new ImportDto.RowDiscrepancy(17, 17, new BigDecimal("48221.50"),
                 new BigDecimal("47785.50"), new BigDecimal("436.00")));
 
         Map<String, Object> details = new LinkedHashMap<>();

@@ -4,6 +4,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import type { BalanceChainDetails, VerificationFinding, VerificationReport } from '../types';
 import { Card } from './Card';
 import { cardFlowCopy, cardSummaryCopy, descriptionCopy, rowAccountingCopy, type CheckCopy } from './verificationCopy';
+import { NO_FLAGGED_ROWS, ROW_FLAG_LABEL, type FlaggedRows } from './verificationFlags';
 import { spacing, useTheme, type Palette } from '../theme';
 
 /**
@@ -20,8 +21,18 @@ import { spacing, useTheme, type Palette } from '../theme';
  * genuinely additional depth for someone auditing a discrepancy row-by-row; that level of detail
  * doesn't fit a phone screen well and isn't what a first mobile cut of this needs. Revisit if a
  * real user asks to see the itemized rows.
+ *
+ * `flagged` is the rows the list below this panel has marked (verificationFlags.ts). A sentence
+ * pointing at those marks is shown only for rows the caller says are marked there. No row is ever
+ * named by number: the cards carry none, and nobody should count down a phone list.
  */
-export function VerificationPanel({ verification }: { verification: VerificationReport | null | undefined }) {
+export function VerificationPanel({
+  verification,
+  flagged = NO_FLAGGED_ROWS,
+}: {
+  verification: VerificationReport | null | undefined;
+  flagged?: FlaggedRows;
+}) {
   const c = useTheme();
   // Open from the start for a damaged file, and only then. Rows may be missing from what the user is about
   // to confirm, so the warning must not wait behind a tap; every other report stays collapsed.
@@ -83,7 +94,9 @@ export function VerificationPanel({ verification }: { verification: Verification
               own text. Recognition can misread characters in ways a text-based read cannot.
             </Text>
           ) : null}
-          {findings.map((finding, i) => <Finding key={`${finding.rule}-${i}`} finding={finding} c={c} />)}
+          {findings.map((finding, i) => (
+            <Finding key={`${finding.rule}-${i}`} finding={finding} flagged={flagged} c={c} />
+          ))}
         </View>
       ) : null}
     </Card>
@@ -109,7 +122,7 @@ function outcomeColor(outcome: VerificationFinding['outcome'], c: Palette): stri
  * name at each site that displays one -- same reasoning as the web version: a new backend
  * validator needs one entry here and nothing else.
  */
-function Finding({ finding, c }: { finding: VerificationFinding; c: Palette }) {
+function Finding({ finding, flagged, c }: { finding: VerificationFinding; flagged: FlaggedRows; c: Palette }) {
   const renderer = RULE_RENDERERS[finding.rule];
   return (
     <View style={styles.finding}>
@@ -120,7 +133,7 @@ function Finding({ finding, c }: { finding: VerificationFinding; c: Palette }) {
         </Text>
       </Text>
       {renderer ? (
-        renderer.summary(finding, c)
+        renderer.summary(finding, c, flagged)
       ) : (
         // A rule this build has no renderer for -- a newer backend, most likely. Naming it beats
         // hiding it or dumping raw JSON at the user.
@@ -135,7 +148,10 @@ function Finding({ finding, c }: { finding: VerificationFinding; c: Palette }) {
 /** One entry per backend rule -- additive, same convention as web's RULE_RENDERERS. Each returns
  *  the curated summary SENTENCE only; see this file's own doc comment for why the itemized
  *  discrepancy/comparison tables web also renders are out of scope for a first mobile cut. */
-const RULE_RENDERERS: Record<string, { label: string; summary: (f: VerificationFinding, c: Palette) => ReactNode }> = {
+const RULE_RENDERERS: Record<string, {
+  label: string;
+  summary: (f: VerificationFinding, c: Palette, flagged: FlaggedRows) => ReactNode;
+}> = {
   // Reported only for a file the parser had to throw content away from -- see the backend's
   // ContentIntegrityValidator. Fixed copy rather than the server's sentence, so the wording is ours.
   CONTENT_INTEGRITY: {
@@ -153,20 +169,28 @@ const RULE_RENDERERS: Record<string, { label: string; summary: (f: VerificationF
   },
   BALANCE_CHAIN: {
     label: 'Running balance',
-    summary: (finding, c) => {
+    summary: (finding, c, flagged) => {
       const d = finding.details as unknown as BalanceChainDetails;
       const discrepancyCount = d?.discrepancies?.length ?? 0;
       return (
-        <Text style={[styles.findingBody, { color: c.muted }]}>
-          {d?.rowsChecked ?? 0} transaction(s) checked against the statement's own running
-          balance.{' '}
-          {d?.anchoredOnOpeningBalance
-            ? 'Checked from the opening balance, so the first transaction is covered too.'
-            : 'The statement gave no opening balance, so the first transaction could not be checked.'}
-          {discrepancyCount > 0
-            ? ` ${discrepancyCount} ${discrepancyCount === 1 ? 'row' : 'rows'} didn't match.`
-            : ''}
-        </Text>
+        <>
+          <Text style={[styles.findingBody, { color: c.muted }]}>
+            {d?.rowsChecked ?? 0} transaction(s) checked against the statement's own running
+            balance.{' '}
+            {d?.anchoredOnOpeningBalance
+              ? 'Checked from the opening balance, so the first transaction is covered too.'
+              : 'The statement gave no opening balance, so the first transaction could not be checked.'}
+            {discrepancyCount > 0
+              ? ` ${discrepancyCount} ${discrepancyCount === 1 ? 'row' : 'rows'} didn't match.`
+              : ''}
+          </Text>
+          {/* Only when the list has marked every one of them -- see verificationFlags.ts. */}
+          {flagged.balance !== null ? (
+            <Text style={[styles.findingBody, { color: c.warningInk }]}>
+              {`${discrepancyCount === 1 ? 'That row is' : 'Those rows are'} marked "${ROW_FLAG_LABEL.balance}" in the list below.`}
+            </Text>
+          ) : null}
+        </>
       );
     },
   },
@@ -215,7 +239,8 @@ const RULE_RENDERERS: Record<string, { label: string; summary: (f: VerificationF
   },
   DESCRIPTION_CORRUPTION: {
     label: 'Transaction descriptions',
-    summary: (finding, c) => copySummary(descriptionCopy(finding), finding, c),
+    summary: (finding, c, flagged) =>
+      copySummary(descriptionCopy(finding, flagged.description !== null), finding, c),
   },
   CREDIT_CARD_STATEMENT_TOTALS: {
     label: 'Card statement summary',

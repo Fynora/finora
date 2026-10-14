@@ -5,6 +5,7 @@ import type { DuplicateDecision } from '../../lib/importReview';
 import { isUnconfirmedGuess, isUnderReview } from '../../lib/importReview';
 import { radius, spacing, useTheme } from '../../theme';
 import { useGlassSurfaceStyle } from '../../components/GlassSurface';
+import { ROW_FLAG_LABEL } from '../../components/verificationFlags';
 import type { StagedRow } from '../../types';
 
 /**
@@ -50,6 +51,11 @@ interface Props {
   category: string;
   onToggleIncluded: () => void;
   onPressCategory: () => void;
+  /** The verification panel says this row's balance did not follow from the row before it. */
+  balanceFlagged?: boolean;
+  /** The verification panel says this row's description may have picked up text from elsewhere on
+   *  the page. The description is then shown in full: reading it is the whole point of the mark. */
+  descriptionFlagged?: boolean;
   /** `'unresolved'` while the engine's question is outstanding. Rows never questioned are
    *  `'import'` from the start and render no review block at all. */
   decision: DuplicateDecision;
@@ -66,6 +72,8 @@ function StagedRowCardInner({
   category,
   onToggleIncluded,
   onPressCategory,
+  balanceFlagged = false,
+  descriptionFlagged = false,
   decision,
   onDecide,
   similarUnresolved,
@@ -110,7 +118,7 @@ function StagedRowCardInner({
         </Pressable>
 
         <View style={styles.main}>
-          <Text style={[styles.description, { color: c.ink }]} numberOfLines={2}>
+          <Text style={[styles.description, { color: c.ink }]} numberOfLines={descriptionFlagged ? undefined : 2}>
             {row.description || 'Transaction'}
           </Text>
           <Text style={[styles.date, { color: c.mutedInk }]}>{row.date}</Text>
@@ -155,6 +163,19 @@ function StagedRowCardInner({
             judgement about the row -- so it reads like the provenance badges, not like a warning. */}
         {row.international ? (
           <Text style={[styles.badge, { color: c.muted, backgroundColor: c.bg /* glass-exempt: badge/match box inside a glass card; opaque bg is its contrast against the card */ }]}>International</Text>
+        ) : null}
+
+        {/* The two things the verification panel can say about one row. Same wording as the panel
+            quotes, from one constant, so the sentence and the mark cannot drift apart. */}
+        {balanceFlagged ? (
+          <Text style={[styles.badge, { color: c.warningInk, backgroundColor: c.warningBg }]}>
+            {ROW_FLAG_LABEL.balance}
+          </Text>
+        ) : null}
+        {descriptionFlagged ? (
+          <Text style={[styles.badge, { color: c.warningInk, backgroundColor: c.warningBg }]}>
+            {ROW_FLAG_LABEL.description}
+          </Text>
         ) : null}
 
         {row.likelyDuplicate ? (

@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { CheckCircle2, AlertTriangle, ChevronDown, ChevronRight, ShieldQuestion } from 'lucide-react';
 import type { BalanceChainDetails, VerificationFinding, VerificationReport } from '../types';
 import { cardFlowCopy, cardSummaryCopy, descriptionCopy, rowAccountingCopy, type CheckCopy } from './verificationCopy';
+import { NO_FLAGGED_ROWS, ROW_FLAG_LABEL, type FlaggedRows } from './verificationFlags';
 
 /**
  * Shows whether an import could be proven faithful to the statement it came from.
@@ -23,8 +24,18 @@ import { cardFlowCopy, cardSummaryCopy, descriptionCopy, rowAccountingCopy, type
  *
  * <b>Collapsed by default.</b> The common case is a clean import, where a single line is the whole
  * message and per-row balances are noise. Detail is one click away for the case that needs it.
+ *
+ * <b>`flagged`</b> is the rows the list beside this panel has marked (verificationFlags.ts). A row
+ * number, and any sentence pointing at the list, is shown only for rows the caller says are marked
+ * there, so the panel never names a row the screen cannot show.
  */
-export function VerificationPanel({ verification }: { verification: VerificationReport | null | undefined }) {
+export function VerificationPanel({
+  verification,
+  flagged = NO_FLAGGED_ROWS,
+}: {
+  verification: VerificationReport | null | undefined;
+  flagged?: FlaggedRows;
+}) {
   // Open from the start for a damaged file, and only then. Rows may be missing from what the user is about
   // to confirm, so the warning must not wait behind a click; every other report stays collapsed.
   const [expanded, setExpanded] = useState(
@@ -99,7 +110,7 @@ export function VerificationPanel({ verification }: { verification: Verification
               text. Recognition can misread characters in ways a text-based read cannot.
             </p>
           )}
-          {findings.map((finding, i) => <Finding key={`${finding.rule}-${i}`} finding={finding} />)}
+          {findings.map((finding, i) => <Finding key={`${finding.rule}-${i}`} finding={finding} flagged={flagged} />)}
         </div>
       )}
     </div>
@@ -112,7 +123,7 @@ export function VerificationPanel({ verification }: { verification: Verification
  * else — which is the same reason the wire format carries an opaque per-rule `details` payload
  * instead of a single fixed shape.
  */
-function Finding({ finding }: { finding: VerificationFinding }) {
+function Finding({ finding, flagged }: { finding: VerificationFinding; flagged: FlaggedRows }) {
   const renderer = RULE_RENDERERS[finding.rule];
   return (
     <div>
@@ -121,7 +132,7 @@ function Finding({ finding }: { finding: VerificationFinding }) {
         <OutcomeTag outcome={finding.outcome} />
       </p>
       {renderer
-        ? renderer.render(finding)
+        ? renderer.render(finding, flagged)
         : (
           // A rule this build has no renderer for -- a newer backend, most likely. Naming it beats
           // hiding it or dumping raw JSON at the user.
@@ -150,7 +161,10 @@ function OutcomeTag({ outcome }: { outcome: VerificationFinding['outcome'] }) {
 }
 
 /** One entry per backend rule. Additive: a new validator adds a row here and changes nothing else. */
-const RULE_RENDERERS: Record<string, { label: string; render: (f: VerificationFinding) => ReactNode }> = {
+const RULE_RENDERERS: Record<string, {
+  label: string;
+  render: (f: VerificationFinding, flagged: FlaggedRows) => ReactNode;
+}> = {
   // Reported only for a file the parser had to throw content away from -- see the backend's
   // ContentIntegrityValidator. Fixed copy rather than the server's sentence, so the wording is ours.
   CONTENT_INTEGRITY: {
@@ -168,9 +182,13 @@ const RULE_RENDERERS: Record<string, { label: string; render: (f: VerificationFi
   },
   BALANCE_CHAIN: {
     label: 'Running balance',
-    render: (finding) => {
+    render: (finding, flagged) => {
       const details = finding.details as unknown as BalanceChainDetails;
       const discrepancies = details?.discrepancies ?? [];
+      // Numbered only when the list has marked every one of these rows. Otherwise the report does
+      // not say where they are on this screen (an import staged before it could), and a number
+      // would send the reader to some other transaction.
+      const numbered = flagged.balance !== null;
       return (
         <>
           <p className="text-xs text-muted">
@@ -187,17 +205,20 @@ const RULE_RENDERERS: Record<string, { label: string; render: (f: VerificationFi
               <table className="text-xs w-full">
                 <thead>
                   <tr className="text-muted text-left">
-                    <th className="pr-3 font-medium py-1">Row</th>
+                    {numbered && <th className="pr-3 font-medium py-1">Row</th>}
                     <th className="pr-3 font-medium py-1">Expected balance</th>
                     <th className="pr-3 font-medium py-1">Statement says</th>
                     <th className="font-medium py-1">Difference</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {discrepancies.map((d) => (
-                    <tr key={d.rowIndex} className="text-ink border-t border-border">
-                      {/* +1 so it matches the row number a person counts on screen, not the index. */}
-                      <td className="pr-3 py-1">{d.rowIndex + 1}</td>
+                  {discrepancies.map((d, i) => (
+                    <tr key={i} className="text-ink border-t border-border">
+                      {/* The number printed in the list's own # column beside this transaction:
+                          its place in the rows as shown, counted from 1. */}
+                      {numbered && (
+                        <td className="pr-3 py-1">{typeof d.displayIndex === 'number' ? d.displayIndex + 1 : ''}</td>
+                      )}
                       <td className="pr-3 py-1">{money(d.expectedBalance)}</td>
                       <td className="pr-3 py-1">{money(d.actualBalance)}</td>
                       <td className="py-1 text-warning">{money(d.difference)}</td>
@@ -206,6 +227,11 @@ const RULE_RENDERERS: Record<string, { label: string; render: (f: VerificationFi
                 </tbody>
               </table>
             </div>
+          )}
+          {numbered && (
+            <p className="text-xs text-warning mt-2">
+              {`${discrepancies.length === 1 ? 'That row is' : 'Those rows are'} marked "${ROW_FLAG_LABEL.balance}" in the list below.`}
+            </p>
           )}
         </>
       );
@@ -298,10 +324,16 @@ const RULE_RENDERERS: Record<string, { label: string; render: (f: VerificationFi
     render: (finding) => {
       const d = finding.details as {
         reason?: string; explanation?: string; rowsChecked?: number; ambiguousRows?: number;
-        ambiguities?: { rowIndex: number; kind: string; column: string; value: string }[];
+        // ROWS_SHOWN says each rowIndex is the row's place in the review list, and the server leaves
+        // rowIndex out for a row that is not in it. Without the marker the numbers count the rows as
+        // located on the page, before any was dropped or sorted, and would name another row in the
+        // list's # column -- so they are not printed.
+        rowIndexBasis?: string;
+        ambiguities?: { rowIndex?: number; kind: string; column: string; value: string }[];
       };
       if (d?.reason) return <p className="text-xs text-muted">{d.reason}</p>;
       const rows = d?.ambiguities ?? [];
+      const numbered = d?.rowIndexBasis === 'ROWS_SHOWN';
       if (rows.length === 0) {
         return (
           <p className="text-xs text-muted">
@@ -316,16 +348,19 @@ const RULE_RENDERERS: Record<string, { label: string; render: (f: VerificationFi
             <table className="text-xs w-full">
               <thead>
                 <tr className="text-muted text-left">
-                  <th className="pr-3 font-medium py-1">Row</th>
+                  {numbered && <th className="pr-3 font-medium py-1">Row</th>}
                   <th className="pr-3 font-medium py-1">Column</th>
                   <th className="font-medium py-1">What the document had</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((a) => (
-                  <tr key={`${a.rowIndex}-${a.column}`} className="text-ink border-t border-border">
-                    {/* +1 so it matches the row number a person counts on screen. */}
-                    <td className="pr-3 py-1">{a.rowIndex + 1}</td>
+                {rows.map((a, i) => (
+                  <tr key={`${i}-${a.column}`} className="text-ink border-t border-border">
+                    {/* The list's own # for that transaction, counted from 1. A row that is not in
+                        the list has no number to give. */}
+                    {numbered && (
+                      <td className="pr-3 py-1">{typeof a.rowIndex === 'number' ? a.rowIndex + 1 : 'Not in the list'}</td>
+                    )}
                     <td className="pr-3 py-1 text-muted">{a.column}</td>
                     <td className="py-1 text-warning">{a.value}</td>
                   </tr>
@@ -345,7 +380,16 @@ const RULE_RENDERERS: Record<string, { label: string; render: (f: VerificationFi
   },
   DESCRIPTION_CORRUPTION: {
     label: 'Transaction descriptions',
-    render: (finding) => <CopyLines copy={descriptionCopy(finding)} finding={finding} />,
+    render: (finding, flagged) => (
+      <>
+        <CopyLines copy={descriptionCopy(finding, flagged.description !== null)} finding={finding} />
+        {/* The list is paged, so the mark alone may be several pages down. The numbers are the
+            list's own # column. */}
+        {flagged.description !== null && (
+          <p className="text-xs text-warning mt-1">{rowNumbers(flagged.description)}.</p>
+        )}
+      </>
+    ),
   },
   // The two card checks add the figures behind their wording.
   CREDIT_CARD_STATEMENT_TOTALS: {
@@ -463,6 +507,14 @@ function CopyLines({ copy, finding }: { copy: CheckCopy; finding: VerificationFi
       )}
     </>
   );
+}
+
+/** "It is row 2", "They are rows 2 and 14", "They are rows 2, 14 and 31": counted from 1, as the
+ *  list's # column does. */
+function rowNumbers(positions: readonly number[]) {
+  const numbers = positions.map((position) => String(position + 1));
+  if (numbers.length === 1) return `It is row ${numbers[0]}`;
+  return `They are rows ${numbers.slice(0, -1).join(', ')} and ${numbers[numbers.length - 1]}`;
 }
 
 function money(n: number | null | undefined) {

@@ -636,6 +636,10 @@ export interface BalanceChainDetails {
 
 interface BalanceRowDiscrepancy {
   rowIndex: number;
+  // The row's zero-based place in the staged rows as shown. Absent on a report staged before the
+  // backend sent it, where `rowIndex` may count a different list: read through
+  // components/verificationFlags.ts, which is what decides whether a row number can be shown.
+  displayIndex?: number;
   expectedBalance: number;
   actualBalance: number;
   difference: number;

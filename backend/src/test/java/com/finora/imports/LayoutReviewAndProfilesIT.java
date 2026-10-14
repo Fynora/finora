@@ -220,6 +220,66 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
         verify(alertService, timeout(5000).times(1)).alertLayoutNeedsReview(eq(fp), any(), any(), any());
     }
 
+    // ------------------------------------------------------------------ reason sources (V270)
+
+    /** The 2026-10-14 case: failed uploads raised "Staging failed", later uploads added other
+     *  reasons, and the single reference column named only the latest. Each reason now names the
+     *  upload that first raised it; a reason raised again keeps its first source. */
+    @Test
+    void eachReasonNamesTheUploadThatFirstRaisedIt() {
+        String fp = fingerprint();
+        reviewService.onStaged(fp, "PDF", rows(3, 0), report("VERIFIED"), "SA-SRC-1", null);
+        reviewService.onStagingFailed(fp, "PDF", "SA-SRC-2", new IllegalStateException("parser broke"));
+        reviewService.onStaged(fp, "PDF", rows(3, 0), report("FAILED"), "SA-SRC-3", null);
+        reviewService.onStagingFailed(fp, "PDF", "SA-SRC-4", new IllegalStateException("parser broke"));
+
+        RegisteredLayout layout = layout(fp);
+        assertThat(layout.getReviewReasonSources()).containsExactlyInAnyOrderEntriesOf(Map.of(
+                "NEW_LAYOUT", "SA-SRC-1",
+                "STAGING_FAILED", "SA-SRC-2",
+                "VERIFICATION_NOT_PASSED:SOME_RULE", "SA-SRC-3"));
+        assertThat(layout.getReviewAnalysisReference()).as("still the latest").isEqualTo("SA-SRC-4");
+    }
+
+    @Test
+    void resolvingClearsTheSources_andTheNextFlagStartsItsOwn() {
+        String fp = fingerprint();
+        registryService.observe(fp, "PDF", null);
+        reviewService.onStagingFailed(fp, "PDF", "SA-SRC-10", new IllegalStateException("parser broke"));
+        curationService.resolveReview(adminId(), fp);
+        assertThat(layout(fp).getReviewReasonSources()).isEmpty();
+
+        reviewService.onStaged(fp, "PDF", rows(1, 3), report("VERIFIED"), "SA-SRC-11", null);
+
+        assertThat(layout(fp).getReviewReasonSources()).containsExactlyEntriesOf(Map.of("BLANK_DESCRIPTIONS", "SA-SRC-11"));
+    }
+
+    /** A layout flagged before V270 has reasons and no sources. A later upload raising one of those
+     *  reasons again must not be credited with it: it did not first raise it. */
+    @Test
+    void aReasonFlaggedBeforeSourcesWereRecordedIsNotCreditedToALaterUpload() {
+        String fp = fingerprint();
+        registryService.observe(fp, "PDF", null);
+        reviewService.onStagingFailed(fp, "PDF", "SA-SRC-20", new IllegalStateException("parser broke"));
+        jdbc.update("UPDATE layout_registry SET review_reason_sources = NULL WHERE fingerprint = ?", fp);
+
+        reviewService.onStagingFailed(fp, "PDF", "SA-SRC-21", new IllegalStateException("parser broke"));
+        reviewService.onStaged(fp, "PDF", rows(1, 3), report("VERIFIED"), "SA-SRC-22", null);
+
+        assertThat(layout(fp).getReviewReasonSources()).containsExactlyEntriesOf(Map.of("BLANK_DESCRIPTIONS", "SA-SRC-22"));
+    }
+
+    @Test
+    void aRunWithNoReferenceFlagsWithoutInventingASource() {
+        String fp = fingerprint();
+        registryService.observe(fp, "PDF", null);
+
+        reviewService.onStagingFailed(fp, "PDF", null, new IllegalStateException("parser broke"));
+
+        assertThat(layout(fp).getReviewReasons()).containsExactly("STAGING_FAILED");
+        assertThat(layout(fp).getReviewReasonSources()).isEmpty();
+    }
+
     @Test
     void aFailedStagingFlagsTheLayout_andNoFingerprintIsANoOp() {
         String fp = fingerprint();
@@ -338,6 +398,7 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
         }
         assertThat(entry).isNotNull();
         assertThat(entry.get("reviewReasons").toString()).contains("NEW_LAYOUT", "BLANK_DESCRIPTIONS");
+        assertThat(entry.get("reviewReasonSources").get("BLANK_DESCRIPTIONS").asText()).isEqualTo("SA-TEST-14");
 
         ResponseEntity<String> renamed = restTemplate.exchange(base + "/" + fp, HttpMethod.PATCH,
                 new HttpEntity<>("{\"name\":\"Test Layout\",\"status\":\"UNDER_REVIEW\"}", bearerFor(admin)), String.class);

@@ -15,8 +15,10 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
 
 /**
@@ -192,6 +194,17 @@ public class LayoutReviewService {
         }
     }
 
+    private static final com.fasterxml.jackson.databind.ObjectMapper JSON =
+            new com.fasterxml.jackson.databind.ObjectMapper();
+
+    private static String toJson(Map<String, String> sources) {
+        try {
+            return JSON.writeValueAsString(sources);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new IllegalStateException("A map of strings always serialises", e);
+        }
+    }
+
     /** What the flag became, whether this call is the one that raised it, and the profile the
      *  layout sits in ("Kotak Mahindra Bank — Credit Card v2"), or null. */
     record Flagged(boolean newlyRaised, List<String> reasons, String profile) {}
@@ -235,17 +248,29 @@ public class LayoutReviewService {
         for (String r : reasons) if (!acknowledged.contains(r)) fresh.add(r);
         if (fresh.isEmpty()) return null;
 
+        Set<String> alreadyFlagged = wasFlagged
+                ? new TreeSet<>(RegisteredLayout.reasonsOf((String) current.get("review_reasons")))
+                : Set.of();
         Set<String> merged = new TreeSet<>(fresh);
-        if (wasFlagged) merged.addAll(RegisteredLayout.reasonsOf((String) current.get("review_reasons")));
+        merged.addAll(alreadyFlagged);
+        // This run is the source of the reasons it adds to the flag (V270). A reason already on the
+        // flag keeps the source it has -- the run that first raised it -- or, flagged before V270,
+        // stays without one rather than being credited to this run.
+        Map<String, String> sources = new TreeMap<>();
+        if (analysisReference != null && !analysisReference.isBlank()) {
+            for (String r : fresh) if (!alreadyFlagged.contains(r)) sources.put(r, analysisReference);
+        }
         jdbc.update("""
                 UPDATE layout_registry
                 SET needs_review = TRUE,
                     review_reasons = ?,
                     review_flagged_at = CASE WHEN needs_review THEN review_flagged_at ELSE ? END,
                     review_analysis_reference = ?,
+                    review_reason_sources = NULLIF(?::jsonb || CASE WHEN needs_review
+                            THEN COALESCE(review_reason_sources, '{}'::jsonb) ELSE '{}'::jsonb END, '{}'::jsonb),
                     updated_at = now()
                 WHERE fingerprint = ?
-                """, String.join(",", merged), now, analysisReference, fingerprint);
+                """, String.join(",", merged), now, analysisReference, toJson(sources), fingerprint);
         List<String> profile = jdbc.queryForList("""
                 SELECT p.name || ' v' || r.profile_version FROM layout_registry r
                 JOIN layout_profile p ON p.id = r.profile_id WHERE r.fingerprint = ?

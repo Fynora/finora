@@ -56,7 +56,11 @@ public class LayoutCurationService {
             String fingerprint, String name, String status, String sourceFormat, String parser,
             long observationCount, long stagingCount, Instant firstSeen, Instant lastSeen,
             boolean needsReview, List<String> reviewReasons, Instant reviewFlaggedAt,
-            String reviewAnalysisReference, List<String> acknowledgedReasons,
+            String reviewAnalysisReference,
+            /** Each current reason's source: the analysis reference of the upload that first raised
+             *  it in this flag (V270). Empty for a layout flagged before V270. */
+            Map<String, String> reviewReasonSources,
+            List<String> acknowledgedReasons,
             UUID profileId, String profileName, Integer profileVersion,
             /** "AUTO", "MANUAL", or null when nobody has decided this layout's profile yet. */
             String profileLinkSource,
@@ -258,7 +262,7 @@ public class LayoutCurationService {
         return new RegistryEntry(l.getFingerprint(), l.getName(), l.getStatus().name(), l.getSourceFormat(),
                 l.getParser(), l.getObservationCount(), l.getStagingCount(), l.getFirstSeen(), l.getLastSeen(),
                 l.isNeedsReview(), l.getReviewReasons(), l.getReviewFlaggedAt(), l.getReviewAnalysisReference(),
-                l.getAcknowledgedReasons(), l.getProfileId(),
+                l.getReviewReasonSources(), l.getAcknowledgedReasons(), l.getProfileId(),
                 l.getProfileId() == null ? null : profileNames.get(l.getProfileId()), l.getProfileVersion(),
                 l.getProfileLinkSource(), l.getPreviousProfileVersion(), l.getProfileVersionChangedAt());
     }

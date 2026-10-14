@@ -64,9 +64,16 @@ public final class DataExportDto {
      * explicitly excludes (derived categorization intelligence, not data the user provided).
      */
     public record MerchantExportDto(UUID id, String canonicalName, String logoUrl, String website, String lifecycleStatus) {
-        public static MerchantExportDto from(Merchant m) {
-            return new MerchantExportDto(m.getId(), m.getCanonicalName(), m.getLogoUrl(), m.getWebsite(),
-                    m.getLifecycleStatus().name());
+        /**
+         * {@code narrations} are the descriptions of this merchant's transactions. The name is the
+         * one the app shows: a merchant created before 2026-10-03 is stored under its narration's
+         * first words, rail word first, and is shown as the payee those narrations name
+         * ({@link com.finora.util.MerchantNames#forDisplay}).
+         */
+        public static MerchantExportDto from(Merchant m, java.util.Collection<String> narrations) {
+            return new MerchantExportDto(m.getId(),
+                    com.finora.util.MerchantNames.forDisplay(m.getCanonicalName(), narrations),
+                    m.getLogoUrl(), m.getWebsite(), m.getLifecycleStatus().name());
         }
     }
 

@@ -171,14 +171,20 @@ public class ImportVerifier {
         // unparseableRows too: a row nothing was read from has no reading to be ambiguous about.
         findings.add(columnAmbiguityValidator.check(rawRows, unparseableRows));
         findings.add(rowAccountingValidator.check(rows, unparseableRows, droppedTransactionCandidates, locatedRowCount));
+        // Reads BOTH rows and the summary panel, deliberately unlike the summary-only rule below --
+        // see its own doc comment for what that lets it prove (transaction classification
+        // consistency) that a summary-only check cannot. Run first only so the rule below can be
+        // re-read against it; the two findings keep their order in the report.
+        ImportDto.VerificationFinding cardRowCheck =
+                creditCardFlowReconciliationValidator.check(rows, printedCreditCardSummary);
         // Reads no row at all -- see the validator's own doc comment for why that is the point, not
         // an oversight: a credit-card statement's transaction table can be malformed while its
         // billing-summary panel is still readable, and this rule stays meaningful either way.
-        findings.add(creditCardStatementTotalsValidator.check(printedCreditCardSummary));
-        // Reads BOTH rows and the summary panel, deliberately unlike the rule above -- see its own
-        // doc comment for what that lets it prove (transaction classification consistency) that a
-        // summary-only check cannot.
-        findings.add(creditCardFlowReconciliationValidator.check(rows, printedCreditCardSummary));
+        // Its finding is re-read only where the rows prove its gap is a credit the summary left
+        // out rather than a misread -- see inLightOfTheRows.
+        findings.add(CreditCardStatementTotalsValidator.inLightOfTheRows(
+                creditCardStatementTotalsValidator.check(printedCreditCardSummary), cardRowCheck));
+        findings.add(cardRowCheck);
         // The normalized rows, same as balanceChainValidator above -- this checks the FINAL
         // description a user would see, not a raw pre-normalization cell.
         findings.add(descriptionCorruptionValidator.check(rows));

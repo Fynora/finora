@@ -237,6 +237,13 @@ class CapabilityCorpusCoverageTest {
                         + "against real geometry is covered by AccountNumberTransactionHeaderExtractorTest "
                         + "using the real header/value coordinates, and independently confirmed against the "
                         + "actual un-redacted PDF via scripts/corpus-run.py.");
+        DECLARED_WITHOUT_A_TRACE.put("CREDIT_CARD_SUMMARY_SIGNED_FIGURE_ROW",
+                "no trace -- it fires in CreditCardSummaryExtractor, called from PdfPreviewGenerator, "
+                        + "never from PdfTableLocator.locateAll (the same reason as "
+                        + "CREDIT_CARD_SUMMARY_TOTALS below). Motivated by a real Kotak card whose summary "
+                        + "figures are joined by the signs of its billing equation; covered by synthetic "
+                        + "fixtures in CardSummarySignedFigureRowReaderTest and confirmed against the real "
+                        + "statement via scripts/corpus-run.py.");
         DECLARED_WITHOUT_A_TRACE.put("CREDIT_CARD_SUMMARY_TOTALS",
                 "no trace yet -- CreditCardSummaryExtractorTest exercises the GRID strategy on "
                         + "synthetic fixtures reproducing real observed shapes (a clean stacked grid, "
@@ -256,6 +263,13 @@ class CapabilityCorpusCoverageTest {
                         + "CreditCardSummaryExtractorTest reproducing that shape, and measured against "
                         + "the unredacted document via scripts/corpus-run.py: it fires on that one "
                         + "statement of the 34 in the real corpus and changes no other.");
+        DECLARED_WITHOUT_A_TRACE.put("CREDIT_CARD_SUMMARY_EQUATION_ROW",
+                "no trace -- same situation as CREDIT_CARD_SUMMARY_TOTALS above: it fires in "
+                        + "CreditCardSummaryExtractor, called from PdfPreviewGenerator, never from "
+                        + "PdfTableLocator.locateAll. Motivated by a real Axis card whose billing equation "
+                        + "is one line of text over one row of figures; covered by synthetic fixtures in "
+                        + "CardSummaryEquationReaderTest and confirmed against both real statements of "
+                        + "that layout via scripts/corpus-run.py.");
         DECLARED_WITHOUT_A_TRACE.put("TRANSACTION_TABLE_TOTAL_CLOSED",
                 "no trace yet -- motivated by a real Kotak Mahindra Bank credit-card statement's "
                         + "own \"Total Purchase & Other Charges\" column-total row; real-corpus verified "

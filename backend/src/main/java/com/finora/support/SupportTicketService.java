@@ -158,7 +158,7 @@ public class SupportTicketService {
     public PagedResponse<SupportTicketDto.Summary> listOwn(UUID userId, int page, int size) {
         Pageable pageable = PageRequest.of(PageBounds.safePage(page), PageBounds.safeSize(size));
         return PagedResponse.of(
-                ticketRepository.findByUserIdOrderByCreatedAtDesc(userId, pageable).map(SupportTicketDto.Summary::from));
+                ticketRepository.findByUserIdOrderByCreatedAtDescIdDesc(userId, pageable).map(SupportTicketDto.Summary::from));
     }
 
     /**

@@ -69,7 +69,13 @@ public record TransactionDto(
          *  prints a negative one. Null when there was none, as on most card statements. It is the
          *  bank's figure for that moment, never recomputed, so it does not change when the user
          *  edits the row's amount. */
-        BigDecimal balanceAfter
+        BigDecimal balanceAfter,
+        /** One month's share of a card instalment plan -- see
+         *  {@link com.finora.util.BankActivityCategory#isCardInstalment}. Display only: a client
+         *  marks the row, because it repeats part of an earlier purchase that spending totals also
+         *  count when that purchase is in the ledger. Read from the row's own words each time, not
+         *  stored, so it follows an edited description. */
+        boolean cardInstalment
 ) {
     public static TransactionDto from(Transaction t, String categoryName) {
         return new TransactionDto(t.getId(), t.getAccountId(), t.getCategoryId(), categoryName, t.getTxnDate(),
@@ -84,7 +90,8 @@ public record TransactionDto(
                 t.getCounterpartyType().name(),
                 t.isInternational(), t.getForeignCurrency(), t.getForeignAmount(),
                 t.isTransfer() && t.getTransferPairId() == null,
-                t.getReferenceNumber(), t.getBalanceAfter());
+                t.getReferenceNumber(), t.getBalanceAfter(),
+                com.finora.util.BankActivityCategory.isCardInstalment(t.getDescription(), t.getTxnType()));
     }
 
     // Bug fix: neither request record had any Bean Validation at all, and TransactionController's
@@ -167,18 +174,36 @@ public record TransactionDto(
      */
     public record SimilarSummary(int similar, int keptByUser) {}
 
-    /** {@code international}: null for no filter, true for only international transactions,
-     *  false for only domestic ones. */
+    /**
+     * {@code international}: null for no filter, true for only international transactions,
+     * false for only domestic ones.
+     *
+     * <p>{@code after}: the id of the last transaction the caller already holds. When it is one of
+     * the caller's own transactions, the answer is the rows that follow it in the requested order,
+     * {@code page} is ignored, and the response counts only what is left: its {@code page} is 0 and
+     * its {@code totalElements} and {@code totalPages} cover that row's successors, so "more to
+     * fetch" is still {@code page + 1 < totalPages}. Null, or anything that is not the caller's own
+     * transaction: the list is paged by {@code page} as before.
+     */
     public record FilterRequest(UUID accountId, UUID categoryId, String type, String status, LocalDate dateFrom,
                                  LocalDate dateTo, BigDecimal amountMin, BigDecimal amountMax,
                                  String keyword, int page, int size, String sortField, String sortDir,
-                                 Boolean international) {
+                                 Boolean international, UUID after) {
+        /** The arity before a list could be continued from a row. */
+        public FilterRequest(UUID accountId, UUID categoryId, String type, String status, LocalDate dateFrom,
+                             LocalDate dateTo, BigDecimal amountMin, BigDecimal amountMax,
+                             String keyword, int page, int size, String sortField, String sortDir,
+                             Boolean international) {
+            this(accountId, categoryId, type, status, dateFrom, dateTo, amountMin, amountMax, keyword,
+                    page, size, sortField, sortDir, international, null);
+        }
+
         /** Pre-international arity. */
         public FilterRequest(UUID accountId, UUID categoryId, String type, String status, LocalDate dateFrom,
                              LocalDate dateTo, BigDecimal amountMin, BigDecimal amountMax,
                              String keyword, int page, int size, String sortField, String sortDir) {
             this(accountId, categoryId, type, status, dateFrom, dateTo, amountMin, amountMax, keyword,
-                    page, size, sortField, sortDir, null);
+                    page, size, sortField, sortDir, null, null);
         }
     }
 

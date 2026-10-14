@@ -143,6 +143,44 @@ class AnalyticsServiceTest {
         assertThat(result.get(1).transactionCount()).isEqualTo(2);
     }
 
+    /**
+     * A merchant created before 2026-10-03 is stored under its narration's first four words, rail
+     * word first. Top Merchants printed that stored name. It now shows the payee the merchant's own
+     * transactions name, and changes nothing stored.
+     */
+    @Test
+    @DisplayName("a merchant stored under a rail-first name is shown as the payee its transactions name")
+    void topMerchants_showsARailFirstMerchantAsThePayeeItsTransactionsName() {
+        UUID old = UUID.randomUUID();
+        Transaction first = expense(old, LocalDate.of(2026, 7, 1), new BigDecimal("500"));
+        first.setDescription("UPI-TESTPAYE-testpayee7@oksbi-SBIN0XXXXXX-100000000005-UPI");
+        Transaction second = expense(old, LocalDate.of(2026, 7, 2), new BigDecimal("300"));
+        second.setDescription("UPI-TESTPAYE-testpayee7@oksbi-SBIN0XXXXXX-200000000005-UPI");
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(first, second));
+        Merchant stored = merchant(old, "Upi Testpaye Testpayee7 Oksbi");
+        when(merchantRepository.findByUserId(userId)).thenReturn(List.of(stored));
+
+        var result = analyticsService.topMerchants(userId, null);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).merchantName()).isEqualTo("Testpaye");
+        assertThat(result.get(0).totalSpend()).isEqualByComparingTo("800");
+        assertThat(stored.getCanonicalName()).isEqualTo("Upi Testpaye Testpayee7 Oksbi");
+    }
+
+    @Test
+    @DisplayName("a payment that names no payee is shown as its rail's payment, not as the rail word twice")
+    void topMerchants_showsAMerchantWithNoPayeeAsItsRailsPayment() {
+        UUID nobody = UUID.randomUUID();
+        Transaction payment = expense(nobody, LocalDate.of(2026, 7, 1), new BigDecimal("500"));
+        payment.setDescription("UPI/RRN 100000000001/UPI");
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(payment));
+        when(merchantRepository.findByUserId(userId)).thenReturn(List.of(merchant(nobody, "Upi Upi")));
+
+        assertThat(analyticsService.topMerchants(userId, null))
+                .extracting(AnalyticsDto.TopMerchant::merchantName).containsExactly("UPI payment");
+    }
+
     @Test
     void topMerchants_excludesTransfersDuplicatesAndRefunds() {
         UUID amazon = UUID.randomUUID();

@@ -5763,6 +5763,7 @@ export interface components {
             awaitingTransferPartner?: boolean;
             referenceNumber?: string;
             balanceAfter?: number;
+            cardInstalment?: boolean;
         };
         SetChoiceRequest: {
             /** Format: uuid */
@@ -13049,6 +13050,7 @@ export interface operations {
                 size?: number;
                 sortField?: string;
                 sortDir?: string;
+                after?: string;
             };
             header?: never;
             path?: never;

@@ -27,7 +27,7 @@ public interface FeedbackEntryRepository extends JpaRepository<FeedbackEntry, UU
             SELECT f FROM FeedbackEntry f
              WHERE (:type IS NULL OR f.type = :type)
                AND (:context IS NULL OR f.context = :context)
-             ORDER BY f.createdAt DESC
+             ORDER BY f.createdAt DESC, f.id DESC
             """)
     Page<FeedbackEntry> findForAdmin(@Param("type") FeedbackEntry.Type type,
                                      @Param("context") FeedbackEntry.Context context,

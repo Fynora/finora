@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import { budgetsApi, reportsApi, transactionsApi } from '../api/endpoints';
-import { DEFAULT_LEDGER_FILTERS, getLedgerNextPageParam } from '../screens/LedgerScreen';
+import {
+  DEFAULT_LEDGER_FILTERS, getLedgerNextPageParam, ledgerPageRequest, type LedgerPageParam,
+} from '../screens/LedgerScreen';
 import { useOnline } from '../components/OfflineBanner';
 
 /**
@@ -57,8 +59,8 @@ export function usePrefetchAdjacentScreens() {
         void queryClient.prefetchInfiniteQuery({
           queryKey: ['transactions', DEFAULT_LEDGER_FILTERS],
           queryFn: ({ pageParam }) =>
-            transactionsApi.search({ ...DEFAULT_LEDGER_FILTERS, page: pageParam as number }),
-          initialPageParam: 0,
+            transactionsApi.search({ ...DEFAULT_LEDGER_FILTERS, ...ledgerPageRequest(pageParam) }),
+          initialPageParam: 0 as LedgerPageParam,
           getNextPageParam: getLedgerNextPageParam,
         });
       }

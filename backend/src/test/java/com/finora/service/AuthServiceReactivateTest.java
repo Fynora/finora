@@ -167,6 +167,7 @@ class AuthServiceReactivateTest {
             authService.reactivate(new ReactivateRequest("bogus-token"));
         } catch (ApiException e) {
             assertThat(e.getMessage()).contains("invalid");
+            assertThat(e.getMessage()).doesNotContain("used");
             return;
         }
         throw new AssertionError("Expected reactivate() to throw for an unknown token");

@@ -82,6 +82,38 @@ class TransactionGroupingServiceTest {
     }
 
     /**
+     * The review card is headed by the merchant's name. A merchant created before 2026-10-03 is
+     * stored under its narration's first words, rail word first; the card shows the payee its
+     * transactions name instead. Every narration here is invented.
+     */
+    @Test
+    void aGroupWhoseMerchantIsStoredUnderARailFirstNameIsHeadedByThePayee() {
+        UUID oldId = UUID.randomUUID();
+        Transaction first = txnFor(oldId);
+        first.setDescription("UPI/DR/100000000001/SAMPLEPA/HDFC/samplepayee21@okhdfc");
+        Transaction second = txnFor(oldId);
+        second.setDescription("UPI/DR/200000000001/SAMPLEPA/HDFC/samplepayee21@okhdfc");
+        UUID nobodyId = UUID.randomUUID();
+        Transaction third = txnFor(nobodyId);
+        third.setDescription("UPI/RRN 100000000001/UPI");
+        Transaction fourth = txnFor(nobodyId);
+        fourth.setDescription("UPI/RRN 100000000001/UPI");
+
+        TransactionRepository transactionRepository = mock(TransactionRepository.class);
+        when(transactionRepository.findByUserIdAndNeedsCategoryReviewTrueAndAccountIdInOrderByTxnDateDesc(eq(userId), any()))
+                .thenReturn(List.of(first, second, third, fourth));
+        MerchantRepository merchantRepository = mock(MerchantRepository.class);
+        when(merchantRepository.findByUserId(userId)).thenReturn(List.of(
+                merchantOf(oldId, "Upi Dr Samplepa Hdfc"), merchantOf(nobodyId, "Upi Upi")));
+
+        TransactionGroupingService service = new TransactionGroupingService(transactionRepository, merchantRepository, accountRepositoryWithOneLiveAccount());
+
+        assertThat(service.groupNeedsReviewByMerchant(userId))
+                .extracting(TransactionGroupingService.MerchantGroup::merchantName)
+                .containsExactlyInAnyOrder("Samplepa", "UPI payment");
+    }
+
+    /**
      * Backs the Ledger's "preview before applying" expansion on this card: {@code transactions}
      * must carry the SAME rows as {@code transactionIds}, in the same order, not a separately
      * derived list that could drift out of sync with what "Apply to N transactions" actually acts

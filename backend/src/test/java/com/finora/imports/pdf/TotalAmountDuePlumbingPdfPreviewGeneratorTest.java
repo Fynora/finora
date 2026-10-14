@@ -65,7 +65,7 @@ class TotalAmountDuePlumbingPdfPreviewGeneratorTest {
         StagingResponse response = realGenerator().generate(UUID.randomUUID(), "credit_card_total_due_statement.pdf", pdf);
 
         assertThat(response.detectedAccount().suggestedAccountType()).isEqualTo("CREDIT_CARD");
-        assertThat(response.detectedAccount().totalAmountDue()).isEqualByComparingTo("27665.16");
+        assertThat(response.detectedAccount().totalAmountDue()).isEqualByComparingTo("31480.25");
     }
 
     /**

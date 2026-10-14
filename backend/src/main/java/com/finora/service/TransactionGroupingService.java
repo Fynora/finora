@@ -7,6 +7,7 @@ import com.finora.repository.MerchantRepository;
 import com.finora.repository.TransactionRepository;
 import com.finora.util.CounterpartyIdentity;
 import com.finora.util.CounterpartyType;
+import com.finora.util.MerchantNames;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -131,7 +132,11 @@ public class TransactionGroupingService {
             if (txns.size() < MIN_GROUP_SIZE) continue;
             String merchantName = nameById.get(entry.getKey());
             if (merchantName == null) continue;
-            groups.add(new MerchantGroup(entry.getKey(), merchantName,
+            // The stored name of a merchant created before 2026-10-03 opens with a rail word; the
+            // card is headed by the payee these rows name instead (MerchantNames.forDisplay).
+            String shownName = MerchantNames.forDisplay(merchantName,
+                    txns.stream().map(Transaction::getDescription).toList());
+            groups.add(new MerchantGroup(entry.getKey(), shownName,
                     txns.stream().map(Transaction::getId).toList(),
                     txns.stream().map(TransactionSummary::from).toList()));
         }

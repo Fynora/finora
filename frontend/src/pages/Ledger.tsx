@@ -22,12 +22,16 @@ import { MerchantLogo } from '../components/MerchantLogo';
 import { BankLogo } from '../components/BankLogo';
 import type { Transaction } from '../types';
 import { counterpartyLabel } from '../lib/counterpartyLabel';
+import {
+  NO_ANCHORS, asWholeListPage, pagingSignature, rememberAnchors, requestFor, type PageAnchors,
+} from '../lib/ledgerPaging';
 import { ConfirmDialog, Button, IconButton, Skeleton, FinoraCard, Badge, useDialogA11y } from '../design-system';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
 import { useMemoryReinforcement } from '../hooks/useMemoryReinforcement';
 import { MemoryReinforcementToast } from '../components/MemoryReinforcementToast';
 import { ICON_COMPONENTS, COLOR_HEX } from '../lib/categoryIcons';
 import { formatForeignAmount } from '../lib/foreignAmount';
+import { CARD_INSTALMENT_LABEL, CARD_INSTALMENT_NOTE } from '../lib/cardInstalment';
 import { CountsAsSection } from '../components/inflow/CountsAsSection';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
@@ -337,11 +341,24 @@ export default function Ledger() {
     || activeFilters.international !== undefined
     || activeFilters.dateFrom || activeFilters.dateTo || activeFilters.keyword);
 
-  const { data: page, isLoading, isFetching } = useQuery({
-    queryKey: ['transactions', activeFilters],
-    queryFn: () => transactionsApi.search(activeFilters),
+  // Moving to the next page continues from the last row on screen rather than counting rows from
+  // the top -- see lib/ledgerPaging for why and how. `filters.page` stays the page the user is on;
+  // only the request gains the row to continue from, and the answer is turned back into a page of
+  // the whole list, so everything below still reads page/totalPages/totalElements as before.
+  const [pageAnchors, setPageAnchors] = useState<PageAnchors>(NO_ANCHORS);
+  const listRequest = requestFor(activeFilters, pageAnchors);
+  const { data: page, isLoading, isFetching, isPlaceholderData } = useQuery({
+    queryKey: ['transactions', listRequest],
+    queryFn: () => transactionsApi.search(listRequest)
+      .then((response) => asWholeListPage(response, listRequest.page ?? 0, listRequest.after !== undefined)),
     placeholderData: keepPreviousData, // keep showing the old page while the new one loads, no flash-to-empty
   });
+  const listSignature = pagingSignature(activeFilters);
+  useEffect(() => {
+    // Not from placeholder data: that is the previous request's page, shown while this one loads,
+    // and may belong to a different search.
+    if (page && !isPlaceholderData) setPageAnchors((known) => rememberAnchors(known, listSignature, page));
+  }, [page, isPlaceholderData, listSignature]);
   const txns = page?.content ?? [];
   const showTableSkeleton = useDelayedLoading(isLoading);
 
@@ -888,6 +905,20 @@ export default function Ledger() {
                         {/* A fact the statement printed, not a status -- so it sits beside the
                             status badges rather than inside statusBadges' fallback chain. */}
                         {t.international && <Badge tone="neutral" label="International" />}
+                        {/* Also a fact about the row, not a status. A button, because the label
+                            alone does not say why it matters: the panel it opens does, and a
+                            tooltip is out of reach on a touch screen. */}
+                        {t.cardInstalment && (
+                          <motion.button
+                            type="button"
+                            whileTap={prefersReducedMotion ? undefined : { scale: 0.9 }}
+                            title={CARD_INSTALMENT_NOTE}
+                            onClick={() => setExplaining(t)}
+                            className="hover:opacity-80"
+                          >
+                            <Badge tone="neutral" label={CARD_INSTALMENT_LABEL} />
+                          </motion.button>
+                        )}
                         {badge && (
                           <motion.button
                             type="button"
@@ -1114,6 +1145,15 @@ function ExplanationModal({ transaction, onClose }: { transaction: Transaction; 
           <p className="text-xs text-muted mb-3">
             {transaction.description || transaction.merchant} · {transaction.categoryName}
           </p>
+
+          {/* Outside the fetch below on purpose: it is already known from the row, so it shows
+              while the explanation loads and when it fails to. */}
+          {transaction.cardInstalment && (
+            <div className="space-y-2 pb-4 mb-4 border-b border-border">
+              <Badge tone="neutral" label={CARD_INSTALMENT_LABEL} />
+              <p className="text-ink text-sm">{CARD_INSTALMENT_NOTE}</p>
+            </div>
+          )}
 
           {loadError ? (
             <p className="text-danger text-xs">Couldn't load this explanation — please try again.</p>

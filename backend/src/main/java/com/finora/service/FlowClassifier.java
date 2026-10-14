@@ -64,8 +64,11 @@ public final class FlowClassifier {
     // corrects them.
     static final List<String> CARD_PAYMENT_KEYWORDS = List.of(
             "payment received", "payment recd", "payment thank", "thank you", "bbps", "autopay", "auto debit", "cc payment");
-    static final List<String> CARD_ADJUSTMENT_KEYWORDS = List.of(
-            "waiver", "waived", "surcharge", "emi conversion", "converted to emi", "conv to emi");
+    /** A card crediting back a purchase it has turned into instalments. Reconciliation links such a
+     *  credit to the purchase itself (see {@link #namesEmiConversion}). */
+    static final List<String> EMI_CONVERSION_KEYWORDS = List.of("emi conversion", "converted to emi", "conv to emi");
+    static final List<String> CARD_ADJUSTMENT_KEYWORDS = java.util.stream.Stream.concat(
+            java.util.stream.Stream.of("waiver", "waived", "surcharge"), EMI_CONVERSION_KEYWORDS.stream()).toList();
     static final List<String> REWARD_KEYWORDS = List.of("cashback", "cash back", "reward");
     static final List<String> INVESTMENT_INFLOW_KEYWORDS = List.of(
             "redemption", "redeem", "fd closure", "fd maturity", "maturity proceeds", "iccl");
@@ -223,6 +226,11 @@ public final class FlowClassifier {
         return k.isCountsAsIncome()
                 ? of(FlowClass.INCOME, FlowReason.USER_KIND)
                 : of(FlowClass.ADJUSTMENT, FlowReason.USER_KIND_EXCLUDED);
+    }
+
+    /** Whether the narration says a purchase was converted to instalments ("EMI CONVERSION OF PURCHASE"). */
+    static boolean namesEmiConversion(String description) {
+        return description != null && hasAny(" " + CategoryRules.normalize(description) + " ", EMI_CONVERSION_KEYWORDS);
     }
 
     /** A credit that says "refund" and comes from the tax department. The reconciliation refund

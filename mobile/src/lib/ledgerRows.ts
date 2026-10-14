@@ -1,6 +1,7 @@
 import { counterpartyLabel } from './counterpartyLabel';
 import { fmtCurrency, fromLocalDateString, toLocalDateString } from './format';
 import { reconciliationBadge } from './reconciliationBadge';
+import { CARD_INSTALMENT_LABEL, CARD_INSTALMENT_NOTE } from './cardInstalment';
 import type { ReconciliationStatus, Transaction } from '../types';
 
 /**
@@ -161,7 +162,7 @@ export function rowTitle(t: Pick<Transaction, 'description' | 'merchant'>): stri
 
 export type RowTagTone = 'warning' | 'danger' | 'success' | 'neutral';
 export interface RowTag {
-  key: 'match' | 'bank-correction' | 'needs-review' | 'recurring' | 'international';
+  key: 'match' | 'bank-correction' | 'needs-review' | 'recurring' | 'international' | 'card-instalment';
   label: string;
   tone: RowTagTone;
 }
@@ -190,7 +191,18 @@ export function rowTags(t: Transaction): RowTag[] {
   if (t.needsCategoryReview) tags.push({ key: 'needs-review', label: 'Needs Review', tone: 'warning' });
   if (t.recurring) tags.push({ key: 'recurring', label: 'Recurring', tone: 'neutral' });
   if (t.international) tags.push({ key: 'international', label: 'International', tone: 'neutral' });
+  // A fact about the row, like international. What it means is in the details sheet, and spoken
+  // in full below.
+  if (t.cardInstalment) tags.push({ key: 'card-instalment', label: CARD_INSTALMENT_LABEL, tone: 'neutral' });
   return tags;
+}
+
+/** How a tag is spoken: international in lower case, mid-sentence; the instalment mark as its full
+ *  note, since its two words alone do not say why it matters and a listener has no tooltip. */
+function spokenTag(tag: RowTag): string {
+  if (tag.key === 'international') return 'international';
+  if (tag.key === 'card-instalment') return CARD_INSTALMENT_NOTE;
+  return tag.label;
 }
 
 /**
@@ -208,7 +220,7 @@ export function rowSpokenLabel(t: Transaction): string {
     t.date,
     cp?.full,
     match?.hint,
-    ...rowTags(t).filter((tag) => tag.key !== 'match').map((tag) => (tag.key === 'international' ? 'international' : tag.label)),
+    ...rowTags(t).filter((tag) => tag.key !== 'match').map(spokenTag),
   ];
   return parts.filter(Boolean).join(', ');
 }

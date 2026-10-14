@@ -130,6 +130,27 @@ public final class BankActivityCategory {
         return namesInterestEarned(CategoryRules.normalize(description), description);
     }
 
+    /**
+     * Whether the row is one month's share of a card instalment plan: money out, worded as the
+     * card's own instalment, and not a payment to a person. It reads the one word list {@link #of}
+     * reads for "Loan EMI", so a wording added there is marked too; unlike the category, it still
+     * holds after the user picks another category for the row.
+     *
+     * <p>Read by clients to mark the row. Such a row repeats part of an earlier purchase, and
+     * every spending total counts both when the purchase is in the ledger too; nothing here
+     * changes what is counted. An instalment's interest and tax are new cost and are not marked.
+     *
+     * <p>Measured on the real statement corpus (2026-10-12, 34 statements, 1,965 rows): two rows,
+     * one on each of two card statements, and none of the 1,682 rows on savings statements.
+     * A third issuer prints "... INSTALLMENTS PRINCIPAL" as a debit and as a credit in the same
+     * statement; what the credit is has not been established, so that wording is not read here.
+     */
+    public static boolean isCardInstalment(String description, Transaction.Type direction) {
+        if (description == null || description.isBlank() || direction != Transaction.Type.EXPENSE) return false;
+        if (CounterpartyTyping.of(description).type() == CounterpartyType.PERSON) return false;
+        return CARD_INSTALMENT.matcher(CategoryRules.normalize(description)).find();
+    }
+
     /** Whether {@code text} -- a narration, or a field of one -- reads as one of the bank's interest credits. */
     static boolean namesInterest(String text) {
         return text != null && INTEREST_EARNED.matcher(CategoryRules.normalize(text)).find();

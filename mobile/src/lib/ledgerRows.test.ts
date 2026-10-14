@@ -103,13 +103,19 @@ describe('rowTags', () => {
     expect(rowTags(txn({ categoryManuallySet: true }))).toEqual([]);
   });
 
-  it('orders match, bank correction, needs review, recurring, international', () => {
+  it('orders match, bank correction, needs review, recurring, international, card instalment', () => {
     const tags = rowTags(txn({
       reconciliationStatus: 'TRANSFER', pendingBankCorrection: true, needsCategoryReview: true,
-      recurring: true, international: true,
+      recurring: true, international: true, cardInstalment: true,
     }));
-    expect(tags.map((t) => t.label)).toEqual(['Transfer', 'Bank Correction', 'Needs Review', 'Recurring', 'International']);
-    expect(tags.map((t) => t.key)).toEqual(['match', 'bank-correction', 'needs-review', 'recurring', 'international']);
+    expect(tags.map((t) => t.label)).toEqual(['Transfer', 'Bank Correction', 'Needs Review', 'Recurring', 'International', 'EMI instalment']);
+    expect(tags.map((t) => t.key)).toEqual(['match', 'bank-correction', 'needs-review', 'recurring', 'international', 'card-instalment']);
+  });
+
+  it('marks a card instalment only when the server says so', () => {
+    expect(rowTags(txn({ cardInstalment: false }))).toEqual([]);
+    // A server that predates the flag sends none.
+    expect(rowTags(txn())).toEqual([]);
   });
 
   it.each([
@@ -128,6 +134,7 @@ describe('rowTags', () => {
     expect(rowTags(txn({ needsCategoryReview: true }))[0].tone).toBe('warning');
     expect(rowTags(txn({ recurring: true }))[0].tone).toBe('neutral');
     expect(rowTags(txn({ international: true }))[0].tone).toBe('neutral');
+    expect(rowTags(txn({ cardInstalment: true }))[0].tone).toBe('neutral');
   });
 });
 
@@ -140,6 +147,14 @@ describe('rowSpokenLabel', () => {
   it('adds the match explanation and the tags shown, with international last', () => {
     const label = rowSpokenLabel(txn({ reconciliationStatus: 'DUPLICATE', recurring: true, international: true }));
     expect(label).toBe('Grocery run, expense ₹1,250, Food, 2026-07-14, Matched as a repeat of another transaction, Recurring, international');
+  });
+
+  it('speaks the instalment mark as its full note, not its two words', () => {
+    const label = rowSpokenLabel(txn({ cardInstalment: true }));
+    expect(label).toBe(
+      'Grocery run, expense ₹1,250, Food, 2026-07-14, A monthly instalment on an earlier card purchase. '
+        + 'If that purchase is also in Fynora, your spending totals count both the purchase and its instalments.'
+    );
   });
 
   it('does not say Reviewed or Categorized', () => {

@@ -20,6 +20,7 @@ interface RowProps {
 function tagTestId(tag: RowTag, id: string): string {
   if (tag.key === 'match') return `reconciliation-badge-${id}`;
   if (tag.key === 'international') return `international-badge-${id}`;
+  if (tag.key === 'card-instalment') return `card-instalment-badge-${id}`;
   return `row-tag-${tag.key}-${id}`;
 }
 

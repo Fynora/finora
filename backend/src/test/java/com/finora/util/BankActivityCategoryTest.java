@@ -209,6 +209,61 @@ class BankActivityCategoryTest {
         assertThat(CounterpartyClassifier.classify("EMI PRINCIPAL - 1/6, REF# 00000001")).isNotEqualTo(CounterpartyType.BUSINESS);
     }
 
+    // --- isCardInstalment: the row a client marks as an instalment on an earlier purchase ---
+
+    @Test
+    void aCardsOwnInstalment_isMarked_inBothWordings() {
+        assertThat(BankActivityCategory.isCardInstalment("EMI PRINCIPAL - 1/6, REF# 00000001", EXPENSE)).isTrue();
+        assertThat(BankActivityCategory.isCardInstalment("FP EMI 06/12(EXCL TAX   49.40)", EXPENSE)).isTrue();
+    }
+
+    /** Interest and tax on an instalment are new cost, counted once: they are not a repeat of the purchase. */
+    @Test
+    void anInstalmentsInterestAndTax_areNotMarked() {
+        assertThat(BankActivityCategory.isCardInstalment("EMI INTEREST - 1/6, REF# 00000001", EXPENSE)).isFalse();
+        assertThat(BankActivityCategory.isCardInstalment("INTEREST ON EMI", EXPENSE)).isFalse();
+        assertThat(BankActivityCategory.isCardInstalment("IGST DB @ 18.00%", EXPENSE)).isFalse();
+    }
+
+    /** Money in is never an instalment being billed, whatever it is worded as. */
+    @Test
+    void aCreditWordedAsAnInstalment_isNotMarked() {
+        assertThat(BankActivityCategory.isCardInstalment("EMI PRINCIPAL - 1/6, REF# 00000001", INCOME)).isFalse();
+        assertThat(BankActivityCategory.isCardInstalment("EMI PRINCIPAL - 1/6, REF# 00000001", null)).isFalse();
+    }
+
+    /** A loan instalment from a bank account, a recurring deposit, a shop named for the word: none
+     *  is a card's instalment plan, and none repeats a purchase. */
+    @Test
+    void otherRowsThatMentionAnInstalment_areNotMarked() {
+        assertThat(BankActivityCategory.isCardInstalment("ACH D- SAMPLE HOME LOAN EMI-0000000001", EXPENSE)).isFalse();
+        assertThat(BankActivityCategory.isCardInstalment("00000000000001 RD INSTALLMENT SAMPLE 0001", EXPENSE)).isFalse();
+        assertThat(BankActivityCategory.isCardInstalment("EMI SAMPLE STORE", EXPENSE)).isFalse();
+        assertThat(BankActivityCategory.isCardInstalment("SAMPLE STORE 2ND OF 6 INSTALLMENTS PRINCIPAL", EXPENSE)).isFalse();
+        assertThat(BankActivityCategory.isCardInstalment("", EXPENSE)).isFalse();
+        assertThat(BankActivityCategory.isCardInstalment(null, EXPENSE)).isFalse();
+    }
+
+    /** A friend's own note on a payment is their words about a transfer, not the card's plan. */
+    @Test
+    void aPersonsPaymentWhoseNoteNamesAnInstalment_isNotMarked() {
+        assertThat(BankActivityCategory.isCardInstalment(
+                "UPI-AMIT KUMAR-amitkumar@okaxis-HDFC0000000-000000000000-EMI PRINCIPAL", EXPENSE)).isFalse();
+    }
+
+    /** The mark and the "Loan EMI" category read one word list: on each of these they agree. */
+    @Test
+    void theMark_agreesWithTheLoanEmiCategory() {
+        for (String narration : new String[] {
+                "EMI PRINCIPAL - 1/6, REF# 00000001", "FP EMI 06/12(EXCL TAX   49.40)",
+                "EMI INTEREST - 1/6, REF# 00000001", "INTEREST ON EMI", "IGST DB @ 18.00%",
+                "CC BILLPAY SAMPLE", "RD INSTALLMENT 0001", "SAMPLE STORE PURCHASE" }) {
+            assertThat(BankActivityCategory.isCardInstalment(narration, EXPENSE))
+                    .as(narration)
+                    .isEqualTo("Loan EMI".equals(of(narration, EXPENSE)));
+        }
+    }
+
     @Test
     void aForeignCurrencyMarkupFee_isFeesInterest() {
         assertThat(of("CONSOLIDATED FCY MARKUP FEE (Ref# VT000000000000000000001)", EXPENSE)).isEqualTo("Fees/Interest");

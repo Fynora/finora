@@ -328,6 +328,24 @@ describe('row tags', () => {
     expect(screen.getByLabelText(/Grocery run.*, international$/)).toBeTruthy();
   });
 
+  it('marks a card instalment, and reads out in full what the mark means', async () => {
+    transactions.search.mockResolvedValue(page([
+      txn({ id: 't-emi', description: 'FP EMI 02/06', cardInstalment: true }),
+      txn({ id: 't-plain', description: 'Salary', cardInstalment: false }),
+      // A server that predates the flag sends none: not marked.
+      txn({ id: 't-old', description: 'Old row' }),
+    ]) as never);
+
+    renderScreen();
+
+    expect(await screen.findByTestId('card-instalment-badge-t-emi')).toHaveTextContent('EMI instalment');
+    expect(screen.queryByTestId('card-instalment-badge-t-plain')).toBeNull();
+    expect(screen.queryByTestId('card-instalment-badge-t-old')).toBeNull();
+    // The whole note, not the pill's two words: a listener has no details sheet open yet.
+    expect(screen.getByLabelText(/^FP EMI 02\/06.*A monthly instalment on an earlier card purchase\..*count both the purchase and its instalments\.$/i)).toBeTruthy();
+    expect(screen.getByLabelText(/^Salary/).props.accessibilityLabel).not.toMatch(/instalment/i);
+  });
+
   it('shows Needs Review and Recurring at once: independent facts, not a priority chain', async () => {
     transactions.search.mockResolvedValue(page([txn({ needsCategoryReview: true, recurring: true })]) as never);
 

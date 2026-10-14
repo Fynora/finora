@@ -174,8 +174,11 @@ class BlankedCopyComparisonTest {
         var result = BlankedCopyComparison.compare(real, copy);
         assertThat(result.matches()).isFalse();
         assertThat(result.toString()).doesNotContain("9876543210", "CALL"); // synthetic-ok
-        assertThat(result.differences()).filteredOn(d -> d.field() == Field.DESCRIPTION)
-                .allSatisfy(d -> assertThat(d.maskedTokens()).allMatch(t -> !t.contains("98765")));
+        // The descriptions agree character by character (the copy's is the real one masked), so the
+        // one difference is the amount the real reading took from the phone number: a field and a
+        // position, with no tokens at all.
+        assertThat(result.differences()).containsExactly(
+                new BlankedCopyComparison.Difference(0, 0, Field.AMOUNT, List.of()));
     }
 
     // ---- Descriptions. The copy masks each run on its own; the real description is one joined

@@ -269,6 +269,34 @@ class TraceValidatorTest {
         }
     }
 
+    /**
+     * The server's refusal check and the committed-trace check decide alike: what one exempts the
+     * other exempts, and what one names the other blocks under the same kind.
+     */
+    @Test
+    void privacyKindsAndValidateAgreeOnExemptAndNonExemptValues() {
+        List<String> allKinds = List.of("email address", "phone number", "IFSC branch code",
+                "unmasked text in another script");
+        record Case(String text, List<String> kinds) {}
+        for (Case c : List.of(
+                new Case("someone@example.org", List.of()),   // the placeholder rule exempts it
+                new Case("xxx@xxx.xx", List.of()),   // synthetic-ok: the redactor's own mask
+                new Case("IFSC HDFC0XXXXXX", List.of()),   // a masked branch code
+                new Case("+91 9999999999", List.of()),   // a masked phone number
+                new Case("someone@mail.org", List.of("email address")), // synthetic-ok: real-shaped on purpose
+                new Case("Contact 9812345678", List.of("phone number")), // synthetic-ok: real-shaped on purpose
+                new Case("IFSC HDFC0004521", List.of("IFSC branch code")), // synthetic-ok: real-shaped on purpose
+                new Case("अमित", List.of("unmasked text in another script")))) {   // synthetic-ok
+            List<String> kinds = TraceValidator.privacyKinds(List.of(new PositionedText(c.text(), 0f, 0f, 0)));
+            List<String> blocked = TraceValidator.validate("probe", traceWith(metadata(List.of()), c.text()))
+                    .blockers().stream().filter(f -> f.check().equals("pii"))
+                    .flatMap(f -> allKinds.stream().filter(k -> f.detail().contains(k)))
+                    .distinct().toList();
+            assertThat(kinds).as("privacyKinds: %s", c.text()).containsExactlyElementsOf(c.kinds());
+            assertThat(blocked).as("validate: %s", c.text()).containsExactlyInAnyOrderElementsOf(kinds);
+        }
+    }
+
     @Test
     void privacyKindsIsEmptyForATraceWithNoTable() {
         List<PositionedText> runs = List.of(new PositionedText("Xxxxx xxxx", 0f, 0f, 0));

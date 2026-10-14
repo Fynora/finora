@@ -2,6 +2,7 @@ package com.finora.imports;
 
 import com.finora.imports.pdf.PdfPreviewGenerator;
 import com.finora.imports.pdf.fixtures.PdfFixtureBuilder;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -30,10 +31,31 @@ class ReadingFromAcquiredTextTest {
         PdfPreviewGenerator generator = PdfGeneratorTestSupport.generator();
         UUID user = UUID.randomUUID();
 
-        var fromBytes = generator.generateSectionsWithContext(user, "statement.pdf", pdf).sections();
+        var fromBytes = generator.generateSectionsWithContext(user, "statement.pdf", pdf);
         var fromAcquired = generator.generateSectionsFromAcquired(user, "statement.pdf",
-                generator.acquire(pdf, null)).sections();
+                generator.acquire(pdf, null));
 
-        assertThat(fromAcquired).isEqualTo(fromBytes);
+        // Not vacuous: each sample reads to at least one section with rows.
+        assertThat(fromBytes.sections()).isNotEmpty();
+        assertThat(fromBytes.sections()).anySatisfy(s -> assertThat(s.rows()).isNotEmpty());
+        assertThat(fromAcquired.sections()).isEqualTo(fromBytes.sections());
+
+        // The document facts the split moved from one method into two.
+        DocumentContext a = fromAcquired.documentContext();
+        DocumentContext b = fromBytes.documentContext();
+        assertThat(a.textSource()).isNotNull().isEqualTo(b.textSource());
+        assertThat(a.contentDamage()).isEqualTo(b.contentDamage());
+        assertThat(a.extractedRuns()).isNotNull().isPositive().isEqualTo(b.extractedRuns());
+        assertThat(fromAcquired.creditCardSummary()).isEqualTo(fromBytes.creditCardSummary());
+    }
+
+    /** The card-summary comparison above is not only null against null. */
+    @Test
+    void theCardSummarySampleHasACardSummaryToCompare() throws Exception {
+        byte[] pdf = PdfFixtureBuilder.buildSavingsAndCardWithCardSummarySample();
+        PdfPreviewGenerator generator = PdfGeneratorTestSupport.generator();
+        var fromAcquired = generator.generateSectionsFromAcquired(UUID.randomUUID(), "statement.pdf",
+                generator.acquire(pdf, null));
+        assertThat(fromAcquired.creditCardSummary()).isNotNull();
     }
 }

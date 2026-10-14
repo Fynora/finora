@@ -1,4 +1,4 @@
-package com.finora.imports.pdf.fixtures;
+package com.finora.imports.pdf.trace;
 
 import com.finora.imports.pdf.PositionedText;
 import org.junit.jupiter.api.Test;
@@ -209,6 +209,16 @@ class PdfTraceRedactorTest {
             assertThat(run.text()).isEqualTo("XXXX X XXXXX");
             assertThat(run.width()).isZero();
         });
+    }
+
+    @Test
+    void redactLineMasksExactlyAsARunWouldBe() {
+        String line = "UPI Asha Verma 9876543210 1,234.56 12/07/2026 Balance"; // synthetic-ok
+        PositionedText run = new PositionedText(line, 0f, 0f, 0, 10f);
+        assertThat(PdfTraceRedactor.redactLine(line))
+                .isEqualTo(PdfTraceRedactor.redact(List.of(run)).get(0).text());
+        assertThat(PdfTraceRedactor.redactLine(line)).doesNotContain("Asha", "Verma", "9876543210"); // synthetic-ok
+        assertThat(PdfTraceRedactor.redactLine(line)).contains("1,234.56", "12/07/2026", "Balance");
     }
 
     private String redact(String text) {

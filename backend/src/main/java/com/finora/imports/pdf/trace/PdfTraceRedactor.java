@@ -1,4 +1,4 @@
-package com.finora.imports.pdf.fixtures;
+package com.finora.imports.pdf.trace;
 
 import com.finora.imports.pdf.PositionedText;
 import com.finora.util.BankRegistry;
@@ -11,7 +11,7 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
- * Strips a captured {@link PdfTrace} of personal data while leaving the document's structure
+ * Strips a captured trace (see {@link TraceFormat}) of personal data while leaving the document's structure
  * exactly as it was.
  *
  * The rule is an ALLOWLIST, not a denylist: a token is kept only if it is recognisably part of a
@@ -265,6 +265,11 @@ public final class PdfTraceRedactor {
                     : new PositionedText(redacted, run.x(), run.y(), run.pageIndex()));
         }
         return out;
+    }
+
+    /** One line of text masked exactly as a run with this text would be by {@link #redact}. */
+    public static String redactLine(String text) {
+        return redactText(text, vocabulary());
     }
 
     /** Structural words plus every bank's own identifiers, taken from {@link BankRegistry} so this

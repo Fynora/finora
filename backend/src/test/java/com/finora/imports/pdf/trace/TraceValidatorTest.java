@@ -1,6 +1,8 @@
-package com.finora.imports.pdf.fixtures;
+package com.finora.imports.pdf.trace;
 
 import com.finora.imports.pdf.PositionedText;
+import com.finora.imports.pdf.fixtures.PdfTrace;
+import com.finora.imports.pdf.fixtures.TraceQualityReport;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -169,5 +171,24 @@ class TraceValidatorTest {
         assertThat(TraceQualityReport.render(result))
                 .contains("[MISSING] Maturity Date")
                 .contains("VERDICT: DO NOT COMMIT");
+    }
+
+    @Test
+    void privacyKindsNamesTheKindNeverTheValue() {
+        // Not "example.org": the validator's own placeholder rule exempts it, which would make this
+        // assertion about a value the scan is designed to let through.
+        List<PositionedText> runs = List.of(
+                new PositionedText("someone@mail.org", 0f, 0f, 0), // synthetic-ok
+                new PositionedText("9876543210", 0f, 10f, 0), // synthetic-ok
+                new PositionedText("HDFC0001234", 0f, 20f, 0)); // synthetic-ok
+        List<String> kinds = TraceValidator.privacyKinds(runs);
+        assertThat(kinds).containsExactlyInAnyOrder("email address", "phone number", "IFSC branch code");
+        assertThat(String.join(" ", kinds)).doesNotContain("someone", "98765", "0001234");
+    }
+
+    @Test
+    void privacyKindsIsEmptyForATraceWithNoTable() {
+        List<PositionedText> runs = List.of(new PositionedText("Xxxxx xxxx", 0f, 0f, 0));
+        assertThat(TraceValidator.privacyKinds(runs)).isEmpty();
     }
 }

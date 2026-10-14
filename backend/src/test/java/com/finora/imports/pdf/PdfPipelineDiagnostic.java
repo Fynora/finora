@@ -12,10 +12,10 @@ import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 import com.finora.imports.pdf.fixtures.PdfTrace;
-import com.finora.imports.pdf.fixtures.PdfTraceRedactor;
-import com.finora.imports.pdf.fixtures.TraceMetadata;
 import com.finora.imports.pdf.fixtures.TraceQualityReport;
-import com.finora.imports.pdf.fixtures.TraceValidator;
+import com.finora.imports.pdf.trace.PdfTraceRedactor;
+import com.finora.imports.pdf.trace.TraceMetadata;
+import com.finora.imports.pdf.trace.TraceValidator;
 
 import java.nio.file.Files;
 import java.nio.file.Path;

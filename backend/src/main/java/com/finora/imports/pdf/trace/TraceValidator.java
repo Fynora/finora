@@ -1,9 +1,10 @@
-package com.finora.imports.pdf.fixtures;
+package com.finora.imports.pdf.trace;
 
 import com.finora.imports.pdf.PdfTableLocator;
 import com.finora.imports.pdf.PositionedText;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -72,7 +73,7 @@ public final class TraceValidator {
      *  this before writing, so a failing trace is never written to disk in the first place. */
     public static Result validate(String traceName, String content) {
         TraceMetadata metadata = TraceMetadata.parse(content);
-        List<PositionedText> runs = PdfTrace.parse(content);
+        List<PositionedText> runs = TraceFormat.parse(content);
         List<Finding> findings = new ArrayList<>();
 
         findings.addAll(scanForPii(runs));
@@ -145,6 +146,23 @@ public final class TraceValidator {
     }
 
     /**
+     * Which kinds of customer data survived redaction, by name only. The server's refusal check:
+     * unlike {@link #validate}, a layout with no table is not a reason to refuse, and the matched
+     * text is never returned, so a refusal can be shown to staff without showing the data.
+     */
+    public static List<String> privacyKinds(List<PositionedText> runs) {
+        LinkedHashSet<String> kinds = new LinkedHashSet<>();
+        for (PositionedText run : runs) {
+            String text = run.text();
+            if (text == null || text.isBlank()) continue;
+            if (matchesUnplaceholdered(EMAIL, text)) kinds.add("email address");
+            if (matchesUnplaceholdered(INDIAN_MOBILE, text)) kinds.add("phone number");
+            if (hasUnmaskedIfsc(text)) kinds.add("IFSC branch code");
+        }
+        return List.copyOf(kinds);
+    }
+
+    /**
      * PII scan over the trace's own text.
      *
      * Placeholder-shaped values are allowed by the same {@code is_placeholder} rule the commit hook
@@ -164,10 +182,7 @@ public final class TraceValidator {
     }
 
     private static void checkPattern(List<Finding> findings, Pattern pattern, String text, String what) {
-        var matcher = pattern.matcher(text);
-        while (matcher.find()) {
-            String hit = matcher.group();
-            if (PLACEHOLDER.matcher(hit).find()) continue;
+        for (String hit : unplaceholderedHits(pattern, text)) {
             findings.add(new Finding(Finding.Severity.BLOCKER, "pii",
                     "unmasked " + what + " survived redaction: " + hit));
         }
@@ -176,12 +191,44 @@ public final class TraceValidator {
     /** An IFSC's 4-letter bank prefix is deliberately preserved (it is what lets a trace test bank
      *  detection); only a real-looking BRANCH code is a finding. */
     private static void checkIfsc(List<Finding> findings, String text) {
+        for (String ifsc : unmaskedIfscs(text)) {
+            findings.add(new Finding(Finding.Severity.BLOCKER, "pii",
+                    "unmasked IFSC branch code survived redaction: " + ifsc));
+        }
+    }
+
+    /** Every match of {@code pattern} in {@code text} that the placeholder rule does not exempt.
+     *  The one place that decides what counts as a surviving email address or phone number, shared
+     *  by {@link #validate} and {@link #privacyKinds} so the two cannot disagree. */
+    private static List<String> unplaceholderedHits(Pattern pattern, String text) {
+        List<String> hits = new ArrayList<>();
+        var matcher = pattern.matcher(text);
+        while (matcher.find()) {
+            String hit = matcher.group();
+            if (PLACEHOLDER.matcher(hit).find()) continue;
+            hits.add(hit);
+        }
+        return hits;
+    }
+
+    private static boolean matchesUnplaceholdered(Pattern pattern, String text) {
+        return !unplaceholderedHits(pattern, text).isEmpty();
+    }
+
+    /** Every IFSC in {@code text} whose 6-character branch part is not a masked run of one
+     *  character. Shared by {@link #validate} and {@link #privacyKinds}. */
+    private static List<String> unmaskedIfscs(String text) {
+        List<String> found = new ArrayList<>();
         var matcher = IFSC.matcher(text);
         while (matcher.find()) {
             String branch = matcher.group().substring(5, 11);
             if (branch.matches("^(.)\\1{5}$")) continue;
-            findings.add(new Finding(Finding.Severity.BLOCKER, "pii",
-                    "unmasked IFSC branch code survived redaction: " + matcher.group()));
+            found.add(matcher.group());
         }
+        return found;
+    }
+
+    private static boolean hasUnmaskedIfsc(String text) {
+        return !unmaskedIfscs(text).isEmpty();
     }
 }

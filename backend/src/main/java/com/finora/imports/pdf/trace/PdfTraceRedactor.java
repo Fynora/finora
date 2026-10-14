@@ -56,7 +56,9 @@ public final class PdfTraceRedactor {
     // Version 5: an IFSC keeps the punctuation at its edges, so its masked token is as long as the
     // real one. An invisible format character inside a token is masked to x. Kept now: amounts with
     // a currency prefix or a glued Cr/Dr, glued day-month dates, apostrophe-year dates,
-    // amount-shaped integers (comma-grouped, or at most five digits) and lone C/D markers.
+    // amount-shaped integers (comma-grouped, or at most five digits) and lone C/D markers. (The
+    // reader's own label words were added to the allowlist at the same time; the allowlist
+    // fingerprint tracks that on its own.)
     public static final int REDACTOR_VERSION = 5;
 
     /**
@@ -233,7 +235,18 @@ public final class PdfTraceRedactor {
             // trigger pattern itself matches on -- masking any of these words away leaves a captured
             // trace unable to exercise the trigger it exists to protect. None of these identify
             // anybody; it is the same fixed regulatory disclosure on both documents.
-            "unless", "constituent", "notifies", "immediately", "any", "discrepancy"));
+            "unless", "constituent", "notifies", "immediately", "any", "discrepancy",
+            // The reading code's own label and marker words, taken from its constants (see
+            // ReaderKeywordVocabularyTest, which fails when one of those constants gains a word this
+            // list does not keep): CreditCardSummaryExtractor's previous-balance, fees, purchases
+            // and cash-advance labels, and PdfTableLocator's page-legend sentences, illustration,
+            // EMI-balances and loan-summary table markers and "date & time" hint. Masked, a blanked
+            // copy lost a card's opening balance, glued a page footer onto a transaction and read a
+            // section count differently. Statement furniture; none of them identify anybody.
+            "previous", "dues", "charges", "fees", "fee", "taxes", "purchase", "spends", "made",
+            "this", "cycle", "advance", "advances", "highlighted", "grey", "color", "includes",
+            "funds", "earmarked", "should", "be", "payable", "illustration", "will", "indicate",
+            "calculating", "balances", "table", "time"));
 
     /**
      * A bare single letter immediately trailing an already-preserved currency marker WITHIN THE
@@ -326,7 +339,7 @@ public final class PdfTraceRedactor {
     /** Structural words plus every bank's own identifiers, taken from {@link BankRegistry} so this
      *  never drifts as banks are added. A bank's name is not identifying once the account holder's
      *  is gone, and preserving it is what lets a trace regression-test bank detection. */
-    private static Set<String> vocabulary() {
+    static Set<String> vocabulary() {
         Set<String> vocabulary = new LinkedHashSet<>(STRUCTURAL_WORDS);
         for (BankRegistry.BankInfo bank : BankRegistry.all()) {
             vocabulary.add(bank.id().toLowerCase(Locale.ROOT));

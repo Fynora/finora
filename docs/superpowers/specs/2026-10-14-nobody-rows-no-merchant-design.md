@@ -44,7 +44,8 @@ not counted.
 
 ### 1. The rule
 
-`MerchantNames.namesNobody(String description)` is true when either:
+`MerchantNames.narrationNamesNobody(String description)` (named so: `MerchantNames` already has a
+private `namesNobody(String word)`) is true when either:
 
 - the narration has no structured payee field, and the name a new merchant would get shows as a
   rail's payment: `MerchantNames.forDisplay(MerchantNames.forNarration(d))` is one of the labels in
@@ -71,7 +72,7 @@ that the compiler names every caller. `resolveReadOnly` (both overloads) returns
 | `CategorizationService.learn`, `queueLearning` | Do nothing. A correction stays on that row and never reaches unrelated payees. |
 | `CategorizationService.resolveMerchantId` | Returns null. |
 | `CategorizationService.applySideEffectRules` | Runs with no merchant name. |
-| `ImportService`, `StatementRefreshService` (2), `TransactionService` (create, edit) | Store no merchant. Editing a row's description into one that names nobody clears its merchant. |
+| `ImportService`, `StatementRefreshService` (2), `TransactionService.create` | Store no merchant. A statement refresh that rewrites a row's narration into one that names nobody clears its merchant. (`TransactionService.update` never re-resolves the merchant when a person edits a description; that is unchanged and out of scope.) |
 | `TransactionNormalizer` (import preview) | Already handles an empty `resolveReadOnly`; no change expected, to be confirmed by test. |
 
 Readers that already handle a row with no merchant (`AnalyticsService`, `TransactionGroupingService`,
@@ -89,7 +90,7 @@ transaction's merchant id (only `MerchantGroup.merchantId`, built from rows that
   `atm`, `atw`, `nwd`. The names #2133 stores ("UPI payment", "NACH payment" ...) open with one of
   these words already.
 - **Sweep.** `MerchantNobodyDetachSweepService`, built like `MerchantRailNameSweepService`:
-  - per queued merchant that is still TEMPORARY, every live row whose narration `namesNobody` gets
+  - per queued merchant that is still TEMPORARY, every live row whose narration `narrationNamesNobody` gets
     `merchant_id = NULL`, written only where the row still points at that merchant;
   - the merchant is deleted only if it then has no rows **and** no learned category
     (`merchant_category_learning`) -- deleting would cascade the learning and its audit history, as
@@ -113,7 +114,7 @@ transaction's merchant id (only `MerchantGroup.merchantId`, built from rows that
      narration is not used.
    - `CategorizationService` tests: suggest without a merchant (ATM row still "Cash Withdrawal"),
      learn and queueLearning do nothing.
-   - ITs against Postgres: import, manual create, description edit, statement refresh each leave the
+   - ITs against Postgres: import and manual create each leave the
      row with no merchant; the row joins the counterparty groups and leaves Top Merchants.
    - `MerchantNobodyDetachSweepIT`: detaches only rows that name nobody; deletes only empty merchants
      without learning; leaves APPROVED merchants; dry-run writes nothing; a row repointed meanwhile

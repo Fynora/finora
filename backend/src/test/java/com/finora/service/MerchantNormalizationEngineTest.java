@@ -399,6 +399,22 @@ class MerchantNormalizationEngineTest {
     }
 
     /**
+     * A card purchase keeps its stored name whole -- only the shown name drops "Pos" -- so the
+     * shop's next purchase lands on the same merchant exactly as before.
+     */
+    @Test
+    @DisplayName("a card purchase keeps its stored name and still collects the shop's later rows")
+    void cardPurchaseKeepsItsStoredNameAndStillCollects() {
+        Merchant first = engine.resolve(userId, "POS 512345XXXXXX1234 SAMPLE MART");
+        // A different narration, so the exact-alias lookup cannot be what joins them.
+        Merchant later = engine.resolve(userId, "POS 512345XXXXXX1234 SAMPLE MART BENGALURU");
+
+        assertThat(first.getCanonicalName()).isEqualTo("Pos 512345xxxxxx1234 Sample Mart");
+        assertThat(later.getId()).isEqualTo(first.getId());
+        assertThat(merchants).hasSize(1);
+    }
+
+    /**
      * A narration that names nobody is named after its rail. Every such merchant then carries the
      * same name, and that name must never become a key: it would pool every payment that names no
      * payee into one merchant, and one correction on it would recategorise them all.

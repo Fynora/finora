@@ -90,10 +90,14 @@ test.describe('Phase 3 — duplicate review', () => {
       expect(await transactionsFor(user.id, 'METRO FARE')).toHaveLength(2);
     });
 
+  // The statement carries a second, clean row on purpose. Since #2105 an import with nothing ticked
+  // cannot be confirmed, so a statement whose only row is the skipped duplicate has nothing left to
+  // confirm -- that case is the next test. Here the question is the one this test was written for:
+  // skipping the duplicate releases the gate, and the rest of the statement still imports.
   test('"Skip this row" releases the gate and the row does not land',
     async ({ userPage, api, user }) => {
       await api.importStatement([FARE], { accountName: 'Primary' });
-      await stageInBrowser(userPage, [FARE]);
+      await stageInBrowser(userPage, [FARE, COFFEE]);
       await expect(review(userPage)).toBeVisible({ timeout: 20_000 });
 
       await pair(userPage, 0).getByRole('button', { name: 'Skip this row' }).click();
@@ -101,6 +105,26 @@ test.describe('Phase 3 — duplicate review', () => {
       await confirmButton(userPage).click();
 
       await expect(userPage.getByText('Import complete')).toBeVisible({ timeout: 30_000 });
+      expect(await transactionsFor(user.id, 'METRO FARE'), 'the skipped duplicate did not land')
+        .toHaveLength(1);
+      expect(await transactionsFor(user.id, 'BLUE TOKAI COFFEE'), 'the clean row did').toHaveLength(1);
+    });
+
+  /**
+   * #2105: answering "skip" on every row of a statement that is already imported used to leave
+   * Confirm enabled, and confirming recorded a second, empty statement for the file. Both apps now
+   * refuse it. The user is told why, and nothing is written.
+   */
+  test('skipping the only row leaves nothing to import: Confirm stays disabled and says why',
+    async ({ userPage, api, user }) => {
+      await api.importStatement([FARE], { accountName: 'Primary' });
+      await stageInBrowser(userPage, [FARE]);
+      await expect(review(userPage)).toBeVisible({ timeout: 20_000 });
+
+      await pair(userPage, 0).getByRole('button', { name: 'Skip this row' }).click();
+
+      await expect(userPage.getByTestId('nothing-selected-gate')).toContainText(/nothing to import/i);
+      await expect(confirmButton(userPage)).toBeDisabled();
       expect(await transactionsFor(user.id, 'METRO FARE')).toHaveLength(1);
     });
 

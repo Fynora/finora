@@ -254,11 +254,18 @@ public final class PdfTraceRedactor {
      * <p><b>Why only for unmasked runs.</b> An unmasked run's width is a deterministic function of
      * text this same file already publishes verbatim, so it discloses nothing new. A masked run's
      * width would be a real-valued observation about hidden characters — for alphabetic tokens it
-     * constrains the letter multiset (~5–6 bits) — and nothing in the pipeline reads it: every width
-     * consumer takes either a pure number (preserved by {@code AMOUNT_LIKE}) or a structural header
-     * label (preserved by {@code STRUCTURAL_WORDS}). So the privacy cost buys no capability, and is
-     * declined. It also keeps the artefact internally consistent: a width in a trace is always the
-     * true width of the text printed next to it.
+     * constrains the letter multiset (~5–6 bits) — so it is dropped. It also keeps the artefact
+     * internally consistent: a width in a trace is always the true width of the text printed next
+     * to it.
+     *
+     * <p><b>Dropping it does change readings.</b> This comment used to say nothing in the pipeline
+     * reads a masked run's width. That is false: reading real statements with only these widths
+     * zeroed (text otherwise unchanged) changed the result on 14 files of the corpus. Traced
+     * readers: the page-shows-a-space evidence built from run ends; on some files the copy also
+     * lost the right-aligned amount and column-span corrections; on card statements the effect is
+     * consistent with the summary extractor's label geometry, not traced to the line. A blanked
+     * copy's check can therefore come back DIFFERS because of this rule alone. The width stays
+     * dropped as a privacy choice, not because it is unread.
      */
     public static List<PositionedText> redact(List<PositionedText> runs) {
         Set<String> vocabulary = vocabulary();

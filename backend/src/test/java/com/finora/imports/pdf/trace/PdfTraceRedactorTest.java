@@ -143,8 +143,9 @@ class PdfTraceRedactorTest {
      * A run redaction changed loses its width, whatever it was measured at.
      *
      * <p>For digits this leaks nothing anyway (digit glyphs are uniform-width in every text font), but
-     * for letters a width constrains the multiset of masked characters, and nothing in the pipeline
-     * reads a masked run's geometry. An unnecessary disclosure is declined rather than priced.
+     * for letters a width constrains the multiset of masked characters. The pipeline does read
+     * these widths (see {@code PdfTraceRedactor#redact}: dropping them changes some readings); the
+     * disclosure is declined anyway.
      */
     @ParameterizedTest
     @CsvSource(delimiter = '|', value = {

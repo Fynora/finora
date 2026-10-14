@@ -214,6 +214,31 @@ class TraceValidatorTest {
                 .isEmpty();
     }
 
+    /**
+     * A short email masks to runs of x too short to make a placeholder run. Every letter
+     * and digit in it is already the redactor's X, x or 9, so it is not an email any more, and the
+     * scan must not refuse the copy for it -- in the server's check or in a committed trace's.
+     */
+    @Test
+    void anAlreadyMaskedShortEmailIsNotRefused() {
+        String masked = PdfTraceRedactor.redactLine("raj@tcs.in"); // synthetic-ok: invented, short on purpose
+        assertThat(masked).isEqualTo("xxx@xxx.xx"); // synthetic-ok: the redactor's own mask, nothing real
+        assertThat(TraceValidator.privacyKinds(List.of(new PositionedText(masked, 0f, 0f, 0)))).isEmpty();
+        assertThat(TraceValidator.validate("probe", traceWith(metadata(List.of()), masked)).blockers())
+                .noneMatch(f -> f.detail().contains("email"));
+        // A masked phone number stays exempt (its nine 9s are already a placeholder run).
+        assertThat(TraceValidator.privacyKinds(List.of(new PositionedText("+91 9999999999", 0f, 0f, 0)))).isEmpty();
+    }
+
+    /** The exemption is for masked text only: one unmasked letter or digit and it is still an email. */
+    @Test
+    void aPartlyMaskedEmailIsStillRefused() {
+        for (String text : List.of("statement@x.xx", "xxx@xxx.in", "xx9@xx1.xx")) { // synthetic-ok: invented
+            assertThat(TraceValidator.privacyKinds(List.of(new PositionedText(text, 0f, 0f, 0))))
+                    .as(text).containsExactly("email address");
+        }
+    }
+
     @Test
     void privacyKindsIsEmptyForATraceWithNoTable() {
         List<PositionedText> runs = List.of(new PositionedText("Xxxxx xxxx", 0f, 0f, 0));

@@ -28,6 +28,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.spy;
@@ -37,12 +38,12 @@ import static org.mockito.Mockito.verify;
 /**
  * The blanked-copy service against the real reading pipeline (persistence mocked).
  *
- * <p>On the refusal test: the redactor masks every email it meets character by character, and a
- * masked local part or domain of four or more letters becomes a run like "xxxx", which the privacy
- * scan's placeholder rule exempts. So most emails cannot survive. One shape does: a vocabulary word
- * as the local part ("statement" is kept) and a domain too short to mask into a run of four
- * ("a.in" becomes "x.xx"). {@code aRefusalNamesKindsNotValues} plants exactly that, so the refusal
- * path is reached through the real redactor and scan rather than through a test seam.
+ * <p>On the refusal test: the redactor masks every email it meets character by character, and the
+ * privacy scan exempts an email whose letters are all the redactor's own mask characters, as well as
+ * one holding a placeholder run like "xxxx". So most emails cannot survive. One shape does: a
+ * vocabulary word as the local part ("statement" is kept) and a domain too short to mask into a run
+ * of four ("a.in" becomes "x.xx"). {@code aRefusalNamesKindsNotValues} plants exactly that, so the
+ * refusal path is reached through the real redactor and scan rather than through a test seam.
  */
 class BlankedCopyServiceTest {
 
@@ -261,7 +262,23 @@ class BlankedCopyServiceTest {
         BlankedCopy copy = service(generator).make(new StaffStatementContent("j-7", "PDF",
                 PdfFixtureBuilder.buildReferenceNumberAndBalanceSample()));
         assertThat(copy.check()).isEqualTo(BlankedCopy.Check.NOT_CHECKED);
-        assertThat(copy.notCheckedReason()).isEqualTo("The reading could not be repeated (IllegalStateException).");
+        assertThat(copy.notCheckedReason()).isEqualTo("The statement itself could not be read (IllegalStateException).");
+        assertThat(copy.toString()).doesNotContain("Asha");
+        assertThat(produced(BlankedCopy.Check.NOT_CHECKED)).isEqualTo(1);
+    }
+
+    /** The real statement reads, the copy does not: the reason says which side failed. */
+    @Test
+    void aCopyThatCannotBeReadBackIsNotCheckedAndSaysSo() throws Exception {
+        PdfPreviewGenerator generator = spy(PdfGeneratorTestSupport.generator());
+        doCallRealMethod().doThrow(new IllegalArgumentException("boom: Asha")).when(generator)
+                .generateSectionsFromAcquired(any(), any(), any());
+        BlankedCopy copy = service(generator).make(new StaffStatementContent("j-9", "PDF",
+                PdfFixtureBuilder.buildReferenceNumberAndBalanceSample()));
+        verify(generator, times(2)).generateSectionsFromAcquired(any(), any(), any());
+        assertThat(copy.check()).isEqualTo(BlankedCopy.Check.NOT_CHECKED);
+        assertThat(copy.notCheckedReason()).isEqualTo("The copy could not be read back (IllegalArgumentException).");
+        assertThat(copy.trace()).startsWith("# finora-pdf-trace");
         assertThat(copy.toString()).doesNotContain("Asha");
         assertThat(produced(BlankedCopy.Check.NOT_CHECKED)).isEqualTo(1);
     }

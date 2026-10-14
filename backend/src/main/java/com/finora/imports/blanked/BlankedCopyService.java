@@ -1,5 +1,6 @@
 package com.finora.imports.blanked;
 
+import com.finora.dto.ImportDto.StagedAccountSection;
 import com.finora.exception.ApiException;
 import com.finora.imports.pdf.PdfPreviewGenerator;
 import com.finora.imports.pdf.PdfTextExtractor;
@@ -92,22 +93,45 @@ public class BlankedCopyService {
         String trace = TraceFormat.format(redacted, metadata);
         String fileName = "blanked-" + content.reference() + ".trace";
 
-        BlankedCopy copy;
+        BlankedCopy copy = check(content.reference(), fileName, trace, real);
+        metrics.produced(copy.check());
+        return copy;
+    }
+
+    /** Reads both sides and compares them. A failure on either side marks the copy not checked,
+     *  with a reason that says which side failed and the exception's class name only. */
+    private BlankedCopy check(String reference, String fileName, String trace, AcquiredDocument real) {
+        UUID nobody = UUID.randomUUID();
+        List<StagedAccountSection> realReading;
         try {
-            UUID nobody = UUID.randomUUID();
-            var realReading = generator.generateSectionsFromAcquired(nobody, READING_NAME, real).sections();
-            var copyReading = generator.generateSectionsFromAcquired(nobody, READING_NAME,
+            realReading = generator.generateSectionsFromAcquired(nobody, READING_NAME, real).sections();
+        } catch (Exception e) {
+            return notChecked(reference, fileName, trace, "the statement's own reading failed",
+                    "The statement itself could not be read", e);
+        }
+        List<StagedAccountSection> copyReading;
+        try {
+            copyReading = generator.generateSectionsFromAcquired(nobody, READING_NAME,
                     AcquiredDocument.of(TraceFormat.parse(trace))).sections();
+        } catch (Exception e) {
+            return notChecked(reference, fileName, trace, "the copy's reading failed",
+                    "The copy could not be read back", e);
+        }
+        try {
             BlankedCopyComparison.Result result = BlankedCopyComparison.compare(realReading, copyReading);
-            copy = new BlankedCopy(fileName, trace,
+            return new BlankedCopy(fileName, trace,
                     result.matches() ? BlankedCopy.Check.MATCHES : BlankedCopy.Check.DIFFERS,
                     null, result.differences());
         } catch (Exception e) {
-            log.warn("Blanked copy for {}: the check could not run ({})", content.reference(), e.getClass().getSimpleName());
-            copy = new BlankedCopy(fileName, trace, BlankedCopy.Check.NOT_CHECKED,
-                    "The reading could not be repeated (" + e.getClass().getSimpleName() + ").", List.of());
+            return notChecked(reference, fileName, trace, "the comparison failed",
+                    "The two readings could not be compared", e);
         }
-        metrics.produced(copy.check());
-        return copy;
+    }
+
+    private static BlankedCopy notChecked(String reference, String fileName, String trace, String logWhat,
+                                          String reason, Exception e) {
+        String type = e.getClass().getSimpleName();
+        log.warn("Blanked copy for {}: the check could not run, {} ({})", reference, logWhat, type);
+        return new BlankedCopy(fileName, trace, BlankedCopy.Check.NOT_CHECKED, reason + " (" + type + ").", List.of());
     }
 }

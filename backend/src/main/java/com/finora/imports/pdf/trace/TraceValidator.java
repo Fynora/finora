@@ -211,18 +211,31 @@ public final class TraceValidator {
         }
     }
 
-    /** Every match of {@code pattern} in {@code text} that the placeholder rule does not exempt.
-     *  The one place that decides what counts as a surviving email address or phone number, shared
-     *  by {@link #validate} and {@link #privacyKinds} so the two cannot disagree. */
+    /** Every match of {@code pattern} in {@code text} that neither the placeholder rule nor the
+     *  already-masked rule exempts. The one place that decides what counts as a surviving email
+     *  address or phone number, shared by {@link #validate} and {@link #privacyKinds} so the two
+     *  cannot disagree. */
     private static List<String> unplaceholderedHits(Pattern pattern, String text) {
         List<String> hits = new ArrayList<>();
         var matcher = pattern.matcher(text);
         while (matcher.find()) {
             String hit = matcher.group();
             if (PLACEHOLDER.matcher(hit).find()) continue;
+            if (isAlreadyMasked(hit)) continue;
             hits.add(hit);
         }
         return hits;
+    }
+
+    /**
+     * Whether every letter and digit in a hit is the redactor's own mask character. A short email
+     * (three letters before the at sign, three in the domain) masks to runs of x too short for the
+     * placeholder rule's run of four: still email-shaped, so it was refused although nothing in it
+     * is real. One unmasked letter or digit, such as a kept
+     * vocabulary word as the local part, and it is still a hit.
+     */
+    private static boolean isAlreadyMasked(String hit) {
+        return hit.chars().filter(Character::isLetterOrDigit).allMatch(c -> c == 'X' || c == 'x' || c == '9');
     }
 
     private static boolean matchesUnplaceholdered(Pattern pattern, String text) {

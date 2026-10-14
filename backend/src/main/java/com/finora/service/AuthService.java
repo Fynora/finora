@@ -1219,6 +1219,17 @@ public class AuthService {
         // mutation itself is the check -- so exactly one racing request can ever win it. See that
         // method's own doc comment.
         if (emailVerificationTokenRepository.claimIfUnused(evt.getId(), Instant.now()) == 0) {
+            // A spent link whose account is already verified -- a double tap, the browser and the
+            // app both opening it, or an email scanner fetching it first -- reports the truth
+            // instead of "Verification failed". Nothing is written: the claim above still lets
+            // exactly one request verify, and a spent link on an unverified account (e.g. one
+            // superseded by a newer link) is still rejected.
+            boolean alreadyVerified = userRepository.findById(evt.getUserId())
+                    .map(User::isEmailVerified)
+                    .orElse(false);
+            if (alreadyVerified) {
+                return new VerifyEmailResponse("Your email is already verified.");
+            }
             throw new ApiException(HttpStatus.BAD_REQUEST, "This verification link has already been used.");
         }
         if (evt.getExpiresAt().isBefore(Instant.now())) {

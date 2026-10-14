@@ -160,6 +160,37 @@ class LayoutIntelligenceServiceTest {
     }
 
     @Test
+    void evidenceReportStatesASlowdownAsAPositiveNumberOfMillisecondsSlower() {
+        when(repository.findAllWithLayoutFingerprint()).thenReturn(List.of(
+                imported("FP-1-AAAA", JAN, List.of(), List.of(), 1000L),
+                imported("FP-1-AAAA", JAN.plus(30, ChronoUnit.DAYS), List.of(), List.of(), 3000L)));
+
+        String verdict = service.evidenceReport().verdict();
+
+        assertThat(verdict).contains("import 2000ms slower").contains("(3000ms vs 1000ms)");
+        assertThat(verdict).doesNotContain("-2000");
+    }
+
+    @Test
+    void evidenceReportStatesASpeedupAsAPositiveNumberOfMillisecondsFaster() {
+        when(repository.findAllWithLayoutFingerprint()).thenReturn(List.of(
+                imported("FP-1-AAAA", JAN, List.of(), List.of(), 3000L),
+                imported("FP-1-AAAA", JAN.plus(30, ChronoUnit.DAYS), List.of(), List.of(), 1000L)));
+
+        assertThat(service.evidenceReport().verdict())
+                .contains("import 2000ms faster").contains("(1000ms vs 3000ms)");
+    }
+
+    @Test
+    void evidenceReportTreatsTwoZeroDurationMediansAsTheSameSpeed() {
+        when(repository.findAllWithLayoutFingerprint()).thenReturn(List.of(
+                imported("FP-1-AAAA", JAN, List.of(), List.of(), 0L),
+                imported("FP-1-AAAA", JAN.plus(30, ChronoUnit.DAYS), List.of(), List.of(), 0L)));
+
+        assertThat(service.evidenceReport().verdict()).contains("No performance case for layout reuse");
+    }
+
+    @Test
     void unmeasuredDurationsAreOmittedRatherThanCountedAsZero() {
         // Every row predating V53 has a null duration. Treating those as 0ms would manufacture a
         // spectacular and entirely fake speedup in exactly the report meant to decide the question.

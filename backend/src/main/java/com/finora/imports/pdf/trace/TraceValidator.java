@@ -20,7 +20,8 @@ import java.util.regex.Pattern;
  *
  * <ol>
  *   <li><b>No unmasked PII.</b> The same patterns {@code scripts/check-fixture-hygiene.sh} blocks
- *       commits on, applied to the trace's own text. A trace that trips this must never be
+ *       commits on, applied to the trace's own text, plus any letter, number or mark outside ASCII (every rule
+ *       that keeps text unmasked keeps ASCII only). A trace that trips this must never be
  *       committed, regardless of how useful its structure is.</li>
  *   <li><b>Required structural evidence preserved.</b> Declared per trace in its own metadata. This
  *       is the check that would have caught the incident that motivated all of this: the deposit
@@ -149,7 +150,7 @@ public final class TraceValidator {
      * Which kinds of customer data survived redaction, by name only. The server's refusal check:
      * unlike {@link #validate}, a layout with no table is not a reason to refuse, and the matched
      * text is never returned, so a refusal can be shown to staff without showing the data. It also
-     * refuses any unmasked text outside ASCII, which {@link #validate} does not check: see
+     * refuses any unmasked text outside ASCII, as {@link #validate} blocks it: see
      * {@link #hasUnmaskedTextInAnotherScript}.
      */
     public static List<String> privacyKinds(List<PositionedText> runs) {
@@ -173,7 +174,11 @@ public final class TraceValidator {
      * past it.
      */
     private static boolean hasUnmaskedTextInAnotherScript(String text) {
-        return text.codePoints().anyMatch(cp -> cp > 127 && PdfTraceRedactor.isTextCodePoint(cp));
+        return text.codePoints().anyMatch(TraceValidator::isUnmaskedTextInAnotherScript);
+    }
+
+    private static boolean isUnmaskedTextInAnotherScript(int cp) {
+        return cp > 127 && PdfTraceRedactor.isTextCodePoint(cp);
     }
 
     /**
@@ -191,8 +196,22 @@ public final class TraceValidator {
             checkPattern(findings, EMAIL, text, "email address");
             checkPattern(findings, INDIAN_MOBILE, text, "phone number");
             checkIfsc(findings, text);
+            checkOtherScripts(findings, text);
         }
         return findings;
+    }
+
+    /** The same backstop {@link #privacyKinds} applies, on a trace about to be (or already)
+     *  committed: up to redactor version 3 a non-ASCII word was kept verbatim. Unlike the other
+     *  findings this one never repeats what it found -- a count is enough to act on, and the text
+     *  could be a customer's name in a script the reader cannot check by eye. */
+    private static void checkOtherScripts(List<Finding> findings, String text) {
+        long unmasked = text.codePoints().filter(TraceValidator::isUnmaskedTextInAnotherScript).count();
+        if (unmasked > 0) {
+            findings.add(new Finding(Finding.Severity.BLOCKER, "pii",
+                    "unmasked text in another script survived redaction: " + unmasked
+                            + " letter, number or mark code point(s), not shown"));
+        }
     }
 
     private static void checkPattern(List<Finding> findings, Pattern pattern, String text, String what) {

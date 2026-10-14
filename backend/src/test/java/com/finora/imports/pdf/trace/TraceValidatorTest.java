@@ -205,6 +205,36 @@ class TraceValidatorTest {
         }
     }
 
+    /**
+     * The same backstop on a committed trace. Up to redactor version 3 a non-ASCII word was kept
+     * verbatim, so a trace captured then could carry one; the corpus check must block it, and its
+     * finding must not repeat the text it found.
+     */
+    @Test
+    void validateBlocksUnmaskedTextInAnotherScriptWithoutRepeatingIt() {
+        for (String text : List.of(
+                "अमित",   // synthetic-ok: Devanagari word
+                "३२७",   // synthetic-ok: Devanagari digits
+                "XXXX ÀÉÎ",   // synthetic-ok: accented Latin capitals beside a mask
+                "Xxxx ि")) {   // a mark left behind by itself
+            var result = TraceValidator.validate("probe", traceWith(metadata(List.of()), text));
+
+            assertThat(result.isCommittable()).as("code points %s", text.codePoints().boxed().toList()).isFalse();
+            assertThat(result.blockers()).anyMatch(f -> f.check().equals("pii")
+                    && f.detail().contains("unmasked text in another script"));
+            String nonAscii = text.codePoints().filter(cp -> cp > 127)
+                    .collect(StringBuilder::new, StringBuilder::appendCodePoint, StringBuilder::append).toString();
+            assertThat(result.findings()).allSatisfy(f -> assertThat(f.detail())
+                    .doesNotContain(nonAscii).doesNotContain(text));
+        }
+    }
+
+    @Test
+    void validateAllowsTheRedactorsOwnOutputForAnotherScript() {
+        String masked = PdfTraceRedactor.redactLine("UPI अमित ＡＳ ३२ ₹ 1,234.00");   // synthetic-ok
+        assertThat(TraceValidator.validate("probe", traceWith(metadata(List.of()), masked)).blockers()).isEmpty();
+    }
+
     @Test
     void privacyKindsAllowsTheRedactorsOwnOutputForAnotherScript() {
         String masked = PdfTraceRedactor.redactLine("UPI \u0905\u092E\u093F\u0924 \uFF21\uFF33 \u0969\u0968 \u20B9 1,234.00");   // synthetic-ok
